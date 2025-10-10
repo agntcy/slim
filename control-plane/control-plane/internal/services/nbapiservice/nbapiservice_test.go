@@ -42,7 +42,9 @@ func TestGetModeratorNode_FindsMatchingModerator(t *testing.T) {
 	mockNodeService := new(mockNodeService)
 	mockRouteService := new(mockRouteService)
 
-	mockNodeService.On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).Return(nodeListResp, nil)
+	mockNodeService.
+		On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).
+		Return(nodeListResp, nil)
 	mockRouteService.On("ListSubscriptions", mock.Anything, node).Return(subscriptionListResp, nil)
 
 	s := &nbAPIService{
@@ -82,7 +84,9 @@ func TestGetModeratorNode_NoMatchingModerator_ReturnsFirstNode(t *testing.T) {
 	mockNodeService := new(mockNodeService)
 	mockRouteService := new(mockRouteService)
 
-	mockNodeService.On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).Return(nodeListResp, nil)
+	mockNodeService.
+		On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).
+		Return(nodeListResp, nil)
 	mockRouteService.On("ListSubscriptions", mock.Anything, node1).Return(subscriptionListResp1, nil)
 	mockRouteService.On("ListSubscriptions", mock.Anything, node2).Return(subscriptionListResp2, nil)
 
@@ -113,7 +117,9 @@ func TestGetModeratorNode_NoNodesAvailable(t *testing.T) {
 	mockNodeService := new(mockNodeService)
 	mockRouteService := new(mockRouteService)
 
-	mockNodeService.On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).Return(nodeListResp, nil)
+	mockNodeService.
+		On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).
+		Return(nodeListResp, nil)
 
 	s := &nbAPIService{
 		config:       config.APIConfig{},
@@ -139,7 +145,9 @@ func TestGetModeratorNode_NodeServiceError(t *testing.T) {
 	mockNodeService := new(mockNodeService)
 	mockRouteService := new(mockRouteService)
 
-	mockNodeService.On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).Return(nil, expectedError)
+	mockNodeService.
+		On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).
+		Return(nil, expectedError)
 
 	s := &nbAPIService{
 		config:       config.APIConfig{},
@@ -170,7 +178,9 @@ func TestGetModeratorNode_NodeServiceError(t *testing.T) {
 	mockNodeService := new(mockNodeService)
 	mockRouteService := new(mockRouteService)
 
-	mockNodeService.On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).Return(nodeListResp, nil)
+	mockNodeService.
+		On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).
+		Return(nodeListResp, nil)
 	mockRouteService.On("ListSubscriptions", mock.Anything, node).Return(nil, expectedError)
 
 	s := &nbAPIService{
@@ -641,7 +651,8 @@ func TestDeleteRoute_Success_WithDestNode(t *testing.T) {
 	mockRouteService.AssertExpectations(t)
 }
 
-// TestDeleteRoute_Success_WithConnection tests the scenario where the route is deleted successfully with a connection ID.
+// TestDeleteRoute_Success_WithConnection tests the scenario
+// where the route is deleted successfully with a connection ID.
 func TestDeleteRoute_Success_WithConnection(t *testing.T) {
 	// Arrange
 	request := &controlplaneApi.DeleteRouteRequest{
@@ -737,7 +748,9 @@ func TestCreateChannel_Success(t *testing.T) {
 		},
 	}
 
-	mockNodeService.On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).Return(nodeListResp, nil)
+	mockNodeService.
+		On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).
+		Return(nodeListResp, nil)
 	mockRouteService.On("ListSubscriptions", mock.Anything, node).Return(subscriptionListResp, nil)
 	mockGroupService.On("CreateChannel", mock.Anything, request, node).Return(expectedResponse, nil)
 
@@ -772,7 +785,9 @@ func TestCreateChannel_NoNodesAvailable(t *testing.T) {
 		Entries: []*controlplaneApi.NodeEntry{},
 	}
 
-	mockNodeService.On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).Return(nodeListResp, nil)
+	mockNodeService.
+		On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).
+		Return(nodeListResp, nil)
 
 	s := &nbAPIService{
 		nodeService:  mockNodeService,
@@ -801,7 +816,9 @@ func TestCreateChannel_NodeServiceError(t *testing.T) {
 	mockRouteService := new(mockRouteService)
 	mockGroupService := new(mockGroupService)
 
-	mockNodeService.On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).Return(nil, expectedError)
+	mockNodeService.
+		On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).
+		Return(nil, expectedError)
 
 	s := &nbAPIService{
 		nodeService:  mockNodeService,

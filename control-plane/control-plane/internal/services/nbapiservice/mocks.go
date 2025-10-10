@@ -4,12 +4,13 @@ import (
 	"context"
 	"reflect"
 
+	"github.com/stretchr/testify/mock"
+
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/routes"
-	"github.com/stretchr/testify/mock"
 )
 
 type mockNodeService struct {
@@ -243,7 +244,7 @@ type mockNodeCommandHandler struct {
 // AddStream implements nodecontrol.NodeCommandHandler.
 func (m *mockNodeCommandHandler) AddStream(
 	ctx context.Context, nodeID string, stream controllerapi.ControllerService_OpenControlChannelServer) {
-	panic("unimplemented")
+	m.Called(ctx, nodeID, stream)
 }
 
 // GetConnectionStatus implements nodecontrol.NodeCommandHandler.
@@ -256,39 +257,47 @@ func (m *mockNodeCommandHandler) GetConnectionStatus(
 // RemoveStream implements nodecontrol.NodeCommandHandler.
 func (m *mockNodeCommandHandler) RemoveStream(
 	ctx context.Context, nodeID string) error {
-	panic("unimplemented")
+	args := m.Called(ctx, nodeID)
+	return args.Error(0)
 }
 
 // ResponseReceived implements nodecontrol.NodeCommandHandler.
 func (m *mockNodeCommandHandler) ResponseReceived(
 	ctx context.Context, nodeID string, command *controllerapi.ControlMessage) {
-	panic("unimplemented")
+	m.Called(ctx, nodeID, command)
 }
 
 // SendMessage implements nodecontrol.NodeCommandHandler.
 func (m *mockNodeCommandHandler) SendMessage(
 	ctx context.Context, nodeID string, configurationCommand *controllerapi.ControlMessage) error {
-	panic("unimplemented")
+	args := m.Called(ctx, nodeID, configurationCommand)
+	return args.Error(0)
 }
 
 // UpdateConnectionStatus implements nodecontrol.NodeCommandHandler.
 func (m *mockNodeCommandHandler) UpdateConnectionStatus(
-	ctx context.Context, odeID string, status nodecontrol.NodeStatus) {
-	panic("unimplemented")
+	ctx context.Context, nodeID string, status nodecontrol.NodeStatus) {
+	m.Called(ctx, nodeID, status)
 }
 
 // WaitForResponse implements nodecontrol.NodeCommandHandler.
 func (m *mockNodeCommandHandler) WaitForResponse(
 	ctx context.Context, nodeID string, messageType reflect.Type, messageID string) (
 	*controllerapi.ControlMessage, error) {
-	panic("unimplemented")
+	args := m.Called(ctx, nodeID, messageType, messageID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*controllerapi.ControlMessage), args.Error(1)
 }
 
 type mockGroupService struct {
 	mock.Mock
 }
 
-func (m *mockGroupService) CreateChannel(ctx context.Context, req *controlplaneApi.CreateChannelRequest, node *controlplaneApi.NodeEntry) (*controlplaneApi.CreateChannelResponse, error) {
+func (m *mockGroupService) CreateChannel(
+	ctx context.Context, req *controlplaneApi.CreateChannelRequest, node *controlplaneApi.NodeEntry) (
+	*controlplaneApi.CreateChannelResponse, error) {
 	args := m.Called(ctx, req, node)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -296,7 +305,9 @@ func (m *mockGroupService) CreateChannel(ctx context.Context, req *controlplaneA
 	return args.Get(0).(*controlplaneApi.CreateChannelResponse), args.Error(1)
 }
 
-func (m *mockGroupService) DeleteChannel(ctx context.Context, req *controllerapi.DeleteChannelRequest, node *controlplaneApi.NodeEntry) (*controllerapi.Ack, error) {
+func (m *mockGroupService) DeleteChannel(
+	ctx context.Context, req *controllerapi.DeleteChannelRequest, node *controlplaneApi.NodeEntry) (
+	*controllerapi.Ack, error) {
 	args := m.Called(ctx, req, node)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -304,7 +315,9 @@ func (m *mockGroupService) DeleteChannel(ctx context.Context, req *controllerapi
 	return args.Get(0).(*controllerapi.Ack), args.Error(1)
 }
 
-func (m *mockGroupService) AddParticipant(ctx context.Context, req *controllerapi.AddParticipantRequest, node *controlplaneApi.NodeEntry) (*controllerapi.Ack, error) {
+func (m *mockGroupService) AddParticipant(
+	ctx context.Context, req *controllerapi.AddParticipantRequest, node *controlplaneApi.NodeEntry) (
+	*controllerapi.Ack, error) {
 	args := m.Called(ctx, req, node)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -312,7 +325,9 @@ func (m *mockGroupService) AddParticipant(ctx context.Context, req *controllerap
 	return args.Get(0).(*controllerapi.Ack), args.Error(1)
 }
 
-func (m *mockGroupService) DeleteParticipant(ctx context.Context, req *controllerapi.DeleteParticipantRequest, node *controlplaneApi.NodeEntry) (*controllerapi.Ack, error) {
+func (m *mockGroupService) DeleteParticipant(
+	ctx context.Context, req *controllerapi.DeleteParticipantRequest, node *controlplaneApi.NodeEntry) (
+	*controllerapi.Ack, error) {
 	args := m.Called(ctx, req, node)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -320,7 +335,9 @@ func (m *mockGroupService) DeleteParticipant(ctx context.Context, req *controlle
 	return args.Get(0).(*controllerapi.Ack), args.Error(1)
 }
 
-func (m *mockGroupService) ListChannels(ctx context.Context, req *controllerapi.ListChannelsRequest) (*controllerapi.ListChannelsResponse, error) {
+func (m *mockGroupService) ListChannels(
+	ctx context.Context, req *controllerapi.ListChannelsRequest) (
+	*controllerapi.ListChannelsResponse, error) {
 	args := m.Called(ctx, req)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -328,7 +345,9 @@ func (m *mockGroupService) ListChannels(ctx context.Context, req *controllerapi.
 	return args.Get(0).(*controllerapi.ListChannelsResponse), args.Error(1)
 }
 
-func (m *mockGroupService) ListParticipants(ctx context.Context, req *controllerapi.ListParticipantsRequest) (*controllerapi.ListParticipantsResponse, error) {
+func (m *mockGroupService) ListParticipants(
+	ctx context.Context, req *controllerapi.ListParticipantsRequest) (
+	*controllerapi.ListParticipantsResponse, error) {
 	args := m.Called(ctx, req)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
