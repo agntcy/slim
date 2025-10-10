@@ -12,13 +12,14 @@ use rand::Rng;
 use slim_datapath::messages::utils::SLIM_IDENTITY;
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::sync::mpsc::Sender;
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType};
 use slim_datapath::messages::Name;
 
 use crate::MessageHandler;
+use crate::common::SessionMessage;
 use crate::notification::Notification;
 use crate::transmitter::{AppTransmitter, SessionTransmitter};
 
@@ -34,11 +35,6 @@ use super::{
 };
 use super::{SessionError, channel_endpoint::handle_channel_discovery_message};
 use crate::interceptor::SessionInterceptorProvider; // needed for add_interceptor
-
-/// Message types to communicate from session to session layer
-pub enum SessionLayerMessage {
-    DeleteSession { session_id: u32 },
-}
 
 /// SessionLayer manages sessions and their lifecycle
 pub struct SessionLayer<P, V, T = AppTransmitter<P, V>>
@@ -77,7 +73,7 @@ where
     storage_path: std::path::PathBuf,
 
     /// Channel to clone on session creation
-    tx_session: tokio::sync::mpsc::Sender<Result<SessionLayerMessage, SessionError>>,
+    tx_session: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
 }
 
 impl<P, V, T> SessionLayer<P, V, T>
@@ -242,7 +238,7 @@ where
 
     pub fn listen_from_sessions(
         &self,
-        mut rx_session: tokio::sync::mpsc::Receiver<Result<SessionLayerMessage, SessionError>>,
+        mut rx_session: tokio::sync::mpsc::Receiver<Result<SessionMessage, SessionError>>,
     ) {
         let pool_clone = self.pool.clone();
 
@@ -251,12 +247,15 @@ where
                 tokio::select! {
                     next = rx_session.recv() => {
                         match next {
-                            Some(Ok(SessionLayerMessage::DeleteSession { session_id })) => {
+                            Some(Ok(SessionMessage::DeleteSession { session_id })) => {
                                 debug!("received closing signal from session {}, cancel it from the pool", session_id);
                                 let mut pool = pool_clone.write().await;
                                 if pool.remove(&session_id).is_none() {
                                     warn!("requested to delete unknown session id {}", session_id);
                                 }
+                            }
+                            Some(Ok(_)) => {
+                                error!("received unexpected message");
                             }
                             Some(Err(e)) => {
                                 warn!("error from session: {:?}", e);

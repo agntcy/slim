@@ -27,12 +27,12 @@ use slim_datapath::{
 // Local crate
 use crate::{
     Id, SessionError, Transmitter,
+    common::SessionMessage,
     interceptor_mls::{METADATA_MLS_ENABLED, METADATA_MLS_INIT_COMMIT_ID},
     moderator_task::{
         AddParticipant, AddParticipantMls, ModeratorTask, RemoveParticipant, RemoveParticipantMls,
         TaskUpdate, UpdateParticipantMls,
     },
-    session_layer::SessionLayerMessage,
     traits::SessionComponentLifecycle,
 };
 use slim_mls::mls::{CommitMsg, KeyPackageMsg, Mls, MlsIdentity, ProposalMsg, WelcomeMsg};
@@ -1183,7 +1183,7 @@ where
     group_list: HashMap<Name, u64>,
 
     /// channel to send delete message to the session layer
-    tx_session: Option<tokio::sync::mpsc::Sender<Result<SessionLayerMessage, SessionError>>>,
+    tx_session: Option<tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>>,
 
     /// set to true on delete_all
     closing: bool,
@@ -1205,7 +1205,7 @@ where
         retries_interval: Duration,
         mls: Option<MlsState<P, V>>,
         tx: T,
-        tx_session: Option<tokio::sync::mpsc::Sender<Result<SessionLayerMessage, SessionError>>>,
+        tx_session: Option<tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>>,
         session_metadata: HashMap<String, String>,
     ) -> Self {
         let p = JoinMessagePayload::new(channel_name.clone(), name.clone());
@@ -1772,7 +1772,7 @@ where
                 if let Some(tx_session) = &self.tx_session {
                     debug!("Signal session layer to close the session, all tasks are done");
                     tx_session
-                        .send(Ok(SessionLayerMessage::DeleteSession {
+                        .send(Ok(SessionMessage::DeleteSession {
                             session_id: self.endpoint.session_id,
                         }))
                         .await
@@ -1939,7 +1939,7 @@ where
                 {
                     debug!("Signal session layer to close the session, all tasks are done");
                     tx_session
-                        .send(Ok(SessionLayerMessage::DeleteSession {
+                        .send(Ok(SessionMessage::DeleteSession {
                             session_id: self.endpoint.session_id,
                         }))
                         .await

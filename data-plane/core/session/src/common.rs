@@ -4,10 +4,10 @@
 // Third-party crates
 use tonic::Status;
 
-use slim_datapath::api::ProtoMessage as Message;
+use slim_datapath::{api::ProtoMessage as Message, messages::Name};
 
 // Local crate
-use crate::SessionError;
+use crate::{PointToPointConfiguration, SessionError};
 
 /// Reserved session id
 pub const SESSION_RANGE: std::ops::Range<u32> = 0..(u32::MAX - 1000);
@@ -34,4 +34,33 @@ pub enum State {
 pub enum MessageDirection {
     North,
     South,
+}
+
+/// Message types for communication between session components
+#[allow(clippy::large_enum_variant)]
+pub enum SessionMessage {
+    OnMessage {
+        message: Message,
+        direction: MessageDirection,
+    },
+    SetPointToPointConfig {
+        config: PointToPointConfiguration,
+    },
+    TimerTimeout {
+        message_id: u32,
+        timeouts: u32,
+    },
+    TimerFailure {
+        message_id: u32,
+        timeouts: u32,
+    },
+    DeleteSession {
+        session_id: u32,
+    },
+    AddParticipant {
+        participant: Name,
+    },
+    RemoveParticipant {
+        participant: Name,
+    },
 }

@@ -15,8 +15,10 @@ pub mod notification;
 pub mod point_to_point;
 pub mod producer_buffer;
 pub mod receiver_buffer;
+pub mod reliable_sender;
 mod session_layer;
 pub mod timer;
+pub mod timer_factory;
 mod traits;
 pub mod transmitter;
 
