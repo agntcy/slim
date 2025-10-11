@@ -21,7 +21,7 @@ use tracing::{debug, info}; // for sync access in TokenProvider impl
 
 /// Configuration for SPIFFE authentication
 #[derive(Debug, Clone)]
-pub struct SpiffeConfig {
+pub struct SpiffeProviderConfig {
     /// Path to the SPIFFE Workload API socket
     pub socket_path: Option<String>,
     /// Target SPIFFE ID for JWT tokens (optional)
@@ -32,7 +32,7 @@ pub struct SpiffeConfig {
     pub refresh_interval: Option<Duration>,
 }
 
-impl Default for SpiffeConfig {
+impl Default for SpiffeProviderConfig {
     fn default() -> Self {
         Self {
             socket_path: None, // Will use SPIFFE_ENDPOINT_SOCKET env var
@@ -46,7 +46,7 @@ impl Default for SpiffeConfig {
 /// SPIFFE certificate and JWT provider that automatically rotates credentials
 #[derive(Clone)]
 pub struct SpiffeProvider {
-    config: SpiffeConfig,
+    config: SpiffeProviderConfig,
     x509_source: Option<Arc<X509Source>>,
     jwt_source: Option<Arc<JwtSource>>,
     client: Arc<RwLock<Option<WorkloadApiClient>>>,
@@ -54,7 +54,7 @@ pub struct SpiffeProvider {
 
 impl SpiffeProvider {
     /// Create a new SpiffeProvider with the given configuration
-    pub fn new(config: SpiffeConfig) -> Self {
+    pub fn new(config: SpiffeProviderConfig) -> Self {
         Self {
             config,
             x509_source: None,
@@ -326,29 +326,53 @@ fn guess_sleep_until_expiry(svid: &JwtSvid, buffer: Duration) -> Duration {
     default
 }
 
+#[derive(Clone)]
+pub struct SpiffeVerifierConfig {
+    /// Path to the SPIFFE Workload API socket
+    pub socket_path: Option<String>,
+    /// JWT audiences expected in tokens
+    pub jwt_audiences: Vec<String>,
+}
+
 /// SPIFFE JWT Verifier that uses the JWT bundles from SPIFFE Workload API
 #[derive(Clone)]
 pub struct SpiffeJwtVerifier {
+    config: SpiffeVerifierConfig,
     client: Arc<RwLock<Option<WorkloadApiClient>>>,
-    audiences: Vec<String>,
     bundles: Arc<RwLock<Option<JwtBundleSet>>>,
 }
 
 impl SpiffeJwtVerifier {
     /// Create a new SPIFFE JWT verifier
-    pub fn new(audiences: Vec<String>) -> Self {
+    pub fn new(config: SpiffeVerifierConfig) -> Self {
         Self {
+            config,
             client: Arc::new(RwLock::new(None)),
-            audiences,
             bundles: Arc::new(RwLock::new(None)),
         }
     }
 
     /// Initialize the verifier with a WorkloadApiClient
     pub async fn initialize(&self) -> Result<(), AuthError> {
-        let client = WorkloadApiClient::default().await.map_err(|e| {
-            AuthError::ConfigError(format!("Failed to initialize WorkloadApiClient: {}", e))
-        })?;
+        // Create WorkloadApiClient
+        let client = if let Some(socket_path) = &self.config.socket_path {
+            debug!("Connecting to SPIFFE Workload API at: {}", socket_path);
+            WorkloadApiClient::new_from_path(socket_path)
+                .await
+                .map_err(|e| {
+                    AuthError::ConfigError(format!(
+                        "Failed to connect to SPIFFE Workload API: {}",
+                        e
+                    ))
+                })?
+        } else {
+            debug!(
+                "Connecting to SPIFFE Workload API using SPIFFE_ENDPOINT_SOCKET environment variable"
+            );
+            WorkloadApiClient::default().await.map_err(|e| {
+                AuthError::ConfigError(format!("Failed to connect to SPIFFE Workload API: {}", e))
+            })?
+        };
 
         let mut guard = self.client.write();
         *guard = Some(client);
@@ -451,7 +475,7 @@ impl Verifier for SpiffeJwtVerifier {
     async fn verify(&self, token: impl Into<String> + Send) -> Result<(), AuthError> {
         let token_str = token.into();
         let bundles = self.get_jwt_bundles().await?;
-        JwtSvid::parse_and_validate(&token_str, &bundles, &self.audiences)
+        JwtSvid::parse_and_validate(&token_str, &bundles, &self.config.jwt_audiences)
             .map_err(|e| AuthError::TokenInvalid(format!("JWT validation failed: {}", e)))?;
         debug!("Successfully verified JWT token");
         Ok(())
@@ -461,9 +485,8 @@ impl Verifier for SpiffeJwtVerifier {
         let bundles = self.bundles.read().clone();
         match bundles {
             Some(bundles) => {
-                JwtSvid::parse_and_validate(&_token.into(), &bundles, &self.audiences).map_err(
-                    |e| AuthError::TokenInvalid(format!("JWT validation failed: {}", e)),
-                )?;
+                JwtSvid::parse_and_validate(&_token.into(), &bundles, &self.config.jwt_audiences)
+                    .map_err(|e| AuthError::TokenInvalid(format!("JWT validation failed: {}", e)))?;
                 debug!("Successfully verified JWT token");
                 Ok(())
             }
@@ -479,8 +502,9 @@ impl Verifier for SpiffeJwtVerifier {
     {
         let token_str = token.into();
         let bundles = self.get_jwt_bundles().await?;
-        let jwt_svid = JwtSvid::parse_and_validate(&token_str, &bundles, &self.audiences)
-            .map_err(|e| AuthError::TokenInvalid(format!("JWT validation failed: {}", e)))?;
+        let jwt_svid =
+            JwtSvid::parse_and_validate(&token_str, &bundles, &self.config.jwt_audiences)
+                .map_err(|e| AuthError::TokenInvalid(format!("JWT validation failed: {}", e)))?;
 
         debug!(
             "Successfully extracted claims for SPIFFE ID: {}",
@@ -504,11 +528,12 @@ impl Verifier for SpiffeJwtVerifier {
         let bundles = self.bundles.read().clone();
         match bundles {
             Some(bundles) => {
-                let jwt_svid =
-                    JwtSvid::parse_and_validate(&_token.into(), &bundles, &self.audiences)
-                        .map_err(|e| {
-                            AuthError::TokenInvalid(format!("JWT validation failed: {}", e))
-                        })?;
+                let jwt_svid = JwtSvid::parse_and_validate(
+                    &_token.into(),
+                    &bundles,
+                    &self.config.jwt_audiences,
+                )
+                .map_err(|e| AuthError::TokenInvalid(format!("JWT validation failed: {}", e)))?;
                 debug!("Successfully verified JWT token");
                 let claims_json = serde_json::json!({
                     "sub": jwt_svid.spiffe_id().to_string(),
@@ -534,7 +559,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_spiffe_config_default() {
-        let config = SpiffeConfig::default();
+        let config = SpiffeProviderConfig::default();
         assert!(config.socket_path.is_none());
         assert!(config.target_spiffe_id.is_none());
         assert_eq!(config.jwt_audiences, vec!["slim"]);
@@ -543,42 +568,25 @@ mod tests {
 
     #[tokio::test]
     async fn test_spiffe_jwt_verifier_creation() {
-        let verifier = SpiffeJwtVerifier::new(vec!["test-audience".to_string()]);
-        assert_eq!(verifier.audiences, vec!["test-audience"]);
-    }
-
-    // This test depends on a running SPIFFE Workload API (agent). Ignored by default.
-    #[tokio::test]
-    #[ignore]
-    async fn test_spiffe_jwt_verifier_initialization_live() {
-        let verifier = SpiffeJwtVerifier::new(vec!["test-audience".to_string()]);
-        let result = verifier.initialize().await;
-        assert!(result.is_ok());
+        let verifier_config = SpiffeVerifierConfig {
+            socket_path: Some("unix:///tmp/fake.sock".to_string()),
+            jwt_audiences: vec!["test-audience".to_string()],
+        };
+        let verifier = SpiffeJwtVerifier::new(verifier_config);
+        assert_eq!(verifier.config.jwt_audiences, vec!["test-audience"]);
     }
 
     #[tokio::test]
     async fn test_spiffe_provider_creation() {
-        let config = SpiffeConfig::default();
+        let config = SpiffeProviderConfig::default();
         let provider = SpiffeProvider::new(config);
         assert!(provider.x509_source.is_none());
         assert!(provider.jwt_source.is_none());
     }
 
-    // Depends on live SPIFFE agent; ignored by default.
-    #[tokio::test]
-    #[ignore]
-    async fn test_spiffe_provider_initialization_live() {
-        let config = SpiffeConfig::default();
-        let mut provider = SpiffeProvider::new(config);
-        let result = provider.initialize().await;
-        assert!(result.is_ok());
-        assert!(provider.x509_source.is_some());
-        assert!(provider.jwt_source.is_some());
-    }
-
     #[test]
     fn test_spiffe_provider_get_x509_svid_not_initialized() {
-        let provider = SpiffeProvider::new(SpiffeConfig::default());
+        let provider = SpiffeProvider::new(SpiffeProviderConfig::default());
         let res = provider.get_x509_svid();
         assert!(res.is_err());
         let err = format!("{}", res.unwrap_err());
@@ -587,7 +595,7 @@ mod tests {
 
     #[test]
     fn test_spiffe_provider_get_jwt_svid_not_initialized() {
-        let provider = SpiffeProvider::new(SpiffeConfig::default());
+        let provider = SpiffeProvider::new(SpiffeProviderConfig::default());
         let res = provider.get_jwt_svid();
         assert!(res.is_err());
         let err = format!("{}", res.unwrap_err());
@@ -613,7 +621,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_spiffe_jwt_verifier_try_verify_without_bundles() {
-        let verifier = SpiffeJwtVerifier::new(vec!["aud".into()]);
+        let spiffe_config = SpiffeVerifierConfig {
+            socket_path: None,
+            jwt_audiences: vec!["aud".into()],
+        };
+        let verifier = SpiffeJwtVerifier::new(spiffe_config);
         let res = verifier.try_verify("token".to_string());
         assert!(res.is_err());
         let err = format!("{}", res.unwrap_err());
@@ -622,7 +634,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_spiffe_jwt_verifier_try_get_claims_without_bundles() {
-        let verifier = SpiffeJwtVerifier::new(vec!["aud".into()]);
+        let spiffe_config = SpiffeVerifierConfig {
+            socket_path: None,
+            jwt_audiences: vec!["aud".into()],
+        };
+        let verifier = SpiffeJwtVerifier::new(spiffe_config);
         let claims_result: Result<serde_json::Value, AuthError> =
             verifier.try_get_claims("token".to_string());
         assert!(claims_result.is_err());
