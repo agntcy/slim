@@ -7,7 +7,10 @@ use super::{AuthError, ClientAuthenticator, ServerAuthenticator};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use slim_auth::jwt_middleware::{AddJwtLayer, ValidateJwtLayer};
-use slim_auth::spiffe::{SpiffeConfig as AuthSpiffeConfig, SpiffeJwtVerifier, SpiffeProvider};
+use slim_auth::spiffe::{
+    SpiffeJwtVerifier, SpiffeProvider, SpiffeProviderConfig as AuthSpiffeConfig,
+    SpiffeVerifierConfig,
+};
 use std::time::Duration;
 
 /// SPIFFE authentication configuration
@@ -123,7 +126,11 @@ impl Config {
 
     /// Create a SPIFFE JWT verifier from this configuration
     pub async fn create_jwt_verifier(&self) -> Result<SpiffeJwtVerifier, AuthError> {
-        let verifier = SpiffeJwtVerifier::new(self.jwt_audiences.clone());
+        let config = SpiffeVerifierConfig {
+            socket_path: self.socket_path.clone(),
+            jwt_audiences: self.jwt_audiences.clone(),
+        };
+        let verifier = SpiffeJwtVerifier::new(config);
         verifier.initialize().await?;
         Ok(verifier)
     }
