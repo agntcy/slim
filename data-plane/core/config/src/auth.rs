@@ -4,6 +4,7 @@
 pub mod basic;
 pub mod jwt;
 pub mod oidc;
+pub mod spiffe;
 pub mod static_jwt;
 
 use slim_auth::errors::AuthError as SlimAuthError;
