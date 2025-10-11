@@ -315,13 +315,12 @@ fn guess_sleep_until_expiry(svid: &JwtSvid, buffer: Duration) -> Duration {
     // Try to parse the `expiry().to_string()` as an epoch seconds integer; if that fails default.
     let default = Duration::from_secs(30);
     let expiry_str = svid.expiry().to_string();
-    if let Ok(epoch) = expiry_str.parse::<u64>() {
-        if let Ok(now_secs) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-            if epoch > now_secs.as_secs() {
-                let remaining = Duration::from_secs(epoch - now_secs.as_secs());
-                return remaining.saturating_sub(buffer).max(Duration::from_secs(5));
-            }
-        }
+    if let Ok(epoch) = expiry_str.parse::<u64>()
+        && let Ok(now_secs) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+        && epoch > now_secs.as_secs()
+    {
+        let remaining = Duration::from_secs(epoch - now_secs.as_secs());
+        return remaining.saturating_sub(buffer).max(Duration::from_secs(5));
     }
     default
 }
