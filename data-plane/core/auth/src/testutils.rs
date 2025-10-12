@@ -14,17 +14,6 @@ use serde_json::json;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-static RUSTLS: Once = Once::new();
-
-pub fn initialize_crypto_provider() {
-    RUSTLS.call_once(|| {
-        // Set aws-lc as default crypto provider
-        rustls::crypto::aws_lc_rs::default_provider()
-            .install_default()
-            .unwrap();
-    });
-}
-
 pub async fn setup_test_jwt_resolver(algorithm: Algorithm) -> (String, MockServer, String) {
     // Set up the mock server for JWKS
     let mock_server = MockServer::start().await;
