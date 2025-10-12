@@ -146,6 +146,10 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 	var apiSubscriptionsToDelete []*controllerapi.Subscription
 	var deletedRoutes []string
 
+	// Track route ID to subscription mapping for error handling
+	subscriptionToRouteID := make(map[string]string)
+	deleteSubscriptionToRouteID := make(map[string]string)
+
 	routes := s.dbService.GetRoutesForNodeID(nodeID)
 	for _, route := range routes {
 		// create connection and subscription for each route
@@ -161,13 +165,19 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 			Component_2:  route.Component2,
 			Id:           route.ComponentID,
 		}
+
+		// Create subscription key for mapping
+		subscriptionKey := s.getSubscriptionKey(apiSubscription)
+
 		if route.Deleted {
 			apiSubscriptionsToDelete = append(apiSubscriptionsToDelete, apiSubscription)
 			deletedRoutes = append(deletedRoutes, route.GetID())
+			deleteSubscriptionToRouteID[subscriptionKey] = route.GetID()
 			continue
 		}
 		apiConnections[apiConnection.ConnectionId] = &apiConnection
 		apiSubscriptions = append(apiSubscriptions, apiSubscription)
+		subscriptionToRouteID[subscriptionKey] = route.GetID()
 	}
 
 	// convert map to slice
@@ -205,45 +215,162 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 		return fmt.Errorf("failed to send configuration command to node %s: %w", nodeID, err)
 	}
 
-	// Wait for ACK response from the node
+	// Wait for ConfigCommandAck response from the node
 	response, err := s.nodeCommandHandler.WaitForResponse(ctx,
 		nodeID,
-		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
+		reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommandAck{}),
 		messageID,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to receive ACK response from node %s: %w", nodeID, err)
+		return fmt.Errorf("failed to receive ConfigCommandAck response from node %s: %w", nodeID, err)
 	}
 
-	// Validate ACK response
-	if ack := response.GetAck(); ack != nil {
-		if !ack.Success {
-			zlog.Error().
-				Strs("error_messages", ack.Messages).
-				Msgf("Sending route configs for node %s failed", nodeID)
-			return fmt.Errorf("sending route config for node %s failed: %v", nodeID, ack.Messages)
+	// Handle ConfigCommandAck response
+	if ack := response.GetConfigCommandAck(); ack != nil {
+		// Handle subscription add failures
+		if err := s.handleSubscriptionAddFailures(ctx, ack, subscriptionToRouteID, zlog); err != nil {
+			return fmt.Errorf("failed to handle subscription add failures: %w", err)
 		}
 
-		// If there are any deleted routes, remove them from the database
-		if len(deletedRoutes) > 0 {
-			for _, routeID := range deletedRoutes {
-				if err := s.dbService.DeleteRoute(routeID); err != nil {
-					zlog.Error().Msgf("failed to delete route %s from database: %v", routeID, err)
-				}
-			}
+		// Handle subscription delete failures
+		if err := s.handleSubscriptionDeleteFailures(ctx, ack, deleteSubscriptionToRouteID, zlog); err != nil {
+			return fmt.Errorf("failed to handle subscription delete failures: %w", err)
+		}
+
+		// Mark successful routes as applied and delete successful deleted routes
+		if err := s.handleSuccessfulRoutes(ctx, ack, subscriptionToRouteID, deleteSubscriptionToRouteID, deletedRoutes, zlog); err != nil {
+			return fmt.Errorf("failed to handle successful routes: %w", err)
 		}
 
 		zlog.Info().
 			Str("original_message_id", ack.OriginalMessageId).
-			Strs("ack_messages", ack.Messages).
 			Str("node_id", nodeID).
-			Msg("Sending routes completed successfully")
+			Msg("Configuration command processing completed")
 
 	} else {
-		return fmt.Errorf("received invalid ACK response from node %s", nodeID)
+		return fmt.Errorf("received invalid ConfigCommandAck response from node %s", nodeID)
 	}
 
 	return nil
+}
+
+// getSubscriptionKey creates a unique key for subscription mapping
+func (s *RouteReconciler) getSubscriptionKey(sub *controllerapi.Subscription) string {
+	idStr := ""
+	if sub.Id != nil {
+		idStr = fmt.Sprintf(":%d", sub.Id.GetValue())
+	}
+	return fmt.Sprintf("%s:%s:%s:%s%s", sub.ConnectionId, sub.Component_0, sub.Component_1, sub.Component_2, idStr)
+}
+
+// handleSubscriptionAddFailures processes failed subscription additions
+func (s *RouteReconciler) handleSubscriptionAddFailures(ctx context.Context, ack *controllerapi.ConfigurationCommandAck, subscriptionToRouteID map[string]string, zlog zerolog.Logger) error {
+	// Create a map of connection errors for quick lookup
+	connectionErrors := make(map[string]string)
+	for _, connErr := range ack.GetConnectionsFailedToCreate() {
+		connectionErrors[connErr.GetConnectionId()] = connErr.GetErrorMsg()
+	}
+
+	// Handle failed subscription additions
+	for _, subErr := range ack.GetSubscriptionsFailedToSet() {
+		subscriptionKey := s.getSubscriptionErrorKey(subErr)
+		routeID, exists := subscriptionToRouteID[subscriptionKey]
+		if !exists {
+			zlog.Warn().Msgf("No route mapping found for failed subscription: %s", subscriptionKey)
+			continue
+		}
+
+		// Determine the failure message - prefer connection error if available
+		failedMsg := subErr.GetErrorMsg()
+		connId := subErr.GetSubscription().GetConnectionId()
+		if connErr, hasConnErr := connectionErrors[connId]; hasConnErr {
+			failedMsg = connErr
+		}
+
+		// Mark the corresponding route as failed
+		if err := s.dbService.MarkRouteAsFailed(routeID, failedMsg); err != nil {
+			zlog.Error().Err(err).Msgf("Failed to mark route %s as failed", routeID)
+			return fmt.Errorf("failed to mark route %s as failed: %w", routeID, err)
+		}
+
+		zlog.Info().Str("route_id", routeID).Str("error", failedMsg).Msg("Marked route as failed due to subscription add failure")
+	}
+
+	return nil
+}
+
+// handleSubscriptionDeleteFailures processes failed subscription deletions
+func (s *RouteReconciler) handleSubscriptionDeleteFailures(ctx context.Context, ack *controllerapi.ConfigurationCommandAck, deleteSubscriptionToRouteID map[string]string, zlog zerolog.Logger) error {
+	// Handle failed subscription deletions
+	for _, subErr := range ack.GetSubscriptionsFailedToDelete() {
+		subscriptionKey := s.getSubscriptionErrorKey(subErr)
+		routeID, exists := deleteSubscriptionToRouteID[subscriptionKey]
+		if !exists {
+			zlog.Warn().Msgf("No route mapping found for failed deletion subscription: %s", subscriptionKey)
+			continue
+		}
+
+		failedMsg := subErr.GetErrorMsg()
+
+		// Mark the route as failed
+		if err := s.dbService.MarkRouteAsFailed(routeID, failedMsg); err != nil {
+			zlog.Error().Err(err).Msgf("Failed to mark route %s as failed during deletion", routeID)
+			return fmt.Errorf("failed to mark route %s as failed during deletion: %w", routeID, err)
+		}
+
+		zlog.Info().Str("route_id", routeID).Str("error", failedMsg).Msg("Marked route as failed due to subscription delete failure")
+	}
+
+	return nil
+}
+
+// handleSuccessfulRoutes marks successful routes as applied and deletes successful deleted routes
+func (s *RouteReconciler) handleSuccessfulRoutes(ctx context.Context, ack *controllerapi.ConfigurationCommandAck, subscriptionToRouteID, deleteSubscriptionToRouteID map[string]string, deletedRoutes []string, zlog zerolog.Logger) error {
+	// Create sets of failed subscription keys for quick lookup
+	failedAddSubscriptionKeys := make(map[string]bool)
+	failedDeleteSubscriptionKeys := make(map[string]bool)
+
+	for _, subErr := range ack.GetSubscriptionsFailedToSet() {
+		failedAddSubscriptionKeys[s.getSubscriptionErrorKey(subErr)] = true
+	}
+
+	for _, subErr := range ack.GetSubscriptionsFailedToDelete() {
+		failedDeleteSubscriptionKeys[s.getSubscriptionErrorKey(subErr)] = true
+	}
+
+	// Mark successful add routes as applied
+	for subscriptionKey, routeID := range subscriptionToRouteID {
+		if !failedAddSubscriptionKeys[subscriptionKey] {
+			if err := s.dbService.MarkRouteAsApplied(routeID); err != nil {
+				zlog.Error().Err(err).Msgf("Failed to mark route %s as applied", routeID)
+				return fmt.Errorf("failed to mark route %s as applied: %w", routeID, err)
+			}
+			zlog.Debug().Str("route_id", routeID).Msg("Marked route as applied")
+		}
+	}
+
+	// Delete successful deleted routes
+	for subscriptionKey, routeID := range deleteSubscriptionToRouteID {
+		if !failedDeleteSubscriptionKeys[subscriptionKey] {
+			if err := s.dbService.DeleteRoute(routeID); err != nil {
+				zlog.Error().Err(err).Msgf("Failed to delete route %s from database", routeID)
+				return fmt.Errorf("failed to delete route %s: %w", routeID, err)
+			}
+			zlog.Debug().Str("route_id", routeID).Msg("Successfully deleted route")
+		}
+	}
+
+	return nil
+}
+
+// getSubscriptionErrorKey creates a unique key for subscription error mapping
+func (s *RouteReconciler) getSubscriptionErrorKey(subErr *controllerapi.SubscriptionError) string {
+	idStr := ""
+	if subErr.Subscription.Id != nil {
+		idStr = fmt.Sprintf(":%d", subErr.Subscription.Id.GetValue())
+	}
+	connId := subErr.GetSubscription().GetConnectionId()
+	return fmt.Sprintf("%s:%s:%s:%s%s", connId, subErr.Subscription.Component_0, subErr.Subscription.Component_1, subErr.Subscription.Component_2, idStr)
 }
 
 func generateConfigData(detail db.ConnectionDetails, localConnection bool) (string, string, error) {

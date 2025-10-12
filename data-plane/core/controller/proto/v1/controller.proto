@@ -35,12 +35,19 @@ message ControlMessage {
     ListChannelsResponse list_channel_response = 17;
     ListParticipantsRequest list_participants_request = 18;
     ListParticipantsResponse list_participants_response = 19;
+
+    ConfigurationCommandAck config_command_ack = 20;
   }
 }
 
 message Connection {
   string connection_id = 1;
   string config_data = 2;
+}
+
+message ConnectionError {
+  string connection_id = 1;
+  string errorMsg = 2;
 }
 
 message Subscription {
@@ -51,10 +58,22 @@ message Subscription {
   string connection_id = 5;
 }
 
+message SubscriptionError {
+  Subscription subscription = 1;
+  string errorMsg = 2;
+}
+
 message ConfigurationCommand {
   repeated Connection connections_to_create = 1;
   repeated Subscription subscriptions_to_set = 2;
   repeated Subscription subscriptions_to_delete = 3;
+}
+
+message ConfigurationCommandAck {
+  string original_message_id = 1;
+  repeated ConnectionError connections_failed_to_create = 2;
+  repeated SubscriptionError subscriptions_failed_to_set = 3;
+  repeated SubscriptionError subscriptions_failed_to_delete = 4;
 }
 
 message Ack {

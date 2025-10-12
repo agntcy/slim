@@ -19,6 +19,8 @@ type DataAccess interface {
 	GetRouteByID(routeID string) *Route
 	DeleteRoute(routeID string) error
 	MarkRouteAsDeleted(routeID string) error
+	MarkRouteAsApplied(routeID string) error
+	MarkRouteAsFailed(routeID string, msg string) error
 
 	SaveChannel(channelID string, moderators []string) error
 	DeleteChannel(channelID string) error
@@ -69,6 +71,8 @@ type Route struct {
 	Component2     string
 	ComponentID    *wrapperspb.UInt64Value
 
+	Applied     bool
+	FailedMsg   string
 	Deleted     bool
 	LastUpdated time.Time
 }

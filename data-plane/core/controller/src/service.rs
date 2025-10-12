@@ -691,53 +691,69 @@ impl ControllerService {
             Some(ref payload) => {
                 match payload {
                     Payload::ConfigCommand(config) => {
+                        let mut connections_failed_to_create = Vec::new();
+                        let mut subscriptions_failed_to_set = Vec::new();
+                        let mut subscriptions_failed_to_delete = Vec::new();
+
+                        // Process connections to create
                         for conn in &config.connections_to_create {
                             info!("received a connection to create: {:?}", conn);
-                            let client_config =
-                                serde_json::from_str::<ClientConfig>(&conn.config_data)
-                                    .map_err(|e| ControllerError::ConfigError(e.to_string()))?;
-                            let client_endpoint = &client_config.endpoint;
+                            match serde_json::from_str::<ClientConfig>(&conn.config_data) {
+                                Err(e) => {
+                                    connections_failed_to_create.push(v1::ConnectionError {
+                                        connection_id: conn.connection_id.clone(),
+                                        error_msg: format!("Failed to parse config: {}", e),
+                                    });
+                                    continue;
+                                }
+                                Ok(client_config) => {
+                                    let client_endpoint = &client_config.endpoint;
 
-                            // connect to an endpoint if it's not already connected
-                            if !self.inner.connections.read().contains_key(client_endpoint) {
-                                match client_config.to_channel() {
-                                    Err(e) => {
-                                        error!("error reading channel config {:?}", e);
-                                    }
-                                    Ok(channel) => {
-                                        let ret = self
-                                            .inner
-                                            .message_processor
-                                            .connect(
-                                                channel,
-                                                Some(client_config.clone()),
-                                                None,
-                                                None,
-                                            )
-                                            .await
-                                            .map_err(|e| {
-                                                ControllerError::ConnectionError(e.to_string())
-                                            });
-
-                                        let conn_id = match ret {
+                                    // connect to an endpoint if it's not already connected
+                                    if !self.inner.connections.read().contains_key(client_endpoint) {
+                                        match client_config.to_channel() {
                                             Err(e) => {
-                                                error!("connection error: {:?}", e);
-                                                return Err(ControllerError::ConnectionError(
-                                                    e.to_string(),
-                                                ));
+                                                connections_failed_to_create.push(v1::ConnectionError {
+                                                    connection_id: conn.connection_id.clone(),
+                                                    error_msg: format!("Channel config error: {}", e),
+                                            });
+                                            continue;
                                             }
-                                            Ok(conn_id) => conn_id.1,
-                                        };
+                                            Ok(channel) => {
+                                                let ret = self
+                                                    .inner
+                                                    .message_processor
+                                                    .connect(
+                                                        channel,
+                                                        Some(client_config.clone()),
+                                                        None,
+                                                        None,
+                                                    )
+                                                    .await;
 
-                                        self.inner
-                                            .connections
-                                            .write()
-                                            .insert(client_endpoint.clone(), conn_id);
+                                                match ret {
+                                                    Err(e) => {
+                                                        connections_failed_to_create.push(v1::ConnectionError {
+                                                            connection_id: conn.connection_id.clone(),
+                                                            error_msg: format!("Connection failed: {}", e),
+                                                        });
+                                                        continue;
+                                                    }
+                                                    Ok(conn_id) => {
+                                                        self.inner
+                                                            .connections
+                                                            .write()
+                                                            .insert(client_endpoint.clone(), conn_id.1);
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
 
+                        // Process subscriptions to set
                         for subscription in &config.subscriptions_to_set {
                             if !self
                                 .inner
@@ -745,7 +761,10 @@ impl ControllerService {
                                 .read()
                                 .contains_key(&subscription.connection_id)
                             {
-                                error!("connection {} not found", subscription.connection_id);
+                                subscriptions_failed_to_set.push(v1::SubscriptionError {
+                                    subscription: Some(subscription.clone()),
+                                    error_msg: format!("Connection {} not found", subscription.connection_id),
+                                });
                                 continue;
                             }
 
@@ -776,10 +795,14 @@ impl ControllerService {
                             );
 
                             if let Err(e) = self.send_control_message(msg).await {
-                                error!("failed to subscribe: {}", e);
+                                subscriptions_failed_to_set.push(v1::SubscriptionError {
+                                    subscription: Some(subscription.clone()),
+                                    error_msg: format!("Failed to subscribe: {}", e),
+                                });
                             }
                         }
 
+                        // Process subscriptions to delete
                         for subscription in &config.subscriptions_to_delete {
                             if !self
                                 .inner
@@ -787,7 +810,10 @@ impl ControllerService {
                                 .read()
                                 .contains_key(&subscription.connection_id)
                             {
-                                error!("connection {} not found", subscription.connection_id);
+                                subscriptions_failed_to_delete.push(v1::SubscriptionError {
+                                    subscription: Some(subscription.clone()),
+                                    error_msg: format!("Connection {} not found", subscription.connection_id),
+                                });
                                 continue;
                             }
 
@@ -818,23 +844,28 @@ impl ControllerService {
                             );
 
                             if let Err(e) = self.send_control_message(msg).await {
-                                error!("failed to unsubscribe: {}", e);
+                                subscriptions_failed_to_delete.push(v1::SubscriptionError {
+                                    subscription: Some(subscription.clone()),
+                                    error_msg: format!("Failed to unsubscribe: {}", e),
+                                });
                             }
                         }
 
-                        let ack = Ack {
+                        // Send ConfigurationCommandAck with detailed error information
+                        let config_ack = v1::ConfigurationCommandAck {
                             original_message_id: msg.message_id.clone(),
-                            success: true,
-                            messages: vec![],
+                            connections_failed_to_create,
+                            subscriptions_failed_to_set,
+                            subscriptions_failed_to_delete,
                         };
 
                         let reply = ControlMessage {
                             message_id: uuid::Uuid::new_v4().to_string(),
-                            payload: Some(Payload::Ack(ack)),
+                            payload: Some(Payload::ConfigCommandAck(config_ack)),
                         };
 
                         if let Err(e) = tx.send(Ok(reply)).await {
-                            error!("failed to send ACK: {}", e);
+                            error!("failed to send ConfigurationCommandAck: {}", e);
                         }
                     }
                     Payload::SubscriptionListRequest(_) => {
@@ -930,6 +961,9 @@ impl ControllerService {
                     }
                     Payload::Ack(_ack) => {
                         // received an ack, do nothing - this should not happen
+                    }
+                    Payload::ConfigCommandAck(_) => {
+                        // received a config command ack, do nothing - this should not happen
                     }
                     Payload::SubscriptionListResponse(_) => {
                         // received a subscription list response, do nothing - this should not happen
