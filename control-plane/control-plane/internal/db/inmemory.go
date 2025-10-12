@@ -173,6 +173,36 @@ func (d *dbService) MarkRouteAsDeleted(routeID string) error {
 	return nil
 }
 
+// MarkRouteAsApplied implements DataAccess.
+func (d *dbService) MarkRouteAsApplied(routeID string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	route, exists := d.routes[routeID]
+	if !exists {
+		return fmt.Errorf("route %s not found", routeID)
+	}
+	route.LastUpdated = time.Now()
+	route.Applied = true
+	route.FailedMsg = ""
+	d.routes[routeID] = route
+	return nil
+}
+
+// MarkRouteAsFailed implements DataAccess.
+func (d *dbService) MarkRouteAsFailed(routeID string, msg string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	route, exists := d.routes[routeID]
+	if !exists {
+		return fmt.Errorf("route %s not found", routeID)
+	}
+	route.LastUpdated = time.Now()
+	route.Applied = false
+	route.FailedMsg = msg
+	d.routes[routeID] = route
+	return nil
+}
+
 func (d *dbService) GetRouteByID(routeID string) *Route {
 	d.mu.RLock()
 	defer d.mu.RUnlock()

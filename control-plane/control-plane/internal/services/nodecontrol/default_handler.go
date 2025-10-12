@@ -49,16 +49,23 @@ func (m *defaultNodeCommandHandler) WaitForResponse(
 	for {
 		select {
 		case msg := <-ch:
-			if reflect.TypeOf(msg.GetPayload()) == reflect.TypeOf(&controllerapi.ControlMessage_Ack{}) {
+			switch reflect.TypeOf(msg.GetPayload()) {
+			case reflect.TypeOf(&controllerapi.ControlMessage_Ack{}):
 				ackMsg := msg.GetAck()
 				if ackMsg != nil && ackMsg.GetOriginalMessageId() == messageID {
 					return msg, nil
 				}
 				continue
-			} else {
+			case reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommandAck{}):
+				ackMsg := msg.GetConfigCommandAck()
+				if ackMsg != nil && ackMsg.GetOriginalMessageId() == messageID {
+					return msg, nil
+				}
+				continue
+			default:
 				return msg, nil
 			}
-		case <-time.After(10 * time.Second):
+		case <-time.After(180 * time.Second):
 			return nil, fmt.Errorf("timeout waiting for message of type %v", messageType)
 		}
 	}
