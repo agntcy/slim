@@ -1,7 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Once;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use aws_lc_rs::encoding::AsDer;
