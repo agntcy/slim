@@ -1,25 +1,25 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-
+use crate::errors::AuthError;
+use crate::resolver::JwksCache;
+use crate::traits::{TokenProvider, Verifier};
 use async_trait::async_trait;
 use futures::executor::block_on;
 use jsonwebtoken_aws_lc::jwk::JwkSet;
 use jsonwebtoken_aws_lc::{DecodingKey, Validation, decode, decode_header};
-use openidconnect::{
-    ClientId, ClientSecret, IssuerUrl, OAuth2TokenResponse, Scope,
-    core::{CoreClient, CoreProviderMetadata},
+use oauth2::{
+    AuthUrl, ClientId, ClientSecret, Scope, TokenResponse, TokenUrl, basic::BasicClient,
+    reqwest::async_http_client,
 };
 use parking_lot::RwLock;
+use reqwest::Client as ReqwestClient;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
-
-use crate::errors::AuthError;
-use crate::resolver::JwksCache;
-use crate::traits::{TokenProvider, Verifier};
+use url::Url;
 
 // Default token refresh buffer (60 seconds before expiry)
 const REFRESH_BUFFER_SECONDS: u64 = 60;
@@ -143,15 +143,22 @@ impl OidcJwksCache {
     }
 }
 
+#[derive(Clone)]
+pub struct OidcProviderConfig {
+    pub client_id: String,
+    pub client_secret: String,
+    pub issuer_url: String,
+    pub scope: Option<String>,
+    /// HTTP timeout for token requests (default: 30s)
+    pub timeout: Option<Duration>,
+}
+
 /// OIDC Token Provider that implements the Client Credentials flow
 #[derive(Clone)]
 pub struct OidcTokenProvider {
-    issuer_url: String,
-    client_id: String,
-    client_secret: String,
-    scope: Option<String>,
+    config: OidcProviderConfig,
     token_cache: Arc<OidcTokenCache>,
-    http_client: reqwest::Client,
+    client: ReqwestClient,
     /// Shutdown signal sender for the background refresh task
     shutdown_tx: Arc<watch::Sender<bool>>,
     /// Handle to the background refresh task
@@ -160,38 +167,27 @@ pub struct OidcTokenProvider {
 
 impl OidcTokenProvider {
     /// Create a new OIDC Token Provider
-    pub async fn new(
-        issuer_url: impl Into<String>,
-        client_id: impl Into<String>,
-        client_secret: impl Into<String>,
-        scope: Option<String>,
-    ) -> Result<Self, AuthError> {
-        let issuer_url_str = issuer_url.into();
-        let client_id_str = client_id.into();
-        let client_secret_str = client_secret.into();
-        let http_client = reqwest::Client::new();
+    pub async fn new(config: OidcProviderConfig) -> Result<Self, AuthError> {
+        // Validate the issuer URL
+        Url::parse(&config.issuer_url).map_err(|e| {
+            AuthError::InvalidIssuerEndpoint(format!("Invalid issuer endpoint URL: {}", e))
+        })?;
 
-        // Validate that we can discover the OIDC provider
-        let issuer_url = IssuerUrl::new(issuer_url_str.clone())
-            .map_err(|e| AuthError::ConfigError(format!("Invalid issuer URL: {}", e)))?;
-
-        let _provider_metadata = CoreProviderMetadata::discover_async(issuer_url, &http_client)
-            .await
-            .map_err(|e| {
-                AuthError::ConfigError(format!("Failed to discover provider metadata: {}", e))
-            })?;
+        // Create HTTP client with timeout
+        let client = ReqwestClient::builder()
+            .user_agent("AGNTCY Slim Auth OAuth2")
+            .timeout(config.timeout.unwrap_or(Duration::from_secs(30)))
+            .build()
+            .map_err(|e| AuthError::OAuth2Error(format!("Failed to create HTTP client: {}", e)))?;
 
         // Create shutdown channel for background task
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let token_cache = Arc::new(OidcTokenCache::new());
 
         let provider = Self {
-            issuer_url: issuer_url_str,
-            client_id: client_id_str,
-            client_secret: client_secret_str,
-            scope,
+            config,
             token_cache: token_cache.clone(),
-            http_client,
+            client,
             shutdown_tx: Arc::new(shutdown_tx),
             refresh_task: Arc::new(parking_lot::Mutex::new(None)),
         };
@@ -211,9 +207,9 @@ impl OidcTokenProvider {
     fn get_cache_key(&self) -> String {
         format!(
             "{}:{}:{}",
-            self.issuer_url,
-            self.client_id,
-            self.scope.as_deref().unwrap_or("")
+            self.config.issuer_url,
+            self.config.client_id,
+            self.config.scope.as_deref().unwrap_or("")
         )
     }
 
@@ -226,36 +222,57 @@ impl OidcTokenProvider {
     /// Fetch a new token using client credentials flow
     async fn fetch_new_token(&self) -> Result<String, AuthError> {
         // Discover the provider metadata to get the token endpoint
-        let issuer_url = IssuerUrl::new(self.issuer_url.clone())
-            .map_err(|e| AuthError::ConfigError(format!("Invalid issuer URL: {}", e)))?;
-        let provider_metadata = CoreProviderMetadata::discover_async(issuer_url, &self.http_client)
+        let discovery_url = format!(
+            "{}/.well-known/openid-configuration",
+            self.config.issuer_url
+        );
+        let discovery_response: serde_json::Value = self
+            .client
+            .get(&discovery_url)
+            .send()
             .await
             .map_err(|e| {
-                AuthError::ConfigError(format!("Failed to discover provider metadata: {}", e))
+                AuthError::ConfigError(format!("Failed to fetch discovery document: {}", e))
+            })?
+            .json()
+            .await
+            .map_err(|e| {
+                AuthError::ConfigError(format!("Failed to parse discovery document: {}", e))
             })?;
 
-        let client = CoreClient::from_provider_metadata(
-            provider_metadata,
-            ClientId::new(self.client_id.clone()),
-            Some(ClientSecret::new(self.client_secret.clone())),
+        let token_endpoint = discovery_response
+            .get("token_endpoint")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                AuthError::ConfigError("token_endpoint not found in discovery document".to_string())
+            })?;
+
+        let auth_url_str = discovery_response
+            .get("authorization_endpoint")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("{}/authorize", self.config.issuer_url));
+
+        // Create OAuth2 client
+        let client = BasicClient::new(
+            ClientId::new(self.config.client_id.clone()),
+            Some(ClientSecret::new(self.config.client_secret.clone())),
+            AuthUrl::new(auth_url_str)
+                .map_err(|e| AuthError::ConfigError(format!("Invalid auth URL: {}", e)))?,
+            Some(
+                TokenUrl::new(token_endpoint.to_string())
+                    .map_err(|e| AuthError::ConfigError(format!("Invalid token URL: {}", e)))?,
+            ),
         );
 
-        let mut token_request = match client.exchange_client_credentials() {
-            Ok(request) => request,
-            Err(e) => {
-                return Err(AuthError::ConfigError(format!(
-                    "Failed to create token request: {}",
-                    e
-                )));
-            }
-        };
+        let mut token_request = client.exchange_client_credentials();
 
-        if let Some(ref scope) = self.scope {
+        if let Some(ref scope) = self.config.scope {
             token_request = token_request.add_scope(Scope::new(scope.clone()));
         }
 
         let token_response = token_request
-            .request_async(&self.http_client)
+            .request_async(async_http_client)
             .await
             .map_err(|e| AuthError::GetTokenError(format!("Failed to exchange token: {}", e)))?;
 
@@ -391,7 +408,7 @@ pub struct OidcVerifier {
     issuer_url: String,
     audience: String,
     jwks_cache: Arc<OidcJwksCache>,
-    http_client: reqwest::Client,
+    http_client: ReqwestClient,
     jwks_ttl: Duration,
 }
 
@@ -415,26 +432,31 @@ impl OidcVerifier {
 
     /// Fetch JWKS from the issuer
     async fn fetch_jwks(&self) -> Result<JwkSet, AuthError> {
-        let issuer_url = IssuerUrl::new(self.issuer_url.clone())
-            .map_err(|e| AuthError::ConfigError(format!("Invalid issuer URL: {}", e)))?;
-
-        // Use openidconnect to discover provider metadata
-        let provider_metadata = CoreProviderMetadata::discover_async(issuer_url, &self.http_client)
+        // Discover provider metadata
+        let discovery_url = format!("{}/.well-known/openid-configuration", self.issuer_url);
+        let discovery_response: serde_json::Value = self
+            .http_client
+            .get(&discovery_url)
+            .send()
             .await
             .map_err(|e| {
-                AuthError::ConfigError(format!("Failed to discover provider metadata: {}", e))
+                AuthError::ConfigError(format!("Failed to fetch discovery document: {}", e))
+            })?
+            .json()
+            .await
+            .map_err(|e| {
+                AuthError::ConfigError(format!("Failed to parse discovery document: {}", e))
             })?;
 
-        let jwks_uri = provider_metadata.jwks_uri();
+        let jwks_uri = discovery_response
+            .get("jwks_uri")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                AuthError::ConfigError("jwks_uri not found in discovery document".to_string())
+            })?;
 
         // Now fetch the JWKS from the discovered jwks_uri
-        let jwks: JwkSet = self
-            .http_client
-            .get(jwks_uri.as_str())
-            .send()
-            .await?
-            .json()
-            .await?;
+        let jwks: JwkSet = self.http_client.get(jwks_uri).send().await?.json().await?;
 
         Ok(jwks)
     }
@@ -510,14 +532,26 @@ impl OidcVerifier {
 
 #[async_trait]
 impl Verifier for OidcVerifier {
-    async fn verify<Claims>(&self, token: impl Into<String> + Send) -> Result<Claims, AuthError>
+    async fn verify(&self, token: impl Into<String> + Send) -> Result<(), AuthError> {
+        // Verify the token structure is valid
+        let _: serde_json::Value = self.verify_token(&token.into()).await?;
+        Ok(())
+    }
+
+    fn try_verify(&self, token: impl Into<String>) -> Result<(), AuthError> {
+        // For synchronous verification, we need a runtime
+        let _: serde_json::Value = block_on(self.verify_token(&token.into()))?;
+        Ok(())
+    }
+
+    async fn get_claims<Claims>(&self, token: impl Into<String> + Send) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned + Send,
     {
         self.verify_token(&token.into()).await
     }
 
-    fn try_verify<Claims>(&self, token: impl Into<String>) -> Result<Claims, AuthError>
+    fn try_get_claims<Claims>(&self, token: impl Into<String>) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned + Send,
     {
@@ -539,16 +573,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_oidc_token_provider_client_credentials_flow() {
+        // Initialize crypto provider for tests
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
         let (_mock_server, issuer_url, expected_token) = setup_oidc_mock_server().await;
 
-        let provider = OidcTokenProvider::new(
+        let config = OidcProviderConfig {
+            client_id: "test-client-id".to_string(),
+            client_secret: "test-client-secret".to_string(),
             issuer_url,
-            "test-client-id",
-            "test-client-secret",
-            Some("api:read".to_string()),
-        )
-        .await
-        .unwrap();
+            scope: Some("api:read".to_string()),
+            timeout: None,
+        };
+        let provider = OidcTokenProvider::new(config).await.unwrap();
 
         // Test token retrieval
         let token = provider.get_token().unwrap();
@@ -560,12 +597,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_oidc_token_provider_caching() {
+        // Initialize crypto provider for tests
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
         let (_mock_server, issuer_url, expected_token) = setup_oidc_mock_server().await;
 
-        let provider =
-            OidcTokenProvider::new(issuer_url, "test-client-id", "test-client-secret", None)
-                .await
-                .unwrap();
+        let config = OidcProviderConfig {
+            client_id: "test-client-id".to_string(),
+            client_secret: "test-client-secret".to_string(),
+            issuer_url,
+            scope: None,
+            timeout: None,
+        };
+        let provider = OidcTokenProvider::new(config).await.unwrap();
 
         // First call - should fetch token
         let token1 = provider.get_token().unwrap();
@@ -616,7 +660,7 @@ mod tests {
         assert!(!jwks.keys.is_empty());
 
         // Now verify the token
-        let verified_claims: TestClaims = verifier.verify(token).await.unwrap();
+        let verified_claims: TestClaims = verifier.get_claims(token).await.unwrap();
         assert_eq!(verified_claims.sub, "user123");
         assert_eq!(verified_claims.aud, "test-audience");
     }
@@ -648,11 +692,11 @@ mod tests {
         let verifier = OidcVerifier::new(issuer_url, "test-audience");
 
         // First verification - should fetch JWKS
-        let result1: TestClaims = verifier.verify(token.clone()).await.unwrap();
+        let result1: TestClaims = verifier.get_claims(token.clone()).await.unwrap();
         assert_eq!(result1.sub, "user123");
 
         // Second verification - should use cached JWKS
-        let result2: TestClaims = verifier.verify(token).await.unwrap();
+        let result2: TestClaims = verifier.get_claims(token).await.unwrap();
         assert_eq!(result2.sub, "user123");
     }
 
@@ -664,7 +708,7 @@ mod tests {
         let verifier = OidcVerifier::new(issuer_url, "test-audience");
 
         // Try to verify invalid token
-        let result: Result<TestClaims, _> = verifier.verify("invalid-token").await;
+        let result: Result<TestClaims, _> = verifier.get_claims("invalid-token").await;
         assert!(result.is_err());
     }
 
@@ -697,7 +741,7 @@ mod tests {
         let verifier = OidcVerifier::new(issuer_url, "test-audience");
 
         // Should succeed because kid is missing but there's only one key available
-        let result: Result<TestClaims, _> = verifier.verify(token).await;
+        let result: Result<TestClaims, _> = verifier.get_claims(token).await;
         if let Err(e) = &result {
             println!("Unexpected error: {:?}", e);
         }
@@ -773,7 +817,7 @@ mod tests {
         let verifier = OidcVerifier::new(issuer_url, "test-audience");
 
         // Should fail because key type is not supported
-        let result: Result<TestClaims, _> = verifier.verify(token).await;
+        let result: Result<TestClaims, _> = verifier.get_claims(token).await;
         assert!(result.is_err());
 
         // With jsonwebtoken_aws_lc, this might fail with a JwtAwsLcError instead
@@ -820,7 +864,7 @@ mod tests {
         let verifier = OidcVerifier::new(issuer_url, "test-audience");
 
         // Should fail because key is not found in JWKS
-        let result: Result<TestClaims, _> = verifier.verify(token).await;
+        let result: Result<TestClaims, _> = verifier.get_claims(token).await;
         assert!(result.is_err());
         if let Err(AuthError::VerificationError(msg)) = result {
             assert!(msg.contains("Key not found"));
@@ -833,18 +877,19 @@ mod tests {
     async fn test_oidc_token_provider_creation() {
         // Use the existing setup function
         let (_mock_server, issuer_url, _expected_token) = setup_oidc_mock_server().await;
-        let provider = OidcTokenProvider::new(
+        let config = OidcProviderConfig {
+            client_id: "client-id".to_string(),
+            client_secret: "client-secret".to_string(),
             issuer_url,
-            "client-id",
-            "client-secret",
-            Some("scope".to_string()),
-        )
-        .await;
+            scope: Some("scope".to_string()),
+            timeout: None,
+        };
+        let provider = OidcTokenProvider::new(config).await;
 
         // Test that the provider can be created successfully with proper OIDC server
         match provider {
             Ok(provider) => {
-                assert_eq!(provider.scope, Some("scope".to_string()));
+                assert_eq!(provider.config.scope, Some("scope".to_string()));
             }
             Err(e) => {
                 eprintln!("Provider creation failed: {:?}", e);
@@ -892,9 +937,14 @@ mod tests {
     async fn test_token_validity_check() {
         let (_mock_server, issuer_url, _expected_token) = setup_oidc_mock_server().await;
 
-        let provider = OidcTokenProvider::new(issuer_url, "client-id", "client-secret", None)
-            .await
-            .unwrap();
+        let config = OidcProviderConfig {
+            client_id: "client-id".to_string(),
+            client_secret: "client-secret".to_string(),
+            issuer_url,
+            scope: None,
+            timeout: None,
+        };
+        let provider = OidcTokenProvider::new(config).await.unwrap();
 
         let now = 1000;
         let expiry_valid = now + REFRESH_BUFFER_SECONDS + 100; // Valid token
@@ -906,6 +956,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_oidc_token_provider_error_handling() {
+        // Initialize crypto provider for tests
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
         let mock_server = MockServer::start().await;
         let issuer_url = mock_server.uri();
 
@@ -922,13 +975,18 @@ mod tests {
         let token_cache = Arc::new(OidcTokenCache::new());
         let http_client = reqwest::Client::new();
 
-        let provider = OidcTokenProvider {
-            issuer_url: issuer_url.clone(),
+        let config = OidcProviderConfig {
             client_id: "test-client-id".to_string(),
             client_secret: "test-client-secret".to_string(),
+            issuer_url: issuer_url.clone(),
             scope: None,
+            timeout: None,
+        };
+
+        let provider = OidcTokenProvider {
+            config,
             token_cache: token_cache.clone(),
-            http_client,
+            client: http_client,
             shutdown_tx: Arc::new(shutdown_tx),
             refresh_task: Arc::new(parking_lot::Mutex::new(None)),
         };
@@ -941,7 +999,7 @@ mod tests {
         match result {
             Err(AuthError::ConfigError(msg)) => {
                 // Expected: error should mention the discovery failure
-                assert!(msg.contains("Failed to discover provider metadata"));
+                assert!(msg.contains("Failed to parse discovery document"));
             }
             other => {
                 panic!(
@@ -954,6 +1012,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_oidc_token_provider_invalid_token_response() {
+        // Initialize crypto provider for tests
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
         let mock_server = MockServer::start().await;
         let issuer_url = mock_server.uri();
 
@@ -1001,15 +1062,21 @@ mod tests {
         // to avoid the hanging issue during construction
         let (shutdown_tx, _shutdown_rx) = watch::channel(false);
         let token_cache = Arc::new(OidcTokenCache::new());
+
         let http_client = reqwest::Client::new();
 
-        let provider = OidcTokenProvider {
-            issuer_url: issuer_url.clone(),
+        let config = OidcProviderConfig {
             client_id: "test-client-id".to_string(),
             client_secret: "test-client-secret".to_string(),
+            issuer_url: issuer_url.clone(),
             scope: None,
+            timeout: None,
+        };
+
+        let provider = OidcTokenProvider {
+            config,
             token_cache: token_cache.clone(),
-            http_client,
+            client: http_client,
             shutdown_tx: Arc::new(shutdown_tx),
             refresh_task: Arc::new(parking_lot::Mutex::new(None)),
         };
@@ -1021,11 +1088,10 @@ mod tests {
         // Should get a GetTokenError due to the OAuth2 error response
         match result {
             Err(AuthError::GetTokenError(msg)) => {
-                // Expected: error should mention the OAuth2 error
+                // Expected: error should mention the OAuth2 error - oauth2 crate format
                 assert!(
                     msg.contains("Failed to exchange token")
-                        && (msg.contains("invalid_client")
-                            || msg.contains("Client authentication failed"))
+                        && msg.contains("Server returned error response")
                 );
             }
             other => {
@@ -1067,7 +1133,7 @@ mod tests {
         let _jwks = verifier.get_jwks().await.unwrap();
 
         // Now test synchronous verification (uses cached JWKS)
-        let verified_claims: TestClaims = verifier.try_verify(token).unwrap();
+        let verified_claims: TestClaims = verifier.try_get_claims(token).unwrap();
         assert_eq!(verified_claims.sub, "user123");
     }
 }
