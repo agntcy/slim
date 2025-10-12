@@ -76,10 +76,10 @@ impl OidcTokenCache {
             .as_secs();
 
         let key = key.into();
-        if let Some(entry) = self.entries.read().get(&key) {
-            if entry.expiry > now + REFRESH_BUFFER_SECONDS {
-                return Some(entry.token.clone());
-            }
+        if let Some(entry) = self.entries.read().get(&key)
+            && entry.expiry > now + REFRESH_BUFFER_SECONDS
+        {
+            return Some(entry.token.clone());
         }
         None
     }
@@ -317,10 +317,10 @@ impl OidcTokenProvider {
                             // Extract the parts from the cache key to determine which token to refresh
                             // For now, we'll just refresh the current provider's token if it matches
                             let current_cache_key = provider_clone.get_cache_key();
-                            if cache_key == current_cache_key {
-                                if let Err(e) = provider_clone.refresh_token_background().await {
-                                    eprintln!("Failed to refresh token in background: {}", e);
-                                }
+                            if cache_key == current_cache_key
+                                && let Err(e) = provider_clone.refresh_token_background().await
+                            {
+                                eprintln!("Failed to refresh token in background: {}", e);
                             }
                         }
                     }
