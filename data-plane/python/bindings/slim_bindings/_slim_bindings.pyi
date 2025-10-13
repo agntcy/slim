@@ -423,7 +423,7 @@ class PySessionType(Enum):
 def connect(svc:PyService, config:dict) -> typing.Any:
     ...
 
-def create_pyservice(name:PyName, provider:PyIdentityProvider, verifier:PyIdentityVerifier) -> typing.Any:
+def create_pyservice(name:PyName, provider:PyIdentityProvider, verifier:PyIdentityVerifier, local_service:builtins.bool=False) -> typing.Any:
     ...
 
 def create_session(svc:PyService, config:PySessionConfiguration) -> typing.Any:
@@ -453,7 +453,7 @@ def publish(svc:PyService, session_context:PySessionContext, fanout:builtins.int
 def remove(svc:PyService, session_context:PySessionContext, name:PyName) -> typing.Any:
     ...
 
-def remove_route(svc:PyService, conn:builtins.int, name:PyName) -> typing.Any:
+def remove_route(svc:PyService, name:PyName, conn:builtins.int) -> typing.Any:
     ...
 
 def run_server(svc:PyService, config:dict) -> typing.Any:
@@ -462,15 +462,15 @@ def run_server(svc:PyService, config:dict) -> typing.Any:
 def set_default_session_config(svc:PyService, config:PySessionConfiguration) -> None:
     ...
 
-def set_route(svc:PyService, conn:builtins.int, name:PyName) -> typing.Any:
+def set_route(svc:PyService, name:PyName, conn:builtins.int) -> typing.Any:
     ...
 
 def stop_server(svc:PyService, endpoint:builtins.str) -> typing.Any:
     ...
 
-def subscribe(svc:PyService, conn:builtins.int, name:PyName) -> typing.Any:
+def subscribe(svc:PyService, name:PyName, conn:typing.Optional[builtins.int]=None) -> typing.Any:
     ...
 
-def unsubscribe(svc:PyService, conn:builtins.int, name:PyName) -> typing.Any:
+def unsubscribe(svc:PyService, name:PyName, conn:typing.Optional[builtins.int]=None) -> typing.Any:
     ...
 

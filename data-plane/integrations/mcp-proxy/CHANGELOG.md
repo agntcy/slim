@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/agntcy/slim/compare/slim-mcp-proxy-v0.1.7...slim-mcp-proxy-v0.2.0) - 2025-10-09
+
+### Added
+
+- implement control plane group management ([#554](https://github.com/agntcy/slim/pull/554))
+- *(session)* introduce session metadata ([#744](https://github.com/agntcy/slim/pull/744))
+- [**breaking**] refactor session receive() API ([#731](https://github.com/agntcy/slim/pull/731))
+
+### Other
+
+- release ([#822](https://github.com/agntcy/slim/pull/822))
+- *(service)* session files in separate module ([#695](https://github.com/agntcy/slim/pull/695))
+- rename session types in rust code ([#679](https://github.com/agntcy/slim/pull/679))
+
 ## [0.1.7](https://github.com/agntcy/slim/compare/slim-mcp-proxy-v0.1.6...slim-mcp-proxy-v0.1.7) - 2025-09-18
 
 ### Fixed

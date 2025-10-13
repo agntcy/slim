@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
@@ -32,6 +32,31 @@ use crate::utils::PyName;
 use slim_config::grpc::client::ClientConfig as PyGrpcClientConfig;
 use slim_config::grpc::server::ServerConfig as PyGrpcServerConfig;
 
+// Global static service instance
+static GLOBAL_SERVICE: OnceLock<Service> = OnceLock::new();
+
+enum ServiceRef {
+    Global(&'static Service),
+    Local(Box<Service>),
+}
+
+impl ServiceRef {
+    fn get_service(&self) -> &Service {
+        match self {
+            ServiceRef::Global(s) => s,
+            ServiceRef::Local(s) => s,
+        }
+    }
+}
+
+// Helper function to get or initialize the global service
+fn get_or_init_global_service() -> &'static Service {
+    GLOBAL_SERVICE.get_or_init(|| {
+        let svc_id = slim_config::component::id::ID::new_with_str("service/0").unwrap();
+        Service::new(svc_id)
+    })
+}
+
 #[gen_stub_pyclass]
 #[pyclass]
 #[derive(Clone)]
@@ -45,7 +70,7 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     app: App<P, V>,
-    service: Service,
+    service: ServiceRef,
     name: Name,
     rx: RwLock<
         tokio::sync::mpsc::Receiver<
@@ -73,6 +98,7 @@ impl PyService {
         name: PyName,
         provider: PyIdentityProvider,
         verifier: PyIdentityVerifier,
+        local_service: bool,
     ) -> Result<Self, ServiceError> {
         // Convert the PyIdentityProvider into IdentityProvider
         let provider: IdentityProvider = provider.into();
@@ -91,15 +117,26 @@ impl PyService {
         // create service ID
         let svc_id = slim_config::component::id::ID::new_with_str("service/0").unwrap();
 
-        // create local service
-        let svc = Service::new(svc_id);
+        // Determine whether to use global or local service
+        let service_ref = if local_service {
+            // create local service
+            let svc = Box::new(Service::new(svc_id));
+            ServiceRef::Local(svc)
+        } else {
+            // Use global service, initialize if needed
+            let global_svc = get_or_init_global_service();
+            ServiceRef::Global(global_svc)
+        };
+
+        // Get the service reference for creating the app
+        let svc = service_ref.get_service();
 
         // Get the rx channel
         let (app, rx) = svc.create_app(&name, provider, verifier).await?;
 
         // create the service
         let sdk = Arc::new(PyServiceInternal {
-            service: svc,
+            service: service_ref,
             app,
             name,
             rx: RwLock::new(rx),
@@ -177,35 +214,35 @@ impl PyService {
     }
 
     async fn run_server(&self, config: PyGrpcServerConfig) -> Result<(), ServiceError> {
-        self.sdk.service.run_server(&config)
+        self.sdk.service.get_service().run_server(&config)
     }
 
     async fn stop_server(&self, endpoint: &str) -> Result<(), ServiceError> {
-        self.sdk.service.stop_server(endpoint)
+        self.sdk.service.get_service().stop_server(endpoint)
     }
 
     async fn connect(&self, config: PyGrpcClientConfig) -> Result<u64, ServiceError> {
         // Get service and connect
-        self.sdk.service.connect(&config).await
+        self.sdk.service.get_service().connect(&config).await
     }
 
     async fn disconnect(&self, conn: u64) -> Result<(), ServiceError> {
-        self.sdk.service.disconnect(conn)
+        self.sdk.service.get_service().disconnect(conn)
     }
 
-    async fn subscribe(&self, conn: u64, name: PyName) -> Result<(), ServiceError> {
-        self.sdk.app.subscribe(&name.into(), Some(conn)).await
+    async fn subscribe(&self, name: PyName, conn: Option<u64>) -> Result<(), ServiceError> {
+        self.sdk.app.subscribe(&name.into(), conn).await
     }
 
-    async fn unsubscribe(&self, conn: u64, name: PyName) -> Result<(), ServiceError> {
-        self.sdk.app.unsubscribe(&name.into(), Some(conn)).await
+    async fn unsubscribe(&self, name: PyName, conn: Option<u64>) -> Result<(), ServiceError> {
+        self.sdk.app.unsubscribe(&name.into(), conn).await
     }
 
-    async fn set_route(&self, conn: u64, name: PyName) -> Result<(), ServiceError> {
+    async fn set_route(&self, name: PyName, conn: u64) -> Result<(), ServiceError> {
         self.sdk.app.set_route(&name.into(), conn).await
     }
 
-    async fn remove_route(&self, conn: u64, name: PyName) -> Result<(), ServiceError> {
+    async fn remove_route(&self, name: PyName, conn: u64) -> Result<(), ServiceError> {
         self.sdk.app.remove_route(&name.into(), conn).await
     }
 
@@ -389,10 +426,15 @@ pub fn disconnect(py: Python, svc: PyService, conn: u64) -> PyResult<Bound<PyAny
 
 #[gen_stub_pyfunction]
 #[pyfunction]
-#[pyo3(signature = (svc, conn, name))]
-pub fn subscribe(py: Python, svc: PyService, conn: u64, name: PyName) -> PyResult<Bound<PyAny>> {
+#[pyo3(signature = (svc, name, conn=None))]
+pub fn subscribe(
+    py: Python,
+    svc: PyService,
+    name: PyName,
+    conn: Option<u64>,
+) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.subscribe(conn, name)
+        svc.subscribe(name, conn)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
@@ -400,10 +442,15 @@ pub fn subscribe(py: Python, svc: PyService, conn: u64, name: PyName) -> PyResul
 
 #[gen_stub_pyfunction]
 #[pyfunction]
-#[pyo3(signature = (svc, conn, name))]
-pub fn unsubscribe(py: Python, svc: PyService, conn: u64, name: PyName) -> PyResult<Bound<PyAny>> {
+#[pyo3(signature = (svc, name, conn=None))]
+pub fn unsubscribe(
+    py: Python,
+    svc: PyService,
+    name: PyName,
+    conn: Option<u64>,
+) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.unsubscribe(conn, name)
+        svc.unsubscribe(name, conn)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
@@ -411,10 +458,10 @@ pub fn unsubscribe(py: Python, svc: PyService, conn: u64, name: PyName) -> PyRes
 
 #[gen_stub_pyfunction]
 #[pyfunction]
-#[pyo3(signature = (svc, conn, name))]
-pub fn set_route(py: Python, svc: PyService, conn: u64, name: PyName) -> PyResult<Bound<PyAny>> {
+#[pyo3(signature = (svc, name, conn))]
+pub fn set_route(py: Python, svc: PyService, name: PyName, conn: u64) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.set_route(conn, name)
+        svc.set_route(name, conn)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
@@ -422,10 +469,10 @@ pub fn set_route(py: Python, svc: PyService, conn: u64, name: PyName) -> PyResul
 
 #[gen_stub_pyfunction]
 #[pyfunction]
-#[pyo3(signature = (svc, conn, name))]
-pub fn remove_route(py: Python, svc: PyService, conn: u64, name: PyName) -> PyResult<Bound<PyAny>> {
+#[pyo3(signature = (svc, name, conn))]
+pub fn remove_route(py: Python, svc: PyService, name: PyName, conn: u64) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.remove_route(conn, name)
+        svc.remove_route(name, conn)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
@@ -525,15 +572,16 @@ pub fn get_message(
 
 #[gen_stub_pyfunction]
 #[pyfunction]
-#[pyo3(signature = (name, provider, verifier))]
+#[pyo3(signature = (name, provider, verifier, local_service=false))]
 pub fn create_pyservice(
     py: Python,
     name: PyName,
     provider: PyIdentityProvider,
     verifier: PyIdentityVerifier,
+    local_service: bool,
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        PyService::create_pyservice(name, provider, verifier)
+        PyService::create_pyservice(name, provider, verifier, local_service)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })

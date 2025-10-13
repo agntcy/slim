@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1](https://github.com/agntcy/slim/compare/slim-auth-v0.3.0...slim-auth-v0.3.1) - 2025-10-09
+
+### Added
+
+- implement control plane group management ([#554](https://github.com/agntcy/slim/pull/554))
+- remove bearer auth in favour of static jwt ([#774](https://github.com/agntcy/slim/pull/774))
+
+### Other
+
+- upgrade to rust toolchain 1.90.0 ([#730](https://github.com/agntcy/slim/pull/730))
+
 ## [0.3.0](https://github.com/agntcy/slim/compare/slim-auth-v0.2.0...slim-auth-v0.3.0) - 2025-09-17
 
 ### Added

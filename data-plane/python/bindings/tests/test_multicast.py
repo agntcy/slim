@@ -29,6 +29,7 @@ Note:
 
 import asyncio
 import datetime
+import uuid
 
 import pytest
 from common import create_slim
@@ -37,7 +38,14 @@ import slim_bindings
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("server", ["127.0.0.1:12375"], indirect=True)
+@pytest.mark.parametrize(
+    "server",
+    [
+        "127.0.0.1:12375",  # local service
+        None,  # global service
+    ],
+    indirect=True,
+)
 @pytest.mark.parametrize("mls_enabled", [False, True])
 async def test_group(server, mls_enabled):  # noqa: C901
     """Exercise group session behavior with N participants relaying a message in a ring.
@@ -50,7 +58,7 @@ async def test_group(server, mls_enabled):  # noqa: C901
       5. Each participant terminates after seeing (N - 1) messages.
 
     Args:
-        server: Injected server fixture providing an active Slim server endpoint.
+        server: Server fixture providing service and configuration (local or global).
         mls_enabled (bool): Whether MLS secure group features are enabled for the session.
 
     This test asserts invariants via inline assertions and stops when all
@@ -58,11 +66,18 @@ async def test_group(server, mls_enabled):  # noqa: C901
     """
     message = "Calling app"
 
+    # Generate unique names to avoid collisions when using global service
+    test_id = str(uuid.uuid4())[:8]
+
     # participant count
     participants_count = 10
     participants = []
 
-    chat_name = slim_bindings.PyName("org", "default", "chat")
+    chat_name = slim_bindings.PyName("org", f"test_{test_id}", "chat")
+
+    print(f"Test ID: {test_id}")
+    print(f"Chat name: {chat_name}")
+    print(f"Using {'local' if server.local_service else 'global'} service")
 
     # Background task: each participant joins/creates the session and relays messages around the ring
     async def background_task(index):
@@ -77,14 +92,17 @@ async def test_group(server, mls_enabled):  # noqa: C901
 
         print(f"Creating participant {part_name}...")
 
-        name = slim_bindings.PyName("org", "default", part_name)
+        # Use unique namespace per test to avoid collisions
+        name = slim_bindings.PyName("org", f"test_{test_id}", part_name)
 
-        participant = await create_slim(name, "secret")
+        participant = await create_slim(name, "secret", server.local_service)
 
-        # Connect to SLIM server
-        _ = await participant.connect(
-            {"endpoint": "http://127.0.0.1:12375", "tls": {"insecure": True}}
-        )
+        if server.endpoint is not None:
+            # Connect to SLIM server
+            print(f"{part_name} -> Connecting to server at {server.endpoint}...")
+            _ = await participant.connect(
+                {"endpoint": f"http://{server.endpoint}", "tls": {"insecure": True}}
+            )
 
         if index == 0:
             print(f"{part_name} -> Creating new group sessions...")
@@ -105,8 +123,12 @@ async def test_group(server, mls_enabled):  # noqa: C901
             for i in range(participants_count):
                 if i != 0:
                     name_to_add = f"participant-{i}"
-                    to_add = slim_bindings.PyName("org", "default", name_to_add)
-                    await participant.set_route(to_add)
+                    # Use same unique namespace as above
+                    to_add = slim_bindings.PyName("org", f"test_{test_id}", name_to_add)
+
+                    if server.endpoint is not None:
+                        await participant.set_route(to_add)
+
                     await session.invite(to_add)
                     print(f"{part_name} -> add {name_to_add} to the group")
 
