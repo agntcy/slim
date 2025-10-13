@@ -181,14 +181,17 @@ where
     fn on_ack_message(&mut self, message: Message) {
         let source = message.get_source();
         let message_id = message.get_id();
+        println!("received ack message for id {} from {}", message_id, source);
 
         let mut delete = false;
         // remove the source from the pending acks
         // notice that the state for this ack id may not exist if all the partcipants
         // assocated to it where removed before getting the acks
         if let Some(gt) = self.pending_acks.get_mut(&message_id) {
+            debug!("try to remove {} from pending acks", source);
             gt.missing_timers.remove(&source);
             if gt.missing_timers.is_empty() {
+                debug!("all acks received, remote timer");
                 // all acks received. stop the timer and remove the entry
                 gt.timer.stop();
                 delete = true;
@@ -198,6 +201,7 @@ where
         // remove the pending ack from the name
         // also here the participant may not exists anymore
         if let Some(set) = self.pending_acks_per_participant.get_mut(&source) {
+            debug!("remote message id {} from pendings acks for {}", message_id, source);
             // here we do not remove the name even if the set is empty
             // remove it only if participant is deleted
             set.remove(&message_id);
@@ -258,14 +262,19 @@ where
     }
 
     async fn on_timer_timeout(&mut self, id: u32) -> Result<(), SessionError> {
-
+        debug!("timeout for message {}", id);
         if let Some(messsage) = self.buffer.get(id as usize) {
+            debug!("the message is still in the buffer so send it");
             // get the names for which we are missing the acks
             // send the message to those destinations
             if let Some(gt) = self.pending_acks.get(&id) {
                 for n in &gt.missing_timers {
+                    debug!("M-before {:?}", messsage);
+                    debug!("resend message {} to {}", id, n);
                     let mut m = messsage.clone();
                     m.get_slim_header_mut().set_destination(n);
+                    m.get_session_header_mut().set_destination(n); // TODO discuss this with Mauro. we need one field only
+                    debug!("M-after {:?}", m);
 
                     // send the message
                     self.tx
@@ -274,11 +283,15 @@ where
                         .map_err(|e| SessionError::SlimTransmission(e.to_string()))?;
                 }
             }
+        } else {
+            // the message is not in the buffer anymore so we can simply remove the timer
+            self.on_timer_failure(id);
         }
         Ok(())
     }
 
     fn on_timer_failure(&mut self, id: u32) {
+        debug!("timer failure for message id {}, clear state", id);
         // remove all the state related to this timer
         if let Some(gt) = self.pending_acks.get_mut(&id) {
             for n in &gt.missing_timers {
@@ -445,6 +458,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_on_message_from_app() {
+        // send messages from the app and verify that they arrive correctly formatted to SLIM
         let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
 
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
@@ -484,7 +498,7 @@ mod tests {
         assert_eq!(received.get_session_message_type(), slim_datapath::api::ProtoSessionMessageType::P2PReliable);
         assert_eq!(received.get_id(), 1);
 
-                // Send the message using on_message function
+        // Send the message using on_message function
         sender.on_message(message.clone(), MessageDirection::South).await.expect("error sending message");
 
         // Wait for the message to arrive at rx_slim
@@ -502,6 +516,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_on_message_from_app_with_timeout() {
+        // send message from the app and check for timeouts
         let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
 
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
@@ -566,8 +581,262 @@ mod tests {
         assert!(res.is_err(), "Expected timeout but got: {:?}", res);
     }
 
+    #[tokio::test]
+    #[traced_test]
+    async fn test_on_message_from_app_with_ack() {
+        // send message from the app and get a timeout so no timer should be triggered
+        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
+
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, _) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+        let sender = ReliableSender::new(settings, true, 10, tx);
+        let remote = Name::from_strings(["org", "ns", "remote"]);
+
+        sender.add_participant(remote.clone()).await.expect("error adding participant");
+
+        // Create a test message
+        let source = Name::from_strings(["org", "ns", "source"]);
+        let mut message = Message::new_publish(
+            &source,
+            &remote,
+            None,
+            "test_payload",
+            vec![1, 2, 3, 4],
+        );
+
+        // Set session message type to P2PReliable for reliable sender
+        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+
+        // Send the message using on_message function
+        sender.on_message(message.clone(), MessageDirection::South).await.expect("error sending message");
+
+        // Wait for the message to arrive at rx_slim
+        let received = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for message")
+            .expect("channel closed")
+            .expect("error message");
+
+        // Verify the message was received
+        assert_eq!(received.get_session_message_type(), slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        assert_eq!(received.get_id(), 1);
+
+        // receive an ack from the remote
+        let mut ack = Message::new_publish(
+            &remote,
+            &source,
+            None,
+            "",
+            vec![],
+        );
+
+        ack.get_session_header_mut().set_message_id(1);
+        ack.get_session_header_mut().set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PAck);
+
+        
+        sender.on_message(ack, MessageDirection::North).await.expect("error sending message");
+
+        // wait for timeout - should timeout since no timer should trigger after the ack
+        let res = timeout(Duration::from_millis(800), rx_slim.recv()).await;
+        assert!(res.is_err(), "Expected timeout but got: {:?}", res);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_on_message_from_app_with_ack_3_participants() {
+        // send message from the app to 3 participants and get acks from all 3, so no timer should be triggered
+        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
+
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, _) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+        let sender = ReliableSender::new(settings, true, 10, tx);
+        let group = Name::from_strings(["org", "ns", "group"]);
+        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
+        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
+        let remote3 = Name::from_strings(["org", "ns", "remote3"]);
+
+        sender.add_participant(remote1.clone()).await.expect("error adding participant");
+        sender.add_participant(remote2.clone()).await.expect("error adding participant");
+        sender.add_participant(remote3.clone()).await.expect("error adding participant");
+
+        // Create a test message
+        let source = Name::from_strings(["org", "ns", "source"]);
+        let mut message = Message::new_publish(
+            &source,
+            &group,
+            None,
+            "test_payload",
+            vec![1, 2, 3, 4],
+        );
+
+        // Set session message type to P2PReliable for reliable sender
+        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+
+        // Send the message using on_message function
+        sender.on_message(message.clone(), MessageDirection::South).await.expect("error sending message");
+
+        // Wait for the message to arrive at rx_slim
+        let received = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for message")
+            .expect("channel closed")
+            .expect("error message");
+
+        // Verify the message was received
+        assert_eq!(received.get_session_message_type(), slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        assert_eq!(received.get_id(), 1);
+
+        // receive acks from all 3 remotes
+        let mut ack1 = Message::new_publish(
+            &remote1,
+            &source,
+            None,
+            "",
+            vec![],
+        );
+        ack1.get_session_header_mut().set_message_id(1);
+        ack1.get_session_header_mut().set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PAck);
+
+        let mut ack2 = Message::new_publish(
+            &remote2,
+            &source,
+            None,
+            "",
+            vec![],
+        );
+        ack2.get_session_header_mut().set_message_id(1);
+        ack2.get_session_header_mut().set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PAck);
+
+        let mut ack3 = Message::new_publish(
+            &remote3,
+            &source,
+            None,
+            "",
+            vec![],
+        );
+        ack3.get_session_header_mut().set_message_id(1);
+        ack3.get_session_header_mut().set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PAck);
+
+        // Send all 3 acks
+        sender.on_message(ack1, MessageDirection::North).await.expect("error sending ack1");
+        sender.on_message(ack2, MessageDirection::North).await.expect("error sending ack2");
+        sender.on_message(ack3, MessageDirection::North).await.expect("error sending ack3");
+
+        // wait for timeout - should timeout since no timer should trigger after all acks are received
+        let res = timeout(Duration::from_millis(800), rx_slim.recv()).await;
+        assert!(res.is_err(), "Expected timeout but got: {:?}", res);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_on_message_from_app_with_partial_acks_3_participants() {
+        // send message from the app to 3 participants but only get acks from 2, should trigger timers for the missing one
+        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
+
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, _) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+        let sender = ReliableSender::new(settings, true, 10, tx);
+        let group = Name::from_strings(["org", "ns", "group"]);
+        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
+        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
+        let remote3 = Name::from_strings(["org", "ns", "remote3"]);
+
+        sender.add_participant(remote1.clone()).await.expect("error adding participant");
+        sender.add_participant(remote2.clone()).await.expect("error adding participant");
+        sender.add_participant(remote3.clone()).await.expect("error adding participant");
+
+        // Create a test message
+        let source = Name::from_strings(["org", "ns", "source"]);
+        let mut message = Message::new_publish(
+            &source,
+            &group,
+            None,
+            "test_payload",
+            vec![1, 2, 3, 4],
+        );
+
+        // Set session message type to P2PReliable for reliable sender
+        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+
+        // Send the message using on_message function
+        sender.on_message(message.clone(), MessageDirection::South).await.expect("error sending message");
+
+        // Wait for the message to arrive at rx_slim
+        let received = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for message")
+            .expect("channel closed")
+            .expect("error message");
+
+        // Verify the message was received
+        assert_eq!(received.get_session_message_type(), slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        assert_eq!(received.get_id(), 1);
+
+        // receive acks from only remote1 and remote3 (missing ack from remote2)
+        let mut ack1 = Message::new_publish(
+            &remote1,
+            &source,
+            None,
+            "",
+            vec![],
+        );
+        ack1.get_session_header_mut().set_message_id(1);
+        ack1.get_session_header_mut().set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PAck);
+
+        let mut ack3 = Message::new_publish(
+            &remote3,
+            &source,
+            None,
+            "",
+            vec![],
+        );
+        ack3.get_session_header_mut().set_message_id(1);
+        ack3.get_session_header_mut().set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PAck);
+
+        // Send only 2 out of 3 acks (missing ack2)
+        sender.on_message(ack1, MessageDirection::North).await.expect("error sending ack1");
+        sender.on_message(ack3, MessageDirection::North).await.expect("error sending ack3");
+
+        // wait for timeout retransmission - should get a retransmission since remote2 didn't ack
+        let retransmission = timeout(Duration::from_millis(800), rx_slim.recv())
+            .await
+            .expect("timeout waiting for retransmission")
+            .expect("channel closed")
+            .expect("error message");
+
+        // Verify the retransmission is the same message with same ID
+        assert_eq!(retransmission.get_session_message_type(), slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        assert_eq!(retransmission.get_id(), 1);
+        // The destination should be set to remote2 (the one that didn't ack)
+        assert_eq!(retransmission.get_dst(), remote2);
+
+        // wait for second timeout retransmission
+        let retransmission2 = timeout(Duration::from_millis(800), rx_slim.recv())
+            .await
+            .expect("timeout waiting for second retransmission")
+            .expect("channel closed")
+            .expect("error message");
+
+        // Verify the second retransmission
+        assert_eq!(retransmission2.get_session_message_type(), slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        assert_eq!(retransmission2.get_id(), 1);
+        assert_eq!(retransmission2.get_dst(), remote2);
+
+        // wait for timeout - should timeout since max retries (2) reached, no more messages should be sent
+        let res = timeout(Duration::from_millis(800), rx_slim.recv()).await;
+        assert!(res.is_err(), "Expected timeout but got: {:?}", res);
+    }
+
     // test to add
-    // 1. send message and get ack so no timer should be triggered
     // 2. add 2 participants send a message get one ack and remove 1 participant. no timer should be triggered
     // 3. send a message wait for timers. receive rtx and check if rtx reply is transmitter
     // 4. send a message with no participants
