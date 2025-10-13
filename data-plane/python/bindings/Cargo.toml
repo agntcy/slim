@@ -27,3 +27,4 @@ rand = { workspace = true }
 serde = { workspace = true }
 serde-pyobject = { workspace = true }
 tokio = { workspace = true }
+tokio-test = "0.4.4"

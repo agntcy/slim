@@ -154,6 +154,14 @@ where
         self.session_layer.get_default_session_config(session_type)
     }
 
+    /// Get the app name
+    ///
+    /// Returns a reference to the name that was provided when the App was created.
+    /// This name is used for session management and message routing.
+    pub fn app_name(&self) -> &Name {
+        self.session_layer.app_name()
+    }
+
     /// Send a message to the session layer
     async fn send_message_without_context(&self, mut msg: Message) -> Result<(), ServiceError> {
         // these messages are not associated to a session yet

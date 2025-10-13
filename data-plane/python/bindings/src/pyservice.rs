@@ -13,13 +13,11 @@ use pyo3_stub_gen::derive::gen_stub_pymethods;
 use serde_pyobject::from_pyobject;
 use slim_auth::traits::TokenProvider;
 use slim_auth::traits::Verifier;
+
 use slim_datapath::messages::encoder::Name;
-use slim_datapath::messages::utils::SlimHeaderFlags;
-use slim_service::app::App;
+use slim_service::bindings::AppAdapter;
 use slim_service::{Service, ServiceError};
-use slim_session::Notification;
 use slim_session::{SessionConfig, SessionError};
-use tokio::sync::RwLock;
 
 use crate::pyidentity::IdentityProvider;
 use crate::pyidentity::IdentityVerifier;
@@ -51,8 +49,7 @@ impl ServiceRef {
 // Helper function to get or initialize the global service
 fn get_or_init_global_service() -> &'static Service {
     GLOBAL_SERVICE.get_or_init(|| {
-        let svc_id = slim_config::component::id::ID::new_with_str("service/0").unwrap();
-        Service::new(svc_id)
+        Service::builder().build().unwrap()
     })
 }
 
@@ -68,14 +65,8 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    app: App<P, V>,
+    adapter: Arc<AppAdapter<P, V>>,
     service: ServiceRef,
-    name: Name,
-    rx: RwLock<
-        tokio::sync::mpsc::Receiver<
-            Result<Notification<IdentityProvider, IdentityVerifier>, SessionError>,
-        >,
-    >,
 }
 
 #[gen_stub_pymethods]
@@ -83,12 +74,12 @@ where
 impl PyService {
     #[getter]
     pub fn id(&self) -> u64 {
-        self.sdk.name.id()
+        self.sdk.adapter.id()
     }
 
     #[getter]
     pub fn name(&self) -> PyName {
-        PyName::from(self.sdk.name.clone())
+        PyName::from(self.sdk.adapter.name().clone())
     }
 }
 
@@ -113,13 +104,10 @@ impl PyService {
         let name: Name = name.into();
         let name = name.with_id(rand::random::<u64>());
 
-        // create service ID
-        let svc_id = slim_config::component::id::ID::new_with_str("service/0").unwrap();
-
         // Determine whether to use global or local service
         let service_ref = if local_service {
             // create local service
-            let svc = Box::new(Service::new(svc_id));
+            let svc = Box::new(Service::builder().build()?);
             ServiceRef::Local(svc)
         } else {
             // Use global service, initialize if needed
@@ -127,18 +115,16 @@ impl PyService {
             ServiceRef::Global(global_svc)
         };
 
-        // Get the service reference for creating the app
+        // Get the service reference for creating the adapter
         let svc = service_ref.get_service();
 
-        // Get the rx channel
-        let (app, rx) = svc.create_app(&name, provider, verifier).await?;
+        // Create the AppAdapter using the service
+        let adapter = AppAdapter::create(svc, name.clone(), provider, verifier).await?;
 
         // create the service
         let sdk = Arc::new(PyServiceInternal {
             service: service_ref,
-            app,
-            name,
-            rx: RwLock::new(rx),
+            adapter: Arc::new(adapter),
         });
 
         Ok(PyService { sdk })
@@ -148,36 +134,15 @@ impl PyService {
         &self,
         session_config: SessionConfig,
     ) -> Result<PySessionContext, SessionError> {
-        let ctx = self.sdk.app.create_session(session_config, None).await?;
+        let ctx = self.sdk.adapter.create_session(session_config).await?;
         Ok(PySessionContext::from(ctx))
     }
 
     // Start listening for messages for a specific session id.
     async fn listen_for_session(&self) -> Result<PySessionContext, ServiceError> {
-        // Wait for new sessions
-        let mut rx = self.sdk.rx.write().await;
-
-        tokio::select! {
-            notification = rx.recv() => {
-                if notification.is_none() {
-                    return Err(ServiceError::ReceiveError("application channel closed".to_string()));
-                }
-
-                let notification = notification.unwrap();
-                match notification {
-                    Ok(Notification::NewSession(ctx)) => {
-                        Ok(PySessionContext::from(ctx))
-                    }
-                    Ok(Notification::NewMessage(m)) => {
-                        Err(ServiceError::ReceiveError(format!("receive unexpected message from app channel: {:?}", m)))
-                    }
-                    Err(e) => {
-                        Err(ServiceError::ReceiveError(format!("failed to receive notification: {}", e)))
-                    }
-                }
-
-            }
-        }
+        // Use adapter's listen_for_session method
+        let ctx = self.sdk.adapter.listen_for_session().await?;
+        Ok(PySessionContext::from(ctx))
     }
 
     async fn get_message(
@@ -209,7 +174,7 @@ impl PyService {
                 "session already closed".to_string(),
             ))?;
 
-        self.sdk.app.delete_session(&session).await
+        self.sdk.adapter.delete_session(&session).await
     }
 
     async fn run_server(&self, config: PyGrpcServerConfig) -> Result<(), ServiceError> {
@@ -230,19 +195,19 @@ impl PyService {
     }
 
     async fn subscribe(&self, name: PyName, conn: Option<u64>) -> Result<(), ServiceError> {
-        self.sdk.app.subscribe(&name.into(), conn).await
+        self.sdk.adapter.subscribe(&name.into(), conn).await
     }
 
     async fn unsubscribe(&self, name: PyName, conn: Option<u64>) -> Result<(), ServiceError> {
-        self.sdk.app.unsubscribe(&name.into(), conn).await
+        self.sdk.adapter.unsubscribe(&name.into(), conn).await
     }
 
     async fn set_route(&self, name: PyName, conn: u64) -> Result<(), ServiceError> {
-        self.sdk.app.set_route(&name.into(), conn).await
+        self.sdk.adapter.set_route(&name.into(), conn).await
     }
 
     async fn remove_route(&self, name: PyName, conn: u64) -> Result<(), ServiceError> {
-        self.sdk.app.remove_route(&name.into(), conn).await
+        self.sdk.adapter.remove_route(&name.into(), conn).await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -262,7 +227,7 @@ impl PyService {
             .upgrade()
             .ok_or(ServiceError::SessionError("session closed".to_string()))?;
 
-        let (name, conn_out) = match &name {
+        let (target_name, conn_out) = match &name {
             Some(name) => (name, None),
             None => match &message_ctx {
                 Some(ctx) => (&ctx.source_name, Some(ctx.input_connection)),
@@ -277,49 +242,50 @@ impl PyService {
             },
         };
 
-        let name = Name::from(name);
+        let target_name = Name::from(target_name);
 
-        // set flags
-        let flags = SlimHeaderFlags::new(fanout, None, conn_out, None, None);
-
-        session
-            .publish_with_flags(&name, flags, blob, payload_type, metadata)
-            .await
-            .map_err(|e| ServiceError::SessionError(e.to_string()))
+        // Use AppAdapter's publish method
+        self.sdk.adapter.publish(
+            &session,
+            &target_name,
+            fanout,
+            blob,
+            conn_out,
+            payload_type,
+            metadata,
+        ).await
     }
 
     async fn invite(
         &self,
         session_context: PySessionContext,
         name: PyName,
-    ) -> Result<(), ServiceError> {
-        session_context
+    ) -> Result<(), SessionError> {
+        let session = session_context
             .internal
             .session
             .upgrade()
-            .ok_or(ServiceError::SessionError("session closed".to_string()))?
-            .invite_participant(&name.into())
-            .await
-            .map_err(|e| ServiceError::SessionError(e.to_string()))
+            .ok_or(SessionError::SessionClosed("session closed".to_string()))?;
+        
+        self.sdk.adapter.invite(&session, &name.into()).await
     }
 
     async fn remove(
         &self,
         session_context: PySessionContext,
         name: PyName,
-    ) -> Result<(), ServiceError> {
-        session_context
+    ) -> Result<(), SessionError> {
+        let session = session_context
             .internal
             .session
             .upgrade()
-            .ok_or(ServiceError::SessionError("session closed".to_string()))?
-            .remove_participant(&name.into())
-            .await
-            .map_err(|e| ServiceError::SessionError(e.to_string()))
+            .ok_or(SessionError::SessionClosed("session closed".to_string()))?;
+        
+        self.sdk.adapter.remove(&session, &name.into()).await
     }
 
     fn set_default_session_config(&self, config: SessionConfig) -> Result<(), SessionError> {
-        self.sdk.app.set_default_session_config(&config)
+        self.sdk.adapter.set_default_session_config(&config)
     }
 }
 
