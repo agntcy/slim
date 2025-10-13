@@ -75,7 +75,7 @@ spec:
     - mountPath: /svids
       name: svids-volume       
   - args:
-    - unicast
+    - p2p
     - --jwt
     - /svids/jwt_svid.token
     - --spire-trust-bundle
@@ -89,7 +89,7 @@ spec:
     env:
     - name: PYTHONUNBUFFERED
       value: "1"
-    image: ghcr.io/agntcy/slim/bindings-examples:0.6.0-dev.4
+    image: ghcr.io/agntcy/slim/bindings-examples:0.6.0
     imagePullPolicy: Always
     name: client
     volumeMounts:

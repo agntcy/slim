@@ -289,8 +289,8 @@ impl NameState {
                 let mut stop = false;
                 let mut i = pos;
                 while !stop {
-                    if vec[index][pos] != incoming_conn {
-                        return Some(vec[index][pos]);
+                    if vec[index][i] != incoming_conn {
+                        return Some(vec[index][i]);
                     }
                     i = (i + 1) % vec[index].len();
                     if i == pos {
@@ -770,8 +770,16 @@ mod tests {
         for _ in 0..20 {
             let out = t.match_one(&name2_2, 100).unwrap();
             if out != 3 && out != 4 {
-                // the output must be 2 or 4
-                panic!("the output must be 2 or 4");
+                // the output must be 3 or 4
+                panic!("the output must be 3 or 4");
+            }
+        }
+
+        for _ in 0..20 {
+            let out = t.match_one(&name2_2, 4).unwrap();
+            if out != 3 {
+                // the output must be 3
+                panic!("the output must be 3");
             }
         }
 

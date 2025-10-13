@@ -107,12 +107,16 @@ class Slim:
         # Create connection ID map
         self.conn_ids: dict[str, int] = {}
 
+        # For the moment we manage one connection only
+        self.conn_id: int | None = None
+
     @classmethod
     async def new(
         cls,
         name: PyName,
         provider: PyIdentityProvider,
         verifier: PyIdentityVerifier,
+        local_service: bool = False,
     ) -> "Slim":
         """
         Asynchronously construct and initialize a new Slim instance (preferred entry
@@ -122,15 +126,16 @@ class Slim:
             name (PyName): Fully qualified local application identity.
             provider (PyIdentityProvider): Provides local authentication material.
             verifier (PyIdentityVerifier): Verifies remote identities / signatures.
+            local_service (bool): If True, creates a local service instance
+                instead of using the global static service. Defaults to False (global).
 
         Returns:
             Slim: High-level wrapper around the created PyService.
 
         Possible errors: Propagates exceptions from create_pyservice.
         """
-
         return cls(
-            await create_pyservice(name, provider, verifier),
+            await create_pyservice(name, provider, verifier, local_service),
             name,
         )
 
@@ -263,7 +268,11 @@ class Slim:
         self.conn_id = conn_id
 
         # Subscribe to the local name
-        await subscribe(self._svc, conn_id, self._svc.name)
+        await subscribe(
+            self._svc,
+            self._svc.name,
+            conn_id,
+        )
 
         # return the connection ID
         return conn_id
@@ -297,7 +306,14 @@ class Slim:
             None
         """
 
-        await set_route(self._svc, self.conn_id, name)
+        if self.conn_id is None:
+            raise RuntimeError("No active connection. Please connect first.")
+
+        await set_route(
+            self._svc,
+            name,
+            self.conn_id,
+        )
 
     async def remove_route(
         self,
@@ -313,7 +329,14 @@ class Slim:
             None
         """
 
-        await remove_route(self._svc, self.conn_id, name)
+        if self.conn_id is None:
+            raise RuntimeError("No active connection. Please connect first.")
+
+        await remove_route(
+            self._svc,
+            name,
+            self.conn_id,
+        )
 
     async def subscribe(self, name: PyName):
         """
@@ -326,7 +349,7 @@ class Slim:
             None
         """
 
-        await subscribe(self._svc, self.conn_id, name)
+        await subscribe(self._svc, name, self.conn_id)
 
     async def unsubscribe(self, name: PyName):
         """
@@ -339,7 +362,7 @@ class Slim:
             None
         """
 
-        await unsubscribe(self._svc, self.conn_id, name)
+        await unsubscribe(self._svc, name, self.conn_id)
 
     async def listen_for_session(
         self, timeout: Optional[timedelta] = None
