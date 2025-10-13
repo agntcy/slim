@@ -42,13 +42,13 @@ where
     /// list of pending acks for each message
     pending_acks: HashMap<u32, GroupTimer>,
 
-    /// list of timer ids associated for each participant
-    pending_acks_per_participant: HashMap<Name, HashSet<u32>>,
+    /// list of timer ids associated for each endpoint
+    pending_acks_per_endpoint: HashMap<Name, HashSet<u32>>,
 
-    /// list of the participants in the conversation
-    /// on message send, create an ack timer for each participant in the list
-    /// on participant remove, delete all the acks to the participant
-    participants_list: HashSet<Name>,
+    /// list of the endpoints in the conversation
+    /// on message send, create an ack timer for each endpoint in the list
+    /// on endpoint remove, delete all the acks to the endpoint
+    endpoints_list: HashSet<Name>,
 
     /// is true, use next id to generate the message id
     /// otherwise generate a random id
@@ -92,8 +92,8 @@ where
             buffer: ProducerBuffer::with_capacity(512),
             timer_factory: factory,
             pending_acks: HashMap::new(),
-            pending_acks_per_participant: HashMap::new(),
-            participants_list: HashSet::new(),
+            pending_acks_per_endpoint: HashMap::new(),
+            endpoints_list: HashSet::new(),
             is_sequential,
             next_id: 0,
             session_id,
@@ -138,9 +138,9 @@ where
             ));
         }
 
-        if self.participants_list.is_empty() {
+        if self.endpoints_list.is_empty() {
             return Err(SessionError::Processing(
-                "participant list is empty, cannot create timers".to_string(),
+                "endpoint list is empty, cannot create timers".to_string(),
             ));
         }
 
@@ -166,22 +166,22 @@ where
 
         // create a timer for the new packet and update the state
         let gt = GroupTimer {
-            missing_timers: self.participants_list.clone(),
+            missing_timers: self.endpoints_list.clone(),
             timer: self.timer_factory.create_and_start_timer(message_id),
         };
 
         // insert in pending acks
         self.pending_acks.insert(message_id, gt);
 
-        // insert in pending acks per participant
-        for n in &self.participants_list {
+        // insert in pending acks per endpoint
+        for n in &self.endpoints_list {
             debug!("add timer for message {} for remote {}", message_id, n);
-            if let Some(acks) = self.pending_acks_per_participant.get_mut(n) {
+            if let Some(acks) = self.pending_acks_per_endpoint.get_mut(n) {
                 acks.insert(message_id);
             } else {
                 let mut set = HashSet::new();
                 set.insert(message_id);
-                self.pending_acks_per_participant.insert(n.clone(), set);
+                self.pending_acks_per_endpoint.insert(n.clone(), set);
             }
         }
 
@@ -200,7 +200,7 @@ where
 
         let mut delete = false;
         // remove the source from the pending acks
-        // notice that the state for this ack id may not exist if all the participants
+        // notice that the state for this ack id may not exist if all the endpoints
         // associated to it where removed before getting the acks
         if let Some(gt) = self.pending_acks.get_mut(&message_id) {
             debug!("try to remove {} from pending acks", source);
@@ -214,14 +214,14 @@ where
         }
 
         // remove the pending ack from the name
-        // also here the participant may not exists anymore
-        if let Some(set) = self.pending_acks_per_participant.get_mut(&source) {
+        // also here the endpoint may not exists anymore
+        if let Some(set) = self.pending_acks_per_endpoint.get_mut(&source) {
             debug!(
                 "remove message id {} from pendings acks for {}",
                 message_id, source
             );
             // here we do not remove the name even if the set is empty
-            // remove it only if participant is deleted
+            // remove it only if endpoint is deleted
             set.remove(&message_id);
         }
 
@@ -326,7 +326,7 @@ where
         // remove all the state related to this timer
         if let Some(gt) = self.pending_acks.get_mut(&id) {
             for n in &gt.missing_timers {
-                if let Some(set) = self.pending_acks_per_participant.get_mut(n) {
+                if let Some(set) = self.pending_acks_per_endpoint.get_mut(n) {
                     set.remove(&id);
                 }
             }
@@ -349,27 +349,27 @@ where
         }
     }
 
-    fn add_participant(&mut self, participant: Name) {
-        debug!("add participant {}", participant);
-        // add participant to the list
-        self.participants_list.insert(participant);
+    fn add_endpoint(&mut self, endpoint: Name) {
+        debug!("add endpoint {}", endpoint);
+        // add endpoint to the list
+        self.endpoints_list.insert(endpoint);
     }
 
-    fn rm_participant(&mut self, participant: &Name) {
-        debug!("remove participant {}", participant);
-        // remove participant from the list and remove all the ack state
-        // notice that no ack state may be associated to the participant
-        // (e.g. participant added but no message sent)
-        if let Some(set) = self.pending_acks_per_participant.get(participant) {
+    fn rm_endpoint(&mut self, endpoint: &Name) {
+        debug!("remove endpoint {}", endpoint);
+        // remove endpoint from the list and remove all the ack state
+        // notice that no ack state may be associated to the endpoint
+        // (e.g. endpoint added but no message sent)
+        if let Some(set) = self.pending_acks_per_endpoint.get(endpoint) {
             for id in set {
                 let mut delete = false;
                 if let Some(gt) = self.pending_acks.get_mut(id) {
                     debug!(
-                        "try to remove timer {} for removed participant {}",
-                        id, participant
+                        "try to remove timer {} for removed endpoint {}",
+                        id, endpoint
                     );
-                    gt.missing_timers.remove(participant);
-                    // if no participant is left we remove the timer
+                    gt.missing_timers.remove(endpoint);
+                    // if no endpoint is left we remove the timer
                     if gt.missing_timers.is_empty() {
                         gt.timer.stop();
                         delete = true;
@@ -382,9 +382,9 @@ where
             }
         };
 
-        debug!("remove participant name from everywhere");
-        self.pending_acks_per_participant.remove(participant);
-        self.participants_list.remove(participant);
+        debug!("remove endpoint name from everywhere");
+        self.pending_acks_per_endpoint.remove(endpoint);
+        self.endpoints_list.remove(endpoint);
     }
 
     fn start_drain(&mut self, grace_period_ms: u64) {
@@ -447,13 +447,13 @@ where
                             debug!("timer {} failed", message_id);
                             self.on_timer_failure(message_id).await;
                         },
-                        Some(SessionMessage::AddParticipant {participant}) => {
-                            debug!("add new participant {}", participant);
-                            self.add_participant(participant);
+                        Some(SessionMessage::AddEndpoint {endpoint}) => {
+                            debug!("add new endpoint {}", endpoint);
+                            self.add_endpoint(endpoint);
                         }
-                        Some(SessionMessage::RemoveParticipant {participant}) => {
-                            debug!("remove participant {}", participant);
-                            self.rm_participant(&participant);
+                        Some(SessionMessage::RemoveEndpoint {endpoint}) => {
+                            debug!("remove endpoint {}", endpoint);
+                            self.rm_endpoint(&endpoint);
                         }
                         Some(SessionMessage::Drain { grace_period_ms }) => {
                             debug!("received drain signal with grace period {}ms", grace_period_ms);
@@ -527,20 +527,20 @@ where
             .map_err(|e| SessionError::Processing(format!("Failed to send message: {}", e)))
     }
 
-    /// Add a participant to the reliable sender
-    pub async fn add_participant(&self, participant: Name) -> Result<(), SessionError> {
+    /// Add a endpoint to the reliable sender
+    pub async fn add_endpoint(&self, endpoint: Name) -> Result<(), SessionError> {
         self.tx
-            .send(SessionMessage::AddParticipant { participant })
+            .send(SessionMessage::AddEndpoint { endpoint })
             .await
-            .map_err(|e| SessionError::Processing(format!("Failed to add participant: {}", e)))
+            .map_err(|e| SessionError::Processing(format!("Failed to add endpoint: {}", e)))
     }
 
-    /// Remove a participant from the reliable sender
-    pub async fn remove_participant(&self, participant: Name) -> Result<(), SessionError> {
+    /// Remove a endpoint from the reliable sender
+    pub async fn remove_endpoint(&self, endpoint: Name) -> Result<(), SessionError> {
         self.tx
-            .send(SessionMessage::RemoveParticipant { participant })
+            .send(SessionMessage::RemoveEndpoint { endpoint })
             .await
-            .map_err(|e| SessionError::Processing(format!("Failed to remove participant: {}", e)))
+            .map_err(|e| SessionError::Processing(format!("Failed to remove endpoint: {}", e)))
     }
 
     /// Initiate graceful shutdown - no new messages accepted, wait for pending acks
@@ -577,9 +577,9 @@ mod tests {
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
-            .add_participant(remote.clone())
+            .add_endpoint(remote.clone())
             .await
-            .expect("error adding participant");
+            .expect("error adding endpoint");
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
@@ -645,9 +645,9 @@ mod tests {
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
-            .add_participant(remote.clone())
+            .add_endpoint(remote.clone())
             .await
-            .expect("error adding participant");
+            .expect("error adding endpoint");
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
@@ -738,9 +738,9 @@ mod tests {
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
-            .add_participant(remote.clone())
+            .add_endpoint(remote.clone())
             .await
-            .expect("error adding participant");
+            .expect("error adding endpoint");
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
@@ -789,8 +789,8 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_on_message_from_app_with_ack_3_participants() {
-        // send message from the app to 3 participants and get acks from all 3, so no timer should be triggered
+    async fn test_on_message_from_app_with_ack_3_endpoints() {
+        // send message from the app to 3 endpoints and get acks from all 3, so no timer should be triggered
         let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
 
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
@@ -805,17 +805,17 @@ mod tests {
         let remote3 = Name::from_strings(["org", "ns", "remote3"]);
 
         sender
-            .add_participant(remote1.clone())
+            .add_endpoint(remote1.clone())
             .await
-            .expect("error adding participant");
+            .expect("error adding endpoint");
         sender
-            .add_participant(remote2.clone())
+            .add_endpoint(remote2.clone())
             .await
-            .expect("error adding participant");
+            .expect("error adding endpoint");
         sender
-            .add_participant(remote3.clone())
+            .add_endpoint(remote3.clone())
             .await
-            .expect("error adding participant");
+            .expect("error adding endpoint");
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
@@ -882,8 +882,8 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_on_message_from_app_with_partial_acks_3_participants() {
-        // send message from the app to 3 participants but only get acks from 2, should trigger timers for the missing one
+    async fn test_on_message_from_app_with_partial_acks_3_endpoints() {
+        // send message from the app to 3 endpoints but only get acks from 2, should trigger timers for the missing one
         let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
 
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
@@ -898,17 +898,17 @@ mod tests {
         let remote3 = Name::from_strings(["org", "ns", "remote3"]);
 
         sender
-            .add_participant(remote1.clone())
+            .add_endpoint(remote1.clone())
             .await
-            .expect("error adding participant");
+            .expect("error adding endpoint");
         sender
-            .add_participant(remote2.clone())
+            .add_endpoint(remote2.clone())
             .await
-            .expect("error adding participant");
+            .expect("error adding endpoint");
         sender
-            .add_participant(remote3.clone())
+            .add_endpoint(remote3.clone())
             .await
-            .expect("error adding participant");
+            .expect("error adding endpoint");
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
@@ -997,8 +997,8 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_on_message_from_app_with_partial_acks_removing_participant() {
-        // send message from the app to 3 participants but only get acks from 2, should trigger timers for the missing one
+    async fn test_on_message_from_app_with_partial_acks_removing_endpoint() {
+        // send message from the app to 3 endpoints but only get acks from 2, should trigger timers for the missing one
         let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
 
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
@@ -1013,17 +1013,17 @@ mod tests {
         let remote3 = Name::from_strings(["org", "ns", "remote3"]);
 
         sender
-            .add_participant(remote1.clone())
+            .add_endpoint(remote1.clone())
             .await
-            .expect("error adding participant");
+            .expect("error adding endpoint");
         sender
-            .add_participant(remote2.clone())
+            .add_endpoint(remote2.clone())
             .await
-            .expect("error adding participant");
+            .expect("error adding endpoint");
         sender
-            .add_participant(remote3.clone())
+            .add_endpoint(remote3.clone())
             .await
-            .expect("error adding participant");
+            .expect("error adding endpoint");
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
@@ -1074,9 +1074,9 @@ mod tests {
             .await
             .expect("error sending ack3");
 
-        // remove participant 2
+        // remove endpoint 2
         sender
-            .remove_participant(remote2)
+            .remove_endpoint(remote2)
             .await
             .expect("error removing remote2");
 
@@ -1088,7 +1088,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_rtx_request_and_reply_with_ack() {
-        // send message with one participant, no ack received, timer triggers, then RTX request comes, reply sent, then ack received
+        // send message with one endpoint, no ack received, timer triggers, then RTX request comes, reply sent, then ack received
         let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
 
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
@@ -1100,9 +1100,9 @@ mod tests {
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
-            .add_participant(remote.clone())
+            .add_endpoint(remote.clone())
             .await
-            .expect("error adding participant");
+            .expect("error adding endpoint");
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
@@ -1196,8 +1196,8 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_send_message_with_no_participants() {
-        // send message without adding any participants, this should fail
+    async fn test_send_message_with_no_endpoints() {
+        // send message without adding any endpoints, this should fail
         let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
 
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
@@ -1208,7 +1208,7 @@ mod tests {
         let sender = ReliableSender::new(settings, true, 10, tx);
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
-        // DO NOT add any participants - this is the key part of the test
+        // DO NOT add any endpoints - this is the key part of the test
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
@@ -1227,14 +1227,14 @@ mod tests {
         // We need to check that no message was actually sent to rx_slim
         assert!(
             result.is_ok(),
-            "on_message should succeed even with no participants"
+            "on_message should succeed even with no endpoints"
         );
 
         // Wait a bit and verify no message was sent
         let res = timeout(Duration::from_millis(200), rx_slim.recv()).await;
         assert!(
             res.is_err(),
-            "Expected no message to be sent when no participants are added, but got: {:?}",
+            "Expected no message to be sent when no endpoints are added, but got: {:?}",
             res
         );
     }
@@ -1254,9 +1254,9 @@ mod tests {
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
-            .add_participant(remote.clone())
+            .add_endpoint(remote.clone())
             .await
-            .expect("error adding participant");
+            .expect("error adding endpoint");
 
         // Create and send a test message
         let source = Name::from_strings(["org", "ns", "source"]);
@@ -1335,8 +1335,8 @@ mod tests {
         // Try to send a message after drain should return an error
         let remote = Name::from_strings(["org", "ns", "remote"]);
         sender
-            .add_participant(remote.clone())
+            .add_endpoint(remote.clone())
             .await
-            .expect("error adding participant");
+            .expect("error adding endpoint");
     }
 }

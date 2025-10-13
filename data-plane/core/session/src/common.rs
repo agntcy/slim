@@ -57,11 +57,11 @@ pub enum SessionMessage {
     DeleteSession {
         session_id: u32,
     },
-    AddParticipant {
-        participant: Name,
+    AddEndpoint {
+        endpoint: Name,
     },
-    RemoveParticipant {
-        participant: Name,
+    RemoveEndpoint {
+        endpoint: Name,
     },
     Drain {
         grace_period_ms: u64,
