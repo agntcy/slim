@@ -309,7 +309,7 @@ where
         Ok(())
     }
 
-    fn on_timer_failure(&mut self, id: u32) {
+    async fn on_timer_failure(&mut self, id: u32) {
         debug!("timer failure for message id {}, clear state", id);
         // remove all the state related to this timer
         if let Some(gt) = self.pending_acks.get_mut(&id) {
@@ -323,7 +323,17 @@ where
 
         self.pending_acks.remove(&id);
 
-        // TODO: notify the application
+        // notify the application that the message was not delivered correctly
+        if self
+            .tx
+            .send_to_app(Err(SessionError::Processing(
+                format!("error send message {}. stop retrying", id),
+            )))
+            .await
+            .is_err()
+        {
+            error!("Error notifying timer failure to the application");
+        }
     }
 
     fn add_participant(&mut self, participant: Name) {
@@ -383,7 +393,7 @@ where
                         },
                         Some(SessionMessage::TimerFailure { message_id, timeouts: _ }) => {
                             debug!("timer {} failed", message_id);
-                            self.on_timer_failure(message_id);
+                            self.on_timer_failure(message_id).await;
                         },
                         Some(SessionMessage::AddParticipant {participant}) => {
                             debug!("add new participant {}", participant);
@@ -562,7 +572,7 @@ mod tests {
         let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
 
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, _) = tokio::sync::mpsc::channel(10);
+        let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
@@ -625,6 +635,23 @@ mod tests {
         // wait for timeout - should timeout since no more messages should be sent
         let res = timeout(Duration::from_millis(800), rx_slim.recv()).await;
         assert!(res.is_err(), "Expected timeout but got: {:?}", res);
+
+        // an error should arrive to the application
+        let res = timeout(Duration::from_millis(800), rx_app.recv())
+            .await
+            .expect("timeout waiting for message")
+            .expect("channel closed");
+         
+        // Check that we received an error as expected
+        match res {
+            Err(SessionError::Processing(msg)) => {
+                assert!(msg.contains("error send message 1. stop retrying"), 
+                       "Expected timer failure error message, got: {}", msg);
+            }
+            _ => panic!("Expected SessionError::Processing with timer failure message, got: {:?}", res)
+        }
+
+
     }
 
     #[tokio::test]
