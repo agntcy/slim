@@ -11,11 +11,12 @@ import (
 type DataAccess interface {
 	ListNodes() []Node
 	GetNode(id string) (*Node, error)
-	SaveNode(node Node) (string, error)
+	SaveNode(node Node) (string, bool, error)
 	DeleteNode(id string) error
 
 	AddRoute(route Route) string
 	GetRoutesForNodeID(nodeID string) []Route
+	GetRoutesForDestinationNodeID(nodeID string) []Route
 	GetRouteByID(routeID string) *Route
 	DeleteRoute(routeID string) error
 	MarkRouteAsDeleted(routeID string) error
