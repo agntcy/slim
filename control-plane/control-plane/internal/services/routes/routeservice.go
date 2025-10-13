@@ -215,7 +215,7 @@ func (s *RouteService) deleteSingleRoute(ctx context.Context, nodeID, routeID st
 
 // NodeRegistered should be called when a new node registers to the control plane.
 // This will create initial set of routes and trigger reconciliation for the newly registered node.
-func (s *RouteService) NodeRegistered(ctx context.Context, nodeID string) {
+func (s *RouteService) NodeRegistered(ctx context.Context, nodeID string, connnDetailsUpdated bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -246,6 +246,18 @@ func (s *RouteService) NodeRegistered(ctx context.Context, nodeID string) {
 
 	// reconcile generic routes for the newly registered node
 	s.queue.Add(RouteReconcileRequest{NodeID: nodeID})
+
+	if connnDetailsUpdated {
+		// if connection details were updated, we also need to reconcile routes for other nodes
+		// which might be affected by the new node connection details
+		routesToBeReconciled := s.dbService.GetRoutesForDestinationNodeID(nodeID)
+		for _, r := range routesToBeReconciled {
+			if r.SourceNodeID != AllNodesID {
+				s.queue.Add(RouteReconcileRequest{NodeID: r.SourceNodeID})
+			}
+		}
+	}
+
 }
 
 func (s *RouteService) ListSubscriptions(

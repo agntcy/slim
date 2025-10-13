@@ -117,7 +117,7 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 			zlog.Info().Msgf("Connection details: %v", connDetails)
 		}
 
-		_, err = s.dbService.SaveNode(db.Node{
+		_, connDetailsUpdated, err := s.dbService.SaveNode(db.Node{
 			ID:          registeredNodeID,
 			GroupName:   regReq.RegisterNodeRequest.GroupName,
 			ConnDetails: connDetails,
@@ -141,7 +141,7 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 		}
 		_ = stream.Send(ackMsg)
 
-		s.routeService.NodeRegistered(ctx, registeredNodeID)
+		s.routeService.NodeRegistered(ctx, registeredNodeID, connDetailsUpdated)
 	}
 
 	if registeredNodeID == "" {
@@ -285,7 +285,7 @@ func (s *sbAPIService) handleNodeMessages(ctx context.Context,
 			s.nodeCommandHandler.ResponseReceived(ctx, registeredNodeID, msg)
 			continue
 		case *controllerapi.ControlMessage_ConfigCommandAck:
-			zlog.Debug().Msgf("Received ConfigCommandACK for message ID: %s, " +
+			zlog.Debug().Msgf("Received ConfigCommandACK for message ID: %s, "+
 				"connections_failed_to_create: %v, subs_failed_to_create: %v, subs_failed_to_delete: %v", msg.MessageId,
 				len(payload.ConfigCommandAck.ConnectionsFailedToCreate), len(payload.ConfigCommandAck.SubscriptionsFailedToSet),
 				len(payload.ConfigCommandAck.SubscriptionsFailedToDelete))
