@@ -65,8 +65,12 @@ where
 
     /// received for signals
     rx: Receiver<SessionMessage>,
-    // TO ADD:
-    // wait for missing acks on close -> drain signal
+
+    /// drain state - when true, no new messages from app are accepted
+    is_draining: bool,
+
+    /// drain timer - when set, we're waiting for pending acks during grace period
+    drain_timer: Option<Timer>,
 }
 
 #[allow(dead_code)]
@@ -95,6 +99,8 @@ where
             session_id,
             tx,
             rx: rx_timer,
+            is_draining: false,
+            drain_timer: None,
         }
     }
 
@@ -126,6 +132,12 @@ where
     }
 
     async fn on_publish_message(&mut self, mut message: Message) -> Result<(), SessionError> {
+        if self.is_draining {
+            return Err(SessionError::Processing(
+                "sender is draining, cannot send new messages".to_string(),
+            ));
+        }
+
         if self.participants_list.is_empty() {
             return Err(SessionError::Processing(
                 "participant list is empty, cannot create timers".to_string(),
@@ -304,7 +316,7 @@ where
                 "the message {} is not in the buffer anymore, delete the associated timer",
                 id
             );
-            self.on_timer_failure(id);
+            self.on_timer_failure(id).await;
         }
         Ok(())
     }
@@ -326,9 +338,10 @@ where
         // notify the application that the message was not delivered correctly
         if self
             .tx
-            .send_to_app(Err(SessionError::Processing(
-                format!("error send message {}. stop retrying", id),
-            )))
+            .send_to_app(Err(SessionError::Processing(format!(
+                "error send message {}. stop retrying",
+                id
+            ))))
             .await
             .is_err()
         {
@@ -374,6 +387,36 @@ where
         self.participants_list.remove(participant);
     }
 
+    fn start_drain(&mut self, grace_period_ms: u64) {
+        debug!("starting drain with grace period {}ms", grace_period_ms);
+        self.is_draining = true;
+
+        // If we have pending acks, start a grace period timer
+        if !self.pending_acks.is_empty() {
+            debug!("pending acks exist, starting grace period timer");
+            // Use a special timer ID for drain (u32::MAX to avoid conflicts)
+            let drain_timer_id = u32::MAX;
+            let timer = Timer::new(
+                drain_timer_id,
+                crate::timer::TimerType::Constant,
+                std::time::Duration::from_millis(grace_period_ms),
+                None,
+                Some(1), // max_retries - only fire once for drain
+            );
+            self.timer_factory.start_timer(&timer);
+            self.drain_timer = Some(timer);
+        } else {
+            debug!("no pending acks, can stop immediately");
+            // No pending acks, we can stop immediately
+            self.drain_timer = None;
+        }
+    }
+
+    fn check_drain_completion(&self) -> bool {
+        // Drain is complete if we're draining and no pending acks remain
+        self.is_draining && self.pending_acks.is_empty()
+    }
+
     async fn process_loop(mut self) {
         loop {
             tokio::select! {
@@ -384,10 +427,19 @@ where
                             if self.on_message(message).await.is_err() {
                                 error!("error sending message");
                             }
+                            // Check if drain is complete after processing messages (especially acks)
+                            if self.check_drain_completion() {
+                                debug!("drain completed, all acks received");
+                                break;
+                            }
                         }
                         Some(SessionMessage::TimerTimeout { message_id, timeouts: _ }) => {
                             debug!("timer {} timeout", message_id);
-                            if self.on_timer_timeout(message_id).await.is_err() {
+                            // Check if this is the drain timer
+                            if message_id == u32::MAX {
+                                debug!("drain grace period expired, stopping sender");
+                                break; // Exit the loop to stop the sender
+                            } else if self.on_timer_timeout(message_id).await.is_err() {
                                 error!("error processoing message timeout");
                             }
                         },
@@ -402,6 +454,10 @@ where
                         Some(SessionMessage::RemoveParticipant {participant}) => {
                             debug!("remove participant {}", participant);
                             self.rm_participant(&participant);
+                        }
+                        Some(SessionMessage::Drain { grace_period_ms }) => {
+                            debug!("received drain signal with grace period {}ms", grace_period_ms);
+                            self.start_drain(grace_period_ms);
                         }
                         Some(_) => {
                             debug!("unexpected message type");
@@ -485,6 +541,15 @@ where
             .send(SessionMessage::RemoveParticipant { participant })
             .await
             .map_err(|e| SessionError::Processing(format!("Failed to remove participant: {}", e)))
+    }
+
+    /// Initiate graceful shutdown - no new messages accepted, wait for pending acks
+    /// during grace period before forcefully stopping
+    pub async fn drain(&self, grace_period_ms: u64) -> Result<(), SessionError> {
+        self.tx
+            .send(SessionMessage::Drain { grace_period_ms })
+            .await
+            .map_err(|e| SessionError::Processing(format!("Failed to initiate drain: {}", e)))
     }
 }
 
@@ -641,17 +706,21 @@ mod tests {
             .await
             .expect("timeout waiting for message")
             .expect("channel closed");
-         
+
         // Check that we received an error as expected
         match res {
             Err(SessionError::Processing(msg)) => {
-                assert!(msg.contains("error send message 1. stop retrying"), 
-                       "Expected timer failure error message, got: {}", msg);
+                assert!(
+                    msg.contains("error send message 1. stop retrying"),
+                    "Expected timer failure error message, got: {}",
+                    msg
+                );
             }
-            _ => panic!("Expected SessionError::Processing with timer failure message, got: {:?}", res)
+            _ => panic!(
+                "Expected SessionError::Processing with timer failure message, got: {:?}",
+                res
+            ),
         }
-
-
     }
 
     #[tokio::test]
@@ -1168,5 +1237,106 @@ mod tests {
             "Expected no message to be sent when no participants are added, but got: {:?}",
             res
         );
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_drain_with_pending_acks() {
+        // Test drain functionality - send message, initiate drain, then send ack
+        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
+
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, _) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+        let sender = ReliableSender::new(settings, true, 10, tx);
+        let remote = Name::from_strings(["org", "ns", "remote"]);
+
+        sender
+            .add_participant(remote.clone())
+            .await
+            .expect("error adding participant");
+
+        // Create and send a test message
+        let source = Name::from_strings(["org", "ns", "source"]);
+        let mut message =
+            Message::new_publish(&source, &remote, None, "test_payload", vec![1, 2, 3, 4]);
+        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+
+        sender
+            .on_message(message.clone(), MessageDirection::South)
+            .await
+            .expect("error sending message");
+
+        // Wait for the message
+        let received = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for message")
+            .expect("channel closed")
+            .expect("error message");
+
+        assert_eq!(received.get_id(), 1);
+
+        // Initiate drain with 2 second grace period
+        sender.drain(2000).await.expect("error initiating drain");
+
+        // Try to send another message - this should be rejected
+        let mut message2 =
+            Message::new_publish(&source, &remote, None, "test_payload2", vec![5, 6, 7, 8]);
+        message2.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+
+        let result = sender.on_message(message2, MessageDirection::South).await;
+
+        // The message should be queued successfully, but processing will fail internally
+        assert!(result.is_ok(), "Message queueing should succeed");
+
+        // No second message should be sent to SLIM since we're draining
+        let res = timeout(Duration::from_millis(200), rx_slim.recv()).await;
+        if let Ok(Some(Ok(_))) = res {
+            panic!("Expected no message to be sent during drain, but got one");
+        }
+
+        // Send ack for the first message
+        let mut ack = Message::new_publish(&remote, &source, None, "", vec![]);
+        ack.get_session_header_mut().set_message_id(1);
+        ack.get_session_header_mut()
+            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PAck);
+
+        sender
+            .on_message(ack, MessageDirection::North)
+            .await
+            .expect("error sending ack");
+
+        // Give some time for the sender to process the ack and complete drain
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_drain_with_no_pending_acks() {
+        // Test drain when no pending acks exist - should stop immediately
+        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
+
+        let (tx_slim, _) = tokio::sync::mpsc::channel(10);
+        let (tx_app, _) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+        let sender = ReliableSender::new(settings, true, 10, tx);
+
+        // Initiate drain without any pending messages
+        let result = sender.drain(1000).await;
+        assert!(
+            result.is_ok(),
+            "Drain should succeed even with no pending acks"
+        );
+
+        // Try to send a message after drain should return an error
+        let remote = Name::from_strings(["org", "ns", "remote"]);
+        sender
+            .add_participant(remote.clone())
+            .await
+            .expect("error adding participant");
     }
 }

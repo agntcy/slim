@@ -63,4 +63,7 @@ pub enum SessionMessage {
     RemoveParticipant {
         participant: Name,
     },
+    Drain {
+        grace_period_ms: u64,
+    },
 }
