@@ -8,9 +8,9 @@ use std::sync::{Arc, Weak};
 // Third-party crates
 use slim_auth::traits::{TokenProvider, Verifier};
 
-use crate::session::common::AppChannelReceiver;
-use crate::session::transmitter::SessionTransmitter;
-use crate::session::{Session, Transmitter};
+use crate::common::AppChannelReceiver;
+use crate::transmitter::SessionTransmitter;
+use crate::{Session, Transmitter};
 
 /// Session ID
 pub type Id = u32;
@@ -91,13 +91,13 @@ where
 mod tests {
     use super::*;
     use crate::SessionError;
-    use crate::session::common::AppChannelSender;
-    use crate::session::handle::Session as PublicSession;
-    use crate::session::handle::SessionType;
-    use crate::session::interceptor::SessionInterceptor;
-    use crate::session::interceptor::SessionInterceptorProvider;
-    use crate::session::point_to_point::{PointToPoint, PointToPointConfiguration};
-    use crate::session::traits::Transmitter;
+    use crate::common::AppChannelSender;
+    use crate::handle::Session as PublicSession;
+    use crate::handle::SessionType;
+    use crate::interceptor::SessionInterceptor;
+    use crate::interceptor::SessionInterceptorProvider;
+    use crate::point_to_point::{PointToPoint, PointToPointConfiguration};
+    use crate::traits::Transmitter;
     use async_trait::async_trait;
     use slim_auth::errors::AuthError;
     use slim_auth::traits::{TokenProvider, Verifier};
@@ -168,14 +168,14 @@ mod tests {
 
         fn send_to_app(
             &self,
-            msg: Result<Message, crate::session::SessionError>,
+            msg: Result<Message, crate::SessionError>,
         ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static {
             let tx = self.app_tx.clone();
             async move {
                 if let Some(tx) = tx {
-                    tx.send(msg).await.map_err(|e| {
-                        crate::session::SessionError::AppTransmission(e.to_string())
-                    })?;
+                    tx.send(msg)
+                        .await
+                        .map_err(|e| crate::SessionError::AppTransmission(e.to_string()))?;
                 }
                 Ok(())
             }

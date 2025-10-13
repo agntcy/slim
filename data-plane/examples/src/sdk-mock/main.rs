@@ -8,19 +8,16 @@ use tracing::info;
 use slim::config;
 use slim_auth::shared_secret::SharedSecret;
 use slim_datapath::messages::Name;
-use slim_service::{
-    PointToPointConfiguration,
-    session::{self, SessionConfig},
-};
+use slim_session::{self, PointToPointConfiguration, SessionConfig};
 
 mod args;
 
 // Function to handle session messages using spawn_receiver
 fn spawn_session_receiver(
-    session_ctx: slim_service::session::context::SessionContext<SharedSecret, SharedSecret>,
+    session_ctx: slim_session::context::SessionContext<SharedSecret, SharedSecret>,
     local_name: String,
     route: Name,
-) -> std::sync::Arc<slim_service::session::Session<SharedSecret, SharedSecret>> {
+) -> std::sync::Arc<slim_session::Session<SharedSecret, SharedSecret>> {
     session_ctx
         .spawn_receiver(|mut rx, weak| async move {
             info!("Session handler task started");
@@ -310,7 +307,7 @@ async fn main() {
 
                 let notification = next.unwrap().unwrap();
                 match notification {
-                    session::notification::Notification::NewSession(session) => {
+                    slim_session::notification::Notification::NewSession(session) => {
                         info!("New session created");
 
                         // Use the extracted spawn_session_receiver function

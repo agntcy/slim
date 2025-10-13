@@ -9,7 +9,7 @@ use tracing::{error, info};
 
 use slim_auth::shared_secret::SharedSecret;
 use slim_datapath::messages::{Name, utils::SlimHeaderFlags};
-use slim_service::{MulticastConfiguration, session::Notification};
+use slim_session::{MulticastConfiguration, Notification};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -208,7 +208,7 @@ async fn main() {
         // create session
         let session_ctx = app
             .create_session(
-                slim_service::session::SessionConfig::Multicast(MulticastConfiguration::new(
+                slim_session::SessionConfig::Multicast(MulticastConfiguration::new(
                     channel_name.clone(),
                     Some(10),
                     Some(Duration::from_secs(1)),

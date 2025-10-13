@@ -7,9 +7,9 @@
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::ProtoMessage as Message;
 
-use crate::session::Transmitter;
-use crate::session::context::SessionContext;
-use crate::session::transmitter::SessionTransmitter;
+use crate::Transmitter;
+use crate::context::SessionContext;
+use crate::transmitter::SessionTransmitter;
 
 /// Session context
 #[derive(Debug)]

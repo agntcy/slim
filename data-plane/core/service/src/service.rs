@@ -27,10 +27,10 @@ use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::Name;
 
 // Local crate
-use crate::SessionError;
 use crate::app::App;
 use crate::errors::ServiceError;
-use crate::session::notification::Notification;
+use slim_session::SessionError;
+use slim_session::notification::Notification;
 
 // Define the kind of the component as static string
 pub const KIND: &str = "slim";
@@ -419,7 +419,7 @@ impl ComponentBuilder for ServiceBuilder {
 // tests
 #[cfg(test)]
 mod tests {
-    use crate::session::{MulticastConfiguration, PointToPointConfiguration, SessionConfig};
+    use slim_session::{MulticastConfiguration, PointToPointConfiguration, SessionConfig};
 
     use super::*;
     use slim_auth::shared_secret::SharedSecret;
@@ -653,7 +653,7 @@ mod tests {
 
         // get default session config
         let session_config_ret = app
-            .get_default_session_config(crate::session::SessionType::PointToPoint)
+            .get_default_session_config(slim_session::SessionType::PointToPoint)
             .expect("failed to get default session config");
 
         assert_eq!(session_config, session_config_ret);
@@ -663,11 +663,10 @@ mod tests {
 
         let stream = Name::from_strings(["agntcy", "ns", "stream"]);
 
-        let session_config = SessionConfig::Multicast(MulticastConfiguration::new_with_initiator(
+        let session_config = SessionConfig::Multicast(slim_session::MulticastConfiguration::new(
             stream.clone(),
             Some(1000),
             Some(time::Duration::from_secs(123)),
-            false,
             false,
             HashMap::new(),
         ));
@@ -683,15 +682,13 @@ mod tests {
             "session config mismatch"
         );
 
-        let session_config = SessionConfig::Multicast(MulticastConfiguration::new_with_initiator(
+        let session_config = SessionConfig::Multicast(MulticastConfiguration::new(
             stream.clone(),
             Some(2000),
             Some(time::Duration::from_secs(1234)),
             false,
-            false,
             HashMap::new(),
         ));
-
         session_info
             .session_arc()
             .unwrap()
@@ -706,11 +703,10 @@ mod tests {
             "session config mismatch"
         );
 
-        let session_config = SessionConfig::Multicast(MulticastConfiguration::new_with_initiator(
+        let session_config = SessionConfig::Multicast(MulticastConfiguration::new(
             stream.clone(),
             Some(20000),
             Some(time::Duration::from_secs(123456)),
-            false,
             false,
             HashMap::new(),
         ));
@@ -720,7 +716,7 @@ mod tests {
 
         // get default session config
         let session_config_ret = app
-            .get_default_session_config(crate::session::SessionType::Multicast)
+            .get_default_session_config(slim_session::SessionType::Multicast)
             .expect("failed to get default session config");
 
         assert_eq!(session_config, session_config_ret);

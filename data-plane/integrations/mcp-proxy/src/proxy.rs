@@ -13,9 +13,11 @@ use rmcp::{
 use slim::config::ConfigResult;
 use slim_auth::shared_secret::SharedSecret;
 use slim_datapath::messages::Name;
-use slim_service::{
-    PointToPointConfiguration, Timer, TimerObserver, TimerType,
-    session::{SessionConfig, context::SessionContext, notification::Notification},
+use slim_session::{
+    PointToPointConfiguration, SessionConfig,
+    context::SessionContext,
+    notification::Notification,
+    timer::{Timer, TimerObserver, TimerType},
 };
 
 use futures_util::{StreamExt, sink::SinkExt};

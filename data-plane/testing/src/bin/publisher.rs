@@ -199,8 +199,8 @@ async fn main() {
     // create a point to point session
     let res = app
         .create_session(
-            slim_service::session::SessionConfig::PointToPoint(
-                slim_service::PointToPointConfiguration::default(),
+            slim_session::SessionConfig::PointToPoint(
+                slim_session::PointToPointConfiguration::default(),
             ),
             None,
         )

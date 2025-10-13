@@ -24,7 +24,7 @@ use slim_datapath::{
 };
 
 // Local crate
-use crate::session::{
+use crate::{
     Common, CommonSession, Id, MessageDirection, MessageHandler, SessionConfig, SessionConfigTrait,
     State, Transmitter,
     channel_endpoint::{
@@ -112,7 +112,7 @@ impl MulticastConfiguration {
     }
 
     #[cfg(test)]
-    pub(crate) fn new_with_initiator(
+    pub fn new_with_initiator(
         channel_name: Name,
         max_retries: Option<u32>,
         timeout: Option<std::time::Duration>,
@@ -1047,7 +1047,7 @@ where
 mod tests {
     use std::time::Duration;
 
-    use crate::session::transmitter::SessionTransmitter;
+    use crate::transmitter::SessionTransmitter;
 
     use super::*;
     use slim_auth::shared_secret::SharedSecret;

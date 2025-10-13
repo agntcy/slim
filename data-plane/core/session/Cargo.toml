@@ -1,28 +1,28 @@
 [package]
-name = "agntcy-slim-service"
+name = "agntcy-slim-session"
 edition = { workspace = true }
 license = { workspace = true }
-version = "0.7.0"
-description = "Main service and public API to interact with SLIM data plane."
+version = "0.1.0"
+description = "SLIM session internal implementation."
 
 [lib]
-name = "slim_service"
+name = "slim_session"
 
 [dependencies]
 agntcy-slim-auth = { workspace = true }
-agntcy-slim-config = { workspace = true }
-agntcy-slim-controller = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-mls = { workspace = true }
-agntcy-slim-session = { workspace = true }
 
-dirs = "5.0"
-drain = { workspace = true }
+async-trait = { workspace = true }
+base64 = { workspace = true }
+bincode = { workspace = true }
 parking_lot = { workspace = true }
+rand = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
+tonic = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]

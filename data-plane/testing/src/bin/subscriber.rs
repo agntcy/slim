@@ -3,7 +3,7 @@
 
 use slim_auth::shared_secret::SharedSecret;
 use slim_datapath::messages::Name;
-use slim_service::session::Notification;
+use slim_session::Notification;
 use std::fs::File;
 use std::io::prelude::*;
 use testing::parse_line;
@@ -163,10 +163,10 @@ async fn main() {
 }
 
 fn spawn_session_receiver(
-    session_ctx: slim_service::session::context::SessionContext<SharedSecret, SharedSecret>,
+    session_ctx: slim_session::context::SessionContext<SharedSecret, SharedSecret>,
     conn_id: u64,
     id_bytes: Vec<u8>,
-) -> std::sync::Arc<slim_service::session::Session<SharedSecret, SharedSecret>> {
+) -> std::sync::Arc<slim_session::Session<SharedSecret, SharedSecret>> {
     session_ctx
         .spawn_receiver(move |mut rx, weak| async move {
             info!("session handler started");

@@ -10,7 +10,7 @@ use slim_datapath::api::ProtoMessage as Message;
 use slim_datapath::messages::utils::SLIM_IDENTITY;
 
 // Local crate
-use crate::session::errors::SessionError;
+use crate::errors::SessionError;
 
 #[async_trait::async_trait]
 pub trait SessionInterceptor {
@@ -51,7 +51,7 @@ pub trait SessionInterceptorProvider {
 /// IdentityInterceptor is a session interceptor that adds the identity to the message metadata
 /// when a message is received from the app, and verifies the identity when a message is received
 /// from slim.
-pub(crate) struct IdentityInterceptor<P, V>
+pub struct IdentityInterceptor<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,

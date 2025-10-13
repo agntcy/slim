@@ -25,7 +25,7 @@ use slim_datapath::{
 };
 
 // Local crate
-use crate::session::{
+use crate::{
     Id, SessionError, Transmitter,
     interceptor_mls::{METADATA_MLS_ENABLED, METADATA_MLS_INIT_COMMIT_ID},
     moderator_task::{
@@ -52,7 +52,7 @@ where
 }
 
 #[async_trait]
-impl<T> crate::session::timer::TimerObserver for RequestTimerObserver<T>
+impl<T> crate::timer::TimerObserver for RequestTimerObserver<T>
 where
     T: Transmitter + Send + Sync + Clone + 'static,
 {
@@ -756,7 +756,7 @@ where
     moderator_name: Option<Name>,
 
     /// timer used for retransmission of mls proposal messages
-    timer: Option<crate::session::timer::Timer>,
+    timer: Option<crate::timer::Timer>,
 
     /// endpoint
     endpoint: Endpoint<T>,
@@ -1042,9 +1042,9 @@ where
             tx: self.endpoint.tx.clone(),
         });
 
-        let timer = crate::session::timer::Timer::new(
+        let timer = crate::timer::Timer::new(
             proposal_id,
-            crate::session::timer::TimerType::Constant,
+            crate::timer::TimerType::Constant,
             self.endpoint.retries_interval,
             None,
             Some(self.endpoint.max_retries),
@@ -1136,7 +1136,7 @@ where
 /// structure to store timers for pending requests
 struct ChannelTimer {
     /// the timer itself
-    timer: crate::session::timer::Timer,
+    timer: crate::timer::Timer,
 
     /// number of expected acks before stop the timer
     /// this is used for broadcast messages
@@ -1315,9 +1315,9 @@ where
             tx: self.endpoint.tx.clone(),
         });
 
-        let timer = crate::session::timer::Timer::new(
+        let timer = crate::timer::Timer::new(
             key,
-            crate::session::timer::TimerType::Constant,
+            crate::timer::TimerType::Constant,
             self.endpoint.retries_interval,
             None,
             Some(self.endpoint.max_retries),
@@ -2214,7 +2214,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::session::transmitter::SessionTransmitter;
+    use crate::transmitter::SessionTransmitter;
 
     use super::*;
     use slim_auth::shared_secret::SharedSecret;
