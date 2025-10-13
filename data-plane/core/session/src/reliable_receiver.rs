@@ -301,7 +301,7 @@ where
         // notify the application that the message was not delivered correctly
         self.tx
             .send_to_app(Err(SessionError::Processing(format!(
-                "error send message {}. stop retrying",
+                "error receiving message {}. stop retrying",
                 id
             ))))
             .await
@@ -463,5 +463,822 @@ where
             .send(SessionMessage::OnMessage { message, direction })
             .await
             .map_err(|_| SessionError::Processing("Failed to queue message".to_string()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::transmitter::SessionTransmitter;
+
+    use super::*;
+    use std::time::Duration;
+    use tokio::time::timeout;
+    use tracing_test::traced_test;
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_receive_messages_1_and_2_sequentially() {
+        // Test 1: receive messages 1 and 2, they should be correctly sent to the app
+        let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
+
+        let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let local_name = Name::from_strings(["org", "ns", "local"]);
+        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+
+        let receiver = ReliableReceiver::new(
+            Some(settings),
+            10,
+            local_name.clone(),
+            SessionType::PointToPoint,
+            true,
+            tx,
+        );
+
+        // Create test message 1
+        let mut message1 = Message::new_publish(
+            &remote_name,
+            &local_name,
+            None,
+            "test_payload_1",
+            vec![1, 2, 3, 4],
+        );
+        message1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message1.get_session_header_mut().set_message_id(1);
+        message1.get_session_header_mut().set_session_id(10);
+        message1.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        // Send message 1
+        receiver
+            .on_message(message1, MessageDirection::North)
+            .await
+            .expect("error sending message1");
+
+        // Wait for the message to arrive at rx_app
+        let received1 = timeout(Duration::from_millis(100), rx_app.recv())
+            .await
+            .expect("timeout waiting for message1")
+            .expect("channel closed")
+            .expect("error in received message1");
+
+        // Verify the message was received correctly
+        assert_eq!(received1.get_source(), remote_name);
+        assert_eq!(received1.get_id(), 1);
+
+        // Create test message 2
+        let mut message2 = Message::new_publish(
+            &remote_name,
+            &local_name,
+            None,
+            "test_payload_2",
+            vec![5, 6, 7, 8],
+        );
+        message2.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message2.get_session_header_mut().set_message_id(2);
+        message2.get_session_header_mut().set_session_id(10);
+        message2.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        // Send message 2
+        receiver
+            .on_message(message2, MessageDirection::North)
+            .await
+            .expect("error sending message2");
+
+        // Wait for the message to arrive at rx_app
+        let received2 = timeout(Duration::from_millis(100), rx_app.recv())
+            .await
+            .expect("timeout waiting for message2")
+            .expect("channel closed")
+            .expect("error in received message2");
+
+        // Verify the message was received correctly
+        assert_eq!(received2.get_source(), remote_name);
+        assert_eq!(received2.get_id(), 2);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_message_loss_detection_with_rtx_timeout() {
+        // Test 2: receive message 1 and 3, detect loss for message 2. RTX timer expires after retries
+        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
+
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let local_name = Name::from_strings(["org", "ns", "local"]);
+        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+
+        let receiver = ReliableReceiver::new(
+            Some(settings),
+            10,
+            local_name.clone(),
+            SessionType::PointToPoint,
+            true,
+            tx,
+        );
+
+        // Create test message 1
+        let mut message1 = Message::new_publish(
+            &remote_name,
+            &local_name,
+            None,
+            "test_payload_1",
+            vec![1, 2, 3, 4],
+        );
+        message1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message1.get_session_header_mut().set_message_id(1);
+        message1.get_session_header_mut().set_session_id(10);
+        message1.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        // Send message 1
+        receiver
+            .on_message(message1, MessageDirection::North)
+            .await
+            .expect("error sending message1");
+
+        // Wait for message 1 to arrive at rx_app
+        let received1 = timeout(Duration::from_millis(100), rx_app.recv())
+            .await
+            .expect("timeout waiting for message1")
+            .expect("channel closed")
+            .expect("error in received message1");
+
+        assert_eq!(received1.get_id(), 1);
+
+        // Create test message 3 (message 2 is missing)
+        let mut message3 = Message::new_publish(
+            &remote_name,
+            &local_name,
+            None,
+            "test_payload_3",
+            vec![9, 10, 11, 12],
+        );
+        message3.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message3.get_session_header_mut().set_message_id(3);
+        message3.get_session_header_mut().set_session_id(10);
+        message3.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        // Send message 3 (this should trigger RTX request for message 2)
+        receiver
+            .on_message(message3, MessageDirection::North)
+            .await
+            .expect("error sending message3");
+
+        // Wait for RTX request to be sent to SLIM
+        let rtx_request = timeout(Duration::from_millis(200), rx_slim.recv())
+            .await
+            .expect("timeout waiting for RTX request")
+            .expect("channel closed")
+            .expect("error in RTX request");
+
+        // Verify it's an RTX request for message ID 2
+        assert_eq!(
+            rtx_request.get_session_message_type(),
+            slim_datapath::api::ProtoSessionMessageType::RtxRequest
+        );
+        assert_eq!(rtx_request.get_id(), 2);
+        assert_eq!(rtx_request.get_dst(), remote_name);
+
+        // Wait for first RTX retry (after 500ms)
+        let rtx_retry1 = timeout(Duration::from_millis(800), rx_slim.recv())
+            .await
+            .expect("timeout waiting for RTX retry1")
+            .expect("channel closed")
+            .expect("error in RTX retry1");
+
+        // Verify it's the same RTX request
+        assert_eq!(
+            rtx_retry1.get_session_message_type(),
+            slim_datapath::api::ProtoSessionMessageType::RtxRequest
+        );
+        assert_eq!(rtx_retry1.get_id(), 2);
+
+        // Wait for second RTX retry
+        let rtx_retry2 = timeout(Duration::from_millis(800), rx_slim.recv())
+            .await
+            .expect("timeout waiting for RTX retry2")
+            .expect("channel closed")
+            .expect("error in RTX retry2");
+
+        // Verify it's the same RTX request
+        assert_eq!(
+            rtx_retry2.get_session_message_type(),
+            slim_datapath::api::ProtoSessionMessageType::RtxRequest
+        );
+        assert_eq!(rtx_retry2.get_id(), 2);
+
+        // After max retries, an error should be sent to the app
+        let app_error = timeout(Duration::from_millis(800), rx_app.recv())
+            .await
+            .expect("timeout waiting for app error")
+            .expect("channel closed");
+
+        // Check that we received an error as expected
+        match app_error {
+            Err(SessionError::Processing(msg)) => {
+                assert!(msg.contains("error receiving message 2. stop retrying"),);
+            }
+            _ => panic!(
+                "Expected SessionError::Processing with max retries, got: {:?}",
+                app_error
+            ),
+        }
+
+        // No more RTX requests should be sent
+        let res = timeout(Duration::from_millis(800), rx_slim.recv()).await;
+        assert!(res.is_err(), "Expected timeout but got: {:?}", res);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_rtx_reply_success() {
+        // Test 3: same as test 2, but after the first rtx the receiver receives the rtx reply
+        // so all messages 1, 2, and 3 are sent to the application
+        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
+
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let local_name = Name::from_strings(["org", "ns", "local"]);
+        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+
+        let receiver = ReliableReceiver::new(
+            Some(settings),
+            10,
+            local_name.clone(),
+            SessionType::PointToPoint,
+            true,
+            tx,
+        );
+
+        // Create test message 1
+        let mut message1 = Message::new_publish(
+            &remote_name,
+            &local_name,
+            None,
+            "test_payload_1",
+            vec![1, 2, 3, 4],
+        );
+        message1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message1.get_session_header_mut().set_message_id(1);
+        message1.get_session_header_mut().set_session_id(10);
+        message1.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        // Send message 1
+        receiver
+            .on_message(message1, MessageDirection::North)
+            .await
+            .expect("error sending message1");
+
+        // Wait for message 1 to arrive at rx_app
+        let received1 = timeout(Duration::from_millis(100), rx_app.recv())
+            .await
+            .expect("timeout waiting for message1")
+            .expect("channel closed")
+            .expect("error in received message1");
+
+        assert_eq!(received1.get_id(), 1);
+
+        // Create test message 3 (message 2 is missing)
+        let mut message3 = Message::new_publish(
+            &remote_name,
+            &local_name,
+            None,
+            "test_payload_3",
+            vec![9, 10, 11, 12],
+        );
+        message3.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message3.get_session_header_mut().set_message_id(3);
+        message3.get_session_header_mut().set_session_id(10);
+        message3.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        // Send message 3 (this should trigger RTX request for message 2)
+        receiver
+            .on_message(message3, MessageDirection::North)
+            .await
+            .expect("error sending message3");
+
+        // Wait for RTX request to be sent to SLIM
+        let rtx_request = timeout(Duration::from_millis(200), rx_slim.recv())
+            .await
+            .expect("timeout waiting for RTX request")
+            .expect("channel closed")
+            .expect("error in RTX request");
+
+        // Verify it's an RTX request for message ID 2
+        assert_eq!(
+            rtx_request.get_session_message_type(),
+            slim_datapath::api::ProtoSessionMessageType::RtxRequest
+        );
+        assert_eq!(rtx_request.get_id(), 2);
+
+        // Create RTX reply with the missing message 2
+        let mut rtx_reply = Message::new_publish(
+            &remote_name,
+            &local_name,
+            None,
+            "test_payload_2",
+            vec![5, 6, 7, 8],
+        );
+        rtx_reply.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxReply);
+        rtx_reply.get_session_header_mut().set_message_id(2);
+        rtx_reply.get_session_header_mut().set_session_id(10);
+        rtx_reply.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        // Send the RTX reply
+        receiver
+            .on_message(rtx_reply, MessageDirection::North)
+            .await
+            .expect("error sending rtx reply");
+
+        // Now we should receive message 2 from the app (RTX reply success)
+        let received2 = timeout(Duration::from_millis(100), rx_app.recv())
+            .await
+            .expect("timeout waiting for message2")
+            .expect("channel closed")
+            .expect("error in received message2");
+
+        assert_eq!(received2.get_id(), 2);
+
+        // And then message 3 should also be delivered
+        let received3 = timeout(Duration::from_millis(100), rx_app.recv())
+            .await
+            .expect("timeout waiting for message3")
+            .expect("channel closed")
+            .expect("error in received message3");
+
+        assert_eq!(received3.get_id(), 3);
+
+        // No more RTX requests should be sent since we got the reply
+        let res = timeout(Duration::from_millis(800), rx_slim.recv()).await;
+        assert!(res.is_err(), "Expected timeout but got: {:?}", res);
+
+        // No errors should be sent to the app
+        let res = timeout(Duration::from_millis(100), rx_app.recv()).await;
+        assert!(res.is_err(), "Expected timeout but got: {:?}", res);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_rtx_reply_with_error() {
+        // Test 4: same as test 3, but the reply contains an error so the app should get
+        // messages 1 and 3 plus an error for message 2
+        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
+
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let local_name = Name::from_strings(["org", "ns", "local"]);
+        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+
+        let receiver = ReliableReceiver::new(
+            Some(settings),
+            10,
+            local_name.clone(),
+            SessionType::PointToPoint,
+            true,
+            tx,
+        );
+
+        // Create test message 1
+        let mut message1 = Message::new_publish(
+            &remote_name,
+            &local_name,
+            None,
+            "test_payload_1",
+            vec![1, 2, 3, 4],
+        );
+        message1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message1.get_session_header_mut().set_message_id(1);
+        message1.get_session_header_mut().set_session_id(10);
+        message1.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        // Send message 1
+        receiver
+            .on_message(message1, MessageDirection::North)
+            .await
+            .expect("error sending message1");
+
+        // Wait for message 1 to arrive at rx_app
+        let received1 = timeout(Duration::from_millis(100), rx_app.recv())
+            .await
+            .expect("timeout waiting for message1")
+            .expect("channel closed")
+            .expect("error in received message1");
+
+        assert_eq!(received1.get_id(), 1);
+
+        // Create test message 3 (message 2 is missing)
+        let mut message3 = Message::new_publish(
+            &remote_name,
+            &local_name,
+            None,
+            "test_payload_3",
+            vec![9, 10, 11, 12],
+        );
+        message3.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message3.get_session_header_mut().set_message_id(3);
+        message3.get_session_header_mut().set_session_id(10);
+        message3.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        // Send message 3 (this should trigger RTX request for message 2)
+        receiver
+            .on_message(message3, MessageDirection::North)
+            .await
+            .expect("error sending message3");
+
+        // Wait for RTX request to be sent to SLIM
+        let rtx_request = timeout(Duration::from_millis(200), rx_slim.recv())
+            .await
+            .expect("timeout waiting for RTX request")
+            .expect("channel closed")
+            .expect("error in RTX request");
+
+        // Verify it's an RTX request for message ID 2
+        assert_eq!(
+            rtx_request.get_session_message_type(),
+            slim_datapath::api::ProtoSessionMessageType::RtxRequest
+        );
+        assert_eq!(rtx_request.get_id(), 2);
+
+        // Create RTX reply with an error for message 2
+        let mut rtx_reply = Message::new_publish(&remote_name, &local_name, None, "", vec![]);
+        rtx_reply.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxReply);
+        rtx_reply.get_session_header_mut().set_message_id(2);
+        rtx_reply.get_session_header_mut().set_session_id(10);
+        rtx_reply.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        // Set an error in the RTX reply
+        rtx_reply.get_slim_header_mut().set_error(Some(true));
+
+        // Send the RTX reply with error
+        receiver
+            .on_message(rtx_reply, MessageDirection::North)
+            .await
+            .expect("error sending rtx reply");
+
+        // We should receive an error for the lost message
+        let app_error = timeout(Duration::from_millis(100), rx_app.recv())
+            .await
+            .expect("timeout waiting for app error")
+            .expect("channel closed");
+
+        // Check that we received an error (None represents a lost message)
+        match app_error {
+            Err(SessionError::MessageLost(session_id)) => {
+                assert_eq!(session_id, "10");
+            }
+            _ => panic!("Expected SessionError::MessageLost, got: {:?}", app_error),
+        }
+
+        // And then message 3 should be delivered
+        let received3 = timeout(Duration::from_millis(100), rx_app.recv())
+            .await
+            .expect("timeout waiting for message3")
+            .expect("channel closed")
+            .expect("error in received message3");
+
+        assert_eq!(received3.get_id(), 3);
+
+        // No more RTX requests should be sent since we got the error reply
+        let res = timeout(Duration::from_millis(800), rx_slim.recv()).await;
+        assert!(res.is_err(), "Expected timeout but got: {:?}", res);
+
+        // No more messages should be sent to the app
+        let res = timeout(Duration::from_millis(100), rx_app.recv()).await;
+        assert!(res.is_err(), "Expected timeout but got: {:?}", res);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_multiple_senders_all_messages_delivered() {
+        // Test 6: the receiver receives messages from 2 remote senders.
+        // receives message 1 and 2 from remote1 and 1 and 2 from remote2.
+        // all messages are correctly delivered to the app
+        let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
+
+        let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let local_name = Name::from_strings(["org", "ns", "local"]);
+        let group_name = Name::from_strings(["org", "ns", "group"]);
+        let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
+        let remote2_name = Name::from_strings(["org", "ns", "remote2"]);
+
+        let receiver = ReliableReceiver::new(
+            Some(settings),
+            10,
+            local_name.clone(),
+            SessionType::PointToPoint,
+            true,
+            tx,
+        );
+
+        // Create and send message 1 from remote1
+        let mut message1_r1 = Message::new_publish(
+            &remote1_name,
+            &group_name,
+            None,
+            "payload_1_r1",
+            vec![1, 2, 3, 4],
+        );
+        message1_r1
+            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message1_r1.get_session_header_mut().set_message_id(1);
+        message1_r1.get_session_header_mut().set_session_id(10);
+        message1_r1.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        receiver
+            .on_message(message1_r1, MessageDirection::North)
+            .await
+            .expect("error sending message1_r1");
+
+        // Create and send message 1 from remote2
+        let mut message1_r2 = Message::new_publish(
+            &remote2_name,
+            &group_name,
+            None,
+            "payload_1_r2",
+            vec![5, 6, 7, 8],
+        );
+        message1_r2
+            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message1_r2.get_session_header_mut().set_message_id(1);
+        message1_r2.get_session_header_mut().set_session_id(10);
+        message1_r2.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        receiver
+            .on_message(message1_r2, MessageDirection::North)
+            .await
+            .expect("error sending message1_r2");
+
+        // Create and send message 2 from remote1
+        let mut message2_r1 = Message::new_publish(
+            &remote1_name,
+            &group_name,
+            None,
+            "payload_2_r1",
+            vec![9, 10, 11, 12],
+        );
+        message2_r1
+            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message2_r1.get_session_header_mut().set_message_id(2);
+        message2_r1.get_session_header_mut().set_session_id(10);
+        message2_r1.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        receiver
+            .on_message(message2_r1, MessageDirection::North)
+            .await
+            .expect("error sending message2_r1");
+
+        // Create and send message 2 from remote2
+        let mut message2_r2 = Message::new_publish(
+            &remote2_name,
+            &group_name,
+            None,
+            "payload_2_r2",
+            vec![13, 14, 15, 16],
+        );
+        message2_r2
+            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message2_r2.get_session_header_mut().set_message_id(2);
+        message2_r2.get_session_header_mut().set_session_id(10);
+        message2_r2.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        receiver
+            .on_message(message2_r2, MessageDirection::North)
+            .await
+            .expect("error sending message2_r2");
+
+        // Collect all received messages
+        let mut received_messages = Vec::new();
+        for _ in 0..4 {
+            let received = timeout(Duration::from_millis(100), rx_app.recv())
+                .await
+                .expect("timeout waiting for message")
+                .expect("channel closed")
+                .expect("error in received message");
+            received_messages.push((received.get_source(), received.get_id()));
+        }
+
+        // Verify all messages were received correctly
+        // Messages should be delivered in order for each sender
+        assert!(received_messages.contains(&(remote1_name.clone(), 1)));
+        assert!(received_messages.contains(&(remote1_name.clone(), 2)));
+        assert!(received_messages.contains(&(remote2_name.clone(), 1)));
+        assert!(received_messages.contains(&(remote2_name.clone(), 2)));
+
+        // No more messages should arrive
+        let res = timeout(Duration::from_millis(100), rx_app.recv()).await;
+        assert!(res.is_err(), "Expected timeout but got: {:?}", res);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_multiple_senders_with_rtx_recovery() {
+        // Test 7: the receiver receives messages from 2 remote senders.
+        // receives message 1, 2 and 3 from remote1, receives 1 and 3 from remote2.
+        // we should see an rtx for message 2 from remote2. after this recv a rtx reply and deliver everything to the app
+        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
+
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let local_name = Name::from_strings(["org", "ns", "local"]);
+        let group_name = Name::from_strings(["org", "ns", "group"]);
+        let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
+        let remote2_name = Name::from_strings(["org", "ns", "remote2"]);
+
+        let receiver = ReliableReceiver::new(
+            Some(settings),
+            10,
+            local_name.clone(),
+            SessionType::PointToPoint,
+            true,
+            tx,
+        );
+
+        // Send messages 1, 2, 3 from remote1 (complete sequence)
+        let mut message1_r1 = Message::new_publish(
+            &remote1_name,
+            &group_name,
+            None,
+            "payload_1_r1",
+            vec![1, 2, 3, 4],
+        );
+        message1_r1
+            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message1_r1.get_session_header_mut().set_message_id(1);
+        message1_r1.get_session_header_mut().set_session_id(10);
+        message1_r1.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        receiver
+            .on_message(message1_r1, MessageDirection::North)
+            .await
+            .expect("error sending message1_r1");
+
+        let mut message2_r1 = Message::new_publish(
+            &remote1_name,
+            &group_name,
+            None,
+            "payload_2_r1",
+            vec![5, 6, 7, 8],
+        );
+        message2_r1
+            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message2_r1.get_session_header_mut().set_message_id(2);
+        message2_r1.get_session_header_mut().set_session_id(10);
+        message2_r1.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        receiver
+            .on_message(message2_r1, MessageDirection::North)
+            .await
+            .expect("error sending message2_r1");
+
+        let mut message3_r1 = Message::new_publish(
+            &remote1_name,
+            &group_name,
+            None,
+            "payload_3_r1",
+            vec![9, 10, 11, 12],
+        );
+        message3_r1
+            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message3_r1.get_session_header_mut().set_message_id(3);
+        message3_r1.get_session_header_mut().set_session_id(10);
+        message3_r1.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        receiver
+            .on_message(message3_r1, MessageDirection::North)
+            .await
+            .expect("error sending message3_r1");
+
+        // Send messages 1 and 3 from remote2 (missing message 2)
+        let mut message1_r2 = Message::new_publish(
+            &remote2_name,
+            &group_name,
+            None,
+            "payload_1_r2",
+            vec![13, 14, 15, 16],
+        );
+        message1_r2
+            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message1_r2.get_session_header_mut().set_message_id(1);
+        message1_r2.get_session_header_mut().set_session_id(10);
+        message1_r2.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        receiver
+            .on_message(message1_r2, MessageDirection::North)
+            .await
+            .expect("error sending message1_r2");
+
+        let mut message3_r2 = Message::new_publish(
+            &remote2_name,
+            &group_name,
+            None,
+            "payload_3_r2",
+            vec![17, 18, 19, 20],
+        );
+        message3_r2
+            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message3_r2.get_session_header_mut().set_message_id(3);
+        message3_r2.get_session_header_mut().set_session_id(10);
+        message3_r2.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        receiver
+            .on_message(message3_r2, MessageDirection::North)
+            .await
+            .expect("error sending message3_r2");
+
+        // Collect messages delivered to app from remote1 (should be all 3)
+        let mut remote1_messages = Vec::new();
+        for _ in 0..3 {
+            let received = timeout(Duration::from_millis(100), rx_app.recv())
+                .await
+                .expect("timeout waiting for remote1 message")
+                .expect("channel closed")
+                .expect("error in received message");
+            if received.get_source() == remote1_name {
+                remote1_messages.push(received.get_id());
+            }
+        }
+
+        // Verify remote1 messages are delivered in order
+        remote1_messages.sort();
+        assert_eq!(remote1_messages, vec![1, 2, 3]);
+
+        // Collect message from remote2 (should be message 1)
+        let received_r2_1 = timeout(Duration::from_millis(100), rx_app.recv())
+            .await
+            .expect("timeout waiting for remote2 message 1")
+            .expect("channel closed")
+            .expect("error in received message");
+        assert_eq!(received_r2_1.get_source(), remote2_name);
+        assert_eq!(received_r2_1.get_id(), 1);
+
+        // Wait for RTX request for missing message 2 from remote2
+        let rtx_request = timeout(Duration::from_millis(200), rx_slim.recv())
+            .await
+            .expect("timeout waiting for RTX request")
+            .expect("channel closed")
+            .expect("error in RTX request");
+
+        // Verify it's an RTX request for message ID 2 from remote2
+        assert_eq!(
+            rtx_request.get_session_message_type(),
+            slim_datapath::api::ProtoSessionMessageType::RtxRequest
+        );
+        assert_eq!(rtx_request.get_id(), 2);
+        assert_eq!(rtx_request.get_dst(), remote2_name);
+
+        // Create and send RTX reply with the missing message 2 from remote2
+        let mut rtx_reply = Message::new_publish(
+            &remote2_name,
+            &local_name,
+            None,
+            "payload_2_r2",
+            vec![21, 22, 23, 24],
+        );
+        rtx_reply.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxReply);
+        rtx_reply.get_session_header_mut().set_message_id(2);
+        rtx_reply.get_session_header_mut().set_session_id(10);
+        rtx_reply.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        receiver
+            .on_message(rtx_reply, MessageDirection::North)
+            .await
+            .expect("error sending rtx reply");
+
+        // Now we should receive messages 2 and 3 from remote2
+        let received_r2_2 = timeout(Duration::from_millis(100), rx_app.recv())
+            .await
+            .expect("timeout waiting for remote2 message 2")
+            .expect("channel closed")
+            .expect("error in received message 2 from remote2");
+        assert_eq!(received_r2_2.get_source(), remote2_name);
+        assert_eq!(received_r2_2.get_id(), 2);
+
+        let received_r2_3 = timeout(Duration::from_millis(100), rx_app.recv())
+            .await
+            .expect("timeout waiting for remote2 message 3")
+            .expect("channel closed")
+            .expect("error in received message 3 from remote2");
+        assert_eq!(received_r2_3.get_source(), remote2_name);
+        assert_eq!(received_r2_3.get_id(), 3);
+
+        // No more RTX requests should be sent
+        let res = timeout(Duration::from_millis(800), rx_slim.recv()).await;
+        assert!(res.is_err(), "Expected timeout but got: {:?}", res);
+
+        // No more messages should be sent to the app
+        let res = timeout(Duration::from_millis(100), rx_app.recv()).await;
+        assert!(res.is_err(), "Expected timeout but got: {:?}", res);
     }
 }
