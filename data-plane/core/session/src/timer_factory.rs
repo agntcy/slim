@@ -3,6 +3,7 @@
 
 use std::{sync::Arc, time::Duration};
 
+use slim_datapath::messages::Name;
 use tokio::sync::mpsc::Sender;
 use tonic::async_trait;
 use tracing::debug;
@@ -14,6 +15,7 @@ use crate::{
 
 struct ReliableTimerObserver {
     tx: Sender<SessionMessage>,
+    name: Option<Name>,
 }
 
 #[async_trait]
@@ -23,6 +25,7 @@ impl TimerObserver for ReliableTimerObserver {
             .send(SessionMessage::TimerTimeout {
                 message_id,
                 timeouts,
+                name: self.name.clone(),
             })
             .await
             .expect("failed to send timer timeout");
@@ -34,6 +37,7 @@ impl TimerObserver for ReliableTimerObserver {
             .send(SessionMessage::TimerFailure {
                 message_id,
                 timeouts,
+                name: self.name.clone(),
             })
             .await
             .expect("failed to send timer failure");
@@ -95,16 +99,15 @@ impl TimerSettings {
 }
 
 pub struct TimerFactory {
-    observer: Arc<ReliableTimerObserver>,
+    //observer: Arc<ReliableTimerObserver>,
+    tx: Sender<SessionMessage>,
     settings: TimerSettings,
 }
 
 impl TimerFactory {
     pub fn new(settings: TimerSettings, tx: Sender<SessionMessage>) -> Self {
-        let observer = ReliableTimerObserver { tx };
-
         Self {
-            observer: Arc::new(observer),
+            tx: tx.clone(),
             settings,
         }
     }
@@ -119,7 +122,7 @@ impl TimerFactory {
         )
     }
 
-    pub fn create_and_start_timer(&self, id: u32) -> Timer {
+    pub fn create_and_start_timer(&self, id: u32, name: Option<Name>) -> Timer {
         let t = Timer::new(
             id,
             self.settings.timer_type.clone(),
@@ -127,13 +130,17 @@ impl TimerFactory {
             self.settings.max_duration,
             self.settings.max_retries,
         );
-        self.start_timer(&t);
+        self.start_timer(&t, name);
         t
     }
 
-    pub fn start_timer(&self, timer: &Timer) {
+    pub fn start_timer(&self, timer: &Timer, name: Option<Name>) {
         // start timer
-        timer.start(self.observer.clone());
+        let observer = ReliableTimerObserver {
+            tx: self.tx.clone(),
+            name,
+        };
+        timer.start(Arc::new(observer));
     }
 }
 
@@ -143,6 +150,11 @@ mod tests {
     use std::time::Duration;
     use tokio::sync::mpsc;
     use tokio::time::timeout;
+
+    // Helper function to create test names
+    fn test_name() -> Name {
+        Name::from_strings(["test", "org", "app"]).with_id(1)
+    }
 
     #[tokio::test]
     async fn test_timer_factory_new() {
@@ -174,8 +186,9 @@ mod tests {
         );
         let factory = TimerFactory::new(settings, tx);
         let timer_id = 123;
+        let name = test_name();
 
-        let _timer = factory.create_and_start_timer(timer_id);
+        let _timer = factory.create_and_start_timer(timer_id, Some(name.clone()));
 
         // Assert - we should receive a timeout message
         let message = timeout(Duration::from_millis(200), rx.recv())
@@ -187,9 +200,11 @@ mod tests {
             SessionMessage::TimerTimeout {
                 message_id,
                 timeouts,
+                name: received_name,
             } => {
                 assert_eq!(message_id, timer_id);
                 assert_eq!(timeouts, 1);
+                assert_eq!(received_name, Some(name));
             }
             _ => panic!("Expected TimerTimeout message"),
         }
@@ -207,10 +222,11 @@ mod tests {
         );
         let factory = TimerFactory::new(settings, tx);
         let timer_id = 456;
+        let name = test_name();
 
         // Act
         let timer = factory.create_timer(timer_id);
-        factory.start_timer(&timer);
+        factory.start_timer(&timer, Some(name.clone()));
 
         // Assert - we should receive multiple timeout messages
         let first_timeout = timeout(Duration::from_millis(100), rx.recv())
@@ -222,9 +238,11 @@ mod tests {
             SessionMessage::TimerTimeout {
                 message_id,
                 timeouts,
+                name: received_name,
             } => {
                 assert_eq!(message_id, timer_id);
                 assert_eq!(timeouts, 1);
+                assert_eq!(received_name, Some(name.clone()));
             }
             _ => panic!("Expected TimerTimeout message for first timeout"),
         }
@@ -238,9 +256,11 @@ mod tests {
             SessionMessage::TimerTimeout {
                 message_id,
                 timeouts,
+                name: received_name,
             } => {
                 assert_eq!(message_id, timer_id);
                 assert_eq!(timeouts, 2);
+                assert_eq!(received_name, Some(name.clone()));
             }
             _ => panic!("Expected TimerTimeout message for second timeout"),
         }
@@ -258,10 +278,11 @@ mod tests {
         );
         let factory = TimerFactory::new(settings, tx);
         let timer_id = 789;
+        let name = test_name();
 
         // Act
         let timer = factory.create_timer(timer_id);
-        factory.start_timer(&timer);
+        factory.start_timer(&timer, Some(name.clone()));
 
         // Assert - we should receive a timeout followed by a failure
         let timeout_message = timeout(Duration::from_millis(100), rx.recv())
@@ -273,9 +294,11 @@ mod tests {
             SessionMessage::TimerTimeout {
                 message_id,
                 timeouts,
+                name: received_name,
             } => {
                 assert_eq!(message_id, timer_id);
                 assert_eq!(timeouts, 1);
+                assert_eq!(received_name, Some(name.clone()));
             }
             _ => panic!("Expected TimerTimeout message in failure test"),
         }
@@ -289,9 +312,11 @@ mod tests {
             SessionMessage::TimerFailure {
                 message_id,
                 timeouts,
+                name: received_name,
             } => {
                 assert_eq!(message_id, timer_id);
                 assert_eq!(timeouts, 2);
+                assert_eq!(received_name, Some(name.clone()));
             }
             _ => panic!("Expected TimerFailure message"),
         }
@@ -309,10 +334,11 @@ mod tests {
         );
         let factory = TimerFactory::new(settings, tx);
         let timer_id = 999;
+        let name = test_name();
 
         // Act
         let timer = factory.create_timer(timer_id);
-        factory.start_timer(&timer);
+        factory.start_timer(&timer, Some(name.clone()));
 
         // Assert - we should receive timeouts with exponentially increasing intervals
         let first_timeout = timeout(Duration::from_millis(150), rx.recv())
@@ -324,9 +350,11 @@ mod tests {
             SessionMessage::TimerTimeout {
                 message_id,
                 timeouts,
+                name: received_name,
             } => {
                 assert_eq!(message_id, timer_id);
                 assert_eq!(timeouts, 1);
+                assert_eq!(received_name, Some(name.clone()));
             }
             _ => panic!("Expected TimerTimeout message for exponential timer first timeout"),
         }
@@ -340,9 +368,11 @@ mod tests {
             SessionMessage::TimerTimeout {
                 message_id,
                 timeouts,
+                name: received_name,
             } => {
                 assert_eq!(message_id, timer_id);
                 assert_eq!(timeouts, 2);
+                assert_eq!(received_name, Some(name.clone()));
             }
             _ => panic!("Expected TimerTimeout message for exponential timer second timeout"),
         }
@@ -380,10 +410,12 @@ mod tests {
             TimerType::Constant,
         );
         let factory = TimerFactory::new(settings, tx);
+        let name1 = Name::from_strings(["test", "org", "app1"]).with_id(1);
+        let name2 = Name::from_strings(["test", "org", "app2"]).with_id(2);
 
         // Act - create and start multiple timers
-        let timer1 = factory.create_and_start_timer(100);
-        let timer2 = factory.create_and_start_timer(200);
+        let timer1 = factory.create_and_start_timer(100, Some(name1.clone()));
+        let timer2 = factory.create_and_start_timer(200, Some(name2.clone()));
 
         // Assert - we should receive messages from both timers
         let mut received_ids = Vec::new();
@@ -398,6 +430,7 @@ mod tests {
                 SessionMessage::TimerTimeout {
                     message_id,
                     timeouts,
+                    name: _,
                 } => {
                     received_ids.push(message_id);
                     assert_eq!(timeouts, 1);
@@ -473,9 +506,10 @@ mod tests {
         let settings = TimerSettings::constant(Duration::from_millis(40)).with_max_retries(1);
         let factory = TimerFactory::new(settings, tx);
         let timer_id = 888;
+        let name = test_name();
 
         // Act
-        let _timer = factory.create_and_start_timer(timer_id);
+        let _timer = factory.create_and_start_timer(timer_id, Some(name.clone()));
 
         // Assert
         let timeout_message = timeout(Duration::from_millis(100), rx.recv())
@@ -487,9 +521,11 @@ mod tests {
             SessionMessage::TimerTimeout {
                 message_id,
                 timeouts,
+                name: received_name,
             } => {
                 assert_eq!(message_id, timer_id);
                 assert_eq!(timeouts, 1);
+                assert_eq!(received_name, Some(name.clone()));
             }
             _ => panic!("Expected TimerTimeout message with convenience constructors"),
         }

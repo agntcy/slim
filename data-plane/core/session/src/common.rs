@@ -49,10 +49,12 @@ pub enum SessionMessage {
     TimerTimeout {
         message_id: u32,
         timeouts: u32,
+        name: Option<Name>,
     },
     TimerFailure {
         message_id: u32,
         timeouts: u32,
+        name: Option<Name>,
     },
     DeleteSession {
         session_id: u32,

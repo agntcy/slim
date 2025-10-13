@@ -83,10 +83,10 @@ where
         is_sequential: bool,
         session_id: u32,
         tx: T,
-        tx_timer: Sender<SessionMessage>,
-        rx_timer: Receiver<SessionMessage>,
+        tx_signals: Sender<SessionMessage>,
+        rx_signals: Receiver<SessionMessage>,
     ) -> Self {
-        let factory = TimerFactory::new(timer_settings, tx_timer);
+        let factory = TimerFactory::new(timer_settings, tx_signals);
 
         ReliableSenderInternal {
             buffer: ProducerBuffer::with_capacity(512),
@@ -98,7 +98,7 @@ where
             next_id: 0,
             session_id,
             tx,
-            rx: rx_timer,
+            rx: rx_signals,
             is_draining: false,
             drain_timer: None,
         }
@@ -167,7 +167,7 @@ where
         // create a timer for the new packet and update the state
         let gt = GroupTimer {
             missing_timers: self.endpoints_list.clone(),
-            timer: self.timer_factory.create_and_start_timer(message_id),
+            timer: self.timer_factory.create_and_start_timer(message_id, None),
         };
 
         // insert in pending acks
@@ -316,12 +316,12 @@ where
                 "the message {} is not in the buffer anymore, delete the associated timer",
                 id
             );
-            self.on_timer_failure(id).await;
+            return self.on_timer_failure(id).await;
         }
         Ok(())
     }
 
-    async fn on_timer_failure(&mut self, id: u32) {
+    async fn on_timer_failure(&mut self, id: u32) -> Result<(), SessionError> {
         debug!("timer failure for message id {}, clear state", id);
         // remove all the state related to this timer
         if let Some(gt) = self.pending_acks.get_mut(&id) {
@@ -336,17 +336,12 @@ where
         self.pending_acks.remove(&id);
 
         // notify the application that the message was not delivered correctly
-        if self
-            .tx
+        self.tx
             .send_to_app(Err(SessionError::Processing(format!(
                 "error send message {}. stop retrying",
                 id
             ))))
             .await
-            .is_err()
-        {
-            error!("Error notifying timer failure to the application");
-        }
     }
 
     fn add_endpoint(&mut self, endpoint: Name) {
@@ -403,7 +398,7 @@ where
                 None,
                 Some(1), // max_retries - only fire once for drain
             );
-            self.timer_factory.start_timer(&timer);
+            self.timer_factory.start_timer(&timer, None);
             self.drain_timer = Some(timer);
         } else {
             debug!("no pending acks, can stop immediately");
@@ -433,19 +428,21 @@ where
                                 break;
                             }
                         }
-                        Some(SessionMessage::TimerTimeout { message_id, timeouts: _ }) => {
+                        Some(SessionMessage::TimerTimeout { message_id, timeouts: _ , name: _}) => {
                             debug!("timer {} timeout", message_id);
                             // Check if this is the drain timer
                             if message_id == u32::MAX {
                                 debug!("drain grace period expired, stopping sender");
                                 break; // Exit the loop to stop the sender
                             } else if self.on_timer_timeout(message_id).await.is_err() {
-                                error!("error processoing message timeout");
+                                error!("error processing message timeout");
                             }
                         },
-                        Some(SessionMessage::TimerFailure { message_id, timeouts: _ }) => {
+                        Some(SessionMessage::TimerFailure { message_id, timeouts: _ , name: _}) => {
                             debug!("timer {} failed", message_id);
-                            self.on_timer_failure(message_id).await;
+                            if self.on_timer_failure(message_id).await.is_err() {
+                                error!("error processing timer failure");
+                            }
                         },
                         Some(SessionMessage::AddEndpoint {endpoint}) => {
                             debug!("add new endpoint {}", endpoint);
@@ -458,6 +455,10 @@ where
                         Some(SessionMessage::Drain { grace_period_ms }) => {
                             debug!("received drain signal with grace period {}ms", grace_period_ms);
                             self.start_drain(grace_period_ms);
+                            if self.drain_timer.is_none() {
+                                // close the sender
+                                break;
+                            }
                         }
                         Some(_) => {
                             debug!("unexpected message type");
