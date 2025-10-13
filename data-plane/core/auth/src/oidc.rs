@@ -166,8 +166,9 @@ pub struct OidcTokenProvider {
 }
 
 impl OidcTokenProvider {
-    /// Create a new OIDC Token Provider
-    pub async fn new(config: OidcProviderConfig) -> Result<Self, AuthError> {
+    /// Create a new OIDC Token Provider synchronously
+    /// Note: Call `initialize()` after creation to start background tasks and fetch initial token
+    pub fn new(config: OidcProviderConfig) -> Result<Self, AuthError> {
         // Validate the issuer URL
         Url::parse(&config.issuer_url).map_err(|e| {
             AuthError::InvalidIssuerEndpoint(format!("Invalid issuer endpoint URL: {}", e))
@@ -181,26 +182,38 @@ impl OidcTokenProvider {
             .map_err(|e| AuthError::OAuth2Error(format!("Failed to create HTTP client: {}", e)))?;
 
         // Create shutdown channel for background task
-        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (shutdown_tx, _shutdown_rx) = watch::channel(false);
         let token_cache = Arc::new(OidcTokenCache::new());
 
-        let provider = Self {
+        Ok(Self {
             config,
-            token_cache: token_cache.clone(),
+            token_cache,
             client,
             shutdown_tx: Arc::new(shutdown_tx),
             refresh_task: Arc::new(parking_lot::Mutex::new(None)),
-        };
+        })
+    }
+
+    /// Initialize the provider asynchronously - starts background tasks and fetches initial token
+    pub async fn initialize(&self) -> Result<(), AuthError> {
+        // Check if already initialized
+        if self.refresh_task.lock().is_some() {
+            return Ok(());
+        }
+
+        // Create new shutdown receiver using the existing sender
+        let shutdown_rx = self.shutdown_tx.subscribe();
 
         // Start background refresh task
-        let refresh_task = provider.start_refresh_task(shutdown_rx);
-        *provider.refresh_task.lock() = Some(refresh_task);
+        let refresh_task = self.start_refresh_task(shutdown_rx);
+        *self.refresh_task.lock() = Some(refresh_task);
+
         // Fetch initial token to populate cache
-        if let Err(e) = provider.fetch_new_token().await {
+        if let Err(e) = self.fetch_new_token().await {
             eprintln!("Warning: Failed to fetch initial token: {}", e);
-            // Don't fail construction, let background task handle it
+            // Don't fail initialization, let background task handle it
         }
-        Ok(provider)
+        Ok(())
     }
 
     /// Generate cache key for token caching
@@ -350,54 +363,28 @@ impl OidcTokenProvider {
         if self.shutdown_tx.send(true).is_err() {
             eprintln!("Failed to send shutdown signal");
         }
-
-        // Wait for task to complete
-        if let Some(handle) = self.refresh_task.lock().take() {
-            tokio::spawn(async move {
-                if (handle.await).is_err() {
-                    eprintln!("Background refresh task panicked");
-                }
-            });
-        }
-    }
-
-    /// Try to fetch initial token synchronously (only for very first call)
-    fn try_initial_token_fetch(&self) -> Result<String, AuthError> {
-        // Check if we already have any token in cache
-        let cache_key = self.get_cache_key();
-        if let Some(cached_token) = self.token_cache.get(&cache_key) {
-            return Ok(cached_token);
-        }
-
-        // Only do blocking call if absolutely necessary (no cached token exists)
-        block_on(self.fetch_new_token())
     }
 }
 
 impl TokenProvider for OidcTokenProvider {
     fn get_token(&self) -> Result<String, AuthError> {
-        // Return cached tokens
         let cache_key = self.get_cache_key();
         if let Some(cached_token) = self.token_cache.get(&cache_key) {
             return Ok(cached_token);
         }
-
-        // If no token is cached, try to fetch one synchronously for initial setup
-        // This should only happen on the very first call
-        match self.try_initial_token_fetch() {
-            Ok(token) => Ok(token),
-            Err(_) => Err(AuthError::GetTokenError(
-                "No cached token available and initial fetch failed. Background refresh should handle this.".to_string()
-            ))
-        }
+        Err(AuthError::GetTokenError(format!(
+            "No cached token available for key '{}'. Background refresh should handle this.",
+            cache_key
+        )))
     }
 }
 
 impl Drop for OidcTokenProvider {
     fn drop(&mut self) {
         // Signal shutdown when the provider is dropped
-        if self.shutdown_tx.send(true).is_err() {
-            // Ignore errors during drop
+        if let Err(e) = self.shutdown_tx.send(true) {
+            // Print the error message during drop
+            eprintln!("Failed to send shutdown signal: {}", e);
         }
     }
 }
@@ -475,16 +462,13 @@ impl OidcVerifier {
         Ok(jwks)
     }
 
-    /// Verify a JWT token
-    async fn verify_token<Claims>(&self, token: &str) -> Result<Claims, AuthError>
+    /// Utility function to verify a token against JWKS
+    fn verify_token_util<Claims>(&self, token: &str, jwks: &JwkSet) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned,
     {
         // Decode header to get kid
         let header = decode_header(token).map_err(AuthError::JwtAwsLcError)?;
-
-        // Get JWKS
-        let jwks = self.get_jwks().await?;
 
         // Find matching key
         let jwk = match header.kid {
@@ -528,20 +512,41 @@ impl OidcVerifier {
             .map_err(AuthError::JwtAwsLcError)?;
         Ok(token_data.claims)
     }
+
+    /// Verify a JWT token
+    async fn verify_token<Claims>(&self, token: &str) -> Result<Claims, AuthError>
+    where
+        Claims: serde::de::DeserializeOwned,
+    {
+        // Get JWKS
+        let jwks = self.get_jwks().await?;
+
+        // Use the utility function to verify the token
+        self.verify_token_util(token, &jwks)
+    }
 }
 
 #[async_trait]
 impl Verifier for OidcVerifier {
     async fn verify(&self, token: impl Into<String> + Send) -> Result<(), AuthError> {
-        // Verify the token structure is valid
+        // Verify the token structure is valid - this will fetch JWKS if needed
         let _: serde_json::Value = self.verify_token(&token.into()).await?;
         Ok(())
     }
 
     fn try_verify(&self, token: impl Into<String>) -> Result<(), AuthError> {
-        // For synchronous verification, we need a runtime
-        let _: serde_json::Value = block_on(self.verify_token(&token.into()))?;
-        Ok(())
+        let token = token.into();
+
+        // First try to verify with cached JWKS only
+        if let Some(cached_jwks) = self.jwks_cache.get(&self.issuer_url) {
+            // Use the utility function to verify the token with cached JWKS
+            let _: serde_json::Value = self.verify_token_util(&token, &cached_jwks)?;
+            Ok(())
+        } else {
+            // No cached JWKS available - need to fetch asynchronously and then validate the token
+            let _: serde_json::Value = block_on(self.verify_token(&token))?;
+            Ok(())
+        }
     }
 
     async fn get_claims<Claims>(&self, token: impl Into<String> + Send) -> Result<Claims, AuthError>
@@ -585,7 +590,8 @@ mod tests {
             scope: Some("api:read".to_string()),
             timeout: None,
         };
-        let provider = OidcTokenProvider::new(config).await.unwrap();
+        let provider = OidcTokenProvider::new(config).unwrap();
+        provider.initialize().await.unwrap();
 
         // Test token retrieval
         let token = provider.get_token().unwrap();
@@ -609,7 +615,8 @@ mod tests {
             scope: None,
             timeout: None,
         };
-        let provider = OidcTokenProvider::new(config).await.unwrap();
+        let provider = OidcTokenProvider::new(config).unwrap();
+        provider.initialize().await.unwrap();
 
         // First call - should fetch token
         let token1 = provider.get_token().unwrap();
@@ -884,12 +891,14 @@ mod tests {
             scope: Some("scope".to_string()),
             timeout: None,
         };
-        let provider = OidcTokenProvider::new(config).await;
+        let provider_result = OidcTokenProvider::new(config);
 
         // Test that the provider can be created successfully with proper OIDC server
-        match provider {
+        match provider_result {
             Ok(provider) => {
                 assert_eq!(provider.config.scope, Some("scope".to_string()));
+                // Test that initialization works
+                provider.initialize().await.unwrap();
             }
             Err(e) => {
                 eprintln!("Provider creation failed: {:?}", e);
@@ -944,7 +953,8 @@ mod tests {
             scope: None,
             timeout: None,
         };
-        let provider = OidcTokenProvider::new(config).await.unwrap();
+        let provider = OidcTokenProvider::new(config).unwrap();
+        provider.initialize().await.unwrap();
 
         let now = 1000;
         let expiry_valid = now + REFRESH_BUFFER_SECONDS + 100; // Valid token

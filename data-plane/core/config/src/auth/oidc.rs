@@ -183,9 +183,13 @@ impl Config {
     /// Create an OIDC token provider from this configuration
     pub async fn create_provider(&self) -> Result<OidcTokenProvider, AuthError> {
         let config = self.to_auth_config()?;
-        OidcTokenProvider::new(config)
-            .await
-            .map_err(|e| AuthError::ConfigError(format!("Failed to create OIDC provider: {}", e)))
+        let provider = OidcTokenProvider::new(config).map_err(|e| {
+            AuthError::ConfigError(format!("Failed to create OIDC provider: {}", e))
+        })?;
+        provider.initialize().await.map_err(|e| {
+            AuthError::ConfigError(format!("Failed to initialize OIDC provider: {}", e))
+        })?;
+        Ok(provider)
     }
 
     /// Create an OIDC verifier from this configuration
@@ -243,7 +247,7 @@ impl ClientAuthenticator for Config {
             ));
         }
 
-        // Since OidcTokenProvider::new is async, we can't call it directly here
+        // OidcTokenProvider::new is now sync, but initialization is async
         Err(AuthError::ConfigError(
             "OIDC provider requires async initialization. Use create_provider() instead."
                 .to_string(),
