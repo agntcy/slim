@@ -19,7 +19,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "agntcy-slim"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-service",
@@ -39,7 +39,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-auth"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-trait",
  "aws-lc-rs",
@@ -69,7 +69,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-config"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "agntcy-slim-auth",
  "base64 0.22.1",
@@ -106,7 +106,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-controller"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
@@ -136,7 +136,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-datapath"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-tracing",
@@ -163,13 +163,14 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-mcp-proxy"
-version = "0.1.7"
+version = "0.2.0"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-auth",
  "agntcy-slim-config",
  "agntcy-slim-datapath",
  "agntcy-slim-service",
+ "agntcy-slim-session",
  "agntcy-slim-signal",
  "async-trait",
  "clap",
@@ -183,7 +184,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-mls"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
@@ -200,18 +201,34 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-service"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
  "agntcy-slim-controller",
  "agntcy-slim-datapath",
  "agntcy-slim-mls",
+ "agntcy-slim-session",
+ "dirs",
+ "drain",
+ "parking_lot",
+ "serde",
+ "thiserror 2.0.16",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "agntcy-slim-session"
+version = "0.1.0"
+dependencies = [
+ "agntcy-slim-auth",
+ "agntcy-slim-datapath",
+ "agntcy-slim-mls",
  "async-trait",
  "base64 0.22.1",
  "bincode",
- "dirs",
- "drain",
  "parking_lot",
  "rand 0.9.2",
  "serde",
@@ -232,7 +249,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-tracing"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "agntcy-slim-config",
  "once_cell",

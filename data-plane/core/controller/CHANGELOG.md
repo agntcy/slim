@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/agntcy/slim/compare/slim-controller-v0.3.0...slim-controller-v0.4.0) - 2025-10-09
+
+### Added
+
+- implement control plane group management ([#554](https://github.com/agntcy/slim/pull/554))
+- handle updates from SLIM nodes ([#708](https://github.com/agntcy/slim/pull/708))
+
+### Other
+
+- upgrade to rust toolchain 1.90.0 ([#730](https://github.com/agntcy/slim/pull/730))
+- rename sessions in python bindings ([#698](https://github.com/agntcy/slim/pull/698))
+
 ## [0.3.0](https://github.com/agntcy/slim/compare/slim-controller-v0.2.0...slim-controller-v0.3.0) - 2025-09-17
 
 ### Added

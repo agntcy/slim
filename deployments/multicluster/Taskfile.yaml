@@ -48,6 +48,8 @@ tasks:
       - kind delete cluster --name {{ .CLUSTER_ADMIN_TRUST_DOMAIN }}    
       - kind delete cluster --name {{ .CLUSTER_A_TRUST_DOMAIN }}
       - kind delete cluster --name {{ .CLUSTER_B_TRUST_DOMAIN }}
+      - rm -f ./*.spiffe
+      - rm -f ./*.example.yaml
 
   spire:server:deploy:
     internal: true

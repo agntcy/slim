@@ -5,7 +5,7 @@ metadata:
 spec:
   containers:
   - args:
-    - anycast
+    - p2p
     - --message
     - hello
     - --iterations
@@ -21,7 +21,7 @@ spec:
     env:
     - name: PYTHONUNBUFFERED
       value: "1"
-    image: ghcr.io/agntcy/slim/bindings-examples:0.6.0-dev.3
+    image: ghcr.io/agntcy/slim/bindings-examples:0.6.0
     imagePullPolicy: Always
     name: bob
     resources: {}

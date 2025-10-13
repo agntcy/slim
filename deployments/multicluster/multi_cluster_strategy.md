@@ -41,55 +41,50 @@ config:
   layout: elk
 ---
 flowchart TB
- subgraph subGraph0["slim namespace - Admin"]
+ subgraph subGraph0["slim namespace"]
         CONTROLLER["SLIM Controller"]
   end
  subgraph subGraph1["Admin Cluster (admin.example)"]
         subGraph0
         LB_ADMIN["LoadBalancer<br>slim-control.admin.example:50052"]
   end
- subgraph subGraph2["slim namespace - A"]
+ subgraph subGraph2["slim namespace"]
         SLIM_A1["SLIM Node 0 - StatefulSet"]
         SLIM_A2["SLIM Node 1 - StatefulSet"]
         SLIM_A3["SLIM Node 2 - StatefulSet"]
-        SVC_A["SLIM Service - LoadBalancer"]
+        SVC_A["LoadBalancer slim.cluster-a.example:46357"]
   end
- subgraph subGraph3["default namespace - A"]
+ subgraph subGraph3["default namespace"]
         ALICE["Alice Receiver"]
   end
  subgraph subGraph4["Cluster A (cluster-a.example)"]
         subGraph2
         subGraph3
-        LB_A["LoadBalancer<br>slim.cluster-a.example:46357"]
   end
- subgraph subGraph5["slim namespace - B"]
+ subgraph subGraph5["slim namespace"]
         SLIM_B1["SLIM Node 0 - StatefulSet"]
         SLIM_B2["SLIM Node 1 - StatefulSet"]
         SLIM_B3["SLIM Node 2 - StatefulSet"]
-        SVC_B["SLIM Service - LoadBalancer"]
+        SVC_B["LoadBalancer slim.cluster-b.example:46357"]
   end
- subgraph subGraph6["default namespace - B"]
+ subgraph subGraph6["default namespace"]
         BOB["Bob Sender"]
   end
  subgraph subGraph7["Cluster B (cluster-b.example)"]
         subGraph5
         subGraph6
-        LB_B["LoadBalancer<br>slim.cluster-b.example:46357"]
   end
-    CONTROLLER --- LB_ADMIN
+    LB_ADMIN ----> CONTROLLER
     SVC_A --> SLIM_A1 & SLIM_A2 & SLIM_A3
-    SVC_A --- LB_A
     ALICE --> SVC_A
     SVC_B --> SLIM_B1 & SLIM_B2 & SLIM_B3
-    SVC_B --- LB_B
     BOB --> SVC_B
-    SLIM_A1 --- LB_ADMIN
-    SLIM_A2 --- LB_ADMIN
-    SLIM_A3 --- LB_ADMIN
-    SLIM_B1 --- LB_ADMIN
-    SLIM_B2 --- LB_ADMIN
-    SLIM_B3 --- LB_ADMIN
-    LB_A --- LB_B
+    SLIM_A1 ---> subGraph1 & SVC_B
+    SLIM_A2 ---> subGraph1 & SVC_B
+    SLIM_A3 ---> subGraph1 & SVC_B
+    SLIM_B1 ---> subGraph1 & SVC_A
+    SLIM_B2 ---> subGraph1 & SVC_A
+    SLIM_B3 ---> subGraph1 & SVC_A
 ```
 
 ## Setup Steps in Detail

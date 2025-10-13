@@ -4,7 +4,9 @@
 import slim_bindings
 
 
-async def create_svc(name: slim_bindings.PyName, secret):
+async def create_svc(
+    name: slim_bindings.PyName, secret: str, local_service: bool = True
+):
     """Create and return a low-level PyService for tests.
 
     Sets up a SharedSecret-based identity provider and verifier with the same
@@ -24,10 +26,14 @@ async def create_svc(name: slim_bindings.PyName, secret):
     verifier = slim_bindings.PyIdentityVerifier.SharedSecret(  # type: ignore
         identity=f"{name}", shared_secret=secret
     )
-    return await slim_bindings.create_pyservice(name, provider, verifier)
+    return await slim_bindings.create_pyservice(
+        name, provider, verifier, local_service=local_service
+    )
 
 
-async def create_slim(name: slim_bindings.PyName, secret):
+async def create_slim(
+    name: slim_bindings.PyName, secret: str, local_service: bool = True
+):
     """Create and return a high-level Slim instance for tests.
 
     This wraps the same SharedSecret authentication setup as create_svc but
@@ -47,4 +53,6 @@ async def create_slim(name: slim_bindings.PyName, secret):
     verifier = slim_bindings.PyIdentityVerifier.SharedSecret(  # type: ignore
         identity=f"{name}", shared_secret=secret
     )
-    return await slim_bindings.Slim.new(name, provider, verifier)
+    return await slim_bindings.Slim.new(
+        name, provider, verifier, local_service=local_service
+    )
