@@ -13,7 +13,7 @@ use slim_datapath::api::{MessageType, ProtoSessionMessageType};
 use slim_mls::mls::Mls;
 
 // Local crate
-use crate::session::{errors::SessionError, interceptor::SessionInterceptor};
+use crate::{errors::SessionError, interceptor::SessionInterceptor};
 
 // Metadata Keys
 pub const METADATA_MLS_ENABLED: &str = "MLS_ENABLED";

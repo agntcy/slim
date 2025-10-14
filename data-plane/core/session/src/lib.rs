@@ -41,10 +41,10 @@ pub use interceptor::SessionInterceptorProvider;
 pub use config::SessionConfig;
 
 // Common Session Types - internal use
-pub(crate) use common::{MessageDirection, SESSION_RANGE, SlimChannelSender};
+pub use common::{MessageDirection, SESSION_RANGE, SlimChannelSender};
 
 // Session layer
-pub(crate) use session_layer::SessionLayer;
+pub use session_layer::SessionLayer;
 // Public exports for external crates (like Python bindings)
 pub use common::{AppChannelReceiver, SESSION_UNSPECIFIED};
 pub use handle::{Session, SessionType};

@@ -22,10 +22,10 @@ use slim_datapath::api::{
 use slim_datapath::messages::Name;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 
-use crate::session::producer_buffer::ProducerBuffer;
-use crate::session::receiver_buffer::ReceiverBuffer;
+use crate::producer_buffer::ProducerBuffer;
+use crate::receiver_buffer::ReceiverBuffer;
 // Local crate
-use crate::session::{
+use crate::{
     Common, CommonSession, Id, MessageDirection, MessageHandler, SessionConfig, SessionConfigTrait,
     State, Transmitter,
     channel_endpoint::{
@@ -1301,7 +1301,7 @@ mod tests {
     use tracing_test::traced_test;
 
     use super::*;
-    use crate::session::{
+    use crate::{
         channel_endpoint::handle_channel_discovery_message, transmitter::SessionTransmitter,
     };
     use slim_datapath::{api::ProtoMessage, messages::Name};

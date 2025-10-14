@@ -16,8 +16,8 @@ use slim_config::grpc::server::ServerConfig as GrpcServerConfig;
 use slim_config::tls::client::TlsClientConfig;
 use slim_config::tls::server::TlsServerConfig;
 use slim_datapath::messages::Name;
-use slim_service::session::Notification;
-use slim_service::{PointToPointConfiguration, ServiceConfiguration};
+use slim_service::ServiceConfiguration;
+use slim_session::{Notification, PointToPointConfiguration};
 use slim_tracing::TracingConfiguration;
 
 const DEFAULT_DATAPLANE_PORT: u16 = 46357;
@@ -357,7 +357,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let session_ctx = app
         .create_session(
-            slim_service::session::SessionConfig::PointToPoint(PointToPointConfiguration::new(
+            slim_session::SessionConfig::PointToPoint(PointToPointConfiguration::new(
                 timeout,
                 max_retries,
                 msl_enabled,

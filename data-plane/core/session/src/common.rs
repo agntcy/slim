@@ -7,7 +7,7 @@ use tonic::Status;
 use slim_datapath::api::ProtoMessage as Message;
 
 // Local crate
-use crate::session::SessionError;
+use crate::SessionError;
 
 /// Reserved session id
 pub const SESSION_RANGE: std::ops::Range<u32> = 0..(u32::MAX - 1000);
@@ -20,7 +20,7 @@ pub(crate) type AppChannelSender = tokio::sync::mpsc::Sender<Result<Message, Ses
 /// Channel used in the path app -> service
 pub type AppChannelReceiver = tokio::sync::mpsc::Receiver<Result<Message, SessionError>>;
 /// Channel used in the path service -> slim
-pub(crate) type SlimChannelSender = tokio::sync::mpsc::Sender<Result<Message, Status>>;
+pub type SlimChannelSender = tokio::sync::mpsc::Sender<Result<Message, Status>>;
 
 /// The state of a session
 #[derive(Clone, PartialEq, Debug)]
@@ -31,7 +31,7 @@ pub enum State {
 }
 
 #[derive(Clone, PartialEq, Debug)]
-pub(crate) enum MessageDirection {
+pub enum MessageDirection {
     North,
     South,
 }

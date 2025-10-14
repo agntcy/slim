@@ -18,9 +18,9 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType};
 use slim_datapath::messages::Name;
 
-use crate::session::MessageHandler;
-use crate::session::notification::Notification;
-use crate::session::transmitter::{AppTransmitter, SessionTransmitter};
+use crate::MessageHandler;
+use crate::notification::Notification;
+use crate::transmitter::{AppTransmitter, SessionTransmitter};
 
 // Local crate
 use super::context::SessionContext;
@@ -33,7 +33,7 @@ use super::{
     SlimChannelSender, Transmitter,
 };
 use super::{SessionError, channel_endpoint::handle_channel_discovery_message};
-use crate::session::interceptor::SessionInterceptorProvider; // needed for add_interceptor
+use crate::interceptor::SessionInterceptorProvider; // needed for add_interceptor
 
 /// Message types to communicate from session to session layer
 pub enum SessionLayerMessage {
@@ -41,7 +41,7 @@ pub enum SessionLayerMessage {
 }
 
 /// SessionLayer manages sessions and their lifecycle
-pub(crate) struct SessionLayer<P, V, T = AppTransmitter<P, V>>
+pub struct SessionLayer<P, V, T = AppTransmitter<P, V>>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
@@ -88,7 +88,7 @@ where
 {
     /// Create a new SessionLayer
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new(
+    pub fn new(
         app_name: Name,
         identity_provider: P,
         identity_verifier: V,
@@ -123,31 +123,31 @@ where
         sl
     }
 
-    pub(crate) fn tx_slim(&self) -> SlimChannelSender {
+    pub fn tx_slim(&self) -> SlimChannelSender {
         self.tx_slim.clone()
     }
 
-    pub(crate) fn tx_app(&self) -> Sender<Result<Notification<P, V>, SessionError>> {
+    pub fn tx_app(&self) -> Sender<Result<Notification<P, V>, SessionError>> {
         self.tx_app.clone()
     }
 
     #[allow(dead_code)]
-    pub(crate) fn conn_id(&self) -> u64 {
+    pub fn conn_id(&self) -> u64 {
         self.conn_id
     }
 
-    pub(crate) fn app_name(&self) -> &Name {
+    pub fn app_name(&self) -> &Name {
         &self.app_name
     }
 
     /// Get identity token from the identity provider
-    pub(crate) fn get_identity_token(&self) -> Result<String, String> {
+    pub fn get_identity_token(&self) -> Result<String, String> {
         self.identity_provider
             .get_token()
             .map_err(|e| e.to_string())
     }
 
-    pub(crate) async fn create_session(
+    pub async fn create_session(
         &self,
         session_config: SessionConfig,
         id: Option<Id>,
@@ -234,13 +234,13 @@ where
     }
 
     /// Remove a session from the pool
-    pub(crate) async fn remove_session(&self, id: Id) -> bool {
+    pub async fn remove_session(&self, id: Id) -> bool {
         // get the write lock
         let mut pool = self.pool.write().await;
         pool.remove(&id).is_some()
     }
 
-    pub(crate) fn listen_from_sessions(
+    pub fn listen_from_sessions(
         &self,
         mut rx_session: tokio::sync::mpsc::Receiver<Result<SessionLayerMessage, SessionError>>,
     ) {
@@ -272,8 +272,7 @@ where
         });
     }
 
-    #[cfg(test)]
-    pub(crate) async fn handle_message_from_app(
+    pub async fn handle_message_from_app(
         &self,
         message: Message,
         context: &SessionContext<P, V>,
@@ -323,10 +322,7 @@ where
 
     /// Handle a message from the message processor, and pass it to the
     /// corresponding session
-    pub(crate) async fn handle_message_from_slim(
-        &self,
-        mut message: Message,
-    ) -> Result<(), SessionError> {
+    pub async fn handle_message_from_slim(&self, mut message: Message) -> Result<(), SessionError> {
         // Pass message to interceptors in the transmitter
         self.transmitter
             .on_msg_from_slim_interceptors(&mut message)
@@ -576,7 +572,7 @@ where
     }
 
     /// Set the configuration of a session
-    pub(crate) fn set_default_session_config(
+    pub fn set_default_session_config(
         &self,
         session_config: &SessionConfig,
     ) -> Result<(), SessionError> {
@@ -590,7 +586,7 @@ where
     }
 
     /// Get the session configuration
-    pub(crate) fn get_default_session_config(
+    pub fn get_default_session_config(
         &self,
         session_type: SessionType,
     ) -> Result<SessionConfig, SessionError> {
@@ -623,7 +619,7 @@ where
 
     /// Check if the session pool is empty (for testing purposes)
     #[cfg(test)]
-    pub(crate) async fn is_pool_empty(&self) -> bool {
+    pub async fn is_pool_empty(&self) -> bool {
         self.pool.read().await.is_empty()
     }
 }

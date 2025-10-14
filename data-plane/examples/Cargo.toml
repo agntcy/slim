@@ -20,6 +20,7 @@ agntcy-slim-controller = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-mls = { workspace = true }
 agntcy-slim-service = { workspace = true }
+agntcy-slim-session = { workspace = true }
 agntcy-slim-signal = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }

@@ -10,12 +10,12 @@ use tracing::{error, info};
 use slim::config;
 use slim_auth::shared_secret::SharedSecret;
 use slim_datapath::messages::Name;
-use slim_service::session::Notification;
+use slim_session::Notification;
 
 mod args;
 
 fn spawn_session_receiver(
-    session_ctx: slim_service::session::context::SessionContext<SharedSecret, SharedSecret>,
+    session_ctx: slim_session::context::SessionContext<SharedSecret, SharedSecret>,
     message: &Option<String>,
 ) {
     let message_clone = message.clone();

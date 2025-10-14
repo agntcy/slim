@@ -15,7 +15,7 @@ use std::sync::Arc;
 use super::SessionConfig;
 use super::SessionError;
 use super::SessionInterceptorProvider;
-use crate::session::{Id, MessageDirection, common::State};
+use crate::{Id, MessageDirection, common::State};
 
 pub trait SessionConfigTrait {
     fn replace(&mut self, session_config: &SessionConfig) -> Result<(), SessionError>;
