@@ -23,9 +23,8 @@ type defaultNodeCommandHandler struct {
 	nodeResponseMsgMap sync.Map
 }
 
-// WaitForResponse implements NodeCommandHandler.
-func (m *defaultNodeCommandHandler) WaitForResponse(
-	ctx context.Context, nodeID string, messageType reflect.Type, messageID string,
+func (m *defaultNodeCommandHandler) WaitForResponseWithTimeout(
+	ctx context.Context, nodeID string, messageType reflect.Type, messageID string, timeout time.Duration,
 ) (*controllerapi.ControlMessage, error) {
 	if nodeID == "" {
 		return nil, fmt.Errorf("nodeID cannot be empty")
@@ -65,10 +64,17 @@ func (m *defaultNodeCommandHandler) WaitForResponse(
 			default:
 				return msg, nil
 			}
-		case <-time.After(180 * time.Second):
+		case <-time.After(timeout):
 			return nil, fmt.Errorf("timeout waiting for message of type %v", messageType)
 		}
 	}
+}
+
+// WaitForResponse implements NodeCommandHandler.
+func (m *defaultNodeCommandHandler) WaitForResponse(
+	ctx context.Context, nodeID string, messageType reflect.Type, messageID string,
+) (*controllerapi.ControlMessage, error) {
+	return m.WaitForResponseWithTimeout(ctx, nodeID, messageType, messageID, 180*time.Second)
 }
 
 // ResponseReceived implements NodeCommandHandler.

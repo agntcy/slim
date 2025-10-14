@@ -6,6 +6,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 
@@ -20,44 +21,27 @@ type mockDB struct {
 	saveChannelErr error
 }
 
-// AddRoute implements db.DataAccess.
-func (m *mockDB) AddRoute(_ db.Route) string {
-	panic("unimplemented")
-}
+// Node operations
+func (m *mockDB) ListNodes() []db.Node                     { return nil }
+func (m *mockDB) GetNode(_ string) (*db.Node, error)       { return nil, nil }
+func (m *mockDB) SaveNode(_ db.Node) (string, bool, error) { return "", false, nil }
+func (m *mockDB) DeleteNode(_ string) error                { return nil }
 
-// DeleteRoute implements db.DataAccess.
-func (m *mockDB) DeleteRoute(_ string) error {
-	panic("unimplemented")
-}
+// Route operations
+func (m *mockDB) AddRoute(_ db.Route) string                        { return "" }
+func (m *mockDB) GetRoutesForNodeID(_ string) []db.Route            { return nil }
+func (m *mockDB) GetRoutesForDestinationNodeID(_ string) []db.Route { return nil }
+func (m *mockDB) GetRouteByID(_ string) *db.Route                   { return nil }
+func (m *mockDB) DeleteRoute(_ string) error                        { return nil }
+func (m *mockDB) MarkRouteAsDeleted(_ string) error                 { return nil }
+func (m *mockDB) MarkRouteAsApplied(_ string) error                 { return nil }
+func (m *mockDB) MarkRouteAsFailed(_ string, _ string) error        { return nil }
 
-// GetRouteByID implements db.DataAccess.
-func (m *mockDB) GetRouteByID(_ string) *db.Route {
-	panic("unimplemented")
-}
-
-// GetRoutesForNodeID implements db.DataAccess.
-func (m *mockDB) GetRoutesForNodeID(_ string) []db.Route {
-	panic("unimplemented")
-}
-
-// MarkRouteAsDeleted implements db.DataAccess.
-func (m *mockDB) MarkRouteAsDeleted(_ string) error {
-	panic("unimplemented")
-}
-
+// Channel operations
 func (m *mockDB) SaveChannel(_ string, _ []string) error { return m.saveChannelErr }
-func (m *mockDB) DeleteConnection(_ string) error        { return nil }
-
-// Stubs for node operations
-func (m *mockDB) ListNodes() []db.Node               { return nil }
-func (m *mockDB) GetNode(_ string) (*db.Node, error) { return nil, nil }
-func (m *mockDB) SaveNode(_ db.Node) (string, error) { return "", nil }
-func (m *mockDB) DeleteNode(_ string) error          { return nil }
-
-// Stubs for channel operations
-func (m *mockDB) DeleteChannel(_ string) error        { return nil }
-func (m *mockDB) UpdateChannel(_ db.Channel) error    { return nil }
-func (m *mockDB) ListChannels() ([]db.Channel, error) { return nil, nil }
+func (m *mockDB) DeleteChannel(_ string) error           { return nil }
+func (m *mockDB) UpdateChannel(_ db.Channel) error       { return nil }
+func (m *mockDB) ListChannels() ([]db.Channel, error)    { return nil, nil }
 
 func (m *mockDB) GetChannel(channelName string) (db.Channel, error) {
 	if channelName == "validParticipantList" {
@@ -105,6 +89,12 @@ func (m *mockNodeCommandHandler) UpdateConnectionStatus(
 
 func (m *mockNodeCommandHandler) WaitForResponse(
 	_ context.Context, _ string, _ reflect.Type, _ string,
+) (*controllerapi.ControlMessage, error) {
+	return nil, nil
+}
+
+func (m *mockNodeCommandHandler) WaitForResponseWithTimeout(
+	_ context.Context, _ string, _ reflect.Type, _ string, _ time.Duration,
 ) (*controllerapi.ControlMessage, error) {
 	return nil, nil
 }

@@ -135,9 +135,9 @@ func (d *dbService) SaveNode(node Node) (string, bool, error) {
 }
 
 // hasConnectionDetailsChanged compares two slices of ConnectionDetails and returns true if they differ
-func (d *dbService) hasConnectionDetailsChanged(existing, new []ConnectionDetails) bool {
+func (d *dbService) hasConnectionDetailsChanged(existing, newConnDetails []ConnectionDetails) bool {
 	// If lengths are different, details have changed
-	if len(existing) != len(new) {
+	if len(existing) != len(newConnDetails) {
 		return true
 	}
 
@@ -149,7 +149,7 @@ func (d *dbService) hasConnectionDetailsChanged(existing, new []ConnectionDetail
 	}
 
 	newMap := make(map[string]ConnectionDetails)
-	for _, cd := range new {
+	for _, cd := range newConnDetails {
 		key := d.getConnectionDetailsKey(cd)
 		newMap[key] = cd
 	}
