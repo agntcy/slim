@@ -52,14 +52,16 @@ async def main() -> None:
             servicer = SRPCHandler(agent_card, default_request_handler)
 
             server = slimrpc.Server(
-                local="agntcy/demo/echo_agent",
-                slim={
-                    "endpoint": "http://localhost:46357",
-                    "tls": {
-                        "insecure": True,
+                slim_app_config=slimrpc.SLIMAppConfig(
+                    identity="agntcy/demo/echo_agent",
+                    slim_client_config={
+                        "endpoint": "http://localhost:46357",
+                        "tls": {
+                            "insecure": True,
+                        },
                     },
-                },
-                shared_secret="secret",
+                    shared_secret="secret",
+                )
             )
             add_A2AServiceServicer_to_server(
                 servicer,

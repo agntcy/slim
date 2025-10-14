@@ -6,6 +6,7 @@ import logging
 import sys
 import time
 from collections.abc import AsyncGenerator, AsyncIterable, Callable
+from dataclasses import dataclass
 from typing import Any, Tuple
 
 if sys.version_info >= (3, 11):
@@ -20,9 +21,9 @@ from slimrpc.common import (
     DEADLINE_KEY,
     MAX_TIMEOUT,
     RequestType,
+    SLIMAppConfig,
     create_local_app,
     handler_name_to_pyname,
-    split_id,
 )
 from slimrpc.context import Context
 from slimrpc.rpc import RPCHandler, SRPCResponseError
@@ -30,19 +31,27 @@ from slimrpc.rpc import RPCHandler, SRPCResponseError
 logger = logging.getLogger(__name__)
 
 
+@dataclass(unsafe_hash=True)
+class ServiceMethod:
+    service: str
+    method: str
+
+
 class Server:
     def __init__(
         self,
-        local: str,
-        slim: dict,
-        enable_opentelemetry: bool = False,
-        shared_secret: str = "",
+        slim_app_config: SLIMAppConfig | None = None,
+        local_app: slim_bindings.Slim | None = None,
     ) -> None:
-        self.local_name = split_id(local)
-        self.slim = slim
-        self.enable_opentelemetry = enable_opentelemetry
-        self.shared_secret = shared_secret
-        self.handlers: dict[slim_bindings.PyName, RPCHandler] = {}
+        if slim_app_config is None and local_app is None:
+            raise ValueError("Either slim_app_config or local_app must be provided")
+        if slim_app_config is not None and local_app is not None:
+            raise ValueError("Only one of slim_app_config or local_app can be provided")
+        self._slim_app_config = slim_app_config
+        self._local_app = local_app
+        self._local_app_lock = asyncio.Lock()
+        self.handlers: dict[ServiceMethod, RPCHandler] = {}
+        self._pyname_to_handler: dict[slim_bindings.PyName, RPCHandler] = {}
 
     def register_method_handlers(
         self, service_name: str, handlers: dict[str, RPCHandler]
@@ -60,13 +69,21 @@ class Server:
         Register an RPC handler for the server.
         """
 
-        # Compose a PyName using the fist components of the local name and the RPC name
-        subscription_name = handler_name_to_pyname(
-            self.local_name, service_name, method_name
+        # Register the RPC handler
+        self.handlers[ServiceMethod(service=service_name, method=method_name)] = (
+            rpc_handler
         )
 
-        # Register the RPC handler
-        self.handlers[subscription_name] = rpc_handler
+    async def get_local_app(self) -> slim_bindings.Slim:
+        async with self._local_app_lock:
+            if self._local_app is None:
+                if self._slim_app_config is None:
+                    raise ValueError(
+                        "Either slim_app_config or local_app must be provided"
+                    )
+                self._local_app = await create_local_app(self._slim_app_config)
+                await self._local_app.__aenter__()
+            return self._local_app
 
     async def run(self) -> None:
         """
@@ -74,12 +91,7 @@ class Server:
         """
 
         # Create local SLIM instance
-        local_app = await create_local_app(
-            self.local_name,
-            self.slim,
-            enable_opentelemetry=self.enable_opentelemetry,
-            shared_secret=self.shared_secret,
-        )
+        local_app = await self.get_local_app()
 
         logger.info(f"Subscribing to {local_app.local_name.id}")
 
@@ -88,10 +100,14 @@ class Server:
             f"Subscribing to {local_app.local_name}",
         )
 
-        # Subscribe
-        new_handlers = {}
-        for s, h in self.handlers.items():
-            strs = s.components_strings()
+        # Subscribe and store mapping to subscription name for session handling
+        # later.
+        self._pyname_to_handler = {}
+        for service_method, handler in self.handlers.items():
+            subscription_name = handler_name_to_pyname(
+                local_app.local_name, service_method.service, service_method.method
+            )
+            strs = subscription_name.components_strings()
             s_clone = slim_bindings.PyName(
                 strs[0], strs[1], strs[2], local_app.local_name.id
             )
@@ -99,14 +115,11 @@ class Server:
                 f"Subscribing to {s_clone}",
             )
             await local_app.subscribe(s_clone)
-
-            new_handlers[s_clone] = h
-
-        self.handlers = new_handlers
+            self._pyname_to_handler[s_clone] = handler
 
         instance = local_app.get_id()
 
-        async with local_app:
+        try:
             # Wait for a message and reply in a loop
             while True:
                 logger.info(f"{instance} waiting for new session to be established")
@@ -117,21 +130,34 @@ class Server:
                 )
 
                 asyncio.create_task(self.handle_session(session_info, local_app))
+        finally:
+            await self.close()
+
+    async def close(self) -> None:
+        async with self._local_app_lock:
+            if self._local_app is not None:
+                if self._slim_app_config is None:
+                    logger.debug("not closing local app as it was provided externally")
+                    return
+                await self._local_app.__aexit__(None, None, None)
+            self._local_app = None
 
     async def handle_session(
         self, session_info: slim_bindings.PySessionInfo, local_app: slim_bindings.Slim
     ) -> None:
-        rpc_handler: RPCHandler = self.handlers[session_info.destination_name]
-
         logger.info(f"new session from {session_info.source_name}")
 
-        # Call the RPC handler
-        if session_info.destination_name not in self.handlers:
+        # Find the RPC handler for the session
+        rpc_handler: RPCHandler | None = self._pyname_to_handler.get(
+            session_info.destination_name, None
+        )
+        if rpc_handler is None:
             logger.error(
                 f"no handler found for session {session_info.id} with destination {session_info.destination_name}",
             )
             return
 
+        # Call the RPC handler
         try:
             # Get deadline from request
             deadline_str = session_info.metadata.get(DEADLINE_KEY, "")
