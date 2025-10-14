@@ -483,6 +483,8 @@ where
     T: Transmitter + Send + Sync + Clone + 'static,
 {
     tx: Sender<SessionMessage>,
+    // if true do not send signals
+    drain: bool,
     _phantom: PhantomData<T>,
 }
 
@@ -503,6 +505,7 @@ where
         });
         ReliableSender {
             tx,
+            drain: false,
             _phantom: PhantomData,
         }
     }
@@ -514,6 +517,18 @@ where
         message: Message,
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
+        // allow only acks and RTX requests
+        if self.drain {
+            match message.get_session_message_type() {
+                slim_datapath::api::ProtoSessionMessageType::P2PAck
+                | slim_datapath::api::ProtoSessionMessageType::RtxRequest => {
+                    // Allow acks and RTX requests
+                }
+                _ => {
+                    return Err(SessionError::Processing("sender is closing".to_string()));
+                }
+            }
+        }
         self.tx
             .send(SessionMessage::OnMessage { message, direction })
             .await
@@ -522,6 +537,9 @@ where
 
     /// Add a endpoint to the reliable sender
     pub async fn add_endpoint(&self, endpoint: Name) -> Result<(), SessionError> {
+        if self.drain {
+            return Err(SessionError::Processing("sender is closing".to_string()));
+        }
         self.tx
             .send(SessionMessage::AddEndpoint { endpoint })
             .await
@@ -530,6 +548,9 @@ where
 
     /// Remove a endpoint from the reliable sender
     pub async fn remove_endpoint(&self, endpoint: Name) -> Result<(), SessionError> {
+        if self.drain {
+            return Err(SessionError::Processing("sender is closing".to_string()));
+        }
         self.tx
             .send(SessionMessage::RemoveEndpoint { endpoint })
             .await
@@ -538,7 +559,12 @@ where
 
     /// Initiate graceful shutdown - no new messages accepted, wait for pending acks
     /// during grace period before forcefully stopping
-    pub async fn drain(&self, grace_period_ms: u64) -> Result<(), SessionError> {
+    pub async fn drain(&mut self, grace_period_ms: u64) -> Result<(), SessionError> {
+        if self.drain {
+            return Err(SessionError::Processing("sender is closing".to_string()));
+        }
+        self.drain = true;
+
         self.tx
             .send(SessionMessage::Drain { grace_period_ms })
             .await
@@ -1356,7 +1382,7 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let sender = ReliableSender::new(settings, 10, tx);
+        let mut sender = ReliableSender::new(settings, 10, tx);
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
@@ -1394,14 +1420,31 @@ mod tests {
 
         let result = sender.on_message(message2, MessageDirection::South).await;
 
-        // The message should be queued successfully, but processing will fail internally
-        assert!(result.is_ok(), "Message queueing should succeed");
+        // The message should be rejected because we're draining
+        assert!(
+            result.is_err(),
+            "Message should be rejected when sender is draining"
+        );
+        match result {
+            Err(SessionError::Processing(msg)) => {
+                assert!(
+                    msg.contains("sender is closing"),
+                    "Expected 'sender is closing' error, got: {}",
+                    msg
+                );
+            }
+            _ => panic!(
+                "Expected SessionError::Processing with 'sender is closing' message, got: {:?}",
+                result
+            ),
+        }
 
         // No second message should be sent to SLIM since we're draining
         let res = timeout(Duration::from_millis(200), rx_slim.recv()).await;
-        if let Ok(Some(Ok(_))) = res {
-            panic!("Expected no message to be sent during drain, but got one");
-        }
+        assert!(
+            res.is_err(),
+            "Expected timeout since no new message should be sent during drain"
+        );
 
         // Send ack for the first message
         let mut ack = Message::new_publish(&remote, &source, None, "", vec![]);
@@ -1429,7 +1472,7 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let sender = ReliableSender::new(settings, 10, tx);
+        let mut sender = ReliableSender::new(settings, 10, tx);
 
         // Initiate drain without any pending messages
         let result = sender.drain(1000).await;
@@ -1438,11 +1481,25 @@ mod tests {
             "Drain should succeed even with no pending acks"
         );
 
-        // Try to send a message after drain should return an error
+        // Try to add an endpoint after drain - this should fail
         let remote = Name::from_strings(["org", "ns", "remote"]);
-        sender
-            .add_endpoint(remote.clone())
-            .await
-            .expect("error adding endpoint");
+        let add_result = sender.add_endpoint(remote.clone()).await;
+        assert!(
+            add_result.is_err(),
+            "Adding endpoint should fail when sender is draining"
+        );
+        match add_result {
+            Err(SessionError::Processing(msg)) => {
+                assert!(
+                    msg.contains("sender is closing"),
+                    "Expected 'sender is closing' error, got: {}",
+                    msg
+                );
+            }
+            _ => panic!(
+                "Expected SessionError::Processing with 'sender is closing' message, got: {:?}",
+                add_result
+            ),
+        }
     }
 }

@@ -445,6 +445,7 @@ where
                             self.start_drain(grace_period_ms);
                             if self.drain_timer.is_none() {
                                 // close the sender
+                                debug!("stop receiver loop");
                                 break;
                             }
                         }
@@ -468,6 +469,8 @@ where
     T: Transmitter + Send + Sync + Clone + 'static,
 {
     tx: Sender<SessionMessage>,
+    // if true do not send signals
+    drain: bool,
     _phantom: PhantomData<T>,
 }
 
@@ -504,6 +507,7 @@ where
 
         ReliableReceiver {
             tx,
+            drain: false,
             _phantom: PhantomData,
         }
     }
@@ -514,10 +518,34 @@ where
         message: Message,
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
+        // allow only RTX replies
+        if self.drain {
+            match message.get_session_message_type() {
+                slim_datapath::api::ProtoSessionMessageType::RtxReply => {
+                    // Allow RTX replies
+                }
+                _ => {
+                    return Err(SessionError::Processing("sender is closing".to_string()));
+                }
+            }
+        }
         self.tx
             .send(SessionMessage::OnMessage { message, direction })
             .await
             .map_err(|_| SessionError::Processing("Failed to queue message".to_string()))
+    }
+
+    /// Initiates a graceful drain of the receiver
+    pub async fn drain(&mut self, grace_period_ms: u64) -> Result<(), SessionError> {
+        if self.drain {
+            return Err(SessionError::Processing("sender is closing".to_string()));
+        }
+
+        self.drain = true;
+        self.tx
+            .send(SessionMessage::Drain { grace_period_ms })
+            .await
+            .map_err(|_| SessionError::Processing("Failed to send drain message".to_string()))
     }
 }
 
@@ -1490,5 +1518,247 @@ mod tests {
         // No more messages should be sent to the app
         let res = timeout(Duration::from_millis(100), rx_app.recv()).await;
         assert!(res.is_err(), "Expected timeout but got: {:?}", res);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_drain_with_no_pending_rtx() {
+        // Test drain when there are no pending RTX requests - should complete immediately
+        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
+
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let local_name = Name::from_strings(["org", "ns", "local"]);
+        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+
+        let mut receiver = ReliableReceiver::new(
+            Some(settings),
+            10,
+            local_name.clone(),
+            SessionType::PointToPoint,
+            true,
+            tx,
+        );
+
+        // Send a message first to ensure the receiver is working
+        let mut message1 = Message::new_publish(
+            &remote_name,
+            &local_name,
+            None,
+            "test_payload_1",
+            vec![1, 2, 3, 4],
+        );
+        message1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message1.get_session_header_mut().set_message_id(1);
+        message1.get_session_header_mut().set_session_id(10);
+        message1.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        // Send the message
+        receiver
+            .on_message(message1, MessageDirection::North)
+            .await
+            .expect("error sending message1");
+
+        // Wait for the message to arrive at rx_app
+        let received1 = timeout(Duration::from_millis(100), rx_app.recv())
+            .await
+            .expect("timeout waiting for message1")
+            .expect("channel closed")
+            .expect("error in received message1");
+        assert_eq!(received1.get_id(), 1);
+
+        // Consume the ACK
+        let _ack1 = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for ack1");
+
+        // Now initiate drain - should complete immediately since no pending RTX
+        let drain_result = receiver.drain(1000).await;
+        assert!(
+            drain_result.is_ok(),
+            "Drain should succeed: {:?}",
+            drain_result
+        );
+
+        // Verify receiver stops accepting new messages
+        let mut message2 = Message::new_publish(
+            &remote_name,
+            &local_name,
+            None,
+            "test_payload_2",
+            vec![5, 6, 7, 8],
+        );
+        message2.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message2.get_session_header_mut().set_message_id(2);
+        message2.get_session_header_mut().set_session_id(10);
+        message2.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        // This should fail because receiver is draining
+        let result = receiver.on_message(message2, MessageDirection::North).await;
+        match result {
+            Err(SessionError::Processing(msg)) => {
+                assert!(msg.contains("sender is closing"));
+            }
+            _ => panic!("Expected drain error, got: {:?}", result),
+        }
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_drain_with_pending_rtx() {
+        // Test drain when there are pending RTX requests - should wait for grace period
+        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(3);
+
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let local_name = Name::from_strings(["org", "ns", "local"]);
+        let remote_name = Name::from_strings(["org", "ns", "remote"]);
+
+        let mut receiver = ReliableReceiver::new(
+            Some(settings),
+            10,
+            local_name.clone(),
+            SessionType::PointToPoint,
+            true,
+            tx,
+        );
+
+        // Send message 1
+        let mut message1 = Message::new_publish(
+            &remote_name,
+            &local_name,
+            None,
+            "test_payload_1",
+            vec![1, 2, 3, 4],
+        );
+        message1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message1.get_session_header_mut().set_message_id(1);
+        message1.get_session_header_mut().set_session_id(10);
+        message1.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        receiver
+            .on_message(message1, MessageDirection::North)
+            .await
+            .expect("error sending message1");
+
+        // Consume message 1 and its ACK
+        let _received1 = timeout(Duration::from_millis(100), rx_app.recv())
+            .await
+            .unwrap();
+        let _ack1 = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .unwrap();
+
+        // Send message 3 (missing message 2) to create pending RTX
+        let mut message3 = Message::new_publish(
+            &remote_name,
+            &local_name,
+            None,
+            "test_payload_3",
+            vec![9, 10, 11, 12],
+        );
+        message3.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message3.get_session_header_mut().set_message_id(3);
+        message3.get_session_header_mut().set_session_id(10);
+        message3.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        receiver
+            .on_message(message3, MessageDirection::North)
+            .await
+            .expect("error sending message3");
+
+        // Consume ACK for message 3
+        let _ack3 = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .unwrap();
+
+        // Wait for RTX request to be sent
+        let _rtx_request = timeout(Duration::from_millis(200), rx_slim.recv())
+            .await
+            .expect("timeout waiting for RTX request");
+
+        // Now initiate drain - should start grace period because of pending RTX
+        let drain_result = receiver.drain(300).await; // 300ms grace period
+        assert!(
+            drain_result.is_ok(),
+            "Drain should succeed: {:?}",
+            drain_result
+        );
+
+        // Send RTX reply during grace period
+        let mut rtx_reply = Message::new_publish(
+            &remote_name,
+            &local_name,
+            None,
+            "test_payload_2",
+            vec![5, 6, 7, 8],
+        );
+        rtx_reply.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxReply);
+        rtx_reply.get_session_header_mut().set_message_id(2);
+        rtx_reply.get_session_header_mut().set_session_id(10);
+        rtx_reply.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        receiver
+            .on_message(rtx_reply, MessageDirection::North)
+            .await
+            .expect("error sending rtx reply");
+
+        // Should receive messages 2 and 3 from app
+        let received2 = timeout(Duration::from_millis(100), rx_app.recv())
+            .await
+            .expect("timeout waiting for message2")
+            .expect("channel closed")
+            .expect("error in received message2");
+        assert_eq!(received2.get_id(), 2);
+
+        let received3 = timeout(Duration::from_millis(100), rx_app.recv())
+            .await
+            .expect("timeout waiting for message3")
+            .expect("channel closed")
+            .expect("error in received message3");
+        assert_eq!(received3.get_id(), 3);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_double_drain_call() {
+        // Test calling drain twice should return an error
+        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
+
+        let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, _rx_app) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let local_name = Name::from_strings(["org", "ns", "local"]);
+
+        let mut receiver = ReliableReceiver::new(
+            Some(settings),
+            10,
+            local_name.clone(),
+            SessionType::PointToPoint,
+            true,
+            tx,
+        );
+
+        // First drain call should succeed
+        let first_drain = receiver.drain(1000).await;
+        assert!(
+            first_drain.is_ok(),
+            "First drain should succeed: {:?}",
+            first_drain
+        );
+
+        // Second drain call should fail
+        let second_drain = receiver.drain(1000).await;
+        match second_drain {
+            Err(SessionError::Processing(msg)) => {
+                assert!(msg.contains("sender is closing"));
+            }
+            _ => panic!("Expected double drain error, got: {:?}", second_drain),
+        }
     }
 }
