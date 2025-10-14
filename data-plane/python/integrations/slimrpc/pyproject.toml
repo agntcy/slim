@@ -22,8 +22,8 @@ testing = ["pytest>=8.3.4"]
 [tool.uv]
 default-groups = ["linting", "testing"]
 
-# [tool.uv.sources]
-# slim-bindings = { path = "../../bindings" }
+[tool.uv.sources]
+slim-bindings = { path = "../../bindings" }
 
 [project.scripts]
 simple-server = "slimrpc.examples.simple.server:main"
