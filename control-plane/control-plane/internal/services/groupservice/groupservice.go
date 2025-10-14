@@ -20,12 +20,47 @@ import (
 // moderator_id-random_string
 const ChannelNameFormat = "%s/%s/%s"
 
+type GroupManager interface {
+	CreateChannel(
+		ctx context.Context,
+		createChannelRequest *controlplaneApi.CreateChannelRequest,
+		node *controlplaneApi.NodeEntry,
+	) (*controlplaneApi.CreateChannelResponse, error)
+	DeleteChannel(
+		ctx context.Context,
+		deleteChannelRequest *controllerapi.DeleteChannelRequest,
+		node *controlplaneApi.NodeEntry,
+	) (*controllerapi.Ack, error)
+	AddParticipant(
+		ctx context.Context,
+		addParticipantRequest *controllerapi.AddParticipantRequest,
+		node *controlplaneApi.NodeEntry,
+	) (*controllerapi.Ack, error)
+	DeleteParticipant(
+		ctx context.Context,
+		deleteParticipantRequest *controllerapi.DeleteParticipantRequest,
+		node *controlplaneApi.NodeEntry,
+	) (*controllerapi.Ack, error)
+	ListChannels(
+		ctx context.Context,
+		listChannelsRequest *controllerapi.ListChannelsRequest,
+	) (*controllerapi.ListChannelsResponse, error)
+	ListParticipants(
+		ctx context.Context,
+		listParticipantsRequest *controllerapi.ListParticipantsRequest,
+	) (*controllerapi.ListParticipantsResponse, error)
+	GetChannelDetails(
+		ctx context.Context,
+		channelID string,
+	) (db.Channel, error)
+}
+
 type GroupService struct {
 	dbService  db.DataAccess
 	cmdHandler nodecontrol.NodeCommandHandler
 }
 
-func NewGroupService(dbService db.DataAccess, cmdHandler nodecontrol.NodeCommandHandler) *GroupService {
+func NewGroupService(dbService db.DataAccess, cmdHandler nodecontrol.NodeCommandHandler) GroupManager {
 	return &GroupService{
 		dbService:  dbService,
 		cmdHandler: cmdHandler,

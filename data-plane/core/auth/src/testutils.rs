@@ -1,6 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use aws_lc_rs::encoding::AsDer;
 use aws_lc_rs::signature::KeyPair; // Import the KeyPair trait for public_key() method
 use aws_lc_rs::{rand, rsa, signature};
@@ -179,7 +181,16 @@ pub async fn setup_test_jwt_resolver(algorithm: Algorithm) -> (String, MockServe
         .and(path("/.well-known/openid-configuration"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "issuer": mock_server.uri(),
-            "jwks_uri": jwks_uri
+            "authorization_endpoint": format!("{}/auth", mock_server.uri()),
+            "token_endpoint": format!("{}/oauth2/token", mock_server.uri()),
+            "jwks_uri": jwks_uri,
+            "response_types_supported": ["code"],
+            "subject_types_supported": ["public"],
+            "id_token_signing_alg_values_supported": ["RS256"],
+            "scopes_supported": ["openid", "profile", "email"],
+            "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
+            "claims_supported": ["sub", "iss", "aud", "exp", "iat"],
+            "grant_types_supported": ["authorization_code", "client_credentials"]
         })))
         .mount(&mock_server)
         .await;
@@ -215,4 +226,88 @@ fn bytes_to_pem(key_bytes: &[u8], header: &str, footer: &str) -> String {
     }
 
     format!("{}{}{}", header, pem_body, footer)
+}
+
+/// Test claims structure for JWT testing
+#[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct TestClaims {
+    pub sub: String,
+    pub iss: String,
+    pub aud: String,
+    pub exp: u64,
+    pub iat: u64,
+}
+
+impl TestClaims {
+    /// Create new test claims with proper timestamps
+    pub fn new(sub: impl Into<String>, iss: impl Into<String>, aud: impl Into<String>) -> Self {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        Self {
+            sub: sub.into(),
+            iss: iss.into(),
+            aud: aud.into(),
+            exp: now + 3600, // Expires in 1 hour
+            iat: now,
+        }
+    }
+}
+
+/// Setup a mock OIDC server for testing both token provider and verifier
+pub async fn setup_oidc_mock_server() -> (MockServer, String, String) {
+    let mock_server = MockServer::start().await;
+    let issuer_url = mock_server.uri();
+
+    // Mock OIDC discovery endpoint
+    Mock::given(method("GET"))
+        .and(path("/.well-known/openid-configuration"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "issuer": issuer_url,
+            "authorization_endpoint": format!("{}/auth", issuer_url),
+            "token_endpoint": format!("{}/oauth2/token", issuer_url),
+            "jwks_uri": format!("{}/oauth2/jwks.json", issuer_url),
+            "userinfo_endpoint": format!("{}/userinfo", issuer_url),
+            "response_types_supported": ["code"],
+            "subject_types_supported": ["public"],
+            "id_token_signing_alg_values_supported": ["RS256"],
+            "scopes_supported": ["openid", "profile", "email"],
+            "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
+            "claims_supported": ["sub", "iss", "aud", "exp", "iat"],
+            "grant_types_supported": ["authorization_code", "client_credentials"]
+        })))
+        .mount(&mock_server)
+        .await;
+
+    // Mock token endpoint for client credentials
+    Mock::given(method("POST"))
+        .and(path("/oauth2/token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "access_token": "test-access-token-12345",
+            "token_type": "Bearer",
+            "expires_in": 3600
+        })))
+        .mount(&mock_server)
+        .await;
+
+    // Mock JWKS endpoint (needed for token verification)
+    Mock::given(method("GET"))
+        .and(path("/oauth2/jwks.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "keys": [{
+                "kty": "RSA",
+                "kid": "test-key-1",
+                "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbIS_4q3eFD1LTXfhHQjEZzXpk2zb7fF_xxGLmNr8zXczK8TGLLcgPYEEYnNJhJRs5vJ3dNb02f1_Q-sNHd8qXe5s7eXs2E4RbQJvQ",
+                "e": "AQAB",
+                "alg": "RS256"
+            }]
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let access_token = "test-access-token-12345".to_string();
+
+    (mock_server, issuer_url, access_token)
 }

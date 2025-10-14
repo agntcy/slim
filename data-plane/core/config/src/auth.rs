@@ -3,6 +3,7 @@
 
 pub mod basic;
 pub mod jwt;
+pub mod oidc;
 pub mod static_jwt;
 
 use thiserror::Error;

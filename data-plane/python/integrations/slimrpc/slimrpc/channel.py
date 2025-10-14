@@ -7,7 +7,6 @@ import logging
 import sys
 import time
 from collections.abc import AsyncGenerator, AsyncIterable, Callable
-from dataclasses import dataclass
 from typing import Any
 
 if sys.version_info >= (3, 11):
@@ -23,6 +22,7 @@ from slimrpc.common import (
     MAX_TIMEOUT,
     RequestType,
     ResponseType,
+    SLIMAppConfig,
     create_local_app,
     service_and_method_to_pyname,
     split_id,
@@ -30,14 +30,6 @@ from slimrpc.common import (
 from slimrpc.rpc import SRPCResponseError
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class SLIMAppConfig:
-    identity: str
-    slim_client_config: dict
-    enable_opentelemetry: bool = False
-    shared_secret: str = ""
 
 
 class ChannelFactory:
@@ -64,12 +56,7 @@ class ChannelFactory:
                 assert self._slim_app_config is not None, (
                     "slim_app_config must be provided to create a local app"
                 )
-                self._local_app = await create_local_app(
-                    split_id(self._slim_app_config.identity),
-                    self._slim_app_config.slim_client_config,
-                    enable_opentelemetry=self._slim_app_config.enable_opentelemetry,
-                    shared_secret=self._slim_app_config.shared_secret,
-                )
+                self._local_app = await create_local_app(self._slim_app_config)
                 # Start receiving messages
                 await self._local_app.__aenter__()
             return self._local_app
