@@ -360,8 +360,9 @@ impl OidcTokenProvider {
 
     /// Shutdown the background refresh task
     pub fn shutdown(&self) {
-        if self.shutdown_tx.send(true).is_err() {
-            eprintln!("Failed to send shutdown signal");
+        if let Err(e) = self.shutdown_tx.send(true) {
+            // Print the error message during drop
+            tracing::debug!("Failed to send shutdown signal: {}", e);
         }
     }
 }
@@ -384,7 +385,7 @@ impl Drop for OidcTokenProvider {
         // Signal shutdown when the provider is dropped
         if let Err(e) = self.shutdown_tx.send(true) {
             // Print the error message during drop
-            eprintln!("Failed to send shutdown signal: {}", e);
+            tracing::debug!("Failed to send shutdown signal: {}", e);
         }
     }
 }
