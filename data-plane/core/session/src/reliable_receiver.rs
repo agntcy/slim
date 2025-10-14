@@ -63,7 +63,7 @@ where
     /// timer factory to crate timers for rtx
     /// if None, no rtx is sent. In this case there is no
     /// ordered delivery to the app and messages are sent
-    /// as soon as they arrive at there received without using
+    /// as soon as they arrive at there receiver without using
     /// the buffer
     timer_factory: Option<TimerFactory>,
 
@@ -143,10 +143,12 @@ where
             //}
             slim_datapath::api::ProtoSessionMessageType::P2PReliable => {
                 debug!("received P2P reliable message");
+                self.send_ack(&message).await?;
                 self.on_publish_message(message).await?
             }
             slim_datapath::api::ProtoSessionMessageType::MulticastMsg => {
                 debug!("received multicast message");
+                // TODO: send ack also here
                 self.on_publish_message(message).await?
             }
             slim_datapath::api::ProtoSessionMessageType::RtxReply => {
@@ -186,6 +188,37 @@ where
         let (recv_vec, rtx_vec) = buffer.on_received_message(message);
         self.handle_recv_and_rtx_vectors(source, in_conn, recv_vec, rtx_vec)
             .await
+    }
+
+    async fn send_ack(&mut self, message: &Message) -> Result<(), SessionError> {
+        if !self.send_acks {
+            // nothing to do
+            return Ok(());
+        }
+
+        // create ack and send it back to the source
+        let src = message.get_source();
+        let message_id = message.get_session_header().message_id;
+        let slim_header = Some(SlimHeader::new(
+            &self.local_name,
+            &src,
+            Some(SlimHeaderFlags::default().with_forward_to(message.get_incoming_conn())),
+        ));
+
+        // TODO: acks should be the same for all the sessions
+        // move from P2Pack to simple ack
+        let session_header = Some(SessionHeader::new(
+            self.session_type.clone() as i32,
+            slim_datapath::api::ProtoSessionMessageType::P2PAck.into(),
+            message.get_session_header().session_id,
+            message_id,
+            &None,
+            &None,
+        ));
+
+        let ack = Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
+
+        self.tx.send_to_slim(Ok(ack)).await
     }
 
     async fn on_rtx_message(&mut self, message: Message) -> Result<(), SessionError> {
@@ -503,7 +536,7 @@ mod tests {
         // Test 1: receive messages 1 and 2, they should be correctly sent to the app
         let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
 
-        let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
@@ -549,6 +582,21 @@ mod tests {
         assert_eq!(received1.get_source(), remote_name);
         assert_eq!(received1.get_id(), 1);
 
+        // Verify ack arriving at rx_slim
+        let ack1 = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for ack1")
+            .expect("channel closed")
+            .expect("error in received ack1");
+
+        // Verify the ack was sent correctly
+        assert_eq!(ack1.get_dst(), remote_name);
+        assert_eq!(
+            ack1.get_session_message_type(),
+            slim_datapath::api::ProtoSessionMessageType::P2PAck
+        );
+        assert_eq!(ack1.get_session_header().get_message_id(), 1);
+
         // Create test message 2
         let mut message2 = Message::new_publish(
             &remote_name,
@@ -578,6 +626,21 @@ mod tests {
         // Verify the message was received correctly
         assert_eq!(received2.get_source(), remote_name);
         assert_eq!(received2.get_id(), 2);
+
+        // Verify ack arriving at rx_slim
+        let ack2 = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for ack2")
+            .expect("channel closed")
+            .expect("error in received ack2");
+
+        // Verify the ack was sent correctly
+        assert_eq!(ack2.get_dst(), remote_name);
+        assert_eq!(
+            ack2.get_session_message_type(),
+            slim_datapath::api::ProtoSessionMessageType::P2PAck
+        );
+        assert_eq!(ack2.get_session_header().get_message_id(), 2);
     }
 
     #[tokio::test]
@@ -630,6 +693,21 @@ mod tests {
 
         assert_eq!(received1.get_id(), 1);
 
+        // Verify ack arriving at rx_slim
+        let ack1 = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for ack1")
+            .expect("channel closed")
+            .expect("error in received ack1");
+
+        // Verify the ack was sent correctly
+        assert_eq!(ack1.get_dst(), remote_name);
+        assert_eq!(
+            ack1.get_session_message_type(),
+            slim_datapath::api::ProtoSessionMessageType::P2PAck
+        );
+        assert_eq!(ack1.get_session_header().get_message_id(), 1);
+
         // Create test message 3 (message 2 is missing)
         let mut message3 = Message::new_publish(
             &remote_name,
@@ -648,6 +726,21 @@ mod tests {
             .on_message(message3, MessageDirection::North)
             .await
             .expect("error sending message3");
+
+        // Verify ack arriving at rx_slim
+        let ack3 = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for ack1")
+            .expect("channel closed")
+            .expect("error in received ack1");
+
+        // Verify the ack was sent correctly
+        assert_eq!(ack3.get_dst(), remote_name);
+        assert_eq!(
+            ack3.get_session_message_type(),
+            slim_datapath::api::ProtoSessionMessageType::P2PAck
+        );
+        assert_eq!(ack3.get_session_header().get_message_id(), 3);
 
         // Wait for RTX request to be sent to SLIM
         let rtx_request = timeout(Duration::from_millis(200), rx_slim.recv())
@@ -765,6 +858,21 @@ mod tests {
 
         assert_eq!(received1.get_id(), 1);
 
+        // Verify ack arriving at rx_slim
+        let ack1 = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for ack1")
+            .expect("channel closed")
+            .expect("error in received ack1");
+
+        // Verify the ack was sent correctly
+        assert_eq!(ack1.get_dst(), remote_name);
+        assert_eq!(
+            ack1.get_session_message_type(),
+            slim_datapath::api::ProtoSessionMessageType::P2PAck
+        );
+        assert_eq!(ack1.get_session_header().get_message_id(), 1);
+
         // Create test message 3 (message 2 is missing)
         let mut message3 = Message::new_publish(
             &remote_name,
@@ -783,6 +891,21 @@ mod tests {
             .on_message(message3, MessageDirection::North)
             .await
             .expect("error sending message3");
+
+        // Verify ack arriving at rx_slim
+        let ack3 = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for ack1")
+            .expect("channel closed")
+            .expect("error in received ack1");
+
+        // Verify the ack was sent correctly
+        assert_eq!(ack3.get_dst(), remote_name);
+        assert_eq!(
+            ack3.get_session_message_type(),
+            slim_datapath::api::ProtoSessionMessageType::P2PAck
+        );
+        assert_eq!(ack3.get_session_header().get_message_id(), 3);
 
         // Wait for RTX request to be sent to SLIM
         let rtx_request = timeout(Duration::from_millis(200), rx_slim.recv())
@@ -895,6 +1018,21 @@ mod tests {
 
         assert_eq!(received1.get_id(), 1);
 
+        // Verify ack arriving at rx_slim for message 1
+        let ack1 = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for ack1")
+            .expect("channel closed")
+            .expect("error in received ack1");
+
+        // Verify the ack was sent correctly
+        assert_eq!(ack1.get_dst(), remote_name);
+        assert_eq!(
+            ack1.get_session_message_type(),
+            slim_datapath::api::ProtoSessionMessageType::P2PAck
+        );
+        assert_eq!(ack1.get_session_header().get_message_id(), 1);
+
         // Create test message 3 (message 2 is missing)
         let mut message3 = Message::new_publish(
             &remote_name,
@@ -913,6 +1051,21 @@ mod tests {
             .on_message(message3, MessageDirection::North)
             .await
             .expect("error sending message3");
+
+        // Verify ack arriving at rx_slim for message 3
+        let ack3 = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for ack3")
+            .expect("channel closed")
+            .expect("error in received ack3");
+
+        // Verify the ack was sent correctly
+        assert_eq!(ack3.get_dst(), remote_name);
+        assert_eq!(
+            ack3.get_session_message_type(),
+            slim_datapath::api::ProtoSessionMessageType::P2PAck
+        );
+        assert_eq!(ack3.get_session_header().get_message_id(), 3);
 
         // Wait for RTX request to be sent to SLIM
         let rtx_request = timeout(Duration::from_millis(200), rx_slim.recv())
@@ -984,7 +1137,7 @@ mod tests {
         // all messages are correctly delivered to the app
         let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
 
-        let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
@@ -1095,6 +1248,23 @@ mod tests {
         assert!(received_messages.contains(&(remote1_name.clone(), 2)));
         assert!(received_messages.contains(&(remote2_name.clone(), 1)));
         assert!(received_messages.contains(&(remote2_name.clone(), 2)));
+
+        // Collect all received acks (should be 4 acks for the 4 messages)
+        let mut received_acks = Vec::new();
+        for _ in 0..4 {
+            let ack = timeout(Duration::from_millis(100), rx_slim.recv())
+                .await
+                .expect("timeout waiting for ack")
+                .expect("channel closed")
+                .expect("error in received ack");
+            received_acks.push((ack.get_dst(), ack.get_session_header().get_message_id()));
+        }
+
+        // Verify all acks were sent correctly
+        assert!(received_acks.contains(&(remote1_name.clone(), 1)));
+        assert!(received_acks.contains(&(remote1_name.clone(), 2)));
+        assert!(received_acks.contains(&(remote2_name.clone(), 1)));
+        assert!(received_acks.contains(&(remote2_name.clone(), 2)));
 
         // No more messages should arrive
         let res = timeout(Duration::from_millis(100), rx_app.recv()).await;
@@ -1218,6 +1388,24 @@ mod tests {
             .on_message(message3_r2, MessageDirection::North)
             .await
             .expect("error sending message3_r2");
+
+        // Collect all acknowledgments (should be 5 acks for the 5 messages sent)
+        let mut received_acks = Vec::new();
+        for _ in 0..5 {
+            let ack = timeout(Duration::from_millis(100), rx_slim.recv())
+                .await
+                .expect("timeout waiting for ack")
+                .expect("channel closed")
+                .expect("error in received ack");
+            received_acks.push((ack.get_dst(), ack.get_session_header().get_message_id()));
+        }
+
+        // Verify all acks were sent correctly
+        assert!(received_acks.contains(&(remote1_name.clone(), 1)));
+        assert!(received_acks.contains(&(remote1_name.clone(), 2)));
+        assert!(received_acks.contains(&(remote1_name.clone(), 3)));
+        assert!(received_acks.contains(&(remote2_name.clone(), 1)));
+        assert!(received_acks.contains(&(remote2_name.clone(), 3)));
 
         // Collect messages delivered to app from remote1 (should be all 3)
         let mut remote1_messages = Vec::new();

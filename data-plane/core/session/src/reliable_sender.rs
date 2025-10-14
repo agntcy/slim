@@ -112,10 +112,16 @@ where
             }
             slim_datapath::api::ProtoSessionMessageType::P2PAck => {
                 debug!("received ack message");
-                self.on_ack_message(message);
+                self.on_ack_message(&message);
             }
             slim_datapath::api::ProtoSessionMessageType::RtxRequest => {
                 debug!("received rtx message");
+                // receiving an rtx request for a message we stop the
+                // corresponding ack timer. For this point on if the
+                // message is not delivered the receiver side will keep
+                // asking for it
+                self.on_ack_message(&message);
+                // after the ack removal, process the rtx request
                 self.on_rtx_message(message).await?
             }
             _ => {
@@ -188,7 +194,7 @@ where
             .map_err(|e| SessionError::SlimTransmission(e.to_string()))
     }
 
-    fn on_ack_message(&mut self, message: Message) {
+    fn on_ack_message(&mut self, message: &Message) {
         let source = message.get_source();
         let message_id = message.get_id();
         debug!("received ack message for id {} from {}", message_id, source);
@@ -249,7 +255,9 @@ where
                 .set_forward_to(Some(incoming_conn));
             msg.get_session_header_mut()
                 .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxReply);
+            msg.get_session_header_mut().set_destination(&source); // TODO discuss this with Mauro. we need one field only
 
+            println!("msg: {:?}", msg);
             // send the message
             self.tx
                 .send_to_slim(Ok(msg))
@@ -1066,6 +1074,119 @@ mod tests {
             .expect("error removing remote2");
 
         // wait for timeout - this should expire as not timers should trigger
+        let res = timeout(Duration::from_millis(800), rx_slim.recv()).await;
+        assert!(res.is_err(), "Expected timeout but got: {:?}", res);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_on_message_from_app_with_partial_acks_rtx_request() {
+        // send message from the app to 3 endpoints but only get acks from 2,
+        // then receive RTX request from endpoint 2. This should trigger retransmission and stop timers
+        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
+
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, _) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+        let sender = ReliableSender::new(settings, 10, tx);
+        let group = Name::from_strings(["org", "ns", "group"]);
+        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
+        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
+        let remote3 = Name::from_strings(["org", "ns", "remote3"]);
+
+        sender
+            .add_endpoint(remote1.clone())
+            .await
+            .expect("error adding endpoint");
+        sender
+            .add_endpoint(remote2.clone())
+            .await
+            .expect("error adding endpoint");
+        sender
+            .add_endpoint(remote3.clone())
+            .await
+            .expect("error adding endpoint");
+
+        // Create a test message
+        let source = Name::from_strings(["org", "ns", "source"]);
+        let mut message =
+            Message::new_publish(&source, &group, None, "test_payload", vec![1, 2, 3, 4]);
+
+        // Set session message type to MulticastMsg for reliable sender
+        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MulticastMsg);
+
+        // Send the message using on_message function
+        sender
+            .on_message(message.clone(), MessageDirection::South)
+            .await
+            .expect("error sending message");
+
+        // Wait for the message to arrive at rx_slim
+        let received = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for message")
+            .expect("channel closed")
+            .expect("error message");
+
+        // Verify the message was received
+        assert_eq!(
+            received.get_session_message_type(),
+            slim_datapath::api::ProtoSessionMessageType::MulticastMsg
+        );
+        assert_eq!(received.get_id(), 1);
+
+        // receive acks from only remote1 and remote3 (missing ack from remote2)
+        let mut ack1 = Message::new_publish(&remote1, &source, None, "", vec![]);
+        ack1.get_session_header_mut().set_message_id(1);
+        ack1.get_session_header_mut()
+            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PAck);
+
+        let mut ack3 = Message::new_publish(&remote3, &source, None, "", vec![]);
+        ack3.get_session_header_mut().set_message_id(1);
+        ack3.get_session_header_mut()
+            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PAck);
+
+        // Send only 2 out of 3 acks (missing ack from remote2)
+        sender
+            .on_message(ack1, MessageDirection::North)
+            .await
+            .expect("error sending ack1");
+        sender
+            .on_message(ack3, MessageDirection::North)
+            .await
+            .expect("error sending ack3");
+
+        // Send RTX request from endpoint 2 instead of removing it
+        let mut rtx_request = Message::new_publish(&remote2, &source, None, "", vec![]);
+        rtx_request.get_session_header_mut().set_message_id(1);
+        rtx_request
+            .get_session_header_mut()
+            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxRequest);
+        rtx_request.get_slim_header_mut().set_incoming_conn(Some(1));
+
+        sender
+            .on_message(rtx_request, MessageDirection::North)
+            .await
+            .expect("error sending rtx request");
+
+        // Wait for the retransmission (RTX reply) to arrive at rx_slim
+        let rtx_reply = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for rtx reply")
+            .expect("channel closed")
+            .expect("error in rtx reply");
+
+        // Verify the RTX reply was sent correctly
+        assert_eq!(
+            rtx_reply.get_session_message_type(),
+            slim_datapath::api::ProtoSessionMessageType::RtxReply
+        );
+        assert_eq!(rtx_reply.get_id(), 1);
+        assert_eq!(rtx_reply.get_dst(), remote2);
+
+        // wait for timeout - this should expire as timers should be stopped after RTX
         let res = timeout(Duration::from_millis(800), rx_slim.recv()).await;
         assert!(res.is_err(), "Expected timeout but got: {:?}", res);
     }
