@@ -16,7 +16,7 @@ use serde_json;
 use spiffe::{JwtBundleSet, JwtSvid, SvidSource, WorkloadApiClient, X509Source, X509Svid};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::time::sleep; // for backoff between reconnect attempts
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, info}; // for sync access in TokenProvider impl
 
 /// Configuration for SPIFFE authentication
@@ -210,6 +210,7 @@ pub struct JwtSource {
     _audiences: Vec<String>,
     _target_spiffe_id: Option<String>,
     current: Arc<RwLock<Option<JwtSvid>>>,
+    cancellation_token: CancellationToken,
     _task_handle: tokio::task::JoinHandle<()>, // kept for lifecycle (drop cancels)
 }
 
@@ -242,32 +243,61 @@ impl JwtSource {
         let current_clone = current.clone();
         let audiences_clone = _audiences.clone();
         let target_clone = _target_spiffe_id.clone();
+        let cancellation_token = CancellationToken::new();
+        let token_clone = cancellation_token.clone();
 
         let task_handle = tokio::spawn(async move {
             let mut backoff = cfg.min_retry_backoff;
-            loop {
-                // Fetch
-                match fetch_once(&mut client, &audiences_clone, target_clone.as_ref()).await {
-                    Ok(svid) => {
-                        // Store
-                        {
-                            let mut w = current_clone.write();
-                            *w = Some(svid.clone());
-                        }
-                        // Reset backoff on success
-                        backoff = cfg.min_retry_backoff;
 
-                        // Determine next refresh
-                        let sleep_dur = cfg
-                            .refresh_interval
-                            .unwrap_or_else(|| guess_sleep_until_expiry(&svid, cfg.refresh_buffer));
-                        tracing::debug!(?sleep_dur, "jwt_source: sleeping until next refresh");
-                        tokio::time::sleep(sleep_dur).await;
+            // Use interval for timing - start with refresh interval or default
+            let initial_duration = cfg.refresh_interval.unwrap_or(Duration::from_secs(30));
+            let mut interval = tokio::time::interval(initial_duration);
+            interval.tick().await; // consume the first immediate tick
+
+            loop {
+                tokio::select! {
+                    // Wait for the next interval tick
+                    _ = interval.tick() => {
+                        // Fetch
+                        match fetch_once(&mut client, &audiences_clone, target_clone.as_ref()).await {
+                            Ok(svid) => {
+                                // Store
+                                {
+                                    let mut w = current_clone.write();
+                                    *w = Some(svid.clone());
+                                }
+                                // Reset backoff on success
+                                backoff = cfg.min_retry_backoff;
+
+                                // Determine next refresh interval
+                                let next_duration = if let Some(fixed_interval) = cfg.refresh_interval {
+                                    // Use fixed refresh interval
+                                    fixed_interval
+                                } else {
+                                    // Calculate dynamic interval based on token expiry
+                                    guess_sleep_until_expiry(&svid, cfg.refresh_buffer)
+                                        .max(Duration::from_secs(5))
+                                };
+
+                                // Reset interval with new duration
+                                interval = tokio::time::interval(next_duration);
+                                interval.tick().await; // consume the first immediate tick
+                                tracing::debug!(next_duration_secs = next_duration.as_secs(), "jwt_source: next refresh in {} seconds", next_duration.as_secs());
+                            }
+                            Err(err) => {
+                                tracing::warn!(error=%err, "jwt_source: failed to fetch JWT SVID; backing off");
+                                // Reset interval with backoff duration
+                                interval = tokio::time::interval(backoff);
+                                interval.tick().await; // consume the first immediate tick
+                                backoff = (backoff * 2).min(cfg.max_retry_backoff);
+                            }
+                        }
                     }
-                    Err(err) => {
-                        tracing::warn!(error=%err, "jwt_source: failed to fetch JWT SVID; backing off");
-                        tokio::time::sleep(backoff).await;
-                        backoff = (backoff * 2).min(cfg.max_retry_backoff);
+
+                    // Cancellation token - break out of loop when cancelled
+                    _ = token_clone.cancelled() => {
+                        tracing::debug!("jwt_source: cancellation token signaled, shutting down");
+                        break;
                     }
                 }
             }
@@ -277,6 +307,7 @@ impl JwtSource {
             _audiences,
             _target_spiffe_id,
             current,
+            cancellation_token,
             _task_handle: task_handle,
         }))
     }
@@ -286,6 +317,13 @@ impl JwtSource {
         // Use try_read for non-blocking sync access
         let guard = self.current.read();
         Ok(guard.clone())
+    }
+}
+
+impl Drop for JwtSource {
+    fn drop(&mut self) {
+        // Cancel the background task when JwtSource is dropped
+        self.cancellation_token.cancel();
     }
 }
 
@@ -381,8 +419,13 @@ impl SpiffeJwtVerifier {
         let bundles_cache = self.bundles.clone();
         tokio::spawn(async move {
             // Exponential backoff parameters
-            let mut backoff_secs: u64 = 1;
-            const MAX_BACKOFF: u64 = 30;
+            let mut backoff_duration = Duration::from_secs(1);
+            const MAX_BACKOFF: Duration = Duration::from_secs(30);
+
+            // Use interval for consistent timing
+            let mut retry_interval = tokio::time::interval(backoff_duration);
+            retry_interval.tick().await; // consume the first immediate tick
+
             loop {
                 // Create a fresh client each attempt (avoids mut borrow conflicts with other operations)
                 match WorkloadApiClient::default().await {
@@ -390,7 +433,11 @@ impl SpiffeJwtVerifier {
                         tracing::debug!("spiffe_jwt: starting JWT bundle stream");
                         match streaming_client.stream_jwt_bundles().await {
                             Ok(mut stream) => {
-                                backoff_secs = 1; // reset backoff after successful connection
+                                // Reset backoff after successful connection
+                                backoff_duration = Duration::from_secs(1);
+                                retry_interval = tokio::time::interval(backoff_duration);
+                                retry_interval.tick().await; // consume the first immediate tick
+
                                 while let Some(next_item) = stream.next().await {
                                     match next_item {
                                         Ok(update) => {
@@ -417,9 +464,10 @@ impl SpiffeJwtVerifier {
                         tracing::warn!(error=%err, "spiffe_jwt: failed to create streaming client; will retry");
                     }
                 }
-                // Backoff before retrying
-                sleep(Duration::from_secs(backoff_secs)).await;
-                backoff_secs = (backoff_secs * 2).min(MAX_BACKOFF);
+                // Backoff before retrying using interval
+                retry_interval.tick().await;
+                backoff_duration = (backoff_duration * 2).min(MAX_BACKOFF);
+                retry_interval = tokio::time::interval(backoff_duration);
             }
         });
         Ok(())
