@@ -20,6 +20,8 @@ use crate::{
     timer_factory::{TimerFactory, TimerSettings},
 };
 
+const DRAIN_TIMER_ID: u32 = 0;
+
 #[allow(dead_code)]
 struct ReliableReceiverInternal<T>
 where
@@ -321,8 +323,8 @@ where
         // If we have pending rtx, start a grace period timer
         if !self.pending_rtxs.is_empty() {
             debug!("pending rtx exist, starting grace period timer");
-            // Use a special timer ID for drain (u32::MAX to avoid conflicts)
-            let drain_timer_id = u32::MAX;
+            // Use a special timer ID for drain
+            let drain_timer_id = DRAIN_TIMER_ID;
             let timer = Timer::new(
                 drain_timer_id,
                 crate::timer::TimerType::Constant,
@@ -364,7 +366,7 @@ where
                         }
                         Some(SessionMessage::TimerTimeout { message_id, timeouts: _, name }) => {
                             // Check if this is the drain timer
-                            if message_id == u32::MAX {
+                            if message_id == DRAIN_TIMER_ID {
                                 debug!("drain grace period expired, stopping sender");
                                 break; // Exit the loop to stop the sender
                             }

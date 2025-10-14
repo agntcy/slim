@@ -19,6 +19,8 @@ use crate::{
     timer_factory::{TimerFactory, TimerSettings},
 };
 
+const DRAIN_TIMER_ID: u32 = 0;
+
 #[allow(dead_code)]
 struct GroupTimer {
     /// list of names for which we did not get an ack yet
@@ -50,10 +52,6 @@ where
     /// on endpoint remove, delete all the acks to the endpoint
     endpoints_list: HashSet<Name>,
 
-    /// is true, use next id to generate the message id
-    /// otherwise generate a random id
-    is_sequential: bool, // use the next_id or send a random id
-
     /// message id, used if the session is sequential
     next_id: u32,
 
@@ -80,7 +78,6 @@ where
 {
     fn new(
         timer_settings: TimerSettings,
-        is_sequential: bool,
         session_id: u32,
         tx: T,
         tx_signals: Sender<SessionMessage>,
@@ -94,7 +91,6 @@ where
             pending_acks: HashMap::new(),
             pending_acks_per_endpoint: HashMap::new(),
             endpoints_list: HashSet::new(),
-            is_sequential,
             next_id: 0,
             session_id,
             tx,
@@ -144,12 +140,11 @@ where
             ));
         }
 
-        let message_id = if self.is_sequential {
-            self.next_id += 1;
-            self.next_id
-        } else {
-            rand::random::<u32>()
-        };
+        // compute message id
+        // by increasing next_id before assign it to message_id
+        // we always skip message 0 (used as drain timer id)
+        self.next_id += 1;
+        let message_id = self.next_id;
 
         debug!("send new message with id {}", message_id);
 
@@ -389,8 +384,8 @@ where
         // If we have pending acks, start a grace period timer
         if !self.pending_acks.is_empty() {
             debug!("pending acks exist, starting grace period timer");
-            // Use a special timer ID for drain (u32::MAX to avoid conflicts)
-            let drain_timer_id = u32::MAX;
+            // Use a special timer ID for drain
+            let drain_timer_id = DRAIN_TIMER_ID;
             let timer = Timer::new(
                 drain_timer_id,
                 crate::timer::TimerType::Constant,
@@ -431,7 +426,7 @@ where
                         Some(SessionMessage::TimerTimeout { message_id, timeouts: _ , name: _}) => {
                             debug!("timer {} timeout", message_id);
                             // Check if this is the drain timer
-                            if message_id == u32::MAX {
+                            if message_id == DRAIN_TIMER_ID {
                                 debug!("drain grace period expired, stopping sender");
                                 break; // Exit the loop to stop the sender
                             } else if self.on_timer_timeout(message_id).await.is_err() {
@@ -488,22 +483,11 @@ impl<T> ReliableSender<T>
 where
     T: Transmitter + Send + Sync + Clone + 'static,
 {
-    pub fn new(
-        timer_settings: TimerSettings,
-        is_sequential: bool,
-        session_id: u32,
-        tx_transmitter: T,
-    ) -> Self {
+    pub fn new(timer_settings: TimerSettings, session_id: u32, tx_transmitter: T) -> Self {
         let (tx, rx) = tokio::sync::mpsc::channel(128);
 
-        let reliable_sender = ReliableSenderInternal::new(
-            timer_settings,
-            is_sequential,
-            session_id,
-            tx_transmitter,
-            tx.clone(),
-            rx,
-        );
+        let reliable_sender =
+            ReliableSenderInternal::new(timer_settings, session_id, tx_transmitter, tx.clone(), rx);
 
         // Spawn the processing loop
         tokio::spawn(async move {
@@ -574,7 +558,7 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let sender = ReliableSender::new(settings, true, 10, tx);
+        let sender = ReliableSender::new(settings, 10, tx);
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
@@ -642,7 +626,7 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let sender = ReliableSender::new(settings, true, 10, tx);
+        let sender = ReliableSender::new(settings, 10, tx);
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
@@ -735,7 +719,7 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let sender = ReliableSender::new(settings, true, 10, tx);
+        let sender = ReliableSender::new(settings, 10, tx);
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
@@ -799,7 +783,7 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let sender = ReliableSender::new(settings, true, 10, tx);
+        let sender = ReliableSender::new(settings, 10, tx);
         let group = Name::from_strings(["org", "ns", "group"]);
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
@@ -892,7 +876,7 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let sender = ReliableSender::new(settings, true, 10, tx);
+        let sender = ReliableSender::new(settings, 10, tx);
         let group = Name::from_strings(["org", "ns", "group"]);
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
@@ -1007,7 +991,7 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let sender = ReliableSender::new(settings, true, 10, tx);
+        let sender = ReliableSender::new(settings, 10, tx);
         let group = Name::from_strings(["org", "ns", "group"]);
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
@@ -1097,7 +1081,7 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let sender = ReliableSender::new(settings, true, 10, tx);
+        let sender = ReliableSender::new(settings, 10, tx);
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
@@ -1206,7 +1190,7 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let sender = ReliableSender::new(settings, true, 10, tx);
+        let sender = ReliableSender::new(settings, 10, tx);
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         // DO NOT add any endpoints - this is the key part of the test
@@ -1251,7 +1235,7 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let sender = ReliableSender::new(settings, true, 10, tx);
+        let sender = ReliableSender::new(settings, 10, tx);
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
@@ -1324,7 +1308,7 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let sender = ReliableSender::new(settings, true, 10, tx);
+        let sender = ReliableSender::new(settings, 10, tx);
 
         // Initiate drain without any pending messages
         let result = sender.drain(1000).await;
