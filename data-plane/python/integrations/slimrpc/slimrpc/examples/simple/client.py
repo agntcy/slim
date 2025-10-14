@@ -45,6 +45,12 @@ async def amain() -> None:
 
         response = await stubs.ExampleStreamUnary(stream_requests(), timeout=2)
         logger.info(f"Stream Unary Response: {response}")
+
+        stream = stubs.ExampleStreamStream(stream_requests(), timeout=2)
+        async for resp in stream:
+            logger.info(f"Stream Stream Response: {resp}")
+        logger.info("Stream Stream completed")
+
     except asyncio.TimeoutError:
         logger.error("timeout while waiting for response")
 

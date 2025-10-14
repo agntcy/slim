@@ -45,12 +45,13 @@ class TestService(TestServicer):
     ) -> ExampleResponse:
         logger.info(f"Received stream-unary request: {request_iterator}")
 
+        received_strs = []
         async for request, msg_ctx in request_iterator:
             _ = msg_ctx  # Unused in this example
-            logger.info(f"Received stream-unary request: {request}")
+            received_strs.append(request.example_string)
 
         response = ExampleResponse(
-            example_integer=1, example_string="Stream Unary Response"
+            example_integer=len(received_strs), example_string="Saw: " + ", ".join(received_strs)
         )
         return response
 
@@ -59,9 +60,14 @@ class TestService(TestServicer):
         request_iterator: AsyncIterable[tuple[ExampleRequest, MessageContext]],
         session_context: MessageContext,
     ) -> AsyncIterable[ExampleResponse]:
-        """Missing associated documentation comment in .proto file."""
-        raise NotImplementedError("Method not implemented!")
+        logger.info(f"Received stream-stream request: {request_iterator}")
 
+        async for request, msg_ctx in request_iterator:
+            _ = msg_ctx  # Unused in this example
+            yield ExampleResponse(
+                example_integer=request.example_integer * 100,
+                example_string=f"Echo: {request.example_string}",
+            )
 
 async def amain() -> None:
     server = await Server.from_slim_app_config(
