@@ -51,7 +51,7 @@ async def main() -> None:
         case "slimrpc":
             servicer = SRPCHandler(agent_card, default_request_handler)
 
-            server = slimrpc.Server(
+            server = await slimrpc.Server.from_slim_app_config(
                 slim_app_config=slimrpc.SLIMAppConfig(
                     identity="agntcy/demo/echo_agent",
                     slim_client_config={

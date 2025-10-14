@@ -56,7 +56,14 @@ class {{SERVICE_NAME}}Servicer():
 {{METHOD_SERVICERS}}
 "#;
 
-const METHOD_SERVICER_TEMPLATE: &str = r#"    def {{METHOD_NAME}}(self, {{REQUEST_ARG}}, context):
+const STREAM_METHOD_SERVICER_TEMPLATE: &str = r#"    def {{METHOD_NAME}}(self, request_iterator, session_context):
+        """Method for {{METHOD_NAME}}. Implement your service logic here."""
+        raise slimrpc_rpc.SRPCResponseError(
+            code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
+        )
+"#;
+
+const UNARY_METHOD_SERVICER_TEMPLATE: &str = r#"    def {{METHOD_NAME}}(self, request, msg_context, session_context):
         """Method for {{METHOD_NAME}}. Implement your service logic here."""
         raise slimrpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
@@ -249,10 +256,10 @@ fn main() -> Result<()> {
                     (true, true) => "stream_stream",
                 };
 
-                let request_arg = if is_client_streaming {
-                    "request_iterator"
+                let method_template = if is_client_streaming {
+                    STREAM_METHOD_SERVICER_TEMPLATE
                 } else {
-                    "request"
+                    UNARY_METHOD_SERVICER_TEMPLATE
                 };
 
                 // Populate method stub initializer template
@@ -266,9 +273,8 @@ fn main() -> Result<()> {
                 method_stub_initializers_content.push_str(&current_method_stub_initializer);
 
                 // Populate method servicer template
-                let current_method_servicer = METHOD_SERVICER_TEMPLATE
+                let current_method_servicer = method_template
                     .replace("{{METHOD_NAME}}", &method_name)
-                    .replace("{{REQUEST_ARG}}", request_arg)
                     .replace("{{INPUT_TYPE_FULL_PATH}}", &input_type_full_path);
                 method_servicers_content.push_str(&current_method_servicer);
 
