@@ -710,14 +710,20 @@ impl ControllerService {
                                     let client_endpoint = &client_config.endpoint;
 
                                     // connect to an endpoint if it's not already connected
-                                    if !self.inner.connections.read().contains_key(client_endpoint) {
+                                    if !self.inner.connections.read().contains_key(client_endpoint)
+                                    {
                                         match client_config.to_channel() {
                                             Err(e) => {
-                                                connections_failed_to_create.push(v1::ConnectionError {
-                                                    connection_id: conn.connection_id.clone(),
-                                                    error_msg: format!("Channel config error: {}", e),
-                                            });
-                                            continue;
+                                                connections_failed_to_create.push(
+                                                    v1::ConnectionError {
+                                                        connection_id: conn.connection_id.clone(),
+                                                        error_msg: format!(
+                                                            "Channel config error: {}",
+                                                            e
+                                                        ),
+                                                    },
+                                                );
+                                                continue;
                                             }
                                             Ok(channel) => {
                                                 let ret = self
@@ -733,17 +739,24 @@ impl ControllerService {
 
                                                 match ret {
                                                     Err(e) => {
-                                                        connections_failed_to_create.push(v1::ConnectionError {
-                                                            connection_id: conn.connection_id.clone(),
-                                                            error_msg: format!("Connection failed: {}", e),
-                                                        });
+                                                        connections_failed_to_create.push(
+                                                            v1::ConnectionError {
+                                                                connection_id: conn
+                                                                    .connection_id
+                                                                    .clone(),
+                                                                error_msg: format!(
+                                                                    "Connection failed: {}",
+                                                                    e
+                                                                ),
+                                                            },
+                                                        );
                                                         continue;
                                                     }
                                                     Ok(conn_id) => {
-                                                        self.inner
-                                                            .connections
-                                                            .write()
-                                                            .insert(client_endpoint.clone(), conn_id.1);
+                                                        self.inner.connections.write().insert(
+                                                            client_endpoint.clone(),
+                                                            conn_id.1,
+                                                        );
                                                     }
                                                 }
                                             }
@@ -763,7 +776,10 @@ impl ControllerService {
                             {
                                 subscriptions_failed_to_set.push(v1::SubscriptionError {
                                     subscription: Some(subscription.clone()),
-                                    error_msg: format!("Connection {} not found", subscription.connection_id),
+                                    error_msg: format!(
+                                        "Connection {} not found",
+                                        subscription.connection_id
+                                    ),
                                 });
                                 continue;
                             }
@@ -812,7 +828,10 @@ impl ControllerService {
                             {
                                 subscriptions_failed_to_delete.push(v1::SubscriptionError {
                                     subscription: Some(subscription.clone()),
-                                    error_msg: format!("Connection {} not found", subscription.connection_id),
+                                    error_msg: format!(
+                                        "Connection {} not found",
+                                        subscription.connection_id
+                                    ),
                                 });
                                 continue;
                             }

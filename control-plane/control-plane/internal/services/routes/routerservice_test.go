@@ -59,6 +59,18 @@ func (m *CommandHandlerMock) WaitForResponse(_ context.Context,
 		},
 	}, nil
 }
+func (m *CommandHandlerMock) WaitForResponseWithTimeout(_ context.Context,
+	_ string, _ reflect.Type, messageID string, _ time.Duration) (*controllerapi.ControlMessage, error) {
+	// Always return a successful ACK
+	return &controllerapi.ControlMessage{
+		Payload: &controllerapi.ControlMessage_Ack{
+			Ack: &controllerapi.Ack{
+				Success:           true,
+				OriginalMessageId: messageID,
+			},
+		},
+	}, nil
+}
 func (m *CommandHandlerMock) ResponseReceived(
 	_ context.Context, _ string, _ *controllerapi.ControlMessage) {
 }
@@ -165,14 +177,14 @@ func addNodes(ctx context.Context, t *testing.T, dbService db.DataAccess, routeS
 			},
 		},
 	}
-	_, err := dbService.SaveNode(node1)
+	_, _, err := dbService.SaveNode(node1)
 	require.NoError(t, err)
-	_, err = dbService.SaveNode(node2)
+	_, _, err = dbService.SaveNode(node2)
 	require.NoError(t, err)
 
 	// Call NodeRegistered for each node
-	routeService.NodeRegistered(ctx, node1.ID)
-	routeService.NodeRegistered(ctx, node2.ID)
+	routeService.NodeRegistered(ctx, node1.ID, false)
+	routeService.NodeRegistered(ctx, node2.ID, false)
 }
 
 func TestRouteService_AddAndThenDeleteRoutes(t *testing.T) {

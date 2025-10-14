@@ -238,7 +238,8 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 		}
 
 		// Mark successful routes as applied and delete successful deleted routes
-		if err := s.handleSuccessfulRoutes(ctx, ack, subscriptionToRouteID, deleteSubscriptionToRouteID, deletedRoutes, zlog); err != nil {
+		if err := s.handleSuccessfulRoutes(ctx, ack, subscriptionToRouteID, deleteSubscriptionToRouteID,
+			deletedRoutes, zlog); err != nil {
 			return fmt.Errorf("failed to handle successful routes: %w", err)
 		}
 
@@ -264,7 +265,8 @@ func (s *RouteReconciler) getSubscriptionKey(sub *controllerapi.Subscription) st
 }
 
 // handleSubscriptionAddFailures processes failed subscription additions
-func (s *RouteReconciler) handleSubscriptionAddFailures(ctx context.Context, ack *controllerapi.ConfigurationCommandAck, subscriptionToRouteID map[string]string, zlog zerolog.Logger) error {
+func (s *RouteReconciler) handleSubscriptionAddFailures(_ context.Context,
+	ack *controllerapi.ConfigurationCommandAck, subscriptionToRouteID map[string]string, zlog zerolog.Logger) error {
 	// Create a map of connection errors for quick lookup
 	connectionErrors := make(map[string]string)
 	for _, connErr := range ack.GetConnectionsFailedToCreate() {
@@ -282,8 +284,8 @@ func (s *RouteReconciler) handleSubscriptionAddFailures(ctx context.Context, ack
 
 		// Determine the failure message - prefer connection error if available
 		failedMsg := subErr.GetErrorMsg()
-		connId := subErr.GetSubscription().GetConnectionId()
-		if connErr, hasConnErr := connectionErrors[connId]; hasConnErr {
+		connID := subErr.GetSubscription().GetConnectionId()
+		if connErr, hasConnErr := connectionErrors[connID]; hasConnErr {
 			failedMsg = connErr
 		}
 
@@ -293,14 +295,16 @@ func (s *RouteReconciler) handleSubscriptionAddFailures(ctx context.Context, ack
 			return fmt.Errorf("failed to mark route %s as failed: %w", routeID, err)
 		}
 
-		zlog.Info().Str("route_id", routeID).Str("error", failedMsg).Msg("Marked route as failed due to subscription add failure")
+		zlog.Info().Str("route_id", routeID).Str("error", failedMsg).Msg(
+			"Marked route as failed due to subscription add failure")
 	}
 
 	return nil
 }
 
 // handleSubscriptionDeleteFailures processes failed subscription deletions
-func (s *RouteReconciler) handleSubscriptionDeleteFailures(ctx context.Context, ack *controllerapi.ConfigurationCommandAck, deleteSubscriptionToRouteID map[string]string, zlog zerolog.Logger) error {
+func (s *RouteReconciler) handleSubscriptionDeleteFailures(_ context.Context,
+	ack *controllerapi.ConfigurationCommandAck, deleteSubscriptionToRouteID map[string]string, zlog zerolog.Logger) error {
 	// Handle failed subscription deletions
 	for _, subErr := range ack.GetSubscriptionsFailedToDelete() {
 		subscriptionKey := s.getSubscriptionErrorKey(subErr)
@@ -318,14 +322,18 @@ func (s *RouteReconciler) handleSubscriptionDeleteFailures(ctx context.Context, 
 			return fmt.Errorf("failed to mark route %s as failed during deletion: %w", routeID, err)
 		}
 
-		zlog.Info().Str("route_id", routeID).Str("error", failedMsg).Msg("Marked route as failed due to subscription delete failure")
+		zlog.Info().Str("route_id", routeID).Str("error", failedMsg).Msg(
+			"Marked route as failed due to subscription delete failure")
 	}
 
 	return nil
 }
 
 // handleSuccessfulRoutes marks successful routes as applied and deletes successful deleted routes
-func (s *RouteReconciler) handleSuccessfulRoutes(ctx context.Context, ack *controllerapi.ConfigurationCommandAck, subscriptionToRouteID, deleteSubscriptionToRouteID map[string]string, deletedRoutes []string, zlog zerolog.Logger) error {
+func (s *RouteReconciler) handleSuccessfulRoutes(_ context.Context,
+	ack *controllerapi.ConfigurationCommandAck, subscriptionToRouteID, deleteSubscriptionToRouteID map[string]string,
+	_ []string, zlog zerolog.Logger) error {
+
 	// Create sets of failed subscription keys for quick lookup
 	failedAddSubscriptionKeys := make(map[string]bool)
 	failedDeleteSubscriptionKeys := make(map[string]bool)
@@ -369,8 +377,9 @@ func (s *RouteReconciler) getSubscriptionErrorKey(subErr *controllerapi.Subscrip
 	if subErr.Subscription.Id != nil {
 		idStr = fmt.Sprintf(":%d", subErr.Subscription.Id.GetValue())
 	}
-	connId := subErr.GetSubscription().GetConnectionId()
-	return fmt.Sprintf("%s:%s:%s:%s%s", connId, subErr.Subscription.Component_0, subErr.Subscription.Component_1, subErr.Subscription.Component_2, idStr)
+	connID := subErr.GetSubscription().GetConnectionId()
+	return fmt.Sprintf("%s:%s:%s:%s%s", connID,
+		subErr.Subscription.Component_0, subErr.Subscription.Component_1, subErr.Subscription.Component_2, idStr)
 }
 
 func generateConfigData(detail db.ConnectionDetails, localConnection bool) (string, string, error) {
