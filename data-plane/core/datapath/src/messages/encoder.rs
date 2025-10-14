@@ -121,6 +121,10 @@ impl Name {
     pub fn components_strings(&self) -> Option<&[String; 3]> {
         self.strings.as_deref()
     }
+
+    pub fn match_prefix(&self, other: &Name) -> bool {
+        self.components[0..3] == other.components[0..3]
+    }
 }
 
 pub fn calculate_hash<T: Hash + ?Sized>(t: &T) -> u64 {
