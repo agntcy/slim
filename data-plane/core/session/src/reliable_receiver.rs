@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 
 use slim_datapath::messages::utils::SlimHeaderFlags;
@@ -22,6 +23,32 @@ use crate::{
 
 const DRAIN_TIMER_ID: u32 = 0;
 
+// structs used in the pending rtx map
+struct PendingRtxVal {
+    timer: Timer,
+    message: Message,
+}
+
+struct PendingRtxKey {
+    name: Name,
+    id: u32,
+}
+
+impl PartialEq for PendingRtxKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name && self.id == other.id
+    }
+}
+
+impl Eq for PendingRtxKey {}
+
+impl Hash for PendingRtxKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+        self.id.hash(state);
+    }
+}
+
 #[allow(dead_code)]
 struct ReliableReceiverInternal<T>
 where
@@ -31,7 +58,7 @@ where
     buffer: HashMap<Name, ReceiverBuffer>,
 
     /// list of pending RTX requests per name/id
-    pending_rtxs: HashMap<Name, HashMap<u32, (Timer, Message)>>,
+    pending_rtxs: HashMap<PendingRtxKey, PendingRtxVal>,
 
     /// timer factory to crate timers for rtx
     /// if None, no rtx is sent. In this case there is no
@@ -157,7 +184,7 @@ where
         };
 
         let (recv_vec, rtx_vec) = buffer.on_received_message(message);
-        self.handle_recv_and_rtx_vectors(&source, in_conn, recv_vec, rtx_vec)
+        self.handle_recv_and_rtx_vectors(source, in_conn, recv_vec, rtx_vec)
             .await
     }
 
@@ -170,11 +197,12 @@ where
         debug!("received RTX reply for message {} from {}", id, source);
 
         // remote the timer
-        if let Some(pending) = self.pending_rtxs.get_mut(&source)
-            && let Some((t, _m)) = pending.get_mut(&id)
-        {
-            t.stop();
-            pending.remove(&id);
+        let key = PendingRtxKey {
+            name: source.clone(),
+            id,
+        };
+        if let Some(mut pending) = self.pending_rtxs.remove(&key) {
+            pending.timer.stop();
         }
 
         // if rtx is not an error pass to on_publish_message
@@ -187,13 +215,13 @@ where
             SessionError::Processing("missing receiver buffer for incoming rtx reply".to_string())
         })?;
         let recv_vec = buffer.on_lost_message(id);
-        self.handle_recv_and_rtx_vectors(&source, in_conn, recv_vec, vec![])
+        self.handle_recv_and_rtx_vectors(source, in_conn, recv_vec, vec![])
             .await
     }
 
     async fn handle_recv_and_rtx_vectors(
         &mut self,
-        source: &Name,
+        source: Name,
         in_conn: u64,
         recv_vec: Vec<Option<Message>>,
         rtx_vec: Vec<u32>,
@@ -226,7 +254,7 @@ where
             // create RTX packet
             let slim_header = Some(SlimHeader::new(
                 &self.local_name,
-                source,
+                &source,
                 Some(SlimHeaderFlags::default().with_forward_to(in_conn)),
             ));
 
@@ -243,20 +271,22 @@ where
 
             // for each RTX start a timer
             debug!("create rtx timer for message {} form {}", rtx_id, source);
-            let pending = match self.pending_rtxs.get_mut(source) {
-                Some(p) => p,
-                None => {
-                    self.pending_rtxs.insert(source.clone(), HashMap::new());
-                    self.pending_rtxs.get_mut(source).unwrap()
-                }
-            };
 
             let timer = self
                 .timer_factory
                 .as_ref()
                 .unwrap()
                 .create_and_start_timer(rtx_id, Some(source.clone()));
-            pending.insert(rtx_id, (timer, rtx.clone()));
+
+            let key = PendingRtxKey {
+                name: source.clone(),
+                id: rtx_id,
+            };
+            let val = PendingRtxVal {
+                timer,
+                message: rtx.clone(),
+            };
+            self.pending_rtxs.insert(key, val);
 
             // send message
             debug!("send rtx request for message {} to {}", rtx_id, source);
@@ -268,16 +298,13 @@ where
 
     async fn on_timer_timeout(&mut self, id: u32, name: Name) -> Result<(), SessionError> {
         debug!("timeout for message {} from {}", id, name);
-        let pending = self.pending_rtxs.get_mut(&name).ok_or_else(|| {
-            SessionError::Processing("missing pending rtx associated to timer".to_string())
-        })?;
-
-        let (_t, rtx) = pending.get(&id).ok_or_else(|| {
+        let key = PendingRtxKey { name, id };
+        let pending = self.pending_rtxs.get(&key).ok_or_else(|| {
             SessionError::Processing("missing pending rtx associated to timer".to_string())
         })?;
 
         debug!("send rtx request again");
-        self.tx.send_to_slim(Ok(rtx.clone())).await
+        self.tx.send_to_slim(Ok(pending.message.clone())).await
     }
 
     async fn on_timer_failure(&mut self, id: u32, name: Name) -> Result<(), SessionError> {
@@ -285,20 +312,13 @@ where
             "timer failure for message {} from {}, clear state",
             id, name
         );
-        let pending = self.pending_rtxs.get_mut(&name).ok_or_else(|| {
-            SessionError::Processing("missing pending rtx associated to timer".to_string())
-        })?;
-
-        let (t, _rtx) = pending.get_mut(&id).ok_or_else(|| {
+        let key = PendingRtxKey { name, id };
+        let mut pending = self.pending_rtxs.remove(&key).ok_or_else(|| {
             SessionError::Processing("missing pending rtx associated to timer".to_string())
         })?;
 
         // stop the timer and remove the name if no pending rtx left
-        t.stop();
-        pending.remove(&id);
-        if pending.is_empty() {
-            self.pending_rtxs.remove(&name);
-        }
+        pending.timer.stop();
 
         // notify the application that the message was not delivered correctly
         self.tx
