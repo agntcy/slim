@@ -199,13 +199,13 @@ async def create_local_app(config: SLIMAppConfig) -> slim_bindings.Slim:
 
     local_app = await slim_bindings.Slim.new(split_identity, provider, verifier)
 
-    logger.info(f"{local_app.get_id()} Created app")
+    logger.info(f"{local_app.local_name} Created app")
 
     # Connect to slim server
     _ = await local_app.connect(config.slim_client_config)
 
     logger.info(
-        f"{local_app.get_id()} Connected to {config.slim_client_config['endpoint']}"
+        f"{local_app.local_name} Connected to {config.slim_client_config['endpoint']}"
     )
 
     return local_app

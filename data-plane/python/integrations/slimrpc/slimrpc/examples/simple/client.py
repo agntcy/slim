@@ -10,7 +10,8 @@ logger = logging.getLogger(__name__)
 
 
 async def amain() -> None:
-    channel_factory = slimrpc.ChannelFactory(
+    channel = await slimrpc.Channel.from_slim_app_config(
+        remote="agntcy/grpc/server",
         slim_app_config=slimrpc.SLIMAppConfig(
             identity="agntcy/grpc/client",
             slim_client_config={
@@ -23,8 +24,6 @@ async def amain() -> None:
             shared_secret="my_shared_secret",
         ),
     )
-
-    channel = channel_factory.new_channel(remote="agntcy/grpc/server")
 
     # Stubs
     stubs = TestStub(channel)

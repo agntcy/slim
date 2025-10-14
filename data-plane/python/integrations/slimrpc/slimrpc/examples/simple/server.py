@@ -3,7 +3,7 @@ import logging
 from collections.abc import AsyncIterable
 
 from slimrpc.common import SLIMAppConfig
-from slimrpc.context import Context
+from slimrpc.context import MessageContext, SessionContext
 from slimrpc.examples.simple.types.example_pb2 import ExampleRequest, ExampleResponse
 from slimrpc.examples.simple.types.example_pb2_slimrpc import (
     TestServicer,
@@ -16,14 +16,20 @@ logger = logging.getLogger(__name__)
 
 class TestService(TestServicer):
     async def ExampleUnaryUnary(
-        self, request: ExampleRequest, context: Context
+        self,
+        request: ExampleRequest,
+        msg_context: MessageContext,
+        session_context: SessionContext,
     ) -> ExampleResponse:
         logger.info(f"Received unary-unary request: {request}")
 
         return ExampleResponse(example_integer=1, example_string="Hello, World!")
 
     async def ExampleUnaryStream(
-        self, request: ExampleRequest, context: Context
+        self,
+        request: ExampleRequest,
+        msg_context: MessageContext,
+        session_context: SessionContext,
     ) -> AsyncIterable[ExampleResponse]:
         logger.info(f"Received unary-stream request: {request}")
 
@@ -33,26 +39,32 @@ class TestService(TestServicer):
             yield ExampleResponse(example_integer=i, example_string=f"Response {i}")
 
     async def ExampleStreamUnary(
-        self, request_iterator: AsyncIterable[ExampleRequest], context: Context
+        self,
+        request_iterator: AsyncIterable[tuple[ExampleRequest, MessageContext]],
+        session_context: SessionContext,
     ) -> ExampleResponse:
         logger.info(f"Received stream-unary request: {request_iterator}")
 
-        async for request in request_iterator:
+        async for request, msg_ctx in request_iterator:
+            _ = msg_ctx  # Unused in this example
             logger.info(f"Received stream-unary request: {request}")
+
         response = ExampleResponse(
             example_integer=1, example_string="Stream Unary Response"
         )
         return response
 
     async def ExampleStreamStream(
-        self, request_iterator: AsyncIterable[ExampleRequest], context: Context
+        self,
+        request_iterator: AsyncIterable[tuple[ExampleRequest, MessageContext]],
+        session_context: MessageContext,
     ) -> AsyncIterable[ExampleResponse]:
         """Missing associated documentation comment in .proto file."""
         raise NotImplementedError("Method not implemented!")
 
 
 async def amain() -> None:
-    server = Server(
+    server = await Server.from_slim_app_config(
         slim_app_config=SLIMAppConfig(
             identity="agntcy/grpc/server",
             slim_client_config={
