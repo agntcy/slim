@@ -573,7 +573,7 @@ mod tests {
             .expect("Failed to create session");
 
         // Convert to BindingsSessionContext for session operations
-        let session_bindings = BindingsSessionContext::from_session_context(session_ctx);
+        let session_bindings = BindingsSessionContext::from(session_ctx);
 
         // Test session-level operations on the session context (not the adapter)
         let target_name = Name::from_strings(["org", "target", "service"]);

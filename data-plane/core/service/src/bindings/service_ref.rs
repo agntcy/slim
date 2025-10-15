@@ -88,7 +88,7 @@ mod tests {
             .await
             .unwrap();
 
-        let global_service = global_ref.get_service();
+        let local_service = global_ref.get_service();
         assert!(std::ptr::eq(global_service, local_service));
     }
 }

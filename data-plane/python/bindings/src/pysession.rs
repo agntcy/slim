@@ -74,7 +74,7 @@ pub(crate) struct PySessionContext {
 impl From<SessionContext<IdentityProvider, IdentityVerifier>> for PySessionContext {
     fn from(ctx: SessionContext<IdentityProvider, IdentityVerifier>) -> Self {
         // Convert to BindingsSessionContext
-        let bindings_ctx = BindingsSessionContext::from_session_context(ctx);
+        let bindings_ctx = BindingsSessionContext::from(ctx);
 
         PySessionContext {
             internal: Arc::new(PySessionCtxInternal {

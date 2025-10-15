@@ -27,6 +27,7 @@
 //! use slim_config::component::ComponentBuilder;
 //! use slim_service::bindings::{BindingsAdapter, BindingsSessionContext};
 //! use slim_auth::shared_secret::SharedSecret;
+//! use slim_session::{SessionConfig, point_to_point::PointToPointConfiguration};
 //! use slim_datapath::messages::Name;
 //!
 //! // Create authentication components
@@ -43,13 +44,13 @@
 //! ).await.expect("failed to create adapter");
 //!
 //! // Create a session
-//! let session_config = slim_session::SessionConfig::default();
+//! let session_config = SessionConfig::PointToPoint(PointToPointConfiguration::default());
 //! let session_ctx = adapter.create_session(session_config).await
 //!     .expect("failed to create session");
-//! let session_bindings = BindingsSessionContext::from_session_context(session_ctx);
+//! let session_bindings = BindingsSessionContext::from(session_ctx);
 //!
 //! // Use session for operations
-//! let name = Name::from_strings(["target", "service"]);
+//! let name = Name::from_strings(["org", "ns", "service"]);
 //! session_bindings.publish(&name, 1, b"hello".to_vec(), None, None, None).await
 //!     .expect("failed to publish message");
 //!# })
@@ -86,7 +87,7 @@
 //!    - `Notification::NewSession` - When new sessions are established
 //!    - Used by `adapter.listen_for_session()` to detect incoming connections
 //!
-//! 2. **Session-level messages** (`session_context.rx`): Receives actual message content  
+//! 2. **Session-level messages** (`session_context.rx`): Receives actual message content
 //!    - Individual `ProtoMessage` instances with application payloads
 //!    - Used by `session_context.get_session_message()` to receive messages from specific sessions
 //!

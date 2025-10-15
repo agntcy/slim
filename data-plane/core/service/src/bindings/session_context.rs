@@ -28,20 +28,26 @@ where
     pub rx: RwLock<slim_session::AppChannelReceiver>,
 }
 
-impl<P, V> BindingsSessionContext<P, V>
+impl<P, V> From<SessionContext<P, V>> for BindingsSessionContext<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
     /// Create a new BindingsSessionContext from a SessionContext
-    pub fn from_session_context(ctx: SessionContext<P, V>) -> Self {
+    fn from(ctx: SessionContext<P, V>) -> Self {
         let (session, rx) = ctx.into_parts();
         Self {
             session,
             rx: RwLock::new(rx),
         }
     }
+}
 
+impl<P, V> BindingsSessionContext<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
     /// Publish a message through this session
     pub async fn publish(
         &self,
@@ -225,7 +231,7 @@ mod tests {
             .await
             .expect("Failed to create session");
 
-        let bindings_ctx = BindingsSessionContext::from_session_context(session_ctx);
+        let bindings_ctx = BindingsSessionContext::from(session_ctx);
 
         // Verify session reference is valid
         assert!(bindings_ctx.session.upgrade().is_some());
@@ -247,7 +253,7 @@ mod tests {
             .create_session(config)
             .await
             .expect("Failed to create session");
-        let bindings_ctx = BindingsSessionContext::from_session_context(session_ctx);
+        let bindings_ctx = BindingsSessionContext::from(session_ctx);
 
         // Test that get_session_message times out when no messages are sent
         let result = bindings_ctx
@@ -272,7 +278,7 @@ mod tests {
             .create_session(config)
             .await
             .expect("Failed to create session");
-        let session_bindings = BindingsSessionContext::from_session_context(session_ctx);
+        let session_bindings = BindingsSessionContext::from(session_ctx);
 
         // Create a message context (simulating a received message)
         let source_name = Name::from_strings(["sender", "org", "service"]);

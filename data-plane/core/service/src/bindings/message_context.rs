@@ -54,35 +54,35 @@ impl MessageContext {
     /// * `metadata` is copied from the underlying protocol envelope
     /// * The returned `Vec<u8>` is the raw application payload
     pub fn from_proto_message(msg: ProtoMessage) -> Result<(Self, Vec<u8>), ServiceError> {
-        if let Some(ProtoPublishType(publish)) = msg.message_type.as_ref() {
-            let source = msg.get_source();
-            let destination = Some(msg.get_dst());
-            let input_connection = msg.get_incoming_conn();
-            let payload_bytes = publish
-                .msg
-                .as_ref()
-                .map(|c| c.blob.clone())
-                .unwrap_or_default();
-            let payload_type = publish
-                .msg
-                .as_ref()
-                .map(|c| c.content_type.clone())
-                .unwrap_or_else(|| "msg".to_string());
-            let metadata = msg.get_metadata_map();
-
-            let ctx = Self::new(
-                source,
-                destination,
-                payload_type,
-                metadata,
-                input_connection,
-            );
-            Ok((ctx, payload_bytes))
-        } else {
-            Err(ServiceError::ReceiveError(
+        let Some(ProtoPublishType(publish)) = msg.message_type.as_ref() else {
+            return Err(ServiceError::ReceiveError(
                 "unsupported message type".to_string(),
-            ))
-        }
+            ));
+        };
+
+        let source = msg.get_source();
+        let destination = Some(msg.get_dst());
+        let input_connection = msg.get_incoming_conn();
+        let payload_bytes = publish
+            .msg
+            .as_ref()
+            .map(|c| c.blob.clone())
+            .unwrap_or_default();
+        let payload_type = publish
+            .msg
+            .as_ref()
+            .map(|c| c.content_type.clone())
+            .unwrap_or_else(|| "msg".to_string());
+        let metadata = msg.get_metadata_map();
+
+        let ctx = Self::new(
+            source,
+            destination,
+            payload_type,
+            metadata,
+            input_connection,
+        );
+        Ok((ctx, payload_bytes))
     }
 }
 

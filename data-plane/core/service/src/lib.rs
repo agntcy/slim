@@ -15,7 +15,7 @@
 //! # tokio_test::block_on(async {
 //! use slim_service::Service;
 //! use slim_config::component::ComponentBuilder;
-//! use slim_service::bindings::AppAdapter;
+//! use slim_service::bindings::BindingsAdapter;
 //! use slim_auth::shared_secret::SharedSecret;
 //! use slim_datapath::messages::Name;
 //!
@@ -28,7 +28,7 @@
 //!
 //! // Create adapter for language bindings - Method 1: Direct creation
 //! let app_name = Name::from_strings(["org", "ns", "app"]);
-//! let adapter = AppAdapter::new_with_service(
+//! let adapter = BindingsAdapter::new_with_service(
 //!     &service,
 //!     app_name,
 //!     provider.clone(),
@@ -36,28 +36,13 @@
 //! ).await.expect("Failed to create AppAdapter");
 //!
 //! // Alternative - Method 2: Builder pattern
-//! let adapter2 = AppAdapter::builder()
+//! let adapter2 = BindingsAdapter::builder()
 //!    .with_name(Name::from_strings(["my", "app2", "v1"]))
 //!    .with_identity_provider(provider)
 //!    .with_identity_verifier(verifier)
 //!    .build(&service).await.expect("Failed to create AppAdapter via builder");
 //! # })
 //! ```
-//!
-//! ## AppAdapter Integration
-//!
-//! The `AppAdapter` requires a `Service` instance to properly create `App` instances.
-//! The service handles:
-//!
-//! - Message processing and routing
-//! - Connection registration and management
-//! - Storage path creation and management
-//! - Resource lifecycle and cleanup
-//!
-//! **Note**: Always create `AppAdapter` instances using `Service::create_app()` through
-//! `AppAdapter::create()` or `AppAdapter::builder().build()`.
-//!
-//! Use `Service::builder().build()` to create Service instances easily.
 
 pub mod errors;
 #[macro_use]

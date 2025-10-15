@@ -27,4 +27,5 @@ tokio-util = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
+tokio-test = { workspace = true }
 tracing-test = { workspace = true }
