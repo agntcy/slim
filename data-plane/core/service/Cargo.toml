@@ -19,10 +19,10 @@ agntcy-slim-session = { workspace = true }
 dirs = "5.0"
 drain = { workspace = true }
 parking_lot = { workspace = true }
+rand = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-tokio-test = "0.4.4"
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 

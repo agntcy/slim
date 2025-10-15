@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import slim_bindings
+from slim_bindings._slim_bindings import create_pyapp
 
 
 async def create_svc(
@@ -26,9 +27,7 @@ async def create_svc(
     verifier = slim_bindings.PyIdentityVerifier.SharedSecret(  # type: ignore
         identity=f"{name}", shared_secret=secret
     )
-    return await slim_bindings.create_pyservice(
-        name, provider, verifier, local_service=local_service
-    )
+    return await create_pyapp(name, provider, verifier, local_service=local_service)
 
 
 async def create_slim(

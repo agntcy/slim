@@ -5,6 +5,10 @@ import builtins
 import typing
 from enum import Enum, auto
 
+class PyApp:
+    id: builtins.int
+    name: PyName
+
 class PyKey:
     r"""
     Composite key description used for signing or verification.
@@ -25,6 +29,9 @@ class PyMessageContext:
     
     Provides routing and descriptive metadata needed for replying,
     auditing, and instrumentation.
+    
+    This type implements `From<MessageContext>` and `Into<MessageContext>`
+    for seamless conversion with the common core message context type.
     
     Fields:
     * `source_name`: Fully-qualified sender identity.
@@ -62,10 +69,6 @@ class PyName:
     def __hash__(self) -> builtins.int:
         ...
 
-
-class PyService:
-    id: builtins.int
-    name: PyName
 
 class PySessionContext:
     r"""
@@ -403,11 +406,12 @@ class PySessionConfiguration(Enum):
     ```
     
     ## Rust (internal conversion flow)
-    The enum transparently converts to and from `session::SessionConfig`:
-    ```rust
-    let core: session::SessionConfig = py_cfg.clone().into();
-    let roundtrip: PySessionConfiguration = core.into();
-    assert_eq!(py_cfg, roundtrip);
+    The enum transparently converts to and from `SessionConfig`:
+    ```
+    // Example conversion (pseudo-code):
+    // let core: SessionConfig = py_cfg.clone().into();
+    // let roundtrip: PySessionConfiguration = core.into();
+    // assert_eq!(py_cfg, roundtrip);
     ```
     """
     PointToPoint = auto()
@@ -420,57 +424,60 @@ class PySessionType(Enum):
     PointToPoint = auto()
     Group = auto()
 
-def connect(svc:PyService, config:dict) -> typing.Any:
+def connect(svc:PyApp, config:dict) -> typing.Any:
     ...
 
-def create_pyservice(name:PyName, provider:PyIdentityProvider, verifier:PyIdentityVerifier, local_service:builtins.bool=False) -> typing.Any:
+def create_pyapp(name:PyName, provider:PyIdentityProvider, verifier:PyIdentityVerifier, local_service:builtins.bool=False) -> typing.Any:
     ...
 
-def create_session(svc:PyService, config:PySessionConfiguration) -> typing.Any:
+def create_session(svc:PyApp, config:PySessionConfiguration) -> typing.Any:
     ...
 
-def delete_session(svc:PyService, session_context:PySessionContext) -> typing.Any:
+def delete_session(svc:PyApp, session_context:PySessionContext) -> typing.Any:
     ...
 
-def disconnect(svc:PyService, conn:builtins.int) -> typing.Any:
+def disconnect(svc:PyApp, conn:builtins.int) -> typing.Any:
     ...
 
-def get_message(svc:PyService, session_context:PySessionContext) -> typing.Any:
+def get_message(session_context:PySessionContext) -> typing.Any:
     ...
 
 def init_tracing(config:dict) -> typing.Any:
     ...
 
-def invite(svc:PyService, session_context:PySessionContext, name:PyName) -> typing.Any:
+def invite(session_context:PySessionContext, name:PyName) -> typing.Any:
     ...
 
-def listen_for_session(svc:PyService) -> typing.Any:
+def listen_for_session(svc:PyApp) -> typing.Any:
     ...
 
-def publish(svc:PyService, session_context:PySessionContext, fanout:builtins.int, blob:typing.Sequence[builtins.int], message_ctx:typing.Optional[PyMessageContext]=None, name:typing.Optional[PyName]=None, payload_type:typing.Optional[builtins.str]=None, metadata:typing.Optional[typing.Mapping[builtins.str, builtins.str]]=None) -> typing.Any:
+def publish(session_context:PySessionContext, fanout:builtins.int, blob:typing.Sequence[builtins.int], message_ctx:typing.Optional[PyMessageContext]=None, name:typing.Optional[PyName]=None, payload_type:typing.Optional[builtins.str]=None, metadata:typing.Optional[typing.Mapping[builtins.str, builtins.str]]=None) -> typing.Any:
     ...
 
-def remove(svc:PyService, session_context:PySessionContext, name:PyName) -> typing.Any:
+def publish_to(session_context:PySessionContext, message_ctx:PyMessageContext, blob:typing.Sequence[builtins.int], payload_type:typing.Optional[builtins.str]=None, metadata:typing.Optional[typing.Mapping[builtins.str, builtins.str]]=None) -> typing.Any:
     ...
 
-def remove_route(svc:PyService, name:PyName, conn:builtins.int) -> typing.Any:
+def remove(session_context:PySessionContext, name:PyName) -> typing.Any:
     ...
 
-def run_server(svc:PyService, config:dict) -> typing.Any:
+def remove_route(svc:PyApp, name:PyName, conn:builtins.int) -> typing.Any:
     ...
 
-def set_default_session_config(svc:PyService, config:PySessionConfiguration) -> None:
+def run_server(svc:PyApp, config:dict) -> typing.Any:
     ...
 
-def set_route(svc:PyService, name:PyName, conn:builtins.int) -> typing.Any:
+def set_default_session_config(svc:PyApp, config:PySessionConfiguration) -> None:
     ...
 
-def stop_server(svc:PyService, endpoint:builtins.str) -> typing.Any:
+def set_route(svc:PyApp, name:PyName, conn:builtins.int) -> typing.Any:
     ...
 
-def subscribe(svc:PyService, name:PyName, conn:typing.Optional[builtins.int]=None) -> typing.Any:
+def stop_server(svc:PyApp, endpoint:builtins.str) -> typing.Any:
     ...
 
-def unsubscribe(svc:PyService, name:PyName, conn:typing.Optional[builtins.int]=None) -> typing.Any:
+def subscribe(svc:PyApp, name:PyName, conn:typing.Optional[builtins.int]=None) -> typing.Any:
+    ...
+
+def unsubscribe(svc:PyApp, name:PyName, conn:typing.Optional[builtins.int]=None) -> typing.Any:
     ...
 

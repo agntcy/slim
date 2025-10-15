@@ -384,12 +384,6 @@ impl ServiceBuilder {
     pub fn kind() -> Kind {
         Kind::new(KIND).unwrap()
     }
-
-    /// Build a Service with a default name
-    pub fn build(&self) -> Result<Service, ServiceError> {
-        let id = ID::new(ServiceBuilder::kind());
-        Ok(Service::new(id))
-    }
 }
 
 impl ComponentBuilder for ServiceBuilder {

@@ -6,9 +6,8 @@ use std::collections::HashMap;
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 use slim_datapath::api::ProtoMessage;
-use slim_datapath::api::ProtoPublishType;
 use slim_datapath::messages::Name;
-use slim_service::ServiceError;
+use slim_service::{MessageContext, ServiceError};
 
 use crate::utils::PyName;
 
@@ -16,6 +15,9 @@ use crate::utils::PyName;
 ///
 /// Provides routing and descriptive metadata needed for replying,
 /// auditing, and instrumentation.
+///
+/// This type implements `From<MessageContext>` and `Into<MessageContext>`
+/// for seamless conversion with the common core message context type.
 ///
 /// Fields:
 /// * `source_name`: Fully-qualified sender identity.
@@ -41,65 +43,41 @@ pub struct PyMessageContext {
 }
 
 impl PyMessageContext {
-    /// Internal constructor used by helper conversion functions. Not exposed
-    /// to Python directly; Python code receives already-constructed instances
-    /// when consuming messages.
-    pub fn new(
-        source: Name,
-        destination: Option<Name>,
-        payload_type: String,
-        metadata: HashMap<String, String>,
-        input_connection: u64,
-    ) -> Self {
+    /// Build a `PyMessageContext` plus the raw payload bytes from a low-level
+    /// `ProtoMessage`. Uses the common MessageContext implementation and
+    /// automatic conversion via the `From` trait.
+    pub fn from_proto_message(msg: ProtoMessage) -> Result<(Self, Vec<u8>), ServiceError> {
+        let (ctx, payload) = MessageContext::from_proto_message(msg)?;
+        Ok((ctx.into(), payload))
+    }
+}
+
+impl From<MessageContext> for PyMessageContext {
+    /// Convert a common MessageContext into a Python-specific PyMessageContext
+    fn from(ctx: MessageContext) -> Self {
         PyMessageContext {
-            source_name: PyName::from(source),
+            source_name: PyName::from(ctx.source_name),
             destination_name: PyName::from(
-                destination.unwrap_or_else(|| Name::from_strings(["", "", ""])),
+                ctx.destination_name
+                    .unwrap_or_else(|| Name::from_strings(["", "", ""])),
             ),
-            payload_type,
-            metadata,
-            input_connection,
+            payload_type: ctx.payload_type,
+            metadata: ctx.metadata,
+            input_connection: ctx.input_connection,
         }
     }
+}
 
-    /// Build a `PyMessageContext` plus the raw payload bytes from a low-level
-    /// `ProtoMessage`. Returns an error if the message type is unsupported
-    /// (i.e. not a publish payload).
-    ///
-    /// On success:
-    /// * The context captures source/destination identities
-    /// * `payload_type` defaults to "msg" if unset
-    /// * `metadata` is copied from the underlying protocol envelope
-    /// * The returned `Vec<u8>` is the raw application payload
-    pub fn from_proto_message(msg: ProtoMessage) -> Result<(Self, Vec<u8>), ServiceError> {
-        if let Some(ProtoPublishType(publish)) = msg.message_type.as_ref() {
-            let source = msg.get_source();
-            let destination = Some(msg.get_dst());
-            let input_connection = msg.get_incoming_conn();
-            let payload_bytes = publish
-                .msg
-                .as_ref()
-                .map(|c| c.blob.clone())
-                .unwrap_or_default();
-            let payload_type = publish
-                .msg
-                .as_ref()
-                .map(|c| c.content_type.clone())
-                .unwrap_or_else(|| "msg".to_string());
-            let metadata = msg.get_metadata_map();
-            let ctx = PyMessageContext::new(
-                source,
-                destination,
-                payload_type,
-                metadata,
-                input_connection,
-            );
-            Ok((ctx, payload_bytes))
-        } else {
-            Err(ServiceError::ReceiveError(
-                "unsupported message type".to_string(),
-            ))
-        }
+impl From<PyMessageContext> for MessageContext {
+    /// Convert a Python-specific PyMessageContext back into a common MessageContext
+    fn from(py_ctx: PyMessageContext) -> Self {
+        MessageContext::new(
+            py_ctx.source_name.into(),
+            Some(py_ctx.destination_name.into()),
+            py_ctx.payload_type,
+            py_ctx.metadata,
+            py_ctx.input_connection,
+        )
     }
 }
 

@@ -7,7 +7,7 @@
 //!
 //! - **Service**: Main service component that manages message processing and connections
 //! - **App**: Application-level API for session management and messaging
-//! - **AppAdapter**: Bridge between App API and language bindings (e.g., PyService)
+//! - **BindingAdapter**: Bridge between App API and language bindings (e.g., python)
 //!
 //! ## Basic Usage
 //!
@@ -70,6 +70,9 @@ pub mod bindings;
 pub use slim_datapath::messages::utils::SlimHeaderFlags;
 
 // Local crate
-pub use bindings::{AppAdapter, AppAdapterBuilder};
+pub use bindings::{
+    AppAdapterBuilder, BindingsAdapter, BindingsSessionContext, MessageContext, ServiceRef,
+    get_or_init_global_service,
+};
 pub use errors::ServiceError;
 pub use service::{KIND, Service, ServiceBuilder, ServiceConfiguration};
