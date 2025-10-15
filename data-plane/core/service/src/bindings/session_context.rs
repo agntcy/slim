@@ -7,14 +7,14 @@ use tokio::sync::RwLock;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::messages::Name;
 use slim_datapath::messages::utils::SlimHeaderFlags;
-use slim_session::{Session, SessionError};
 use slim_session::context::SessionContext;
+use slim_session::{Session, SessionError};
 
-use crate::errors::ServiceError;
 use crate::bindings::message_context::MessageContext;
+use crate::errors::ServiceError;
 
 /// Generic session context wrapper for language bindings
-/// 
+///
 /// Wraps the session context with proper async access patterns for message reception.
 #[derive(Debug)]
 pub struct BindingsSessionContext<P, V>
@@ -179,10 +179,10 @@ mod tests {
     use std::time::Duration;
 
     use slim_auth::shared_secret::SharedSecret;
-    use slim_datapath::messages::Name;
-    use slim_session::point_to_point::PointToPointConfiguration;
-    use slim_session::SessionConfig;
     use slim_config::component::ComponentBuilder;
+    use slim_datapath::messages::Name;
+    use slim_session::SessionConfig;
+    use slim_session::point_to_point::PointToPointConfiguration;
 
     use crate::bindings::adapter::BindingsAdapter;
     use crate::service::Service;
@@ -214,19 +214,19 @@ mod tests {
         let service = create_test_service().await;
         let app_name = create_test_name();
         let (provider, verifier) = create_test_auth();
-    
+
         let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
             .await
             .expect("Failed to create adapter");
-    
+
         let config = SessionConfig::PointToPoint(PointToPointConfiguration::default());
         let session_ctx = adapter
             .create_session(config)
             .await
             .expect("Failed to create session");
-    
+
         let bindings_ctx = BindingsSessionContext::from_session_context(session_ctx);
-    
+
         // Verify session reference is valid
         assert!(bindings_ctx.session.upgrade().is_some());
     }
@@ -236,11 +236,11 @@ mod tests {
         let service = create_test_service().await;
         let app_name = create_test_name();
         let (provider, verifier) = create_test_auth();
-    
+
         let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
             .await
             .expect("Failed to create adapter");
-    
+
         // Create a session and convert to BindingsSessionContext
         let config = SessionConfig::PointToPoint(PointToPointConfiguration::default());
         let session_ctx = adapter
@@ -248,7 +248,7 @@ mod tests {
             .await
             .expect("Failed to create session");
         let bindings_ctx = BindingsSessionContext::from_session_context(session_ctx);
-    
+
         // Test that get_session_message times out when no messages are sent
         let result = bindings_ctx
             .get_session_message(Some(Duration::from_millis(50)))
@@ -261,11 +261,11 @@ mod tests {
         let service = create_test_service().await;
         let app_name = create_test_name();
         let (provider, verifier) = create_test_auth();
-    
+
         let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
             .await
             .expect("Failed to create adapter");
-    
+
         // Create a session first
         let config = SessionConfig::PointToPoint(PointToPointConfiguration::default());
         let session_ctx = adapter
@@ -273,13 +273,13 @@ mod tests {
             .await
             .expect("Failed to create session");
         let session_bindings = BindingsSessionContext::from_session_context(session_ctx);
-    
+
         // Create a message context (simulating a received message)
         let source_name = Name::from_strings(["sender", "org", "service"]);
         let destination_name = Some(Name::from_strings(["receiver", "org", "service"]));
         let mut metadata = HashMap::new();
         metadata.insert("reply_to".to_string(), "original_message_id".to_string());
-    
+
         let message_ctx = MessageContext::new(
             source_name,
             destination_name,
@@ -287,10 +287,10 @@ mod tests {
             metadata.clone(),
             42, // input_connection
         );
-    
+
         let reply_message = b"reply payload".to_vec();
         let reply_metadata = metadata;
-    
+
         // Test publish_to - this should work without errors
         let result = session_bindings
             .publish_to(
@@ -300,7 +300,7 @@ mod tests {
                 Some(reply_metadata),
             )
             .await;
-    
+
         assert!(result.is_ok());
     }
 }

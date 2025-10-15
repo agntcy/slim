@@ -90,7 +90,7 @@
 //!    - Individual `ProtoMessage` instances with application payloads
 //!    - Used by `session_context.get_session_message()` to receive messages from specific sessions
 //!
-//! **Important**: All message content reception is session-specific. There is no 
+//! **Important**: All message content reception is session-specific. There is no
 //! app-level message listening - each session has its own message channel.
 //!
 //! ## Features
@@ -104,17 +104,15 @@
 //! - **Async Operations**: Full async/await support for all operations
 
 // Module declarations
-mod service_ref;
-mod message_context;
-mod session_context;
 mod adapter;
 mod builder;
-
-
+mod message_context;
+mod service_ref;
+mod session_context;
 
 // Public re-exports
-pub use service_ref::{ServiceRef, get_or_init_global_service};
-pub use message_context::MessageContext;
-pub use session_context::BindingsSessionContext;
 pub use adapter::BindingsAdapter;
 pub use builder::AppAdapterBuilder;
+pub use message_context::MessageContext;
+pub use service_ref::{ServiceRef, get_or_init_global_service};
+pub use session_context::BindingsSessionContext;

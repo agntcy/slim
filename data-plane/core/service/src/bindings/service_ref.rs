@@ -40,7 +40,6 @@ mod tests {
     use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::messages::Name;
 
-
     use crate::bindings::adapter::BindingsAdapter;
 
     type TestProvider = SharedSecret;
@@ -72,6 +71,9 @@ mod tests {
         let base_name = create_test_name();
         let (provider, verifier) = create_test_auth();
 
+        // Get global service instance
+        let global_service = get_or_init_global_service();
+
         // Test local service ref
         let (_, local_ref) =
             BindingsAdapter::new(base_name.clone(), provider.clone(), verifier.clone(), true)
@@ -79,7 +81,7 @@ mod tests {
                 .unwrap();
 
         let local_service = local_ref.get_service();
-        assert!(local_service as *const Service != std::ptr::null());
+        assert!(!std::ptr::eq(global_service, local_service));
 
         // Test global service ref
         let (_, global_ref) = BindingsAdapter::new(base_name, provider, verifier, false)
@@ -87,6 +89,6 @@ mod tests {
             .unwrap();
 
         let global_service = global_ref.get_service();
-        assert!(global_service as *const Service != std::ptr::null());
+        assert!(std::ptr::eq(global_service, local_service));
     }
 }

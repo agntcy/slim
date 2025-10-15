@@ -32,7 +32,7 @@ use slim_config::grpc::server::ServerConfig as PyGrpcServerConfig;
 #[pyclass]
 #[derive(Clone)]
 pub struct PyApp {
-    sdk: Arc<PyAppInternal<IdentityProvider, IdentityVerifier>>,
+    internal: Arc<PyAppInternal<IdentityProvider, IdentityVerifier>>,
 }
 
 struct PyAppInternal<P, V>
@@ -40,7 +40,10 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    adapter: Arc<BindingsAdapter<P, V>>,
+    /// The adapter instance
+    adapter: BindingsAdapter<P, V>,
+
+    /// Reference to the service
     service: ServiceRef,
 }
 
@@ -49,12 +52,12 @@ where
 impl PyApp {
     #[getter]
     pub fn id(&self) -> u64 {
-        self.sdk.adapter.id()
+        self.internal.adapter.id()
     }
 
     #[getter]
     pub fn name(&self) -> PyName {
-        PyName::from(self.sdk.adapter.name().clone())
+        PyName::from(self.internal.adapter.name().clone())
     }
 }
 
@@ -78,69 +81,69 @@ impl PyApp {
             BindingsAdapter::new(base_name, provider, verifier, local_service).await?;
 
         // create the service
-        let sdk = Arc::new(PyAppInternal {
+        let internal = Arc::new(PyAppInternal {
             service: service_ref,
-            adapter: Arc::new(adapter),
+            adapter,
         });
 
-        Ok(PyApp { sdk })
+        Ok(PyApp { internal })
     }
 
     async fn create_session(
         &self,
         session_config: SessionConfig,
     ) -> Result<PySessionContext, SessionError> {
-        let ctx = self.sdk.adapter.create_session(session_config).await?;
+        let ctx = self.internal.adapter.create_session(session_config).await?;
         Ok(PySessionContext::from(ctx))
     }
 
     // Start listening for messages for a specific session id.
     async fn listen_for_session(&self) -> Result<PySessionContext, ServiceError> {
         // Use adapter's listen_for_session method
-        let ctx = self.sdk.adapter.listen_for_session().await?;
+        let ctx = self.internal.adapter.listen_for_session().await?;
         Ok(PySessionContext::from(ctx))
     }
 
     async fn run_server(&self, config: PyGrpcServerConfig) -> Result<(), ServiceError> {
-        self.sdk.service.get_service().run_server(&config)
+        self.internal.service.get_service().run_server(&config)
     }
 
     async fn stop_server(&self, endpoint: &str) -> Result<(), ServiceError> {
-        self.sdk.service.get_service().stop_server(endpoint)
+        self.internal.service.get_service().stop_server(endpoint)
     }
 
     async fn connect(&self, config: PyGrpcClientConfig) -> Result<u64, ServiceError> {
         // Get service and connect
-        self.sdk.service.get_service().connect(&config).await
+        self.internal.service.get_service().connect(&config).await
     }
 
     async fn disconnect(&self, conn: u64) -> Result<(), ServiceError> {
-        self.sdk.service.get_service().disconnect(conn)
+        self.internal.service.get_service().disconnect(conn)
     }
 
     async fn subscribe(&self, name: PyName, conn: Option<u64>) -> Result<(), ServiceError> {
-        self.sdk.adapter.subscribe(&name.into(), conn).await
+        self.internal.adapter.subscribe(&name.into(), conn).await
     }
 
     async fn unsubscribe(&self, name: PyName, conn: Option<u64>) -> Result<(), ServiceError> {
-        self.sdk.adapter.unsubscribe(&name.into(), conn).await
+        self.internal.adapter.unsubscribe(&name.into(), conn).await
     }
 
     async fn set_route(&self, name: PyName, conn: u64) -> Result<(), ServiceError> {
-        self.sdk.adapter.set_route(&name.into(), conn).await
+        self.internal.adapter.set_route(&name.into(), conn).await
     }
 
     async fn remove_route(&self, name: PyName, conn: u64) -> Result<(), ServiceError> {
-        self.sdk.adapter.remove_route(&name.into(), conn).await
+        self.internal.adapter.remove_route(&name.into(), conn).await
     }
 
     fn set_default_session_config(&self, config: SessionConfig) -> Result<(), SessionError> {
-        self.sdk.adapter.set_default_session_config(&config)
+        self.internal.adapter.set_default_session_config(&config)
     }
 
     async fn delete_session(&self, session: PySessionContext) -> Result<(), SessionError> {
         session
-            .delete(&self.sdk.adapter)
+            .delete(&self.internal.adapter)
             .await
             .map_err(|e| SessionError::SessionClosed(e.to_string()))
     }

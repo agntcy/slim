@@ -9,7 +9,7 @@ use slim_datapath::messages::Name;
 use crate::errors::ServiceError;
 
 /// Generic message context for language bindings
-/// 
+///
 /// Provides routing and descriptive metadata needed for replying,
 /// auditing, and instrumentation across different language bindings.
 #[derive(Debug, Clone, PartialEq)]
@@ -89,8 +89,8 @@ impl MessageContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
     use slim_datapath::messages::Name;
+    use std::collections::HashMap;
 
     #[tokio::test]
     async fn test_message_context_creation() {

@@ -4,9 +4,9 @@
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::messages::Name;
 
+use crate::bindings::adapter::BindingsAdapter;
 use crate::errors::ServiceError;
 use crate::service::Service;
-use crate::bindings::adapter::BindingsAdapter;
 
 /// Builder for creating BindingsAdapter instances
 pub struct AppAdapterBuilder<P, V>
