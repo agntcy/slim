@@ -13,6 +13,6 @@ fn main() {
 
     tonic_build::configure()
         .out_dir("src/api/gen")
-        .compile_protos(&["proto/v1/data-plane.proto"], &["proto/v1"])
+        .compile_protos(&["proto/v1/data_plane.proto"], &["proto/v1"])
         .unwrap();
 }

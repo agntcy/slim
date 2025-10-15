@@ -5,6 +5,7 @@
 pub(crate) mod proto;
 
 pub use proto::dataplane::v1::Content;
+pub use proto::dataplane::v1::CommandPayload;
 pub use proto::dataplane::v1::Message as ProtoMessage;
 pub use proto::dataplane::v1::Name as ProtoName;
 pub use proto::dataplane::v1::Publish as ProtoPublish;
