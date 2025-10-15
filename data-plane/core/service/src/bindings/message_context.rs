@@ -71,7 +71,13 @@ impl MessageContext {
         let payload_type = publish
             .msg
             .as_ref()
-            .map(|c| c.content_type.clone())
+            .map(|c| {
+                if c.content_type.is_empty() {
+                    "msg".to_string()
+                } else {
+                    c.content_type.clone()
+                }
+            })
             .unwrap_or_else(|| "msg".to_string());
         let metadata = msg.get_metadata_map();
 
@@ -89,8 +95,48 @@ impl MessageContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use slim_datapath::api::{
+        Content, ProtoMessage, ProtoPublish, ProtoPublishType, SessionHeader, SlimHeader,
+    };
     use slim_datapath::messages::Name;
     use std::collections::HashMap;
+
+    // Helper function to create a test ProtoMessage with Publish type
+    fn create_test_proto_message(
+        source: Name,
+        dest: Name,
+        connection_id: u64,
+        payload: Vec<u8>,
+        content_type: String,
+        metadata: HashMap<String, String>,
+    ) -> ProtoMessage {
+        let content = Content {
+            blob: payload,
+            content_type,
+        };
+
+        let mut slim_header = SlimHeader::default();
+        slim_header.set_source(&source);
+        slim_header.set_destination(&dest);
+
+        let mut session_header = SessionHeader::default();
+        session_header.set_source(&source);
+
+        let publish = ProtoPublish {
+            header: Some(slim_header),
+            session: Some(session_header),
+            msg: Some(content),
+        };
+
+        let mut proto_msg = ProtoMessage {
+            message_type: Some(ProtoPublishType(publish)),
+            metadata,
+        };
+
+        proto_msg.set_incoming_conn(Some(connection_id));
+
+        proto_msg
+    }
 
     #[tokio::test]
     async fn test_message_context_creation() {
@@ -112,5 +158,146 @@ mod tests {
         assert_eq!(ctx.payload_type, "application/json");
         assert_eq!(ctx.metadata, metadata);
         assert_eq!(ctx.input_connection, 42);
+    }
+
+    #[tokio::test]
+    async fn test_from_proto_message_success() {
+        // Create test data
+        let payload_data = b"test payload".to_vec();
+        let content_type = "application/json".to_string();
+        let source_name = Name::from_strings(["org", "sender", "service"]);
+        let dest_name = Name::from_strings(["org", "receiver", "service"]);
+        let connection_id = 12345u64;
+
+        // Create metadata
+        let mut metadata = HashMap::new();
+        metadata.insert("trace_id".to_string(), "abc123".to_string());
+        metadata.insert("user_id".to_string(), "user456".to_string());
+
+        let proto_msg = create_test_proto_message(
+            source_name.clone(),
+            dest_name.clone(),
+            connection_id,
+            payload_data.clone(),
+            content_type.clone(),
+            metadata.clone(),
+        );
+
+        // Test from_proto_message
+        let result = MessageContext::from_proto_message(proto_msg);
+        assert!(result.is_ok());
+
+        let (ctx, payload) = result.unwrap();
+
+        // Verify context fields
+        assert_eq!(ctx.source_name, source_name);
+        assert_eq!(ctx.destination_name, Some(dest_name));
+        assert_eq!(ctx.payload_type, content_type);
+        assert_eq!(ctx.metadata, metadata);
+        assert_eq!(ctx.input_connection, connection_id);
+
+        // Verify payload
+        assert_eq!(payload, payload_data);
+    }
+
+    #[tokio::test]
+    async fn test_from_proto_message_with_default_content_type() {
+        let source_name = Name::from_strings(["org", "sender", "service"]);
+        let dest_name = Name::from_strings(["org", "receiver", "service"]);
+        let payload_data = b"test payload".to_vec();
+
+        let proto_msg = create_test_proto_message(
+            source_name,
+            dest_name,
+            42,
+            payload_data,
+            String::new(), // Empty content type should default to "msg"
+            HashMap::new(),
+        );
+
+        let result = MessageContext::from_proto_message(proto_msg);
+        assert!(result.is_ok());
+
+        let (ctx, _) = result.unwrap();
+        assert_eq!(ctx.payload_type, "msg"); // Should default to "msg"
+    }
+
+    #[tokio::test]
+    async fn test_from_proto_message_with_no_content() {
+        let source_name = Name::from_strings(["org", "sender", "service"]);
+        let _dest_name = Name::from_strings(["org", "receiver", "service"]);
+
+        // Create ProtoPublish without msg content
+        let mut slim_header = SlimHeader::default();
+        slim_header.set_source(&source_name);
+        slim_header.set_destination(&_dest_name);
+
+        let mut session_header = SessionHeader::default();
+        session_header.set_source(&source_name);
+
+        let publish = ProtoPublish {
+            header: Some(slim_header),
+            session: Some(session_header),
+            msg: None, // No content
+        };
+
+        let mut proto_msg = ProtoMessage {
+            message_type: Some(ProtoPublishType(publish)),
+            ..Default::default()
+        };
+        proto_msg.set_incoming_conn(Some(42));
+
+        let result = MessageContext::from_proto_message(proto_msg);
+        assert!(result.is_ok());
+
+        let (ctx, payload) = result.unwrap();
+        assert_eq!(ctx.payload_type, "msg"); // Should default to "msg"
+        assert_eq!(payload, Vec::<u8>::new()); // Should be empty payload
+    }
+
+    #[tokio::test]
+    async fn test_from_proto_message_unsupported_message_type() {
+        // Create ProtoMessage without ProtoPublishType
+        let proto_msg = ProtoMessage {
+            message_type: None, // Unsupported type
+            ..Default::default()
+        };
+
+        let result = MessageContext::from_proto_message(proto_msg);
+        assert!(result.is_err());
+
+        match result.unwrap_err() {
+            ServiceError::ReceiveError(msg) => {
+                assert_eq!(msg, "unsupported message type");
+            }
+            _ => panic!("Expected ReceiveError"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_from_proto_message_with_empty_metadata() {
+        let source_name = Name::from_strings(["test", "source", "v1"]);
+        let dest_name = Name::from_strings(["test", "dest", "v1"]);
+        let payload_data = b"test".to_vec();
+
+        let proto_msg = create_test_proto_message(
+            source_name.clone(),
+            dest_name.clone(),
+            99,
+            payload_data.clone(),
+            "text/plain".to_string(),
+            HashMap::new(), // Empty metadata
+        );
+
+        let result = MessageContext::from_proto_message(proto_msg);
+        assert!(result.is_ok());
+
+        let (ctx, payload) = result.unwrap();
+        assert_eq!(ctx.source_name, source_name);
+        assert_eq!(ctx.destination_name, Some(dest_name));
+        assert_eq!(ctx.payload_type, "text/plain");
+        assert_eq!(ctx.metadata, HashMap::new()); // Should be empty
+        assert_eq!(ctx.input_connection, 99);
+        assert_eq!(payload, payload_data);
     }
 }

@@ -74,9 +74,7 @@ impl From<SessionContext<IdentityProvider, IdentityVerifier>> for PySessionConte
         let bindings_ctx = BindingsSessionContext::from(ctx);
 
         PySessionContext {
-            internal: Arc::new(PySessionCtxInternal {
-                bindings_ctx: bindings_ctx,
-            }),
+            internal: Arc::new(PySessionCtxInternal { bindings_ctx }),
         }
     }
 }
