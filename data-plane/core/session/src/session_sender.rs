@@ -31,7 +31,7 @@ struct GroupTimer {
 }
 
 #[allow(dead_code)]
-struct ReliableSenderInternal<T>
+struct SessionSenderInternal<T>
 where
     T: Transmitter + Send + Sync + Clone + 'static,
 {
@@ -64,6 +64,9 @@ where
     /// received for signals
     rx: Receiver<SessionMessage>,
 
+    /// if true the sender is reliable and handles acks and rtx
+    is_reliable: bool,
+
     /// drain state - when true, no new messages from app are accepted
     is_draining: bool,
 
@@ -72,20 +75,21 @@ where
 }
 
 #[allow(dead_code)]
-impl<T> ReliableSenderInternal<T>
+impl<T> SessionSenderInternal<T>
 where
     T: Transmitter + Send + Sync + Clone + 'static,
 {
     fn new(
         timer_settings: TimerSettings,
         session_id: u32,
+        is_reliable: bool,
         tx: T,
         tx_signals: Sender<SessionMessage>,
         rx_signals: Receiver<SessionMessage>,
     ) -> Self {
         let factory = TimerFactory::new(timer_settings, tx_signals);
 
-        ReliableSenderInternal {
+        SessionSenderInternal {
             buffer: ProducerBuffer::with_capacity(512),
             timer_factory: factory,
             pending_acks: HashMap::new(),
@@ -95,6 +99,7 @@ where
             session_id,
             tx,
             rx: rx_signals,
+            is_reliable,
             is_draining: false,
             drain_timer: None,
         }
@@ -112,10 +117,16 @@ where
             }
             slim_datapath::api::ProtoSessionMessageType::P2PAck => {
                 debug!("received ack message");
+                if !self.is_reliable {
+                    return Ok(());
+                }
                 self.on_ack_message(&message);
             }
             slim_datapath::api::ProtoSessionMessageType::RtxRequest => {
                 debug!("received rtx message");
+                if !self.is_reliable {
+                    return Ok(());
+                }
                 // receiving an rtx request for a message we stop the
                 // corresponding ack timer. For this point on if the
                 // message is not delivered the receiver side will keep
@@ -125,8 +136,7 @@ where
                 self.on_rtx_message(message).await?
             }
             _ => {
-                // TODO: here we need to handle also the Channel messages (Acks + Replies)
-                // so that we can use this code for timers
+                // TODO: Add missing message types (e.g. Channel messages)
                 debug!("unexpected message type");
             }
         }
@@ -161,32 +171,35 @@ where
         header.set_message_id(message_id);
         header.set_session_id(self.session_id);
 
-        // add the message to the producer buffer. this is used to re-send
-        // messages when acks are missing and to handle retrasmissions
-        self.buffer.push(message.clone());
+        if self.is_reliable {
+            debug!("reliable sender, set all timers");
+            // add the message to the producer buffer. this is used to re-send
+            // messages when acks are missing and to handle retrasmissions
+            self.buffer.push(message.clone());
 
-        // create a timer for the new packet and update the state
-        let gt = GroupTimer {
-            missing_timers: self.endpoints_list.clone(),
-            timer: self.timer_factory.create_and_start_timer(message_id, None),
-        };
+            // create a timer for the new packet and update the state
+            let gt = GroupTimer {
+                missing_timers: self.endpoints_list.clone(),
+                timer: self.timer_factory.create_and_start_timer(message_id, None),
+            };
 
-        // insert in pending acks
-        self.pending_acks.insert(message_id, gt);
+            // insert in pending acks
+            self.pending_acks.insert(message_id, gt);
 
-        // insert in pending acks per endpoint
-        for n in &self.endpoints_list {
-            debug!("add timer for message {} for remote {}", message_id, n);
-            if let Some(acks) = self.pending_acks_per_endpoint.get_mut(n) {
-                acks.insert(message_id);
-            } else {
-                let mut set = HashSet::new();
-                set.insert(message_id);
-                self.pending_acks_per_endpoint.insert(n.clone(), set);
+            // insert in pending acks per endpoint
+            for n in &self.endpoints_list {
+                debug!("add timer for message {} for remote {}", message_id, n);
+                if let Some(acks) = self.pending_acks_per_endpoint.get_mut(n) {
+                    acks.insert(message_id);
+                } else {
+                    let mut set = HashSet::new();
+                    set.insert(message_id);
+                    self.pending_acks_per_endpoint.insert(n.clone(), set);
+                }
             }
         }
 
-        debug!("all timers sets, send message");
+        debug!("send message");
         // send the message
         self.tx
             .send_to_slim(Ok(message))
@@ -255,7 +268,7 @@ where
                 .set_forward_to(Some(incoming_conn));
             msg.get_session_header_mut()
                 .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxReply);
-            msg.get_session_header_mut().set_destination(&source); // TODO discuss this with Mauro. we need one field only
+            msg.get_session_header_mut().set_destination(&source);
 
             println!("msg: {:?}", msg);
             // send the message
@@ -304,7 +317,7 @@ where
                     debug!("resend message {} to {}", id, n);
                     let mut m = message.clone();
                     m.get_slim_header_mut().set_destination(n);
-                    m.get_session_header_mut().set_destination(n); // TODO discuss this with Mauro. we need one field only
+                    m.get_session_header_mut().set_destination(n);
 
                     // send the message
                     self.tx
@@ -478,7 +491,7 @@ where
 }
 
 #[allow(dead_code)]
-pub(crate) struct ReliableSender<T>
+pub(crate) struct SessionSender<T>
 where
     T: Transmitter + Send + Sync + Clone + 'static,
 {
@@ -489,21 +502,32 @@ where
 }
 
 #[allow(dead_code)]
-impl<T> ReliableSender<T>
+impl<T> SessionSender<T>
 where
     T: Transmitter + Send + Sync + Clone + 'static,
 {
-    pub fn new(timer_settings: TimerSettings, session_id: u32, tx_transmitter: T) -> Self {
+    pub fn new(
+        timer_settings: TimerSettings,
+        session_id: u32,
+        is_reliable: bool,
+        tx_transmitter: T,
+    ) -> Self {
         let (tx, rx) = tokio::sync::mpsc::channel(128);
 
-        let reliable_sender =
-            ReliableSenderInternal::new(timer_settings, session_id, tx_transmitter, tx.clone(), rx);
+        let internal_sender = SessionSenderInternal::new(
+            timer_settings,
+            session_id,
+            is_reliable,
+            tx_transmitter,
+            tx.clone(),
+            rx,
+        );
 
         // Spawn the processing loop
         tokio::spawn(async move {
-            reliable_sender.process_loop().await;
+            internal_sender.process_loop().await;
         });
-        ReliableSender {
+        SessionSender {
             tx,
             drain: false,
             _phantom: PhantomData,
@@ -535,7 +559,7 @@ where
             .map_err(|e| SessionError::Processing(format!("Failed to send message: {}", e)))
     }
 
-    /// Add a endpoint to the reliable sender
+    /// Add a endpoint to the sender
     pub async fn add_endpoint(&self, endpoint: Name) -> Result<(), SessionError> {
         if self.drain {
             return Err(SessionError::Processing("sender is closing".to_string()));
@@ -546,7 +570,7 @@ where
             .map_err(|e| SessionError::Processing(format!("Failed to add endpoint: {}", e)))
     }
 
-    /// Remove a endpoint from the reliable sender
+    /// Remove a endpoint from the sender
     pub async fn remove_endpoint(&self, endpoint: Name) -> Result<(), SessionError> {
         if self.drain {
             return Err(SessionError::Processing("sender is closing".to_string()));
@@ -592,7 +616,7 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let sender = ReliableSender::new(settings, 10, tx);
+        let sender = SessionSender::new(settings, 10, true, tx);
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
@@ -660,7 +684,7 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let sender = ReliableSender::new(settings, 10, tx);
+        let sender = SessionSender::new(settings, 10, true, tx);
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
@@ -753,7 +777,7 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let sender = ReliableSender::new(settings, 10, tx);
+        let sender = SessionSender::new(settings, 10, true, tx);
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
@@ -817,7 +841,7 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let sender = ReliableSender::new(settings, 10, tx);
+        let sender = SessionSender::new(settings, 10, true, tx);
         let group = Name::from_strings(["org", "ns", "group"]);
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
@@ -910,7 +934,7 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let sender = ReliableSender::new(settings, 10, tx);
+        let sender = SessionSender::new(settings, 10, true, tx);
         let group = Name::from_strings(["org", "ns", "group"]);
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
@@ -1025,7 +1049,7 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let sender = ReliableSender::new(settings, 10, tx);
+        let sender = SessionSender::new(settings, 10, true, tx);
         let group = Name::from_strings(["org", "ns", "group"]);
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
@@ -1116,7 +1140,7 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let sender = ReliableSender::new(settings, 10, tx);
+        let sender = SessionSender::new(settings, 10, true, tx);
         let group = Name::from_strings(["org", "ns", "group"]);
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
@@ -1228,7 +1252,7 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let sender = ReliableSender::new(settings, 10, tx);
+        let sender = SessionSender::new(settings, 10, true, tx);
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
@@ -1337,7 +1361,7 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let sender = ReliableSender::new(settings, 10, tx);
+        let sender = SessionSender::new(settings, 10, true, tx);
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         // DO NOT add any endpoints - this is the key part of the test
@@ -1382,7 +1406,7 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let mut sender = ReliableSender::new(settings, 10, tx);
+        let mut sender = SessionSender::new(settings, 10, true, tx);
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender
@@ -1472,7 +1496,7 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let mut sender = ReliableSender::new(settings, 10, tx);
+        let mut sender = SessionSender::new(settings, 10, true, tx);
 
         // Initiate drain without any pending messages
         let result = sender.drain(1000).await;

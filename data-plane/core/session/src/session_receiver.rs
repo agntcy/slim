@@ -50,7 +50,7 @@ impl Hash for PendingRtxKey {
 }
 
 #[allow(dead_code)]
-struct ReliableReceiverInternal<T>
+struct SessionReceiverInternal<T>
 where
     T: Transmitter + Send + Sync + Clone + 'static,
 {
@@ -93,7 +93,7 @@ where
 }
 
 #[allow(dead_code)]
-impl<T> ReliableReceiverInternal<T>
+impl<T> SessionReceiverInternal<T>
 where
     T: Transmitter + Send + Sync + Clone + 'static,
 {
@@ -118,7 +118,7 @@ where
             None
         };
 
-        ReliableReceiverInternal {
+        SessionReceiverInternal {
             buffer: HashMap::new(),
             pending_rtxs: HashMap::new(),
             timer_factory: factory,
@@ -133,22 +133,33 @@ where
         }
     }
 
-    /// TODO: should we always pass on this objects even if we are not reliable??
-    /// I think it is a good idea but in that case we should call them just sender and receiver
     async fn on_message(&mut self, message: Message) -> Result<(), SessionError> {
         match message.get_session_message_type() {
-            //slim_datapath::api::ProtoSessionMessageType::P2PMsg => {
-            //    debug!("received P2P reliable message");
-            //    self.on_publish_message(message).await?
-            //}
+            slim_datapath::api::ProtoSessionMessageType::P2PMsg => {
+                debug!("received P2P message");
+                if self.timer_factory.is_some() {
+                    // this receiver is reliable but got an unrelibale messages
+                    // drop the message
+                    return Err(SessionError::Processing(
+                        "received an unrelibale message on a reliable received".to_string(),
+                    ));
+                }
+                self.on_publish_message(message).await?
+            }
             slim_datapath::api::ProtoSessionMessageType::P2PReliable => {
                 debug!("received P2P reliable message");
+                if self.timer_factory.is_none() {
+                    // this receiver is unreliable but got an relibale messages
+                    // drop the message
+                    return Err(SessionError::Processing(
+                        "received a relibale message on an unreliable received".to_string(),
+                    ));
+                }
                 self.send_ack(&message).await?;
                 self.on_publish_message(message).await?
             }
             slim_datapath::api::ProtoSessionMessageType::MulticastMsg => {
                 debug!("received multicast message");
-                // TODO: send ack also here
                 self.on_publish_message(message).await?
             }
             slim_datapath::api::ProtoSessionMessageType::RtxReply => {
@@ -156,8 +167,7 @@ where
                 self.on_rtx_message(message).await?
             }
             _ => {
-                // TODO: here we need to handle also the Channel messages (Acks + Replies)
-                // so that we can use this code for timers
+                // TODO: Add missing message types (e.g. Channel messages)
                 debug!("unexpected message type");
             }
         }
@@ -205,8 +215,6 @@ where
             Some(SlimHeaderFlags::default().with_forward_to(message.get_incoming_conn())),
         ));
 
-        // TODO: acks should be the same for all the sessions
-        // move from P2Pack to simple ack
         let session_header = Some(SessionHeader::new(
             self.session_type.clone() as i32,
             slim_datapath::api::ProtoSessionMessageType::P2PAck.into(),
@@ -441,7 +449,7 @@ where
                             }
                         }
                         Some(SessionMessage::Drain { grace_period_ms }) => {
-                            debug!("Drain message received for ReliableReceiver");
+                            debug!("Drain message received for SessionReceiver");
                             self.start_drain(grace_period_ms);
                             if self.drain_timer.is_none() {
                                 // close the sender
@@ -453,7 +461,7 @@ where
                             debug!("unexpected message type");
                         }
                         None => {
-                            debug!("Channel closed, stopping ReliableReceiver");
+                            debug!("Channel closed, stopping SessionReceiver");
                             break;
                         }
                     }
@@ -464,7 +472,7 @@ where
 }
 
 #[allow(dead_code)]
-pub(crate) struct ReliableReceiver<T>
+pub(crate) struct SessionReceiver<T>
 where
     T: Transmitter + Send + Sync + Clone + 'static,
 {
@@ -475,7 +483,7 @@ where
 }
 
 #[allow(dead_code)]
-impl<T> ReliableReceiver<T>
+impl<T> SessionReceiver<T>
 where
     T: Transmitter + Send + Sync + Clone + 'static,
 {
@@ -489,7 +497,7 @@ where
     ) -> Self {
         let (tx, rx) = tokio::sync::mpsc::channel(128);
 
-        let reliable_receiver = ReliableReceiverInternal::new(
+        let reliable_receiver = SessionReceiverInternal::new(
             timer_settings,
             session_id,
             local_name,
@@ -505,7 +513,7 @@ where
             reliable_receiver.process_loop().await;
         });
 
-        ReliableReceiver {
+        SessionReceiver {
             tx,
             drain: false,
             _phantom: PhantomData,
@@ -571,7 +579,7 @@ mod tests {
         let local_name = Name::from_strings(["org", "ns", "local"]);
         let remote_name = Name::from_strings(["org", "ns", "remote"]);
 
-        let receiver = ReliableReceiver::new(
+        let receiver = SessionReceiver::new(
             Some(settings),
             10,
             local_name.clone(),
@@ -684,7 +692,7 @@ mod tests {
         let local_name = Name::from_strings(["org", "ns", "local"]);
         let remote_name = Name::from_strings(["org", "ns", "remote"]);
 
-        let receiver = ReliableReceiver::new(
+        let receiver = SessionReceiver::new(
             Some(settings),
             10,
             local_name.clone(),
@@ -849,7 +857,7 @@ mod tests {
         let local_name = Name::from_strings(["org", "ns", "local"]);
         let remote_name = Name::from_strings(["org", "ns", "remote"]);
 
-        let receiver = ReliableReceiver::new(
+        let receiver = SessionReceiver::new(
             Some(settings),
             10,
             local_name.clone(),
@@ -1009,7 +1017,7 @@ mod tests {
         let local_name = Name::from_strings(["org", "ns", "local"]);
         let remote_name = Name::from_strings(["org", "ns", "remote"]);
 
-        let receiver = ReliableReceiver::new(
+        let receiver = SessionReceiver::new(
             Some(settings),
             10,
             local_name.clone(),
@@ -1174,7 +1182,7 @@ mod tests {
         let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
         let remote2_name = Name::from_strings(["org", "ns", "remote2"]);
 
-        let receiver = ReliableReceiver::new(
+        let receiver = SessionReceiver::new(
             Some(settings),
             10,
             local_name.clone(),
@@ -1316,7 +1324,7 @@ mod tests {
         let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
         let remote2_name = Name::from_strings(["org", "ns", "remote2"]);
 
-        let receiver = ReliableReceiver::new(
+        let receiver = SessionReceiver::new(
             Some(settings),
             10,
             local_name.clone(),
@@ -1533,7 +1541,7 @@ mod tests {
         let local_name = Name::from_strings(["org", "ns", "local"]);
         let remote_name = Name::from_strings(["org", "ns", "remote"]);
 
-        let mut receiver = ReliableReceiver::new(
+        let mut receiver = SessionReceiver::new(
             Some(settings),
             10,
             local_name.clone(),
@@ -1618,7 +1626,7 @@ mod tests {
         let local_name = Name::from_strings(["org", "ns", "local"]);
         let remote_name = Name::from_strings(["org", "ns", "remote"]);
 
-        let mut receiver = ReliableReceiver::new(
+        let mut receiver = SessionReceiver::new(
             Some(settings),
             10,
             local_name.clone(),
@@ -1735,7 +1743,7 @@ mod tests {
         let tx = SessionTransmitter::new(tx_slim, tx_app);
         let local_name = Name::from_strings(["org", "ns", "local"]);
 
-        let mut receiver = ReliableReceiver::new(
+        let mut receiver = SessionReceiver::new(
             Some(settings),
             10,
             local_name.clone(),
