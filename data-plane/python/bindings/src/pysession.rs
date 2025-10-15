@@ -12,7 +12,6 @@ use pyo3_stub_gen::derive::gen_stub_pyclass_enum;
 use pyo3_stub_gen::derive::gen_stub_pyfunction;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
 use slim_session::{SessionConfig, SessionError, SessionType};
-// (Python-only session wrapper will provide higher-level methods; keep Rust minimal)
 
 use crate::pyidentity::{IdentityProvider, IdentityVerifier};
 use crate::pymessage::PyMessageContext;
@@ -27,27 +26,25 @@ use slim_session::context::SessionContext;
 
 /// Internal shared session context state.
 ///
-/// Holds:
-/// * a weak reference to the underlying `Session` (so that Python
-///   references do not keep a closed session alive),
-/// * a receiver (`rx`) for application/channel messages which is
-///   protected by an async `RwLock` to allow concurrent access patterns.
+/// Holds a `BindingsSessionContext` which provides:
+/// * Session-specific operations (publish, invite, remove, get_message)
+/// * A weak reference to the underlying `Session` (so that Python
+///   references do not keep a closed session alive)
+/// * A receiver (`rx`) for application/channel messages which is
+///   protected by an async `RwLock` to allow concurrent access patterns
 ///
 /// This struct is not exposed directly to Python; it is wrapped by
 /// `PySessionContext`.
 pub(crate) struct PySessionCtxInternal {
-    pub(crate) bindings_ctx: Arc<BindingsSessionContext<IdentityProvider, IdentityVerifier>>,
+    pub(crate) bindings_ctx: BindingsSessionContext<IdentityProvider, IdentityVerifier>,
 }
 
 /// Python-exposed session context wrapper.
 ///
-/// A thin, cloneable handle around the underlying Rust session state. All
-/// getters perform a safe upgrade of the weak internal session reference,
-/// returning a Python exception if the session has already been closed.
-/// The internal message receiver is intentionally not exposed at this level.
-///
-/// Higher-level Python code (see `session.py`) provides ergonomic async
-/// operations on top of this context.
+/// A thin, cloneable handle around the underlying Rust session state that provides
+/// both session metadata access and session-specific operations. All getters perform
+/// a safe upgrade of the weak internal session reference, returning a Python exception
+/// if the session has already been closed.
 ///
 /// Properties (getters exposed to Python):
 /// - id -> int: Unique numeric identifier of the session. Raises a Python
@@ -78,7 +75,7 @@ impl From<SessionContext<IdentityProvider, IdentityVerifier>> for PySessionConte
 
         PySessionContext {
             internal: Arc::new(PySessionCtxInternal {
-                bindings_ctx: Arc::new(bindings_ctx),
+                bindings_ctx: bindings_ctx,
             }),
         }
     }
@@ -157,11 +154,7 @@ impl PySessionContext {
     }
 }
 
-/// Session-specific operations that have been moved from PyApp
-///
-/// These methods were refactored from PyApp to PySessionContext to better
-/// encapsulate session-specific functionality. The methods are exposed as
-/// module-level functions for backward compatibility with existing Python code.
+/// Session-specific operations
 impl PySessionContext {
     /// Get a message from this session
     pub(crate) async fn get_message(&self) -> PyResult<(PyMessageContext, Vec<u8>)> {
@@ -298,16 +291,18 @@ impl From<SessionType> for PySessionType {
 
 /// User-facing configuration for establishing and tuning sessions.
 ///
-/// Each variant maps to a core `SessionConfig`.
-/// Common fields (casual rundown):
+/// Each variant maps to a core `SessionConfig` and defines the behavior of session-level
+/// operations like message publishing, participant management, and message reception.
+///
+/// Common fields:
 /// * `timeout`: How long we wait for an ack before trying again.
 /// * `max_retries`: Number of attempts to send a message. If we run out, an error is returned.
 /// * `mls_enabled`: Turn on MLS for end‑to‑end crypto.
 /// * `metadata`: One-shot string key/value tags sent at session start; the other side can read them for tracing, routing, auth, etc.
 ///
 /// Variant-specific notes:
-/// * `PointToPoint`: PointToPoint will target a specific peer for all messages.
-/// * `Group`: Uses a named channel and distributes to multiple subscribers.
+/// * `PointToPoint`: Direct communication with a specific peer. Session operations target the peer directly.
+/// * `Group`: Channel-based multicast communication. Session operations affect the entire group.
 ///
 /// # Examples
 ///
@@ -315,8 +310,7 @@ impl From<SessionType> for PySessionType {
 /// ```python
 /// from slim_bindings import PySessionConfiguration, PyName
 ///
-/// # PointToPoint session. Wait up to 2 seconds for an ack for each message, retry up to 5 times,
-/// # enable MLS, and attach some metadata.
+/// # PointToPoint session - direct peer communication
 /// p2p_cfg = PySessionConfiguration.PointToPoint(
 ///     peer_name=PyName("org", "namespace", "service"), # target peer
 ///     timeout=datetime.timedelta(seconds=2), # wait 2 seconds for an ack
@@ -535,6 +529,7 @@ impl From<PySessionConfiguration> for SessionConfig {
 // Python binding functions for session operations
 // ============================================================================
 
+/// Publish a message through the specified session.
 #[allow(clippy::too_many_arguments)]
 #[gen_stub_pyfunction]
 #[pyfunction]
@@ -556,6 +551,7 @@ pub fn publish(
     })
 }
 
+/// Publish a message as a reply to a received message through the specified session.
 #[gen_stub_pyfunction]
 #[pyfunction]
 #[pyo3(signature = (session_context, message_ctx, blob, payload_type=None, metadata=None))]
@@ -578,6 +574,7 @@ pub fn publish_to(
     )
 }
 
+/// Invite a participant to the specified session (group only).
 #[gen_stub_pyfunction]
 #[pyfunction]
 #[pyo3(signature = (session_context, name))]
@@ -592,6 +589,7 @@ pub fn invite(
     )
 }
 
+/// Remove a participant from the specified session (group only).
 #[gen_stub_pyfunction]
 #[pyfunction]
 #[pyo3(signature = (session_context, name))]
@@ -606,6 +604,7 @@ pub fn remove(
     )
 }
 
+/// Get a message from the specified session.
 #[gen_stub_pyfunction]
 #[pyfunction]
 #[pyo3(signature = (session_context,))]
