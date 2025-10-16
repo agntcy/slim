@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 type dbService struct {
@@ -333,5 +334,26 @@ func (d *dbService) GetRoutesForDestinationNodeID(nodeID string) []Route {
 	}
 
 	// Return empty slice instead of error when no routes found
+	return routes
+}
+
+func (d *dbService) GetRoutesForDestinationNodeIDAndName(nodeID string, Component0 string, Component1 string,
+	Component2 string, ComponentID *wrapperspb.UInt64Value) []Route {
+
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	var routes []Route
+	for _, route := range d.routes {
+		if route.DestNodeID == nodeID &&
+			route.Component0 == Component0 &&
+			route.Component1 == Component1 &&
+			route.Component2 == Component2 {
+			if (ComponentID == nil && route.ComponentID == nil) ||
+				(ComponentID != nil && route.ComponentID != nil && ComponentID.Value == route.ComponentID.Value) {
+				routes = append(routes, route)
+			}
+		}
+	}
 	return routes
 }

@@ -12,6 +12,8 @@ import (
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 )
 
+const DefaultResponseTimeout = 15
+
 type defaultNodeCommandHandler struct {
 	// Maps node IDs and streams map[nodeID]controllerapi.ControllerService_OpenControlChannelServer
 	nodeStreamMap sync.Map
@@ -74,12 +76,14 @@ func (m *defaultNodeCommandHandler) WaitForResponseWithTimeout(
 func (m *defaultNodeCommandHandler) WaitForResponse(
 	ctx context.Context, nodeID string, messageType reflect.Type, messageID string,
 ) (*controllerapi.ControlMessage, error) {
-	return m.WaitForResponseWithTimeout(ctx, nodeID, messageType, messageID, 180*time.Second)
+	return m.WaitForResponseWithTimeout(ctx, nodeID, messageType, messageID, DefaultResponseTimeout*time.Second)
 }
 
 // ResponseReceived implements NodeCommandHandler.
 func (m *defaultNodeCommandHandler) ResponseReceived(ctx context.Context, nodeID string,
 	command *controllerapi.ControlMessage) {
+
+	zlog := zerolog.Ctx(ctx)
 	if nodeID == "" {
 		return
 	}
@@ -87,10 +91,9 @@ func (m *defaultNodeCommandHandler) ResponseReceived(ctx context.Context, nodeID
 		return
 	}
 	if command.MessageId == "" {
+		zlog.Warn().Msgf("Response message received with empty MessageId")
 		return
 	}
-
-	zlog := zerolog.Ctx(ctx)
 
 	// Get the channel for the specific nodeID and message type
 	key := nodeID + ":" + reflect.TypeOf(command.GetPayload()).String()

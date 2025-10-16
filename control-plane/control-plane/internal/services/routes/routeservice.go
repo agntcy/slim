@@ -43,6 +43,17 @@ type Route struct {
 	ComponentID    *wrapperspb.UInt64Value
 }
 
+func (r Route) GetID() string {
+	destID := r.DestNodeID
+
+	if destID == "" {
+		destID = r.DestEndpoint
+	}
+
+	return fmt.Sprintf("%s:%s/%s/%s/%v->%s", r.SourceNodeID,
+		r.Component0, r.Component1, r.Component2, r.ComponentID, destID)
+}
+
 func NewRouteService(dbService db.DataAccess, cmdHandler nodecontrol.NodeCommandHandler,
 	reconcilerConfig config.ReconcilerConfig) *RouteService {
 	rateLimiter := workqueue.NewTypedItemExponentialFailureRateLimiter[RouteReconcileRequest](
@@ -158,6 +169,27 @@ func (s *RouteService) DeleteRoute(ctx context.Context, route Route) error {
 		}
 	}
 
+	// delete routes for all existing nodes if the route is for all nodes
+	if route.SourceNodeID == AllNodesID {
+
+		routeID := route.GetID()
+		err := s.dbService.DeleteRoute(routeID)
+		if err != nil {
+			return fmt.Errorf("failed to delete route for %s (%w)", routeID, err)
+		}
+		zerolog.Ctx(ctx).Info().Msgf("Route %s deleted.", routeID)
+
+		routes := s.dbService.GetRoutesForDestinationNodeIDAndName(route.DestNodeID, route.Component0,
+			route.Component1, route.Component2, route.ComponentID)
+		for _, r := range routes {
+			if err := s.deleteSingleRoute(ctx, r.SourceNodeID, r.GetID()); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+
 	dbRoute := db.Route{
 		SourceNodeID:   route.SourceNodeID,
 		DestNodeID:     route.DestNodeID,
@@ -173,31 +205,6 @@ func (s *RouteService) DeleteRoute(ctx context.Context, route Route) error {
 		return err
 	}
 
-	// delete routes for all existing nodes if the route is for all nodes
-	if route.SourceNodeID == AllNodesID {
-		allNodes := s.dbService.ListNodes()
-		for _, n := range allNodes {
-			if n.ID == route.DestNodeID {
-				// skip deleting route for the destination node itself
-				continue
-			}
-			newRoute := db.Route{
-				SourceNodeID:   n.ID,
-				DestNodeID:     route.DestNodeID,
-				DestEndpoint:   route.DestEndpoint,
-				Component0:     route.Component0,
-				Component1:     route.Component1,
-				Component2:     route.Component2,
-				ComponentID:    route.ComponentID,
-				ConnConfigData: route.ConnConfigData,
-			}
-			newRouteID := newRoute.GetID()
-
-			if err := s.deleteSingleRoute(ctx, n.ID, newRouteID); err != nil {
-				return err
-			}
-		}
-	}
 	return nil
 }
 
@@ -250,6 +257,7 @@ func (s *RouteService) NodeRegistered(ctx context.Context, nodeID string, connnD
 	if connnDetailsUpdated {
 		// if connection details were updated, we also need to reconcile routes for other nodes
 		// which might be affected by the new node connection details
+		zlog.Info().Msgf("Connection detials changed, reconcile routes with DestinationNodeID: %s", nodeID)
 		routesToBeReconciled := s.dbService.GetRoutesForDestinationNodeID(nodeID)
 		for _, r := range routesToBeReconciled {
 			if r.SourceNodeID != AllNodesID {

@@ -25,11 +25,15 @@ type SouthboundAPIServer interface {
 	controllerapi.ControllerServiceServer
 }
 
+type SouthboundServiceDataAccess interface {
+	SaveNode(node db.Node) (string, bool, error)
+}
+
 type sbAPIService struct {
 	config    config.APIConfig
 	logConfig config.LogConfig
 	controllerapi.UnimplementedControllerServiceServer
-	dbService          db.DataAccess
+	dbService          SouthboundServiceDataAccess
 	nodeCommandHandler nodecontrol.NodeCommandHandler
 	routeService       *routes.RouteService
 	groupservice       groupservice.GroupManager
@@ -37,7 +41,7 @@ type sbAPIService struct {
 
 func NewSBAPIService(config config.APIConfig,
 	logConfig config.LogConfig,
-	dbService db.DataAccess,
+	dbService SouthboundServiceDataAccess,
 	cmdHandler nodecontrol.NodeCommandHandler,
 	routeService *routes.RouteService,
 	groupservice groupservice.GroupManager) SouthboundAPIServer {
