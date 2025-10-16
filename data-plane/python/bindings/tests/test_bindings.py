@@ -490,3 +490,107 @@ async def test_error_on_nonexistent_subscription(server):
 
     # clean up
     await disconnect(svc_alice, conn_id_alice)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("server", ["127.0.0.1:12345", None], indirect=True)
+async def test_listen_for_session_timeout(server):
+    """Test that listen_for_session times out appropriately when no session is available."""
+    alice_name = slim_bindings.PyName("org", "default", "alice_timeout")
+
+    svc_alice = await create_svc(
+        alice_name, "secret", local_service=server.local_service
+    )
+
+    conn_id_alice = None
+    if server.local_service:
+        # Connect to the service to get connection ID
+        conn_id_alice = await connect(
+            svc_alice,
+            {"endpoint": "http://127.0.0.1:12345", "tls": {"insecure": True}},
+        )
+
+    # Test with a short timeout - should raise an exception
+    start_time = asyncio.get_event_loop().time()
+    timeout_duration = datetime.timedelta(milliseconds=100)
+
+    with pytest.raises(Exception) as exc_info:
+        await listen_for_session(svc_alice, timeout_duration)
+
+    elapsed_time = asyncio.get_event_loop().time() - start_time
+
+    # Verify the timeout was respected (allow some tolerance)
+    assert 0.08 <= elapsed_time <= 0.2, (
+        f"Timeout took {elapsed_time:.3f}s, expected ~0.1s"
+    )
+    assert (
+        "timed out" in str(exc_info.value).lower()
+        or "timeout" in str(exc_info.value).lower()
+    )
+
+    # Test with None timeout - should wait indefinitely (we'll interrupt it)
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(
+            listen_for_session(svc_alice, None),
+            timeout=0.1,  # Our own timeout to prevent hanging
+        )
+
+    # Clean up
+    if conn_id_alice is not None:
+        await disconnect(svc_alice, conn_id_alice)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("server", ["127.0.0.1:12346", None], indirect=True)
+async def test_get_message_timeout(server):
+    """Test that get_message times out appropriately when no message is available."""
+    alice_name = slim_bindings.PyName("org", "default", "alice_msg_timeout")
+
+    # Create service
+    svc_alice = await create_svc(
+        alice_name, "secret", local_service=server.local_service
+    )
+
+    conn_id_alice = None
+
+    if server.local_service:
+        # Connect to the service to get connection ID
+        conn_id_alice = await connect(
+            svc_alice,
+            {"endpoint": "http://127.0.0.1:12346", "tls": {"insecure": True}},
+        )
+
+    # Create a session (with dummy peer for timeout testing)
+    dummy_peer = slim_bindings.PyName("org", "default", "dummy_peer")
+    p2p_config = slim_bindings.PySessionConfiguration.PointToPoint(peer_name=dummy_peer)
+    session_context = await create_session(svc_alice, p2p_config)
+
+    # Test with a short timeout - should raise an exception
+    start_time = asyncio.get_event_loop().time()
+    timeout_duration = datetime.timedelta(milliseconds=100)
+
+    with pytest.raises(Exception) as exc_info:
+        await get_message(session_context, timeout_duration)
+
+    elapsed_time = asyncio.get_event_loop().time() - start_time
+
+    # Verify the timeout was respected (allow some tolerance)
+    assert 0.08 <= elapsed_time <= 0.2, (
+        f"Timeout took {elapsed_time:.3f}s, expected ~0.1s"
+    )
+    assert (
+        "timed out" in str(exc_info.value).lower()
+        or "timeout" in str(exc_info.value).lower()
+    )
+
+    # Test with None timeout - should wait indefinitely (we'll interrupt it)
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(
+            get_message(session_context, None),
+            timeout=0.1,  # Our own timeout to prevent hanging
+        )
+
+    # Clean up
+    await delete_session(svc_alice, session_context)
+    if conn_id_alice is not None:
+        await disconnect(svc_alice, conn_id_alice)

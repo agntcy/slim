@@ -260,6 +260,79 @@ mod tests {
             .get_session_message(Some(Duration::from_millis(50)))
             .await;
         assert!(result.is_err()); // Should timeout
+        if let Err(e) = result {
+            assert!(e.to_string().contains("timeout"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_session_message_no_timeout() {
+        let service = create_test_service().await;
+        let app_name = create_test_name();
+        let (provider, verifier) = create_test_auth();
+
+        let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
+            .await
+            .expect("Failed to create adapter");
+
+        // Create a session and convert to BindingsSessionContext
+        let config = SessionConfig::PointToPoint(PointToPointConfiguration::default());
+        let session_ctx = adapter
+            .create_session(config)
+            .await
+            .expect("Failed to create session");
+        let bindings_ctx = BindingsSessionContext::from(session_ctx);
+
+        // Test with None timeout - should wait indefinitely until channel is closed
+        // Use a timeout wrapper to prevent the test from hanging indefinitely
+        let result = tokio::time::timeout(
+            Duration::from_millis(100),
+            bindings_ctx.get_session_message(None),
+        )
+        .await;
+
+        // The operation should timeout since no message is being sent and we're not providing a timeout
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_get_session_message_various_timeouts() {
+        let service = create_test_service().await;
+        let app_name = create_test_name();
+        let (provider, verifier) = create_test_auth();
+
+        let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
+            .await
+            .expect("Failed to create adapter");
+
+        // Create a session and convert to BindingsSessionContext
+        let config = SessionConfig::PointToPoint(PointToPointConfiguration::default());
+        let session_ctx = adapter
+            .create_session(config)
+            .await
+            .expect("Failed to create session");
+        let bindings_ctx = BindingsSessionContext::from(session_ctx);
+
+        // Test very short timeout
+        let result = bindings_ctx
+            .get_session_message(Some(Duration::from_nanos(1)))
+            .await;
+        assert!(result.is_err());
+
+        // Test zero timeout
+        let result = bindings_ctx.get_session_message(Some(Duration::ZERO)).await;
+        assert!(result.is_err());
+
+        // Test reasonable timeout with timing verification
+        let start = std::time::Instant::now();
+        let result = bindings_ctx
+            .get_session_message(Some(Duration::from_millis(100)))
+            .await;
+        let elapsed = start.elapsed();
+
+        assert!(result.is_err());
+        assert!(elapsed >= Duration::from_millis(90)); // Allow some variance
+        assert!(elapsed <= Duration::from_millis(200)); // But not too much
     }
 
     #[tokio::test]

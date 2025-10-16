@@ -1,9 +1,7 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
-import asyncio
 from datetime import timedelta
-from typing import Optional
 
 from slim_bindings._slim_bindings import (  # type: ignore[attr-defined]
     PyApp,
@@ -390,9 +388,7 @@ class Slim:
 
         await _unsubscribe(self._svc, name, self.conn_id)
 
-    async def listen_for_session(
-        self, timeout: Optional[timedelta] = None
-    ) -> PySession:
+    async def listen_for_session(self, timeout: timedelta | None = None) -> PySession:
         """
         Await the next inbound session (optionally bounded by timeout).
 
@@ -400,10 +396,5 @@ class Slim:
             PySession: Wrapper for the accepted session context.
         """
 
-        if timeout is None:
-            # Use a very large timeout value instead of trying to use datetime.max
-            timeout = timedelta(days=365 * 100)  # ~100 years
-
-        async with asyncio.timeout(timeout.total_seconds()):
-            session_ctx = await _listen_for_session(self._svc)
-            return PySession(session_ctx)
+        ctx: PySessionContext = await _listen_for_session(self._svc, timeout)
+        return PySession(ctx)

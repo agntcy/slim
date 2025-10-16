@@ -2,6 +2,7 @@
 # ruff: noqa: E501, F401
 
 import builtins
+import datetime
 import typing
 from enum import Enum, auto
 
@@ -74,13 +75,10 @@ class PySessionContext:
     r"""
     Python-exposed session context wrapper.
     
-    A thin, cloneable handle around the underlying Rust session state. All
-    getters perform a safe upgrade of the weak internal session reference,
-    returning a Python exception if the session has already been closed.
-    The internal message receiver is intentionally not exposed at this level.
-    
-    Higher-level Python code (see `session.py`) provides ergonomic async
-    operations on top of this context.
+    A thin, cloneable handle around the underlying Rust session state that provides
+    both session metadata access and session-specific operations. All getters perform
+    a safe upgrade of the weak internal session reference, returning a Python exception
+    if the session has already been closed.
     
     Properties (getters exposed to Python):
     - id -> int: Unique numeric identifier of the session. Raises a Python
@@ -345,16 +343,18 @@ class PySessionConfiguration(Enum):
     r"""
     User-facing configuration for establishing and tuning sessions.
     
-    Each variant maps to a core `SessionConfig`.
-    Common fields (casual rundown):
+    Each variant maps to a core `SessionConfig` and defines the behavior of session-level
+    operations like message publishing, participant management, and message reception.
+    
+    Common fields:
     * `timeout`: How long we wait for an ack before trying again.
     * `max_retries`: Number of attempts to send a message. If we run out, an error is returned.
     * `mls_enabled`: Turn on MLS for end‑to‑end crypto.
     * `metadata`: One-shot string key/value tags sent at session start; the other side can read them for tracing, routing, auth, etc.
     
     Variant-specific notes:
-    * `PointToPoint`: PointToPoint will target a specific peer for all messages.
-    * `Group`: Uses a named channel and distributes to multiple subscribers.
+    * `PointToPoint`: Direct communication with a specific peer. Session operations target the peer directly.
+    * `Group`: Channel-based multicast communication. Session operations affect the entire group.
     
     # Examples
     
@@ -362,8 +362,7 @@ class PySessionConfiguration(Enum):
     ```python
     from slim_bindings import PySessionConfiguration, PyName
     
-    # PointToPoint session. Wait up to 2 seconds for an ack for each message, retry up to 5 times,
-    # enable MLS, and attach some metadata.
+    # PointToPoint session - direct peer communication
     p2p_cfg = PySessionConfiguration.PointToPoint(
         peer_name=PyName("org", "namespace", "service"), # target peer
         timeout=datetime.timedelta(seconds=2), # wait 2 seconds for an ack
@@ -439,25 +438,40 @@ def delete_session(svc:PyApp, session_context:PySessionContext) -> typing.Any:
 def disconnect(svc:PyApp, conn:builtins.int) -> typing.Any:
     ...
 
-def get_message(session_context:PySessionContext) -> typing.Any:
+def get_message(session_context:PySessionContext, timeout:typing.Optional[datetime.timedelta]=None) -> typing.Any:
+    r"""
+    Get a message from the specified session.
+    """
     ...
 
 def init_tracing(config:dict) -> typing.Any:
     ...
 
 def invite(session_context:PySessionContext, name:PyName) -> typing.Any:
+    r"""
+    Invite a participant to the specified session (group only).
+    """
     ...
 
-def listen_for_session(svc:PyApp) -> typing.Any:
+def listen_for_session(svc:PyApp, timeout:typing.Optional[datetime.timedelta]=None) -> typing.Any:
     ...
 
 def publish(session_context:PySessionContext, fanout:builtins.int, blob:typing.Sequence[builtins.int], message_ctx:typing.Optional[PyMessageContext]=None, name:typing.Optional[PyName]=None, payload_type:typing.Optional[builtins.str]=None, metadata:typing.Optional[typing.Mapping[builtins.str, builtins.str]]=None) -> typing.Any:
+    r"""
+    Publish a message through the specified session.
+    """
     ...
 
 def publish_to(session_context:PySessionContext, message_ctx:PyMessageContext, blob:typing.Sequence[builtins.int], payload_type:typing.Optional[builtins.str]=None, metadata:typing.Optional[typing.Mapping[builtins.str, builtins.str]]=None) -> typing.Any:
+    r"""
+    Publish a message as a reply to a received message through the specified session.
+    """
     ...
 
 def remove(session_context:PySessionContext, name:PyName) -> typing.Any:
+    r"""
+    Remove a participant from the specified session (group only).
+    """
     ...
 
 def remove_route(svc:PyApp, name:PyName, conn:builtins.int) -> typing.Any:

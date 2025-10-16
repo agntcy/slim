@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};
-use tokio_util::sync::CancellationToken;
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::messages::Name;
@@ -29,9 +28,6 @@ where
 
     /// Channel receiver for notifications from the app
     notification_rx: Arc<RwLock<mpsc::Receiver<Result<Notification<P, V>, SessionError>>>>,
-
-    /// Cancellation token for cleanup
-    cancel_token: CancellationToken,
 }
 
 impl<P, V> BindingsAdapter<P, V>
@@ -47,7 +43,6 @@ where
         Self {
             app: Arc::new(app),
             notification_rx: Arc::new(RwLock::new(notification_rx)),
-            cancel_token: CancellationToken::new(),
         }
     }
 
@@ -183,52 +178,50 @@ where
     }
 
     /// Listen for new sessions from the app
-    pub async fn listen_for_session(&self) -> Result<SessionContext<P, V>, ServiceError> {
+    ///
+    /// If `timeout` is `Some(duration)`, waits up to that duration for a new session
+    /// before returning a timeout error. If `None`, waits indefinitely.
+    pub async fn listen_for_session(
+        &self,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<SessionContext<P, V>, ServiceError> {
         let mut rx = self.notification_rx.write().await;
 
-        tokio::select! {
-            notification = rx.recv() => {
-                if notification.is_none() {
-                    return Err(ServiceError::ReceiveError("application channel closed".to_string()));
+        let recv_fut = rx.recv();
+        let notification_opt = if let Some(dur) = timeout {
+            match tokio::time::timeout(dur, recv_fut).await {
+                Ok(n) => n,
+                Err(_) => {
+                    return Err(ServiceError::ReceiveError(
+                        "listen_for_session timed out".to_string(),
+                    ));
                 }
+            }
+        } else {
+            recv_fut.await
+        };
 
-                let notification = notification.unwrap();
-                match notification {
-                    Ok(Notification::NewSession(ctx)) => {
-                        Ok(ctx)
-                    }
-                    Ok(Notification::NewMessage(_)) => {
-                        Err(ServiceError::ReceiveError("received unexpected message notification while listening for session".to_string()))
-                    }
-                    Err(e) => {
-                        Err(ServiceError::ReceiveError(format!("failed to receive session notification: {}", e)))
-                    }
-                }
-            }
-            _ = self.cancel_token.cancelled() => {
-                Err(ServiceError::ReceiveError("adapter was cancelled".to_string()))
-            }
+        if notification_opt.is_none() {
+            return Err(ServiceError::ReceiveError(
+                "application channel closed".to_string(),
+            ));
+        }
+
+        match notification_opt.unwrap() {
+            Ok(Notification::NewSession(ctx)) => Ok(ctx),
+            Ok(Notification::NewMessage(_)) => Err(ServiceError::ReceiveError(
+                "received unexpected message notification while listening for session".to_string(),
+            )),
+            Err(e) => Err(ServiceError::ReceiveError(format!(
+                "failed to receive session notification: {}",
+                e
+            ))),
         }
     }
 
     /// Get the underlying App instance (for advanced usage)
     pub fn app(&self) -> &App<P, V> {
         &self.app
-    }
-
-    /// Cancel all operations
-    pub fn cancel(&self) {
-        self.cancel_token.cancel();
-    }
-}
-
-impl<P, V> Drop for BindingsAdapter<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
-    fn drop(&mut self) {
-        self.cancel_token.cancel();
     }
 }
 
@@ -239,7 +232,6 @@ mod tests {
     use std::time::Duration;
 
     use tokio::sync::mpsc;
-    use tokio::time::timeout;
 
     use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::messages::Name;
@@ -428,24 +420,55 @@ mod tests {
         let adapter = BindingsAdapter::new_with_app(app, rx);
 
         // This should timeout since no session is being sent
-        let result = timeout(Duration::from_millis(10), adapter.listen_for_session()).await;
-        assert!(result.is_err()); // Should timeout
+        let result = adapter
+            .listen_for_session(Some(Duration::from_millis(10)))
+            .await;
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(e.to_string().contains("timed out"));
+        }
     }
 
     #[tokio::test]
-    async fn test_listen_for_session_cancellation() {
+    async fn test_listen_for_session_no_timeout() {
         let (app, rx) = create_mock_app_with_receiver();
         let adapter = BindingsAdapter::new_with_app(app, rx);
 
-        // Cancel the adapter
-        adapter.cancel();
+        // Test that None timeout waits indefinitely (but we'll wrap it in a timeout for testing)
+        // Use a timeout wrapper to prevent the test from hanging indefinitely
+        let result =
+            tokio::time::timeout(Duration::from_millis(100), adapter.listen_for_session(None))
+                .await;
 
-        // This should return immediately with cancellation error
-        let result = adapter.listen_for_session().await;
+        // The operation should timeout since no session is being sent and we're not providing a timeout
         assert!(result.is_err());
-        if let Err(e) = result {
-            assert!(e.to_string().contains("cancelled"));
-        }
+    }
+
+    #[tokio::test]
+    async fn test_listen_for_session_various_timeouts() {
+        let (app, rx) = create_mock_app_with_receiver();
+        let adapter = BindingsAdapter::new_with_app(app, rx);
+
+        // Test very short timeout
+        let result = adapter
+            .listen_for_session(Some(Duration::from_nanos(1)))
+            .await;
+        assert!(result.is_err());
+
+        // Test zero timeout
+        let result = adapter.listen_for_session(Some(Duration::ZERO)).await;
+        assert!(result.is_err());
+
+        // Test reasonable timeout
+        let start = std::time::Instant::now();
+        let result = adapter
+            .listen_for_session(Some(Duration::from_millis(100)))
+            .await;
+        let elapsed = start.elapsed();
+
+        assert!(result.is_err());
+        assert!(elapsed >= Duration::from_millis(90)); // Allow some variance
+        assert!(elapsed <= Duration::from_millis(200)); // But not too much
     }
 
     #[tokio::test]
@@ -456,16 +479,6 @@ mod tests {
 
         let app_ref = adapter.app();
         assert_eq!(app_ref.app_name(), &expected_name);
-    }
-
-    #[tokio::test]
-    async fn test_cancel_operations() {
-        let (app, rx) = create_mock_app_with_receiver();
-        let adapter = BindingsAdapter::new_with_app(app, rx);
-
-        // Test that cancel doesn't panic
-        adapter.cancel();
-        adapter.cancel(); // Should be safe to call multiple times
     }
 
     #[tokio::test]

@@ -98,9 +98,12 @@ impl PyApp {
     }
 
     // Start listening for messages for a specific session id.
-    async fn listen_for_session(&self) -> Result<PySessionContext, ServiceError> {
+    async fn listen_for_session(
+        &self,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<PySessionContext, ServiceError> {
         // Use adapter's listen_for_session method
-        let ctx = self.internal.adapter.listen_for_session().await?;
+        let ctx = self.internal.adapter.listen_for_session(timeout).await?;
         Ok(PySessionContext::from(ctx))
     }
 
@@ -302,10 +305,14 @@ pub fn remove_route(py: Python, svc: PyApp, name: PyName, conn: u64) -> PyResult
 
 #[gen_stub_pyfunction]
 #[pyfunction]
-#[pyo3(signature = (svc))]
-pub fn listen_for_session(py: Python, svc: PyApp) -> PyResult<Bound<PyAny>> {
+#[pyo3(signature = (svc, timeout=None))]
+pub fn listen_for_session(
+    py: Python,
+    svc: PyApp,
+    timeout: Option<std::time::Duration>,
+) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.listen_for_session()
+        svc.listen_for_session(timeout)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })

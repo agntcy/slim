@@ -155,11 +155,14 @@ impl PySessionContext {
 /// Session-specific operations
 impl PySessionContext {
     /// Get a message from this session
-    pub(crate) async fn get_message(&self) -> PyResult<(PyMessageContext, Vec<u8>)> {
+    pub(crate) async fn get_message(
+        &self,
+        timeout: Option<std::time::Duration>,
+    ) -> PyResult<(PyMessageContext, Vec<u8>)> {
         let (ctx, payload) = self
             .internal
             .bindings_ctx
-            .get_session_message(None)
+            .get_session_message(timeout)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
         Ok((ctx.into(), payload))
@@ -605,11 +608,15 @@ pub fn remove(
 /// Get a message from the specified session.
 #[gen_stub_pyfunction]
 #[pyfunction]
-#[pyo3(signature = (session_context,))]
-pub fn get_message(py: Python, session_context: PySessionContext) -> PyResult<Bound<PyAny>> {
+#[pyo3(signature = (session_context, timeout=None))]
+pub fn get_message(
+    py: Python,
+    session_context: PySessionContext,
+    timeout: Option<std::time::Duration>,
+) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py_with_locals(
         py,
         pyo3_async_runtimes::tokio::get_current_locals(py)?,
-        async move { session_context.get_message().await },
+        async move { session_context.get_message(timeout).await },
     )
 }

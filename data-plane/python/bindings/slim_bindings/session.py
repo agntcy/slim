@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import datetime
+
 from ._slim_bindings import (
     PyMessageContext,
     PyName,
@@ -188,7 +190,7 @@ class PySession:
         await _remove(self._ctx, name)
 
     async def get_message(
-        self,
+        self, timeout: datetime.timedelta | None = None
     ) -> tuple[PyMessageContext, bytes]:  # PyMessageContext, blob
         """Wait for and return the next inbound message.
 
@@ -199,12 +201,7 @@ class PySession:
         Raises:
             RuntimeError (wrapped) if the session is closed or receive fails.
         """
-        return await _get_message(self._ctx)
-
-    # Convenience aliases
-    async def recv(self) -> tuple[PyMessageContext, bytes]:
-        """Alias for `get_message()`."""
-        return await self.get_message()
+        return await _get_message(self._ctx, timeout)
 
 
 __all__ = [
