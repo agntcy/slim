@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0](https://github.com/agntcy/slim/compare/slim-service-v0.7.0...slim-service-v0.8.0) - 2025-10-16
+
+### Added
+
+- move session code in a new crate ([#828](https://github.com/agntcy/slim/pull/828))
+
 ## [0.7.0](https://github.com/agntcy/slim/compare/slim-service-v0.6.0...slim-service-v0.7.0) - 2025-10-09
 
 ### Added

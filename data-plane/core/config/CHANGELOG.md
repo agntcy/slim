@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1](https://github.com/agntcy/slim/compare/slim-config-v0.4.0...slim-config-v0.4.1) - 2025-10-16
+
+### Added
+
+- implementation of Identity provider client credential flow ([#464](https://github.com/agntcy/slim/pull/464))
+
 ## [0.4.0](https://github.com/agntcy/slim/compare/slim-config-v0.3.0...slim-config-v0.4.0) - 2025-10-09
 
 ### Added
