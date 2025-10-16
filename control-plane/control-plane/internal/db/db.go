@@ -17,6 +17,8 @@ type DataAccess interface {
 	AddRoute(route Route) string
 	GetRoutesForNodeID(nodeID string) []Route
 	GetRoutesForDestinationNodeID(nodeID string) []Route
+	GetRoutesForDestinationNodeIDAndName(nodeID string, Component0 string, Component1 string,
+		Component2 string, ComponentID *wrapperspb.UInt64Value) []Route
 	GetRouteByID(routeID string) *Route
 	DeleteRoute(routeID string) error
 	MarkRouteAsDeleted(routeID string) error
