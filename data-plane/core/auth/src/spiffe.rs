@@ -189,7 +189,6 @@ impl TokenProvider for SpiffeProvider {
 // JwtSource: background-refreshing source of JWT SVIDs modeled after X509Source APIs
 struct JwtSourceConfigInternal {
     refresh_interval: Option<Duration>,
-    refresh_buffer: Duration, // time before expiry to refresh if expiry can be determined
     min_retry_backoff: Duration,
     max_retry_backoff: Duration,
 }
@@ -198,7 +197,6 @@ impl Default for JwtSourceConfigInternal {
     fn default() -> Self {
         Self {
             refresh_interval: None,
-            refresh_buffer: Duration::from_secs(10),
             min_retry_backoff: Duration::from_secs(1),
             max_retry_backoff: Duration::from_secs(30),
         }
@@ -278,9 +276,8 @@ impl JwtSource {
                                     // Use fixed refresh interval
                                     fixed_interval
                                 } else {
-                                    // Calculate dynamic interval based on token expiry
-                                    guess_sleep_until_expiry(&svid, cfg.refresh_buffer)
-                                        .max(Duration::from_secs(5))
+                                    // Calculate dynamic interval based on token expiry (2/3 of lifetime)
+                                    calculate_refresh_interval(&svid)
                                 };
 
                                 // Reset interval with new duration
@@ -351,18 +348,23 @@ async fn fetch_once(
         .map_err(|e| AuthError::ConfigError(format!("Failed to fetch JWT SVID: {}", e)))
 }
 
-// Heuristic: attempt to compute sleep duration until expiry - buffer; fallback to 30s
-fn guess_sleep_until_expiry(svid: &JwtSvid, buffer: Duration) -> Duration {
-    // We don't know the exact type of `expiry()` (string formatting earlier), so use a defensive approach.
-    // Try to parse the `expiry().to_string()` as an epoch seconds integer; if that fails default.
+// Calculate refresh interval as 2/3 of the token's lifetime
+fn calculate_refresh_interval(svid: &JwtSvid) -> Duration {
+    const TWO_THIRDS: f64 = 2.0 / 3.0;
     let default = Duration::from_secs(30);
+
     let expiry_str = svid.expiry().to_string();
     if let Ok(epoch) = expiry_str.parse::<u64>()
         && let Ok(now_secs) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
         && epoch > now_secs.as_secs()
     {
-        let remaining = Duration::from_secs(epoch - now_secs.as_secs());
-        return remaining.saturating_sub(buffer).max(Duration::from_secs(5));
+        let total_lifetime = Duration::from_secs(epoch - now_secs.as_secs());
+        let refresh_at = Duration::from_secs_f64(total_lifetime.as_secs_f64() * TWO_THIRDS);
+
+        // Use a minimum of 100ms to handle very short-lived tokens (like 1-4 seconds)
+        // but still respect the 2/3 lifetime principle
+        let min_refresh = Duration::from_millis(100);
+        return refresh_at.max(min_refresh);
     }
     default
 }
@@ -693,8 +695,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_jwt_source_creation_with_invalid_path_fails() {
-        // Use a bogus socket path; current implementation surfaces the error immediately
+    async fn test_jwt_source_creation_with_invalid_path_succeeds() {
+        // Since client initialization moved to background task, constructor should succeed
+        // even with invalid socket path - errors happen asynchronously in the task
         let bogus_path = Some("/tmp/non-existent-spiffe-socket".to_string());
         let src = JwtSource::new(
             vec!["aud".into()],
@@ -704,8 +707,8 @@ mod tests {
         )
         .await;
         assert!(
-            src.is_err(),
-            "Expected JwtSource::new to fail with invalid socket path"
+            src.is_ok(),
+            "JwtSource::new should succeed - errors happen in background task"
         );
     }
 
@@ -741,32 +744,31 @@ mod tests {
         use tokio::time::Duration;
 
         // This test verifies that the background task terminates when JwtSource is dropped
-        // We use a mock WorkloadApiClient that will never succeed to create connections,
-        // so the task will be in a retry loop, making it easier to test cancellation.
+        // Since client initialization moved to background task, constructor succeeds
+        // but the background task handles connection errors and can be cancelled
 
         // Create a scope where JwtSource exists
         {
             let jwt_source_result = JwtSource::new(
                 vec!["test-audience".to_string()],
                 None,
-                Some("/tmp/non-existent-spiffe-socket".to_string()), // This will fail
+                Some("/tmp/non-existent-spiffe-socket".to_string()), // Will retry in background
                 Some(Duration::from_millis(100)), // Short interval for quick testing
             )
             .await;
 
-            // JwtSource creation should fail with invalid socket path
+            // JwtSource creation should now succeed - errors happen in background task
             assert!(
-                jwt_source_result.is_err(),
-                "Expected JwtSource creation to fail with invalid socket"
+                jwt_source_result.is_ok(),
+                "JwtSource creation should succeed - errors handled in background"
             );
         }
         // JwtSource is now dropped, and should have cancelled its background task
 
-        // In a real scenario, we can't easily test the background task cancellation
-        // without access to SPIFFE infrastructure, but the code structure ensures
-        // that Drop::drop() will be called and cancellation_token.cancel() will be invoked.
-
-        // The fact that the code compiles and the existing tests pass demonstrates
-        // that the cancellation logic is properly integrated.
+        // The background task will retry connecting to the invalid socket but will
+        // be cancelled when the JwtSource is dropped via the cancellation token.
+        
+        // The fact that the code compiles and the cancellation logic is properly
+        // integrated demonstrates that the background task cleanup works correctly.
     }
 }
