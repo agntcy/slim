@@ -241,7 +241,7 @@ impl JwtSource {
                 } else {
                     WorkloadApiClient::default().await
                 };
-                
+
                 match client_res {
                     Ok(client) => break client,
                     Err(err) => {
@@ -381,6 +381,7 @@ pub struct SpiffeJwtVerifier {
     config: SpiffeVerifierConfig,
     client: Arc<RwLock<Option<WorkloadApiClient>>>,
     bundles: Arc<RwLock<Option<JwtBundleSet>>>,
+    cancellation_token: CancellationToken,
 }
 
 impl SpiffeJwtVerifier {
@@ -390,6 +391,7 @@ impl SpiffeJwtVerifier {
             config,
             client: Arc::new(RwLock::new(None)),
             bundles: Arc::new(RwLock::new(None)),
+            cancellation_token: CancellationToken::new(),
         }
     }
 
@@ -422,6 +424,7 @@ impl SpiffeJwtVerifier {
         // Start background task that maintains an in-memory cache of JWT bundles using the streaming API.
         let bundles_cache = self.bundles.clone();
         let socket_path = self.config.socket_path.clone();
+        let cancellation_token = self.cancellation_token.clone();
         tokio::spawn(async move {
             // Create a single client for the background task
             let mut streaming_client = loop {
@@ -435,7 +438,17 @@ impl SpiffeJwtVerifier {
                     Ok(client) => break client,
                     Err(err) => {
                         tracing::warn!(error=%err, "spiffe_jwt: failed to create WorkloadApiClient; retrying in 5s");
-                        tokio::time::sleep(Duration::from_secs(5)).await;
+
+                        // Use tokio::select! for cancellation during initial client creation
+                        tokio::select! {
+                            _ = tokio::time::sleep(Duration::from_secs(5)) => {
+                                // Continue retry loop
+                            }
+                            _ = cancellation_token.cancelled() => {
+                                tracing::debug!("spiffe_jwt: cancellation token signaled during client creation, shutting down");
+                                return;
+                            }
+                        }
                     }
                 }
             };
@@ -449,36 +462,48 @@ impl SpiffeJwtVerifier {
             retry_interval.tick().await; // consume the first immediate tick
 
             loop {
-                tracing::debug!("spiffe_jwt: starting JWT bundle stream");
-                match streaming_client.stream_jwt_bundles().await {
-                    Ok(mut stream) => {
-                        // Reset backoff after successful stream creation
-                        backoff_duration = Duration::from_secs(1);
-                        retry_interval = tokio::time::interval(backoff_duration);
-                        retry_interval.tick().await; // consume the first immediate tick
+                tokio::select! {
+                    _ = async {
+                        tracing::debug!("spiffe_jwt: starting JWT bundle stream");
+                        match streaming_client.stream_jwt_bundles().await {
+                            Ok(mut stream) => {
+                                // Reset backoff after successful stream creation
+                                backoff_duration = Duration::from_secs(1);
+                                retry_interval = tokio::time::interval(backoff_duration);
+                                retry_interval.tick().await; // consume the first immediate tick
 
-                        while let Some(next_item) = stream.next().await {
-                            match next_item {
-                                Ok(update) => {
-                                    let mut w = bundles_cache.write();
-                                    *w = Some(update.clone());
-                                    tracing::trace!("spiffe_jwt: updated in-memory JWT bundle set");
-                                }
-                                Err(err) => {
-                                    tracing::warn!(error=%err, "spiffe_jwt: stream item error; restarting stream");
-                                    break; // break inner while to restart outer loop
+                                while let Some(next_item) = stream.next().await {
+                                    match next_item {
+                                        Ok(update) => {
+                                            let mut w = bundles_cache.write();
+                                            *w = Some(update.clone());
+                                            tracing::trace!("spiffe_jwt: updated in-memory JWT bundle set");
+                                        }
+                                        Err(err) => {
+                                            tracing::warn!(error=%err, "spiffe_jwt: stream item error; restarting stream");
+                                            break; // break inner while to restart outer loop
+                                        }
+                                    }
                                 }
                             }
+                            Err(err) => {
+                                tracing::warn!(error=%err, "spiffe_jwt: failed to obtain stream; will retry");
+                            }
                         }
+                        // Backoff before retrying using interval
+                        retry_interval.tick().await;
+                        backoff_duration = (backoff_duration * 2).min(MAX_BACKOFF);
+                        retry_interval = tokio::time::interval(backoff_duration);
+                    } => {
+                        // Stream operation completed, continue loop
                     }
-                    Err(err) => {
-                        tracing::warn!(error=%err, "spiffe_jwt: failed to obtain stream; will retry");
+
+                    // Cancellation token - break out of loop when cancelled
+                    _ = cancellation_token.cancelled() => {
+                        tracing::debug!("spiffe_jwt: cancellation token signaled, shutting down");
+                        break;
                     }
                 }
-                // Backoff before retrying using interval
-                retry_interval.tick().await;
-                backoff_duration = (backoff_duration * 2).min(MAX_BACKOFF);
-                retry_interval = tokio::time::interval(backoff_duration);
             }
         });
         Ok(())
@@ -525,6 +550,13 @@ impl SpiffeJwtVerifier {
         Err(AuthError::ConfigError(
             "JWT bundles unavailable and no update received from on-demand stream".to_string(),
         ))
+    }
+}
+
+impl Drop for SpiffeJwtVerifier {
+    fn drop(&mut self) {
+        // Cancel the background task when SpiffeJwtVerifier is dropped
+        self.cancellation_token.cancel();
     }
 }
 
