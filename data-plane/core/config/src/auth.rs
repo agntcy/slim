@@ -42,6 +42,29 @@ impl From<SlimAuthError> for AuthError {
                 AuthError::TokenInvalid(format!("Verification error: {}", msg))
             }
             SlimAuthError::InvalidHeader(msg) => AuthError::InvalidHeader(msg),
+            SlimAuthError::JwtAwsLcError(e) => {
+                AuthError::TokenInvalid(format!("JWT validation error: {}", e))
+            }
+            SlimAuthError::UnsupportedOperation(msg) => {
+                AuthError::ConfigError(format!("Unsupported operation: {}", msg))
+            }
+            SlimAuthError::HttpError(e) => AuthError::ConfigError(format!("HTTP error: {}", e)),
+            SlimAuthError::JsonError(e) => AuthError::ConfigError(format!("JSON error: {}", e)),
+            SlimAuthError::OAuth2Error(msg) => {
+                AuthError::ConfigError(format!("OAuth2 error: {}", msg))
+            }
+            SlimAuthError::TokenEndpointError { status, body } => {
+                AuthError::ConfigError(format!("Token endpoint error ({}): {}", status, body))
+            }
+            SlimAuthError::InvalidClientCredentials => {
+                AuthError::ConfigError("Invalid client credentials".to_string())
+            }
+            SlimAuthError::TokenRefreshFailed(msg) => {
+                AuthError::ConfigError(format!("Token refresh failed: {}", msg))
+            }
+            SlimAuthError::InvalidIssuerEndpoint(msg) => {
+                AuthError::ConfigError(format!("Invalid issuer endpoint: {}", msg))
+            }
         }
     }
 }

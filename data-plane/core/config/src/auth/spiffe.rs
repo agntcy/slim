@@ -11,7 +11,6 @@ use slim_auth::spiffe::{
     SpiffeJwtVerifier, SpiffeProvider, SpiffeProviderConfig as AuthSpiffeConfig,
     SpiffeVerifierConfig,
 };
-use std::time::Duration;
 
 /// SPIFFE authentication configuration
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
@@ -27,12 +26,6 @@ pub struct Config {
     /// JWT audiences for token requests
     #[serde(default = "default_audiences")]
     pub jwt_audiences: Vec<String>,
-
-    /// Certificate refresh interval (optional, defaults to 1/3 of certificate lifetime)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(default)]
-    #[schemars(with = "Option<String>")]
-    pub refresh_interval: Option<Duration>,
 
     /// Enable X.509 SVID certificate authentication
     #[serde(default = "default_enable_jwt")]
@@ -61,7 +54,6 @@ impl Default for Config {
             socket_path: None,
             target_spiffe_id: None,
             jwt_audiences: default_audiences(),
-            refresh_interval: None,
             enable_x509: true,
             enable_jwt: true,
         }
@@ -92,12 +84,6 @@ impl Config {
         self
     }
 
-    /// Set the refresh interval
-    pub fn with_refresh_interval(mut self, interval: Duration) -> Self {
-        self.refresh_interval = Some(interval);
-        self
-    }
-
     /// Enable or disable X.509 SVID authentication
     pub fn with_x509_enabled(mut self, enabled: bool) -> Self {
         self.enable_x509 = enabled;
@@ -116,7 +102,7 @@ impl Config {
             socket_path: self.socket_path.clone(),
             target_spiffe_id: self.target_spiffe_id.clone(),
             jwt_audiences: self.jwt_audiences.clone(),
-            refresh_interval: self.refresh_interval,
+            refresh_interval: None, // Always use automatic 2/3 lifetime calculation
         }
     }
 
@@ -224,7 +210,6 @@ mod tests {
         assert!(config.socket_path.is_none());
         assert!(config.target_spiffe_id.is_none());
         assert_eq!(config.jwt_audiences, vec!["slim"]);
-        assert!(config.refresh_interval.is_none());
         assert!(config.enable_x509);
         assert!(config.enable_jwt);
     }
@@ -235,7 +220,6 @@ mod tests {
             .with_socket_path("unix:/tmp/spire-agent/public/api.sock")
             .with_target_spiffe_id("spiffe://example.org/slim")
             .with_jwt_audiences(vec!["audience1".to_string(), "audience2".to_string()])
-            .with_refresh_interval(Duration::from_secs(300))
             .with_x509_enabled(false)
             .with_jwt_enabled(true);
 
@@ -248,7 +232,6 @@ mod tests {
             Some("spiffe://example.org/slim".to_string())
         );
         assert_eq!(config.jwt_audiences, vec!["audience1", "audience2"]);
-        assert_eq!(config.refresh_interval, Some(Duration::from_secs(300)));
         assert!(!config.enable_x509);
         assert!(config.enable_jwt);
     }
