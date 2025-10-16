@@ -3,25 +3,20 @@
 
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::marker::PhantomData;
 
-use slim_datapath::messages::utils::SlimHeaderFlags;
-use slim_datapath::{
-    api::{ProtoMessage as Message, SessionHeader, SlimHeader},
-    messages::Name,
-};
-use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::{debug, error};
+use slim_datapath::api::ProtoSessionType;
+use slim_datapath::{api::ProtoMessage as Message, messages::Name};
+use tokio::sync::mpsc::Sender;
+use tracing::debug;
 
+use crate::common::new_message_from_session_fields;
 use crate::{
-    MessageDirection, SessionError, SessionType, Transmitter,
+    SessionError, Transmitter,
     common::SessionMessage,
     receiver_buffer::ReceiverBuffer,
     timer::Timer,
     timer_factory::{TimerFactory, TimerSettings},
 };
-
-const DRAIN_TIMER_ID: u32 = 0;
 
 // structs used in the pending rtx map
 struct PendingRtxVal {
@@ -49,8 +44,16 @@ impl Hash for PendingRtxKey {
     }
 }
 
+/// used a result in OnMessage function
+#[derive(PartialEq, Clone)]
+enum ReceiverDrainStatus {
+    NotDraining,
+    Initiated,
+    Completed,
+}
+
 #[allow(dead_code)]
-struct SessionReceiverInternal<T>
+struct SessionReceiver<T>
 where
     T: Transmitter + Send + Sync + Clone + 'static,
 {
@@ -74,7 +77,7 @@ where
     local_name: Name,
 
     /// session type
-    session_type: SessionType,
+    session_type: ProtoSessionType,
 
     /// if true send acks for each received message
     send_acks: bool,
@@ -82,18 +85,12 @@ where
     /// send to slim/app
     tx: T,
 
-    /// received for signals
-    rx: Receiver<SessionMessage>,
-
     /// drain state - when true, no new messages from app are accepted
-    is_draining: bool,
-
-    /// drain timer - when set, we're waiting for pending acks during grace period
-    drain_timer: Option<Timer>,
+    draining_state: ReceiverDrainStatus,
 }
 
 #[allow(dead_code)]
-impl<T> SessionReceiverInternal<T>
+impl<T> SessionReceiver<T>
 where
     T: Transmitter + Send + Sync + Clone + 'static,
 {
@@ -104,11 +101,10 @@ where
         timer_settings: Option<TimerSettings>,
         session_id: u32,
         local_name: Name,
-        session_type: SessionType,
+        session_type: ProtoSessionType,
         send_acks: bool,
         tx: T,
         tx_signals: Option<Sender<SessionMessage>>,
-        rx_signals: Receiver<SessionMessage>,
     ) -> Self {
         let factory = if let Some(settings) = timer_settings
             && let Some(tx) = tx_signals
@@ -118,7 +114,7 @@ where
             None
         };
 
-        SessionReceiverInternal {
+        SessionReceiver {
             buffer: HashMap::new(),
             pending_rtxs: HashMap::new(),
             timer_factory: factory,
@@ -127,51 +123,76 @@ where
             local_name,
             send_acks,
             tx,
-            rx: rx_signals,
-            is_draining: false,
-            drain_timer: None,
+            draining_state: ReceiverDrainStatus::NotDraining,
         }
     }
 
-    async fn on_message(&mut self, message: Message) -> Result<(), SessionError> {
+    async fn on_message(&mut self, message: Message) -> Result<ReceiverDrainStatus, SessionError> {
+        if self.draining_state == ReceiverDrainStatus::Completed {
+            return Err(SessionError::Processing(
+                "receiver closed, drop message".to_string(),
+            ));
+        }
+
         match message.get_session_message_type() {
             slim_datapath::api::ProtoSessionMessageType::P2PMsg => {
                 debug!("received P2P message");
+                if self.draining_state == ReceiverDrainStatus::Initiated {
+                    // draining period is started, do no accept any new message
+                    debug!("draining period started, do not accept new messages");
+                    return Ok(ReceiverDrainStatus::Initiated);
+                }
                 if self.timer_factory.is_some() {
-                    // this receiver is reliable but got an unrelibale messages
+                    // this receiver is reliable but got an unreliable messages
                     // drop the message
                     return Err(SessionError::Processing(
-                        "received an unrelibale message on a reliable received".to_string(),
+                        "received an unreliable message on a reliable receiver".to_string(),
                     ));
                 }
-                self.on_publish_message(message).await?
+                self.on_publish_message(message).await?;
             }
             slim_datapath::api::ProtoSessionMessageType::P2PReliable => {
                 debug!("received P2P reliable message");
+                if self.draining_state == ReceiverDrainStatus::Initiated {
+                    // draining period is started, do no accept any new message
+                    debug!("draining period started, do not accept new messages");
+                    return Ok(ReceiverDrainStatus::Initiated);
+                }
                 if self.timer_factory.is_none() {
-                    // this receiver is unreliable but got an relibale messages
+                    // this receiver is unreliable but got an reliable messages
                     // drop the message
                     return Err(SessionError::Processing(
-                        "received a relibale message on an unreliable received".to_string(),
+                        "received a reliable message on an unreliable receiver".to_string(),
                     ));
                 }
                 self.send_ack(&message).await?;
-                self.on_publish_message(message).await?
+                self.on_publish_message(message).await?;
             }
             slim_datapath::api::ProtoSessionMessageType::MulticastMsg => {
                 debug!("received multicast message");
-                self.on_publish_message(message).await?
+                if self.draining_state == ReceiverDrainStatus::Initiated {
+                    // draining period is started, do no accept any new message
+                    debug!("draining period started, do not accept new messages");
+                    return Ok(ReceiverDrainStatus::Initiated);
+                }
+                self.on_publish_message(message).await?;
             }
             slim_datapath::api::ProtoSessionMessageType::RtxReply => {
                 debug!("received rtx message");
-                self.on_rtx_message(message).await?
+                self.on_rtx_message(message).await?;
             }
             _ => {
                 // TODO: Add missing message types (e.g. Channel messages)
                 debug!("unexpected message type");
             }
         }
-        Ok(())
+
+        // return the right state
+        if self.check_drain_completion() {
+            return Ok(ReceiverDrainStatus::Completed);
+        }
+
+        Ok(self.draining_state.clone())
     }
 
     async fn on_publish_message(&mut self, message: Message) -> Result<(), SessionError> {
@@ -186,14 +207,7 @@ where
 
         let source = message.get_source();
         let in_conn = message.get_incoming_conn();
-        let buffer = match self.buffer.get_mut(&source) {
-            Some(b) => b,
-            None => {
-                self.buffer
-                    .insert(source.clone(), ReceiverBuffer::default());
-                self.buffer.get_mut(&source).unwrap()
-            }
-        };
+        let buffer = self.buffer.entry(source.clone()).or_default();
 
         let (recv_vec, rtx_vec) = buffer.on_received_message(message);
         self.handle_recv_and_rtx_vectors(source, in_conn, recv_vec, rtx_vec)
@@ -206,31 +220,22 @@ where
             return Ok(());
         }
 
-        // create ack and send it back to the source
-        let src = message.get_source();
-        let message_id = message.get_session_header().message_id;
-        let slim_header = Some(SlimHeader::new(
+        let ack = new_message_from_session_fields(
             &self.local_name,
-            &src,
-            Some(SlimHeaderFlags::default().with_forward_to(message.get_incoming_conn())),
-        ));
-
-        let session_header = Some(SessionHeader::new(
-            self.session_type.clone() as i32,
-            slim_datapath::api::ProtoSessionMessageType::P2PAck.into(),
+            &message.get_source(),
+            message.get_incoming_conn(),
+            false,
+            self.session_type,
+            slim_datapath::api::ProtoSessionMessageType::P2PAck,
             message.get_session_header().session_id,
-            message_id,
-            &None,
-            &None,
-        ));
-
-        let ack = Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
+            message.get_id(),
+        );
 
         self.tx.send_to_slim(Ok(ack)).await
     }
 
     async fn on_rtx_message(&mut self, message: Message) -> Result<(), SessionError> {
-        // in case we get the and RTX reply the session must be relianle
+        // in case we get the and RTX reply the session must be reliable
         let source = message.get_source();
         let id = message.get_id();
         let in_conn = message.get_incoming_conn();
@@ -247,7 +252,7 @@ where
         }
 
         // if rtx is not an error pass to on_publish_message
-        // otherwise mange the message loss
+        // otherwise manage the message loss
         if message.get_error().is_none() {
             return self.on_publish_message(message).await;
         }
@@ -292,23 +297,16 @@ where
         for rtx_id in rtx_vec {
             debug!("send rtx for message id {} to {}", rtx_id, source);
 
-            // create RTX packet
-            let slim_header = Some(SlimHeader::new(
+            let rtx = new_message_from_session_fields(
                 &self.local_name,
                 &source,
-                Some(SlimHeaderFlags::default().with_forward_to(in_conn)),
-            ));
-
-            let session_header = Some(SessionHeader::new(
-                self.session_type.clone() as i32,
-                slim_datapath::api::ProtoSessionMessageType::RtxRequest.into(),
+                in_conn,
+                false,
+                self.session_type,
+                slim_datapath::api::ProtoSessionMessageType::RtxRequest,
                 self.session_id,
                 rtx_id,
-                &None,
-                &None,
-            ));
-
-            let rtx = Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
+            );
 
             // for each RTX start a timer
             debug!("create rtx timer for message {} form {}", rtx_id, source);
@@ -344,7 +342,7 @@ where
             SessionError::Processing("missing pending rtx associated to timer".to_string())
         })?;
 
-        debug!("send rtx request again");
+        debug!("send rtx {} request again", id);
         self.tx.send_to_slim(Ok(pending.message.clone())).await
     }
 
@@ -370,190 +368,25 @@ where
             .await
     }
 
-    fn start_drain(&mut self, grace_period_ms: u64) {
-        debug!("starting drain with grace period {}ms", grace_period_ms);
-        self.is_draining = true;
-
-        // if timer_factory is None, we can close the receiver
-        if self.timer_factory.is_none() {
-            debug!("no pending acks, can stop immediately");
-            // No pending acks, we can stop immediately
-            self.drain_timer = None;
-        }
-
-        // If we have pending rtx, start a grace period timer
-        if !self.pending_rtxs.is_empty() {
-            debug!("pending rtx exist, starting grace period timer");
-            // Use a special timer ID for drain
-            let drain_timer_id = DRAIN_TIMER_ID;
-            let timer = Timer::new(
-                drain_timer_id,
-                crate::timer::TimerType::Constant,
-                std::time::Duration::from_millis(grace_period_ms),
-                None,
-                Some(1), // max_retries - only fire once for drain
-            );
-            self.timer_factory
-                .as_ref()
-                .unwrap()
-                .start_timer(&timer, None);
-            self.drain_timer = Some(timer);
+    fn start_drain(&mut self) -> ReceiverDrainStatus {
+        if self.pending_rtxs.is_empty() {
+            debug!("closing receiver");
+            self.draining_state = ReceiverDrainStatus::Completed;
         } else {
-            debug!("no pending acks, can stop immediately");
-            // No pending acks, we can stop immediately
-            self.drain_timer = None;
+            debug!("receiver drain initiated");
+            self.draining_state = ReceiverDrainStatus::Initiated;
         }
+        self.draining_state.clone()
     }
 
     fn check_drain_completion(&self) -> bool {
         // Drain is complete if we're draining and no pending rtx remain
-        self.is_draining && self.pending_rtxs.is_empty()
-    }
-
-    async fn process_loop(mut self) {
-        loop {
-            tokio::select! {
-                message = self.rx.recv() => {
-                    match message {
-                        Some(SessionMessage::OnMessage { message, direction: _ }) => {
-                            if self.on_message(message).await.is_err() {
-                                error!("Error receiving message");
-                            }
-                            // Check if drain is complete after processing messages (especially rtx)
-                            if self.check_drain_completion() {
-                                debug!("drain completed, all rtx received");
-                                break;
-                            }
-                        }
-                        Some(SessionMessage::TimerTimeout { message_id, timeouts: _, name }) => {
-                            // Check if this is the drain timer
-                            if message_id == DRAIN_TIMER_ID {
-                                debug!("drain grace period expired, stopping sender");
-                                break; // Exit the loop to stop the sender
-                            }
-                            if let Some(name) = name {
-                                if let Err(e) = self.on_timer_timeout(message_id, name).await {
-                                    debug!("Error handling timer timeout: {:?}", e);
-                                }
-                            } else {
-                                error!("receive timeout without a name, do not process it");
-                            }
-                        }
-                        Some(SessionMessage::TimerFailure { message_id, timeouts: _, name }) => {
-                            if let Some(name) = name {
-                                if let Err(e) = self.on_timer_failure(message_id, name).await {
-                                    debug!("Error handling timer failure: {:?}", e);
-                                }
-                            } else {
-                                error!("receive timer failure without a name, do not process it");
-                            }
-                        }
-                        Some(SessionMessage::Drain { grace_period_ms }) => {
-                            debug!("Drain message received for SessionReceiver");
-                            self.start_drain(grace_period_ms);
-                            if self.drain_timer.is_none() {
-                                // close the sender
-                                debug!("stop receiver loop");
-                                break;
-                            }
-                        }
-                        Some(_) => {
-                            debug!("unexpected message type");
-                        }
-                        None => {
-                            debug!("Channel closed, stopping SessionReceiver");
-                            break;
-                        }
-                    }
-                }
-            }
+        if self.draining_state == ReceiverDrainStatus::Completed
+            || self.draining_state == ReceiverDrainStatus::Initiated && self.pending_rtxs.is_empty()
+        {
+            return true;
         }
-    }
-}
-
-#[allow(dead_code)]
-pub(crate) struct SessionReceiver<T>
-where
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
-    tx: Sender<SessionMessage>,
-    // if true do not send signals
-    drain: bool,
-    _phantom: PhantomData<T>,
-}
-
-#[allow(dead_code)]
-impl<T> SessionReceiver<T>
-where
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
-    pub fn new(
-        timer_settings: Option<TimerSettings>,
-        session_id: u32,
-        local_name: Name,
-        session_type: SessionType,
-        send_acks: bool,
-        tx_transmitter: T,
-    ) -> Self {
-        let (tx, rx) = tokio::sync::mpsc::channel(128);
-
-        let reliable_receiver = SessionReceiverInternal::new(
-            timer_settings,
-            session_id,
-            local_name,
-            session_type,
-            send_acks,
-            tx_transmitter,
-            Some(tx.clone()),
-            rx,
-        );
-
-        // Spawn the processing loop
-        tokio::spawn(async move {
-            reliable_receiver.process_loop().await;
-        });
-
-        SessionReceiver {
-            tx,
-            drain: false,
-            _phantom: PhantomData,
-        }
-    }
-
-    /// To be used to handle messages from slim
-    pub async fn on_message(
-        &self,
-        message: Message,
-        direction: MessageDirection,
-    ) -> Result<(), SessionError> {
-        // allow only RTX replies
-        if self.drain {
-            match message.get_session_message_type() {
-                slim_datapath::api::ProtoSessionMessageType::RtxReply => {
-                    // Allow RTX replies
-                }
-                _ => {
-                    return Err(SessionError::Processing("sender is closing".to_string()));
-                }
-            }
-        }
-        self.tx
-            .send(SessionMessage::OnMessage { message, direction })
-            .await
-            .map_err(|_| SessionError::Processing("Failed to queue message".to_string()))
-    }
-
-    /// Initiates a graceful drain of the receiver
-    pub async fn drain(&mut self, grace_period_ms: u64) -> Result<(), SessionError> {
-        if self.drain {
-            return Err(SessionError::Processing("sender is closing".to_string()));
-        }
-
-        self.drain = true;
-        self.tx
-            .send(SessionMessage::Drain { grace_period_ms })
-            .await
-            .map_err(|_| SessionError::Processing("Failed to send drain message".to_string()))
+        false
     }
 }
 
@@ -574,18 +407,20 @@ mod tests {
 
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(10);
+        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
         let local_name = Name::from_strings(["org", "ns", "local"]);
         let remote_name = Name::from_strings(["org", "ns", "remote"]);
 
-        let receiver = SessionReceiver::new(
+        let mut receiver = SessionReceiver::new(
             Some(settings),
             10,
             local_name.clone(),
-            SessionType::PointToPoint,
+            ProtoSessionType::SessionPointToPoint,
             true,
             tx,
+            Some(tx_signal),
         );
 
         // Create test message 1
@@ -603,7 +438,7 @@ mod tests {
 
         // Send message 1
         receiver
-            .on_message(message1, MessageDirection::North)
+            .on_message(message1)
             .await
             .expect("error sending message1");
 
@@ -648,7 +483,7 @@ mod tests {
 
         // Send message 2
         receiver
-            .on_message(message2, MessageDirection::North)
+            .on_message(message2)
             .await
             .expect("error sending message2");
 
@@ -687,18 +522,20 @@ mod tests {
 
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(10);
+        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
         let local_name = Name::from_strings(["org", "ns", "local"]);
         let remote_name = Name::from_strings(["org", "ns", "remote"]);
 
-        let receiver = SessionReceiver::new(
+        let mut receiver = SessionReceiver::new(
             Some(settings),
             10,
             local_name.clone(),
-            SessionType::PointToPoint,
+            ProtoSessionType::SessionPointToPoint,
             true,
             tx,
+            Some(tx_signal),
         );
 
         // Create test message 1
@@ -716,7 +553,7 @@ mod tests {
 
         // Send message 1
         receiver
-            .on_message(message1, MessageDirection::North)
+            .on_message(message1)
             .await
             .expect("error sending message1");
 
@@ -759,7 +596,7 @@ mod tests {
 
         // Send message 3 (this should trigger RTX request for message 2)
         receiver
-            .on_message(message3, MessageDirection::North)
+            .on_message(message3)
             .await
             .expect("error sending message3");
 
@@ -778,6 +615,26 @@ mod tests {
         );
         assert_eq!(ack3.get_session_header().get_message_id(), 3);
 
+        // Wait for the timer for rtx to be triggered and received at rx_signal
+        let signal_msg = timeout(Duration::from_millis(600), rx_signal.recv())
+            .await
+            .expect("timeout waiting for timer to be triggered")
+            .expect("channel closed");
+
+        match signal_msg {
+            SessionMessage::TimerTimeout {
+                message_id,
+                timeouts: _,
+                name,
+            } => {
+                receiver
+                    .on_timer_timeout(message_id, name.unwrap())
+                    .await
+                    .expect("error sending rtx");
+            }
+            _ => panic!("received unexpected message"),
+        }
+
         // Wait for RTX request to be sent to SLIM
         let rtx_request = timeout(Duration::from_millis(200), rx_slim.recv())
             .await
@@ -793,7 +650,27 @@ mod tests {
         assert_eq!(rtx_request.get_id(), 2);
         assert_eq!(rtx_request.get_dst(), remote_name);
 
-        // Wait for first RTX retry (after 500ms)
+        // Wait for the timer for rtx to be triggered and received at rx_signal
+        let signal_msg = timeout(Duration::from_millis(600), rx_signal.recv())
+            .await
+            .expect("timeout waiting for timer to be triggered")
+            .expect("channel closed");
+
+        match signal_msg {
+            SessionMessage::TimerTimeout {
+                message_id,
+                timeouts: _,
+                name,
+            } => {
+                receiver
+                    .on_timer_timeout(message_id, name.unwrap())
+                    .await
+                    .expect("error sending rtx");
+            }
+            _ => panic!("received unexpected message"),
+        }
+
+        // Wait for first RTX retry
         let rtx_retry1 = timeout(Duration::from_millis(800), rx_slim.recv())
             .await
             .expect("timeout waiting for RTX retry1")
@@ -807,7 +684,27 @@ mod tests {
         );
         assert_eq!(rtx_retry1.get_id(), 2);
 
-        // Wait for second RTX retry
+        // Wait for the timer for rtx to be triggered and received at rx_signal
+        let signal_msg = timeout(Duration::from_millis(600), rx_signal.recv())
+            .await
+            .expect("timeout waiting for timer to be triggered")
+            .expect("channel closed");
+
+        match signal_msg {
+            SessionMessage::TimerFailure {
+                message_id,
+                timeouts: _,
+                name,
+            } => {
+                receiver
+                    .on_timer_failure(message_id, name.unwrap())
+                    .await
+                    .expect("error sending rtx");
+            }
+            _ => panic!("received unexpected message"),
+        }
+
+        // Wait for second RTX retry (sent during second timeout before failure)
         let rtx_retry2 = timeout(Duration::from_millis(800), rx_slim.recv())
             .await
             .expect("timeout waiting for RTX retry2")
@@ -852,18 +749,20 @@ mod tests {
 
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(10);
+        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
         let local_name = Name::from_strings(["org", "ns", "local"]);
         let remote_name = Name::from_strings(["org", "ns", "remote"]);
 
-        let receiver = SessionReceiver::new(
+        let mut receiver = SessionReceiver::new(
             Some(settings),
             10,
             local_name.clone(),
-            SessionType::PointToPoint,
+            ProtoSessionType::SessionPointToPoint,
             true,
             tx,
+            Some(tx_signal),
         );
 
         // Create test message 1
@@ -881,7 +780,7 @@ mod tests {
 
         // Send message 1
         receiver
-            .on_message(message1, MessageDirection::North)
+            .on_message(message1)
             .await
             .expect("error sending message1");
 
@@ -924,7 +823,7 @@ mod tests {
 
         // Send message 3 (this should trigger RTX request for message 2)
         receiver
-            .on_message(message3, MessageDirection::North)
+            .on_message(message3)
             .await
             .expect("error sending message3");
 
@@ -972,7 +871,7 @@ mod tests {
 
         // Send the RTX reply
         receiver
-            .on_message(rtx_reply, MessageDirection::North)
+            .on_message(rtx_reply)
             .await
             .expect("error sending rtx reply");
 
@@ -1012,18 +911,20 @@ mod tests {
 
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(10);
+        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
         let local_name = Name::from_strings(["org", "ns", "local"]);
         let remote_name = Name::from_strings(["org", "ns", "remote"]);
 
-        let receiver = SessionReceiver::new(
+        let mut receiver = SessionReceiver::new(
             Some(settings),
             10,
             local_name.clone(),
-            SessionType::PointToPoint,
+            ProtoSessionType::SessionPointToPoint,
             true,
             tx,
+            Some(tx_signal),
         );
 
         // Create test message 1
@@ -1041,7 +942,7 @@ mod tests {
 
         // Send message 1
         receiver
-            .on_message(message1, MessageDirection::North)
+            .on_message(message1)
             .await
             .expect("error sending message1");
 
@@ -1084,7 +985,7 @@ mod tests {
 
         // Send message 3 (this should trigger RTX request for message 2)
         receiver
-            .on_message(message3, MessageDirection::North)
+            .on_message(message3)
             .await
             .expect("error sending message3");
 
@@ -1129,7 +1030,7 @@ mod tests {
 
         // Send the RTX reply with error
         receiver
-            .on_message(rtx_reply, MessageDirection::North)
+            .on_message(rtx_reply)
             .await
             .expect("error sending rtx reply");
 
@@ -1175,6 +1076,7 @@ mod tests {
 
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(10);
+        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
         let local_name = Name::from_strings(["org", "ns", "local"]);
@@ -1182,13 +1084,14 @@ mod tests {
         let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
         let remote2_name = Name::from_strings(["org", "ns", "remote2"]);
 
-        let receiver = SessionReceiver::new(
+        let mut receiver = SessionReceiver::new(
             Some(settings),
             10,
             local_name.clone(),
-            SessionType::PointToPoint,
+            ProtoSessionType::SessionPointToPoint,
             true,
             tx,
+            Some(tx_signal),
         );
 
         // Create and send message 1 from remote1
@@ -1206,7 +1109,7 @@ mod tests {
         message1_r1.get_slim_header_mut().set_incoming_conn(Some(1));
 
         receiver
-            .on_message(message1_r1, MessageDirection::North)
+            .on_message(message1_r1)
             .await
             .expect("error sending message1_r1");
 
@@ -1225,7 +1128,7 @@ mod tests {
         message1_r2.get_slim_header_mut().set_incoming_conn(Some(1));
 
         receiver
-            .on_message(message1_r2, MessageDirection::North)
+            .on_message(message1_r2)
             .await
             .expect("error sending message1_r2");
 
@@ -1244,7 +1147,7 @@ mod tests {
         message2_r1.get_slim_header_mut().set_incoming_conn(Some(1));
 
         receiver
-            .on_message(message2_r1, MessageDirection::North)
+            .on_message(message2_r1)
             .await
             .expect("error sending message2_r1");
 
@@ -1263,7 +1166,7 @@ mod tests {
         message2_r2.get_slim_header_mut().set_incoming_conn(Some(1));
 
         receiver
-            .on_message(message2_r2, MessageDirection::North)
+            .on_message(message2_r2)
             .await
             .expect("error sending message2_r2");
 
@@ -1317,6 +1220,7 @@ mod tests {
 
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(10);
+        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
         let local_name = Name::from_strings(["org", "ns", "local"]);
@@ -1324,13 +1228,14 @@ mod tests {
         let remote1_name = Name::from_strings(["org", "ns", "remote1"]);
         let remote2_name = Name::from_strings(["org", "ns", "remote2"]);
 
-        let receiver = SessionReceiver::new(
+        let mut receiver = SessionReceiver::new(
             Some(settings),
             10,
             local_name.clone(),
-            SessionType::PointToPoint,
+            ProtoSessionType::SessionPointToPoint,
             true,
             tx,
+            Some(tx_signal),
         );
 
         // Send messages 1, 2, 3 from remote1 (complete sequence)
@@ -1348,7 +1253,7 @@ mod tests {
         message1_r1.get_slim_header_mut().set_incoming_conn(Some(1));
 
         receiver
-            .on_message(message1_r1, MessageDirection::North)
+            .on_message(message1_r1)
             .await
             .expect("error sending message1_r1");
 
@@ -1366,7 +1271,7 @@ mod tests {
         message2_r1.get_slim_header_mut().set_incoming_conn(Some(1));
 
         receiver
-            .on_message(message2_r1, MessageDirection::North)
+            .on_message(message2_r1)
             .await
             .expect("error sending message2_r1");
 
@@ -1384,7 +1289,7 @@ mod tests {
         message3_r1.get_slim_header_mut().set_incoming_conn(Some(1));
 
         receiver
-            .on_message(message3_r1, MessageDirection::North)
+            .on_message(message3_r1)
             .await
             .expect("error sending message3_r1");
 
@@ -1403,7 +1308,7 @@ mod tests {
         message1_r2.get_slim_header_mut().set_incoming_conn(Some(1));
 
         receiver
-            .on_message(message1_r2, MessageDirection::North)
+            .on_message(message1_r2)
             .await
             .expect("error sending message1_r2");
 
@@ -1421,7 +1326,7 @@ mod tests {
         message3_r2.get_slim_header_mut().set_incoming_conn(Some(1));
 
         receiver
-            .on_message(message3_r2, MessageDirection::North)
+            .on_message(message3_r2)
             .await
             .expect("error sending message3_r2");
 
@@ -1498,7 +1403,7 @@ mod tests {
         rtx_reply.get_slim_header_mut().set_incoming_conn(Some(1));
 
         receiver
-            .on_message(rtx_reply, MessageDirection::North)
+            .on_message(rtx_reply)
             .await
             .expect("error sending rtx reply");
 
@@ -1526,247 +1431,5 @@ mod tests {
         // No more messages should be sent to the app
         let res = timeout(Duration::from_millis(100), rx_app.recv()).await;
         assert!(res.is_err(), "Expected timeout but got: {:?}", res);
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_drain_with_no_pending_rtx() {
-        // Test drain when there are no pending RTX requests - should complete immediately
-        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
-
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(10);
-
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
-        let local_name = Name::from_strings(["org", "ns", "local"]);
-        let remote_name = Name::from_strings(["org", "ns", "remote"]);
-
-        let mut receiver = SessionReceiver::new(
-            Some(settings),
-            10,
-            local_name.clone(),
-            SessionType::PointToPoint,
-            true,
-            tx,
-        );
-
-        // Send a message first to ensure the receiver is working
-        let mut message1 = Message::new_publish(
-            &remote_name,
-            &local_name,
-            None,
-            "test_payload_1",
-            vec![1, 2, 3, 4],
-        );
-        message1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
-        message1.get_session_header_mut().set_message_id(1);
-        message1.get_session_header_mut().set_session_id(10);
-        message1.get_slim_header_mut().set_incoming_conn(Some(1));
-
-        // Send the message
-        receiver
-            .on_message(message1, MessageDirection::North)
-            .await
-            .expect("error sending message1");
-
-        // Wait for the message to arrive at rx_app
-        let received1 = timeout(Duration::from_millis(100), rx_app.recv())
-            .await
-            .expect("timeout waiting for message1")
-            .expect("channel closed")
-            .expect("error in received message1");
-        assert_eq!(received1.get_id(), 1);
-
-        // Consume the ACK
-        let _ack1 = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for ack1");
-
-        // Now initiate drain - should complete immediately since no pending RTX
-        let drain_result = receiver.drain(1000).await;
-        assert!(
-            drain_result.is_ok(),
-            "Drain should succeed: {:?}",
-            drain_result
-        );
-
-        // Verify receiver stops accepting new messages
-        let mut message2 = Message::new_publish(
-            &remote_name,
-            &local_name,
-            None,
-            "test_payload_2",
-            vec![5, 6, 7, 8],
-        );
-        message2.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
-        message2.get_session_header_mut().set_message_id(2);
-        message2.get_session_header_mut().set_session_id(10);
-        message2.get_slim_header_mut().set_incoming_conn(Some(1));
-
-        // This should fail because receiver is draining
-        let result = receiver.on_message(message2, MessageDirection::North).await;
-        match result {
-            Err(SessionError::Processing(msg)) => {
-                assert!(msg.contains("sender is closing"));
-            }
-            _ => panic!("Expected drain error, got: {:?}", result),
-        }
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_drain_with_pending_rtx() {
-        // Test drain when there are pending RTX requests - should wait for grace period
-        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(3);
-
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(10);
-
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
-        let local_name = Name::from_strings(["org", "ns", "local"]);
-        let remote_name = Name::from_strings(["org", "ns", "remote"]);
-
-        let mut receiver = SessionReceiver::new(
-            Some(settings),
-            10,
-            local_name.clone(),
-            SessionType::PointToPoint,
-            true,
-            tx,
-        );
-
-        // Send message 1
-        let mut message1 = Message::new_publish(
-            &remote_name,
-            &local_name,
-            None,
-            "test_payload_1",
-            vec![1, 2, 3, 4],
-        );
-        message1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
-        message1.get_session_header_mut().set_message_id(1);
-        message1.get_session_header_mut().set_session_id(10);
-        message1.get_slim_header_mut().set_incoming_conn(Some(1));
-
-        receiver
-            .on_message(message1, MessageDirection::North)
-            .await
-            .expect("error sending message1");
-
-        // Consume message 1 and its ACK
-        let _received1 = timeout(Duration::from_millis(100), rx_app.recv())
-            .await
-            .unwrap();
-        let _ack1 = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .unwrap();
-
-        // Send message 3 (missing message 2) to create pending RTX
-        let mut message3 = Message::new_publish(
-            &remote_name,
-            &local_name,
-            None,
-            "test_payload_3",
-            vec![9, 10, 11, 12],
-        );
-        message3.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
-        message3.get_session_header_mut().set_message_id(3);
-        message3.get_session_header_mut().set_session_id(10);
-        message3.get_slim_header_mut().set_incoming_conn(Some(1));
-
-        receiver
-            .on_message(message3, MessageDirection::North)
-            .await
-            .expect("error sending message3");
-
-        // Consume ACK for message 3
-        let _ack3 = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .unwrap();
-
-        // Wait for RTX request to be sent
-        let _rtx_request = timeout(Duration::from_millis(200), rx_slim.recv())
-            .await
-            .expect("timeout waiting for RTX request");
-
-        // Now initiate drain - should start grace period because of pending RTX
-        let drain_result = receiver.drain(300).await; // 300ms grace period
-        assert!(
-            drain_result.is_ok(),
-            "Drain should succeed: {:?}",
-            drain_result
-        );
-
-        // Send RTX reply during grace period
-        let mut rtx_reply = Message::new_publish(
-            &remote_name,
-            &local_name,
-            None,
-            "test_payload_2",
-            vec![5, 6, 7, 8],
-        );
-        rtx_reply.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxReply);
-        rtx_reply.get_session_header_mut().set_message_id(2);
-        rtx_reply.get_session_header_mut().set_session_id(10);
-        rtx_reply.get_slim_header_mut().set_incoming_conn(Some(1));
-
-        receiver
-            .on_message(rtx_reply, MessageDirection::North)
-            .await
-            .expect("error sending rtx reply");
-
-        // Should receive messages 2 and 3 from app
-        let received2 = timeout(Duration::from_millis(100), rx_app.recv())
-            .await
-            .expect("timeout waiting for message2")
-            .expect("channel closed")
-            .expect("error in received message2");
-        assert_eq!(received2.get_id(), 2);
-
-        let received3 = timeout(Duration::from_millis(100), rx_app.recv())
-            .await
-            .expect("timeout waiting for message3")
-            .expect("channel closed")
-            .expect("error in received message3");
-        assert_eq!(received3.get_id(), 3);
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_double_drain_call() {
-        // Test calling drain twice should return an error
-        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
-
-        let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, _rx_app) = tokio::sync::mpsc::channel(10);
-
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
-        let local_name = Name::from_strings(["org", "ns", "local"]);
-
-        let mut receiver = SessionReceiver::new(
-            Some(settings),
-            10,
-            local_name.clone(),
-            SessionType::PointToPoint,
-            true,
-            tx,
-        );
-
-        // First drain call should succeed
-        let first_drain = receiver.drain(1000).await;
-        assert!(
-            first_drain.is_ok(),
-            "First drain should succeed: {:?}",
-            first_drain
-        );
-
-        // Second drain call should fail
-        let second_drain = receiver.drain(1000).await;
-        match second_drain {
-            Err(SessionError::Processing(msg)) => {
-                assert!(msg.contains("sender is closing"));
-            }
-            _ => panic!("Expected double drain error, got: {:?}", second_drain),
-        }
     }
 }
