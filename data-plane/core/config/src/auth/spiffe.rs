@@ -35,11 +35,11 @@ pub struct Config {
     pub refresh_interval: Option<Duration>,
 
     /// Enable X.509 SVID certificate authentication
-    #[serde(default = "default_true")]
+    #[serde(default = "default_enable_jwt")]
     pub enable_x509: bool,
 
     /// Enable JWT SVID token authentication
-    #[serde(default = "default_true")]
+    #[serde(default = "default_enable_x509")]
     pub enable_jwt: bool,
 }
 
@@ -47,7 +47,11 @@ fn default_audiences() -> Vec<String> {
     vec!["slim".to_string()]
 }
 
-fn default_true() -> bool {
+fn default_enable_jwt() -> bool {
+    true
+}
+
+fn default_enable_x509() -> bool {
     true
 }
 
