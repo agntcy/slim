@@ -38,8 +38,14 @@ impl std::fmt::Display for Name {
         write!(
             f,
             "{:x}/{:x}/{:x}/{:x} ({}/{}/{}/{:x})",
-            self.components[0], self.components[1], self.components[2], self.components[3],
-            self.strings[0], self.strings[1], self.strings[2], self.components[3]
+            self.components[0],
+            self.components[1],
+            self.components[2],
+            self.components[3],
+            self.strings[0],
+            self.strings[1],
+            self.strings[2],
+            self.components[3]
         )?;
 
         Ok(())
@@ -60,7 +66,7 @@ impl From<&ProtoName> for Name {
             strings: Box::new([
                 strings.str_component_0.clone(),
                 strings.str_component_1.clone(),
-                strings.str_component_2.clone()
+                strings.str_component_2.clone(),
             ]),
         }
     }

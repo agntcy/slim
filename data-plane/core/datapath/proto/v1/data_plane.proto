@@ -41,11 +41,12 @@ message Message {
 message SLIMHeader {
   Name source = 1;
   Name destination = 2;
+  string identity = 4;
   uint32 fanout = 3;
-  optional uint64 recv_from = 4;
-  optional uint64 forward_to = 5;
-  optional uint64 incoming_conn = 6;
-  optional bool error = 7;
+  optional uint64 recv_from = 5;
+  optional uint64 forward_to = 6;
+  optional uint64 incoming_conn = 7;
+  optional bool error = 8;
 }
 
 message SessionHeader {

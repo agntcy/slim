@@ -51,15 +51,17 @@ pub struct SlimHeader {
     pub source: ::core::option::Option<Name>,
     #[prost(message, optional, tag = "2")]
     pub destination: ::core::option::Option<Name>,
+    #[prost(string, tag = "4")]
+    pub identity: ::prost::alloc::string::String,
     #[prost(uint32, tag = "3")]
     pub fanout: u32,
-    #[prost(uint64, optional, tag = "4")]
-    pub recv_from: ::core::option::Option<u64>,
     #[prost(uint64, optional, tag = "5")]
-    pub forward_to: ::core::option::Option<u64>,
+    pub recv_from: ::core::option::Option<u64>,
     #[prost(uint64, optional, tag = "6")]
+    pub forward_to: ::core::option::Option<u64>,
+    #[prost(uint64, optional, tag = "7")]
     pub incoming_conn: ::core::option::Option<u64>,
-    #[prost(bool, optional, tag = "7")]
+    #[prost(bool, optional, tag = "8")]
     pub error: ::core::option::Option<bool>,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
