@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use slim_datapath::api::{ProtoMessage, ProtoPublishType};
 use slim_datapath::messages::Name;
+use slim_datapath::messages::utils::SLIM_IDENTITY;
 
 use crate::errors::ServiceError;
 
@@ -24,6 +25,8 @@ pub struct MessageContext {
     pub metadata: HashMap<String, String>,
     /// Numeric identifier of the inbound connection carrying the message
     pub input_connection: u64,
+    /// Identity contained in the message
+    pub identity: String,
 }
 
 impl MessageContext {
@@ -34,6 +37,7 @@ impl MessageContext {
         payload_type: String,
         metadata: HashMap<String, String>,
         input_connection: u64,
+        identity: String,
     ) -> Self {
         Self {
             source_name: source,
@@ -41,6 +45,7 @@ impl MessageContext {
             payload_type,
             metadata,
             input_connection,
+            identity,
         }
     }
 
@@ -80,6 +85,10 @@ impl MessageContext {
             })
             .unwrap_or_else(|| "msg".to_string());
         let metadata = msg.get_metadata_map();
+        let identity = metadata
+            .get(SLIM_IDENTITY)
+            .cloned()
+            .unwrap_or("".to_string());
 
         let ctx = Self::new(
             source,
@@ -87,6 +96,7 @@ impl MessageContext {
             payload_type,
             metadata,
             input_connection,
+            identity,
         );
         Ok((ctx, payload_bytes))
     }
@@ -151,6 +161,7 @@ mod tests {
             "application/json".to_string(),
             metadata.clone(),
             42,
+            "test-identity".to_string(),
         );
 
         assert_eq!(ctx.source_name, source);
@@ -158,6 +169,7 @@ mod tests {
         assert_eq!(ctx.payload_type, "application/json");
         assert_eq!(ctx.metadata, metadata);
         assert_eq!(ctx.input_connection, 42);
+        assert_eq!(ctx.identity, "test-identity");
     }
 
     #[tokio::test]
@@ -168,11 +180,13 @@ mod tests {
         let source_name = Name::from_strings(["org", "sender", "service"]);
         let dest_name = Name::from_strings(["org", "receiver", "service"]);
         let connection_id = 12345u64;
+        let identity = "test-identity".to_string();
 
         // Create metadata
         let mut metadata = HashMap::new();
         metadata.insert("trace_id".to_string(), "abc123".to_string());
         metadata.insert("user_id".to_string(), "user456".to_string());
+        metadata.insert(SLIM_IDENTITY.to_string(), identity.clone());
 
         let proto_msg = create_test_proto_message(
             source_name.clone(),
@@ -195,6 +209,7 @@ mod tests {
         assert_eq!(ctx.payload_type, content_type);
         assert_eq!(ctx.metadata, metadata);
         assert_eq!(ctx.input_connection, connection_id);
+        assert_eq!(ctx.identity, identity);
 
         // Verify payload
         assert_eq!(payload, payload_data);

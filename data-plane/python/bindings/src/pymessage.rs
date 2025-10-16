@@ -40,6 +40,8 @@ pub struct PyMessageContext {
     pub metadata: HashMap<String, String>,
     #[pyo3(get)]
     pub input_connection: u64,
+    #[pyo3(get)]
+    pub identity: String,
 }
 
 impl PyMessageContext {
@@ -64,6 +66,7 @@ impl From<MessageContext> for PyMessageContext {
             payload_type: ctx.payload_type,
             metadata: ctx.metadata,
             input_connection: ctx.input_connection,
+            identity: ctx.identity,
         }
     }
 }
@@ -77,6 +80,7 @@ impl From<PyMessageContext> for MessageContext {
             py_ctx.payload_type,
             py_ctx.metadata,
             py_ctx.input_connection,
+            py_ctx.identity,
         )
     }
 }

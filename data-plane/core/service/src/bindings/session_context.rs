@@ -365,6 +365,7 @@ mod tests {
             "application/json".to_string(),
             metadata.clone(),
             42, // input_connection
+            "unique-identity".to_string(),
         );
 
         let reply_message = b"reply payload".to_vec();
