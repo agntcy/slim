@@ -108,9 +108,9 @@ tasks:
     cmds:
       - cargo run --bin generate-schema
 
-  # Override the test:coverage task from rust.yaml to include Python coverage
-  data-plane:test:coverage:
-    desc: "Run tests coverage with Python bindings coverage"
+  # Enhanced coverage task that includes Python bindings coverage
+  data-plane:coverage-full:
+    desc: "Run full tests coverage including Python bindings"
     cmds:
       - task: data-plane:toolchain:test:coverage
         vars:
