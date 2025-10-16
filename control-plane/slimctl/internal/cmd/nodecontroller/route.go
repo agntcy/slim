@@ -161,19 +161,20 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 				return fmt.Errorf("error receiving ack via stream: %w", err)
 			}
 
-			a := ack.GetAck()
+			a := ack.GetConfigCommandAck()
 			if a == nil {
 				return fmt.Errorf("unexpected response type received (not an ACK): %v", ack)
 			}
 
-			fmt.Printf(
-				"ACK received for %s: success=%t\n",
-				a.OriginalMessageId,
-				a.Success,
-			)
-			if len(a.Messages) > 0 {
-				for i, ackMsg := range a.Messages {
-					fmt.Printf("    [%d] %s\n", i+1, ackMsg)
+			fmt.Printf("ACK received for %s", a.OriginalMessageId)
+			if len(a.ConnectionsFailedToCreate) > 0 {
+				for _, errMsg := range a.ConnectionsFailedToCreate {
+					fmt.Printf("failed to create connection %s: %s", errMsg.ConnectionId, errMsg.ErrorMsg)
+				}
+			}
+			if len(a.SubscriptionsFailedToSet) > 0 {
+				for _, errMsg := range a.SubscriptionsFailedToSet {
+					fmt.Printf("failed to create subscription %v: %s", errMsg.Subscription, errMsg.ErrorMsg)
 				}
 			}
 
@@ -251,19 +252,15 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 				return fmt.Errorf("error receiving ack via stream: %w", err)
 			}
 
-			a := ack.GetAck()
+			a := ack.GetConfigCommandAck()
 			if a == nil {
 				return fmt.Errorf("unexpected response type received (not an ACK): %v", ack)
 			}
+			fmt.Printf("ACK received for %s", a.OriginalMessageId)
 
-			fmt.Printf(
-				"ACK received for %s: success=%t\n",
-				a.OriginalMessageId,
-				a.Success,
-			)
-			if len(a.Messages) > 0 {
-				for i, ackMsg := range a.Messages {
-					fmt.Printf("    [%d] %s\n", i+1, ackMsg)
+			if len(a.SubscriptionsFailedToSet) > 0 {
+				for _, errMsg := range a.SubscriptionsFailedToDelete {
+					fmt.Printf("failed to delete subscription %v: %s", errMsg.Subscription, errMsg.ErrorMsg)
 				}
 			}
 
