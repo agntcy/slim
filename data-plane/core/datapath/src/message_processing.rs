@@ -28,6 +28,7 @@ use crate::connection::{Channel, Connection, Type as ConnectionType};
 use crate::errors::DataPathError;
 use crate::forwarder::Forwarder;
 use crate::messages::Name;
+use crate::messages::utils::SlimHeaderFlags;
 use crate::tables::connection_table::ConnectionTable;
 use crate::tables::subscription_table::SubscriptionTableImpl;
 
@@ -792,6 +793,30 @@ impl MessageProcessor {
             }
 
             if !connected {
+                // if remote and the connection is dropped notify the control plane
+                if !is_local && tx_cp.is_some() {
+                    // let conn = self
+                    //     .connection_table()
+                    //     .get(conn_index.try_into().unwrap())
+                    //     .unwrap();
+                    let subscriptions = self_clone
+                        .forwarder()
+                        .get_remote_subscriptions_on_connection(conn_index);
+                    for subscription in subscriptions {
+                        debug!(
+                            "notify control plane about lost subscription: {} {}",
+                            subscription.name(),
+                            subscription.source()
+                        );
+
+                        let msg = Message::new_unsubscribe(
+                            &subscription.source(),
+                            &subscription.name(),
+                            Some(SlimHeaderFlags::default().with_recv_from(conn_index)),
+                        );
+                        let _ = tx_cp.as_ref().unwrap().send(Ok(msg)).await;
+                    }
+                }
                 // delete connection state
                 self_clone
                     .forwarder()

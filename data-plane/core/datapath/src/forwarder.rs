@@ -58,6 +58,28 @@ where
         }
     }
 
+    pub fn get_remote_subscriptions_on_connection(&self, conn_index: u64) -> Vec<SubscriptionInfo> {
+        // Get remote subscriptions that will be removed
+        self.remote_subscription_table
+            .get_subscriptions_on_connection(conn_index)
+            .into_iter()
+            .collect()
+
+        // // Get local subscriptions that will be removed
+        // let local_subscription_names = self
+        //     .subscription_table
+        //     .remove_connection(conn_index, is_local)
+        //     .unwrap_or_else(|_| vec![]);
+
+        // // Convert local subscription names to SubscriptionInfo and merge
+        // for name in local_subscription_names {
+        //     let subscription_info = SubscriptionInfo::new(name.clone(), name);
+        //     all_subscriptions.push(subscription_info);
+        // }
+
+        // all_subscriptions
+    }
+
     pub fn on_connection_drop(&self, conn_index: u64, is_local: bool) {
         self.connection_table.remove(conn_index as usize);
         let _ = self
