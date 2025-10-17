@@ -16,7 +16,10 @@ pub mod point_to_point;
 pub mod producer_buffer;
 pub mod receiver_buffer;
 mod session_layer;
+pub mod session_receiver;
+pub mod session_sender;
 pub mod timer;
+pub mod timer_factory;
 mod traits;
 pub mod transmitter;
 
