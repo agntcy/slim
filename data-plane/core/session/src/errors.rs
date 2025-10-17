@@ -35,6 +35,8 @@ pub enum SessionError {
     SessionUnknown(String),
     #[error("session not found: {0}")]
     SessionNotFound(u32),
+    #[error("subscription not found: {0}")]
+    SubscriptionNotFound(String),
     #[error("default for session not supported: {0}")]
     SessionDefaultNotSupported(String),
     #[error("missing session id: {0}")]
