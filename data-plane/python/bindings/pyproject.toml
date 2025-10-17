@@ -58,7 +58,6 @@ module-name = "slim_bindings._slim_bindings"
 testpaths = "tests"
 
 [tool.coverage.run]
-source = ["slim_bindings"]
 omit = ["tests/*", "examples/*"]
 
 [tool.coverage.report]
