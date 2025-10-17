@@ -19,7 +19,6 @@ agntcy-slim-session = { workspace = true }
 dirs = "5.0"
 drain = { workspace = true }
 parking_lot = { workspace = true }
-rand = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }

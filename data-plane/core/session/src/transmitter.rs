@@ -190,6 +190,10 @@ mod tests {
         fn get_token(&self) -> Result<String, AuthError> {
             Ok("id-token".into())
         }
+
+        fn get_id(&self) -> Result<String, AuthError> {
+            Ok("id".into())
+        }
     }
 
     #[derive(Clone, Default)]

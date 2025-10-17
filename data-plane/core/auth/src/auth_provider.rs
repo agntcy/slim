@@ -189,6 +189,14 @@ impl TokenProvider for AuthProvider {
             AuthProvider::SharedSecret(secret) => secret.get_token(),
         }
     }
+
+    fn get_id(&self) -> Result<String, AuthError> {
+        match self {
+            AuthProvider::JwtSigner(signer) => signer.get_id(),
+            AuthProvider::StaticToken(provider) => provider.get_id(),
+            AuthProvider::SharedSecret(secret) => secret.get_id(),
+        }
+    }
 }
 
 #[async_trait]
@@ -410,7 +418,7 @@ mod tests {
 
         match provider {
             AuthProvider::SharedSecret(secret) => {
-                assert_eq!(secret.id(), "test-id");
+                assert!(secret.id().starts_with("test-id_"));
                 assert_eq!(secret.shared_secret(), "test-secret");
             }
             _ => panic!("Expected SharedSecret variant"),
@@ -423,7 +431,7 @@ mod tests {
 
         match verifier {
             AuthVerifier::SharedSecret(secret) => {
-                assert_eq!(secret.id(), "test-id");
+                assert!(secret.id().starts_with("test-id_"));
                 assert_eq!(secret.shared_secret(), "test-secret");
             }
             _ => panic!("Expected SharedSecret variant"),
@@ -454,7 +462,7 @@ mod tests {
     async fn test_auth_provider_token_generation() {
         let provider = AuthProvider::shared_secret_from_str("test-id", "test-secret");
         let token = provider.get_token().unwrap();
-        assert_eq!(token, "test-secret:test-id");
+        assert!(token.starts_with("test-secret:test-id_"));
     }
 
     #[tokio::test]
