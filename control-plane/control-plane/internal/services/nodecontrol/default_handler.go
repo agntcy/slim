@@ -12,6 +12,8 @@ import (
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 )
 
+const DefaultResponseTimeout = 90
+
 type defaultNodeCommandHandler struct {
 	// Maps node IDs and streams map[nodeID]controllerapi.ControllerService_OpenControlChannelServer
 	nodeStreamMap sync.Map
@@ -23,9 +25,8 @@ type defaultNodeCommandHandler struct {
 	nodeResponseMsgMap sync.Map
 }
 
-// WaitForResponse implements NodeCommandHandler.
-func (m *defaultNodeCommandHandler) WaitForResponse(
-	ctx context.Context, nodeID string, messageType reflect.Type, messageID string,
+func (m *defaultNodeCommandHandler) WaitForResponseWithTimeout(
+	ctx context.Context, nodeID string, messageType reflect.Type, messageID string, timeout time.Duration,
 ) (*controllerapi.ControlMessage, error) {
 	if nodeID == "" {
 		return nil, fmt.Errorf("nodeID cannot be empty")
@@ -49,24 +50,40 @@ func (m *defaultNodeCommandHandler) WaitForResponse(
 	for {
 		select {
 		case msg := <-ch:
-			if reflect.TypeOf(msg.GetPayload()) == reflect.TypeOf(&controllerapi.ControlMessage_Ack{}) {
+			switch reflect.TypeOf(msg.GetPayload()) {
+			case reflect.TypeOf(&controllerapi.ControlMessage_Ack{}):
 				ackMsg := msg.GetAck()
 				if ackMsg != nil && ackMsg.GetOriginalMessageId() == messageID {
 					return msg, nil
 				}
 				continue
-			} else {
+			case reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommandAck{}):
+				ackMsg := msg.GetConfigCommandAck()
+				if ackMsg != nil && ackMsg.GetOriginalMessageId() == messageID {
+					return msg, nil
+				}
+				continue
+			default:
 				return msg, nil
 			}
-		case <-time.After(10 * time.Second):
+		case <-time.After(timeout):
 			return nil, fmt.Errorf("timeout waiting for message of type %v", messageType)
 		}
 	}
 }
 
+// WaitForResponse implements NodeCommandHandler.
+func (m *defaultNodeCommandHandler) WaitForResponse(
+	ctx context.Context, nodeID string, messageType reflect.Type, messageID string,
+) (*controllerapi.ControlMessage, error) {
+	return m.WaitForResponseWithTimeout(ctx, nodeID, messageType, messageID, DefaultResponseTimeout*time.Second)
+}
+
 // ResponseReceived implements NodeCommandHandler.
 func (m *defaultNodeCommandHandler) ResponseReceived(ctx context.Context, nodeID string,
 	command *controllerapi.ControlMessage) {
+
+	zlog := zerolog.Ctx(ctx)
 	if nodeID == "" {
 		return
 	}
@@ -74,10 +91,9 @@ func (m *defaultNodeCommandHandler) ResponseReceived(ctx context.Context, nodeID
 		return
 	}
 	if command.MessageId == "" {
+		zlog.Warn().Msgf("Response message received with empty MessageId")
 		return
 	}
-
-	zlog := zerolog.Ctx(ctx)
 
 	// Get the channel for the specific nodeID and message type
 	key := nodeID + ":" + reflect.TypeOf(command.GetPayload()).String()

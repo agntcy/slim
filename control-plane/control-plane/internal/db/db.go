@@ -11,14 +11,19 @@ import (
 type DataAccess interface {
 	ListNodes() []Node
 	GetNode(id string) (*Node, error)
-	SaveNode(node Node) (string, error)
+	SaveNode(node Node) (string, bool, error)
 	DeleteNode(id string) error
 
 	AddRoute(route Route) string
 	GetRoutesForNodeID(nodeID string) []Route
+	GetRoutesForDestinationNodeID(nodeID string) []Route
+	GetRoutesForDestinationNodeIDAndName(nodeID string, Component0 string, Component1 string,
+		Component2 string, ComponentID *wrapperspb.UInt64Value) []Route
 	GetRouteByID(routeID string) *Route
 	DeleteRoute(routeID string) error
 	MarkRouteAsDeleted(routeID string) error
+	MarkRouteAsApplied(routeID string) error
+	MarkRouteAsFailed(routeID string, msg string) error
 
 	SaveChannel(channelID string, moderators []string) error
 	DeleteChannel(channelID string) error
@@ -69,6 +74,8 @@ type Route struct {
 	Component2     string
 	ComponentID    *wrapperspb.UInt64Value
 
+	Applied     bool
+	FailedMsg   string
 	Deleted     bool
 	LastUpdated time.Time
 }

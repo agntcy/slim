@@ -55,12 +55,20 @@ type GroupManager interface {
 	) (db.Channel, error)
 }
 
+type DataAccess interface {
+	SaveChannel(channelID string, moderators []string) error
+	DeleteChannel(channelID string) error
+	GetChannel(channelID string) (db.Channel, error)
+	UpdateChannel(channel db.Channel) error
+	ListChannels() ([]db.Channel, error)
+}
+
 type GroupService struct {
-	dbService  db.DataAccess
+	dbService  DataAccess
 	cmdHandler nodecontrol.NodeCommandHandler
 }
 
-func NewGroupService(dbService db.DataAccess, cmdHandler nodecontrol.NodeCommandHandler) GroupManager {
+func NewGroupService(dbService DataAccess, cmdHandler nodecontrol.NodeCommandHandler) GroupManager {
 	return &GroupService{
 		dbService:  dbService,
 		cmdHandler: cmdHandler,

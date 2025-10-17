@@ -3,6 +3,7 @@ package nodecontrol
 import (
 	"context"
 	"reflect"
+	"time"
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 )
@@ -25,5 +26,7 @@ type NodeCommandHandler interface {
 
 	WaitForResponse(ctx context.Context, nodeID string,
 		messageType reflect.Type, messageID string) (*controllerapi.ControlMessage, error)
+	WaitForResponseWithTimeout(ctx context.Context, nodeID string,
+		messageType reflect.Type, messageID string, timeout time.Duration) (*controllerapi.ControlMessage, error)
 	ResponseReceived(ctx context.Context, nodeID string, command *controllerapi.ControlMessage)
 }
