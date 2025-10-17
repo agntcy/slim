@@ -10,7 +10,7 @@ fn main() {
         std::env::set_var("PROTOC", protoc_path);
     }
 
-    tonic_build::configure()
+    tonic_prost_build::configure()
         .out_dir("src/testutils")
         .compile_protos(&["proto/hello.proto"], &["proto"])
         .unwrap();

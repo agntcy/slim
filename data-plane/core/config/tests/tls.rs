@@ -99,6 +99,9 @@ fn test_load_rustls_config<T>(
 
 #[tokio::test]
 async fn test_load_rustls_client() {
+    // Crypto provider setup
+    slim_config::tls::provider::initialize_crypto_provider();
+
     let tests = [
         (
             "test-valid-ca-1",
@@ -303,6 +306,9 @@ async fn test_load_rustls_client() {
 
 #[tokio::test]
 async fn test_load_rustls_server() {
+    // Crypto provider setup
+    slim_config::tls::provider::initialize_crypto_provider();
+
     let tests = [
         (
             "test-no-certificate-file",

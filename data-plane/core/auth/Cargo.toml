@@ -17,7 +17,7 @@ headers = { workspace = true }
 http = { workspace = true }
 jsonwebtoken-aws-lc = { workspace = true }
 notify = { workspace = true }
-oauth2 = { workspace = true }
+oauth2 = { workspace = true, features = ["reqwest"] }
 parking_lot = { workspace = true }
 pin-project = { workspace = true }
 reqwest = { workspace = true }

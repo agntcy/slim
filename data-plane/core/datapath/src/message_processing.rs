@@ -350,8 +350,11 @@ impl MessageProcessor {
                 let parent_context = extract_parent_context(&msg);
                 let span = create_span("send_message", out_conn, &msg);
 
-                if let Some(ctx) = parent_context {
-                    span.set_parent(ctx);
+                if let Some(ctx) = parent_context
+                    && let Err(e) = span.set_parent(ctx)
+                {
+                    // log the error but don't fail the message sending
+                    error!("error setting parent context: {:?}", e);
                 }
                 let _guard = span.enter();
                 inject_current_context(&mut msg);
@@ -582,8 +585,11 @@ impl MessageProcessor {
 
             let span = create_span("process_local", conn_index, &msg);
 
-            if let Some(ctx) = parent_context {
-                span.set_parent(ctx);
+            if let Some(ctx) = parent_context
+                && let Err(e) = span.set_parent(ctx)
+            {
+                // log the error but don't fail the message processing
+                error!("error setting parent context: {:?}", e);
             }
             let _guard = span.enter();
 
