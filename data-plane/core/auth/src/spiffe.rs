@@ -28,8 +28,6 @@ pub struct SpiffeProviderConfig {
     pub target_spiffe_id: Option<String>,
     /// JWT audiences for token requests
     pub jwt_audiences: Vec<String>,
-    /// Jwt refresh interval (optional, defaults to 2/3 of certificate lifetime)
-    pub refresh_interval: Option<Duration>,
 }
 
 impl Default for SpiffeProviderConfig {
@@ -38,7 +36,6 @@ impl Default for SpiffeProviderConfig {
             socket_path: None, // Will use SPIFFE_ENDPOINT_SOCKET env var
             target_spiffe_id: None,
             jwt_audiences: vec!["slim".to_string()],
-            refresh_interval: None,
         }
     }
 }
@@ -105,7 +102,6 @@ impl SpiffeProvider {
             self.config.jwt_audiences.clone(),
             self.config.target_spiffe_id.clone(),
             self.config.socket_path.clone(),
-            self.config.refresh_interval, // reuse refresh interval if provided
         )
         .await
         .map_err(|e| AuthError::ConfigError(format!("Failed to initialize JwtSource: {}", e)))?;
@@ -188,7 +184,6 @@ impl TokenProvider for SpiffeProvider {
 
 // JwtSource: background-refreshing source of JWT SVIDs modeled after X509Source APIs
 struct JwtSourceConfigInternal {
-    refresh_interval: Option<Duration>,
     min_retry_backoff: Duration,
     max_retry_backoff: Duration,
 }
@@ -196,7 +191,6 @@ struct JwtSourceConfigInternal {
 impl Default for JwtSourceConfigInternal {
     fn default() -> Self {
         Self {
-            refresh_interval: None,
             min_retry_backoff: Duration::from_secs(1),
             max_retry_backoff: Duration::from_secs(30),
         }
@@ -217,12 +211,8 @@ impl JwtSource {
         _audiences: Vec<String>,
         _target_spiffe_id: Option<String>,
         socket_path: Option<String>,
-        refresh_interval: Option<Duration>,
     ) -> Result<Arc<Self>, AuthError> {
-        let cfg = JwtSourceConfigInternal {
-            refresh_interval,
-            ..Default::default()
-        };
+        let cfg = JwtSourceConfigInternal::default();
 
         let current = Arc::new(RwLock::new(None));
         let current_clone = current.clone();
@@ -252,7 +242,8 @@ impl JwtSource {
             let mut backoff = cfg.min_retry_backoff;
 
             // Use interval for timing - start with refresh interval or default
-            let initial_duration = cfg.refresh_interval.unwrap_or(Duration::from_secs(30));
+            // Start with a default interval, but will be dynamically adjusted based on token lifetime
+            let initial_duration = Duration::from_secs(30);
             let mut interval = tokio::time::interval(initial_duration);
             interval.tick().await; // consume the first immediate tick
 
@@ -271,14 +262,8 @@ impl JwtSource {
                                 // Reset backoff on success
                                 backoff = cfg.min_retry_backoff;
 
-                                // Determine next refresh interval
-                                let next_duration = if let Some(fixed_interval) = cfg.refresh_interval {
-                                    // Use fixed refresh interval
-                                    fixed_interval
-                                } else {
-                                    // Calculate dynamic interval based on token expiry (2/3 of lifetime)
-                                    calculate_refresh_interval(&svid)
-                                };
+                                // Always use automatic 2/3 lifetime calculation
+                                let next_duration = calculate_refresh_interval(&svid);
 
                                 // Reset interval with new duration
                                 interval = tokio::time::interval(next_duration);
@@ -656,7 +641,6 @@ mod tests {
         assert!(config.socket_path.is_none());
         assert!(config.target_spiffe_id.is_none());
         assert_eq!(config.jwt_audiences, vec!["slim"]);
-        assert!(config.refresh_interval.is_none());
     }
 
     #[tokio::test]
@@ -698,13 +682,7 @@ mod tests {
     #[tokio::test]
     async fn test_jwt_source_creation_with_invalid_path_succeeds() {
         let bogus_path = Some("/tmp/non-existent-spiffe-socket".to_string());
-        let src = JwtSource::new(
-            vec!["aud".into()],
-            None,
-            bogus_path,
-            Some(StdDuration::from_secs(1)),
-        )
-        .await;
+        let src = JwtSource::new(vec!["aud".into()], None, bogus_path).await;
         assert!(
             src.is_ok(),
             "JwtSource::new should succeed - errors happen in background task"
@@ -750,7 +728,6 @@ mod tests {
                 vec!["test-audience".to_string()],
                 None,
                 Some("/tmp/non-existent-spiffe-socket".to_string()), // Will retry in background
-                Some(Duration::from_millis(100)), // Short interval for quick testing
             )
             .await;
 
