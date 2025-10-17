@@ -105,7 +105,7 @@ struct ControllerServiceInternal {
     connection_details: Vec<ConnectionDetails>,
 
     /// authentication provider for adding authentication to outgoing messages to clients
-    auth_provider: Option<AuthProvider>,
+    auth_provider: AuthProvider,
 
     /// authentication verifier for verifying incoming messages from clients
     _auth_verifier: Option<AuthVerifier>,
@@ -216,7 +216,9 @@ impl ControlPlane {
                     cancellation_tokens: parking_lot::RwLock::new(HashMap::new()),
                     drain_rx: config.drain_rx,
                     connection_details,
-                    auth_provider: config.auth_provider,
+                    auth_provider: config
+                        .auth_provider
+                        .expect("auth_provider is None and it is required but the controller"),
                     _auth_verifier: config.auth_verifier,
                 }),
             },
@@ -628,7 +630,8 @@ fn invite_participant_message(
 
     metadata.insert("PARTICIPANT_NAME".to_string(), encoded_participant_str);
 
-    let payload = Some(CommandPayload::new_discovery_request_payload(Some(participant.clone())).as_content());
+    let payload =
+        Some(CommandPayload::new_discovery_request_payload(Some(participant.clone())).as_content());
 
     create_channel_message(
         controller,
@@ -659,7 +662,8 @@ fn remove_participant_message(
         base64::engine::general_purpose::STANDARD.encode(&encoded_participant);
     metadata.insert("PARTICIPANT_NAME".to_string(), encoded_participant_str);
 
-   let payload = Some(CommandPayload::new_leave_request_payload(Some(participant.clone())).as_content());
+    let payload =
+        Some(CommandPayload::new_leave_request_payload(Some(participant.clone())).as_content());
 
     create_channel_message(
         controller,
@@ -680,7 +684,6 @@ impl ControllerService {
     async fn handle_new_control_message(
         &self,
         msg: ControlMessage,
-        controller_identity: &str,
         tx: &mpsc::Sender<Result<ControlMessage, Status>>,
     ) -> Result<(), ControllerError> {
         match msg.payload {
@@ -734,6 +737,16 @@ impl ControllerService {
                             }
                         }
 
+                        let identity_token = &self
+                                .inner
+                                .auth_provider
+                                .get_token()
+                                .map_err(|e| {
+                                    error!("failed to generate identity token: {}", e);
+                                    ControllerError::DatapathError(e.to_string())
+                                })
+                                .unwrap();
+
                         for subscription in &config.subscriptions_to_set {
                             if !self
                                 .inner
@@ -768,7 +781,7 @@ impl ControllerService {
                             let msg = DataPlaneMessage::new_subscribe(
                                 &source,
                                 &name,
-                                controller_identity,
+                                &identity_token,
                                 Some(SlimHeaderFlags::default().with_recv_from(conn)),
                             );
 
@@ -808,10 +821,20 @@ impl ControllerService {
                             ])
                             .with_id(subscription.id.unwrap_or(Name::NULL_COMPONENT));
 
+                            let identity_token = &self
+                                .inner
+                                .auth_provider
+                                .get_token()
+                                .map_err(|e| {
+                                    error!("failed to generate identity token: {}", e);
+                                    ControllerError::DatapathError(e.to_string())
+                                })
+                                .unwrap();
+
                             let msg = DataPlaneMessage::new_unsubscribe(
                                 &source,
                                 &name,
-                                controller_identity,
+                                &identity_token,
                                 Some(SlimHeaderFlags::default().with_recv_from(conn)),
                             );
 
