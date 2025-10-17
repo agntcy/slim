@@ -337,8 +337,8 @@ func (d *dbService) GetRoutesForDestinationNodeID(nodeID string) []Route {
 	return routes
 }
 
-func (d *dbService) GetRoutesForDestinationNodeIDAndName(nodeID string, Component0 string, Component1 string,
-	Component2 string, ComponentID *wrapperspb.UInt64Value) []Route {
+func (d *dbService) GetRoutesForDestinationNodeIDAndName(nodeID string, component0 string, component1 string,
+	component2 string, componentID *wrapperspb.UInt64Value) []Route {
 
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -346,11 +346,11 @@ func (d *dbService) GetRoutesForDestinationNodeIDAndName(nodeID string, Componen
 	var routes []Route
 	for _, route := range d.routes {
 		if route.DestNodeID == nodeID &&
-			route.Component0 == Component0 &&
-			route.Component1 == Component1 &&
-			route.Component2 == Component2 {
-			if (ComponentID == nil && route.ComponentID == nil) ||
-				(ComponentID != nil && route.ComponentID != nil && ComponentID.Value == route.ComponentID.Value) {
+			route.Component0 == component0 &&
+			route.Component1 == component1 &&
+			route.Component2 == component2 {
+			if (componentID == nil && route.ComponentID == nil) ||
+				(componentID != nil && route.ComponentID != nil && componentID.Value == route.ComponentID.Value) {
 				routes = append(routes, route)
 			}
 		}
