@@ -12,7 +12,7 @@ import (
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 )
 
-const DefaultResponseTimeout = 15
+const DefaultResponseTimeout = 90
 
 type defaultNodeCommandHandler struct {
 	// Maps node IDs and streams map[nodeID]controllerapi.ControllerService_OpenControlChannelServer
