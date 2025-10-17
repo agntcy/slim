@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1](https://github.com/agntcy/slim/compare/slim-mcp-proxy-v0.2.0...slim-mcp-proxy-v0.2.1) - 2025-10-17
+
+### Added
+
+- implementation of Identity provider client credential flow ([#464](https://github.com/agntcy/slim/pull/464))
+- move session code in a new crate ([#828](https://github.com/agntcy/slim/pull/828))
+
+### Other
+
+- common rust infrastructure for language bindings ([#840](https://github.com/agntcy/slim/pull/840))
+- release ([#854](https://github.com/agntcy/slim/pull/854))
+
 ## [0.2.0](https://github.com/agntcy/slim/compare/slim-mcp-proxy-v0.1.7...slim-mcp-proxy-v0.2.0) - 2025-10-09
 
 ### Added
