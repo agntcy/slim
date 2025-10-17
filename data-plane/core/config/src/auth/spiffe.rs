@@ -102,7 +102,6 @@ impl Config {
             socket_path: self.socket_path.clone(),
             target_spiffe_id: self.target_spiffe_id.clone(),
             jwt_audiences: self.jwt_audiences.clone(),
-            refresh_interval: None, // Always use automatic 2/3 lifetime calculation
         }
     }
 

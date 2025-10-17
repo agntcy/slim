@@ -632,8 +632,6 @@ impl Verifier for SpiffeJwtVerifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration as StdDuration;
-    use tokio::time::Duration;
 
     #[tokio::test]
     async fn test_spiffe_config_default() {
