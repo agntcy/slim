@@ -21,22 +21,6 @@ type mockDB struct {
 	saveChannelErr error
 }
 
-// Node operations
-func (m *mockDB) ListNodes() []db.Node                     { return nil }
-func (m *mockDB) GetNode(_ string) (*db.Node, error)       { return nil, nil }
-func (m *mockDB) SaveNode(_ db.Node) (string, bool, error) { return "", false, nil }
-func (m *mockDB) DeleteNode(_ string) error                { return nil }
-
-// Route operations
-func (m *mockDB) AddRoute(_ db.Route) string                        { return "" }
-func (m *mockDB) GetRoutesForNodeID(_ string) []db.Route            { return nil }
-func (m *mockDB) GetRoutesForDestinationNodeID(_ string) []db.Route { return nil }
-func (m *mockDB) GetRouteByID(_ string) *db.Route                   { return nil }
-func (m *mockDB) DeleteRoute(_ string) error                        { return nil }
-func (m *mockDB) MarkRouteAsDeleted(_ string) error                 { return nil }
-func (m *mockDB) MarkRouteAsApplied(_ string) error                 { return nil }
-func (m *mockDB) MarkRouteAsFailed(_ string, _ string) error        { return nil }
-
 // Channel operations
 func (m *mockDB) SaveChannel(_ string, _ []string) error { return m.saveChannelErr }
 func (m *mockDB) DeleteChannel(_ string) error           { return nil }

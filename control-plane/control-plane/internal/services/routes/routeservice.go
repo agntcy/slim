@@ -257,7 +257,7 @@ func (s *RouteService) NodeRegistered(ctx context.Context, nodeID string, connnD
 	if connnDetailsUpdated {
 		// if connection details were updated, we also need to reconcile routes for other nodes
 		// which might be affected by the new node connection details
-		zlog.Info().Msgf("Connection detials changed, reconcile routes with DestinationNodeID: %s", nodeID)
+		zlog.Info().Msgf("Connection details changed, reconcile routes with DestinationNodeID: %s", nodeID)
 		routesToBeReconciled := s.dbService.GetRoutesForDestinationNodeID(nodeID)
 		for _, r := range routesToBeReconciled {
 			if r.SourceNodeID != AllNodesID {

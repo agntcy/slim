@@ -22,7 +22,7 @@ import (
 
 // startSouthbound spins up a grpc server with Southbound API and returns listen target.
 func startSouthbound(t *testing.T, db db.DataAccess) (target string, cleanup func()) {
-	//t.Helper()
+	// t.Helper()
 
 	ctx := util.GetContextWithLogger(context.Background(), config.LogConfig{Level: "debug"})
 	cmdHandler := nodecontrol.DefaultNodeCommandHandler()
@@ -63,9 +63,6 @@ func TestSouthbound_RegistrationAndRouteHandling(t *testing.T) {
 	target, cleanup := startSouthbound(t, db)
 	defer cleanup()
 
-	//ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	//defer cancel()
-
 	// start three mock nodes
 	slim0, _ := NewMockSlimServer("slim-0", 4500, target)
 	slim1, _ := NewMockSlimServer("slim-1", 4501, target)
@@ -85,10 +82,10 @@ func TestSouthbound_RegistrationAndRouteHandling(t *testing.T) {
 	// registration reaches DB
 	time.Sleep(3 * time.Second)
 	require.Len(t, db.ListNodes(), 3)
-	//waitCond(t, 20*time.Second, func() bool { return len(db.ListNodes()) == 3 })
 
 	// slim-0 publishes a subscription org/test/client/0
-	if err := slim0.updateSubscription(ctx, "org", "test", "client", 0, false); err != nil {
+	if err := slim0.updateSubscription(ctx, "org", "test", "client",
+		0, false); err != nil {
 		t.Fatalf("failed to send subcription update: %v", err)
 	}
 
@@ -96,6 +93,7 @@ func TestSouthbound_RegistrationAndRouteHandling(t *testing.T) {
 	waitCond(t, 3*time.Second, func() bool {
 		for _, r := range db.GetRoutesForDestinationNodeID("slim-0") {
 			if r.DestNodeID == "slim-0" && r.Component0 == "org" && r.Component2 == "client" {
+
 				return true
 			}
 		}
@@ -148,7 +146,8 @@ func TestSouthbound_RegistrationAndRouteHandling(t *testing.T) {
 	}, "wait for subs to be received by slim-1 and slim-2")
 
 	// send delete for subscription
-	if err := slim0.updateSubscription(ctx, "org", "test", "client", 0, true); err != nil {
+	if err := slim0.updateSubscription(ctx, "org", "test", "client",
+		0, true); err != nil {
 		t.Fatalf("delete sub: %v", err)
 	}
 
@@ -190,10 +189,12 @@ func TestSouthbound_RouteWithConnectionError(t *testing.T) {
 	}
 
 	// wait nodes in DB
-	waitCond(t, 2*time.Second, func() bool { return len(db.ListNodes()) == 2 }, "wait for 2 nodes to register")
+	waitCond(t, 2*time.Second, func() bool { return len(db.ListNodes()) == 2 },
+		"wait for 2 nodes to register")
 
 	// slim-0 sends subscription
-	if err := slim0.updateSubscription(ctx, "org", "test", "client", 0, false); err != nil {
+	if err := slim0.updateSubscription(ctx, "org", "test", "client",
+		0, false); err != nil {
 		t.Fatalf("send sub: %v", err)
 	}
 
