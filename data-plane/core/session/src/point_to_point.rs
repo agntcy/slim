@@ -1304,6 +1304,7 @@ mod tests {
     use crate::{
         channel_endpoint::handle_channel_discovery_message, transmitter::SessionTransmitter,
     };
+    use slim_auth::testutils::TEST_VALID_SECRET;
     use slim_datapath::{api::ProtoMessage, messages::Name};
 
     #[tokio::test]
@@ -1320,8 +1321,8 @@ mod tests {
             PointToPointConfiguration::default(),
             source.clone(),
             tx,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
@@ -1350,8 +1351,8 @@ mod tests {
             config,
             source.clone(),
             tx,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
@@ -1373,8 +1374,8 @@ mod tests {
             PointToPointConfiguration::default(),
             source.clone(),
             tx,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
@@ -1419,8 +1420,8 @@ mod tests {
             PointToPointConfiguration::default(),
             source.clone(),
             tx,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
@@ -1488,8 +1489,8 @@ mod tests {
             },
             source.clone(),
             tx,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
@@ -1556,8 +1557,8 @@ mod tests {
             },
             local.clone(),
             tx_sender,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
@@ -1567,8 +1568,8 @@ mod tests {
             PointToPointConfiguration::default(),
             remote.clone(),
             tx_receiver,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
@@ -1665,8 +1666,8 @@ mod tests {
                 PointToPointConfiguration::default(),
                 source.clone(),
                 tx,
-                SharedSecret::new("a", "group"),
-                SharedSecret::new("a", "group"),
+                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET),
                 std::path::PathBuf::from("/tmp/test_session"),
             );
         }
@@ -1709,8 +1710,8 @@ mod tests {
             },
             local.clone(),
             sender_tx,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
             std::path::PathBuf::from("/tmp/test_sender"),
         );
 
@@ -1726,8 +1727,8 @@ mod tests {
             },
             remote.clone(),
             receiver_tx,
-            SharedSecret::new("b", "group"),
-            SharedSecret::new("b", "group"),
+            SharedSecret::new("b", TEST_VALID_SECRET),
+            SharedSecret::new("b", TEST_VALID_SECRET),
             std::path::PathBuf::from("/tmp/test_receiver"),
         );
 

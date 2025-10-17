@@ -1,9 +1,48 @@
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
+// SPDX-License-Identifier: Apache-2.0
+
+//! Shared-secret based token generation and verification.
+//!
+//! This module defines `SharedSecret`, a lightweight primitive for issuing and
+//! verifying short‑lived HMAC-SHA256 tokens with replay protection. A token
+//! encodes: `<id>:<unix_timestamp>:<nonce>:<mac_b64url>`.
+//!
+//! Security properties enforced:
+//! * Authenticity & integrity: HMAC over `id:timestamp:nonce`.
+//! * Expiration: bounded by `validity_window`.
+//! * Clock skew tolerance: bounded by `clock_skew`.
+//! * Replay prevention: (nonce, timestamp) cached until expiration.
+//!
+//! Design notes:
+//! * `id` is randomized per instance (`<base_id>_<random_suffix>`) to reduce
+//!   accidental collisions while allowing cross-instance verification as only
+//!   the shared secret matters for HMAC validity.
+//! * Replay cache stores only nonce + timestamp (not MAC) since MAC is derivable
+//!   and provides no additional uniqueness; this minimizes memory usage.
+//! * HMAC implemented via `aws-lc-rs` for FIPS-aligned primitives and constant‑time
+//!   verification.
+//!
+//! Typical usage:
+//! ```ignore
+//! let auth = SharedSecret::new("service", secret_string);
+//! let token = auth.get_token()?;
+//! auth.try_verify(&token)?;
+//! let claims: MyClaims = auth.try_get_claims(&token)?;
+//! ```
+//!
+//! Clone semantics: cloning `SharedSecret` creates a fresh replay cache. Replay
+//! information is intentionally not shared across clones to avoid cross‑component
+//! coupling and potential contention hot spots.
+//!
+//! Thread safety: interior mutability via `parking_lot::Mutex` guards the
+//! replay cache only; all other fields are immutable after construction.
+
+use aws_lc_rs::hmac;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use hmac::{Hmac, Mac};
 use parking_lot::Mutex;
 use rand::{Rng, distr::Alphanumeric};
-use sha2::Sha256;
+// sha2 removed; using aws-lc-rs digest/HMAC
 use std::{
     collections::{HashSet, VecDeque},
     time::{SystemTime, UNIX_EPOCH},
@@ -14,28 +53,47 @@ use crate::{
     traits::{TokenProvider, Verifier},
 };
 
-type HmacSha256 = Hmac<Sha256>;
+// Removed HmacSha256 alias; using aws-lc-rs hmac::Key + sign (HMAC-SHA256)
 
 /// Minimum length (in bytes) required for the shared secret.
 /// 32 bytes (~256 bits) is a reasonable baseline for HMAC-SHA256.
 const MIN_SECRET_LEN: usize = 32;
-/// Nonce length (raw bytes) before base64url encoding.
+/// Nonce length (raw bytes) before base64url encoding. Random bytes are
+/// base64url (no padding) encoded producing a larger textual representation.
+/// Length chosen to keep collision probability negligible within a validity window.
 const NONCE_LEN: usize = 12;
 
 /// Default validity window (in seconds) for tokens.
 const DEFAULT_VALIDITY_WINDOW: u64 = 300; // 5 minutes
-/// Default clock skew allowance (in seconds) for minor time drift.
+/// Default clock skew allowance (in seconds) for minor time drift between systems.
 const DEFAULT_CLOCK_SKEW: u64 = 5;
-/// Maximum replay cache size to avoid unbounded memory growth.
+/// Maximum replay cache size to avoid unbounded memory growth. When capacity
+/// is reached the oldest (by insertion order) non-expired entries are evicted.
 const DEFAULT_REPLAY_CACHE_MAX: usize = 4096;
 
-/// Internal representation of a replay entry (stores nonce + timestamp).
+/// Internal representation of a replay entry (nonce + issued timestamp).
+/// Stored in both a `HashSet` (O(1) containment test) and `VecDeque` (FIFO
+/// eviction / expiration scanning).
 #[derive(Debug, PartialEq, Eq, Hash)]
 struct ReplayEntry {
     nonce: String,
     timestamp: u64,
 }
 
+/// Shared secret token issuer / verifier.
+///
+/// Fields:
+/// * `base_id` – caller provided stable identifier.
+/// * `id` – `base_id` plus random suffix (unique per construction).
+/// * `shared_secret` – keying material for HMAC (must meet `MIN_SECRET_LEN`).
+/// * `validity_window` – token lifetime from issuance.
+/// * `clock_skew` – tolerated forward drift when timestamp > current time.
+/// * `replay_cache` – in-memory (nonce, timestamp) store for replay protection.
+///
+/// Cross‑instance verification: only `shared_secret` is required; differing
+/// randomized `id` suffixes do not prevent verification.
+///
+/// Cloning behavior: replay cache is reset (not shared) to keep clones isolated.
 #[derive(Debug)]
 pub struct SharedSecret {
     base_id: String,
@@ -67,6 +125,7 @@ struct ReplayCache {
 }
 
 impl ReplayCache {
+    /// Create a new replay cache with a bounded capacity.
     fn new(max_size: usize) -> Self {
         Self {
             entries: HashSet::with_capacity(max_size),
@@ -75,6 +134,14 @@ impl ReplayCache {
         }
     }
 
+    /// Insert a new (nonce, timestamp) pair.
+    ///
+    /// Steps:
+    /// 1. Expire old entries (age > `validity_window`).
+    /// 2. Detect replay if identical entry already present.
+    /// 3. Evict oldest if at capacity.
+    ///
+    /// Returns `Err(AuthError::TokenInvalid)` on replay detection.
     fn insert(
         &mut self,
         entry: ReplayEntry,
@@ -98,10 +165,10 @@ impl ReplayCache {
         }
 
         // Evict oldest if over capacity
-        if self.entries.len() >= self.max_size {
-            if let Some(front) = self.order.pop_front() {
-                self.entries.remove(&front);
-            }
+        if self.entries.len() >= self.max_size
+            && let Some(front) = self.order.pop_front()
+        {
+            self.entries.remove(&front);
         }
 
         let entry_for_set = ReplayEntry {
@@ -115,6 +182,16 @@ impl ReplayCache {
 }
 
 impl SharedSecret {
+    /// Construct a new `SharedSecret`.
+    ///
+    /// Validates:
+    /// * `id` format (non-empty, no colon, no whitespace).
+    /// * `shared_secret` length (>= `MIN_SECRET_LEN`).
+    ///
+    /// Generates a randomized `id` by appending 8 URL-safe alphanumeric chars
+    /// to the provided `id`. This uniqueness reduces accidental collisions
+    /// when multiple issuers run concurrently while keeping verification
+    /// simple (only the secret matters).
     pub fn new(id: &str, shared_secret: &str) -> Self {
         // Validate inputs
         Self::validate_id(id).expect("invalid id");
@@ -139,6 +216,13 @@ impl SharedSecret {
         }
     }
 
+    /// Set a custom validity window for newly issued tokens.
+    ///
+    /// The validity window bounds how long (in seconds) a token is accepted
+    /// relative to its issuance timestamp (`iat`). After `iat + validity_window`
+    /// passes, tokens are rejected as expired (even if their nonce was never
+    /// replayed). Returns a new `SharedSecret` with the same secret and id, and
+    /// a fresh replay cache.
     pub fn with_validity_window(self, window: std::time::Duration) -> Self {
         Self {
             validity_window: window,
@@ -146,6 +230,11 @@ impl SharedSecret {
         }
     }
 
+    /// Adjust tolerated forward clock skew.
+    ///
+    /// If an incoming token's timestamp is in the future but within `clock_skew`,
+    /// it is still accepted. This compensates for minor system time drift.
+    /// Returns a new `SharedSecret` with updated skew and a fresh replay cache.
     pub fn with_clock_skew(self, skew: std::time::Duration) -> Self {
         Self {
             clock_skew: skew,
@@ -153,6 +242,12 @@ impl SharedSecret {
         }
     }
 
+    /// Set a new maximum capacity for the replay cache.
+    ///
+    /// When capacity is reached, oldest (by insertion order) entries are evicted
+    /// after expired entries are first purged. Reducing capacity may increase
+    /// the chance an old nonce is evicted earlier, but never weakens replay
+    /// protection for valid-window tokens already present.
     pub fn with_replay_cache_max(self, max_size: usize) -> Self {
         Self {
             replay_cache: Mutex::new(ReplayCache::new(max_size)),
@@ -160,16 +255,26 @@ impl SharedSecret {
         }
     }
 
+    /// Returns the randomized unique identifier (`base_id` + suffix) for this instance.
     pub fn id(&self) -> &str {
         &self.id
     }
+
+    /// Returns the original caller-supplied base identifier (without the random suffix).
     pub fn base_id(&self) -> &str {
         &self.base_id
     }
+
+    /// Returns the underlying shared secret string used for HMAC derivation.
+    /// Avoid exposing or logging this value in production.
     pub fn shared_secret(&self) -> &str {
         &self.shared_secret
     }
 
+    /// Validate formatting constraints on an identifier:
+    /// * non-empty
+    /// * must not contain ':' (used as delimiter)
+    /// * must not contain any whitespace
     fn validate_id(id: &str) -> Result<(), AuthError> {
         if id.is_empty() {
             return Err(AuthError::TokenInvalid("id is empty".to_string()));
@@ -185,6 +290,8 @@ impl SharedSecret {
         Ok(())
     }
 
+    /// Ensure secret meets minimum length requirements for HMAC-SHA256.
+    /// Strength derives from entropy; short secrets are rejected.
     fn validate_secret(secret: &str) -> Result<(), AuthError> {
         if secret.len() < MIN_SECRET_LEN {
             return Err(AuthError::TokenInvalid(format!(
@@ -195,6 +302,8 @@ impl SharedSecret {
         Ok(())
     }
 
+    /// Get the current UNIX epoch time in whole seconds.
+    /// Falls back to 0 if system time is before the epoch (practically unreachable).
     fn get_current_timestamp(&self) -> u64 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -202,37 +311,52 @@ impl SharedSecret {
             .as_secs()
     }
 
+    /// Produce a raw HMAC-SHA256 tag over `message` bytes.
+    /// Returns the 32-byte digest as a vector.
     fn create_hmac_raw(&self, message: &[u8]) -> Result<Vec<u8>, AuthError> {
-        let mut mac = HmacSha256::new_from_slice(self.shared_secret.as_bytes())
-            .map_err(|_| AuthError::TokenInvalid("invalid secret key".to_string()))?;
-        mac.update(message);
-        Ok(mac.finalize().into_bytes().to_vec())
+        // aws-lc-rs HMAC-SHA256; create key then sign
+        let key = hmac::Key::new(hmac::HMAC_SHA256, self.shared_secret.as_bytes());
+        let tag = hmac::sign(&key, message);
+        Ok(tag.as_ref().to_vec())
     }
 
+    /// Convenience wrapper: create a raw HMAC over `message` then encode using
+    /// base64url (no padding) for token embedding.
     fn create_hmac_b64(&self, message: &str) -> Result<String, AuthError> {
         let raw = self.create_hmac_raw(message.as_bytes())?;
         Ok(URL_SAFE_NO_PAD.encode(raw))
     }
 
+    /// Verify that `expected_b64` (base64url) is a valid HMAC-SHA256 of `message`.
+    /// Performs constant-time comparison via `aws-lc-rs`.
     fn verify_hmac(&self, message: &str, expected_b64: &str) -> Result<(), AuthError> {
+        // Decode expected HMAC from base64url
         let expected = URL_SAFE_NO_PAD
             .decode(expected_b64.as_bytes())
             .map_err(|_| AuthError::TokenInvalid("invalid mac encoding".to_string()))?;
 
-        let mut mac = HmacSha256::new_from_slice(self.shared_secret.as_bytes())
-            .map_err(|_| AuthError::TokenInvalid("invalid secret key".to_string()))?;
+        // Enforce exact tag length for HMAC-SHA256
+        if expected.len() != 32 {
+            return Err(AuthError::TokenInvalid(
+                "hmac verification failed".to_string(),
+            ));
+        }
 
-        mac.update(message.as_bytes());
-
-        mac.verify_slice(&expected)
+        // Verify HMAC using aws-lc-rs
+        let key = hmac::Key::new(hmac::HMAC_SHA256, self.shared_secret.as_bytes());
+        hmac::verify(&key, message.as_bytes(), &expected)
             .map_err(|_| AuthError::TokenInvalid("hmac verification failed".to_string()))
     }
 
+    /// Assemble the canonical string to be MACed: `id:timestamp:nonce`.
+    /// Order must remain stable between generation and verification.
     fn build_message(&self, id: &str, timestamp: u64, nonce: &str) -> String {
         // Message components included in MAC
         format!("{}:{}:{}", id, timestamp, nonce)
     }
 
+    /// Generate a fresh random nonce (`NONCE_LEN` bytes) encoded as base64url
+    /// (no padding). Collision probability within a validity window is negligible.
     fn gen_nonce(&self) -> String {
         let mut bytes = [0u8; NONCE_LEN];
         rand::rng().fill(&mut bytes);
@@ -240,20 +364,32 @@ impl SharedSecret {
     }
 
     /// Parse token (id, ts, nonce, mac)
+    /// Split and parse a serialized token into (id, timestamp, nonce, mac_b64).
+    /// Validates part count and timestamp numeric format.
     fn parse_token(&self, token: &str) -> Result<(String, u64, String, String), AuthError> {
+        // Split token into components
         let parts: Vec<&str> = token.split(':').collect();
+
+        // Expect exactly 4 parts
         if parts.len() != 4 {
             return Err(AuthError::TokenInvalid("invalid token format".to_string()));
         }
+
+        // Extract components
         let id = parts[0].to_string();
         let ts = parts[1]
             .parse::<u64>()
             .map_err(|_| AuthError::TokenInvalid("invalid timestamp".to_string()))?;
         let nonce = parts[2].to_string();
         let mac = parts[3].to_string();
+
+        // Return parsed components
         Ok((id, ts, nonce, mac))
     }
 
+    /// Enforce temporal validity:
+    /// * If `ts > now` ensure forward drift <= `clock_skew`.
+    /// * Else ensure age <= `validity_window`.
     fn validate_timestamp(&self, now: u64, ts: u64) -> Result<(), AuthError> {
         if ts > now {
             let diff = ts - now;
@@ -271,6 +407,8 @@ impl SharedSecret {
         Ok(())
     }
 
+    /// Insert (nonce, timestamp) into the replay cache; detects replays for
+    /// tokens still within their validity window.
     fn record_replay(&self, nonce: &str, ts: u64, now: u64) -> Result<(), AuthError> {
         let entry = ReplayEntry {
             nonce: nonce.to_string(),
@@ -283,20 +421,28 @@ impl SharedSecret {
 }
 
 impl TokenProvider for SharedSecret {
+    /// Issue a new token of the form `id:iat:nonce:mac`.
+    /// `iat` is the current UNIX timestamp. Fails only if the secret is empty.
     fn get_token(&self) -> Result<String, AuthError> {
         if self.shared_secret.is_empty() {
             return Err(AuthError::TokenInvalid(
                 "shared_secret is empty".to_string(),
             ));
         }
+
+        // get current timestamp and generate nonce
         let ts = self.get_current_timestamp();
         let nonce = self.gen_nonce();
+
+        // build message and create HMAC
         let message = self.build_message(self.id(), ts, &nonce);
         let mac = self.create_hmac_b64(&message)?;
+
         // Format: id:timestamp:nonce:mac
         Ok(format!("{}:{}:{}:{}", self.id(), ts, nonce, mac))
     }
 
+    /// Return the randomized unique id as an owned `String`.
     fn get_id(&self) -> Result<String, AuthError> {
         Ok(self.id.clone())
     }
@@ -304,10 +450,24 @@ impl TokenProvider for SharedSecret {
 
 #[async_trait::async_trait]
 impl Verifier for SharedSecret {
+    /// Asynchronously verify a token.
+    ///
+    /// This is a thin async wrapper over `try_verify` to satisfy the `Verifier` trait's
+    /// async interface. It performs:
+    /// 1. Parsing (id, timestamp, nonce, mac)
+    /// 2. Timestamp validation (skew / expiration)
+    /// 3. HMAC verification
+    /// 4. Replay detection (nonce + timestamp)
     async fn verify(&self, token: impl Into<String> + Send) -> Result<(), AuthError> {
         self.try_verify(token)
     }
 
+    /// Synchronously verify a token (core verification path).
+    ///
+    /// Use this when you do not need an async context. Returns:
+    /// * `Ok(())` if the token is structurally valid, unexpired (within validity window),
+    ///   within allowed forward skew, has correct HMAC, and nonce not previously seen.
+    /// * `Err(AuthError::TokenInvalid(_))` describing the first failure encountered.
     fn try_verify(&self, token: impl Into<String>) -> Result<(), AuthError> {
         // Convert the token to String
         let token = token.into();
@@ -327,10 +487,19 @@ impl Verifier for SharedSecret {
         let message = self.build_message(&token_id, ts, &nonce);
         self.verify_hmac(&message, &mac_b64)?;
 
-        // Step 5: Check and record replas
+        // Step 5: Check and record replays
         self.record_replay(&nonce, ts, now)
     }
 
+    /// Asynchronously verify a token and deserialize synthetic claims.
+    ///
+    /// The claims structure contains:
+    /// * `id`  – token's id component
+    /// * `iat` – issuance timestamp (token timestamp)
+    /// * `exp` – computed expiration (`iat + validity_window`)
+    ///
+    /// Claims are constructed after successful verification; a failure in
+    /// deserialization maps to `AuthError::TokenInvalid("claims parse error")`.
     async fn get_claims<Claims>(&self, token: impl Into<String> + Send) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned + Send,
@@ -338,6 +507,14 @@ impl Verifier for SharedSecret {
         self.try_get_claims(token)
     }
 
+    /// Synchronously verify a token and return its synthetic claims.
+    ///
+    /// This calls `try_verify` first; if verification succeeds, it builds a JSON
+    /// object with `id`, `iat`, and `exp` (derived from the validity window) and
+    /// deserializes it into the requested `Claims` type.
+    ///
+    /// Any deserialization failure is treated as an invalid token to avoid partial
+    /// trust scenarios.
     fn try_get_claims<Claims>(&self, token: impl Into<String>) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned + Send,
@@ -608,8 +785,7 @@ mod tests {
 
     #[test]
     fn test_replay_cache_capacity() {
-        let s = SharedSecret::new("svc", &valid_secret())
-            .with_replay_cache_max(2);
+        let s = SharedSecret::new("svc", &valid_secret()).with_replay_cache_max(2);
         let t1 = s.get_token().unwrap();
         std::thread::sleep(std::time::Duration::from_millis(10));
         let t2 = s.get_token().unwrap();

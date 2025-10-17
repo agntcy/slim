@@ -12,6 +12,7 @@ establish sessions, publish messages, or perform connection logic.
 import asyncio
 
 import pytest_asyncio
+from common import create_svc
 
 import slim_bindings
 
@@ -49,16 +50,7 @@ async def server(request):
     local_service = endpoint is not None
 
     name = slim_bindings.PyName("agntcy", "default", "server")
-    provider = slim_bindings.PyIdentityProvider.SharedSecret(
-        identity="server", shared_secret="secret"
-    )
-    verifier = slim_bindings.PyIdentityVerifier.SharedSecret(
-        identity="server", shared_secret="secret"
-    )
-
-    svc_server = await slim_bindings._slim_bindings.create_pyapp(
-        name, provider, verifier, local_service=local_service
-    )
+    svc_server = await create_svc(name, local_service=local_service)
 
     # init tracing
     await slim_bindings.init_tracing({"log_level": "info"})

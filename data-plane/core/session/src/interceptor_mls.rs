@@ -167,6 +167,7 @@ where
 mod tests {
     use super::*;
     use slim_auth::shared_secret::SharedSecret;
+    use slim_auth::testutils::TEST_VALID_SECRET;
     use std::sync::Arc;
 
     #[tokio::test]
@@ -175,8 +176,8 @@ mod tests {
             slim_datapath::messages::Name::from_strings(["org", "default", "test_user"]).with_id(0);
         let mut mls = Mls::new(
             name,
-            SharedSecret::new("test", "group"),
-            SharedSecret::new("test", "group"),
+            SharedSecret::new("test", TEST_VALID_SECRET),
+            SharedSecret::new("test", TEST_VALID_SECRET),
             std::path::PathBuf::from("/tmp/mls_interceptor_test_without_group"),
         );
         mls.initialize().unwrap();
@@ -210,14 +211,14 @@ mod tests {
 
         let mut alice_mls = Mls::new(
             alice,
-            SharedSecret::new("alice", "group"),
-            SharedSecret::new("alice", "group"),
+            SharedSecret::new("alice", TEST_VALID_SECRET),
+            SharedSecret::new("alice", TEST_VALID_SECRET),
             std::path::PathBuf::from("/tmp/mls_interceptor_test_alice"),
         );
         let mut bob_mls = Mls::new(
             bob,
-            SharedSecret::new("bob", "group"),
-            SharedSecret::new("bob", "group"),
+            SharedSecret::new("bob", TEST_VALID_SECRET),
+            SharedSecret::new("bob", TEST_VALID_SECRET),
             std::path::PathBuf::from("/tmp/mls_interceptor_test_bob"),
         );
 
@@ -271,8 +272,8 @@ mod tests {
             slim_datapath::messages::Name::from_strings(["org", "default", "test_user"]).with_id(0);
         let mut mls = Mls::new(
             name,
-            SharedSecret::new("test", "group"),
-            SharedSecret::new("test", "group"),
+            SharedSecret::new("test", TEST_VALID_SECRET),
+            SharedSecret::new("test", TEST_VALID_SECRET),
             std::path::PathBuf::from("/tmp/mls_interceptor_test_non_encrypted"),
         );
         mls.initialize().unwrap();

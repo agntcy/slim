@@ -36,17 +36,17 @@ impl Eq for Name {}
 
 impl std::fmt::Display for Name {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{:x}/{:x}/{:x}/{:x}",
-            self.components[0], self.components[1], self.components[2], self.components[3]
-        )?;
-
         if let Some(strings) = &self.strings {
             write!(
                 f,
-                " ({}/{}/{}/{:x})",
+                "{}/{}/{}/{:x}",
                 strings[0], strings[1], strings[2], self.components[3]
+            )?;
+        } else {
+            write!(
+                f,
+                "{:x}/{:x}/{:x}/{:x}",
+                self.components[0], self.components[1], self.components[2], self.components[3]
             )?;
         }
 
