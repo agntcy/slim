@@ -837,7 +837,7 @@ impl ApplicationPayload {
         }
     }
 
-    pub fn as_contet(&self) -> Content {
+    pub fn as_content(&self) -> Content {
         Content {
             content_type: Some(ContentType::AppPayload(self.clone())),
         }
@@ -1096,7 +1096,8 @@ mod tests {
         flags: Option<SlimHeaderFlags>,
     ) {
         let content = Some(
-            ApplicationPayload::new("str", "this is the content of the message".into()).as_contet(),
+            ApplicationPayload::new("str", "this is the content of the message".into())
+                .as_content(),
         );
 
         let pub_msg = ProtoMessage::new_publish(&source, &dst, identity, flags.clone(), content);
@@ -1309,7 +1310,8 @@ mod tests {
 
         // ProtoMessage to ProtoPublish
         let content = Some(
-            ApplicationPayload::new("str", "this is the content of the message".into()).as_contet(),
+            ApplicationPayload::new("str", "this is the content of the message".into())
+                .as_content(),
         );
 
         let proto_publish = ProtoMessage::new_publish(

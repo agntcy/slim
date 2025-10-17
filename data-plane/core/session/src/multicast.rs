@@ -17,8 +17,8 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     Status,
     api::{
-        ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType, SessionHeader,
-        SlimHeader,
+        ApplicationPayload, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType,
+        SessionHeader, SlimHeader,
     },
     messages::{Name, utils::SlimHeaderFlags},
 };
@@ -175,39 +175,9 @@ impl timer::TimerObserver for RtxTimerObserver {
     }
 }
 
-struct ProducerTimerObserver {
-    channel: mpsc::Sender<Result<(), Status>>,
-}
-
-#[async_trait]
-impl timer::TimerObserver for ProducerTimerObserver {
-    async fn on_timeout(&self, _timer_id: u32, timeouts: u32) {
-        trace!(
-            "timeout number {} for producer timer, send beacon",
-            timeouts
-        );
-
-        // notify the process loop
-        if self.channel.send(Ok(())).await.is_err() {
-            error!("error notifying the process loop - producer timer");
-        }
-    }
-
-    async fn on_failure(&self, _timer_id: u32, _timeouts: u32) {
-        panic!("received on failure event on producer timer",);
-    }
-
-    async fn on_stop(&self, _timer_id: u32) {
-        trace!("producer timer cancelled");
-        // nothing to do
-    }
-}
-
 struct ProducerState {
     buffer: ProducerBuffer,
     next_id: u32,
-    timer_observer: Arc<ProducerTimerObserver>,
-    timer: timer::Timer,
 }
 
 struct Receiver {
@@ -287,20 +257,9 @@ where
         };
 
         let (rtx_timer_tx, mut rtx_timer_rx) = mpsc::channel(128);
-        let (prod_timer_tx, mut prod_timer_rx) = mpsc::channel(128);
 
         let mut producer = ProducerState {
             buffer: ProducerBuffer::with_capacity(500),
-            timer_observer: Arc::new(ProducerTimerObserver {
-                channel: prod_timer_tx,
-            }),
-            timer: timer::Timer::new(
-                1,
-                timer::TimerType::Exponential,
-                Duration::from_millis(500),
-                Some(Duration::from_secs(30)),
-                None,
-            ),
             next_id: 0,
         };
 
@@ -309,7 +268,6 @@ where
         };
 
         let mut rtx_timer_rx_closed = false;
-        let mut prod_timer_rx_closed = false;
 
         // get session config
         let session_config = match self.common.session_config() {
@@ -324,6 +282,13 @@ where
         let tx = self.common.tx();
         let source = self.common.source().clone();
         let id = self.common.id();
+        let identity = match self.common.identity_provider().get_token() {
+            Ok(token) => token,
+            Err(_) => {
+                error!("Failed to get token for session {}", session_id);
+                return;
+            }
+        };
         tokio::spawn(async move {
             debug!("starting message processing on session {}", session_id);
 
@@ -347,8 +312,9 @@ where
                     let cm = ChannelModerator::new(
                         source.clone(),
                         session_config.channel_name.clone(),
+                        &identity,
                         id,
-                        ProtoSessionType::SessionMulticast,
+                        ProtoSessionType::Multicast,
                         60,
                         Duration::from_secs(1),
                         mls,
@@ -362,8 +328,9 @@ where
                     let cp = ChannelParticipant::new(
                         source.clone(),
                         session_config.channel_name.clone(),
+                        &identity,
                         id,
-                        ProtoSessionType::SessionMulticast,
+                        ProtoSessionType::Multicast,
                         60,
                         Duration::from_secs(1),
                         mls,
@@ -392,7 +359,7 @@ where
 
                                 // process the messages for the channel endpoint first
                                 match msg.get_session_header().session_message_type() {
-                                    ProtoSessionMessageType::ChannelLeaveReply => {
+                                    ProtoSessionMessageType::LeaveReply => {
                                         // we need to remove the partipicant that was removed from the channel
                                         // also in the list of receiver buffers. the name to search is the
                                         // surce of the ChannelLeaveReply message
@@ -408,15 +375,15 @@ where
                                         }
                                         continue;
                                     }
-                                    ProtoSessionMessageType::ChannelDiscoveryRequest |
-                                    ProtoSessionMessageType::ChannelDiscoveryReply |
-                                    ProtoSessionMessageType::ChannelJoinRequest |
-                                    ProtoSessionMessageType::ChannelJoinReply |
-                                    ProtoSessionMessageType::ChannelLeaveRequest |
-                                    ProtoSessionMessageType::ChannelMlsWelcome |
-                                    ProtoSessionMessageType::ChannelMlsCommit |
-                                    ProtoSessionMessageType::ChannelMlsProposal |
-                                    ProtoSessionMessageType::ChannelMlsAck => {
+                                    ProtoSessionMessageType::DiscoveryRequest |
+                                    ProtoSessionMessageType::DiscoveryReply |
+                                    ProtoSessionMessageType::JoinRequest |
+                                    ProtoSessionMessageType::JoinReply |
+                                    ProtoSessionMessageType::LeaveRequest |
+                                    ProtoSessionMessageType::GroupWelcome |
+                                    ProtoSessionMessageType::GroupUpdate |
+                                    ProtoSessionMessageType::GroupProposal |
+                                    ProtoSessionMessageType::GroupAck => {
                                         match channel_endpoint.on_message(msg).await {
                                             Ok(_) => {},
                                             Err(e) => {
@@ -445,10 +412,10 @@ where
                                         match msg.get_session_header().session_message_type() {
                                             ProtoSessionMessageType::RtxRequest => {
                                                 // handle RTX request
-                                                process_incoming_rtx_request(msg, session_id, &producer, &source, &tx).await;
+                                                process_incoming_rtx_request(msg, &identity, session_id, &producer, &source, &tx).await;
                                             }
                                             _ => {
-                                                process_message_from_slim(msg, session_id, &mut receiver, &source, max_retries, timeout, &rtx_timer_tx, &tx).await;
+                                                process_message_from_slim(msg, &identity, session_id, &mut receiver, &source, max_retries, timeout, &rtx_timer_tx, &tx).await;
                                             }
                                         }
                                     }
@@ -484,27 +451,6 @@ where
                             }
                         }
                     }
-                    next_prod_timer = prod_timer_rx.recv(), if !prod_timer_rx_closed => {
-                        match next_prod_timer {
-                            None => {
-                                debug!("no more prod timers to process");
-                                // close the timer channel
-                                prod_timer_rx_closed = true;
-                            },
-                            Some(result) => match result {
-                                Ok(_) => {
-                                    let last_msg_id = producer.next_id - 1;
-                                    debug!("received producer timer, last packet = {}", last_msg_id);
-
-                                    send_beacon_msg(&source, producer.buffer.get_destination_name(), ProtoSessionMessageType::BeaconMulticast, last_msg_id, session_id, &tx).await;
-                                }
-                                Err(_) => {
-                                    error!("error receiving a producer timer, skip it");
-                                    continue;
-                                }
-                            },
-                        }
-                    }
                     () = &mut sleep, if mls_enable => {
                         let _ = channel_endpoint.update_mls_keys().await;
                         sleep.as_mut().reset(Instant::now() + Duration::from_secs(3600));
@@ -528,6 +474,7 @@ where
 
 async fn process_incoming_rtx_request<T>(
     msg: Message,
+    identity: &str,
     session_id: u32,
     producer: &ProducerState,
     source: &Name,
@@ -553,17 +500,10 @@ async fn process_incoming_rtx_request<T>(
             );
 
             // the packet exists, send it to the source of the RTX
-            let payload = match packet.get_payload() {
-                Some(p) => p,
-                None => {
-                    error!("unable to get the payload from the packet");
-                    return;
-                }
-            };
-
             let slim_header = Some(SlimHeader::new(
                 source,
                 &pkt_src,
+                identity,
                 Some(
                     SlimHeaderFlags::default()
                         .with_forward_to(incoming_conn)
@@ -572,19 +512,16 @@ async fn process_incoming_rtx_request<T>(
             ));
 
             let session_header = Some(SessionHeader::new(
-                ProtoSessionType::SessionMulticast.into(),
+                ProtoSessionType::Multicast.into(),
                 ProtoSessionMessageType::RtxReply.into(),
                 session_id,
                 msg_rtx_id,
-                &packet.get_session_header().get_source(),
-                &packet.get_session_header().get_destination(),
             ));
 
             Message::new_publish_with_headers(
                 slim_header,
                 session_header,
-                "",
-                payload.blob.to_vec(),
+                packet.get_payload().cloned(),
             )
         }
         None => {
@@ -598,19 +535,19 @@ async fn process_incoming_rtx_request<T>(
                 .with_forward_to(incoming_conn)
                 .with_error(true);
 
-            let slim_header = Some(SlimHeader::new(source, &pkt_src, Some(flags)));
+            let slim_header = Some(SlimHeader::new(source, &pkt_src, identity, Some(flags)));
 
             // no need to set source and destiona here
             let session_header = Some(SessionHeader::new(
-                ProtoSessionType::SessionMulticast.into(),
+                ProtoSessionType::Multicast.into(),
                 ProtoSessionMessageType::RtxReply.into(),
                 session_id,
                 msg_rtx_id,
-                &None,
-                &None,
             ));
 
-            Message::new_publish_with_headers(slim_header, session_header, "", vec![])
+            let payload = Some(ApplicationPayload::new("", vec![]).as_content());
+
+            Message::new_publish_with_headers(slim_header, session_header, payload)
         }
     };
 
@@ -626,7 +563,6 @@ where
 {
     debug!("flush producer buffer");
     // flush the prod buffer and check if at least one message was sent
-    let mut sent = false;
     for m in producer.buffer.iter() {
         if tx.send_to_slim(Ok(m.clone())).await.is_err() {
             error!(
@@ -639,12 +575,6 @@ where
             .await
             .expect("error notifying app");
         }
-        sent = true;
-    }
-
-    // set timer for these messages
-    if sent {
-        producer.timer.reset(producer.timer_observer.clone());
     }
 }
 
@@ -660,8 +590,8 @@ async fn process_message_from_app<T>(
     // set the session header, add the message to the buffer and send it
     trace!("received message from the app on session {}", session_id);
 
-    msg.set_session_type(ProtoSessionType::SessionMulticast);
-    msg.set_session_message_type(ProtoSessionMessageType::MulticastMsg);
+    msg.set_session_type(ProtoSessionType::Multicast);
+    msg.set_session_message_type(ProtoSessionMessageType::Msg);
     msg.get_session_header_mut().set_session_id(session_id);
 
     msg.set_message_id(producer.next_id);
@@ -693,15 +623,13 @@ async fn process_message_from_app<T>(
             .await
             .expect("error notifying app");
         }
-
-        // set timer for this message
-        producer.timer.reset(producer.timer_observer.clone());
     }
 }
 
 #[allow(clippy::too_many_arguments)]
 async fn process_message_from_slim<T>(
     msg: Message,
+    identity: &str,
     session_id: u32,
     receiver_state: &mut ReceiverState,
     source: &Name,
@@ -749,7 +677,7 @@ async fn process_message_from_slim<T>(
     let msg_id = msg.get_id();
 
     match header_type {
-        ProtoSessionMessageType::MulticastMsg => {
+        ProtoSessionMessageType::Msg => {
             (recv, rtx) = receiver.buffer.on_received_message(msg);
         }
         ProtoSessionMessageType::RtxReply => {
@@ -772,10 +700,6 @@ async fn process_message_from_slim<T>(
                     receiver.rtx_map.remove(&msg_id);
                 }
             }
-        }
-        ProtoSessionMessageType::BeaconMulticast => {
-            debug!("received multicast beacon for message {}", msg_id);
-            rtx = receiver.buffer.on_beacon_message(msg_id);
         }
         _ => {
             error!(
@@ -802,19 +726,19 @@ async fn process_message_from_slim<T>(
         let slim_header = Some(SlimHeader::new(
             source,
             &producer_name,
+            identity,
             Some(SlimHeaderFlags::default().with_forward_to(producer_conn)),
         ));
 
         let session_header = Some(SessionHeader::new(
-            ProtoSessionType::SessionMulticast.into(),
+            ProtoSessionType::Multicast.into(),
             ProtoSessionMessageType::RtxRequest.into(),
             session_id,
             r,
-            &None,
-            &None,
         ));
 
-        let rtx = Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
+        let payload = Some(ApplicationPayload::new("", vec![]).as_content());
+        let rtx = Message::new_publish_with_headers(slim_header, session_header, payload);
 
         // set state for RTX
         let timer = timer::Timer::new(
@@ -907,40 +831,6 @@ async fn handle_rtx_failure<T>(
     receiver.timers_map.remove(&msg_id);
 
     send_message_to_app(receiver.buffer.on_lost_message(msg_id), session_id, tx).await;
-}
-
-async fn send_beacon_msg<T>(
-    source: &Name,
-    topic: &Name,
-    beacon_type: ProtoSessionMessageType,
-    last_msg_id: u32,
-    session_id: u32,
-    tx: &T,
-) where
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
-    let slim_header = Some(SlimHeader::new(
-        source,
-        topic,
-        Some(SlimHeaderFlags::default().with_fanout(STREAM_BROADCAST)),
-    ));
-
-    let session_header = Some(SessionHeader::new(
-        ProtoSessionType::SessionMulticast.into(),
-        beacon_type.into(),
-        session_id,
-        last_msg_id,
-        &None,
-        &None,
-    ));
-
-    let msg = Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
-
-    trace!("beacon to send {:?}", msg);
-
-    if tx.send_to_slim(Ok(msg)).await.is_err() {
-        error!("error sending beacon msg to slim on session {}", session_id);
-    }
 }
 
 async fn send_message_to_app<T>(messages: Vec<Option<Message>>, session_id: u32, tx: &T)
@@ -1192,12 +1082,14 @@ mod tests {
             tx_session.clone(),
         );
 
+        let payload = Some(ApplicationPayload::new("msg", vec![0x1, 0x2, 0x3, 0x4]).as_content());
+
         let mut message = Message::new_publish(
             &send,
             &recv,
+            "a",
             Some(SlimHeaderFlags::default().with_incoming_conn(123)), // set a fake incoming conn, as it is required for the rtx
-            "msg",
-            vec![0x1, 0x2, 0x3, 0x4],
+            payload,
         );
 
         // set the session id in the message
@@ -1206,8 +1098,8 @@ mod tests {
 
         // set session header type for test check
         let mut expected_msg = message.clone();
-        expected_msg.set_session_message_type(ProtoSessionMessageType::MulticastMsg);
-        expected_msg.set_session_type(ProtoSessionType::SessionMulticast);
+        expected_msg.set_session_message_type(ProtoSessionMessageType::Msg);
+        expected_msg.set_session_type(ProtoSessionType::Multicast);
         expected_msg.set_fanout(STREAM_BROADCAST);
 
         // send a message from the sender app to the slim
@@ -1267,17 +1159,18 @@ mod tests {
             tx_session.clone(),
         );
 
+        let payload = Some(ApplicationPayload::new("msg", vec![0x1, 0x2, 0x3, 0x4]).as_content());
         let mut message = Message::new_publish(
             &sender,
             &receiver,
+            "a",
             Some(SlimHeaderFlags::default().with_incoming_conn(123)), // set a fake incoming conn, as it is required for the rtx
-            "msg",
-            vec![0x1, 0x2, 0x3, 0x4],
+            payload,
         );
 
         // set the session type
         let header = message.get_session_header_mut();
-        header.set_session_message_type(ProtoSessionMessageType::MulticastMsg);
+        header.set_session_message_type(ProtoSessionMessageType::Msg);
         header.set_session_id(0);
 
         let res = session
@@ -1355,8 +1248,8 @@ mod tests {
             tx_session.clone(),
         );
 
-        let mut message =
-            Message::new_publish(&sender, &receiver, None, "", vec![0x1, 0x2, 0x3, 0x4]);
+        let payload = Some(ApplicationPayload::new("", vec![0x1, 0x2, 0x3, 0x4]).as_content());
+        let mut message = Message::new_publish(&sender, &receiver, "a", None, payload);
 
         // set the session id in the message
         let header = message.get_session_header_mut();
@@ -1378,13 +1271,14 @@ mod tests {
             assert_eq!(msg_header.message_id, i);
             assert_eq!(
                 msg_header.session_message_type(),
-                ProtoSessionMessageType::MulticastMsg
+                ProtoSessionMessageType::Msg
             );
         }
 
         let slim_header = Some(SlimHeader::new(
             &sender,
             &receiver,
+            "a",
             Some(
                 SlimHeaderFlags::default()
                     .with_forward_to(0)
@@ -1393,16 +1287,15 @@ mod tests {
         ));
 
         let session_header = Some(SessionHeader::new(
-            ProtoSessionType::SessionMulticast.into(),
+            ProtoSessionType::Multicast.into(),
             ProtoSessionMessageType::RtxRequest.into(),
             1,
             2,
-            &None,
-            &None,
         ));
 
+        let payload = Some(ApplicationPayload::new("", vec![]).as_content());
         // receive an RTX for message 2
-        let rtx = Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
+        let rtx = Message::new_publish_with_headers(slim_header, session_header, payload);
 
         // send the RTX from the slim
         let res = session
@@ -1419,7 +1312,10 @@ mod tests {
             msg_header.session_message_type(),
             ProtoSessionMessageType::RtxReply
         );
-        assert_eq!(msg.get_payload().unwrap().blob, vec![0x1, 0x2, 0x3, 0x4]);
+        assert_eq!(
+            msg.get_payload().unwrap().as_application_payload().blob,
+            vec![0x1, 0x2, 0x3, 0x4]
+        );
     }
 
     #[tokio::test]
@@ -1487,12 +1383,13 @@ mod tests {
             tx_session.clone(),
         );
 
+        let payload = Some(ApplicationPayload::new("", vec![]).as_content());
         let mut message = Message::new_publish(
             &send,
             &recv,
+            "a",
             Some(SlimHeaderFlags::default().with_incoming_conn(0)),
-            "msg",
-            vec![0x1, 0x2, 0x3, 0x4],
+            payload,
         );
         message.set_incoming_conn(Some(0));
         message.get_session_header_mut().set_session_id(0);
@@ -1515,7 +1412,7 @@ mod tests {
             assert_eq!(msg_header.message_id, i);
             assert_eq!(
                 msg_header.session_message_type(),
-                ProtoSessionMessageType::MulticastMsg
+                ProtoSessionMessageType::Msg
             );
 
             // the receiver should detect a loss for packet 1
@@ -1537,7 +1434,7 @@ mod tests {
         assert_eq!(msg_header.message_id, 0);
         assert_eq!(
             msg_header.session_message_type(),
-            ProtoSessionMessageType::MulticastMsg
+            ProtoSessionMessageType::Msg
         );
         assert_eq!(
             msg.get_source(),
@@ -1641,7 +1538,7 @@ mod tests {
         assert_eq!(msg_header.message_id, 2);
         assert_eq!(
             msg_header.session_message_type(),
-            ProtoSessionMessageType::MulticastMsg
+            ProtoSessionMessageType::Msg
         );
         assert_eq!(
             msg.get_source(),

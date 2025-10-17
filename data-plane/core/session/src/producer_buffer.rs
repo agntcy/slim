@@ -149,7 +149,7 @@ mod tests {
             4,
         );
 
-        let payload = Some(ApplicationPayload::new("", vec![]).as_contet());
+        let payload = Some(ApplicationPayload::new("", vec![]).as_content());
         let p0 =
             Message::new_publish_with_headers(Some(slim_header.clone()), Some(h0), payload.clone());
         let p1 =
@@ -227,7 +227,7 @@ mod tests {
             0,
             0,
         );
-        let payload = Some(ApplicationPayload::new("", vec![]).as_contet());
+        let payload = Some(ApplicationPayload::new("", vec![]).as_content());
         let mut p = Message::new_publish_with_headers(Some(slim_header), Some(h), payload);
 
         let mut b = ProducerBuffer::with_capacity(30);

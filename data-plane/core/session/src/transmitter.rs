@@ -244,7 +244,8 @@ mod tests {
         let identity = source.to_string();
         let dst = Name::from_strings(["d", "e", "f"]).with_id(0);
         // Signature: (&Name, &Name, Option<SlimHeaderFlags>, &str, Vec<u8>)
-        let payload = Some(ApplicationPayload::new("application/octet-stream", vec![]).as_contet());
+        let payload =
+            Some(ApplicationPayload::new("application/octet-stream", vec![]).as_content());
         Message::new_publish(&source, &dst, &identity, None, payload)
     }
 

@@ -604,7 +604,7 @@ where
         let slim_header = Some(SlimHeader::new(
             &self.name,
             destination,
-            self.identity.clone(),
+            &self.identity,
             flags,
         ));
 
@@ -632,12 +632,8 @@ where
 
         // subscribe for the channel
         let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn.unwrap()));
-        let mut sub = Message::new_subscribe(
-            &self.name,
-            &self.channel_name,
-            self.identity.clone(),
-            header,
-        );
+        let mut sub =
+            Message::new_subscribe(&self.name, &self.channel_name, &self.identity, header);
 
         // add in the metadata to indication that the
         // subscription is associated to a channel
@@ -657,7 +653,7 @@ where
         let msg = Message::new_subscribe(
             &self.name,
             route_name,
-            self.identity.clone(),
+            &self.identity,
             Some(SlimHeaderFlags::default().with_recv_from(self.conn.unwrap())),
         );
 
@@ -669,7 +665,7 @@ where
         let msg = Message::new_unsubscribe(
             &self.name,
             route_name,
-            self.identity,
+            &self.identity,
             Some(SlimHeaderFlags::default().with_recv_from(self.conn.unwrap())),
         );
 
@@ -679,12 +675,8 @@ where
     async fn leave(&self) -> Result<(), SessionError> {
         // unsubscribe for the channel
         let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn.unwrap()));
-        let mut unsub = Message::new_unsubscribe(
-            &self.name,
-            &self.channel_name,
-            self.identity.clone(),
-            header,
-        );
+        let mut unsub =
+            Message::new_unsubscribe(&self.name, &self.channel_name, &self.identity, header);
 
         // add in the metadata to indication that the
         // subscription is associated to a channel
@@ -704,6 +696,7 @@ where
 pub fn handle_channel_discovery_message(
     message: &Message,
     app_name: &Name,
+    identity: &str,
     session_id: Id,
     session_type: ProtoSessionType,
 ) -> Message {
@@ -721,7 +714,7 @@ pub fn handle_channel_discovery_message(
     let slim_header = Some(SlimHeader::new(
         &source,
         &destination,
-        self.identity,
+        identity,
         Some(SlimHeaderFlags::default().with_forward_to(message.get_incoming_conn())),
     ));
 
@@ -770,6 +763,7 @@ where
     pub fn new(
         name: Name,
         channel_name: Name,
+        identity: &str,
         session_id: Id,
         session_type: ProtoSessionType,
         max_retries: u32,
@@ -786,23 +780,16 @@ where
             max_retries,
             retries_interval,
             tx,
-            "".to_string(),
+            identity.to_string(),
             session_metadata,
         );
 
-        let cp = ChannelParticipant {
+        ChannelParticipant {
             moderator_name: None,
             timer: None,
             endpoint,
             mls_state: mls,
         };
-
-        cp.endpoint.identity = cp
-            .provider
-            .get_token()
-            .map_err(|e| SessionError::IdentityPushError(e.to_string()))?;
-
-        cp
     }
 
     async fn on_join_request(&mut self, msg: Message) -> Result<(), SessionError> {
@@ -1205,6 +1192,7 @@ where
     pub fn new(
         name: Name,
         channel_name: Name,
+        identity: &str,
         session_id: Id,
         session_type: ProtoSessionType,
         max_retries: u32,
@@ -1220,7 +1208,7 @@ where
 
         let mls_state = mls.map(MlsModeratorState::new);
 
-        let mut endpoint = Endpoint::new(
+        let endpoint = Endpoint::new(
             name,
             channel_name,
             session_id,
@@ -1228,10 +1216,10 @@ where
             max_retries,
             retries_interval,
             tx,
-            "".to_string(),
+            identity.to_string(),
             session_metadata,
         );
-        let cm = ChannelModerator {
+        ChannelModerator {
             endpoint,
             tasks_todo: vec![].into(),
             current_task: None,
@@ -1242,13 +1230,6 @@ where
             tx_session,
             closing: false,
         };
-
-        cm.endpoint.identity = cp
-            .provider
-            .get_token()
-            .map_err(|e| SessionError::IdentityPushError(e.to_string()))?;
-
-        cm
     }
 
     pub async fn join(&mut self) -> Result<(), SessionError> {
@@ -1283,7 +1264,7 @@ where
             self.endpoint.set_route(&dst).await?;
 
             let new_slim_header =
-                SlimHeader::new(&self.endpoint.name, &dst, self.endpoint.identity, None);
+                SlimHeader::new(&self.endpoint.name, &dst, &self.endpoint.identity, None);
 
             let new_session_header = SessionHeader::new(
                 ProtoSessionType::Multicast.into(),
@@ -1868,7 +1849,7 @@ where
             let dst = dst.with_id(id);
 
             let new_slim_header =
-                SlimHeader::new(&self.endpoint.name, &dst, self.endpoint.identity, None);
+                SlimHeader::new(&self.endpoint.name, &dst, &self.endpoint.identity, None);
 
             let new_session_header = SessionHeader::new(
                 ProtoSessionType::Multicast.into(),
@@ -2309,7 +2290,7 @@ mod tests {
 
         let moderator = Name::from_strings(["org", "default", "moderator"]).with_id(12345);
         let participant = Name::from_strings(["org", "default", "participant"]).with_id(5120);
-        let moderator_id = moderator.to_string();
+        let moderator_id = &moderator.to_string();
         let channel_name = Name::from_strings(["channel", "channel", "channel"]);
         let conn = 1;
 
@@ -2332,8 +2313,9 @@ mod tests {
         let mut cm = ChannelModerator::new(
             moderator.clone(),
             channel_name.clone(),
+            "modeator",
             SESSION_ID,
-            ProtoSessionType::SessionUnknown,
+            ProtoSessionType::Unspecified,
             3,
             Duration::from_millis(100),
             Some(moderator_mls),
@@ -2344,8 +2326,9 @@ mod tests {
         let mut cp = ChannelParticipant::new(
             participant.clone(),
             channel_name.clone(),
+            "participant",
             SESSION_ID,
-            ProtoSessionType::SessionUnknown,
+            ProtoSessionType::Unspecified,
             3,
             Duration::from_millis(100),
             Some(participant_mls),
@@ -2364,13 +2347,14 @@ mod tests {
         ));
 
         let session_header = Some(SessionHeader::new(
-            ProtoSessionType::SessionUnknown.into(),
-            ProtoSessionMessageType::ChannelDiscoveryRequest.into(),
+            ProtoSessionType::Unspecified.into(),
+            ProtoSessionMessageType::DiscoveryRequest.into(),
             SESSION_ID,
             rand::random::<u32>(),
         ));
 
-        let payload = Some(CommandPayload::new_discovery_request_payload(moderator).as_content());
+        let payload =
+            Some(CommandPayload::new_discovery_request_payload(Some(moderator)).as_content());
         let request = Message::new_publish_with_headers(slim_header, session_header, payload);
 
         // receive the request at the session layer
@@ -2394,13 +2378,13 @@ mod tests {
         ));
 
         let session_header = Some(SessionHeader::new(
-            ProtoSessionType::SessionUnknown.into(),
-            ProtoSessionMessageType::ChannelDiscoveryReply.into(),
+            ProtoSessionType::Unspecified.into(),
+            ProtoSessionMessageType::DiscoveryReply.into(),
             session_id,
             msg_id,
         ));
 
-        let payload = Some(CommandPayload::new_discovery_replay_payload().as_content());
+        let payload = Some(CommandPayload::new_discovery_reply_payload().as_content());
         let mut msg = Message::new_publish_with_headers(slim_header, session_header, payload);
 
         // message reception on moderator side
@@ -2423,16 +2407,22 @@ mod tests {
         assert_eq!(msg, sub);
 
         // create a request to compare with the output of on_message
-        let jp = JoinMessagePayload {
-            channel_name: channel_name.clone(),
-            moderator_name: moderator.clone(),
-        };
+        let payload = Some(
+            CommandPayload::new_join_request_payload(
+                true,
+                true,
+                true,
+                Some(5),
+                Some(Duration::from_secs(5)),
+                Some(channel_name),
+            )
+            .as_content(),
+        );
 
-        let payload: Vec<u8> = bincode::encode_to_vec(&jp, bincode::config::standard()).unwrap();
         let mut request = cm.endpoint.create_channel_message(
             &participant,
             false,
-            ProtoSessionMessageType::ChannelJoinRequest,
+            ProtoSessionMessageType::JoinRequest,
             0,
             payload,
         );
@@ -2454,13 +2444,14 @@ mod tests {
         let msg = participant_rx.recv().await.unwrap().unwrap();
         assert_eq!(msg, sub);
 
+        let payloaf = Some(CommandPayload::new_join_reply_payload(None).as_content());
         // create a reply to compare with the output of on_message
         let reply = cp.endpoint.create_channel_message(
             &moderator,
             false,
-            ProtoSessionMessageType::ChannelJoinReply,
+            ProtoSessionMessageType::JoinReply,
             msg_id,
-            vec![],
+            payload,
         );
         let mut msg = participant_rx.recv().await.unwrap().unwrap();
 
@@ -2495,7 +2486,7 @@ mod tests {
 
         // the first message generated is a subscription for the channel name
         let header = Some(SlimHeaderFlags::default().with_forward_to(conn));
-        let mut sub = Message::new_subscribe(&participant, &channel_name, mdoerarot_id, header);
+        let mut sub = Message::new_subscribe(&participant, &channel_name, moderator_id, header);
         sub.insert_metadata(CHANNEL_SUBSCRIPTION.to_string(), "true".to_string());
         let msg = participant_rx.recv().await.unwrap().unwrap();
         assert_eq!(msg, sub);
@@ -2511,7 +2502,7 @@ mod tests {
         let reply = cp.endpoint.create_channel_message(
             &moderator,
             false,
-            ProtoSessionMessageType::ChannelMlsAck,
+            ProtoSessionMessageType::GroupAck,
             msg_id,
             vec![],
         );
