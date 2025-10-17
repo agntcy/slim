@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Standard library imports
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use base64::Engine;
@@ -46,8 +46,11 @@ where
     /// Session pool
     pool: Arc<AsyncRwLock<HashMap<Id, Arc<Session<P, V>>>>>,
 
-    /// Name of the local app
-    app_name: Name,
+    /// Default name of the local app
+    app_id: u64,
+
+    /// Names registered by local app
+    app_names: SyncRwLock<HashSet<Name>>,
 
     /// Identity provider for the local app
     identity_provider: P,
@@ -101,7 +104,8 @@ where
 
         let sl = SessionLayer {
             pool: Arc::new(AsyncRwLock::new(HashMap::new())),
-            app_name,
+            app_id: app_name.id(),
+            app_names: SyncRwLock::new(HashSet::from([app_name.with_id(Name::NULL_COMPONENT)])),
             identity_provider,
             identity_verifier,
             conn_id,
@@ -132,8 +136,40 @@ where
         self.conn_id
     }
 
-    pub fn app_name(&self) -> &Name {
-        &self.app_name
+    pub fn app_id(&self) -> u64 {
+        self.app_id
+    }
+
+    pub fn add_app_name(&self, name: Name) {
+        // unset last component for fast lookups
+        self.app_names
+            .write()
+            .insert(name.with_id(Name::NULL_COMPONENT));
+    }
+
+    pub fn remove_app_name(&self, name: &Name) {
+        let removed = match name.id() {
+            Name::NULL_COMPONENT => self.app_names.write().remove(name),
+            _ => {
+                let name = name.clone().with_id(Name::NULL_COMPONENT);
+                self.app_names.write().remove(&name)
+            }
+        };
+
+        if !removed {
+            warn!("tried to remove unknown app name {}", name);
+        }
+    }
+
+    fn get_local_name_for_session(&self, dst: Name) -> Result<Name, SessionError> {
+        let name = dst.with_id(Name::NULL_COMPONENT);
+
+        self.app_names
+            .read()
+            .get(&name)
+            .cloned()
+            .map(|n| n.with_id(self.app_id))
+            .ok_or(SessionError::SubscriptionNotFound(name.to_string()))
     }
 
     /// Get identity token from the identity provider
@@ -146,6 +182,7 @@ where
     pub async fn create_session(
         &self,
         session_config: SessionConfig,
+        local_name: Name,
         id: Option<Id>,
     ) -> Result<SessionContext<P, V>, SessionError> {
         // TODO(msardara): the session identifier should be a combination of the
@@ -197,7 +234,7 @@ where
                 super::point_to_point::PointToPoint::new(
                     id,
                     conf,
-                    self.app_name().clone(),
+                    local_name,
                     tx,
                     self.identity_provider.clone(),
                     self.identity_verifier.clone(),
@@ -208,7 +245,7 @@ where
                 Arc::new(Session::from_multicast(multicast::Multicast::new(
                     id,
                     conf,
-                    self.app_name().clone(),
+                    local_name,
                     tx,
                     self.identity_provider.clone(),
                     self.identity_verifier.clone(),
@@ -289,6 +326,7 @@ where
     /// other action is needed, false otherwise
     pub(crate) async fn handle_message_from_slim_without_session(
         &self,
+        local_name: &Name,
         message: &slim_datapath::api::ProtoMessage,
         session_type: ProtoSessionType,
         session_message_type: ProtoSessionMessageType,
@@ -297,12 +335,8 @@ where
         match session_message_type {
             ProtoSessionMessageType::ChannelDiscoveryRequest => {
                 // reply directly without creating any new Session
-                let msg = handle_channel_discovery_message(
-                    message,
-                    self.app_name(),
-                    session_id,
-                    session_type,
-                );
+                let msg =
+                    handle_channel_discovery_message(message, local_name, session_id, session_type);
 
                 self.transmitter
                     .send_to_slim(Ok(msg))
@@ -360,8 +394,13 @@ where
                 return session.on_message(message, MessageDirection::North).await;
             } else {
                 // in this case we handle the message without creating a new local session
+
+                let local_name =
+                    self.get_local_name_for_session(message.get_slim_header().get_dst())?;
+
                 match self
                     .handle_message_from_slim_without_session(
+                        &local_name,
                         &message,
                         session_type,
                         session_message_type,
@@ -448,6 +487,9 @@ where
             return session.on_message(message, MessageDirection::North).await;
         }
 
+        // get local name for the session
+        let local_name = self.get_local_name_for_session(message.get_slim_header().get_dst())?;
+
         let new_session = match session_message_type {
             ProtoSessionMessageType::P2PMsg | ProtoSessionMessageType::P2PReliable => {
                 let mut conf = self.default_p2p_conf.read().clone();
@@ -466,7 +508,7 @@ where
                     }
                 }
 
-                self.create_session(SessionConfig::PointToPoint(conf), Some(id))
+                self.create_session(SessionConfig::PointToPoint(conf), local_name, Some(id))
                     .await?
             }
             ProtoSessionMessageType::ChannelJoinRequest => {
@@ -490,7 +532,7 @@ where
                         conf.mls_enabled = message.contains_metadata(METADATA_MLS_ENABLED);
                         conf.metadata = message.get_metadata_map();
 
-                        self.create_session(SessionConfig::PointToPoint(conf), Some(id))
+                        self.create_session(SessionConfig::PointToPoint(conf), local_name, Some(id))
                             .await?
                     }
                     ProtoSessionType::SessionMulticast => {
@@ -510,7 +552,7 @@ where
                             .get_destination()
                             .ok_or(SessionError::MissingChannelName)?;
 
-                        self.create_session(SessionConfig::Multicast(conf), Some(id))
+                        self.create_session(SessionConfig::Multicast(conf), local_name, Some(id))
                             .await?
                     }
                     _ => {

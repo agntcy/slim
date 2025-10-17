@@ -783,7 +783,7 @@ where
         tx: T,
         session_metadata: HashMap<String, String>,
     ) -> Self {
-        let endpoint = Endpoint::new(
+        let mut endpoint = Endpoint::new(
             name,
             channel_name,
             session_id,
@@ -793,6 +793,12 @@ where
             tx,
             session_metadata,
         );
+
+        if session_type == ProtoSessionType::SessionPointToPoint {
+            // Skip channel subscription for P2P sessions
+            endpoint.subscribed = true;
+        }
+
         ChannelParticipant {
             moderator_name: None,
             timer: None,
@@ -826,9 +832,6 @@ where
 
         // set route in order to be able to send packets to the moderator
         self.endpoint.set_route(&names.moderator_name).await?;
-
-        // If names.moderator_name and names.channel_name are the same, skip the join
-        self.endpoint.subscribed = names.channel_name == names.moderator_name;
 
         // set the moderator name after the set route
         self.moderator_name = Some(names.moderator_name);

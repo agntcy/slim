@@ -740,9 +740,9 @@ impl ProtoMessage {
 
     pub fn get_dst(&self) -> Name {
         match &self.message_type {
-            Some(ProtoPublishType(pubslih)) => {
+            Some(ProtoPublishType(publish)) => {
                 // try to the get dst from the session header
-                if let Some(d) = pubslih.get_session_header().get_destination() {
+                if let Some(d) = publish.get_session_header().get_destination() {
                     return d;
                 }
                 // get from the slim header
@@ -769,8 +769,7 @@ impl ProtoMessage {
                 .with_id(dst.id())
             }
             None => {
-                // this should never happen
-                self.get_slim_header().get_dst()
+                unreachable!("destination not found");
             }
         }
     }
