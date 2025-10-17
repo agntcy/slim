@@ -13,7 +13,6 @@ use async_trait::async_trait;
 use base64::Engine;
 use bincode::{Decode, Encode};
 use parking_lot::Mutex;
-use tonic::codec::EncodeBuf;
 use tracing::{debug, error, trace};
 
 use slim_auth::traits::{TokenProvider, Verifier};
@@ -602,7 +601,12 @@ where
             None
         };
 
-        let slim_header = Some(SlimHeader::new(&self.name, destination, self.identity, flags));
+        let slim_header = Some(SlimHeader::new(
+            &self.name,
+            destination,
+            self.identity.clone(),
+            flags,
+        ));
 
         // no need to specify the source and the destination here. these messages
         // will never be seen by the application
@@ -628,7 +632,12 @@ where
 
         // subscribe for the channel
         let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn.unwrap()));
-        let mut sub = Message::new_subscribe(&self.name, &self.channel_name, self.identity, header);
+        let mut sub = Message::new_subscribe(
+            &self.name,
+            &self.channel_name,
+            self.identity.clone(),
+            header,
+        );
 
         // add in the metadata to indication that the
         // subscription is associated to a channel
@@ -648,7 +657,7 @@ where
         let msg = Message::new_subscribe(
             &self.name,
             route_name,
-            self.identity,
+            self.identity.clone(),
             Some(SlimHeaderFlags::default().with_recv_from(self.conn.unwrap())),
         );
 
@@ -670,7 +679,12 @@ where
     async fn leave(&self) -> Result<(), SessionError> {
         // unsubscribe for the channel
         let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn.unwrap()));
-        let mut unsub = Message::new_unsubscribe(&self.name, &self.channel_name, self.identity, header);
+        let mut unsub = Message::new_unsubscribe(
+            &self.name,
+            &self.channel_name,
+            self.identity.clone(),
+            header,
+        );
 
         // add in the metadata to indication that the
         // subscription is associated to a channel
@@ -775,7 +789,7 @@ where
             "".to_string(),
             session_metadata,
         );
-        
+
         let cp = ChannelParticipant {
             moderator_name: None,
             timer: None,
@@ -783,10 +797,11 @@ where
             mls_state: mls,
         };
 
-        cp.endpoint.identity = cp.provider
+        cp.endpoint.identity = cp
+            .provider
             .get_token()
             .map_err(|e| SessionError::IdentityPushError(e.to_string()))?;
-        
+
         cp
     }
 
@@ -1228,7 +1243,8 @@ where
             closing: false,
         };
 
-        cm.endpoint.identity = cp.provider
+        cm.endpoint.identity = cp
+            .provider
             .get_token()
             .map_err(|e| SessionError::IdentityPushError(e.to_string()))?;
 
@@ -1266,7 +1282,8 @@ where
 
             self.endpoint.set_route(&dst).await?;
 
-            let new_slim_header = SlimHeader::new(&self.endpoint.name, &dst, self.endpoint.identity, None);
+            let new_slim_header =
+                SlimHeader::new(&self.endpoint.name, &dst, self.endpoint.identity, None);
 
             let new_session_header = SessionHeader::new(
                 ProtoSessionType::Multicast.into(),
@@ -1717,7 +1734,13 @@ where
                 true,
                 ProtoSessionMessageType::GroupUpdate,
                 commit_id,
-                Some(CommandPayload::new_group_update_payload(participants_vec, Some(commit_payload)).as_content()),
+                Some(
+                    CommandPayload::new_group_update_payload(
+                        participants_vec,
+                        Some(commit_payload),
+                    )
+                    .as_content(),
+                ),
             );
 
             debug!(
@@ -1743,7 +1766,13 @@ where
                 true,
                 ProtoSessionMessageType::GroupProposal,
                 broadcast_msg_id,
-                Some(CommandPayload::new_group_proposal_payload(Some(self.endpoint.name), payload.to_vec()).as_content()),
+                Some(
+                    CommandPayload::new_group_proposal_payload(
+                        Some(self.endpoint.name),
+                        payload.to_vec(),
+                    )
+                    .as_content(),
+                ),
             );
 
             // send the proposal to all the participants and set the timers
@@ -1838,7 +1867,8 @@ where
 
             let dst = dst.with_id(id);
 
-            let new_slim_header = SlimHeader::new(&self.endpoint.name, &dst, self.endpoint.identity, None);
+            let new_slim_header =
+                SlimHeader::new(&self.endpoint.name, &dst, self.endpoint.identity, None);
 
             let new_session_header = SessionHeader::new(
                 ProtoSessionType::Multicast.into(),
@@ -1847,11 +1877,7 @@ where
                 msg.get_id(),
             );
 
-            Message::new_publish_with_headers(
-                Some(new_slim_header),
-                Some(new_session_header),
-                None,
-            )
+            Message::new_publish_with_headers(Some(new_slim_header), Some(new_session_header), None)
         } else {
             let dst = msg.get_dst();
             let id = *self
@@ -1887,7 +1913,13 @@ where
                     true,
                     ProtoSessionMessageType::GroupUpdate,
                     commit_id,
-                    Some(CommandPayload::new_group_update_payload(participants_vec, Some(commit_payload)).as_content()),
+                    Some(
+                        CommandPayload::new_group_update_payload(
+                            participants_vec,
+                            Some(commit_payload),
+                        )
+                        .as_content(),
+                    ),
                 );
 
                 // send commit message if needed
@@ -2091,7 +2123,13 @@ where
             true,
             ProtoSessionMessageType::GroupProposal,
             proposal_id,
-            Some(CommandPayload::new_group_proposal_payload(Some(self.endpoint.name.clone()), payload).as_content()),
+            Some(
+                CommandPayload::new_group_proposal_payload(
+                    Some(self.endpoint.name.clone()),
+                    payload,
+                )
+                .as_content(),
+            ),
         );
 
         debug!("Send MLS Proposal Message to the channel (moderator key update)");
@@ -2318,7 +2356,12 @@ mod tests {
         // create a discovery request
         let flags = SlimHeaderFlags::default().with_incoming_conn(conn);
 
-        let slim_header = Some(SlimHeader::new(&moderator, &participant, moderator_id, Some(flags)));
+        let slim_header = Some(SlimHeader::new(
+            &moderator,
+            &participant,
+            moderator_id,
+            Some(flags),
+        ));
 
         let session_header = Some(SessionHeader::new(
             ProtoSessionType::SessionUnknown.into(),

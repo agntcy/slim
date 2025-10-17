@@ -150,14 +150,16 @@ mod tests {
     fn make_message(org: &str, ns: &str, name: &str) -> Message {
         let source = Name::from_strings([org, ns, name]).with_id(0);
         let name = Name::from_strings([org, ns, name]).with_id(1);
-        Message::new_subscribe(&source, &name, None)
+        Message::new_subscribe(&source, &name, &source.to_string(), None)
     }
 
     fn make_sub_from_command(org: &str, ns: &str, name_str: &str, from_conn: u64) -> Message {
+        let source = Name::from_strings([org, ns, name_str]).with_id(0);
         let name = Name::from_strings([org, ns, name_str]);
         Message::new_subscribe(
-            &Name::from_strings([org, ns, name_str]).with_id(0),
+            &source,
             &name,
+            &source.to_string(),
             Some(SlimHeaderFlags::default().with_recv_from(from_conn)),
         )
     }
@@ -168,6 +170,7 @@ mod tests {
         Message::new_subscribe(
             &source,
             &name,
+            &source.to_string(),
             Some(SlimHeaderFlags::default().with_forward_to(to_conn)),
         )
     }

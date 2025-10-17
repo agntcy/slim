@@ -1,7 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::cmp::max;
 use std::fmt::Display;
 use std::{collections::HashMap, time::Duration};
 
@@ -159,13 +158,18 @@ impl SlimHeaderFlags {
 /// This header is used to identify the source and destination of the message
 /// and to manage the connections used to send and receive the message
 impl SlimHeader {
-    pub fn new(source: &Name, destination: &Name, identity: String, flags: Option<SlimHeaderFlags>) -> Self {
+    pub fn new(
+        source: &Name,
+        destination: &Name,
+        identity: &str,
+        flags: Option<SlimHeaderFlags>,
+    ) -> Self {
         let flags = flags.unwrap_or_default();
 
         Self {
             source: Some(ProtoName::from(source)),
             destination: Some(ProtoName::from(destination)),
-            identity, 
+            identity: identity.to_string(),
             fanout: flags.fanout,
             recv_from: flags.recv_from,
             forward_to: flags.forward_to,
@@ -213,12 +217,20 @@ impl SlimHeader {
         }
     }
 
+    pub fn get_identity(&self) -> String {
+        self.identity.clone()
+    }
+
     pub fn set_source(&mut self, source: &Name) {
         self.source = Some(ProtoName::from(source));
     }
 
     pub fn set_destination(&mut self, dst: &Name) {
         self.destination = Some(ProtoName::from(dst));
+    }
+
+    pub fn set_identity(&mut self, identity: String) {
+        self.identity = identity;
     }
 
     pub fn set_fanout(&mut self, fanout: u32) {
@@ -318,7 +330,7 @@ impl SessionHeader {
 /// ProtoSubscribe
 /// This message is used to subscribe to a topic
 impl ProtoSubscribe {
-    pub fn new(source: &Name, dst: &Name, identity: String, flags: Option<SlimHeaderFlags>) -> Self {
+    pub fn new(source: &Name, dst: &Name, identity: &str, flags: Option<SlimHeaderFlags>) -> Self {
         let header = Some(SlimHeader::new(source, dst, identity, flags));
 
         ProtoSubscribe { header }
@@ -338,7 +350,7 @@ impl From<ProtoMessage> for ProtoSubscribe {
 /// ProtoUnsubscribe
 /// This message is used to unsubscribe from a topic
 impl ProtoUnsubscribe {
-    pub fn new(source: &Name, dst: &Name, identity: String, flags: Option<SlimHeaderFlags>) -> Self {
+    pub fn new(source: &Name, dst: &Name, identity: &str, flags: Option<SlimHeaderFlags>) -> Self {
         let header = Some(SlimHeader::new(source, dst, identity, flags));
 
         ProtoUnsubscribe { header }
@@ -361,7 +373,7 @@ impl ProtoPublish {
     pub fn new(
         source: &Name,
         dst: &Name,
-        identity: String,
+        identity: &str,
         flags: Option<SlimHeaderFlags>,
         content: Option<Content>,
     ) -> Self {
@@ -478,13 +490,23 @@ impl ProtoMessage {
         }
     }
 
-    pub fn new_subscribe(source: &Name, dst: &Name, identity: String, flags: Option<SlimHeaderFlags>) -> Self {
+    pub fn new_subscribe(
+        source: &Name,
+        dst: &Name,
+        identity: &str,
+        flags: Option<SlimHeaderFlags>,
+    ) -> Self {
         let subscribe = ProtoSubscribe::new(source, dst, identity, flags);
 
         Self::new(HashMap::new(), ProtoSubscribeType(subscribe))
     }
 
-    pub fn new_unsubscribe(source: &Name, dst: &Name,identity: String, flags: Option<SlimHeaderFlags>) -> Self {
+    pub fn new_unsubscribe(
+        source: &Name,
+        dst: &Name,
+        identity: &str,
+        flags: Option<SlimHeaderFlags>,
+    ) -> Self {
         let unsubscribe = ProtoUnsubscribe::new(source, dst, identity, flags);
 
         Self::new(HashMap::new(), ProtoUnsubscribeType(unsubscribe))
@@ -493,7 +515,7 @@ impl ProtoMessage {
     pub fn new_publish(
         source: &Name,
         dst: &Name,
-        identity: String,
+        identity: &str,
         flags: Option<SlimHeaderFlags>,
         content: Option<Content>,
     ) -> Self {
@@ -667,6 +689,10 @@ impl ProtoMessage {
         self.get_slim_header().get_dst()
     }
 
+    pub fn get_identity(&self) -> String {
+        self.get_slim_header().get_identity()
+    }
+
     pub fn get_fanout(&self) -> u32 {
         self.get_slim_header().get_fanout()
     }
@@ -807,7 +833,7 @@ impl ApplicationPayload {
 
 impl CommandPayload {
     pub fn new_discovery_request_payload(destination: Option<Name>) -> Self {
-        let proto_destination = destination.as_ref().map(|name| ProtoName::from(name));
+        let proto_destination = destination.as_ref().map(ProtoName::from);
         let payload = DiscoveryRequestPayload {
             destination: proto_destination,
         };
@@ -831,7 +857,7 @@ impl CommandPayload {
         timer_durantion: Option<Duration>,
         channel: Option<Name>,
     ) -> Self {
-        let proto_channel = channel.as_ref().map(|name| ProtoName::from(name));
+        let proto_channel = channel.as_ref().map(ProtoName::from);
 
         let timer_settings = if let Some(t) = timer_durantion
             && let Some(m) = max_retries
@@ -864,7 +890,7 @@ impl CommandPayload {
     }
 
     pub fn new_leave_request_payload(destination: Option<Name>) -> Self {
-        let proto_destination = destination.as_ref().map(|name| ProtoName::from(name));
+        let proto_destination = destination.as_ref().map(ProtoName::from);
         let payload = LeaveRequestPayload {
             destination: proto_destination,
         };
@@ -881,10 +907,7 @@ impl CommandPayload {
     }
 
     pub fn new_group_update_payload(participants: Vec<Name>, mls_commit: Option<Vec<u8>>) -> Self {
-        let proto_participants = participants
-            .iter()
-            .map(|name| ProtoName::from(name))
-            .collect();
+        let proto_participants = participants.iter().map(ProtoName::from).collect();
         let payload = GroupUpdatePayload {
             participant: proto_participants,
             mls_commit,
@@ -899,10 +922,7 @@ impl CommandPayload {
         msl_commit_id: Option<u32>,
         mls_welcome: Option<Vec<u8>>,
     ) -> Self {
-        let proto_participants = participants
-            .iter()
-            .map(|name| ProtoName::from(name))
-            .collect();
+        let proto_participants = participants.iter().map(ProtoName::from).collect();
         let payload = GroupWelcomePayload {
             participant: proto_participants,
             msl_commit_id,
@@ -914,7 +934,7 @@ impl CommandPayload {
     }
 
     pub fn new_group_proposal_payload(source: Option<Name>, mls_proposal: Vec<u8>) -> Self {
-        let proto_source = source.as_ref().map(|name| ProtoName::from(name));
+        let proto_source = source.as_ref().map(ProtoName::from);
         let payload = GroupProposalPayload {
             source: proto_source,
             mls_propsal: mls_proposal,
@@ -947,7 +967,7 @@ impl CommandPayload {
 
     pub fn as_discovery_reply_payload(&self) -> DiscoveryReplyPayload {
         match &self.command_payload_type {
-            Some(CommandPayloadType::DiscoveryReply(payload)) => payload.clone(),
+            Some(CommandPayloadType::DiscoveryReply(payload)) => *payload,
             _ => panic!("CommandPayload is not a DiscoveryReply"),
         }
     }
@@ -975,7 +995,7 @@ impl CommandPayload {
 
     pub fn as_leave_reply_payload(&self) -> LeaveReplyPayload {
         match &self.command_payload_type {
-            Some(CommandPayloadType::LeaveReply(payload)) => payload.clone(),
+            Some(CommandPayloadType::LeaveReply(payload)) => *payload,
             _ => panic!("CommandPayload is not a LeaveReply"),
         }
     }
@@ -1003,7 +1023,7 @@ impl CommandPayload {
 
     pub fn as_group_ack_payload(&self) -> GroupAckPayload {
         match &self.command_payload_type {
-            Some(CommandPayloadType::GroupAck(payload)) => payload.clone(),
+            Some(CommandPayloadType::GroupAck(payload)) => *payload,
             _ => panic!("CommandPayload is not a GroupAck"),
         }
     }
@@ -1028,7 +1048,7 @@ mod tests {
         subscription: bool,
         source: Name,
         dst: Name,
-        identity: String, 
+        identity: &str,
         flags: Option<SlimHeaderFlags>,
     ) {
         let sub = {
@@ -1056,7 +1076,12 @@ mod tests {
         assert_eq!(dst, got_name);
     }
 
-    fn test_publish_template(source: Name, dst: Name, identity: String, flags: Option<SlimHeaderFlags>) {
+    fn test_publish_template(
+        source: Name,
+        dst: Name,
+        identity: &str,
+        flags: Option<SlimHeaderFlags>,
+    ) {
         let content = Some(
             ApplicationPayload::new("str", "this is the content of the message".into()).as_contet(),
         );
@@ -1088,17 +1113,17 @@ mod tests {
         let source_id = source.to_string();
 
         // simple
-        test_subscription_template(true, source.clone(), dst.clone(), source_id.clone(), None);
+        test_subscription_template(true, source.clone(), dst.clone(), &source_id, None);
 
         // with name id
-        test_subscription_template(true, source.clone(), dst.clone(), source_id.clone(), None);
+        test_subscription_template(true, source.clone(), dst.clone(), &source_id, None);
 
         // with recv from
         test_subscription_template(
             true,
             source.clone(),
             dst.clone(),
-            source_id.clone(), 
+            &source_id,
             Some(SlimHeaderFlags::default().with_recv_from(50)),
         );
 
@@ -1107,7 +1132,7 @@ mod tests {
             true,
             source.clone(),
             dst.clone(),
-            source_id.clone(),
+            &source_id,
             Some(SlimHeaderFlags::default().with_forward_to(30)),
         );
     }
@@ -1119,17 +1144,17 @@ mod tests {
         let source_id = source.to_string();
 
         // simple
-        test_subscription_template(false, source.clone(), dst.clone(), source_id.clone(), None);
+        test_subscription_template(false, source.clone(), dst.clone(), &source_id, None);
 
         // with name id
-        test_subscription_template(false, source.clone(), dst.clone(), source_id.clone(), None);
+        test_subscription_template(false, source.clone(), dst.clone(), &source_id, None);
 
         // with recv from
         test_subscription_template(
             false,
             source.clone(),
             dst.clone(),
-            source_id.clone(),
+            &source_id,
             Some(SlimHeaderFlags::default().with_recv_from(50)),
         );
 
@@ -1138,7 +1163,7 @@ mod tests {
             false,
             source.clone(),
             dst.clone(),
-            source_id.clone(),
+            &source_id,
             Some(SlimHeaderFlags::default().with_forward_to(30)),
         );
     }
@@ -1153,7 +1178,7 @@ mod tests {
         test_publish_template(
             source.clone(),
             dst.clone(),
-            source_id.clone(),
+            &source_id,
             Some(SlimHeaderFlags::default()),
         );
 
@@ -1162,7 +1187,7 @@ mod tests {
         test_publish_template(
             source.clone(),
             dst.clone(),
-            source_id.clone(),
+            &source_id,
             Some(SlimHeaderFlags::default()),
         );
         dst.reset_id();
@@ -1171,7 +1196,7 @@ mod tests {
         test_publish_template(
             source.clone(),
             dst.clone(),
-            source_id.clone(),
+            &source_id,
             Some(SlimHeaderFlags::default().with_recv_from(50)),
         );
 
@@ -1179,7 +1204,7 @@ mod tests {
         test_publish_template(
             source.clone(),
             dst.clone(),
-            source_id.clone(),
+            &source_id,
             Some(SlimHeaderFlags::default().with_forward_to(30)),
         );
 
@@ -1187,7 +1212,7 @@ mod tests {
         test_publish_template(
             source.clone(),
             dst.clone(),
-            source_id.clone(),
+            &source_id,
             Some(SlimHeaderFlags::default().with_fanout(2)),
         );
     }
@@ -1240,7 +1265,7 @@ mod tests {
         let proto_subscribe = ProtoMessage::new_subscribe(
             &name,
             &dst,
-            name_id.clone(),
+            &name_id,
             Some(
                 SlimHeaderFlags::default()
                     .with_recv_from(2)
@@ -1255,7 +1280,7 @@ mod tests {
         let proto_unsubscribe = ProtoMessage::new_unsubscribe(
             &name,
             &dst,
-            name_id.clone(),
+            &name_id,
             Some(
                 SlimHeaderFlags::default()
                     .with_recv_from(2)
@@ -1277,7 +1302,7 @@ mod tests {
         let proto_publish = ProtoMessage::new_publish(
             &name,
             &dst,
-            name_id.clone(),
+            &name_id,
             Some(
                 SlimHeaderFlags::default()
                     .with_recv_from(2)
@@ -1300,7 +1325,7 @@ mod tests {
         let msg = ProtoMessage::new_subscribe(
             &source,
             &dst,
-            source_id,
+            &source_id,
             Some(
                 SlimHeaderFlags::default()
                     .with_recv_from(2)
