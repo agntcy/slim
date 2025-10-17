@@ -53,8 +53,8 @@ async def test_session_metadata_merge_roundtrip(server):
     receiver_name = PyName("org", "ns", "session_receiver")
 
     # Instantiate Slim instances with shared-secret auth
-    sender = await create_slim(sender_name, "secret", local_service=False)
-    receiver = await create_slim(receiver_name, "secret", local_service=False)
+    sender = await create_slim(sender_name, local_service=False)
+    receiver = await create_slim(receiver_name, local_service=False)
 
     # Metadata we want to propagate with the session creation
     metadata = {"a": "1", "k": "session"}

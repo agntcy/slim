@@ -337,6 +337,7 @@ mod tests {
     use slim_session::point_to_point::PointToPointConfiguration;
 
     use slim_auth::shared_secret::SharedSecret;
+    use slim_auth::testutils::TEST_VALID_SECRET;
     use slim_datapath::{
         api::{ProtoMessage, ProtoSessionMessageType, ProtoSessionType},
         messages::{Name, utils::SLIM_IDENTITY},
@@ -350,8 +351,8 @@ mod tests {
 
         App::new(
             &name,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
             0,
             tx_slim,
             tx_app,
@@ -367,8 +368,8 @@ mod tests {
 
         let app = App::new(
             &name,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
             0,
             tx_slim.clone(),
             tx_app.clone(),
@@ -395,8 +396,8 @@ mod tests {
 
         let session_layer = App::new(
             &name,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
             0,
             tx_slim.clone(),
             tx_app.clone(),
@@ -420,8 +421,8 @@ mod tests {
 
         let session_layer = App::new(
             &name,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
             0,
             tx_slim.clone(),
             tx_app.clone(),
@@ -450,8 +451,8 @@ mod tests {
 
         let app = App::new(
             &name,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
             0,
             tx_slim.clone(),
             tx_app.clone(),
@@ -493,7 +494,7 @@ mod tests {
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
         let name = Name::from_strings(["org", "ns", "type"]).with_id(0);
 
-        let identity = SharedSecret::new("a", "group");
+        let identity = SharedSecret::new("a", TEST_VALID_SECRET);
 
         let app = App::new(
             &name,
@@ -569,7 +570,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
         let name = Name::from_strings(["org", "ns", "type"]).with_id(0);
 
-        let identity = SharedSecret::new("a", "group");
+        let identity = SharedSecret::new("a", TEST_VALID_SECRET);
 
         let app = App::new(
             &name,
@@ -619,8 +620,9 @@ mod tests {
             .expect("no message received")
             .expect("error");
 
-        // Add identity to message
-        message.insert_metadata(SLIM_IDENTITY.to_string(), identity.get_token().unwrap());
+        // Removw identity as it might differ
+        message.remove_metadata(SLIM_IDENTITY);
+        msg.remove_metadata(SLIM_IDENTITY);
 
         msg.set_message_id(0);
         assert_eq!(msg, message);

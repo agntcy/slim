@@ -10,6 +10,7 @@ use parking_lot::RwLock;
 
 use slim::runtime::RuntimeConfiguration;
 use slim_auth::shared_secret::SharedSecret;
+use slim_auth::testutils::TEST_VALID_SECRET;
 use slim_config::component::{Component, id::ID};
 use slim_config::grpc::client::ClientConfig as GrpcClientConfig;
 use slim_config::grpc::server::ServerConfig as GrpcServerConfig;
@@ -182,8 +183,8 @@ async fn run_client_task(name: Name) -> Result<(), String> {
     let (app, mut rx) = svc
         .create_app(
             &name,
-            SharedSecret::new(&name.to_string(), "group"),
-            SharedSecret::new(&name.to_string(), "group"),
+            SharedSecret::new(&name.to_string(), TEST_VALID_SECRET),
+            SharedSecret::new(&name.to_string(), TEST_VALID_SECRET),
         )
         .await
         .map_err(|_| format!("Failed to create participant {}", name))?;
@@ -321,8 +322,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (app, _rx) = svc
         .create_app(
             &name,
-            SharedSecret::new(&name.to_string(), "group"),
-            SharedSecret::new(&name.to_string(), "group"),
+            SharedSecret::new(&name.to_string(), TEST_VALID_SECRET),
+            SharedSecret::new(&name.to_string(), TEST_VALID_SECRET),
         )
         .await
         .map_err(|_| format!("Failed to create moderator {}", name))?;

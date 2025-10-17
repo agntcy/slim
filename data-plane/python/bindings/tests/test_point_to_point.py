@@ -68,9 +68,7 @@ async def test_sticky_session(server, mls_enabled):
     print(f"Receiver name: {receiver_name}")
 
     # create new slim object
-    sender = await create_slim(
-        sender_name, "secret", local_service=server.local_service
-    )
+    sender = await create_slim(sender_name, local_service=server.local_service)
 
     if server.local_service:
         # Connect to the service and subscribe for the local name
@@ -90,9 +88,7 @@ async def test_sticky_session(server, mls_enabled):
         - Counts messages matching expected routing + metadata.
         - Continues until sender finishes publishing (loop ends by external cancel or test end).
         """
-        receiver = await create_slim(
-            receiver_name, "secret", local_service=server.local_service
-        )
+        receiver = await create_slim(receiver_name, local_service=server.local_service)
 
         if server.local_service:
             # Connect to the service and subscribe for the local name

@@ -55,10 +55,8 @@ async def test_end_to_end(server):
     bob_name = slim_bindings.PyName("org", "default", "bob_e2e")
 
     # create 2 clients, Alice and Bob
-    svc_alice = await create_svc(
-        alice_name, "secret", local_service=server.local_service
-    )
-    svc_bob = await create_svc(bob_name, "secret", local_service=server.local_service)
+    svc_alice = await create_svc(alice_name, local_service=server.local_service)
+    svc_bob = await create_svc(bob_name, local_service=server.local_service)
 
     # connect to the service
     if server.local_service:
@@ -161,7 +159,7 @@ async def test_session_config(server):
     alice_name = slim_bindings.PyName(org, ns, alice_name_str)
 
     # create svc
-    svc = await create_svc(alice_name, "secret")
+    svc = await create_svc(alice_name)
 
     # create a PointToPoint session with custom parameters
     session_config = slim_bindings.PySessionConfiguration.PointToPoint(
@@ -196,7 +194,7 @@ async def test_session_config(server):
     # Validate that a session initiated towards this service adopts the new default
     # ------------------------------------------------------------------
     peer_name = slim_bindings.PyName(org, ns, "peer_cfg")
-    peer_svc = await create_svc(peer_name, "secret", local_service=server.local_service)
+    peer_svc = await create_svc(peer_name, local_service=server.local_service)
 
     # Connect both services to the running server
     conn_id_local = await connect(
@@ -273,7 +271,7 @@ async def test_slim_wrapper(server):
     name2 = slim_bindings.PyName("org", "default", "slim2")
 
     # create new slim object
-    slim1 = await create_slim(name1, "secret", local_service=server.local_service)
+    slim1 = await create_slim(name1, local_service=server.local_service)
 
     if server.local_service:
         # Connect to the service and subscribe for the local name
@@ -282,7 +280,7 @@ async def test_slim_wrapper(server):
         )
 
     # create second local app
-    slim2 = await create_slim(name2, "secret", local_service=server.local_service)
+    slim2 = await create_slim(name2, local_service=server.local_service)
 
     if server.local_service:
         # Connect to SLIM server
@@ -362,10 +360,8 @@ async def test_auto_reconnect_after_server_restart(server):
     alice_name = slim_bindings.PyName("org", "default", "alice_res")
     bob_name = slim_bindings.PyName("org", "default", "bob_res")
 
-    svc_alice = await create_svc(
-        alice_name, "secret", local_service=server.local_service
-    )
-    svc_bob = await create_svc(bob_name, "secret", local_service=server.local_service)
+    svc_alice = await create_svc(alice_name, local_service=server.local_service)
+    svc_bob = await create_svc(bob_name, local_service=server.local_service)
 
     if server.local_service:
         # connect clients and subscribe for messages
@@ -444,7 +440,7 @@ async def test_error_on_nonexistent_subscription(server):
     """
     name = slim_bindings.PyName("org", "default", "alice_nonsub")
 
-    svc_alice = await create_svc(name, "secret", local_service=server.local_service)
+    svc_alice = await create_svc(name, local_service=server.local_service)
 
     if server.local_service:
         # connect client and subscribe for messages
@@ -498,9 +494,7 @@ async def test_listen_for_session_timeout(server):
     """Test that listen_for_session times out appropriately when no session is available."""
     alice_name = slim_bindings.PyName("org", "default", "alice_timeout")
 
-    svc_alice = await create_svc(
-        alice_name, "secret", local_service=server.local_service
-    )
+    svc_alice = await create_svc(alice_name, local_service=server.local_service)
 
     conn_id_alice = None
     if server.local_service:
@@ -547,9 +541,7 @@ async def test_get_message_timeout(server):
     alice_name = slim_bindings.PyName("org", "default", "alice_msg_timeout")
 
     # Create service
-    svc_alice = await create_svc(
-        alice_name, "secret", local_service=server.local_service
-    )
+    svc_alice = await create_svc(alice_name, local_service=server.local_service)
 
     conn_id_alice = None
 
