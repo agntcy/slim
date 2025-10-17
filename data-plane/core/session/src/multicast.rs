@@ -30,10 +30,9 @@ use crate::{
     channel_endpoint::{
         ChannelEndpoint, ChannelModerator, ChannelParticipant, MlsEndpoint, MlsState,
     },
+    common::SessionMessage,
     errors::SessionError,
-    producer_buffer, receiver_buffer,
-    session_layer::SessionLayerMessage,
-    timer,
+    producer_buffer, receiver_buffer, timer,
 };
 use producer_buffer::ProducerBuffer;
 use receiver_buffer::ReceiverBuffer;
@@ -247,7 +246,7 @@ where
         identity_provider: P,
         identity_verifier: V,
         storage_path: std::path::PathBuf,
-        tx_session: tokio::sync::mpsc::Sender<Result<SessionLayerMessage, SessionError>>,
+        tx_session: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
     ) -> Self {
         let (tx, rx) = mpsc::channel(128);
 
@@ -272,7 +271,7 @@ where
     fn process_message(
         &self,
         mut rx: mpsc::Receiver<Result<(Message, MessageDirection), Status>>,
-        tx_session: tokio::sync::mpsc::Sender<Result<SessionLayerMessage, SessionError>>,
+        tx_session: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
     ) {
         let session_id = self.common.id();
 
