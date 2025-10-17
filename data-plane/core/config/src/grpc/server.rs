@@ -367,8 +367,9 @@ impl ServerConfig {
                 }
 
                 if let Some(tls_config) = tls_config {
-                    let incoming = tonic_tls::rustls::incoming(incoming, Arc::new(tls_config))
-                        .map_err(|e| ConfigError::TcpIncomingError(e.to_string()));
+                    let incoming =
+                        tonic_tls::rustls::TlsIncoming::new(incoming, Arc::new(tls_config))
+                            .map_err(|e| ConfigError::TcpIncomingError(e.to_string()));
 
                     // Return the server future with the TLS configuration
                     return Ok(router.serve_with_incoming(incoming).boxed());
@@ -390,8 +391,9 @@ impl ServerConfig {
                 }
 
                 if let Some(tls_config) = tls_config {
-                    let incoming = tonic_tls::rustls::incoming(incoming, Arc::new(tls_config))
-                        .map_err(|e| ConfigError::TcpIncomingError(e.to_string()));
+                    let incoming =
+                        tonic_tls::rustls::TlsIncoming::new(incoming, Arc::new(tls_config))
+                            .map_err(|e| ConfigError::TcpIncomingError(e.to_string()));
 
                     // Return the server future with the TLS configuration
                     return Ok(router.serve_with_incoming(incoming).boxed());
@@ -406,8 +408,9 @@ impl ServerConfig {
                 }
 
                 if let Some(tls_config) = tls_config {
-                    let incoming = tonic_tls::rustls::incoming(incoming, Arc::new(tls_config))
-                        .map_err(|e| ConfigError::TcpIncomingError(e.to_string()));
+                    let incoming =
+                        tonic_tls::rustls::TlsIncoming::new(incoming, Arc::new(tls_config))
+                            .map_err(|e| ConfigError::TcpIncomingError(e.to_string()));
 
                     // Return the server future with the TLS configuration
                     return Ok(router.serve_with_incoming(incoming).boxed());
