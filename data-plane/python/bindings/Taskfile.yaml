@@ -50,7 +50,7 @@ tasks:
     deps:
       - python:bindings:build
     cmds:
-      - uv run pytest --cov=slim_bindings --cov-report=lcov:coverage.lcov --cov-report=html --cov-report=term -s {{.TESTS}}
+      - uv run pytest  --cov-report=lcov:coverage.lcov --cov-report=html --cov-report=term -s {{.TESTS}}
     vars:
       TARGET: '{{.TESTS | default ""}}'
 
