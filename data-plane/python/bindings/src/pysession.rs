@@ -5,17 +5,19 @@ use pyo3::exceptions::PyException;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::sync::{Arc, Weak};
-use tokio::sync::RwLock;
 
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::gen_stub_pyclass;
 use pyo3_stub_gen::derive::gen_stub_pyclass_enum;
+use pyo3_stub_gen::derive::gen_stub_pyfunction;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
-use slim_session::{AppChannelReceiver, SessionConfig, SessionError, SessionType};
-// (Python-only session wrapper will provide higher-level methods; keep Rust minimal)
+use slim_session::{SessionConfig, SessionError, SessionType};
 
 use crate::pyidentity::{IdentityProvider, IdentityVerifier};
+use crate::pymessage::PyMessageContext;
 use crate::utils::PyName;
+use slim_datapath::messages::Name;
+use slim_service::{BindingsAdapter, BindingsSessionContext, MessageContext};
 use slim_session::MulticastConfiguration;
 use slim_session::PointToPointConfiguration;
 pub use slim_session::SESSION_UNSPECIFIED;
@@ -24,28 +26,25 @@ use slim_session::context::SessionContext;
 
 /// Internal shared session context state.
 ///
-/// Holds:
-/// * a weak reference to the underlying `Session` (so that Python
-///   references do not keep a closed session alive),
-/// * a receiver (`rx`) for application/channel messages which is
-///   protected by an async `RwLock` to allow concurrent access patterns.
+/// Holds a `BindingsSessionContext` which provides:
+/// * Session-specific operations (publish, invite, remove, get_message)
+/// * A weak reference to the underlying `Session` (so that Python
+///   references do not keep a closed session alive)
+/// * A receiver (`rx`) for application/channel messages which is
+///   protected by an async `RwLock` to allow concurrent access patterns
 ///
 /// This struct is not exposed directly to Python; it is wrapped by
 /// `PySessionContext`.
 pub(crate) struct PySessionCtxInternal {
-    pub(crate) session: Weak<Session<IdentityProvider, IdentityVerifier>>,
-    pub(crate) rx: RwLock<AppChannelReceiver>,
+    pub(crate) bindings_ctx: BindingsSessionContext<IdentityProvider, IdentityVerifier>,
 }
 
 /// Python-exposed session context wrapper.
 ///
-/// A thin, cloneable handle around the underlying Rust session state. All
-/// getters perform a safe upgrade of the weak internal session reference,
-/// returning a Python exception if the session has already been closed.
-/// The internal message receiver is intentionally not exposed at this level.
-///
-/// Higher-level Python code (see `session.py`) provides ergonomic async
-/// operations on top of this context.
+/// A thin, cloneable handle around the underlying Rust session state that provides
+/// both session metadata access and session-specific operations. All getters perform
+/// a safe upgrade of the weak internal session reference, returning a Python exception
+/// if the session has already been closed.
 ///
 /// Properties (getters exposed to Python):
 /// - id -> int: Unique numeric identifier of the session. Raises a Python
@@ -71,12 +70,11 @@ pub(crate) struct PySessionContext {
 
 impl From<SessionContext<IdentityProvider, IdentityVerifier>> for PySessionContext {
     fn from(ctx: SessionContext<IdentityProvider, IdentityVerifier>) -> Self {
-        // Split context into constituent parts (session + channel receiver)
-        let (session, rx) = ctx.into_parts();
-        let rx = RwLock::new(rx);
+        // Convert to BindingsSessionContext
+        let bindings_ctx = BindingsSessionContext::from(ctx);
 
         PySessionContext {
-            internal: Arc::new(PySessionCtxInternal { session, rx }),
+            internal: Arc::new(PySessionCtxInternal { bindings_ctx }),
         }
     }
 }
@@ -97,18 +95,23 @@ fn strong_session(
 impl PySessionContext {
     #[getter]
     pub fn id(&self) -> PyResult<u32> {
-        let id = strong_session(&self.internal.session)?.id();
+        let id = strong_session(&self.internal.bindings_ctx.session)?.id();
 
         Ok(id)
     }
 
     #[getter]
     pub fn metadata(&self) -> PyResult<HashMap<String, String>> {
-        let session = self.internal.session.upgrade().ok_or_else(|| {
-            PyErr::new::<PyException, _>(
-                SessionError::SessionClosed("session already closed".to_string()).to_string(),
-            )
-        })?;
+        let session = self
+            .internal
+            .bindings_ctx
+            .session
+            .upgrade()
+            .ok_or_else(|| {
+                PyErr::new::<PyException, _>(
+                    SessionError::SessionClosed("session already closed".to_string()).to_string(),
+                )
+            })?;
         let session_config = session.session_config();
 
         Ok(session_config.metadata())
@@ -116,34 +119,150 @@ impl PySessionContext {
 
     #[getter]
     pub fn session_type(&self) -> PyResult<PySessionType> {
-        let session = strong_session(&self.internal.session)?;
+        let session = strong_session(&self.internal.bindings_ctx.session)?;
         Ok(session.kind().into())
     }
 
     #[getter]
     pub fn src(&self) -> PyResult<PyName> {
-        let session = strong_session(&self.internal.session)?;
+        let session = strong_session(&self.internal.bindings_ctx.session)?;
 
         Ok(session.source().clone().into())
     }
 
     #[getter]
     pub fn dst(&self) -> PyResult<Option<PyName>> {
-        let session = strong_session(&self.internal.session)?;
+        let session = strong_session(&self.internal.bindings_ctx.session)?;
 
         Ok(session.dst().map(|name| name.into()))
     }
 
     #[getter]
     pub fn session_config(&self) -> PyResult<PySessionConfiguration> {
-        let session = strong_session(&self.internal.session)?;
+        let session = strong_session(&self.internal.bindings_ctx.session)?;
         Ok(session.session_config().into())
     }
 
     pub fn set_session_config(&self, config: PySessionConfiguration) -> PyResult<()> {
-        let session = strong_session(&self.internal.session)?;
+        let session = strong_session(&self.internal.bindings_ctx.session)?;
         session
             .set_session_config(&config.into())
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+        Ok(())
+    }
+}
+
+/// Session-specific operations
+impl PySessionContext {
+    /// Get a message from this session
+    pub(crate) async fn get_message(
+        &self,
+        timeout: Option<std::time::Duration>,
+    ) -> PyResult<(PyMessageContext, Vec<u8>)> {
+        let (ctx, payload) = self
+            .internal
+            .bindings_ctx
+            .get_session_message(timeout)
+            .await
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+        Ok((ctx.into(), payload))
+    }
+
+    /// Publish a message through this session
+    pub(crate) async fn publish(
+        &self,
+        fanout: u32,
+        blob: Vec<u8>,
+        message_ctx: Option<PyMessageContext>,
+        name: Option<PyName>,
+        payload_type: Option<String>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> PyResult<()> {
+        let session = self
+            .internal
+            .bindings_ctx
+            .session
+            .upgrade()
+            .ok_or_else(|| PyErr::new::<PyException, _>("session closed"))?;
+
+        let (target_name, conn_out) = match &name {
+            Some(name) => (name, None),
+            None => match &message_ctx {
+                Some(ctx) => (&ctx.source_name, Some(ctx.input_connection)),
+                None => match session.session_config().destination_name() {
+                    Some(n) => (&PyName::from(n), None),
+                    None => {
+                        return Err(PyErr::new::<PyException, _>(
+                            "either name or message_ctx must be provided for publish",
+                        ));
+                    }
+                },
+            },
+        };
+
+        let target_name = Name::from(target_name);
+
+        self.internal
+            .bindings_ctx
+            .publish(&target_name, fanout, blob, conn_out, payload_type, metadata)
+            .await
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Publish a message as a reply to a received message
+    pub(crate) async fn publish_to(
+        &self,
+        message_ctx: PyMessageContext,
+        blob: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> PyResult<()> {
+        let ctx: MessageContext = message_ctx.into();
+
+        self.internal
+            .bindings_ctx
+            .publish_to(&ctx, blob, payload_type, metadata)
+            .await
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Invite a participant to this session (multicast only)
+    pub(crate) async fn invite(&self, name: PyName) -> PyResult<()> {
+        self.internal
+            .bindings_ctx
+            .invite(&name.into())
+            .await
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Remove a participant from this session (multicast only)
+    pub(crate) async fn remove(&self, name: PyName) -> PyResult<()> {
+        self.internal
+            .bindings_ctx
+            .remove(&name.into())
+            .await
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Delete this session
+    pub(crate) async fn delete(
+        &self,
+        adapter: &BindingsAdapter<IdentityProvider, IdentityVerifier>,
+    ) -> PyResult<()> {
+        let session = self
+            .internal
+            .bindings_ctx
+            .session
+            .upgrade()
+            .ok_or_else(|| PyErr::new::<PyException, _>("session closed"))?;
+
+        adapter
+            .delete_session(&session)
+            .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
         Ok(())
     }
@@ -173,16 +292,18 @@ impl From<SessionType> for PySessionType {
 
 /// User-facing configuration for establishing and tuning sessions.
 ///
-/// Each variant maps to a core `SessionConfig`.
-/// Common fields (casual rundown):
+/// Each variant maps to a core `SessionConfig` and defines the behavior of session-level
+/// operations like message publishing, participant management, and message reception.
+///
+/// Common fields:
 /// * `timeout`: How long we wait for an ack before trying again.
 /// * `max_retries`: Number of attempts to send a message. If we run out, an error is returned.
 /// * `mls_enabled`: Turn on MLS for end‑to‑end crypto.
 /// * `metadata`: One-shot string key/value tags sent at session start; the other side can read them for tracing, routing, auth, etc.
 ///
 /// Variant-specific notes:
-/// * `PointToPoint`: PointToPoint will target a specific peer for all messages.
-/// * `Group`: Uses a named channel and distributes to multiple subscribers.
+/// * `PointToPoint`: Direct communication with a specific peer. Session operations target the peer directly.
+/// * `Group`: Channel-based multicast communication. Session operations affect the entire group.
 ///
 /// # Examples
 ///
@@ -190,8 +311,7 @@ impl From<SessionType> for PySessionType {
 /// ```python
 /// from slim_bindings import PySessionConfiguration, PyName
 ///
-/// # PointToPoint session. Wait up to 2 seconds for an ack for each message, retry up to 5 times,
-/// # enable MLS, and attach some metadata.
+/// # PointToPoint session - direct peer communication
 /// p2p_cfg = PySessionConfiguration.PointToPoint(
 ///     peer_name=PyName("org", "namespace", "service"), # target peer
 ///     timeout=datetime.timedelta(seconds=2), # wait 2 seconds for an ack
@@ -234,11 +354,12 @@ impl From<SessionType> for PySessionType {
 /// ```
 ///
 /// ## Rust (internal conversion flow)
-/// The enum transparently converts to and from `session::SessionConfig`:
-/// ```rust
-/// let core: session::SessionConfig = py_cfg.clone().into();
-/// let roundtrip: PySessionConfiguration = core.into();
-/// assert_eq!(py_cfg, roundtrip);
+/// The enum transparently converts to and from `SessionConfig`:
+/// ```
+/// // Example conversion (pseudo-code):
+/// // let core: SessionConfig = py_cfg.clone().into();
+/// // let roundtrip: PySessionConfiguration = core.into();
+/// // assert_eq!(py_cfg, roundtrip);
 /// ```
 #[gen_stub_pyclass_enum]
 #[derive(Clone, PartialEq)]
@@ -403,4 +524,99 @@ impl From<PySessionConfiguration> for SessionConfig {
             )),
         }
     }
+}
+
+// ============================================================================
+// Python binding functions for session operations
+// ============================================================================
+
+/// Publish a message through the specified session.
+#[allow(clippy::too_many_arguments)]
+#[gen_stub_pyfunction]
+#[pyfunction]
+#[pyo3(signature = (session_context, fanout, blob, message_ctx=None, name=None, payload_type=None, metadata=None))]
+pub fn publish(
+    py: Python,
+    session_context: PySessionContext,
+    fanout: u32,
+    blob: Vec<u8>,
+    message_ctx: Option<PyMessageContext>,
+    name: Option<PyName>,
+    payload_type: Option<String>,
+    metadata: Option<HashMap<String, String>>,
+) -> PyResult<Bound<PyAny>> {
+    pyo3_async_runtimes::tokio::future_into_py(py, async move {
+        session_context
+            .publish(fanout, blob, message_ctx, name, payload_type, metadata)
+            .await
+    })
+}
+
+/// Publish a message as a reply to a received message through the specified session.
+#[gen_stub_pyfunction]
+#[pyfunction]
+#[pyo3(signature = (session_context, message_ctx, blob, payload_type=None, metadata=None))]
+pub fn publish_to(
+    py: Python,
+    session_context: PySessionContext,
+    message_ctx: PyMessageContext,
+    blob: Vec<u8>,
+    payload_type: Option<String>,
+    metadata: Option<HashMap<String, String>>,
+) -> PyResult<Bound<PyAny>> {
+    pyo3_async_runtimes::tokio::future_into_py_with_locals(
+        py,
+        pyo3_async_runtimes::tokio::get_current_locals(py)?,
+        async move {
+            session_context
+                .publish_to(message_ctx, blob, payload_type, metadata)
+                .await
+        },
+    )
+}
+
+/// Invite a participant to the specified session (group only).
+#[gen_stub_pyfunction]
+#[pyfunction]
+#[pyo3(signature = (session_context, name))]
+pub fn invite(
+    py: Python,
+    session_context: PySessionContext,
+    name: PyName,
+) -> PyResult<Bound<PyAny>> {
+    pyo3_async_runtimes::tokio::future_into_py(
+        py,
+        async move { session_context.invite(name).await },
+    )
+}
+
+/// Remove a participant from the specified session (group only).
+#[gen_stub_pyfunction]
+#[pyfunction]
+#[pyo3(signature = (session_context, name))]
+pub fn remove(
+    py: Python,
+    session_context: PySessionContext,
+    name: PyName,
+) -> PyResult<Bound<PyAny>> {
+    pyo3_async_runtimes::tokio::future_into_py(
+        py,
+        async move { session_context.remove(name).await },
+    )
+}
+
+/// Get a message from the specified session.
+#[gen_stub_pyfunction]
+#[pyfunction]
+#[pyo3(signature = (session_context, timeout=None))]
+pub fn get_message(
+    py: Python,
+    session_context: PySessionContext,
+    timeout: Option<std::time::Duration>,
+) -> PyResult<Bound<PyAny>> {
+    pyo3_async_runtimes::tokio::future_into_py_with_locals(
+        py,
+        pyo3_async_runtimes::tokio::get_current_locals(py)?,
+        async move { session_context.get_message(timeout).await },
+    )
 }
