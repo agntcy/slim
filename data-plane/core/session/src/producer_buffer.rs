@@ -102,8 +102,7 @@ impl ProducerBuffer {
 mod tests {
     use super::*;
     use slim_datapath::api::{
-        ProtoSessionMessageType as SessionMessageType, ProtoSessionType as SessionType,
-        SessionHeader, SlimHeader,
+        ApplicationPayload, ProtoSessionMessageType, ProtoSessionType, SessionHeader, SlimHeader,
     };
     use slim_datapath::messages::encoder::Name;
 
@@ -114,56 +113,53 @@ mod tests {
         assert_eq!(buffer.get_capacity(), 3);
 
         let src = Name::from_strings(["org", "ns", "type"]).with_id(0);
+        let src_id = src.to_string();
         let name_type = Name::from_strings(["org", "ns", "type"]).with_id(1);
 
-        let slim_header = SlimHeader::new(&src, &name_type, None);
+        let slim_header = SlimHeader::new(&src, &name_type, &src_id, None);
 
         let h0 = SessionHeader::new(
-            SessionType::SessionUnknown.into(),
-            SessionMessageType::P2PMsg.into(),
+            ProtoSessionType::PointToPoint.into(),
+            ProtoSessionMessageType::Msg.into(),
             0,
             0,
-            &None,
-            &None,
         );
         let h1 = SessionHeader::new(
-            SessionType::SessionUnknown.into(),
-            SessionMessageType::P2PMsg.into(),
+            ProtoSessionType::PointToPoint.into(),
+            ProtoSessionMessageType::Msg.into(),
             0,
             1,
-            &None,
-            &None,
         );
         let h2 = SessionHeader::new(
-            SessionType::SessionUnknown.into(),
-            SessionMessageType::P2PMsg.into(),
+            ProtoSessionType::PointToPoint.into(),
+            ProtoSessionMessageType::Msg.into(),
             0,
             2,
-            &None,
-            &None,
         );
         let h3 = SessionHeader::new(
-            SessionType::SessionUnknown.into(),
-            SessionMessageType::P2PMsg.into(),
+            ProtoSessionType::PointToPoint.into(),
+            ProtoSessionMessageType::Msg.into(),
             0,
             3,
-            &None,
-            &None,
         );
         let h4 = SessionHeader::new(
-            SessionType::SessionUnknown.into(),
-            SessionMessageType::P2PMsg.into(),
+            ProtoSessionType::PointToPoint.into(),
+            ProtoSessionMessageType::Msg.into(),
             0,
             4,
-            &None,
-            &None,
         );
 
-        let p0 = Message::new_publish_with_headers(Some(slim_header), Some(h0), "", vec![]);
-        let p1 = Message::new_publish_with_headers(Some(slim_header), Some(h1), "", vec![]);
-        let p2 = Message::new_publish_with_headers(Some(slim_header), Some(h2), "", vec![]);
-        let p3 = Message::new_publish_with_headers(Some(slim_header), Some(h3), "", vec![]);
-        let p4 = Message::new_publish_with_headers(Some(slim_header), Some(h4), "", vec![]);
+        let payload = Some(ApplicationPayload::new("", vec![]).as_contet());
+        let p0 =
+            Message::new_publish_with_headers(Some(slim_header.clone()), Some(h0), payload.clone());
+        let p1 =
+            Message::new_publish_with_headers(Some(slim_header.clone()), Some(h1), payload.clone());
+        let p2 =
+            Message::new_publish_with_headers(Some(slim_header.clone()), Some(h2), payload.clone());
+        let p3 =
+            Message::new_publish_with_headers(Some(slim_header.clone()), Some(h3), payload.clone());
+        let p4 =
+            Message::new_publish_with_headers(Some(slim_header.clone()), Some(h4), payload.clone());
 
         assert!(buffer.push(p0.clone()));
 
@@ -221,18 +217,18 @@ mod tests {
     #[test]
     fn test_iter_producer_buffer() {
         let src = Name::from_strings(["org", "ns", "type"]).with_id(0);
+        let src_id = src.to_string();
         let name_type = Name::from_strings(["org", "ns", "type"]).with_id(1);
 
-        let slim_header = SlimHeader::new(&src, &name_type, None);
+        let slim_header = SlimHeader::new(&src, &name_type, &src_id, None);
         let h = SessionHeader::new(
-            SessionType::SessionUnknown.into(),
-            SessionMessageType::P2PMsg.into(),
+            ProtoSessionType::PointToPoint.into(),
+            ProtoSessionMessageType::Msg.into(),
             0,
             0,
-            &None,
-            &None,
         );
-        let mut p = Message::new_publish_with_headers(Some(slim_header), Some(h), "", vec![]);
+        let payload = Some(ApplicationPayload::new("", vec![]).as_contet());
+        let mut p = Message::new_publish_with_headers(Some(slim_header), Some(h), payload);
 
         let mut b = ProducerBuffer::with_capacity(30);
         b.push(p.clone()); // add 0

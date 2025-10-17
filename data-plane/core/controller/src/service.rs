@@ -738,14 +738,14 @@ impl ControllerService {
                         }
 
                         let identity_token = &self
-                                .inner
-                                .auth_provider
-                                .get_token()
-                                .map_err(|e| {
-                                    error!("failed to generate identity token: {}", e);
-                                    ControllerError::DatapathError(e.to_string())
-                                })
-                                .unwrap();
+                            .inner
+                            .auth_provider
+                            .get_token()
+                            .map_err(|e| {
+                                error!("failed to generate identity token: {}", e);
+                                ControllerError::DatapathError(e.to_string())
+                            })
+                            .unwrap();
 
                         for subscription in &config.subscriptions_to_set {
                             if !self

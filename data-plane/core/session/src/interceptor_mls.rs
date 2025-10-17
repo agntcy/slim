@@ -6,10 +6,10 @@ use std::sync::Arc;
 
 // Third-party crates
 use parking_lot::Mutex;
-use tracing::{debug, error, warn};
+use tracing::{debug, error};
 
-use slim_datapath::api::ProtoMessage as Message;
-use slim_datapath::api::{MessageType, ProtoSessionMessageType};
+use slim_datapath::api::ProtoSessionMessageType;
+use slim_datapath::api::{ApplicationPayload, ProtoMessage as Message};
 use slim_mls::mls::Mls;
 
 // Local crate
@@ -52,34 +52,28 @@ where
         }
 
         match msg.get_session_header().session_message_type() {
-            ProtoSessionMessageType::ChannelDiscoveryRequest
-            | ProtoSessionMessageType::ChannelDiscoveryReply
-            | ProtoSessionMessageType::ChannelJoinRequest
-            | ProtoSessionMessageType::ChannelJoinReply
-            | ProtoSessionMessageType::ChannelLeaveRequest
-            | ProtoSessionMessageType::ChannelLeaveReply
-            | ProtoSessionMessageType::ChannelMlsCommit
-            | ProtoSessionMessageType::ChannelMlsWelcome
-            | ProtoSessionMessageType::ChannelMlsProposal
-            | ProtoSessionMessageType::ChannelMlsAck => {
+            ProtoSessionMessageType::DiscoveryRequest
+            | ProtoSessionMessageType::DiscoveryReply
+            | ProtoSessionMessageType::JoinRequest
+            | ProtoSessionMessageType::JoinReply
+            | ProtoSessionMessageType::LeaveRequest
+            | ProtoSessionMessageType::LeaveReply
+            | ProtoSessionMessageType::GroupUpdate
+            | ProtoSessionMessageType::GroupWelcome
+            | ProtoSessionMessageType::GroupProposal
+            | ProtoSessionMessageType::GroupAck => {
                 debug!("Skipping channel messages type in encryption path");
                 return Ok(());
             }
             _ => {}
         }
 
-        let payload = match msg.get_payload() {
-            Some(content) => &content.blob,
-            None => {
-                warn!("Message has no payload, skipping MLS processing");
-                return Ok(());
-            }
-        };
+        let payload = &msg.get_payload().unwrap().as_application_payload().blob;
 
         let mut mls_guard = self.mls.lock();
 
         debug!("Encrypting message for group member");
-        let binding = mls_guard.encrypt_message(payload);
+        let binding = mls_guard.encrypt_message(&payload);
         let encrypted_payload = match &binding {
             Ok(res) => res,
             Err(e) => {
@@ -91,12 +85,8 @@ where
             }
         };
 
-        if let Some(MessageType::Publish(publish)) = &mut msg.message_type
-            && let Some(content) = &mut publish.msg
-        {
-            content.blob = encrypted_payload.to_vec();
-            msg.insert_metadata(METADATA_MLS_ENCRYPTED.to_owned(), "true".to_owned());
-        }
+        msg.set_payload(ApplicationPayload::new("", encrypted_payload.to_vec()).as_contet());
+
         Ok(())
     }
 
@@ -108,16 +98,16 @@ where
         }
 
         match msg.get_session_header().session_message_type() {
-            ProtoSessionMessageType::ChannelDiscoveryRequest
-            | ProtoSessionMessageType::ChannelDiscoveryReply
-            | ProtoSessionMessageType::ChannelJoinRequest
-            | ProtoSessionMessageType::ChannelJoinReply
-            | ProtoSessionMessageType::ChannelLeaveRequest
-            | ProtoSessionMessageType::ChannelLeaveReply
-            | ProtoSessionMessageType::ChannelMlsCommit
-            | ProtoSessionMessageType::ChannelMlsWelcome
-            | ProtoSessionMessageType::ChannelMlsProposal
-            | ProtoSessionMessageType::ChannelMlsAck => {
+            ProtoSessionMessageType::DiscoveryRequest
+            | ProtoSessionMessageType::DiscoveryReply
+            | ProtoSessionMessageType::JoinRequest
+            | ProtoSessionMessageType::JoinReply
+            | ProtoSessionMessageType::LeaveRequest
+            | ProtoSessionMessageType::LeaveReply
+            | ProtoSessionMessageType::GroupUpdate
+            | ProtoSessionMessageType::GroupWelcome
+            | ProtoSessionMessageType::GroupProposal
+            | ProtoSessionMessageType::GroupAck => {
                 debug!("Skipping channel messages type in decryption path");
                 return Ok(());
             }
@@ -132,13 +122,7 @@ where
             return Ok(());
         }
 
-        let payload = match msg.get_payload() {
-            Some(content) => &content.blob,
-            None => {
-                warn!("Encrypted message has no payload");
-                return Err(SessionError::MlsNoPayload);
-            }
-        };
+        let payload = &msg.get_payload().unwrap().as_application_payload().blob;
 
         let decrypted_payload = {
             let mut mls_guard = self.mls.lock();
@@ -153,12 +137,9 @@ where
             }
         };
 
-        if let Some(MessageType::Publish(publish)) = &mut msg.message_type
-            && let Some(content) = &mut publish.msg
-        {
-            content.blob = decrypted_payload;
-            msg.remove_metadata(METADATA_MLS_ENCRYPTED);
-        }
+        msg.set_payload(ApplicationPayload::new("", decrypted_payload.to_vec()).as_contet());
+        msg.remove_metadata(METADATA_MLS_ENCRYPTED);
+
         Ok(())
     }
 }
@@ -167,12 +148,14 @@ where
 mod tests {
     use super::*;
     use slim_auth::shared_secret::SharedSecret;
+    use slim_datapath::api::CommandPayload;
     use std::sync::Arc;
 
     #[tokio::test]
     async fn test_mls_interceptor_without_group() {
         let name =
             slim_datapath::messages::Name::from_strings(["org", "default", "test_user"]).with_id(0);
+
         let mut mls = Mls::new(
             name,
             SharedSecret::new("test", "group"),
@@ -184,12 +167,14 @@ mod tests {
         let mls_arc = Arc::new(Mutex::new(mls));
         let interceptor = MlsInterceptor::new(mls_arc);
 
+        let payload = Some(ApplicationPayload::new("text", b"test message".to_vec()).as_contet());
+
         let mut msg = Message::new_publish(
             &slim_datapath::messages::Name::from_strings(["org", "default", "test"]).with_id(0),
             &slim_datapath::messages::Name::from_strings(["org", "default", "target"]),
+            "test",
             None,
-            "text",
-            b"test message".to_vec(),
+            payload,
         );
 
         let result = interceptor.on_msg_from_app(&mut msg).await;
@@ -233,12 +218,14 @@ mod tests {
         let bob_interceptor = MlsInterceptor::new(Arc::new(Mutex::new(bob_mls)));
 
         let original_payload = b"Hello from Alice!";
+        let payload = Some(ApplicationPayload::new("text", original_payload.to_vec()).as_contet());
+
         let mut alice_msg = Message::new_publish(
             &slim_datapath::messages::Name::from_strings(["org", "default", "alice"]).with_id(0),
             &slim_datapath::messages::Name::from_strings(["org", "default", "bob"]),
+            "test",
             None,
-            "text",
-            original_payload.to_vec(),
+            payload,
         );
 
         alice_interceptor
@@ -246,7 +233,14 @@ mod tests {
             .await
             .unwrap();
 
-        assert_ne!(alice_msg.get_payload().unwrap().blob, original_payload);
+        assert_ne!(
+            alice_msg
+                .get_payload()
+                .unwrap()
+                .as_application_payload()
+                .blob,
+            original_payload
+        );
         assert_eq!(
             alice_msg
                 .metadata
@@ -261,7 +255,10 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(bob_msg.get_payload().unwrap().blob, original_payload);
+        assert_eq!(
+            bob_msg.get_payload().unwrap().as_application_payload().blob,
+            original_payload
+        );
         assert_eq!(bob_msg.metadata.get(METADATA_MLS_ENCRYPTED), None);
     }
 
@@ -281,15 +278,20 @@ mod tests {
         let mls_arc = Arc::new(Mutex::new(mls));
         let interceptor = MlsInterceptor::new(mls_arc);
 
+        let payload =
+            Some(ApplicationPayload::new("text", b"plain text message".to_vec()).as_contet());
         let mut msg = Message::new_publish(
             &slim_datapath::messages::Name::from_strings(["org", "default", "sender"]).with_id(0),
             &slim_datapath::messages::Name::from_strings(["org", "default", "receiver"]),
-            None,
             "text",
-            b"plain text message".to_vec(),
+            None,
+            payload,
         );
 
         interceptor.on_msg_from_slim(&mut msg).await.unwrap();
-        assert_eq!(msg.get_payload().unwrap().blob, b"plain text message");
+        assert_eq!(
+            msg.get_payload().unwrap().as_application_payload().blob,
+            b"plain text message"
+        );
     }
 }

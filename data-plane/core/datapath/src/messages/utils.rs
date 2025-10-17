@@ -448,6 +448,10 @@ impl ProtoPublish {
         self.msg.as_ref().unwrap()
     }
 
+    pub fn set_payload(&mut self, payload: Content) {
+        self.msg = Some(payload);
+    }
+
     pub fn is_command(&self) -> bool {
         match &self.get_payload().content_type.as_ref().unwrap() {
             ContentType::AppPayload(_) => false,
@@ -730,6 +734,15 @@ impl ProtoMessage {
             Some(ProtoSubscribeType(_)) => panic!("payload not found"),
             Some(ProtoUnsubscribeType(_)) => panic!("payload not found"),
             None => panic!("payload not found"),
+        }
+    }
+
+    pub fn set_payload(&mut self, payload: Content) {
+        match &mut self.message_type {
+            Some(ProtoPublishType(p)) => p.set_payload(payload),
+            Some(ProtoSubscribeType(_)) => panic!("no payload allowed"),
+            Some(ProtoUnsubscribeType(_)) => panic!("no payload allowed"),
+            None => panic!("no payload allowed"),
         }
     }
 

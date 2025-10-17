@@ -180,7 +180,7 @@ mod tests {
     use slim_auth::errors::AuthError;
     use slim_auth::traits::{TokenProvider, Verifier};
     use slim_datapath::Status;
-    use slim_datapath::api::ProtoMessage as Message;
+    use slim_datapath::api::{ApplicationPayload, ProtoMessage as Message};
     use slim_datapath::messages::encoder::Name;
     use tokio::sync::mpsc;
 
@@ -241,9 +241,11 @@ mod tests {
 
     fn make_message() -> Message {
         let source = Name::from_strings(["a", "b", "c"]).with_id(0);
+        let identity = source.to_string();
         let dst = Name::from_strings(["d", "e", "f"]).with_id(0);
         // Signature: (&Name, &Name, Option<SlimHeaderFlags>, &str, Vec<u8>)
-        Message::new_publish(&source, &dst, None, "application/octet-stream", Vec::new())
+        let payload = Some(ApplicationPayload::new("application/octet-stream", vec![]).as_contet());
+        Message::new_publish(&source, &dst, &identity, None, payload)
     }
 
     #[tokio::test]
