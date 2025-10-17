@@ -648,6 +648,7 @@ impl Verifier for SpiffeJwtVerifier {
 mod tests {
     use super::*;
     use std::time::Duration as StdDuration;
+    use tokio::time::Duration;
 
     #[tokio::test]
     async fn test_spiffe_config_default() {
@@ -696,8 +697,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_jwt_source_creation_with_invalid_path_succeeds() {
-        // Since client initialization moved to background task, constructor should succeed
-        // even with invalid socket path - errors happen asynchronously in the task
         let bogus_path = Some("/tmp/non-existent-spiffe-socket".to_string());
         let src = JwtSource::new(
             vec!["aud".into()],
@@ -741,8 +740,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_jwt_source_cancellation_on_drop() {
-        use tokio::time::Duration;
-
         // This test verifies that the background task terminates when JwtSource is dropped
         // Since client initialization moved to background task, constructor succeeds
         // but the background task handles connection errors and can be cancelled
@@ -757,18 +754,10 @@ mod tests {
             )
             .await;
 
-            // JwtSource creation should now succeed - errors happen in background task
             assert!(
                 jwt_source_result.is_ok(),
                 "JwtSource creation should succeed - errors handled in background"
             );
         }
-        // JwtSource is now dropped, and should have cancelled its background task
-
-        // The background task will retry connecting to the invalid socket but will
-        // be cancelled when the JwtSource is dropped via the cancellation token.
-        
-        // The fact that the code compiles and the cancellation logic is properly
-        // integrated demonstrates that the background task cleanup works correctly.
     }
 }
