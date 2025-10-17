@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/agntcy/slim/compare/slimctl-v0.6.0...slimctl-v0.6.1) (2025-10-17)
+
+
+### Features
+
+* add config subcommand to slimctl ([#818](https://github.com/agntcy/slim/issues/818)) ([562b550](https://github.com/agntcy/slim/commit/562b5504608cb37f6d6f6e9dede155cf92a83426))
+
 ## [0.6.0](https://github.com/agntcy/slim/compare/slimctl-v0.2.2...slimctl-v0.6.0) (2025-10-09)
 
 
