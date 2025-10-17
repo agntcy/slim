@@ -5,7 +5,6 @@ use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};
 
 use slim_auth::traits::{TokenProvider, Verifier};
-
 use slim_datapath::messages::Name;
 use slim_session::context::SessionContext;
 use slim_session::{Notification, Session, SessionConfig, SessionError};
