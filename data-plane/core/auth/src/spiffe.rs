@@ -28,7 +28,7 @@ pub struct SpiffeProviderConfig {
     pub target_spiffe_id: Option<String>,
     /// JWT audiences for token requests
     pub jwt_audiences: Vec<String>,
-    /// Certificate refresh interval (defaults to 1/3 of certificate lifetime)
+    /// Jwt refresh interval (optional, defaults to 2/3 of certificate lifetime)
     pub refresh_interval: Option<Duration>,
 }
 
