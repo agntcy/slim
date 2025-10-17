@@ -163,7 +163,7 @@ where
     /// Returns a reference to the name that was provided when the App was created.
     /// This name is used for session management and message routing.
     pub fn app_name(&self) -> &Name {
-        self.session_layer.app_name()
+        &self.app_name
     }
 
     /// Send a message to the session layer
