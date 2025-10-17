@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1](https://github.com/agntcy/slim/compare/slim-session-v0.1.0...slim-session-v0.1.1) - 2025-10-17
+
+### Added
+
+- *(session)* create sender and receiver ([#836](https://github.com/agntcy/slim/pull/836))
+
+### Other
+
+- *(agntcy-slim-session)* release v0.1.0 ([#856](https://github.com/agntcy/slim/pull/856))
+
 ## [0.1.0](https://github.com/agntcy/slim/releases/tag/slim-session-v0.1.0) - 2025-10-17
 
 ### Added

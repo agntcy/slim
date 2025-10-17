@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1](https://github.com/agntcy/slim/compare/slim-service-v0.8.0...slim-service-v0.8.1) - 2025-10-17
+
+### Fixed
+
+- *(app.rs)* get app name from local property ([#859](https://github.com/agntcy/slim/pull/859))
+
+### Other
+
+- common rust infrastructure for language bindings ([#840](https://github.com/agntcy/slim/pull/840))
+
 ## [0.8.0](https://github.com/agntcy/slim/compare/slim-service-v0.7.0...slim-service-v0.8.0) - 2025-10-17
 
 ### Added
