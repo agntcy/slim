@@ -58,6 +58,7 @@ use crate::{
 /// Minimum length (in bytes) required for the shared secret.
 /// 32 bytes (~256 bits) is a reasonable baseline for HMAC-SHA256.
 const MIN_SECRET_LEN: usize = 32;
+
 /// Nonce length (raw bytes) before base64url encoding. Random bytes are
 /// base64url (no padding) encoded producing a larger textual representation.
 /// Length chosen to keep collision probability negligible within a validity window.
@@ -65,8 +66,10 @@ const NONCE_LEN: usize = 12;
 
 /// Default validity window (in seconds) for tokens.
 const DEFAULT_VALIDITY_WINDOW: u64 = 300; // 5 minutes
+
 /// Default clock skew allowance (in seconds) for minor time drift between systems.
 const DEFAULT_CLOCK_SKEW: u64 = 5;
+
 /// Maximum replay cache size to avoid unbounded memory growth. When capacity
 /// is reached the oldest (by insertion order) non-expired entries are evicted.
 const DEFAULT_REPLAY_CACHE_MAX: usize = 4096;
