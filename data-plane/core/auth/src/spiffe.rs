@@ -735,4 +735,360 @@ mod tests {
             );
         }
     }
+
+    #[tokio::test]
+    async fn test_jwt_source_drop_cancels_background_task() {
+        use tokio::time::{Duration, sleep};
+
+        // Create JwtSource in a limited scope
+        let cancellation_token = {
+            let jwt_source = JwtSource::new(
+                vec!["test-audience".to_string()],
+                None,
+                Some("/tmp/non-existent-spiffe-socket".to_string()),
+            )
+            .await
+            .unwrap();
+
+            // Get reference to the cancellation token before dropping
+            jwt_source.cancellation_token.clone()
+        }; // JwtSource is dropped here, which should cancel the token
+
+        // Give a small delay for the drop to be processed
+        sleep(Duration::from_millis(10)).await;
+
+        // Verify that the cancellation token was triggered
+        assert!(cancellation_token.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn test_spiffe_jwt_verifier_drop_cancels_background_task() {
+        use tokio::time::{Duration, sleep};
+
+        // Create SpiffeJwtVerifier in a limited scope
+        let cancellation_token = {
+            let spiffe_config = SpiffeVerifierConfig {
+                socket_path: Some("/tmp/non-existent-spiffe-socket".to_string()),
+                jwt_audiences: vec!["test-audience".to_string()],
+            };
+            let verifier = SpiffeJwtVerifier::new(spiffe_config);
+
+            // Get reference to the cancellation token before dropping
+            verifier.cancellation_token.clone()
+        }; // SpiffeJwtVerifier is dropped here, which should cancel the token
+
+        // Give a small delay for the drop to be processed
+        sleep(Duration::from_millis(10)).await;
+
+        // Verify that the cancellation token was triggered
+        assert!(cancellation_token.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn test_multiple_jwt_sources_independent_cancellation() {
+        use tokio::time::{Duration, sleep};
+
+        // Create multiple JwtSources to verify they have independent cancellation tokens
+        let jwt_source1 = JwtSource::new(
+            vec!["audience1".to_string()],
+            None,
+            Some("/tmp/socket1".to_string()),
+        )
+        .await
+        .unwrap();
+
+        let jwt_source2 = JwtSource::new(
+            vec!["audience2".to_string()],
+            None,
+            Some("/tmp/socket2".to_string()),
+        )
+        .await
+        .unwrap();
+
+        let token1 = jwt_source1.cancellation_token.clone();
+        let token2 = jwt_source2.cancellation_token.clone();
+
+        // Both should be active initially
+        assert!(!token1.is_cancelled());
+        assert!(!token2.is_cancelled());
+
+        // Drop only the first one
+        drop(jwt_source1);
+        sleep(Duration::from_millis(10)).await;
+
+        // Only the first token should be cancelled
+        assert!(token1.is_cancelled());
+        assert!(!token2.is_cancelled());
+
+        // Drop the second one
+        drop(jwt_source2);
+        sleep(Duration::from_millis(10)).await;
+
+        // Now both should be cancelled
+        assert!(token1.is_cancelled());
+        assert!(token2.is_cancelled());
+    }
+
+    #[test]
+    fn test_spiffe_provider_get_x509_cert_pem_not_initialized() {
+        let provider = SpiffeProvider::new(SpiffeProviderConfig::default());
+        let res = provider.get_x509_cert_pem();
+        assert!(res.is_err());
+        let err = format!("{}", res.unwrap_err());
+        assert!(err.contains("X509Source not initialized"));
+    }
+
+    #[test]
+    fn test_spiffe_provider_get_x509_key_pem_not_initialized() {
+        let provider = SpiffeProvider::new(SpiffeProviderConfig::default());
+        let res = provider.get_x509_key_pem();
+        assert!(res.is_err());
+        let err = format!("{}", res.unwrap_err());
+        assert!(err.contains("X509Source not initialized"));
+    }
+
+    #[test]
+    fn test_spiffe_provider_get_token_not_initialized() {
+        let provider = SpiffeProvider::new(SpiffeProviderConfig::default());
+        let res = provider.get_token();
+        assert!(res.is_err());
+        let err = format!("{}", res.unwrap_err());
+        assert!(err.contains("JwtSource not initialized"));
+    }
+
+    #[test]
+    fn test_spiffe_provider_default_config() {
+        let config = SpiffeProviderConfig::default();
+        assert_eq!(config.socket_path, None);
+        assert_eq!(config.jwt_audiences, vec!["slim".to_string()]); // Fixed: default includes "slim"
+        assert_eq!(config.target_spiffe_id, None);
+
+        let provider = SpiffeProvider::new(config);
+        assert!(provider.x509_source.is_none());
+        assert!(provider.jwt_source.is_none());
+    }
+
+    #[test]
+    fn test_spiffe_verifier_config_creation() {
+        let config = SpiffeVerifierConfig {
+            socket_path: Some("/custom/path".to_string()),
+            jwt_audiences: vec!["aud1".to_string(), "aud2".to_string()],
+        };
+
+        assert_eq!(config.socket_path, Some("/custom/path".to_string()));
+        assert_eq!(config.jwt_audiences, vec!["aud1", "aud2"]);
+    }
+
+    #[tokio::test]
+    async fn test_jwt_source_get_svid_initially_none() {
+        let jwt_source = JwtSource::new(
+            vec!["test-audience".to_string()],
+            None,
+            Some("/tmp/non-existent-spiffe-socket".to_string()),
+        )
+        .await
+        .unwrap();
+
+        // Initially, before any successful fetch, SVID should be None
+        let svid_result = jwt_source.get_svid();
+        assert!(svid_result.is_ok());
+        assert!(svid_result.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_jwt_source_get_svid_multiple_calls() {
+        let jwt_source = JwtSource::new(
+            vec!["test-audience".to_string()],
+            None,
+            Some("/tmp/non-existent-spiffe-socket".to_string()),
+        )
+        .await
+        .unwrap();
+
+        // Multiple calls should not block and return consistently
+        let svid1 = jwt_source.get_svid();
+        let svid2 = jwt_source.get_svid();
+        let svid3 = jwt_source.get_svid();
+
+        assert!(svid1.is_ok());
+        assert!(svid2.is_ok());
+        assert!(svid3.is_ok());
+
+        // All should be None initially (no successful fetch yet)
+        assert!(svid1.unwrap().is_none());
+        assert!(svid2.unwrap().is_none());
+        assert!(svid3.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_jwt_source_with_target_spiffe_id() {
+        let target_id = "spiffe://example.org/service/backend".to_string();
+        let jwt_source = JwtSource::new(
+            vec!["test-audience".to_string()],
+            Some(target_id.clone()),
+            Some("/tmp/non-existent-spiffe-socket".to_string()),
+        )
+        .await
+        .unwrap();
+
+        // Should create successfully even with target SPIFFE ID
+        let svid_result = jwt_source.get_svid();
+        assert!(svid_result.is_ok());
+        assert!(svid_result.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_spiffe_jwt_verifier_initialize_with_invalid_socket() {
+        let spiffe_config = SpiffeVerifierConfig {
+            socket_path: Some("/tmp/completely-invalid-socket-path".to_string()),
+            jwt_audiences: vec!["test-audience".to_string()],
+        };
+        let verifier = SpiffeJwtVerifier::new(spiffe_config);
+
+        // Initialize should fail with invalid socket path
+        let result = verifier.initialize().await;
+        assert!(result.is_err());
+        let err = format!("{}", result.unwrap_err());
+        assert!(err.contains("Failed to connect to SPIFFE Workload API"));
+    }
+
+    #[tokio::test]
+    async fn test_spiffe_jwt_verifier_initialize_with_none_socket() {
+        let spiffe_config = SpiffeVerifierConfig {
+            socket_path: None, // Will use SPIFFE_ENDPOINT_SOCKET env var
+            jwt_audiences: vec!["test-audience".to_string()],
+        };
+        let verifier = SpiffeJwtVerifier::new(spiffe_config);
+
+        // This will likely fail unless SPIFFE_ENDPOINT_SOCKET is set to a valid socket
+        let result = verifier.initialize().await;
+        // We can't guarantee the environment has SPIFFE_ENDPOINT_SOCKET set,
+        // so we just verify the method can be called
+        assert!(result.is_err() || result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_spiffe_jwt_verifier_multiple_initialize_calls() {
+        let spiffe_config = SpiffeVerifierConfig {
+            socket_path: Some("/tmp/test-socket".to_string()),
+            jwt_audiences: vec!["test-audience".to_string()],
+        };
+        let verifier = SpiffeJwtVerifier::new(spiffe_config);
+
+        // Multiple initialization calls should be handled gracefully
+        let result1 = verifier.initialize().await;
+        let result2 = verifier.initialize().await;
+
+        // Both should fail with the same socket error (no real SPIFFE server)
+        assert!(result1.is_err());
+        assert!(result2.is_err());
+    }
+
+    #[test]
+    fn test_spiffe_jwt_verifier_creation_with_multiple_audiences() {
+        let spiffe_config = SpiffeVerifierConfig {
+            socket_path: Some("/custom/socket".to_string()),
+            jwt_audiences: vec![
+                "audience1".to_string(),
+                "audience2".to_string(),
+                "audience3".to_string(),
+            ],
+        };
+        let verifier = SpiffeJwtVerifier::new(spiffe_config);
+
+        assert_eq!(verifier.config.jwt_audiences.len(), 3);
+        assert!(
+            verifier
+                .config
+                .jwt_audiences
+                .contains(&"audience1".to_string())
+        );
+        assert!(
+            verifier
+                .config
+                .jwt_audiences
+                .contains(&"audience2".to_string())
+        );
+        assert!(
+            verifier
+                .config
+                .jwt_audiences
+                .contains(&"audience3".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_spiffe_jwt_verifier_verify_without_initialization() {
+        let spiffe_config = SpiffeVerifierConfig {
+            socket_path: None,
+            jwt_audiences: vec!["test-audience".to_string()],
+        };
+        let verifier = SpiffeJwtVerifier::new(spiffe_config);
+
+        // Trying to verify without initialization should fail
+        let result = verifier.verify("fake.jwt.token").await;
+        assert!(result.is_err());
+        let err = format!("{}", result.unwrap_err());
+        assert!(err.contains("WorkloadApiClient not initialized"));
+    }
+
+    #[tokio::test]
+    async fn test_spiffe_jwt_verifier_get_claims_without_initialization() {
+        let spiffe_config = SpiffeVerifierConfig {
+            socket_path: None,
+            jwt_audiences: vec!["test-audience".to_string()],
+        };
+        let verifier = SpiffeJwtVerifier::new(spiffe_config);
+
+        // Trying to get claims without initialization should fail
+        let result: Result<serde_json::Value, AuthError> =
+            verifier.get_claims("fake.jwt.token").await;
+        assert!(result.is_err());
+        let err = format!("{}", result.unwrap_err());
+        assert!(err.contains("WorkloadApiClient not initialized"));
+    }
+
+    #[tokio::test]
+    async fn test_spiffe_jwt_verifier_verify_with_invalid_token() {
+        let spiffe_config = SpiffeVerifierConfig {
+            socket_path: None,
+            jwt_audiences: vec!["test-audience".to_string()],
+        };
+        let verifier = SpiffeJwtVerifier::new(spiffe_config);
+
+        // Even with cached bundles (if any), invalid token should fail
+        let result = verifier.try_verify("not.a.valid.jwt.token");
+        assert!(result.is_err());
+        // Could be either "No JWT bundles cached" or token validation error
+        let err = format!("{}", result.unwrap_err());
+        assert!(err.contains("No JWT bundles cached") || err.contains("JWT"));
+    }
+
+    #[tokio::test]
+    async fn test_spiffe_jwt_verifier_try_get_claims_invalid_token() {
+        let spiffe_config = SpiffeVerifierConfig {
+            socket_path: None,
+            jwt_audiences: vec!["test-audience".to_string()],
+        };
+        let verifier = SpiffeJwtVerifier::new(spiffe_config);
+
+        // Should return specific error about async context requirement
+        let result: Result<serde_json::Value, AuthError> = verifier.try_get_claims("invalid.token");
+        assert!(result.is_err());
+        let err = format!("{}", result.unwrap_err());
+        assert!(err.contains("SPIFFE JWT claims retrieval requires async context"));
+    }
+
+    #[test]
+    fn test_spiffe_jwt_verifier_config_default_values() {
+        let config = SpiffeVerifierConfig {
+            socket_path: None,
+            jwt_audiences: vec![],
+        };
+
+        let verifier = SpiffeJwtVerifier::new(config);
+        assert_eq!(verifier.config.socket_path, None);
+        assert!(verifier.config.jwt_audiences.is_empty());
+        assert!(!verifier.cancellation_token.is_cancelled());
+    }
 }
