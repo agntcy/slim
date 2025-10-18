@@ -6,6 +6,7 @@ pub mod jwt;
 pub mod oidc;
 pub mod spiffe;
 pub mod static_jwt;
+
 use thiserror::Error;
 
 #[derive(Error, Debug)]
