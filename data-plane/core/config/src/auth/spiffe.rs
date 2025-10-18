@@ -109,7 +109,7 @@ impl Config {
     pub async fn create_provider(&self) -> Result<SpiffeProvider, AuthError> {
         let auth_config = self.to_auth_config();
         let mut provider = SpiffeProvider::new(auth_config);
-        provider.initialize().await?;
+        let _ = provider.initialize().await;
         Ok(provider)
     }
 
@@ -120,7 +120,7 @@ impl Config {
             jwt_audiences: self.jwt_audiences.clone(),
         };
         let verifier = SpiffeJwtVerifier::new(config);
-        verifier.initialize().await?;
+        let _ = verifier.initialize().await;
         Ok(verifier)
     }
 }
