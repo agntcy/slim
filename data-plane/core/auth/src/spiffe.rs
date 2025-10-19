@@ -1,6 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+#![cfg(not(target_family = "windows"))]
+
 //! SPIFFE integration for SLIM authentication
 //! This module provides direct integration with SPIFFE Workload API to retrieve
 //! X.509 SVID certificates and JWT tokens.

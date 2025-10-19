@@ -1,6 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+#![cfg(not(target_family = "windows"))]
+
 //! SPIFFE authentication configuration for SLIM
 
 use super::{AuthError, ClientAuthenticator, ServerAuthenticator};
