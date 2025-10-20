@@ -1214,7 +1214,7 @@ where
             identity.to_string(),
             session_metadata,
         );
-        
+
         ChannelModerator {
             endpoint,
             tasks_todo: vec![].into(),
@@ -1635,21 +1635,21 @@ where
             // moderator is busy, send nack
             debug!("Received proposal from a participant, send nack");
             self.endpoint.create_channel_message(
-            &source,
-            false,
-            ProtoSessionMessageType::GroupNack,
-            msg_id,
-            Some(CommandPayload::new_group_nack_payload().as_content()),
+                &source,
+                false,
+                ProtoSessionMessageType::GroupNack,
+                msg_id,
+                Some(CommandPayload::new_group_nack_payload().as_content()),
             )
         } else {
             // send an empty ack
             debug!("Received proposal from a participant, send ack");
             self.endpoint.create_channel_message(
-            &source,
-            false,
-            ProtoSessionMessageType::GroupAck,
-            msg_id,
-            Some(CommandPayload::new_group_ack_payload().as_content()),
+                &source,
+                false,
+                ProtoSessionMessageType::GroupAck,
+                msg_id,
+                Some(CommandPayload::new_group_ack_payload().as_content()),
             )
         };
 
@@ -1668,7 +1668,8 @@ where
             .ok_or(SessionError::CommitMessage(
                 "missing payload in MLS proposal, cannot process it".to_string(),
             ))?
-            .as_command_payload().as_group_proposal_payload();
+            .as_command_payload()
+            .as_group_proposal_payload();
 
         self.ack_msl_proposal(&msg).await?;
 
@@ -2060,7 +2061,8 @@ where
             // if busy postpone the task and add it to the todo list
             // at this point we cannot create a real proposal so create
             // a fake one with empty payload and push it to the todo list
-            let paylaod = Some(CommandPayload::new_group_proposal_payload(None, vec![]).as_content());
+            let paylaod =
+                Some(CommandPayload::new_group_proposal_payload(None, vec![]).as_content());
             let empty_msg = self.endpoint.create_channel_message(
                 &self.endpoint.channel_name,
                 true,
@@ -2345,8 +2347,9 @@ mod tests {
             rand::random::<u32>(),
         ));
 
-        let payload =
-            Some(CommandPayload::new_discovery_request_payload(Some(moderator.clone())).as_content());
+        let payload = Some(
+            CommandPayload::new_discovery_request_payload(Some(moderator.clone())).as_content(),
+        );
         let request = Message::new_publish_with_headers(slim_header, session_header, payload);
 
         // receive the request at the session layer
@@ -2461,7 +2464,14 @@ mod tests {
             false,
             ProtoSessionMessageType::GroupWelcome,
             0,
-            Some(CommandPayload::new_group_welcome_payload(vec![moderator.clone()], Some(1), Some(vec![])).as_content()),
+            Some(
+                CommandPayload::new_group_welcome_payload(
+                    vec![moderator.clone()],
+                    Some(1),
+                    Some(vec![]),
+                )
+                .as_content(),
+            ),
         );
 
         // this should be the MLS welcome message, we can comprare only

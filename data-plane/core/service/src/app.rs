@@ -180,12 +180,17 @@ where
     pub async fn subscribe(&self, name: &Name, conn: Option<u64>) -> Result<(), ServiceError> {
         debug!("subscribe {} - conn {:?}", name, conn);
 
+        let identity = self
+            .session_layer
+            .get_identity_token()
+            .map_err(ServiceError::SessionError)?;
+
         let header = if let Some(c) = conn {
             Some(SlimHeaderFlags::default().with_forward_to(c))
         } else {
             Some(SlimHeaderFlags::default())
         };
-        let msg = Message::new_subscribe(self.session_layer.app_name(), name, header);
+        let msg = Message::new_subscribe(self.session_layer.app_name(), name, &identity, header);
         self.send_message_without_context(msg).await
     }
 
@@ -193,12 +198,17 @@ where
     pub async fn unsubscribe(&self, name: &Name, conn: Option<u64>) -> Result<(), ServiceError> {
         debug!("unsubscribe from {} - {:?}", name, conn);
 
+        let identity = self
+            .session_layer
+            .get_identity_token()
+            .map_err(ServiceError::SessionError)?;
+
         let header = if let Some(c) = conn {
             Some(SlimHeaderFlags::default().with_forward_to(c))
         } else {
             Some(SlimHeaderFlags::default())
         };
-        let msg = Message::new_subscribe(self.session_layer.app_name(), name, header);
+        let msg = Message::new_subscribe(self.session_layer.app_name(), name, &identity, header);
         self.send_message_without_context(msg).await
     }
 
@@ -206,10 +216,16 @@ where
     pub async fn set_route(&self, name: &Name, conn: u64) -> Result<(), ServiceError> {
         debug!("set route: {} - {:?}", name, conn);
 
+        let identity = self
+            .session_layer
+            .get_identity_token()
+            .map_err(ServiceError::SessionError)?;
+
         // send a message with subscription from
         let msg = Message::new_subscribe(
             self.session_layer.app_name(),
             name,
+            &identity,
             Some(SlimHeaderFlags::default().with_recv_from(conn)),
         );
         self.send_message_without_context(msg).await
@@ -218,10 +234,16 @@ where
     pub async fn remove_route(&self, name: &Name, conn: u64) -> Result<(), ServiceError> {
         debug!("unset route to {} - {}", name, conn);
 
+        let identity = self
+            .session_layer
+            .get_identity_token()
+            .map_err(ServiceError::SessionError)?;
+
         //  send a message with unsubscription from
         let msg = Message::new_unsubscribe(
             self.session_layer.app_name(),
             name,
+            &identity,
             Some(SlimHeaderFlags::default().with_recv_from(conn)),
         );
         self.send_message_without_context(msg).await
@@ -232,12 +254,16 @@ where
         let app_name = self.session_layer.app_name().clone();
         let session_layer = self.session_layer.clone();
         let token_clone = self.cancel_token.clone();
+        let identity = self
+            .session_layer
+            .get_identity_token()
+            .expect("error while getting local identiyt");
 
         tokio::spawn(async move {
             debug!("starting message processing loop for {}", app_name);
 
             // subscribe for local name running this loop
-            let subscribe_msg = Message::new_subscribe(&app_name, &app_name, None);
+            let subscribe_msg = Message::new_subscribe(&app_name, &app_name, &identity, None);
             let tx = session_layer.tx_slim();
             tx.send(Ok(subscribe_msg))
                 .await
@@ -309,7 +335,7 @@ mod tests {
     use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::{
         api::{ApplicationPayload, ProtoMessage, ProtoSessionMessageType, ProtoSessionType},
-        messages::{utils::SLIM_IDENTITY, Name},
+        messages::{Name, utils::SLIM_IDENTITY},
     };
     use tokio::task::LocalEnterGuard;
 
@@ -478,16 +504,16 @@ mod tests {
         let mut message = ProtoMessage::new_publish(
             &name,
             &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
+            "a",
             None,
-            "msg",
-            vec![0x1, 0x2, 0x3, 0x4],
+            Some(ApplicationPayload::new("msg", vec![0x1, 0x2, 0x3, 0x4]).as_content()),
         );
 
         // set the session id in the message
         let header = message.get_session_header_mut();
         header.session_id = 1;
-        header.set_session_type(ProtoSessionType::SessionPointToPoint);
-        header.set_session_message_type(ProtoSessionMessageType::P2PMsg);
+        header.set_session_type(ProtoSessionType::PointToPoint);
+        header.set_session_message_type(ProtoSessionMessageType::Msg);
 
         app.session_layer
             .handle_message_from_slim(message.clone())
@@ -566,8 +592,7 @@ mod tests {
             &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
             "local",
             None,
-            Some(ApplicationPayload::new("msg",
-            vec![0x1, 0x2, 0x3, 0x4],).as_content()),
+            Some(ApplicationPayload::new("msg", vec![0x1, 0x2, 0x3, 0x4]).as_content()),
         );
 
         // set the session id in the message

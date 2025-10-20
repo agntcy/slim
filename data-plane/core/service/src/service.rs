@@ -569,7 +569,10 @@ mod tests {
         };
 
         // make sure message is correct
-        assert_eq!(publ.get_payload().as_application_payload().blob, message_blob);
+        assert_eq!(
+            publ.get_payload().as_application_payload().blob,
+            message_blob
+        );
 
         // Now remove the session from the 2 apps
         pub_app
