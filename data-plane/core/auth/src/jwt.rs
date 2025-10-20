@@ -340,8 +340,11 @@ impl<V> Jwt<V> {
             return Ok(cached_claims);
         }
 
-        // Try to decode the key from the cache first
-        let decoding_key = self.decoding_key(&token)?;
+        // Try to decode the key from the cache first; if this would require async, return WouldBlockOn
+        let decoding_key = match self.decoding_key(&token) {
+            Ok(k) => k,
+            Err(e) => return Err(e),
+        };
 
         // If we have a decoding key, proceed with verification
         self.verify_internal::<Claims>(token, decoding_key)
@@ -460,7 +463,7 @@ impl<V> Jwt<V> {
         }
 
         // Try to get a cached decoding key
-        if let Some(resolver) = &self.key_resolver {
+    if let Some(resolver) = &self.key_resolver {
             let mut validation = self.validation.clone();
             validation.insecure_disable_signature_validation();
             let decoding_key = DecodingKey::from_secret(b"unused");
@@ -475,13 +478,17 @@ impl<V> Jwt<V> {
                 AuthError::ConfigError("no issuer found in JWT claims".to_string())
             })?;
 
-            return resolver.get_cached_key(issuer, &token_data.header);
+            match resolver.get_cached_key(issuer, &token_data.header) {
+                Ok(k) => return Ok(k),
+                Err(_e) => {
+                    // No cached key yet; async resolution would be required.
+                    return Err(AuthError::WouldBlockOn);
+                }
+            }
         }
 
-        // If we don't have a decoding key and no resolver, we can't proceed
-        Err(AuthError::ConfigError(
-            "Decoding key not configured for JWT verification".to_string(),
-        ))
+        // If we don't have a decoder
+        Err(AuthError::ConfigError("no resolver available for JWT key resolution".to_string()))
     }
 
     /// Resolve a decoding key for token verification
@@ -609,6 +616,7 @@ mod tests {
     use std::{env, fs, vec};
 
     use super::*;
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
     use jsonwebtoken_aws_lc::{Algorithm, Header};
     use tokio::time;
     use tracing_test::traced_test;
@@ -714,6 +722,23 @@ mod tests {
         }
 
         delete_file(file_name).expect("error deleting file");
+    }
+
+    #[test]
+    fn test_jwt_try_verify_would_block_on_missing_cached_key_valid_token() {
+        // Build verifier with auto_resolve (no cached key yet)
+        let verifier = JwtBuilder::new()
+            .issuer("test-issuer")
+            .audience(&["test-audience"])
+            .subject("test-subject")
+            .auto_resolve_keys(true)
+            .build()
+            .unwrap();
+        // Use test utility to generate a syntactically valid unsigned token
+        let token = crate::testutils::generate_test_token("test-issuer", "test-audience", "test-subject");
+
+        let res = verifier.try_verify(&token);
+        assert!(matches!(res, Err(AuthError::WouldBlockOn)), "Expected WouldBlockOn, got {:?}", res);
     }
 
     #[tokio::test]
