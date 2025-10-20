@@ -336,8 +336,7 @@ mod tests {
     use super::*;
     use slim_session::point_to_point::PointToPointConfiguration;
 
-    use slim_auth::shared_secret::SharedSecret;
-    use slim_auth::testutils::TEST_VALID_SECRET;
+    use slim_auth::{shared_secret::SharedSecret, testutils::TEST_VALID_SECRET};
     use slim_datapath::{
         api::{ProtoMessage, ProtoSessionMessageType, ProtoSessionType},
         messages::{Name, utils::SLIM_IDENTITY},
@@ -674,8 +673,8 @@ mod tests {
         let (subscriber_app, mut subscriber_notifications) = service
             .create_app(
                 &subscriber_name,
-                SharedSecret::new("a", "group"),
-                SharedSecret::new("a", "group"),
+                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET),
             )
             .await
             .unwrap();
@@ -683,8 +682,8 @@ mod tests {
         let (publisher_app, _publisher_notifications) = service
             .create_app(
                 &publisher_name,
-                SharedSecret::new("a", "group"),
-                SharedSecret::new("a", "group"),
+                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET),
             )
             .await
             .unwrap();
@@ -836,8 +835,8 @@ mod tests {
         let (moderator_app, mut _moderator_notifications) = service
             .create_app(
                 &moderator_name,
-                SharedSecret::new("a", "group"),
-                SharedSecret::new("a", "group"),
+                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET),
             )
             .await
             .unwrap();
@@ -852,8 +851,8 @@ mod tests {
             let (app, notifications) = service
                 .create_app(
                     &participant_name,
-                    SharedSecret::new("a", "group"),
-                    SharedSecret::new("a", "group"),
+                    SharedSecret::new("a", TEST_VALID_SECRET),
+                    SharedSecret::new("a", TEST_VALID_SECRET),
                 )
                 .await
                 .unwrap();
