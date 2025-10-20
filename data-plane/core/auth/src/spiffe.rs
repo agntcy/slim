@@ -10,7 +10,7 @@
 use crate::errors::AuthError;
 use crate::traits::{TokenProvider, Verifier};
 use async_trait::async_trait;
-use base64::Engine;
+use crate::utils::bytes_to_pem;
 use futures::StreamExt; // for .next() on the JWT bundle stream
 use parking_lot::RwLock; // switched to parking_lot for sync RwLock
 use serde::de::DeserializeOwned;
@@ -139,15 +139,13 @@ impl SpiffeProvider {
             ));
         }
 
-        // Convert the first certificate to PEM format
+        // Convert the first certificate to PEM format using shared utility
         let cert_der = &cert_chain[0];
-        let engine = base64::engine::general_purpose::STANDARD;
-        let cert_pem = format!(
-            "-----BEGIN CERTIFICATE-----\n{}\n-----END CERTIFICATE-----",
-            engine.encode(cert_der.as_ref())
-        );
-
-        Ok(cert_pem)
+        Ok(bytes_to_pem(
+            cert_der.as_ref(),
+            "-----BEGIN CERTIFICATE-----\n",
+            "\n-----END CERTIFICATE-----",
+        ))
     }
 
     /// Get the X.509 private key in PEM format
@@ -155,14 +153,12 @@ impl SpiffeProvider {
         let svid = self.get_x509_svid()?;
         let private_key = svid.private_key();
 
-        // Convert private key to PEM format
-        let engine = base64::engine::general_purpose::STANDARD;
-        let key_pem = format!(
-            "-----BEGIN PRIVATE KEY-----\n{}\n-----END PRIVATE KEY-----",
-            engine.encode(private_key.as_ref())
-        );
-
-        Ok(key_pem)
+        // Convert private key to PEM format using shared utility
+        Ok(bytes_to_pem(
+            private_key.as_ref(),
+            "-----BEGIN PRIVATE KEY-----\n",
+            "\n-----END PRIVATE KEY-----",
+        ))
     }
 
     /// Get a cached JWT SVID via the background-refreshing JwtSource (sync)

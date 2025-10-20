@@ -8,6 +8,7 @@ use aws_lc_rs::signature::KeyPair; // Import the KeyPair trait for public_key() 
 use aws_lc_rs::{rand, rsa, signature};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use crate::utils::bytes_to_pem; // moved to shared utils module
 use jsonwebtoken_aws_lc::Algorithm;
 use serde_json::json;
 use wiremock::matchers::{method, path};
@@ -205,27 +206,6 @@ pub async fn setup_test_jwt_resolver(algorithm: Algorithm) -> (String, MockServe
         .await;
 
     (test_key, mock_server, alg_str.to_string())
-}
-
-/// Helper function to convert key bytes to PEM format
-fn bytes_to_pem(key_bytes: &[u8], header: &str, footer: &str) -> String {
-    // Use base64 with standard encoding (not URL safe)
-    let encoded = base64::engine::general_purpose::STANDARD.encode(key_bytes);
-
-    // Insert newlines every 64 characters as per PEM format
-    let mut pem_body = String::new();
-    for i in 0..(encoded.len().div_ceil(64)) {
-        let start = i * 64;
-        let end = std::cmp::min(start + 64, encoded.len());
-        if start < encoded.len() {
-            pem_body.push_str(&encoded[start..end]);
-            if end < encoded.len() {
-                pem_body.push('\n');
-            }
-        }
-    }
-
-    format!("{}{}{}", header, pem_body, footer)
 }
 
 /// Test claims structure for JWT testing

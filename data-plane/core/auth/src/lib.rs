@@ -14,3 +14,4 @@ pub mod shared_secret;
 pub mod spiffe;
 pub mod testutils;
 pub mod traits;
+pub mod utils;
