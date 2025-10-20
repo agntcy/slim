@@ -154,7 +154,7 @@ version = "0.1.0"
 description = "Python program using SLIM"
 
 [tool.poetry.dependencies]
-python = ">=3.10,<3.14"
+python = ">=3.10,<3.13"
 slim-bindings = ">=0.5.0"
 ```
 
