@@ -7,7 +7,7 @@ use crate::utils::bytes_to_pem;
 use aws_lc_rs::encoding::AsDer;
 use aws_lc_rs::signature::KeyPair; // Import the KeyPair trait for public_key() method
 use aws_lc_rs::{rand, rsa, signature};
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use jsonwebtoken_aws_lc::Algorithm;
 use serde_json::json;
 use wiremock::matchers::{method, path};
@@ -247,7 +247,12 @@ pub fn generate_test_token(issuer: &str, audience: &str, subject: &str) -> Strin
         .as_secs();
     let claims_json = format!(
         "{{\"iss\":\"{}\",\"aud\":[\"{}\"],\"sub\":\"{}\",\"exp\":{},\"iat\":{},\"nbf\":{}}}",
-        issuer, audience, subject, now + 300, now, now
+        issuer,
+        audience,
+        subject,
+        now + 300,
+        now,
+        now
     );
     format!(
         "{}.{}.sig",

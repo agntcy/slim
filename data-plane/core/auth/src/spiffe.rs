@@ -1029,7 +1029,8 @@ mod tests {
         let verifier = SpiffeJwtVerifier::new(spiffe_config);
 
         // Trying to get claims without initialization should fail
-        let result: Result<serde_json::Value, AuthError> = verifier.get_claims("fake.jwt.token").await;
+        let result: Result<serde_json::Value, AuthError> =
+            verifier.get_claims("fake.jwt.token").await;
         assert!(result.is_err());
         let err = format!("{}", result.unwrap_err());
         assert!(err.contains("WorkloadApiClient not initialized"));

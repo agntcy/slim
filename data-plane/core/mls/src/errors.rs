@@ -41,7 +41,6 @@ pub enum SlimIdentityError {
 
     #[error("External sender validation failed: {0}")]
     ExternalSenderFailed(String),
-
 }
 
 impl IntoAnyError for SlimIdentityError {}

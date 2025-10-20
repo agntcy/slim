@@ -341,10 +341,7 @@ impl<V> Jwt<V> {
         }
 
         // Try to decode the key from the cache first; if this would require async, return WouldBlockOn
-        let decoding_key = match self.decoding_key(&token) {
-            Ok(k) => k,
-            Err(e) => return Err(e),
-        };
+        let decoding_key = self.decoding_key(&token)?;
 
         // If we have a decoding key, proceed with verification
         self.verify_internal::<Claims>(token, decoding_key)
@@ -463,7 +460,7 @@ impl<V> Jwt<V> {
         }
 
         // Try to get a cached decoding key
-    if let Some(resolver) = &self.key_resolver {
+        if let Some(resolver) = &self.key_resolver {
             let mut validation = self.validation.clone();
             validation.insecure_disable_signature_validation();
             let decoding_key = DecodingKey::from_secret(b"unused");
@@ -488,7 +485,9 @@ impl<V> Jwt<V> {
         }
 
         // If we don't have a decoder
-        Err(AuthError::ConfigError("no resolver available for JWT key resolution".to_string()))
+        Err(AuthError::ConfigError(
+            "no resolver available for JWT key resolution".to_string(),
+        ))
     }
 
     /// Resolve a decoding key for token verification
@@ -734,10 +733,15 @@ mod tests {
             .build()
             .unwrap();
         // Use test utility to generate a syntactically valid unsigned token
-        let token = crate::testutils::generate_test_token("test-issuer", "test-audience", "test-subject");
+        let token =
+            crate::testutils::generate_test_token("test-issuer", "test-audience", "test-subject");
 
         let res = verifier.try_verify(&token);
-        assert!(matches!(res, Err(AuthError::WouldBlockOn)), "Expected WouldBlockOn, got {:?}", res);
+        assert!(
+            matches!(res, Err(AuthError::WouldBlockOn)),
+            "Expected WouldBlockOn, got {:?}",
+            res
+        );
     }
 
     #[tokio::test]
