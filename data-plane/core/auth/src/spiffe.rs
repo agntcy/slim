@@ -243,7 +243,6 @@ impl JwtSource {
             // Start with a default interval, but will be dynamically adjusted based on token lifetime
             let initial_duration = Duration::from_secs(30);
             let mut interval = tokio::time::interval(initial_duration);
-            interval.tick().await; // consume the first immediate tick
 
             loop {
                 tokio::select! {
@@ -265,14 +264,12 @@ impl JwtSource {
 
                                 // Reset interval with new duration
                                 interval = tokio::time::interval(next_duration);
-                                interval.tick().await; // consume the first immediate tick
                                 tracing::debug!(next_duration_secs = next_duration.as_secs(), "jwt_source: next refresh in {} seconds", next_duration.as_secs());
                             }
                             Err(err) => {
                                 tracing::warn!(error=%err, "jwt_source: failed to fetch JWT SVID; backing off");
                                 // Reset interval with backoff duration
                                 interval = tokio::time::interval(backoff);
-                                interval.tick().await; // consume the first immediate tick
                                 backoff = (backoff * 2).min(cfg.max_retry_backoff);
                             }
                         }
