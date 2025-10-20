@@ -11,7 +11,7 @@ fn main() {
         std::env::set_var("PROTOC", protoc_path);
     }
 
-    tonic_build::configure()
+    tonic_prost_build::configure()
         .out_dir("src/api/gen")
         .compile_protos(&["proto/v1/data_plane.proto"], &["proto/v1"])
         .unwrap();

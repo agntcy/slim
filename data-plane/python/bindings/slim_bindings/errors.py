@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from asyncio import TimeoutError
-from typing import Optional
 
 
 class SLIMTimeoutError(TimeoutError):
@@ -31,7 +30,7 @@ class SLIMTimeoutError(TimeoutError):
         message_id: int,
         session_id: int,
         message: str = "SLIM timeout error",
-        original_exception: Optional[Exception] = None,
+        original_exception: Exception | None = None,
     ):
         self.message_id = message_id
         self.session_id = session_id
