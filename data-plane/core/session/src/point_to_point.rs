@@ -10,7 +10,6 @@ use std::time::Duration;
 use async_trait::async_trait;
 use parking_lot::RwLock;
 use rand::Rng;
-use slim_mls::identity_provider;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::{self, Instant};
 use tokio_util::sync::CancellationToken;
@@ -1089,6 +1088,10 @@ where
     ) -> Self {
         let (tx, rx) = mpsc::channel(128);
 
+        let identity = identity_provider
+            .get_token()
+            .expect("failed to get the local identity");
+
         // Common session stuff
         let common = Common::new(
             id,
@@ -1104,10 +1107,6 @@ where
         if let Some(remote) = session_config.peer_name.clone() {
             common.set_dst(remote);
         }
-
-        let identity = identity_provider
-            .get_token()
-            .expect("failed to get the local identity");
 
         // Create mls state if needed
         let mls = common

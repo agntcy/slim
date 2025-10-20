@@ -7,6 +7,7 @@ use std::{collections::HashMap, time::Duration};
 use tracing::debug;
 
 use super::encoder::Name;
+use crate::api::proto::dataplane::v1::GroupNackPayload;
 use crate::api::{
     Content, MessageType, ProtoMessage, ProtoName, ProtoPublish, ProtoPublishType,
     ProtoSessionType, ProtoSubscribe, ProtoSubscribeType, ProtoUnsubscribe, ProtoUnsubscribeType,
@@ -964,6 +965,13 @@ impl CommandPayload {
         }
     }
 
+    pub fn new_group_nack_payload() -> Self {
+        let payload = GroupNackPayload {};
+        Self {
+            command_payload_type: Some(CommandPayloadType::GroupNack(payload)),
+        }
+    }
+
     pub fn as_content(&self) -> Content {
         Content {
             content_type: Some(ContentType::CommandPayload(self.clone())),
@@ -1038,6 +1046,13 @@ impl CommandPayload {
         match &self.command_payload_type {
             Some(CommandPayloadType::GroupAck(payload)) => *payload,
             _ => panic!("CommandPayload is not a GroupAck"),
+        }
+    }
+
+    pub fn as_group_nack_payload(&self) -> GroupNackPayload {
+        match &self.command_payload_type {
+            Some(CommandPayloadType::GroupNack(payload)) => *payload,
+            _ => panic!("CommandPayload is not a GroupNack"),
         }
     }
 }

@@ -308,9 +308,10 @@ mod tests {
 
     use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::{
-        api::{ProtoMessage, ProtoSessionMessageType, ProtoSessionType},
-        messages::{Name, utils::SLIM_IDENTITY},
+        api::{ApplicationPayload, ProtoMessage, ProtoSessionMessageType, ProtoSessionType},
+        messages::{utils::SLIM_IDENTITY, Name},
     };
+    use tokio::task::LocalEnterGuard;
 
     #[allow(dead_code)]
     fn create_app() -> App<SharedSecret, SharedSecret> {
@@ -563,16 +564,17 @@ mod tests {
         let mut message = ProtoMessage::new_publish(
             &source,
             &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
+            "local",
             None,
-            "msg",
-            vec![0x1, 0x2, 0x3, 0x4],
+            Some(ApplicationPayload::new("msg",
+            vec![0x1, 0x2, 0x3, 0x4],).as_content()),
         );
 
         // set the session id in the message
         let header = message.get_session_header_mut();
         header.session_id = 1;
-        header.set_session_type(ProtoSessionType::SessionPointToPoint);
-        header.set_session_message_type(ProtoSessionMessageType::P2PMsg);
+        header.set_session_type(ProtoSessionType::PointToPoint);
+        header.set_session_message_type(ProtoSessionMessageType::Msg);
 
         let res = app
             .session_layer

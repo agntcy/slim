@@ -25,7 +25,6 @@ use crate::transmitter::{AppTransmitter, SessionTransmitter};
 // Local crate
 use super::context::SessionContext;
 use super::interceptor::{IdentityInterceptor, SessionInterceptor};
-use super::interceptor_mls::METADATA_MLS_ENABLED;
 use super::multicast::{self, MulticastConfiguration};
 use super::point_to_point::PointToPointConfiguration;
 use super::{

@@ -129,7 +129,7 @@ pub struct ApplicationPayload {
 pub struct CommandPayload {
     #[prost(
         oneof = "command_payload::CommandPayloadType",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10"
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11"
     )]
     pub command_payload_type: ::core::option::Option<
         command_payload::CommandPayloadType,
@@ -159,6 +159,8 @@ pub mod command_payload {
         GroupProposal(super::GroupProposalPayload),
         #[prost(message, tag = "10")]
         GroupAck(super::GroupAckPayload),
+        #[prost(message, tag = "11")]
+        GroupNack(super::GroupNackPayload),
     }
 }
 /// Discovery Request
@@ -262,6 +264,9 @@ pub struct GroupProposalPayload {
 /// Group Ack
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct GroupAckPayload {}
+/// Group Nack
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct GroupNackPayload {}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum SessionType {
@@ -309,6 +314,7 @@ pub enum SessionMessageType {
     GroupWelcome = 12,
     GroupProposal = 13,
     GroupAck = 14,
+    GroupNack = 15,
 }
 impl SessionMessageType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -332,6 +338,7 @@ impl SessionMessageType {
             Self::GroupWelcome => "SESSION_MESSAGE_TYPE_GROUP_WELCOME",
             Self::GroupProposal => "SESSION_MESSAGE_TYPE_GROUP_PROPOSAL",
             Self::GroupAck => "SESSION_MESSAGE_TYPE_GROUP_ACK",
+            Self::GroupNack => "SESSION_MESSAGE_TYPE_GROUP_NACK",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -352,6 +359,7 @@ impl SessionMessageType {
             "SESSION_MESSAGE_TYPE_GROUP_WELCOME" => Some(Self::GroupWelcome),
             "SESSION_MESSAGE_TYPE_GROUP_PROPOSAL" => Some(Self::GroupProposal),
             "SESSION_MESSAGE_TYPE_GROUP_ACK" => Some(Self::GroupAck),
+            "SESSION_MESSAGE_TYPE_GROUP_NACK" => Some(Self::GroupNack),
             _ => None,
         }
     }
