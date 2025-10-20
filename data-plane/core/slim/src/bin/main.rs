@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use clap::Parser;
+use slim_config::tls::provider;
 use tokio::time;
 use tracing::{debug, info, span};
 
@@ -28,6 +29,9 @@ fn main() {
 
     // print build info
     info!("{}", build_info::BUILD_INFO);
+
+    // Make sure the crypto provider is initialized at this point
+    provider::initialize_crypto_provider();
 
     // start runtime
     let runtime = runtime::build(&config.runtime).expect("failed to build runtime");
