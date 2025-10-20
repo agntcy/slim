@@ -10,6 +10,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use parking_lot::RwLock;
 use rand::Rng;
+use slim_mls::identity_provider;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::{self, Instant};
 use tokio_util::sync::CancellationToken;
@@ -17,7 +18,8 @@ use tracing::{debug, error, warn};
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{
-    ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType, SessionHeader, SlimHeader,
+    ApplicationPayload, CommandPayload, ProtoMessage as Message, ProtoSessionMessageType,
+    ProtoSessionType, SessionHeader, SlimHeader,
 };
 use slim_datapath::messages::Name;
 use slim_datapath::messages::utils::SlimHeaderFlags;
@@ -172,6 +174,7 @@ where
 {
     session_id: u32,
     source: Name,
+    identity: String,
     tx: T,
     config: PointToPointConfiguration,
     dst: Arc<RwLock<Option<Name>>>,
@@ -452,21 +455,21 @@ where
     async fn start_p2p_session_discovery(&mut self, name: &Name) -> Result<(), SessionError> {
         debug!("starting p2p session discovery");
         // Set payload
-        let payload = bincode::encode_to_vec(&self.state.source, bincode::config::standard())
-            .map_err(|e| SessionError::Processing(e.to_string()))?;
+
+        let payload = Some(CommandPayload::new_discovery_request_payload(None).as_content());
 
         // Create a probe message
         let mut probe_message = Message::new_publish(
             &self.state.source,
             name,
+            &self.state.identity,
             None,
-            "p2p_session_discovery",
             payload,
         );
 
         let session_header = probe_message.get_session_header_mut();
-        session_header.set_session_type(ProtoSessionType::SessionPointToPoint);
-        session_header.set_session_message_type(ProtoSessionMessageType::ChannelDiscoveryRequest);
+        session_header.set_session_type(ProtoSessionType::PointToPoint);
+        session_header.set_session_message_type(ProtoSessionMessageType::DiscoveryRequest);
         session_header.set_session_id(self.state.session_id);
         session_header.set_message_id(rand::rng().random_range(0..u32::MAX));
 
@@ -630,12 +633,8 @@ where
     ) -> Result<(), SessionError> {
         // Set the session type
         let header = message.get_session_header_mut();
-        header.set_session_type(ProtoSessionType::SessionPointToPoint);
-        if self.state.config.timeout.is_some() {
-            header.set_session_message_type(ProtoSessionMessageType::P2PReliable);
-        } else {
-            header.set_session_message_type(ProtoSessionMessageType::P2PMsg);
-        }
+        header.set_session_type(ProtoSessionType::PointToPoint);
+        header.set_session_message_type(ProtoSessionMessageType::Msg);
 
         // If we have a peer name, decide what to do according to the session state
         if self.state.config.peer_name.is_some() {
@@ -685,10 +684,8 @@ where
         // If we have a peer name, check if the source matches
         if let Some(name) = &self.state.config.peer_name
             && !(self.state.p2p_session_status == P2PSessionStatus::Discovering
-                && (message.get_session_message_type()
-                    == ProtoSessionMessageType::ChannelDiscoveryReply
-                    || message.get_session_message_type()
-                        == ProtoSessionMessageType::ChannelJoinReply))
+                && (message.get_session_message_type() == ProtoSessionMessageType::DiscoveryReply
+                    || message.get_session_message_type() == ProtoSessionMessageType::JoinReply))
             && *name != source
         {
             return Err(SessionError::AppTransmission(format!(
@@ -698,47 +695,52 @@ where
         }
 
         match message.get_session_message_type() {
-            ProtoSessionMessageType::P2PMsg => {
-                // Simply send the message to the application
-                self.send_message_to_app(message).await
-            }
-            ProtoSessionMessageType::P2PReliable => {
+            ProtoSessionMessageType::Msg => {
                 // Send an ack back as reply and forward the incoming message to the app
                 // Create ack message
-                let ack = self.create_ack(&message);
+                let opt_ack = if self.state.config.timeout.is_some()
+                    && self.state.config.max_retries.is_some()
+                {
+                    Some(self.create_ack(&message))
+                } else {
+                    None
+                };
 
                 // Forward the message to the app
                 self.send_message_to_app(message).await?;
 
-                // Send the ack
-                self.state
-                    .tx
-                    .send_to_slim(Ok(ack))
-                    .await
-                    .map_err(|e| SessionError::SlimTransmission(e.to_string()))
+                // Send the ack if necessary
+                if let Some(ack) = opt_ack {
+                    self.state
+                        .tx
+                        .send_to_slim(Ok(ack))
+                        .await
+                        .map_err(|e| SessionError::SlimTransmission(e.to_string()))?
+                }
+                Ok(())
             }
-            ProtoSessionMessageType::P2PAck => {
+            ProtoSessionMessageType::MsgAck => {
                 // Remove the timer and drop the message
                 self.stop_and_remove_timer(message_id, true)
             }
-            ProtoSessionMessageType::ChannelDiscoveryReply => {
+            ProtoSessionMessageType::DiscoveryReply => {
                 // Handle peer session discovery
                 self.handle_channel_discovery_reply(message).await
             }
-            ProtoSessionMessageType::ChannelJoinRequest => {
+            ProtoSessionMessageType::JoinRequest => {
                 // Handle peer session discovery
                 self.handle_channel_join_request(message).await
             }
-            ProtoSessionMessageType::ChannelJoinReply => {
+            ProtoSessionMessageType::JoinReply => {
                 // Handle peer session discovery reply
                 self.handle_channel_join_reply(message).await
             }
-            ProtoSessionMessageType::ChannelLeaveRequest
-            | ProtoSessionMessageType::ChannelLeaveReply
-            | ProtoSessionMessageType::ChannelMlsWelcome
-            | ProtoSessionMessageType::ChannelMlsCommit
-            | ProtoSessionMessageType::ChannelMlsProposal
-            | ProtoSessionMessageType::ChannelMlsAck => {
+            ProtoSessionMessageType::LeaveRequest
+            | ProtoSessionMessageType::LeaveReply
+            | ProtoSessionMessageType::GroupWelcome
+            | ProtoSessionMessageType::GroupUpdate
+            | ProtoSessionMessageType::GroupProposal
+            | ProtoSessionMessageType::GroupAck => {
                 // Handle mls stuff
                 self.state.channel_endpoint.on_message(message).await?;
 
@@ -799,29 +801,24 @@ where
                     .with_forward_to(incoming_conn)
                     .with_fanout(1);
 
-                let slim_header = Some(SlimHeader::new(&pkt_dst, &pkt_src, Some(flags)));
+                let slim_header = Some(SlimHeader::new(
+                    &pkt_dst,
+                    &pkt_src,
+                    &self.state.identity,
+                    Some(flags),
+                ));
 
                 let session_header = Some(SessionHeader::new(
-                    ProtoSessionType::SessionPointToPoint.into(),
+                    ProtoSessionType::PointToPoint.into(),
                     ProtoSessionMessageType::RtxReply.into(),
                     session_id,
                     msg_rtx_id,
-                    &Some(self.state.source.clone()),
-                    &Some(
-                        self.state
-                            .config
-                            .peer_name
-                            .as_ref()
-                            .unwrap_or(&pkt_dst)
-                            .clone(),
-                    ),
                 ));
 
                 Message::new_publish_with_headers(
                     slim_header,
                     session_header,
-                    "",
-                    payload.blob.to_vec(),
+                    Some(payload.clone()),
                 )
             }
             None => {
@@ -835,19 +832,24 @@ where
                     .with_forward_to(incoming_conn)
                     .with_error(true);
 
-                let slim_header = Some(SlimHeader::new(&pkt_dst, &pkt_src, Some(flags)));
+                let slim_header = Some(SlimHeader::new(
+                    &pkt_dst,
+                    &pkt_src,
+                    &self.state.identity,
+                    Some(flags),
+                ));
 
                 // no need to set source and destiona here
                 let session_header = Some(SessionHeader::new(
-                    ProtoSessionType::SessionMulticast.into(),
+                    ProtoSessionType::PointToPoint.into(),
                     ProtoSessionMessageType::RtxReply.into(),
                     session_id,
                     msg_rtx_id,
-                    &None,
-                    &None,
                 ));
 
-                Message::new_publish_with_headers(slim_header, session_header, "", vec![])
+                let payload = Some(ApplicationPayload::new("", vec![]).as_content());
+
+                Message::new_publish_with_headers(slim_header, session_header, payload)
             }
         };
 
@@ -878,19 +880,20 @@ where
         let slim_header = Some(SlimHeader::new(
             &self.state.source,
             &src,
+            &self.state.identity,
             Some(SlimHeaderFlags::default().with_forward_to(message.get_incoming_conn())),
         ));
 
         let session_header = Some(SessionHeader::new(
-            ProtoSessionType::SessionPointToPoint.into(),
-            ProtoSessionMessageType::P2PAck.into(),
+            ProtoSessionType::PointToPoint.into(),
+            ProtoSessionMessageType::MsgAck.into(),
             message.get_session_header().session_id,
             message_id,
-            &None,
-            &None,
         ));
 
-        Message::new_publish_with_headers(slim_header, session_header, "", vec![])
+        let payload = Some(ApplicationPayload::new("", vec![]).as_content());
+
+        Message::new_publish_with_headers(slim_header, session_header, payload)
     }
 
     /// Helper function to send a message to the application.
@@ -900,7 +903,7 @@ where
         // sequence of the received messages and so we send this packets to the application
         // immediately without reordering. notice that an anycast reliable session is possible
         // and the packet are re-sent by the sender if acks are not received
-        if message.get_session_message_type() == ProtoSessionMessageType::P2PMsg
+        if message.get_session_message_type() == ProtoSessionMessageType::Msg
             || (!self.state.config.mls_enabled && self.state.config.peer_name.is_none())
         {
             // this is an anycast session so simply send the message to the app
@@ -997,20 +1000,19 @@ where
                 let slim_header = Some(SlimHeader::new(
                     &self.state.source,
                     destination,
+                    &self.state.identity,
                     Some(SlimHeaderFlags::default().with_forward_to(connection)),
                 ));
 
                 let session_header = Some(SessionHeader::new(
-                    ProtoSessionType::SessionPointToPoint.into(),
+                    ProtoSessionType::PointToPoint.into(),
                     ProtoSessionMessageType::RtxRequest.into(),
                     self.state.session_id,
                     msg_id,
-                    &None,
-                    &None,
                 ));
 
-                let rtx =
-                    Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
+                let payload = Some(ApplicationPayload::new("", vec![]).as_content());
+                let rtx = Message::new_publish_with_headers(slim_header, session_header, payload);
 
                 // start timer
                 timer.start(self.rtx_timer_observer.clone());
@@ -1103,6 +1105,10 @@ where
             common.set_dst(remote);
         }
 
+        let identity = identity_provider
+            .get_token()
+            .expect("failed to get the local identity");
+
         // Create mls state if needed
         let mls = common
             .mls()
@@ -1114,8 +1120,9 @@ where
                 let cm = ChannelModerator::new(
                     common.source().clone(),
                     common.source().clone(),
+                    &identity,
                     id,
-                    ProtoSessionType::SessionPointToPoint,
+                    ProtoSessionType::PointToPoint,
                     60,
                     Duration::from_secs(1),
                     mls,
@@ -1129,8 +1136,9 @@ where
                 let cp = ChannelParticipant::new(
                     common.source().clone(),
                     common.source().clone(),
+                    &identity,
                     id,
-                    ProtoSessionType::SessionPointToPoint,
+                    ProtoSessionType::PointToPoint,
                     60,
                     Duration::from_secs(1),
                     mls,
@@ -1145,6 +1153,7 @@ where
         let state = PointToPointState {
             session_id: id,
             source: common.source().clone(),
+            identity,
             tx: tx_slim_app.clone(),
             config: session_config,
             dst: common.dst_arc(),
@@ -1367,6 +1376,7 @@ mod tests {
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
         let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
+        let identity = "source";
 
         let session = PointToPoint::new(
             0,
@@ -1378,18 +1388,20 @@ mod tests {
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
+        let payload = Some(ApplicationPayload::new("msg", vec![0x1, 0x2, 0x3, 0x4]).as_content());
+
         let mut message = ProtoMessage::new_publish(
             &source,
             &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
+            identity,
             None,
-            "msg",
-            vec![0x1, 0x2, 0x3, 0x4],
+            payload,
         );
 
         // set the session id in the message (session created with id 0)
         let header = message.get_session_header_mut();
         header.session_id = 0;
-        header.set_session_message_type(ProtoSessionMessageType::P2PMsg);
+        header.set_session_message_type(ProtoSessionMessageType::Msg);
 
         let res = session
             .on_message(message.clone(), MessageDirection::North)
@@ -1413,6 +1425,7 @@ mod tests {
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
         let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
+        let identity = "source";
 
         let session = PointToPoint::new(
             0,
@@ -1424,19 +1437,21 @@ mod tests {
             std::path::PathBuf::from("/tmp/test_session"),
         );
 
+        let payload = Some(ApplicationPayload::new("msg", vec![0x1, 0x2, 0x3, 0x4]).as_content());
+
         let mut message = ProtoMessage::new_publish(
             &source,
             &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
+            identity,
             Some(SlimHeaderFlags::default().with_incoming_conn(0)),
-            "msg",
-            vec![0x1, 0x2, 0x3, 0x4],
+            payload,
         );
 
         // set the session id in the message
         let header = message.get_session_header_mut();
         header.session_id = 0;
         header.message_id = 12345;
-        header.set_session_message_type(ProtoSessionMessageType::P2PReliable);
+        header.set_session_message_type(ProtoSessionMessageType::Msg);
 
         let res = session
             .on_message(message.clone(), MessageDirection::North)
@@ -1461,7 +1476,7 @@ mod tests {
         let header = msg.get_session_header();
         assert_eq!(
             header.session_message_type(),
-            ProtoSessionMessageType::P2PAck
+            ProtoSessionMessageType::MsgAck
         );
         assert_eq!(header.get_message_id(), 12345);
     }
@@ -1496,9 +1511,9 @@ mod tests {
         let mut message = ProtoMessage::new_publish(
             &source,
             &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
+            "source",
             None,
-            "msg",
-            vec![0x1, 0x2, 0x3, 0x4],
+            Some(ApplicationPayload::new("msg", vec![0x1, 0x2, 0x3, 0x4]).as_content()),
         );
 
         let res = session
@@ -1509,8 +1524,8 @@ mod tests {
         // set the session id in the message for the comparison inside the for loop
         let header = message.get_session_header_mut();
         header.session_id = 0;
-        header.set_session_message_type(ProtoSessionMessageType::P2PReliable);
-        header.set_session_type(ProtoSessionType::SessionPointToPoint);
+        header.set_session_message_type(ProtoSessionMessageType::Msg);
+        header.set_session_type(ProtoSessionType::PointToPoint);
 
         for _i in 0..6 {
             let mut msg = rx_slim
@@ -1575,16 +1590,16 @@ mod tests {
         let mut message = ProtoMessage::new_publish(
             &local,
             &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
+            "local",
             Some(SlimHeaderFlags::default().with_incoming_conn(0)),
-            "msg",
-            vec![0x1, 0x2, 0x3, 0x4],
+            Some(ApplicationPayload::new("msg", vec![0x1, 0x2, 0x3, 0x4]).as_content()),
         );
 
         // set the session id in the message
         let header = message.get_session_header_mut();
         header.set_session_id(0);
-        header.set_session_type(ProtoSessionType::SessionPointToPoint);
-        header.set_session_message_type(ProtoSessionMessageType::P2PReliable);
+        header.set_session_type(ProtoSessionType::PointToPoint);
+        header.set_session_message_type(ProtoSessionMessageType::Msg);
 
         let res = session_sender
             .on_message(message.clone(), MessageDirection::South)
@@ -1636,7 +1651,7 @@ mod tests {
         let header = ack.get_session_header();
         assert_eq!(
             header.session_message_type(),
-            ProtoSessionMessageType::P2PAck
+            ProtoSessionMessageType::MsgAck
         );
 
         // Check that the ack is sent back to the sender
@@ -1696,6 +1711,7 @@ mod tests {
 
         let local = Name::from_strings(["cisco", "default", "local"]).with_id(0);
         let remote = Name::from_strings(["cisco", "default", "remote"]).with_id(0);
+        let identity = "local";
 
         let sender_session = PointToPoint::new(
             0,
@@ -1735,15 +1751,15 @@ mod tests {
         let mut message = ProtoMessage::new_publish(
             &local,
             &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
+            identity,
             None,
-            "msg",
-            vec![0x1, 0x2, 0x3, 0x4],
+            Some(ApplicationPayload::new("msg", vec![0x1, 0x2, 0x3, 0x4]).as_content()),
         );
 
         // set the session id in the message
         let header = message.get_session_header_mut();
         header.set_session_id(0);
-        header.set_session_message_type(ProtoSessionMessageType::P2PReliable);
+        header.set_session_message_type(ProtoSessionMessageType::Msg);
 
         // set a fake incoming connection id
         let slim_header = message.get_slim_header_mut();
@@ -1766,25 +1782,23 @@ mod tests {
         msg.set_incoming_conn(Some(0));
 
         let header = msg.get_session_header_mut();
-        header.set_session_message_type(ProtoSessionMessageType::ChannelDiscoveryRequest);
+        header.set_session_message_type(ProtoSessionMessageType::DiscoveryRequest);
 
         // assert something
         assert_eq!(
             header.session_message_type(),
-            ProtoSessionMessageType::ChannelDiscoveryRequest,
+            ProtoSessionMessageType::DiscoveryRequest,
         );
 
-        assert_eq!(
-            msg.get_session_type(),
-            ProtoSessionType::SessionPointToPoint
-        );
+        assert_eq!(msg.get_session_type(), ProtoSessionType::PointToPoint);
 
         // create a discovery reply message. this is normally originated by the session layer
         let mut discovery_reply = handle_channel_discovery_message(
             &msg,
             &remote,
+            identity,
             receiver_session.id(),
-            ProtoSessionType::SessionPointToPoint,
+            ProtoSessionType::PointToPoint,
         );
         discovery_reply.set_incoming_conn(Some(0));
 
@@ -1818,10 +1832,10 @@ mod tests {
 
         assert_eq!(
             header.session_message_type(),
-            ProtoSessionMessageType::ChannelJoinRequest
+            ProtoSessionMessageType::JoinRequest
         );
 
-        assert_eq!(header.session_type(), ProtoSessionType::SessionPointToPoint);
+        assert_eq!(header.session_type(), ProtoSessionType::PointToPoint);
 
         // Set a fake incoming connection id
         msg.set_incoming_conn(Some(0));
@@ -1850,10 +1864,10 @@ mod tests {
 
         assert_eq!(
             header.session_message_type(),
-            ProtoSessionMessageType::ChannelJoinReply
+            ProtoSessionMessageType::JoinReply
         );
 
-        assert_eq!(header.session_type(), ProtoSessionType::SessionPointToPoint);
+        assert_eq!(header.session_type(), ProtoSessionType::PointToPoint);
 
         // Pass the channel join reply message to the sender session
         msg.set_incoming_conn(Some(0));
@@ -1882,10 +1896,10 @@ mod tests {
 
             assert_eq!(
                 header.session_message_type(),
-                ProtoSessionMessageType::ChannelMlsWelcome
+                ProtoSessionMessageType::GroupWelcome
             );
 
-            assert_eq!(header.session_type(), ProtoSessionType::SessionPointToPoint);
+            assert_eq!(header.session_type(), ProtoSessionType::PointToPoint);
 
             // Set a fake incoming connection id
             msg.set_incoming_conn(Some(0));
@@ -1906,10 +1920,10 @@ mod tests {
             let header = msg.get_session_header();
             assert_eq!(
                 header.session_message_type(),
-                ProtoSessionMessageType::ChannelMlsAck
+                ProtoSessionMessageType::GroupAck
             );
 
-            assert_eq!(header.session_type(), ProtoSessionType::SessionPointToPoint);
+            assert_eq!(header.session_type(), ProtoSessionType::PointToPoint);
 
             // Send the ack to the sender session
             msg.set_incoming_conn(Some(0));
@@ -1927,19 +1941,26 @@ mod tests {
 
             let header = msg.get_session_header();
 
-            assert_eq!(
-                header.session_message_type(),
-                ProtoSessionMessageType::P2PReliable
-            );
+            assert_eq!(header.session_message_type(), ProtoSessionMessageType::Msg);
 
-            assert_eq!(header.session_type(), ProtoSessionType::SessionPointToPoint);
+            assert_eq!(header.session_type(), ProtoSessionType::PointToPoint);
 
             // As MLS is enabled, the payload should be encrypted
             tracing::info!(
                 "Checking if payload is encrypted {}",
-                msg.get_payload().unwrap().blob.len()
+                msg.get_payload()
+                    .unwrap()
+                    .as_application_payload()
+                    .blob
+                    .len()
             );
-            assert!(!msg.get_payload().unwrap().blob.is_empty());
+            assert!(
+                !msg.get_payload()
+                    .unwrap()
+                    .as_application_payload()
+                    .blob
+                    .is_empty()
+            );
             assert_ne!(msg.get_payload(), message.get_payload());
 
             // Pass message to the receiver session
@@ -1964,10 +1985,7 @@ mod tests {
                 .expect("no message received")
                 .expect("error");
             let header = msg.get_session_header();
-            assert_eq!(
-                header.session_message_type(),
-                ProtoSessionMessageType::P2PReliable
-            );
+            assert_eq!(header.session_message_type(), ProtoSessionMessageType::Msg);
 
             msg.set_incoming_conn(Some(0));
 

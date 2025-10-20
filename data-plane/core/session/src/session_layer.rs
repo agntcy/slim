@@ -298,9 +298,13 @@ where
         match session_message_type {
             ProtoSessionMessageType::DiscoveryRequest => {
                 // reply directly without creating any new Session
+                let token = self.identity_provider.get_token().map_err(|_| {
+                    SessionError::SlimReception("unable to get local identity".to_string())
+                })?;
                 let msg = handle_channel_discovery_message(
                     message,
                     self.app_name(),
+                    &token,
                     session_id,
                     session_type,
                 );
