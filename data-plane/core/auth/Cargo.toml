@@ -36,6 +36,9 @@ tracing = { workspace = true }
 url = { workspace = true }
 wiremock = { workspace = true }
 
+[target.'cfg(not(target_family = "windows"))'.dependencies]
+spiffe = { workspace = true }
+
 [dev-dependencies]
 agntcy-slim-config = { path = "../config" }
 tracing-test = { workspace = true }
