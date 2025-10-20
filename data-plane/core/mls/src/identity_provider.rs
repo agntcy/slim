@@ -8,7 +8,7 @@ use mls_rs::{
     time::MlsTime,
 };
 use mls_rs_core::identity::MemberValidationContext;
-use slim_auth::traits::Verifier;
+use slim_auth::{errors::AuthError, traits::Verifier};
 use tracing::debug;
 
 #[derive(Clone)]
@@ -54,10 +54,20 @@ where
     ) -> Result<(), Self::Error> {
         debug!("Validating MLS group member identity");
         let identity = resolve_slim_identity(signing_identity)?;
-
-        self.identity_verifier
-            .try_verify(&identity)
-            .map_err(|e| SlimIdentityError::VerificationFailed(e.to_string()))?;
+        match self.identity_verifier.try_verify(&identity) {
+            Ok(()) => {},
+            Err(e) => {
+                if matches!(e, AuthError::WouldBlockOn) {
+                    // Fallback to async verification
+                    let async_res = tokio::runtime::Handle::current().block_on(
+                        self.identity_verifier.verify(&identity)
+                    );
+                    async_res.map_err(|ae| SlimIdentityError::VerificationFailed(ae.to_string()))?;
+                } else {
+                    return Err(SlimIdentityError::VerificationFailed(e.to_string()));
+                }
+            }
+        }
 
         Ok(())
     }
@@ -70,10 +80,20 @@ where
     ) -> Result<(), Self::Error> {
         debug!("Validating external sender identity");
         let identity = resolve_slim_identity(signing_identity)?;
-
-        self.identity_verifier
-            .try_verify(&identity)
-            .map_err(|e| SlimIdentityError::ExternalSenderFailed(e.to_string()))?;
+        match self.identity_verifier.try_verify(&identity) {
+            Ok(()) => {},
+            Err(e) => {
+                if matches!(e, AuthError::WouldBlockOn) {
+                    // Fallback to async verification for external sender
+                    let async_res = tokio::runtime::Handle::current().block_on(
+                        self.identity_verifier.verify(&identity)
+                    );
+                    async_res.map_err(|ae| SlimIdentityError::ExternalSenderFailed(ae.to_string()))?;
+                } else {
+                    return Err(SlimIdentityError::ExternalSenderFailed(e.to_string()));
+                }
+            }
+        }
 
         Ok(())
     }
