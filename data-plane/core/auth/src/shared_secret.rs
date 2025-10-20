@@ -483,12 +483,12 @@ impl Verifier for SharedSecret {
     {
         let token_str = token.into();
         self.try_verify(token_str.clone())?;
-        let (token_id, ts, _, _) = self.parse_token(&token_str)?;
+        let (id, ts, _, _) = self.parse_token(&token_str)?;
         let exp = ts + self.0.validity_window.as_secs();
         let claims_json = serde_json::json!({
-            "id": token_id,
+            "sub": id,
             "iat": ts,
-            "exp": exp
+            "exp": exp,
         });
         serde_json::from_value(claims_json)
             .map_err(|_| AuthError::TokenInvalid("claims parse error".to_string()))
@@ -504,7 +504,7 @@ mod tests {
 
     #[derive(Debug, Deserialize)]
     struct BasicClaims {
-        id: String,
+        sub: String,
         iat: u64,
         exp: u64,
     }
@@ -718,7 +718,7 @@ mod tests {
         let s = SharedSecret::new("svc", &valid_secret()); // replay disabled
         let token = s.get_token().unwrap();
         let claims: BasicClaims = s.try_get_claims(token).unwrap();
-        assert!(claims.id.starts_with("svc_"));
+        assert!(claims.sub.starts_with("svc_"));
         assert_eq!(claims.exp, claims.iat + s.validity_window_secs());
     }
 
@@ -727,7 +727,7 @@ mod tests {
         let s = SharedSecret::new("svc", &valid_secret()).with_replay_cache_enabled(64);
         let token = s.get_token().unwrap();
         let claims: BasicClaims = s.try_get_claims(token).unwrap();
-        assert!(claims.id.starts_with("svc_"));
+        assert!(claims.sub.starts_with("svc_"));
         assert_eq!(claims.exp, claims.iat + s.validity_window_secs());
     }
 

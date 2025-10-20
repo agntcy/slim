@@ -26,18 +26,29 @@ where
     pub fn new(identity_verifier: V) -> Self {
         Self { identity_verifier }
     }
-}
 
-fn resolve_slim_identity(signing_id: &SigningIdentity) -> Result<String, SlimIdentityError> {
-    let basic_cred = signing_id
-        .credential
-        .as_basic()
-        .ok_or(SlimIdentityError::NotBasicCredential)?;
+    fn resolve_slim_identity(
+        self: &Self,
+        signing_id: &SigningIdentity,
+    ) -> Result<String, SlimIdentityError> {
+        let basic_cred = signing_id
+            .credential
+            .as_basic()
+            .ok_or(SlimIdentityError::NotBasicCredential)?;
 
-    let credential_data =
-        std::str::from_utf8(&basic_cred.identifier).map_err(SlimIdentityError::InvalidUtf8)?;
+        let credential_data =
+            std::str::from_utf8(&basic_cred.identifier).map_err(SlimIdentityError::InvalidUtf8)?;
 
-    Ok(credential_data.to_string())
+        // get id
+        self.identity_verifier
+            .try_get_id(credential_data)
+            .map_err(|e| {
+                SlimIdentityError::VerificationFailed(format!(
+                    "Failed to extract identity from credential data: {}",
+                    e
+                ))
+            })
+    }
 }
 
 impl<V> IdentityProvider for SlimIdentityProvider<V>
@@ -53,13 +64,14 @@ where
         _context: MemberValidationContext<'_>,
     ) -> Result<(), Self::Error> {
         debug!("Validating MLS group member identity");
-        let identity = resolve_slim_identity(signing_identity)?;
-
-        self.identity_verifier
-            .try_verify(&identity)
-            .map_err(|e| SlimIdentityError::VerificationFailed(e.to_string()))?;
-
-        Ok(())
+        self.resolve_slim_identity(signing_identity)
+            .map(|_id| {})
+            .map_err(|e| {
+                SlimIdentityError::VerificationFailed(format!(
+                    "Failed to validate member identity: {}",
+                    e
+                ))
+            })
     }
 
     fn validate_external_sender(
@@ -69,13 +81,14 @@ where
         _extensions: Option<&ExtensionList>,
     ) -> Result<(), Self::Error> {
         debug!("Validating external sender identity");
-        let identity = resolve_slim_identity(signing_identity)?;
-
-        self.identity_verifier
-            .try_verify(&identity)
-            .map_err(|e| SlimIdentityError::ExternalSenderFailed(e.to_string()))?;
-
-        Ok(())
+        self.resolve_slim_identity(signing_identity)
+            .map(|_id| {})
+            .map_err(|e| {
+                SlimIdentityError::VerificationFailed(format!(
+                    "Failed to validate member identity: {}",
+                    e
+                ))
+            })
     }
 
     fn identity(
@@ -83,8 +96,11 @@ where
         signing_identity: &SigningIdentity,
         _extensions: &ExtensionList,
     ) -> Result<Vec<u8>, Self::Error> {
-        let identity = resolve_slim_identity(signing_identity)?;
-        Ok(identity.into_bytes())
+        debug!("Resolving identity from signing identity");
+        let id = self.resolve_slim_identity(signing_identity)?;
+
+        debug!("Resolved identity: {}", id);
+        Ok(id.into_bytes())
     }
 
     fn valid_successor(
@@ -94,11 +110,11 @@ where
         _extensions: &ExtensionList,
     ) -> Result<bool, Self::Error> {
         debug!("Validating identity succession");
-        let pred_identity = resolve_slim_identity(predecessor)?;
-        let succ_identity = resolve_slim_identity(successor)?;
+        let pred_identity = self.resolve_slim_identity(predecessor)?;
+        let succ_identity = self.resolve_slim_identity(successor)?;
 
-        //TODO(zkacsand): we need to verify this with the verifier
         let is_valid = pred_identity == succ_identity;
+
         debug!("Identity succession validation result: {}", is_valid);
         Ok(is_valid)
     }

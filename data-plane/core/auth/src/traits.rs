@@ -86,6 +86,17 @@ pub trait Verifier {
     fn try_get_claims<Claims>(&self, token: impl Into<String>) -> Result<Claims, AuthError>
     where
         Claims: DeserializeOwned + Send;
+
+    /// Helper to get the ID from the token claims.
+    fn try_get_id(&self, token: impl Into<String>) -> Result<String, AuthError> {
+        #[derive(Deserialize)]
+        struct IdClaim {
+            sub: String,
+        }
+
+        let claims: IdClaim = self.try_get_claims(token)?;
+        Ok(claims.sub)
+    }
 }
 
 /// Trait for signing JWT claims
