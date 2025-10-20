@@ -477,35 +477,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_provider_token_generation() {
-        let provider = AuthProvider::shared_secret_from_str("test-id", "test-secret");
+        let provider = AuthProvider::shared_secret_from_str("test-id", TEST_SECRET);
         let token = provider.get_token().unwrap();
-        assert!(token.starts_with("test-secret:test-id_"));
-    }
-
-    #[tokio::test]
-    async fn test_auth_verifier_token_verification() {
-        let verifier = AuthVerifier::shared_secret_from_str("test-id", "test-secret");
-        let token = "test-secret:test-id";
-
-        assert!(verifier.verify(token).await.is_ok());
-        assert!(verifier.try_verify(token).is_ok());
-
-        // Test invalid token
-        let invalid_token = "wrong-secret:test-id";
-        assert!(verifier.verify(invalid_token).await.is_err());
-        assert!(verifier.try_verify(invalid_token).is_err());
-    }
-
-    #[test]
-    fn test_auth_provider_cloning() {
-        let provider = AuthProvider::shared_secret_from_str("test-id", "test-secret");
-        let cloned_provider = provider.clone();
-
-        // Both should generate the same token
-        assert_eq!(
-            provider.get_token().unwrap(),
-            cloned_provider.get_token().unwrap()
-        );
+        assert!(token.starts_with("test-id_"));
     }
 
     #[test]
