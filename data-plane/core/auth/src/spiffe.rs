@@ -178,6 +178,11 @@ impl TokenProvider for SpiffeProvider {
         let jwt_svid = self.get_jwt_svid()?;
         Ok(jwt_svid.token().to_string())
     }
+
+    fn get_id(&self) -> Result<String, AuthError> {
+        let jwt_svid = self.get_jwt_svid()?;
+        Ok(jwt_svid.spiffe_id().to_string())
+    }
 }
 
 // JwtSource: background-refreshing source of JWT SVIDs modeled after X509Source APIs
