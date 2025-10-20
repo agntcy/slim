@@ -133,10 +133,10 @@ impl ReplayCache {
         }
 
         // Eviction at capacity
-        if self.entries.len() >= self.max_size {
-            if let Some(old) = self.order.pop_front() {
-                self.entries.remove(&old);
-            }
+        if self.entries.len() >= self.max_size
+            && let Some(old) = self.order.pop_front()
+        {
+            self.entries.remove(&old);
         }
 
         self.entries.insert(entry.clone());
@@ -733,8 +733,7 @@ mod tests {
 
     #[test]
     fn test_replay_cache_capacity_enabled() {
-        let s = SharedSecret::new("svc", &valid_secret())
-            .with_replay_cache_enabled(2);
+        let s = SharedSecret::new("svc", &valid_secret()).with_replay_cache_enabled(2);
         let t1 = s.get_token().unwrap();
         thread::sleep(Duration::from_millis(10));
         let t2 = s.get_token().unwrap();
@@ -772,8 +771,7 @@ mod tests {
 
     #[test]
     fn test_disable_replay_cache_builder() {
-        let s = SharedSecret::new("svc", &valid_secret())
-            .with_replay_cache_enabled(64);
+        let s = SharedSecret::new("svc", &valid_secret()).with_replay_cache_enabled(64);
         let token = s.get_token().unwrap();
         assert!(s.try_verify(token.clone()).is_ok()); // first verify ok
         // Disabling replay cache allows re-verification.
