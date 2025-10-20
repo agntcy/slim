@@ -401,9 +401,12 @@ mod tests {
     async fn test_config_into_service() {
         let server_config = create_test_server_config();
         let client_config = create_test_client_config();
+        let auth = TokenProviderAuthConfig::SharedSecret("test-secret".to_string());
+
         let config = Config::new()
             .with_servers(vec![server_config.clone()])
-            .with_clients(vec![client_config]);
+            .with_clients(vec![client_config])
+            .with_token_provider_auth(auth);
 
         let id = ID::new_with_name(Kind::new("slim").unwrap(), "test-instance").unwrap();
         let group_name = Some("test-group".to_string());

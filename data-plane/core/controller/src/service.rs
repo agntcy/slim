@@ -1397,6 +1397,7 @@ impl GrpcControllerService for ControllerService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use slim_auth::shared_secret::SharedSecret;
     use slim_config::component::id::Kind;
     use tracing_test::traced_test;
 
@@ -1435,8 +1436,12 @@ mod tests {
             drain_rx: watch_server,
             message_processor: Arc::new(message_processor_server),
             pubsub_servers: pubsub_servers.to_vec(),
-            auth_provider: None,
-            auth_verifier: None,
+            auth_provider: Some(AuthProvider::SharedSecret(SharedSecret::new(
+                "server", "test",
+            ))),
+            auth_verifier: Some(AuthVerifier::SharedSecret(SharedSecret::new(
+                "server", "test",
+            ))),
         });
 
         let mut control_plane_client = ControlPlane::new(ControlPlaneSettings {
@@ -1447,8 +1452,12 @@ mod tests {
             drain_rx: watch_client,
             message_processor: Arc::new(message_processor_client),
             pubsub_servers: pubsub_servers.to_vec(),
-            auth_provider: None,
-            auth_verifier: None,
+            auth_provider: Some(AuthProvider::SharedSecret(SharedSecret::new(
+                "client", "test",
+            ))),
+            auth_verifier: Some(AuthVerifier::SharedSecret(SharedSecret::new(
+                "client", "test",
+            ))),
         });
 
         // Start the server

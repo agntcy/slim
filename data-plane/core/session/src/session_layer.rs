@@ -498,6 +498,22 @@ where
         let local_name = self.get_local_name_for_session(message.get_slim_header().get_dst())?;
 
         let new_session = match session_message_type {
+            ProtoSessionMessageType::Msg => {
+                // if this is a point to point session create an anycast session otherwise drop the message
+                if message.get_session_type() == ProtoSessionType::PointToPoint {
+                    let mut conf = self.default_p2p_conf.read().clone();
+                    conf.timeout = None;
+                    conf.max_retries = None;
+                    conf.mls_enabled = false;
+                    conf.peer_name = None;
+                    conf.initiator = false;
+                    self.create_session(SessionConfig::PointToPoint(conf), local_name, Some(id))
+                        .await?
+                } else {
+                    debug!("received a multicast message for an unknow sesison, drop message");
+                    return Ok(());
+                }
+            }
             ProtoSessionMessageType::JoinRequest => {
                 // Create a new session based on the message payload
                 let payload = message
@@ -578,8 +594,7 @@ where
             | ProtoSessionMessageType::GroupAck
             | ProtoSessionMessageType::MsgAck
             | ProtoSessionMessageType::RtxRequest
-            | ProtoSessionMessageType::RtxReply
-            | ProtoSessionMessageType::Msg => {
+            | ProtoSessionMessageType::RtxReply => {
                 debug!(
                     "received channel message with unknown session id {:?} ",
                     message

@@ -369,7 +369,7 @@ mod tests {
         api::{ApplicationPayload, ProtoMessage, ProtoSessionMessageType, ProtoSessionType},
         messages::{Name, utils::SLIM_IDENTITY},
     };
-
+    
     #[allow(dead_code)]
     fn create_app() -> App<SharedSecret, SharedSecret> {
         let (tx_slim, _) = tokio::sync::mpsc::channel(128);
