@@ -169,6 +169,11 @@ impl Service {
         self.signal
     }
 
+    /// Create a new ServiceBuilder
+    pub fn builder() -> ServiceBuilder {
+        ServiceBuilder::new()
+    }
+
     /// Run the service
     pub async fn run(&mut self) -> Result<(), ServiceError> {
         // Check that at least one client or server is configured
@@ -371,7 +376,7 @@ impl Component for Service {
 pub struct ServiceBuilder;
 
 impl ServiceBuilder {
-    // Create a new NopComponentBuilder
+    // Create a new ServiceBuilder
     pub fn new() -> Self {
         ServiceBuilder {}
     }

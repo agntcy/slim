@@ -1118,7 +1118,12 @@ where
             true => {
                 let cm = ChannelModerator::new(
                     common.source().clone(),
-                    common.source().clone(),
+                    // TODO: this is set to the name of the peer if provided, otherwise to our own name
+                    // This needs to be revisited, as this part should be enabled only when a peer name is provided
+                    session_config
+                        .peer_name
+                        .clone()
+                        .unwrap_or(common.source().clone()),
                     &identity,
                     id,
                     ProtoSessionType::PointToPoint,
@@ -1134,7 +1139,12 @@ where
             false => {
                 let cp = ChannelParticipant::new(
                     common.source().clone(),
-                    common.source().clone(),
+                    // TODO: this is set to the name of the peer if provided, otherwise to our own name
+                    // This needs to be revisited, as this part should be enabled only when a peer name is provided
+                    session_config
+                        .peer_name
+                        .clone()
+                        .unwrap_or(common.source().clone()),
                     &identity,
                     id,
                     ProtoSessionType::PointToPoint,

@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 mod build_info;
+mod pyapp;
 mod pyidentity;
 mod pymessage;
-mod pyservice;
 mod pysession;
 mod utils;
 
@@ -18,14 +18,17 @@ mod _slim_bindings {
     use super::*;
 
     #[pymodule_export]
-    use pyservice::{
-        PyService, connect, create_pyservice, create_session, delete_session, disconnect,
-        get_message, invite, listen_for_session, publish, remove, remove_route, run_server,
-        set_default_session_config, set_route, stop_server, subscribe, unsubscribe,
+    use pyapp::{
+        PyApp, connect, create_pyapp, create_session, delete_session, disconnect,
+        listen_for_session, remove_route, run_server, set_default_session_config, set_route,
+        stop_server, subscribe, unsubscribe,
     };
 
     #[pymodule_export]
-    use pysession::{PySessionConfiguration, PySessionContext, PySessionType};
+    use pysession::{
+        PySessionConfiguration, PySessionContext, PySessionType, get_message, invite, publish,
+        publish_to, remove,
+    };
 
     #[pymodule_export]
     use pymessage::PyMessageContext;

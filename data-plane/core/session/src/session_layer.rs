@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Standard library imports
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use base64::Engine;
@@ -12,13 +12,14 @@ use rand::Rng;
 use slim_datapath::messages::utils::SLIM_IDENTITY;
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::sync::mpsc::Sender;
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType};
 use slim_datapath::messages::Name;
 
 use crate::MessageHandler;
+use crate::common::SessionMessage;
 use crate::notification::Notification;
 use crate::transmitter::{AppTransmitter, SessionTransmitter};
 
@@ -34,11 +35,6 @@ use super::{
 use super::{SessionError, channel_endpoint::handle_channel_discovery_message};
 use crate::interceptor::SessionInterceptorProvider; // needed for add_interceptor
 
-/// Message types to communicate from session to session layer
-pub enum SessionLayerMessage {
-    DeleteSession { session_id: u32 },
-}
-
 /// SessionLayer manages sessions and their lifecycle
 pub struct SessionLayer<P, V, T = AppTransmitter<P, V>>
 where
@@ -49,8 +45,11 @@ where
     /// Session pool
     pool: Arc<AsyncRwLock<HashMap<Id, Arc<Session<P, V>>>>>,
 
-    /// Name of the local app
-    app_name: Name,
+    /// Default name of the local app
+    app_id: u64,
+
+    /// Names registered by local app
+    app_names: SyncRwLock<HashSet<Name>>,
 
     /// Identity provider for the local app
     identity_provider: P,
@@ -76,7 +75,7 @@ where
     storage_path: std::path::PathBuf,
 
     /// Channel to clone on session creation
-    tx_session: tokio::sync::mpsc::Sender<Result<SessionLayerMessage, SessionError>>,
+    tx_session: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
 }
 
 impl<P, V, T> SessionLayer<P, V, T>
@@ -104,7 +103,8 @@ where
 
         let sl = SessionLayer {
             pool: Arc::new(AsyncRwLock::new(HashMap::new())),
-            app_name,
+            app_id: app_name.id(),
+            app_names: SyncRwLock::new(HashSet::from([app_name.with_id(Name::NULL_COMPONENT)])),
             identity_provider,
             identity_verifier,
             conn_id,
@@ -135,8 +135,40 @@ where
         self.conn_id
     }
 
-    pub fn app_name(&self) -> &Name {
-        &self.app_name
+    pub fn app_id(&self) -> u64 {
+        self.app_id
+    }
+
+    pub fn add_app_name(&self, name: Name) {
+        // unset last component for fast lookups
+        self.app_names
+            .write()
+            .insert(name.with_id(Name::NULL_COMPONENT));
+    }
+
+    pub fn remove_app_name(&self, name: &Name) {
+        let removed = match name.id() {
+            Name::NULL_COMPONENT => self.app_names.write().remove(name),
+            _ => {
+                let name = name.clone().with_id(Name::NULL_COMPONENT);
+                self.app_names.write().remove(&name)
+            }
+        };
+
+        if !removed {
+            warn!("tried to remove unknown app name {}", name);
+        }
+    }
+
+    fn get_local_name_for_session(&self, dst: Name) -> Result<Name, SessionError> {
+        let name = dst.with_id(Name::NULL_COMPONENT);
+
+        self.app_names
+            .read()
+            .get(&name)
+            .cloned()
+            .map(|n| n.with_id(self.app_id))
+            .ok_or(SessionError::SubscriptionNotFound(name.to_string()))
     }
 
     /// Get identity token from the identity provider
@@ -149,6 +181,7 @@ where
     pub async fn create_session(
         &self,
         session_config: SessionConfig,
+        local_name: Name,
         id: Option<Id>,
     ) -> Result<SessionContext<P, V>, SessionError> {
         // TODO(msardara): the session identifier should be a combination of the
@@ -200,7 +233,7 @@ where
                 super::point_to_point::PointToPoint::new(
                     id,
                     conf,
-                    self.app_name().clone(),
+                    local_name,
                     tx,
                     self.identity_provider.clone(),
                     self.identity_verifier.clone(),
@@ -211,7 +244,7 @@ where
                 Arc::new(Session::from_multicast(multicast::Multicast::new(
                     id,
                     conf,
-                    self.app_name().clone(),
+                    local_name,
                     tx,
                     self.identity_provider.clone(),
                     self.identity_verifier.clone(),
@@ -241,7 +274,7 @@ where
 
     pub fn listen_from_sessions(
         &self,
-        mut rx_session: tokio::sync::mpsc::Receiver<Result<SessionLayerMessage, SessionError>>,
+        mut rx_session: tokio::sync::mpsc::Receiver<Result<SessionMessage, SessionError>>,
     ) {
         let pool_clone = self.pool.clone();
 
@@ -250,12 +283,15 @@ where
                 tokio::select! {
                     next = rx_session.recv() => {
                         match next {
-                            Some(Ok(SessionLayerMessage::DeleteSession { session_id })) => {
+                            Some(Ok(SessionMessage::DeleteSession { session_id })) => {
                                 debug!("received closing signal from session {}, cancel it from the pool", session_id);
                                 let mut pool = pool_clone.write().await;
                                 if pool.remove(&session_id).is_none() {
                                     warn!("requested to delete unknown session id {}", session_id);
                                 }
+                            }
+                            Some(Ok(_)) => {
+                                error!("received unexpected message");
                             }
                             Some(Err(e)) => {
                                 warn!("error from session: {:?}", e);
@@ -289,6 +325,7 @@ where
     /// other action is needed, false otherwise
     pub(crate) async fn handle_message_from_slim_without_session(
         &self,
+        local_name: &Name,
         message: &slim_datapath::api::ProtoMessage,
         session_type: ProtoSessionType,
         session_message_type: ProtoSessionMessageType,
@@ -302,7 +339,7 @@ where
                 })?;
                 let msg = handle_channel_discovery_message(
                     message,
-                    self.app_name(),
+                    local_name,
                     &token,
                     session_id,
                     session_type,
@@ -364,8 +401,13 @@ where
                 return session.on_message(message, MessageDirection::North).await;
             } else {
                 // in this case we handle the message without creating a new local session
+
+                let local_name =
+                    self.get_local_name_for_session(message.get_slim_header().get_dst())?;
+
                 match self
                     .handle_message_from_slim_without_session(
+                        &local_name,
                         &message,
                         session_type,
                         session_message_type,
@@ -452,6 +494,9 @@ where
             return session.on_message(message, MessageDirection::North).await;
         }
 
+        // get local name for the session
+        let local_name = self.get_local_name_for_session(message.get_slim_header().get_dst())?;
+
         let new_session = match session_message_type {
             ProtoSessionMessageType::JoinRequest => {
                 // Create a new session based on the message payload
@@ -460,6 +505,7 @@ where
                     .unwrap()
                     .as_command_payload()
                     .as_join_request_payload();
+
                 match message.get_session_header().session_type() {
                     ProtoSessionType::PointToPoint => {
                         let mut conf = self.default_p2p_conf.read().clone();
@@ -483,7 +529,7 @@ where
                         message.remove_metadata(SLIM_IDENTITY);
                         conf.metadata = message.get_metadata_map();
 
-                        self.create_session(SessionConfig::PointToPoint(conf), Some(id))
+                        self.create_session(SessionConfig::PointToPoint(conf), local_name, Some(id))
                             .await?
                     }
                     ProtoSessionType::Multicast => {
@@ -508,7 +554,7 @@ where
                         conf.timeout = std::time::Duration::from_millis(s.timeout() as u64);
                         conf.max_retries = s.max_retries();
 
-                        self.create_session(SessionConfig::Multicast(conf), Some(id))
+                        self.create_session(SessionConfig::Multicast(conf), local_name, Some(id))
                             .await?
                     }
                     _ => {

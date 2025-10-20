@@ -125,6 +125,10 @@ impl Name {
     pub fn components_strings(&self) -> &[String; 3] {
         &self.strings
     }
+
+    pub fn match_prefix(&self, other: &Name) -> bool {
+        self.components[0..3] == other.components[0..3]
+    }
 }
 
 pub fn calculate_hash<T: Hash + ?Sized>(t: &T) -> u64 {
@@ -144,5 +148,41 @@ mod tests {
         assert_eq!(name1, name2);
         let name3 = Name::from_strings(["Another_Org", "Not_Default", "not_App_ONE"]).with_id(2);
         assert_ne!(name1, name3);
+    }
+
+    #[test]
+    fn test_match_prefix() {
+        // Test exact prefix match with same IDs
+        let name1 = Name::from_strings(["Org", "Default", "App"]).with_id(1);
+        let name2 = Name::from_strings(["Org", "Default", "App"]).with_id(1);
+        assert!(name1.match_prefix(&name2));
+
+        // Test exact prefix match with different IDs (should still match prefix)
+        let name3 = Name::from_strings(["Org", "Default", "App"]).with_id(999);
+        assert!(name1.match_prefix(&name3));
+
+        // Test prefix match with no ID set
+        let name4 = Name::from_strings(["Org", "Default", "App"]);
+        assert!(name1.match_prefix(&name4));
+        assert!(name4.match_prefix(&name1));
+
+        // Test different first component
+        let name5 = Name::from_strings(["DifferentOrg", "Default", "App"]).with_id(1);
+        assert!(!name1.match_prefix(&name5));
+
+        // Test different second component
+        let name6 = Name::from_strings(["Org", "DifferentDefault", "App"]).with_id(1);
+        assert!(!name1.match_prefix(&name6));
+
+        // Test different third component
+        let name7 = Name::from_strings(["Org", "Default", "DifferentApp"]).with_id(1);
+        assert!(!name1.match_prefix(&name7));
+
+        // Test completely different prefix
+        let name8 = Name::from_strings(["NewOrg", "NewDefault", "NewApp"]).with_id(1);
+        assert!(!name1.match_prefix(&name8));
+
+        // Test self-match
+        assert!(name1.match_prefix(&name1));
     }
 }

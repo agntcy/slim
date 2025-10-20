@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.1](https://github.com/agntcy/slim/compare/slim-bindings-v0.6.0...slim-bindings-v0.6.1) (2025-10-17)
+
+
+### Features
+
+* implementation of Identity provider client credential flow ([#464](https://github.com/agntcy/slim/issues/464)) ([504b1dd](https://github.com/agntcy/slim/commit/504b1dd1516a9f0b00be89af658f2f4762e36e7e))
+* move session code in a new crate ([#828](https://github.com/agntcy/slim/issues/828)) ([6d0cf90](https://github.com/agntcy/slim/commit/6d0cf90a67cdfd62039fee857cf103a52a0380b1))
+
+
+### Bug Fixes
+
+* **python/bindings:** add missing PyMessageContext type export ([#841](https://github.com/agntcy/slim/issues/841)) ([6301ced](https://github.com/agntcy/slim/commit/6301ced85073c028898d60eb620dacb0cff6afbf))
+* **session:** correctly handle multiple subscriptions ([#838](https://github.com/agntcy/slim/issues/838)) ([52b49aa](https://github.com/agntcy/slim/commit/52b49aa389f87f8ffdec345aaf5313a2e90998a5))
+
 ## [0.6.0](https://github.com/agntcy/slim/compare/slim-bindings-v0.5.0...slim-bindings-v0.6.0) (2025-10-09)
 
 

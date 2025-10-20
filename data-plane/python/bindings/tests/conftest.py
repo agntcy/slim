@@ -56,7 +56,7 @@ async def server(request):
         identity="server", shared_secret="secret"
     )
 
-    svc_server = await slim_bindings.create_pyservice(
+    svc_server = await slim_bindings._slim_bindings.create_pyapp(
         name, provider, verifier, local_service=local_service
     )
 
@@ -66,7 +66,7 @@ async def server(request):
     # Only start server if endpoint is provided
     if endpoint is not None:
         # run slim server in background
-        await slim_bindings.run_server(
+        await slim_bindings._slim_bindings.run_server(
             svc_server,
             {"endpoint": endpoint, "tls": {"insecure": True}},
         )
