@@ -584,8 +584,6 @@ pub(crate) fn extract_sub_claim_unsafe(token: &str) -> Result<String, AuthError>
     let mut validation = Validation::default();
     validation.insecure_disable_signature_validation();
 
-    println!("Decoded token claims:");
-
     // Decode the token without signature validation
     let token_data = decode::<serde_json::Value>(
         token,
@@ -593,8 +591,6 @@ pub(crate) fn extract_sub_claim_unsafe(token: &str) -> Result<String, AuthError>
         &validation,
     )
     .map_err(|e| AuthError::TokenInvalid(format!("Failed to decode token: {}", e)))?;
-
-    println!("Decoded token claims: {:?}", token_data.claims);
 
     // Extract the 'sub' claim
     token_data

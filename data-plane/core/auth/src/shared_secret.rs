@@ -788,4 +788,118 @@ mod tests {
         assert_eq!(original_max, s2.replay_cache_max());
         assert!(!s2.replay_cache_enabled());
     }
+
+    #[test]
+    fn test_shared_secret_get_id() {
+        let shared_secret = SharedSecret::new("test-id", "test-secret");
+
+        let id = shared_secret.get_id().unwrap();
+
+        // The ID should start with "test-id_" and have 8 random characters appended
+        assert!(id.starts_with("test-id_"));
+        assert_eq!(id.len(), "test-id_".len() + 8);
+        assert!(
+            id.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        );
+    }
+
+    #[test]
+    fn test_shared_secret_get_id_deterministic() {
+        let shared_secret = SharedSecret::new("test-id", "test-secret");
+
+        let id1 = shared_secret.get_id().unwrap();
+        let id2 = shared_secret.get_id().unwrap();
+
+        // Since the random suffix is generated once in constructor, IDs should be the same
+        assert_eq!(id1, id2);
+        assert!(id1.starts_with("test-id_"));
+    }
+
+    #[test]
+    fn test_shared_secret_get_token() {
+        let shared_secret = SharedSecret::new("test-id", "test-secret");
+
+        let token = shared_secret.get_token().unwrap();
+
+        // Token should contain shared secret and the id with random suffix
+        assert!(token.starts_with("test-secret:test-id_"));
+        let parts: Vec<&str> = token.split(':').collect();
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[0], "test-secret");
+        assert!(parts[1].starts_with("test-id_"));
+    }
+
+    #[test]
+    fn test_shared_secret_get_token_empty_secret() {
+        let shared_secret = SharedSecret::new("test-id", "");
+
+        let result = shared_secret.get_token();
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("shared_secret is empty")
+        );
+    }
+
+    #[test]
+    fn test_shared_secret_different_instances_have_different_ids() {
+        let shared_secret1 = SharedSecret::new("test-id", "test-secret");
+        let shared_secret2 = SharedSecret::new("test-id", "test-secret");
+
+        let id1 = shared_secret1.get_id().unwrap();
+        let id2 = shared_secret2.get_id().unwrap();
+
+        // Different instances should have different random suffixes
+        assert_ne!(id1, id2);
+        assert!(id1.starts_with("test-id_"));
+        assert!(id2.starts_with("test-id_"));
+    }
+
+    #[test]
+    fn test_shared_secret_verify() {
+        let shared_secret = SharedSecret::new("test-id", "test-secret");
+
+        // Get the actual token that would be generated
+        let valid_token = shared_secret.get_token().unwrap();
+
+        let result = shared_secret.try_verify(&valid_token);
+        assert!(result.is_ok());
+
+        let result = shared_secret.try_verify("wrong-secret:test-id_12345678");
+        assert!(result.is_err());
+
+        let result = shared_secret.try_verify("invalid-format");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_shared_secret_id_format() {
+        let shared_secret = SharedSecret::new("user123", "secret456");
+        let id = shared_secret.get_id().unwrap();
+
+        // Verify the ID format: original_id + "_" + 8 random chars
+        assert!(id.starts_with("user123_"));
+        assert_eq!(id.len(), "user123_".len() + 8);
+
+        // Verify the suffix is alphanumeric
+        let suffix = &id["user123_".len()..];
+        assert_eq!(suffix.len(), 8);
+        assert!(suffix.chars().all(|c| c.is_ascii_alphanumeric()));
+    }
+
+    #[test]
+    fn test_shared_secret_id_accessor() {
+        let shared_secret = SharedSecret::new("test", "secret");
+
+        // The id() accessor should return the full ID with random suffix
+        let accessor_id = shared_secret.id();
+        let get_id_result = shared_secret.get_id().unwrap();
+
+        assert_eq!(accessor_id, get_id_result);
+        assert!(accessor_id.starts_with("test_"));
+    }
 }
