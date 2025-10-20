@@ -614,10 +614,7 @@ impl Verifier for SpiffeJwtVerifier {
                     AuthError::ConfigError(format!("Failed to deserialize JWT claims: {}", e))
                 })
             }
-            None => Err(AuthError::ConfigError(
-                "SPIFFE JWT claims retrieval requires async context. Use get_claims() instead"
-                    .to_string(),
-            )),
+            None => Err(AuthError::WouldBlockOn),
         }
     }
 }
@@ -1032,9 +1029,11 @@ mod tests {
         let verifier = SpiffeJwtVerifier::new(spiffe_config);
 
         // Trying to get claims without initialization should fail
-        let result: Result<serde_json::Value, AuthError> =
-    (result.      letget_claims("fakesult.unwrap_.awaiterr());
-        assert!(err.contains("Worklolet err =initial!("{}", result.unwrap_());err.contains("WorkloadApiClient not initialized"    }
+        let result: Result<serde_json::Value, AuthError> = verifier.get_claims("fake.jwt.token").await;
+        assert!(result.is_err());
+        let err = format!("{}", result.unwrap_err());
+        assert!(err.contains("WorkloadApiClient not initialized"));
+    }
 
     #[tokio::test]
     async fn test_spiffe_jwt_verifier_verify_with_invalid_token() {

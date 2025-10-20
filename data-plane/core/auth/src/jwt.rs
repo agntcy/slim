@@ -616,7 +616,6 @@ mod tests {
     use std::{env, fs, vec};
 
     use super::*;
-    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
     use jsonwebtoken_aws_lc::{Algorithm, Header};
     use tokio::time;
     use tracing_test::traced_test;
