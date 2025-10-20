@@ -3,12 +3,12 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::utils::bytes_to_pem;
 use aws_lc_rs::encoding::AsDer;
 use aws_lc_rs::signature::KeyPair; // Import the KeyPair trait for public_key() method
 use aws_lc_rs::{rand, rsa, signature};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use crate::utils::bytes_to_pem; // moved to shared utils module
 use jsonwebtoken_aws_lc::Algorithm;
 use serde_json::json;
 use wiremock::matchers::{method, path};

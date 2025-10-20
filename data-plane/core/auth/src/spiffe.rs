@@ -9,8 +9,8 @@
 
 use crate::errors::AuthError;
 use crate::traits::{TokenProvider, Verifier};
-use async_trait::async_trait;
 use crate::utils::bytes_to_pem;
+use async_trait::async_trait;
 use futures::StreamExt; // for .next() on the JWT bundle stream
 use parking_lot::RwLock; // switched to parking_lot for sync RwLock
 use serde::de::DeserializeOwned;

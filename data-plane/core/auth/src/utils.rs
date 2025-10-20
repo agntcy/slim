@@ -47,7 +47,9 @@ mod tests {
         let data = vec![b'A'; 70];
         let pem = bytes_to_pem(&data, "-----BEGIN TEST-----\n", "\n-----END TEST-----");
         // Count lines between header and footer
-        let body = pem.replace("-----BEGIN TEST-----\n", "").replace("\n-----END TEST-----", "");
+        let body = pem
+            .replace("-----BEGIN TEST-----\n", "")
+            .replace("\n-----END TEST-----", "");
         let lines: Vec<&str> = body.split('\n').collect();
         assert!(lines.len() >= 2, "Should have wrapped into multiple lines");
         assert!(lines.iter().all(|l| l.len() <= 64));
