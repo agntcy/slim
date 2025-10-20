@@ -57,6 +57,7 @@ impl ReceiverBuffer {
     }
 
     // returns a list of lost messages for which RTX needs to be sent
+    #[allow(dead_code)]
     pub fn on_beacon_message(&mut self, msg_id: u32) -> Vec<u32> {
         debug!("received beacon for msg {}", msg_id);
         let (_recv, rtx) = self.internal_on_received_message(msg_id as usize, None);

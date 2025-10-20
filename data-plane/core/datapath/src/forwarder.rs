@@ -98,7 +98,7 @@ where
         &self,
         source: Name,
         name: Name,
-        soruce_identity: String,
+        source_identity: String,
         conn_index: u64,
         add: bool,
     ) {
@@ -106,14 +106,14 @@ where
             self.remote_subscription_table.add_subscription(
                 source,
                 name,
-                soruce_identity,
+                source_identity,
                 conn_index,
             );
         } else {
             self.remote_subscription_table.remove_subscription(
                 source,
                 name,
-                soruce_identity,
+                source_identity,
                 conn_index,
             );
         }

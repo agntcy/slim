@@ -611,18 +611,16 @@ async fn process_message_from_app<T>(
     );
     producer.next_id += 1;
 
-    if send_msg {
-        if tx.send_to_slim(Ok(msg)).await.is_err() {
-            error!(
-                "error sending publication packet to slim on session {}",
-                session_id
-            );
-            tx.send_to_app(Err(SessionError::Processing(
-                "error sending message to local slim instance".to_string(),
-            )))
-            .await
-            .expect("error notifying app");
-        }
+    if send_msg && tx.send_to_slim(Ok(msg)).await.is_err() {
+        error!(
+            "error sending publication packet to slim on session {}",
+            session_id
+        );
+        tx.send_to_app(Err(SessionError::Processing(
+            "error sending message to local slim instance".to_string(),
+        )))
+        .await
+        .expect("error notifying app");
     }
 }
 
@@ -671,21 +669,18 @@ async fn process_message_from_slim<T>(
         }
     };
 
-    let mut recv = Vec::new();
-    let mut rtx = Vec::new();
     let header_type = msg.get_session_message_type();
     let msg_id = msg.get_id();
 
-    match header_type {
-        ProtoSessionMessageType::Msg => {
-            (recv, rtx) = receiver.buffer.on_received_message(msg);
-        }
+    let (recv, rtx) = match header_type {
+        ProtoSessionMessageType::Msg => receiver.buffer.on_received_message(msg),
         ProtoSessionMessageType::RtxReply => {
-            if msg.get_error().is_some() && msg.get_error().unwrap() {
-                recv = receiver.buffer.on_lost_message(msg_id);
+            let (received, to_rxt) = if msg.get_error().is_some() && msg.get_error().unwrap() {
+                let r = receiver.buffer.on_lost_message(msg_id);
+                (r, Vec::new())
             } else {
-                (recv, rtx) = receiver.buffer.on_received_message(msg);
-            }
+                receiver.buffer.on_received_message(msg)
+            };
 
             // try to clean local state
             match receiver.timers_map.get_mut(&msg_id) {
@@ -700,6 +695,7 @@ async fn process_message_from_slim<T>(
                     receiver.rtx_map.remove(&msg_id);
                 }
             }
+            (received, to_rxt)
         }
         _ => {
             error!(
@@ -709,7 +705,7 @@ async fn process_message_from_slim<T>(
             );
             return;
         }
-    }
+    };
 
     // send packets to the app
     if !recv.is_empty() {

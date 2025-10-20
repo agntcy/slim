@@ -73,7 +73,7 @@ where
         let mut mls_guard = self.mls.lock();
 
         debug!("Encrypting message for group member");
-        let binding = mls_guard.encrypt_message(&payload);
+        let binding = mls_guard.encrypt_message(payload);
         let encrypted_payload = match &binding {
             Ok(res) => res,
             Err(e) => {
@@ -148,7 +148,6 @@ where
 mod tests {
     use super::*;
     use slim_auth::shared_secret::SharedSecret;
-    use slim_datapath::api::CommandPayload;
     use std::sync::Arc;
 
     #[tokio::test]

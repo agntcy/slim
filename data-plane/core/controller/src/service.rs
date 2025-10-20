@@ -583,7 +583,7 @@ fn new_channel_message(
         rand::random::<u32>(),
         metadata,
         invite_payload,
-        &auth_provider,
+        auth_provider,
     )
 }
 
@@ -781,7 +781,7 @@ impl ControllerService {
                             let msg = DataPlaneMessage::new_subscribe(
                                 &source,
                                 &name,
-                                &identity_token,
+                                identity_token,
                                 Some(SlimHeaderFlags::default().with_recv_from(conn)),
                             );
 
@@ -834,7 +834,7 @@ impl ControllerService {
                             let msg = DataPlaneMessage::new_unsubscribe(
                                 &source,
                                 &name,
-                                &identity_token,
+                                identity_token,
                                 Some(SlimHeaderFlags::default().with_recv_from(conn)),
                             );
 

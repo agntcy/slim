@@ -239,7 +239,7 @@ async fn main() {
                             let msg = message.unwrap();
                                     if msg.get_session_header().get_session_id() != session_id { continue; }
                                     if let Some(slim_datapath::api::ProtoPublishType(publish)) = msg.message_type.as_ref() {
-                                        let payload = &publish.get_payload().blob;
+                                        let payload = &publish.get_payload().as_application_payload().blob;
                                         if payload.len() < 18 { panic!("error parsing message"); }
                                         let pub_id = u64::from_be_bytes(payload[0..8].try_into().unwrap());
                                         let recv_id = u64::from_be_bytes(payload[9..17].try_into().unwrap());

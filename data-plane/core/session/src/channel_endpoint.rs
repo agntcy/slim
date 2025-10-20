@@ -303,10 +303,10 @@ where
             .as_command_payload()
             .as_group_proposal_payload();
 
-        let orginal_source = Name::from(payload.source.as_ref().ok_or_else(|| {
+        let original_source = Name::from(payload.source.as_ref().ok_or_else(|| {
             SessionError::Processing("missing source in proposal payload".to_string())
         })?);
-        if orginal_source == *local_name {
+        if original_source == *local_name {
             // drop the message as we are the original source
             debug!("Known proposal, drop the message");
             return Ok(());
@@ -314,7 +314,7 @@ where
 
         self.mls
             .lock()
-            .process_proposal(&payload.mls_propsal, false)
+            .process_proposal(&payload.mls_proposal, false)
             .map_err(|e| SessionError::CommitMessage(e.to_string()))?;
 
         Ok(())
@@ -483,15 +483,6 @@ where
 pub struct JoinMessagePayload {
     channel_name: Name,
     moderator_name: Name,
-}
-
-impl JoinMessagePayload {
-    fn new(channel_name: Name, moderator_name: Name) -> Self {
-        JoinMessagePayload {
-            channel_name,
-            moderator_name,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -1156,9 +1147,6 @@ where
     /// list of pending requests and related timers
     pending_requests: HashMap<u32, ChannelTimer>,
 
-    /// channel name as payload to add to the invite messages
-    invite_payload: Vec<u8>,
-
     /// mls state
     mls_state: Option<MlsModeratorState<P, V>>,
 
@@ -1197,10 +1185,6 @@ where
         tx_session: Option<tokio::sync::mpsc::Sender<Result<SessionLayerMessage, SessionError>>>,
         session_metadata: HashMap<String, String>,
     ) -> Self {
-        let p = JoinMessagePayload::new(channel_name.clone(), name.clone());
-        let invite_payload: Vec<u8> = bincode::encode_to_vec(p, bincode::config::standard())
-            .expect("unable to parse channel name as payload");
-
         let mls_state = mls.map(MlsModeratorState::new);
 
         let endpoint = Endpoint::new(
@@ -1220,7 +1204,6 @@ where
             tasks_todo: vec![].into(),
             current_task: None,
             pending_requests: HashMap::new(),
-            invite_payload,
             mls_state,
             group_list: HashMap::new(),
             tx_session,
@@ -1358,11 +1341,11 @@ where
                         .as_command_payload()
                         .as_group_proposal_payload();
 
-                    let orignal_source = Name::from(payload.source.as_ref().ok_or_else(|| {
+                    let original_source = Name::from(payload.source.as_ref().ok_or_else(|| {
                         SessionError::Processing("missing source in proposal payload".to_string())
                     })?);
 
-                    let commit = if orignal_source == self.endpoint.name {
+                    let commit = if original_source == self.endpoint.name {
                         // this proposal was originated by the moderator itself
                         // apply it and send the commit
                         self.mls_state
@@ -1375,7 +1358,7 @@ where
                         self.mls_state
                             .as_mut()
                             .unwrap()
-                            .process_proposal_message(&payload.mls_propsal)?
+                            .process_proposal_message(&payload.mls_proposal)?
                     };
 
                     // broadcast the commit
@@ -1697,7 +1680,7 @@ where
                 .mls_state
                 .as_mut()
                 .unwrap()
-                .process_proposal_message(&payload.mls_propsal)?;
+                .process_proposal_message(&payload.mls_proposal)?;
 
             let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
 
@@ -2061,14 +2044,14 @@ where
             // if busy postpone the task and add it to the todo list
             // at this point we cannot create a real proposal so create
             // a fake one with empty payload and push it to the todo list
-            let paylaod =
+            let payload =
                 Some(CommandPayload::new_group_proposal_payload(None, vec![]).as_content());
             let empty_msg = self.endpoint.create_channel_message(
                 &self.endpoint.channel_name,
                 true,
                 ProtoSessionMessageType::GroupProposal,
                 rand::random::<u32>(),
-                paylaod,
+                payload,
             );
 
             self.tasks_todo.push_back(empty_msg);

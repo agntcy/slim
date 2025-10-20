@@ -165,7 +165,7 @@ pub mod command_payload {
 }
 /// Discovery Request
 /// The destination is Optional. If present the message should be forwarded
-/// to the destionation in the payload.
+/// to the destination in the payload.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DiscoveryRequestPayload {
     #[prost(message, optional, tag = "1")]
@@ -211,7 +211,7 @@ pub struct JoinReplyPayload {
 }
 /// Leave Request
 /// The destination is Optional. If present the message should be forwarded
-/// to the destionation in the payload.
+/// to the destination in the payload.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct LeaveRequestPayload {
     #[prost(message, optional, tag = "1")]
@@ -225,7 +225,7 @@ pub struct LeaveReplyPayload {}
 /// in the participant list
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GroupUpdatePayload {
-    /// current list of partcipants
+    /// current list of participants
     #[prost(message, repeated, tag = "1")]
     pub participant: ::prost::alloc::vec::Vec<Name>,
     /// used only when MLS is enabled
@@ -259,7 +259,7 @@ pub struct GroupProposalPayload {
     pub source: ::core::option::Option<Name>,
     /// MLS proposal message
     #[prost(bytes = "vec", tag = "2")]
-    pub mls_propsal: ::prost::alloc::vec::Vec<u8>,
+    pub mls_proposal: ::prost::alloc::vec::Vec<u8>,
 }
 /// Group Ack
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]

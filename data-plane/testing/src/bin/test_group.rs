@@ -173,7 +173,7 @@ async fn run_participant_task(name: Name) -> Result<(), String> {
                                                 if let Some(slim_datapath::api::ProtoPublishType(publish)) = msg.message_type.as_ref() {
                                                     let publisher = msg.get_slim_header().get_source();
                                                     let msg_id = msg.get_id();
-                                                    let blob = &publish.get_payload().blob;
+                                                    let blob = &publish.get_payload().as_application_payload().blob;
                                                     if let Ok(val) = String::from_utf8(blob.to_vec()) {
                                                         if publisher == session_moderator_clone {
                                                             if val != *"hello there" { continue; }
@@ -330,7 +330,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if let Some(slim_datapath::api::ProtoPublishType(publish)) =
                             msg.message_type.as_ref()
                         {
-                            let p = &publish.get_payload().blob;
+                            let p = &publish.get_payload().as_application_payload().blob;
                             let _ = String::from_utf8(p.to_vec())
                                 .expect("error while parsing received message");
                             if p.len() >= 4 {

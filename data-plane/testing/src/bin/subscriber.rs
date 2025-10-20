@@ -177,7 +177,7 @@ fn spawn_session_receiver(
                         if let Some(slim_datapath::api::ProtoPublishType(publish)) =
                             msg.message_type.as_ref()
                         {
-                            let payload = &publish.get_payload().blob;
+                            let payload = &publish.get_payload().as_application_payload().blob;
                             let msg_len = payload.len();
                             if msg_len < 8 {
                                 panic!("error parsing message, unexpected payload format");

@@ -337,7 +337,6 @@ mod tests {
         api::{ApplicationPayload, ProtoMessage, ProtoSessionMessageType, ProtoSessionType},
         messages::{Name, utils::SLIM_IDENTITY},
     };
-    use tokio::task::LocalEnterGuard;
 
     #[allow(dead_code)]
     fn create_app() -> App<SharedSecret, SharedSecret> {

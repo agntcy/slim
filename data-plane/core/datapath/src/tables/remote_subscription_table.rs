@@ -16,7 +16,7 @@ pub struct SubscriptionInfo {
     /// subscription name
     name: Name,
 
-    /// identity of the orginal sender of the subscription
+    /// identity of the original sender of the subscription
     source_identity: String,
 }
 

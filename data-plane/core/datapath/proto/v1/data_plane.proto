@@ -132,7 +132,7 @@ message CommandPayload {
 
 // Discovery Request
 // The destination is Optional. If present the message should be forwarded
-// to the destionation in the payload.
+// to the destination in the payload.
 message DiscoveryRequestPayload {
   optional Name destination = 1;
 }
@@ -169,7 +169,7 @@ message JoinReplyPayload {
 
 // Leave Request
 // The destination is Optional. If present the message should be forwarded
-// to the destionation in the payload.
+// to the destination in the payload.
 message LeaveRequestPayload {
   optional Name destination = 1;
 }
@@ -181,7 +181,7 @@ message LeaveReplyPayload {}
 // sent every time there is a modification 
 // in the participant list
 message GroupUpdatePayload {
-  // current list of partcipants
+  // current list of participants
   repeated Name participant = 1;
   // used only when MLS is enabled
   optional bytes mls_commit = 2;
@@ -208,7 +208,7 @@ message GroupProposalPayload {
   // group participants
   Name source = 1;
   // MLS proposal message
-  bytes mls_propsal = 2;
+  bytes mls_proposal = 2;
 }
 
 // Group Ack

@@ -79,12 +79,12 @@ impl PyMessageContext {
             let payload_bytes = publish
                 .msg
                 .as_ref()
-                .map(|c| c.blob.clone())
+                .map(|c| c.as_application_payload().blob.clone())
                 .unwrap_or_default();
             let payload_type = publish
                 .msg
                 .as_ref()
-                .map(|c| c.content_type.clone())
+                .map(|c| c.as_application_payload().payload_type.clone())
                 .unwrap_or_else(|| "msg".to_string());
             let metadata = msg.get_metadata_map();
             let ctx = PyMessageContext::new(

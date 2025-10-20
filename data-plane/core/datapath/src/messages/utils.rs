@@ -824,7 +824,7 @@ impl Content {
     pub fn as_command_payload(&self) -> &CommandPayload {
         match &self.content_type {
             Some(ContentType::AppPayload(_)) => panic!("Content is not a command payload"),
-            Some(ContentType::CommandPayload(comm_paylaod)) => comm_paylaod,
+            Some(ContentType::CommandPayload(comm_payload)) => comm_payload,
             None => panic!("Content type is not set"),
         }
     }
@@ -868,12 +868,12 @@ impl CommandPayload {
         require_rtx: bool,
         enable_mls: bool,
         max_retries: Option<u32>,
-        timer_durantion: Option<Duration>,
+        timer_duration: Option<Duration>,
         channel: Option<Name>,
     ) -> Self {
         let proto_channel = channel.as_ref().map(ProtoName::from);
 
-        let timer_settings = if let Some(t) = timer_durantion
+        let timer_settings = if let Some(t) = timer_duration
             && let Some(m) = max_retries
         {
             Some(TimerSettings {
@@ -951,7 +951,7 @@ impl CommandPayload {
         let proto_source = source.as_ref().map(ProtoName::from);
         let payload = GroupProposalPayload {
             source: proto_source,
-            mls_propsal: mls_proposal,
+            mls_proposal,
         };
         Self {
             command_payload_type: Some(CommandPayloadType::GroupProposal(payload)),
