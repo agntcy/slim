@@ -35,7 +35,7 @@ use crate::{
     },
     traits::SessionComponentLifecycle,
 };
-use slim_mls::mls::{CommitMsg, KeyPackageMsg, Mls, MlsIdentity, ProposalMsg, WelcomeMsg};
+use slim_mls::mls::{CommitMsg, KeyPackageMsg, Mls, ProposalMsg, WelcomeMsg};
 
 const CHANNEL_CREATION: &str = "CHANNEL_CREATION";
 const CHANNEL_SUBSCRIPTION: &str = "CHANNEL_SUBSCRIPTION";
@@ -385,9 +385,9 @@ where
     /// mls state in common between moderator and
     common: MlsState<P, V>,
 
-    /// map of the participants (with real ids) with package keys
+    /// map of the participants (with real ids) with their MLS member indices
     /// used to remove participants from the channel
-    participants: HashMap<Name, MlsIdentity>,
+    participants: HashMap<Name, u32>,
 
     /// message id of the next msl message to send
     next_msg_id: u32,
@@ -427,7 +427,7 @@ where
             Ok(ret) => {
                 // add participant to the list
                 self.participants
-                    .insert(msg.get_source(), ret.member_identity);
+                    .insert(msg.get_source(), ret.member_index);
 
                 Ok((ret.commit_message, ret.welcome_message))
             }
@@ -454,7 +454,7 @@ where
             .common
             .mls
             .lock()
-            .remove_member(id)
+            .remove_member(*id)
             .map_err(|e| SessionError::RemoveParticipant(e.to_string()))?;
 
         // remove the participant from the list

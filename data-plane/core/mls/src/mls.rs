@@ -3,14 +3,13 @@
 
 use crate::errors::MlsError;
 use crate::identity_provider::SlimIdentityProvider;
-use mls_rs::IdentityProvider;
 use mls_rs::{
     CipherSuite, CipherSuiteProvider, Client, CryptoProvider, ExtensionList, Group, MlsMessage,
     crypto::{SignaturePublicKey, SignatureSecretKey},
     group::ReceivedMessage,
     identity::{
         SigningIdentity,
-        basic::{self, BasicCredential},
+        basic::BasicCredential,
     },
 };
 use mls_rs_crypto_awslc::AwsLcCryptoProvider;
@@ -28,11 +27,11 @@ pub type CommitMsg = Vec<u8>;
 pub type WelcomeMsg = Vec<u8>;
 pub type ProposalMsg = Vec<u8>;
 pub type KeyPackageMsg = Vec<u8>;
-pub type MlsIdentity = Vec<u8>;
+
 pub struct MlsAddMemberResult {
     pub welcome_message: WelcomeMsg,
     pub commit_message: CommitMsg,
-    pub member_identity: MlsIdentity,
+    pub member_index: u32,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -269,16 +268,11 @@ where
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
         let key_package = Self::map_mls_error(MlsMessage::from_bytes(key_package_bytes))?;
 
-        // create a set of the current identifiers in the group
+        // create a set of the current indices in the group
         // to detect the new one after the insertion
-        let old_roster = group.roster().members();
-        let mut ids = HashSet::new();
-        for m in old_roster {
-            let identifier = Self::map_mls_error(
-                basic::BasicIdentityProvider::new().identity(&m.signing_identity, &m.extensions),
-            )?;
-            ids.insert(identifier);
-        }
+        let indices: HashSet<u32> = group.roster().members_iter()
+            .map(|m| m.index)
+            .collect();
 
         let commit = Self::map_mls_error(
             group
@@ -300,36 +294,27 @@ where
         // apply the commit locally
         Self::map_mls_error(group.apply_pending_commit())?;
 
-        let new_roster = group.roster().members();
-        let mut new_id = vec![];
-        for m in new_roster {
-            let identifier = Self::map_mls_error(
-                basic::BasicIdentityProvider::new().identity(&m.signing_identity, &m.extensions),
-            )?;
-            if !ids.contains(&identifier) {
-                new_id = identifier;
-                break;
-            }
-        }
+        let new_index = group.roster().members_iter()
+            .find(|m| !indices.contains(&m.index))
+            .map(|m| m.index)
+            .ok_or(MlsError::NewMemberNotInRoster())?;
 
         let ret = MlsAddMemberResult {
             welcome_message: welcome,
             commit_message: commit_msg,
-            member_identity: new_id,
+            member_index: new_index,
         };
         Ok(ret)
     }
 
-    pub fn remove_member(&mut self, identity: &[u8]) -> Result<CommitMsg, MlsError> {
+    pub fn remove_member(&mut self, index: u32) -> Result<CommitMsg, MlsError> {
         debug!("Removing member from the  MLS group");
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
-
-        let m = Self::map_mls_error(group.member_with_identity(identity))?;
 
         let commit = Self::map_mls_error(
             group
                 .commit_builder()
-                .remove_member(m.index)
+                .remove_member(index)
                 .and_then(|builder| builder.build()),
         )?;
 
@@ -642,7 +627,7 @@ mod tests {
         assert_eq!(original_message, decrypted_2.as_slice());
 
         // remove bob
-        let remove_msg = alice.remove_member(&bob_add_res.member_identity)?;
+        let remove_msg = alice.remove_member(bob_add_res.member_index)?;
         charlie.process_commit(&remove_msg)?;
         bob.process_commit(&remove_msg)?;
         assert_eq!(alice.get_epoch().unwrap(), charlie.get_epoch().unwrap());
@@ -681,7 +666,7 @@ mod tests {
             charlie.get_group_id().unwrap()
         );
 
-        let commit = alice.remove_member(&charlie_add_res.member_identity)?;
+        let commit = alice.remove_member(charlie_add_res.member_index)?;
 
         daniel.process_commit(&commit)?;
         assert_eq!(alice.get_epoch().unwrap(), daniel.get_epoch().unwrap());

@@ -26,6 +26,8 @@ pub enum MlsError {
     TokenRetrievalFailed(String),
     #[error("Failed to sync file: {0}")]
     FileSyncFailed(String),
+    #[error("New member not found in roster")]
+    NewMemberNotInRoster(),
 }
 
 #[derive(Error, Debug)]
