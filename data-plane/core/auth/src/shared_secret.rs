@@ -70,7 +70,7 @@ const MIN_SECRET_LEN: usize = 32;
 /// Raw nonce byte length before base64url encoding.
 const NONCE_LEN: usize = 12;
 /// Default validity window (seconds).
-const DEFAULT_VALIDITY_WINDOW: u64 = 300;
+const DEFAULT_VALIDITY_WINDOW: u64 = 3600;
 /// Default tolerated forward clock skew (seconds).
 const DEFAULT_CLOCK_SKEW: u64 = 5;
 /// Default maximum replay cache entries (used if enabled without override).
