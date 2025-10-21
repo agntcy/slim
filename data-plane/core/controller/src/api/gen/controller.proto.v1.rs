@@ -60,11 +60,18 @@ pub struct Connection {
     #[prost(string, tag = "2")]
     pub config_data: ::prost::alloc::string::String,
 }
+<<<<<<< HEAD
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ConnectionError {
+=======
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ConnectionAck {
+>>>>>>> 3be54b0f (feat: report status on all conns & subs)
     #[prost(string, tag = "1")]
     pub connection_id: ::prost::alloc::string::String,
-    #[prost(string, tag = "2")]
+    #[prost(bool, tag = "2")]
+    pub success: bool,
+    #[prost(string, tag = "3")]
     pub error_msg: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -79,12 +86,21 @@ pub struct Subscription {
     pub id: ::core::option::Option<u64>,
     #[prost(string, tag = "5")]
     pub connection_id: ::prost::alloc::string::String,
+    #[prost(string, optional, tag = "6")]
+    pub node_id: ::core::option::Option<::prost::alloc::string::String>,
 }
+<<<<<<< HEAD
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SubscriptionError {
+=======
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SubscriptionAck {
+>>>>>>> 3be54b0f (feat: report status on all conns & subs)
     #[prost(message, optional, tag = "1")]
     pub subscription: ::core::option::Option<Subscription>,
-    #[prost(string, tag = "2")]
+    #[prost(bool, tag = "2")]
+    pub success: bool,
+    #[prost(string, tag = "3")]
     pub error_msg: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -101,11 +117,9 @@ pub struct ConfigurationCommandAck {
     #[prost(string, tag = "1")]
     pub original_message_id: ::prost::alloc::string::String,
     #[prost(message, repeated, tag = "2")]
-    pub connections_failed_to_create: ::prost::alloc::vec::Vec<ConnectionError>,
+    pub connections_status: ::prost::alloc::vec::Vec<ConnectionAck>,
     #[prost(message, repeated, tag = "3")]
-    pub subscriptions_failed_to_set: ::prost::alloc::vec::Vec<SubscriptionError>,
-    #[prost(message, repeated, tag = "4")]
-    pub subscriptions_failed_to_delete: ::prost::alloc::vec::Vec<SubscriptionError>,
+    pub subscriptions_status: ::prost::alloc::vec::Vec<SubscriptionAck>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Ack {

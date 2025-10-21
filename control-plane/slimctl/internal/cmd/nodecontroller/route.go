@@ -167,17 +167,20 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 			}
 
 			fmt.Printf("ACK received for %s", a.OriginalMessageId)
-			if len(a.ConnectionsFailedToCreate) > 0 {
-				for _, errMsg := range a.ConnectionsFailedToCreate {
-					fmt.Printf("failed to create connection %s: %s", errMsg.ConnectionId, errMsg.ErrorMsg)
+			for _, cs := range a.ConnectionsStatus {
+				if cs.Success {
+					fmt.Printf("connection successfully applied: %s", cs.ConnectionId)
+				} else {
+					fmt.Printf("failed to create connection %s: %s", cs.ConnectionId, cs.ErrorMsg)
 				}
 			}
-			if len(a.SubscriptionsFailedToSet) > 0 {
-				for _, errMsg := range a.SubscriptionsFailedToSet {
-					fmt.Printf("failed to create subscription %v: %s", errMsg.Subscription, errMsg.ErrorMsg)
+			for _, ss := range a.SubscriptionsStatus {
+				if ss.Success {
+					fmt.Printf("subscription successfully applied: %v", ss.Subscription)
+				} else {
+					fmt.Printf("failed to set subscription %v: %s", ss.Subscription, ss.ErrorMsg)
 				}
 			}
-
 			return nil
 		},
 	}
@@ -258,9 +261,11 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 			}
 			fmt.Printf("ACK received for %s", a.OriginalMessageId)
 
-			if len(a.SubscriptionsFailedToSet) > 0 {
-				for _, errMsg := range a.SubscriptionsFailedToDelete {
-					fmt.Printf("failed to delete subscription %v: %s", errMsg.Subscription, errMsg.ErrorMsg)
+			for _, ss := range a.SubscriptionsStatus {
+				if ss.Success {
+					fmt.Printf("subscription successfully deleted: %v", ss.Subscription)
+				} else {
+					fmt.Printf("failed to delete subscription %v: %s", ss.Subscription, ss.ErrorMsg)
 				}
 			}
 

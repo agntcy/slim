@@ -119,13 +119,13 @@ func (d *dbService) SaveNode(node Node) (string, bool, error) {
 	connDetailsChanged := false
 	if node.ID == "" {
 		node.ID = uuid.New().String()
-		connDetailsChanged = true // New node means connection details are new
+		connDetailsChanged = false
 	} else {
 		// Check if node exists and compare connection details
 		if existingNode, exists := d.nodes[node.ID]; exists {
 			connDetailsChanged = d.hasConnectionDetailsChanged(existingNode.ConnDetails, node.ConnDetails)
 		} else {
-			connDetailsChanged = true // Node ID provided but doesn't exist, treat as new
+			connDetailsChanged = false
 		}
 	}
 
@@ -279,8 +279,7 @@ func (d *dbService) MarkRouteAsApplied(routeID string) error {
 		return fmt.Errorf("route %s not found", routeID)
 	}
 	route.LastUpdated = time.Now()
-	route.Applied = true
-	route.FailedMsg = ""
+	route.Status = RouteStatusApplied
 	d.routes[routeID] = route
 	return nil
 }
@@ -294,8 +293,8 @@ func (d *dbService) MarkRouteAsFailed(routeID string, msg string) error {
 		return fmt.Errorf("route %s not found", routeID)
 	}
 	route.LastUpdated = time.Now()
-	route.Applied = false
-	route.FailedMsg = msg
+	route.Status = RouteStatusFailed
+	route.StatusMsg = msg
 	d.routes[routeID] = route
 	return nil
 }
@@ -356,4 +355,25 @@ func (d *dbService) GetRoutesForDestinationNodeIDAndName(nodeID string, componen
 		}
 	}
 	return routes
+}
+
+func (d *dbService) GetRouteForSrcAndDestinationAndName(srcNodeID string, component0 string, component1 string,
+	component2 string, componentID *wrapperspb.UInt64Value, destNodeID string, destEndpoint string) (Route, error) {
+
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	for _, route := range d.routes {
+		if route.SourceNodeID == srcNodeID &&
+			(route.DestNodeID == destNodeID ||
+				route.DestEndpoint == destEndpoint) &&
+			route.Component0 == component0 &&
+			route.Component1 == component1 &&
+			route.Component2 == component2 {
+			if (componentID == nil && route.ComponentID == nil) ||
+				(componentID != nil && route.ComponentID != nil && componentID.Value == route.ComponentID.Value) {
+				return route, nil
+			}
+		}
+	}
+	return Route{}, fmt.Errorf("route not found")
 }

@@ -32,8 +32,9 @@ type MockSlimServer struct {
 	MTLSRequired     bool
 
 	// behavior flags (for tests)
-	AckConnectionError   bool
-	AckSubscriptionError bool
+	AckConnectionError         bool
+	AckSubscriptionSetError    bool
+	AckSubscriptionDeleteError bool
 
 	// observed state
 	mu                sync.RWMutex
@@ -68,12 +69,12 @@ func (m *MockSlimServer) connect(ctx context.Context) error {
 	}
 
 	// First wait for server ACK on new stream
-	if ackMsg, err := m.stream.Recv(); err != nil {
+	ackMsg, err := m.stream.Recv()
+	if err != nil {
 		return fmt.Errorf("waiting initial ACK failed: %w", err)
-	} else {
-		if ack := ackMsg.GetAck(); ack == nil {
-			return fmt.Errorf("expected initial ACK, got %T", ackMsg.Payload)
-		}
+	}
+	if ack := ackMsg.GetAck(); ack == nil {
+		return fmt.Errorf("expected initial ACK, got %T", ackMsg.Payload)
 	}
 
 	uid, _ := uuid.NewUUID()
@@ -104,7 +105,7 @@ func (m *MockSlimServer) recvLoop() {
 	for {
 		msg, err := m.stream.Recv()
 		if err != nil {
-			fmt.Println(fmt.Sprintf("recvLoop err: %v", err))
+			fmt.Printf("recvLoop err: %v", err)
 			return
 		}
 		switch p := msg.Payload.(type) {
@@ -129,12 +130,16 @@ func (m *MockSlimServer) handleConfigCommand(origMsgID string, cfg *controllerap
 		if m.recvSubscriptions == nil {
 			m.recvSubscriptions = make(map[string]*controllerapi.Subscription)
 		}
-		key := fmt.Sprintf("%s/%s/%s/%d", c.Component_0, c.Component_1, c.Component_2, c.GetId().GetValue())
+		key := fmt.Sprintf("%s/%s/%s/%d-->%s", c.Component_0, c.Component_1, c.Component_2, c.GetId().GetValue(),
+			c.ConnectionId)
+		fmt.Printf("---------- add key: %s\n", key)
 		m.recvSubscriptions[key] = c
 	}
 	for _, c := range cfg.SubscriptionsToDelete {
 		if m.recvSubscriptions != nil {
-			key := fmt.Sprintf("%s/%s/%s/%d", c.Component_0, c.Component_1, c.Component_2, c.GetId().GetValue())
+			key := fmt.Sprintf("%s/%s/%s/%d-->%s", c.Component_0, c.Component_1, c.Component_2, c.GetId().GetValue(),
+				c.ConnectionId)
+			fmt.Printf("---------- remove key: %s\n", key)
 			delete(m.recvSubscriptions, key)
 		}
 	}
@@ -145,22 +150,37 @@ func (m *MockSlimServer) handleConfigCommand(origMsgID string, cfg *controllerap
 		Payload: &controllerapi.ControlMessage_ConfigCommandAck{
 			ConfigCommandAck: &controllerapi.ConfigurationCommandAck{OriginalMessageId: origMsgID}}}
 	// inject errors if requested
-	if m.AckConnectionError {
-		for _, c := range cfg.ConnectionsToCreate {
-			ack.GetConfigCommandAck().ConnectionsFailedToCreate = append(ack.GetConfigCommandAck().ConnectionsFailedToCreate, &controllerapi.ConnectionError{
-				ConnectionId: c.ConnectionId,
-				ErrorMsg:     "conn error",
-			})
+	for _, c := range cfg.ConnectionsToCreate {
+		cack := &controllerapi.ConnectionAck{ConnectionId: c.ConnectionId, Success: true}
+		if m.AckConnectionError {
+			cack.Success = false
+			cack.ErrorMsg = "conn error"
 		}
+		ack.GetConfigCommandAck().ConnectionsStatus = append(ack.GetConfigCommandAck().ConnectionsStatus, cack)
 	}
-	if m.AckSubscriptionError {
-		for _, s := range cfg.SubscriptionsToSet {
-			ack.GetConfigCommandAck().SubscriptionsFailedToSet = append(ack.GetConfigCommandAck().SubscriptionsFailedToSet, &controllerapi.SubscriptionError{
-				Subscription: s,
-				ErrorMsg:     "sub error",
-			})
+	for _, s := range cfg.SubscriptionsToSet {
+		sack := &controllerapi.SubscriptionAck{
+			Subscription: s,
+			Success:      true,
 		}
+		if m.AckSubscriptionSetError {
+			sack.Success = false
+			sack.ErrorMsg = "sub error"
+		}
+		ack.GetConfigCommandAck().SubscriptionsStatus = append(ack.GetConfigCommandAck().SubscriptionsStatus, sack)
 	}
+	for _, s := range cfg.SubscriptionsToDelete {
+		sack := &controllerapi.SubscriptionAck{
+			Subscription: s,
+			Success:      true,
+		}
+		if m.AckSubscriptionDeleteError {
+			sack.Success = false
+			sack.ErrorMsg = "sub error"
+		}
+		ack.GetConfigCommandAck().SubscriptionsStatus = append(ack.GetConfigCommandAck().SubscriptionsStatus, sack)
+	}
+
 	err := m.stream.Send(ack)
 	if err != nil {
 		fmt.Printf("handleConfigCommand: send ACK error: %v\n", err)
@@ -168,14 +188,15 @@ func (m *MockSlimServer) handleConfigCommand(origMsgID string, cfg *controllerap
 }
 
 // updateSubscription sends a single subscription config command (add or delete when delete=true).
-func (m *MockSlimServer) updateSubscription(ctx context.Context, comp0, comp1, comp2 string, id int, delete bool) error {
+func (m *MockSlimServer) updateSubscription(_ context.Context, comp0, comp1,
+	comp2 string, id uint64, deleteSub bool) error {
 	payload := &controllerapi.ConfigurationCommand{}
-	if delete {
+	if deleteSub {
 		payload.SubscriptionsToDelete = []*controllerapi.Subscription{{
 			Component_0:  comp0,
 			Component_1:  comp1,
 			Component_2:  comp2,
-			Id:           wrapperspb.UInt64(uint64(id)),
+			Id:           wrapperspb.UInt64(id),
 			ConnectionId: "n/a",
 		}}
 	} else {
@@ -183,7 +204,7 @@ func (m *MockSlimServer) updateSubscription(ctx context.Context, comp0, comp1, c
 			Component_0:  comp0,
 			Component_1:  comp1,
 			Component_2:  comp2,
-			Id:           wrapperspb.UInt64(uint64(id)),
+			Id:           wrapperspb.UInt64(id),
 			ConnectionId: "n/a",
 		}}
 	}
@@ -202,7 +223,8 @@ func (m *MockSlimServer) Close() error {
 	return nil
 }
 
-func (m *MockSlimServer) GetReceived() (conns map[string]*controllerapi.Connection, subs map[string]*controllerapi.Subscription) {
+func (m *MockSlimServer) GetReceived() (conns map[string]*controllerapi.Connection,
+	subs map[string]*controllerapi.Subscription) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.recvConnections, m.recvSubscriptions

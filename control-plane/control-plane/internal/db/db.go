@@ -21,9 +21,12 @@ type DataAccess interface {
 	GetRoutesForDestinationNodeID(nodeID string) []Route
 	GetRoutesForDestinationNodeIDAndName(nodeID string, Component0 string, Component1 string,
 		Component2 string, ComponentID *wrapperspb.UInt64Value) []Route
+	GetRouteForSrcAndDestinationAndName(srcNodeID string, Component0 string, Component1 string,
+		Component2 string, ComponentID *wrapperspb.UInt64Value, destNodeID string, destEndpoint string) (Route, error)
 	GetRouteByID(routeID string) *Route
 	DeleteRoute(routeID string) error
 	MarkRouteAsDeleted(routeID string) error
+
 	MarkRouteAsApplied(routeID string) error
 	MarkRouteAsFailed(routeID string, msg string) error
 
@@ -62,6 +65,14 @@ func (cd ConnectionDetails) String() string {
 	return strings.Join(parts, ", ")
 }
 
+// RouteStatus represents the status of a route.
+type RouteStatus int
+
+const (
+	RouteStatusApplied RouteStatus = iota
+	RouteStatusFailed
+)
+
 type Route struct {
 	// ID of the node which the route is applied to.
 	// If SourceNodeID is AllNodesID, the route applies to all nodes
@@ -75,22 +86,15 @@ type Route struct {
 	Component1     string
 	Component2     string
 	ComponentID    *wrapperspb.UInt64Value
-
-	Applied     bool
-	FailedMsg   string
-	Deleted     bool
-	LastUpdated time.Time
+	Status         RouteStatus
+	StatusMsg      string
+	Deleted        bool
+	LastUpdated    time.Time
 }
 
 func (r Route) GetID() string {
-	destID := r.DestNodeID
-
-	if destID == "" {
-		destID = r.DestEndpoint
-	}
-
-	return fmt.Sprintf("%s:%s/%s/%s/%v->%s", r.SourceNodeID,
-		r.Component0, r.Component1, r.Component2, r.ComponentID, destID)
+	return fmt.Sprintf("%s:%s/%s/%s/%v->%s[%s]", r.SourceNodeID,
+		r.Component0, r.Component1, r.Component2, r.ComponentID, r.DestNodeID, r.DestEndpoint)
 }
 
 type Channel struct {

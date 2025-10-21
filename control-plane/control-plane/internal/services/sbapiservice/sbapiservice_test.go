@@ -7,17 +7,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
-	"github.com/agntcy/slim/control-plane/control-plane/internal/util"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
+	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/groupservice"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/routes"
+	"github.com/agntcy/slim/control-plane/control-plane/internal/util"
 )
 
 // startSouthbound spins up a grpc server with Southbound API and returns listen target.
@@ -89,7 +89,7 @@ func TestSouthbound_RegistrationAndRouteHandling(t *testing.T) {
 		t.Fatalf("failed to send subcription update: %v", err)
 	}
 
-	// routes created in DB: from other nodes to slim-0
+	// check that routes created in DB: from other nodes to slim-0
 	waitCond(t, 3*time.Second, func() bool {
 		for _, r := range db.GetRoutesForDestinationNodeID("slim-0") {
 			if r.DestNodeID == "slim-0" && r.Component0 == "org" && r.Component2 == "client" {
@@ -100,7 +100,7 @@ func TestSouthbound_RegistrationAndRouteHandling(t *testing.T) {
 		return false
 	}, "wait for route for slim-0 to be created")
 
-	// other instances should receive conns+subs for slim-0
+	// other instances should receive connections+subscriptions for slim-0
 	waitCond(t, 3*time.Second, func() bool {
 		_, subs1 := slim1.GetReceived()
 		_, subs2 := slim2.GetReceived()
@@ -143,7 +143,7 @@ func TestSouthbound_RegistrationAndRouteHandling(t *testing.T) {
 			}
 		}
 		return foundOnSlim0 && foundOnSlim1
-	}, "wait for subs to be received by slim-1 and slim-2")
+	}, "wait for changed subs to be received by slim-1 and slim-2")
 
 	// send delete for subscription
 	if err := slim0.updateSubscription(ctx, "org", "test", "client",
@@ -179,7 +179,7 @@ func TestSouthbound_RouteWithConnectionError(t *testing.T) {
 	slim0, _ := NewMockSlimServer("slim-0", 4500, target)
 	slim1, _ := NewMockSlimServer("slim-1", 4501, target)
 	slim1.AckConnectionError = true
-	slim1.AckSubscriptionError = true
+	slim1.AckSubscriptionSetError = true
 
 	if err := slim0.Start(ctx); err != nil {
 		t.Fatalf("slim0 start: %v", err)
@@ -201,7 +201,7 @@ func TestSouthbound_RouteWithConnectionError(t *testing.T) {
 	// wait reconciler to mark routes for slim-1 as failed
 	waitCond(t, 2*time.Second, func() bool {
 		for _, r := range db.GetRoutesForNodeID("slim-1") {
-			if r.SourceNodeID == "slim-1" && r.DestNodeID == "slim-0" && r.FailedMsg != "" {
+			if r.SourceNodeID == "slim-1" && r.DestNodeID == "slim-0" && r.StatusMsg != "" {
 				return true
 			}
 		}

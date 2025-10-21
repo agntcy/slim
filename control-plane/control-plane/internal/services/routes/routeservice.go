@@ -45,17 +45,6 @@ type Route struct {
 	ComponentID    *wrapperspb.UInt64Value
 }
 
-func (r Route) GetID() string {
-	destID := r.DestNodeID
-
-	if destID == "" {
-		destID = r.DestEndpoint
-	}
-
-	return fmt.Sprintf("%s:%s/%s/%s/%v->%s", r.SourceNodeID,
-		r.Component0, r.Component1, r.Component2, r.ComponentID, destID)
-}
-
 func NewRouteService(dbService db.DataAccess, cmdHandler nodecontrol.NodeCommandHandler,
 	reconcilerConfig config.ReconcilerConfig) *RouteService {
 	rateLimiter := workqueue.NewTypedItemExponentialFailureRateLimiter[RouteReconcileRequest](
@@ -124,7 +113,7 @@ func (s *RouteService) AddRoute(ctx context.Context, route Route) (string, error
 	}
 	routeID, err := s.addSingleRoute(ctx, dbRoute)
 	if err != nil {
-		return "", fmt.Errorf("error adding route: %v", err)
+		return "", fmt.Errorf("error adding route: %w", err)
 	}
 
 	// create routes for all existing nodes if the route is for all nodes
@@ -148,7 +137,7 @@ func (s *RouteService) AddRoute(ctx context.Context, route Route) (string, error
 			}
 			_, err2 := s.addSingleRoute(ctx, newRoute)
 			if err2 != nil {
-				return "", fmt.Errorf("error adding route: %v", err2)
+				return "", fmt.Errorf("error adding route: %w", err2)
 			}
 		}
 	}
@@ -187,9 +176,13 @@ func (s *RouteService) DeleteRoute(ctx context.Context, route Route) error {
 
 	// delete routes for all existing nodes if the route is for all nodes
 	if route.SourceNodeID == AllNodesID {
-
-		routeID := route.GetID()
-		err := s.dbService.DeleteRoute(routeID)
+		dbRoute, err := s.dbService.GetRouteForSrcAndDestinationAndName(route.SourceNodeID, route.Component0,
+			route.Component1, route.Component2, route.ComponentID, route.DestNodeID, route.DestEndpoint)
+		if err != nil {
+			return fmt.Errorf("failed to fetch route for delete (%w)", err)
+		}
+		routeID := dbRoute.GetID()
+		err = s.dbService.DeleteRoute(routeID)
 		if err != nil {
 			return fmt.Errorf("failed to delete route for %s (%w)", routeID, err)
 		}
@@ -206,15 +199,10 @@ func (s *RouteService) DeleteRoute(ctx context.Context, route Route) error {
 		return nil
 	}
 
-	dbRoute := db.Route{
-		SourceNodeID:   route.SourceNodeID,
-		DestNodeID:     route.DestNodeID,
-		DestEndpoint:   route.DestEndpoint,
-		Component0:     route.Component0,
-		Component1:     route.Component1,
-		Component2:     route.Component2,
-		ComponentID:    route.ComponentID,
-		ConnConfigData: route.ConnConfigData,
+	dbRoute, err := s.dbService.GetRouteForSrcAndDestinationAndName(route.SourceNodeID, route.Component0,
+		route.Component1, route.Component2, route.ComponentID, route.DestNodeID, route.DestEndpoint)
+	if err != nil {
+		return fmt.Errorf("failed to fetch route for delete (%w)", err)
 	}
 	routeID := dbRoute.GetID()
 	if err := s.deleteSingleRoute(ctx, route.SourceNodeID, routeID); err != nil {
@@ -262,6 +250,13 @@ func (s *RouteService) NodeRegistered(ctx context.Context, nodeID string, connDe
 			ConnConfigData: r.ConnConfigData,
 			Deleted:        false,
 		}
+
+		endpoint, configData, err := s.getConnectionDetails(newRoute)
+		if err != nil {
+			zlog.Error().Err(err).Msgf("Failed to get connection details for route: %s", newRoute.GetID())
+		}
+		newRoute.DestEndpoint = endpoint
+		newRoute.ConnConfigData = configData
 		routeID := s.dbService.AddRoute(newRoute)
 		zlog.Debug().Msgf("generic route created: %s", routeID)
 	}
@@ -282,6 +277,7 @@ func (s *RouteService) NodeRegistered(ctx context.Context, nodeID string, connDe
 				continue
 			}
 			if r.DestEndpoint != endpoint || r.ConnConfigData != configData {
+				zerolog.Ctx(ctx).Info().Msgf("Mark route for delete: %s", r.GetID())
 				err := s.dbService.MarkRouteAsDeleted(r.GetID())
 				if err != nil {
 					zlog.Error().Msgf("failed to mark route %s as deleted: %v", r.GetID(), err)
@@ -299,7 +295,7 @@ func (s *RouteService) NodeRegistered(ctx context.Context, nodeID string, connDe
 					Deleted:        false,
 				}
 				routeID := s.dbService.AddRoute(newRoute)
-				zerolog.Ctx(ctx).Info().Msgf("Route changed: %s", routeID)
+				zerolog.Ctx(ctx).Info().Msgf("New route added: %s", routeID)
 
 				s.queue.Add(RouteReconcileRequest{NodeID: r.SourceNodeID})
 			}

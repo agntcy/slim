@@ -45,9 +45,10 @@ message Connection {
   string config_data = 2;
 }
 
-message ConnectionError {
+message ConnectionAck {
   string connection_id = 1;
-  string errorMsg = 2;
+  bool success = 2;
+  string errorMsg = 3;
 }
 
 message Subscription {
@@ -56,11 +57,13 @@ message Subscription {
   string component_2 = 3;
   google.protobuf.UInt64Value id = 4;
   string connection_id = 5;
+  optional string node_id = 6;
 }
 
-message SubscriptionError {
+message SubscriptionAck {
   Subscription subscription = 1;
-  string errorMsg = 2;
+  bool success = 2;
+  string errorMsg = 3;
 }
 
 message ConfigurationCommand {
@@ -71,9 +74,8 @@ message ConfigurationCommand {
 
 message ConfigurationCommandAck {
   string original_message_id = 1;
-  repeated ConnectionError connections_failed_to_create = 2;
-  repeated SubscriptionError subscriptions_failed_to_set = 3;
-  repeated SubscriptionError subscriptions_failed_to_delete = 4;
+  repeated ConnectionAck connections_status = 2;
+  repeated SubscriptionAck subscriptions_status = 3;
 }
 
 message Ack {

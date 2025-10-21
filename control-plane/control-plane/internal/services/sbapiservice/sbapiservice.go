@@ -289,10 +289,7 @@ func (s *sbAPIService) handleNodeMessages(ctx context.Context,
 			s.nodeCommandHandler.ResponseReceived(ctx, registeredNodeID, msg)
 			continue
 		case *controllerapi.ControlMessage_ConfigCommandAck:
-			zlog.Debug().Msgf("Received ConfigCommandACK for message ID: %s, "+
-				"connections_failed_to_create: %v, subs_failed_to_create: %v, subs_failed_to_delete: %v", msg.MessageId,
-				len(payload.ConfigCommandAck.ConnectionsFailedToCreate), len(payload.ConfigCommandAck.SubscriptionsFailedToSet),
-				len(payload.ConfigCommandAck.SubscriptionsFailedToDelete))
+			zlog.Debug().Msgf("Received ConfigCommandACK for message ID: %s.", msg.MessageId)
 			s.nodeCommandHandler.ResponseReceived(ctx, registeredNodeID, msg)
 			continue
 		case *controllerapi.ControlMessage_ConnectionListResponse:
