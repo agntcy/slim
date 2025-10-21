@@ -547,10 +547,8 @@ impl Verifier for OidcVerifier {
             let _: serde_json::Value = self.verify_token_util(&token, &cached_jwks)?;
             Ok(())
         } else {
-            Err(AuthError::VerificationError(
-                "No cached JWKS available for verification. Use verify() method instead."
-                    .to_string(),
-            ))
+            // Indicate that a blocking (network) operation would be required
+            Err(AuthError::WouldBlockOn)
         }
     }
 
