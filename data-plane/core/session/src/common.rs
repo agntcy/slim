@@ -46,7 +46,6 @@ pub enum MessageDirection {
 pub fn new_message_from_session_fields(
     local_name: &Name,
     target_name: &Name,
-    identity: &str,
     target_conn: u64,
     is_error: bool,
     session_type: ProtoSessionType,
@@ -64,7 +63,7 @@ pub fn new_message_from_session_fields(
         Some(SlimHeaderFlags::default().with_forward_to(target_conn))
     };
 
-    let slim_header = Some(SlimHeader::new(local_name, target_name, identity, flags));
+    let slim_header = Some(SlimHeader::new(local_name, target_name, "", flags));
 
     let session_header = Some(SessionHeader::new(
         session_type.into(),

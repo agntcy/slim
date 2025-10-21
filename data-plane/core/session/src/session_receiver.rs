@@ -76,9 +76,6 @@ where
     /// local name to use as source for the rtx messages
     local_name: Name,
 
-    /// local identity
-    identity: String,
-
     /// session type
     session_type: ProtoSessionType,
 
@@ -104,7 +101,6 @@ where
         timer_settings: Option<TimerSettings>,
         session_id: u32,
         local_name: Name,
-        identity: &str,
         session_type: ProtoSessionType,
         send_acks: bool,
         tx: T,
@@ -125,7 +121,6 @@ where
             session_id,
             session_type,
             local_name,
-            identity: identity.to_owned(),
             send_acks,
             tx,
             draining_state: ReceiverDrainStatus::NotDraining,
@@ -200,7 +195,6 @@ where
         let ack = new_message_from_session_fields(
             &self.local_name,
             &message.get_source(),
-            &self.identity,
             message.get_incoming_conn(),
             false,
             self.session_type,
@@ -278,7 +272,6 @@ where
             let rtx = new_message_from_session_fields(
                 &self.local_name,
                 &source,
-                &self.identity,
                 in_conn,
                 false,
                 self.session_type,
@@ -397,7 +390,6 @@ mod tests {
             Some(settings),
             10,
             local_name.clone(),
-            "local",
             ProtoSessionType::PointToPoint,
             true,
             tx,
@@ -408,7 +400,7 @@ mod tests {
         let mut message1 = Message::new_publish(
             &remote_name,
             &local_name,
-            "remote",
+            None,
             None,
             Some(ApplicationPayload::new("test_payload_1", vec![1, 2, 3, 4]).as_content()),
         );
@@ -453,7 +445,7 @@ mod tests {
         let mut message2 = Message::new_publish(
             &remote_name,
             &local_name,
-            "remote",
+            None,
             None,
             Some(ApplicationPayload::new("test_payload_2", vec![5, 6, 7, 8]).as_content()),
         );
@@ -513,7 +505,6 @@ mod tests {
             Some(settings),
             10,
             local_name.clone(),
-            "local",
             ProtoSessionType::PointToPoint,
             true,
             tx,
@@ -524,7 +515,7 @@ mod tests {
         let mut message1 = Message::new_publish(
             &remote_name,
             &local_name,
-            "remote",
+            None,
             None,
             Some(ApplicationPayload::new("test_payload_2", vec![5, 6, 7, 8]).as_content()),
         );
@@ -567,7 +558,7 @@ mod tests {
         let mut message3 = Message::new_publish(
             &remote_name,
             &local_name,
-            "remote",
+            None,
             None,
             Some(ApplicationPayload::new("test_payload_3", vec![9, 10, 11, 12]).as_content()),
         );
@@ -741,7 +732,6 @@ mod tests {
             Some(settings),
             10,
             local_name.clone(),
-            "local",
             ProtoSessionType::PointToPoint,
             true,
             tx,
@@ -752,7 +742,7 @@ mod tests {
         let mut message1 = Message::new_publish(
             &remote_name,
             &local_name,
-            "remote",
+            None,
             None,
             Some(ApplicationPayload::new("test_payload_1", vec![1, 2, 3, 4]).as_content()),
         );
@@ -795,7 +785,7 @@ mod tests {
         let mut message3 = Message::new_publish(
             &remote_name,
             &local_name,
-            "remote",
+            None,
             None,
             Some(ApplicationPayload::new("test_payload_3", vec![9, 10, 11, 12]).as_content()),
         );
@@ -843,7 +833,7 @@ mod tests {
         let mut rtx_reply = Message::new_publish(
             &remote_name,
             &local_name,
-            "remote",
+            None,
             None,
             Some(ApplicationPayload::new("test_payload_2", vec![5, 6, 7, 8]).as_content()),
         );
@@ -904,7 +894,6 @@ mod tests {
             Some(settings),
             10,
             local_name.clone(),
-            "local",
             ProtoSessionType::PointToPoint,
             true,
             tx,
@@ -915,7 +904,7 @@ mod tests {
         let mut message1 = Message::new_publish(
             &remote_name,
             &local_name,
-            "remote",
+            None,
             None,
             Some(ApplicationPayload::new("test_payload_1", vec![1, 2, 3, 4]).as_content()),
         );
@@ -958,7 +947,7 @@ mod tests {
         let mut message3 = Message::new_publish(
             &remote_name,
             &local_name,
-            "remote",
+            None,
             None,
             Some(ApplicationPayload::new("test_payload_3", vec![9, 10, 11, 12]).as_content()),
         );
@@ -1006,7 +995,7 @@ mod tests {
         let mut rtx_reply = Message::new_publish(
             &remote_name,
             &local_name,
-            "remote",
+            None,
             None,
             Some(ApplicationPayload::new("", vec![]).as_content()),
         );
@@ -1078,7 +1067,6 @@ mod tests {
             Some(settings),
             10,
             local_name.clone(),
-            "local",
             ProtoSessionType::PointToPoint,
             true,
             tx,
@@ -1089,7 +1077,7 @@ mod tests {
         let mut message1_r1 = Message::new_publish(
             &remote1_name,
             &group_name,
-            "remote1",
+            None,
             None,
             Some(ApplicationPayload::new("payload_1_r1", vec![1, 2, 3, 4]).as_content()),
         );
@@ -1107,7 +1095,7 @@ mod tests {
         let mut message1_r2 = Message::new_publish(
             &remote2_name,
             &group_name,
-            "remote2",
+            None,
             None,
             Some(ApplicationPayload::new("payload_1_r2", vec![5, 6, 7, 8]).as_content()),
         );
@@ -1125,7 +1113,7 @@ mod tests {
         let mut message2_r1 = Message::new_publish(
             &remote1_name,
             &group_name,
-            "remote1",
+            None,
             None,
             Some(ApplicationPayload::new("payload_2_r1", vec![9, 10, 11, 12]).as_content()),
         );
@@ -1143,7 +1131,7 @@ mod tests {
         let mut message2_r2 = Message::new_publish(
             &remote2_name,
             &group_name,
-            "remote2",
+            None,
             None,
             Some(ApplicationPayload::new("payload_2_r2", vec![13, 14, 15, 16]).as_content()),
         );
@@ -1219,7 +1207,6 @@ mod tests {
             Some(settings),
             10,
             local_name.clone(),
-            "local",
             ProtoSessionType::PointToPoint,
             true,
             tx,
@@ -1230,7 +1217,7 @@ mod tests {
         let mut message1_r1 = Message::new_publish(
             &remote1_name,
             &group_name,
-            "remote1",
+            None,
             None,
             Some(ApplicationPayload::new("payload_1_r1", vec![1, 2, 3, 4]).as_content()),
         );
@@ -1247,7 +1234,7 @@ mod tests {
         let mut message2_r1 = Message::new_publish(
             &remote1_name,
             &group_name,
-            "remote1",
+            None,
             None,
             Some(ApplicationPayload::new("payload_2_r1", vec![5, 6, 7, 8]).as_content()),
         );
@@ -1264,7 +1251,7 @@ mod tests {
         let mut message3_r1 = Message::new_publish(
             &remote1_name,
             &group_name,
-            "remote1",
+            None,
             None,
             Some(ApplicationPayload::new("payload_3_r1", vec![9, 10, 11, 12]).as_content()),
         );
@@ -1282,7 +1269,7 @@ mod tests {
         let mut message1_r2 = Message::new_publish(
             &remote2_name,
             &group_name,
-            "remote2",
+            None,
             None,
             Some(ApplicationPayload::new("payload_1_r2", vec![13, 14, 15, 16]).as_content()),
         );
@@ -1299,7 +1286,7 @@ mod tests {
         let mut message3_r2 = Message::new_publish(
             &remote2_name,
             &group_name,
-            "remote2",
+            None,
             None,
             Some(ApplicationPayload::new("payload_3_r2", vec![17, 18, 19, 20]).as_content()),
         );
@@ -1376,7 +1363,7 @@ mod tests {
         let mut rtx_reply = Message::new_publish(
             &remote2_name,
             &local_name,
-            "remote2",
+            None,
             None,
             Some(ApplicationPayload::new("payload_2_r2", vec![21, 22, 23, 24]).as_content()),
         );

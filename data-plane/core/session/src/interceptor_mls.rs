@@ -171,7 +171,7 @@ mod tests {
         let mut msg = Message::new_publish(
             &slim_datapath::messages::Name::from_strings(["org", "default", "test"]).with_id(0),
             &slim_datapath::messages::Name::from_strings(["org", "default", "target"]),
-            "test",
+            None,
             None,
             payload,
         );
@@ -222,7 +222,7 @@ mod tests {
         let mut alice_msg = Message::new_publish(
             &slim_datapath::messages::Name::from_strings(["org", "default", "alice"]).with_id(0),
             &slim_datapath::messages::Name::from_strings(["org", "default", "bob"]),
-            "test",
+            None,
             None,
             payload,
         );
@@ -282,7 +282,7 @@ mod tests {
         let mut msg = Message::new_publish(
             &slim_datapath::messages::Name::from_strings(["org", "default", "sender"]).with_id(0),
             &slim_datapath::messages::Name::from_strings(["org", "default", "receiver"]),
-            "text",
+            None,
             None,
             payload,
         );

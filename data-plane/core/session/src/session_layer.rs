@@ -334,16 +334,8 @@ where
         match session_message_type {
             ProtoSessionMessageType::DiscoveryRequest => {
                 // reply directly without creating any new Session
-                let token = self.identity_provider.get_token().map_err(|_| {
-                    SessionError::SlimReception("unable to get local identity".to_string())
-                })?;
-                let msg = handle_channel_discovery_message(
-                    message,
-                    local_name,
-                    &token,
-                    session_id,
-                    session_type,
-                );
+                let msg =
+                    handle_channel_discovery_message(message, local_name, session_id, session_type);
 
                 self.transmitter
                     .send_to_slim(Ok(msg))
@@ -510,7 +502,7 @@ where
                     self.create_session(SessionConfig::PointToPoint(conf), local_name, Some(id))
                         .await?
                 } else {
-                    debug!("received a multicast message for an unknow sesison, drop message");
+                    debug!("received a multicast message for an unknown session, drop message");
                     return Ok(());
                 }
             }

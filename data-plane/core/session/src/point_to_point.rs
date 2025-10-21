@@ -458,13 +458,7 @@ where
         let payload = Some(CommandPayload::new_discovery_request_payload(None).as_content());
 
         // Create a probe message
-        let mut probe_message = Message::new_publish(
-            &self.state.source,
-            name,
-            &self.state.identity,
-            None,
-            payload,
-        );
+        let mut probe_message = Message::new_publish(&self.state.source, name, None, None, payload);
 
         let session_header = probe_message.get_session_header_mut();
         session_header.set_session_type(ProtoSessionType::PointToPoint);
@@ -1124,7 +1118,6 @@ where
                         .peer_name
                         .clone()
                         .unwrap_or(common.source().clone()),
-                    &identity,
                     id,
                     ProtoSessionType::PointToPoint,
                     60,
@@ -1145,7 +1138,6 @@ where
                         .peer_name
                         .clone()
                         .unwrap_or(common.source().clone()),
-                    &identity,
                     id,
                     ProtoSessionType::PointToPoint,
                     60,
@@ -1385,7 +1377,6 @@ mod tests {
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
         let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
-        let identity = "source";
 
         let session = PointToPoint::new(
             0,
@@ -1402,7 +1393,7 @@ mod tests {
         let mut message = ProtoMessage::new_publish(
             &source,
             &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
-            identity,
+            None,
             None,
             payload,
         );
@@ -1434,7 +1425,6 @@ mod tests {
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
         let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
-        let identity = "source";
 
         let session = PointToPoint::new(
             0,
@@ -1451,7 +1441,7 @@ mod tests {
         let mut message = ProtoMessage::new_publish(
             &source,
             &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
-            identity,
+            None,
             Some(SlimHeaderFlags::default().with_incoming_conn(0)),
             payload,
         );
@@ -1520,7 +1510,7 @@ mod tests {
         let mut message = ProtoMessage::new_publish(
             &source,
             &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
-            "source",
+            None,
             None,
             Some(ApplicationPayload::new("msg", vec![0x1, 0x2, 0x3, 0x4]).as_content()),
         );
@@ -1599,7 +1589,7 @@ mod tests {
         let mut message = ProtoMessage::new_publish(
             &local,
             &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
-            "local",
+            None,
             Some(SlimHeaderFlags::default().with_incoming_conn(0)),
             Some(ApplicationPayload::new("msg", vec![0x1, 0x2, 0x3, 0x4]).as_content()),
         );
@@ -1720,7 +1710,6 @@ mod tests {
 
         let local = Name::from_strings(["cisco", "default", "local"]).with_id(0);
         let remote = Name::from_strings(["cisco", "default", "remote"]).with_id(0);
-        let identity = "local";
 
         let sender_session = PointToPoint::new(
             0,
@@ -1760,7 +1749,7 @@ mod tests {
         let mut message = ProtoMessage::new_publish(
             &local,
             &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
-            identity,
+            None,
             None,
             Some(ApplicationPayload::new("msg", vec![0x1, 0x2, 0x3, 0x4]).as_content()),
         );
@@ -1805,7 +1794,6 @@ mod tests {
         let mut discovery_reply = handle_channel_discovery_message(
             &msg,
             &remote,
-            identity,
             receiver_session.id(),
             ProtoSessionType::PointToPoint,
         );

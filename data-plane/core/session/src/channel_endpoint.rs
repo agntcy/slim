@@ -532,9 +532,6 @@ where
     /// transmitter to send messages to the local SLIM instance and to the application
     tx: T,
 
-    /// endpoint identity
-    identity: String,
-
     /// immutable session-level metadata provided at session creation (used in join request)
     session_metadata: HashMap<String, String>,
 }
@@ -554,7 +551,6 @@ where
         max_retries: u32,
         retries_interval: Duration,
         tx: T,
-        identity: String,
         session_metadata: HashMap<String, String>,
     ) -> Self {
         Endpoint {
@@ -567,7 +563,6 @@ where
             max_retries,
             retries_interval,
             tx,
-            identity,
             session_metadata,
         }
     }
@@ -595,7 +590,7 @@ where
         let slim_header = Some(SlimHeader::new(
             &self.name,
             destination,
-            &self.identity,
+            "", // put empty identity it will be updated by the identity interceptor
             flags,
         ));
 
@@ -623,8 +618,7 @@ where
 
         // subscribe for the channel
         let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn.unwrap()));
-        let mut sub =
-            Message::new_subscribe(&self.name, &self.channel_name, &self.identity, header);
+        let mut sub = Message::new_subscribe(&self.name, &self.channel_name, None, header);
 
         // add in the metadata to indication that the
         // subscription is associated to a channel
@@ -644,7 +638,7 @@ where
         let msg = Message::new_subscribe(
             &self.name,
             route_name,
-            &self.identity,
+            None,
             Some(SlimHeaderFlags::default().with_recv_from(self.conn.unwrap())),
         );
 
@@ -656,7 +650,7 @@ where
         let msg = Message::new_unsubscribe(
             &self.name,
             route_name,
-            &self.identity,
+            None,
             Some(SlimHeaderFlags::default().with_recv_from(self.conn.unwrap())),
         );
 
@@ -666,8 +660,7 @@ where
     async fn leave(&self) -> Result<(), SessionError> {
         // unsubscribe for the channel
         let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn.unwrap()));
-        let mut unsub =
-            Message::new_unsubscribe(&self.name, &self.channel_name, &self.identity, header);
+        let mut unsub = Message::new_unsubscribe(&self.name, &self.channel_name, None, header);
 
         // add in the metadata to indication that the
         // subscription is associated to a channel
@@ -687,7 +680,6 @@ where
 pub fn handle_channel_discovery_message(
     message: &Message,
     app_name: &Name,
-    identity: &str,
     session_id: Id,
     session_type: ProtoSessionType,
 ) -> Message {
@@ -705,7 +697,7 @@ pub fn handle_channel_discovery_message(
     let slim_header = Some(SlimHeader::new(
         &source,
         &destination,
-        identity,
+        "", // the identity will be added by the identity interceptor
         Some(SlimHeaderFlags::default().with_forward_to(message.get_incoming_conn())),
     ));
 
@@ -754,7 +746,6 @@ where
     pub fn new(
         name: Name,
         channel_name: Name,
-        identity: &str,
         session_id: Id,
         session_type: ProtoSessionType,
         max_retries: u32,
@@ -771,7 +762,6 @@ where
             max_retries,
             retries_interval,
             tx,
-            identity.to_string(),
             session_metadata,
         );
 
@@ -1175,7 +1165,6 @@ where
     pub fn new(
         name: Name,
         channel_name: Name,
-        identity: &str,
         session_id: Id,
         session_type: ProtoSessionType,
         max_retries: u32,
@@ -1195,7 +1184,6 @@ where
             max_retries,
             retries_interval,
             tx,
-            identity.to_string(),
             session_metadata,
         );
 
@@ -1242,8 +1230,7 @@ where
 
             self.endpoint.set_route(&dst).await?;
 
-            let new_slim_header =
-                SlimHeader::new(&self.endpoint.name, &dst, &self.endpoint.identity, None);
+            let new_slim_header = SlimHeader::new(&self.endpoint.name, &dst, "", None);
 
             let new_session_header = SessionHeader::new(
                 ProtoSessionType::Multicast.into(),
@@ -1823,8 +1810,7 @@ where
 
             let dst = dst.with_id(id);
 
-            let new_slim_header =
-                SlimHeader::new(&self.endpoint.name, &dst, &self.endpoint.identity, None);
+            let new_slim_header = SlimHeader::new(&self.endpoint.name, &dst, "", None);
 
             let new_session_header = SessionHeader::new(
                 ProtoSessionType::Multicast.into(),
@@ -2290,7 +2276,6 @@ mod tests {
         let mut cm = ChannelModerator::new(
             moderator.clone(),
             channel_name.clone(),
-            "modeator",
             SESSION_ID,
             ProtoSessionType::Unspecified,
             3,
@@ -2303,7 +2288,6 @@ mod tests {
         let mut cp = ChannelParticipant::new(
             participant.clone(),
             channel_name.clone(),
-            "participant",
             SESSION_ID,
             ProtoSessionType::Unspecified,
             3,
@@ -2372,7 +2356,7 @@ mod tests {
         // the first message is the subscription for the channel name
         // this is also the channel creation
         let header = Some(SlimHeaderFlags::default().with_forward_to(conn));
-        let mut sub = Message::new_subscribe(&moderator, &channel_name, moderator_id, header);
+        let mut sub = Message::new_subscribe(&moderator, &channel_name, None, header);
         sub.insert_metadata(CHANNEL_SUBSCRIPTION.to_string(), "true".to_string());
         sub.insert_metadata(CHANNEL_CREATION.to_string(), "true".to_string());
         let msg = moderator_rx.recv().await.unwrap().unwrap();
@@ -2380,7 +2364,7 @@ mod tests {
 
         // then we have the set route for the channel name
         let header = Some(SlimHeaderFlags::default().with_recv_from(conn));
-        let sub = Message::new_subscribe(&moderator, &channel_name, moderator_id, header);
+        let sub = Message::new_subscribe(&moderator, &channel_name, None, header);
         let msg = moderator_rx.recv().await.unwrap().unwrap();
         assert_eq!(msg, sub);
 
@@ -2418,7 +2402,7 @@ mod tests {
 
         // the first message is the set route for moderator name
         let header = Some(SlimHeaderFlags::default().with_recv_from(conn));
-        let sub = Message::new_subscribe(&participant, &moderator, moderator_id, header);
+        let sub = Message::new_subscribe(&participant, &moderator, None, header);
         let msg = participant_rx.recv().await.unwrap().unwrap();
         assert_eq!(msg, sub);
 
@@ -2471,14 +2455,14 @@ mod tests {
 
         // the first message generated is a subscription for the channel name
         let header = Some(SlimHeaderFlags::default().with_forward_to(conn));
-        let mut sub = Message::new_subscribe(&participant, &channel_name, moderator_id, header);
+        let mut sub = Message::new_subscribe(&participant, &channel_name, None, header);
         sub.insert_metadata(CHANNEL_SUBSCRIPTION.to_string(), "true".to_string());
         let msg = participant_rx.recv().await.unwrap().unwrap();
         assert_eq!(msg, sub);
 
         // then we have the set route for the channel name
         let header = Some(SlimHeaderFlags::default().with_recv_from(conn));
-        let sub = Message::new_subscribe(&participant, &channel_name, moderator_id, header);
+        let sub = Message::new_subscribe(&participant, &channel_name, None, header);
         let msg = participant_rx.recv().await.unwrap().unwrap();
         assert_eq!(msg, sub);
 

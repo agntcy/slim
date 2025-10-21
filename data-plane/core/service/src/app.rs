@@ -192,11 +192,6 @@ where
     pub async fn subscribe(&self, name: &Name, conn: Option<u64>) -> Result<(), ServiceError> {
         debug!("subscribe {} - conn {:?}", name, conn);
 
-        let identity = self
-            .session_layer
-            .get_identity_token()
-            .map_err(ServiceError::SessionError)?;
-
         // Set the ID in the name to be the one of this app
         let name = name.clone().with_id(self.session_layer.app_id());
 
@@ -206,7 +201,7 @@ where
             Some(SlimHeaderFlags::default())
         };
 
-        let msg = Message::new_subscribe(&self.app_name, &name, &identity, header);
+        let msg = Message::new_subscribe(&self.app_name, &name, None, header);
 
         // Subscribe
         self.send_message_without_context(msg).await?;
@@ -221,18 +216,13 @@ where
     pub async fn unsubscribe(&self, name: &Name, conn: Option<u64>) -> Result<(), ServiceError> {
         debug!("unsubscribe from {} - {:?}", name, conn);
 
-        let identity = self
-            .session_layer
-            .get_identity_token()
-            .map_err(ServiceError::SessionError)?;
-
         let header = if let Some(c) = conn {
             Some(SlimHeaderFlags::default().with_forward_to(c))
         } else {
             Some(SlimHeaderFlags::default())
         };
 
-        let msg = Message::new_subscribe(&self.app_name, name, &identity, header);
+        let msg = Message::new_subscribe(&self.app_name, name, None, header);
 
         // Unsubscribe
         self.send_message_without_context(msg).await?;
@@ -247,16 +237,11 @@ where
     pub async fn set_route(&self, name: &Name, conn: u64) -> Result<(), ServiceError> {
         debug!("set route: {} - {:?}", name, conn);
 
-        let identity = self
-            .session_layer
-            .get_identity_token()
-            .map_err(ServiceError::SessionError)?;
-
         // send a message with subscription from
         let msg = Message::new_subscribe(
             &self.app_name,
             name,
-            &identity,
+            None,
             Some(SlimHeaderFlags::default().with_recv_from(conn)),
         );
         self.send_message_without_context(msg).await
@@ -265,16 +250,11 @@ where
     pub async fn remove_route(&self, name: &Name, conn: u64) -> Result<(), ServiceError> {
         debug!("unset route to {} - {}", name, conn);
 
-        let identity = self
-            .session_layer
-            .get_identity_token()
-            .map_err(ServiceError::SessionError)?;
-
         //  send a message with unsubscription from
         let msg = Message::new_unsubscribe(
             &self.app_name,
             name,
-            &identity,
+            None,
             Some(SlimHeaderFlags::default().with_recv_from(conn)),
         );
 
@@ -286,16 +266,12 @@ where
         let app_name = self.app_name.clone();
         let session_layer = self.session_layer.clone();
         let token_clone = self.cancel_token.clone();
-        let identity = self
-            .session_layer
-            .get_identity_token()
-            .expect("error while getting local identiyt");
 
         tokio::spawn(async move {
             debug!("starting message processing loop for {}", app_name);
 
             // subscribe for local name running this loop
-            let subscribe_msg = Message::new_subscribe(&app_name, &app_name, &identity, None);
+            let subscribe_msg = Message::new_subscribe(&app_name, &app_name, None, None);
             let tx = session_layer.tx_slim();
             tx.send(Ok(subscribe_msg))
                 .await
@@ -369,7 +345,7 @@ mod tests {
         api::{ApplicationPayload, ProtoMessage, ProtoSessionMessageType, ProtoSessionType},
         messages::{Name, utils::SLIM_IDENTITY},
     };
-    
+
     #[allow(dead_code)]
     fn create_app() -> App<SharedSecret, SharedSecret> {
         let (tx_slim, _) = tokio::sync::mpsc::channel(128);
@@ -536,7 +512,7 @@ mod tests {
         let mut message = ProtoMessage::new_publish(
             &name,
             &Name::from_strings(["org", "ns", "type"]).with_id(0),
-            "a",
+            None,
             None,
             Some(ApplicationPayload::new("msg", vec![0x1, 0x2, 0x3, 0x4]).as_content()),
         );
@@ -622,7 +598,7 @@ mod tests {
         let mut message = ProtoMessage::new_publish(
             &source,
             &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
-            "local",
+            None,
             None,
             Some(ApplicationPayload::new("msg", vec![0x1, 0x2, 0x3, 0x4]).as_content()),
         );

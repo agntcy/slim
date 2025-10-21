@@ -55,9 +55,6 @@ where
     /// on endpoint remove, delete all the acks to the endpoint
     endpoints_list: HashSet<Name>,
 
-    /// local identity
-    identity: String,
-
     /// message id, used if the session is sequential
     next_id: u32,
 
@@ -79,7 +76,6 @@ where
     fn new(
         timer_settings: Option<TimerSettings>,
         session_id: u32,
-        identity: &str,
         tx: T,
         tx_signals: Option<Sender<SessionMessage>>,
     ) -> Self {
@@ -97,7 +93,6 @@ where
             pending_acks: HashMap::new(),
             pending_acks_per_endpoint: HashMap::new(),
             endpoints_list: HashSet::new(),
-            identity: identity.to_owned(),
             next_id: 0,
             session_id,
             tx,
@@ -292,7 +287,6 @@ where
             let msg = new_message_from_session_fields(
                 &message.get_dst(),
                 &message.get_source(),
-                &self.identity,
                 incoming_conn,
                 true,
                 message.get_session_type(),
@@ -443,9 +437,8 @@ mod tests {
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
-        let identity = "sender".to_string();
 
-        let mut sender = SessionSender::new(Some(settings), 10, &identity, tx, Some(tx_signal));
+        let mut sender = SessionSender::new(Some(settings), 10, tx, Some(tx_signal));
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender.add_endpoint(remote.clone());
@@ -455,7 +448,7 @@ mod tests {
         let mut message = Message::new_publish(
             &source,
             &remote,
-            &identity,
+            None,
             None,
             Some(ApplicationPayload::new("test_payload", vec![1, 2, 3, 4]).as_content()),
         );
@@ -515,9 +508,8 @@ mod tests {
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
-        let identity = "sender".to_string();
 
-        let mut sender = SessionSender::new(Some(settings), 10, &identity, tx, Some(tx_signal));
+        let mut sender = SessionSender::new(Some(settings), 10, tx, Some(tx_signal));
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender.add_endpoint(remote.clone());
@@ -527,7 +519,7 @@ mod tests {
         let mut message = Message::new_publish(
             &source,
             &remote,
-            &identity,
+            None,
             None,
             Some(ApplicationPayload::new("test_payload", vec![1, 2, 3, 4]).as_content()),
         );
@@ -660,9 +652,8 @@ mod tests {
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
-        let identity = "sender".to_string();
 
-        let mut sender = SessionSender::new(Some(settings), 10, &identity, tx, Some(tx_signal));
+        let mut sender = SessionSender::new(Some(settings), 10, tx, Some(tx_signal));
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender.add_endpoint(remote.clone());
@@ -672,7 +663,7 @@ mod tests {
         let mut message = Message::new_publish(
             &source,
             &remote,
-            &identity,
+            None,
             None,
             Some(ApplicationPayload::new("test_payload", vec![1, 2, 3, 4]).as_content()),
         );
@@ -704,7 +695,7 @@ mod tests {
         let mut ack = Message::new_publish(
             &remote,
             &source,
-            "remote",
+            None,
             None,
             Some(ApplicationPayload::new("", vec![]).as_content()),
         );
@@ -731,9 +722,8 @@ mod tests {
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
-        let identity = "sender".to_string();
 
-        let mut sender = SessionSender::new(Some(settings), 10, &identity, tx, Some(tx_signal));
+        let mut sender = SessionSender::new(Some(settings), 10, tx, Some(tx_signal));
         let group = Name::from_strings(["org", "ns", "group"]);
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
@@ -748,7 +738,7 @@ mod tests {
         let mut message = Message::new_publish(
             &source,
             &group,
-            &identity,
+            None,
             None,
             Some(ApplicationPayload::new("test_payload", vec![1, 2, 3, 4]).as_content()),
         );
@@ -780,7 +770,7 @@ mod tests {
         let mut ack1 = Message::new_publish(
             &remote1,
             &source,
-            "remote1",
+            None,
             None,
             Some(ApplicationPayload::new("", vec![]).as_content()),
         );
@@ -791,7 +781,7 @@ mod tests {
         let mut ack2 = Message::new_publish(
             &remote2,
             &source,
-            "remote2",
+            None,
             None,
             Some(ApplicationPayload::new("", vec![]).as_content()),
         );
@@ -802,7 +792,7 @@ mod tests {
         let mut ack3 = Message::new_publish(
             &remote3,
             &source,
-            "remote3",
+            None,
             None,
             Some(ApplicationPayload::new("", vec![]).as_content()),
         );
@@ -831,9 +821,8 @@ mod tests {
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
-        let identity = "sender".to_string();
 
-        let mut sender = SessionSender::new(Some(settings), 10, &identity, tx, Some(tx_signal));
+        let mut sender = SessionSender::new(Some(settings), 10, tx, Some(tx_signal));
         let group = Name::from_strings(["org", "ns", "group"]);
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
@@ -848,7 +837,7 @@ mod tests {
         let mut message = Message::new_publish(
             &source,
             &group,
-            &identity,
+            None,
             None,
             Some(ApplicationPayload::new("test_payload", vec![1, 2, 3, 4]).as_content()),
         );
@@ -880,7 +869,7 @@ mod tests {
         let mut ack1 = Message::new_publish(
             &remote1,
             &source,
-            "remote1",
+            None,
             None,
             Some(ApplicationPayload::new("", vec![]).as_content()),
         );
@@ -891,7 +880,7 @@ mod tests {
         let mut ack3 = Message::new_publish(
             &remote3,
             &source,
-            "remote2",
+            None,
             None,
             Some(ApplicationPayload::new("", vec![]).as_content()),
         );
@@ -997,8 +986,7 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let identity = "sender".to_string();
-        let mut sender = SessionSender::new(Some(settings), 10, &identity, tx, Some(tx_signal));
+        let mut sender = SessionSender::new(Some(settings), 10, tx, Some(tx_signal));
         let group = Name::from_strings(["org", "ns", "group"]);
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
@@ -1013,7 +1001,7 @@ mod tests {
         let mut message = Message::new_publish(
             &source,
             &group,
-            &identity,
+            None,
             None,
             Some(ApplicationPayload::new("test_payload", vec![1, 2, 3, 4]).as_content()),
         );
@@ -1045,7 +1033,7 @@ mod tests {
         let mut ack1 = Message::new_publish(
             &remote1,
             &source,
-            "remote1",
+            None,
             None,
             Some(ApplicationPayload::new("", vec![]).as_content()),
         );
@@ -1056,7 +1044,7 @@ mod tests {
         let mut ack3 = Message::new_publish(
             &remote3,
             &source,
-            "remote3",
+            None,
             None,
             Some(ApplicationPayload::new("", vec![]).as_content()),
         );
@@ -1089,8 +1077,7 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let identity = "sender".to_string();
-        let mut sender = SessionSender::new(Some(settings), 10, &identity, tx, Some(tx_signal));
+        let mut sender = SessionSender::new(Some(settings), 10, tx, Some(tx_signal));
         let group = Name::from_strings(["org", "ns", "group"]);
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
@@ -1105,7 +1092,7 @@ mod tests {
         let mut message = Message::new_publish(
             &source,
             &group,
-            &identity,
+            None,
             None,
             Some(ApplicationPayload::new("test_payload", vec![1, 2, 3, 4]).as_content()),
         );
@@ -1137,7 +1124,7 @@ mod tests {
         let mut ack1 = Message::new_publish(
             &remote1,
             &source,
-            "remote1",
+            None,
             None,
             Some(ApplicationPayload::new("", vec![]).as_content()),
         );
@@ -1148,7 +1135,7 @@ mod tests {
         let mut ack3 = Message::new_publish(
             &remote3,
             &source,
-            "remote3",
+            None,
             None,
             Some(ApplicationPayload::new("", vec![]).as_content()),
         );
@@ -1164,7 +1151,7 @@ mod tests {
         let mut rtx_request = Message::new_publish(
             &remote2,
             &source,
-            "remote2",
+            None,
             None,
             Some(ApplicationPayload::new("", vec![]).as_content()),
         );
@@ -1210,8 +1197,7 @@ mod tests {
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
-        let identity = "sender".to_string();
-        let mut sender = SessionSender::new(Some(settings), 10, &identity, tx, Some(tx_signal));
+        let mut sender = SessionSender::new(Some(settings), 10, tx, Some(tx_signal));
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender.add_endpoint(remote.clone());
@@ -1221,7 +1207,7 @@ mod tests {
         let mut message = Message::new_publish(
             &source,
             &remote,
-            &identity,
+            None,
             None,
             Some(ApplicationPayload::new("test_payload", vec![1, 2, 3, 4]).as_content()),
         );
@@ -1283,7 +1269,7 @@ mod tests {
         let mut rtx_request = Message::new_publish(
             &remote,
             &source,
-            "remote",
+            None,
             None,
             Some(ApplicationPayload::new("", vec![]).as_content()),
         );
@@ -1321,7 +1307,7 @@ mod tests {
         let mut ack = Message::new_publish(
             &remote,
             &source,
-            "remote",
+            None,
             None,
             Some(ApplicationPayload::new("", vec![]).as_content()),
         );
@@ -1347,9 +1333,8 @@ mod tests {
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
-        let identity = "sender".to_string();
 
-        let mut sender = SessionSender::new(Some(settings), 10, &identity, tx, Some(tx_signal));
+        let mut sender = SessionSender::new(Some(settings), 10, tx, Some(tx_signal));
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         // DO NOT add any endpoints - this is the key part of the test
@@ -1359,7 +1344,7 @@ mod tests {
         let mut message = Message::new_publish(
             &source,
             &remote,
-            &identity,
+            None,
             None,
             Some(ApplicationPayload::new("test_payload", vec![1, 2, 3, 4]).as_content()),
         );

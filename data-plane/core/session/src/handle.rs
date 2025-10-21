@@ -227,13 +227,9 @@ where
     ) -> Result<(), SessionError> {
         let ct = payload_type.unwrap_or_else(|| "msg".to_string());
 
-        let identity = self
-            .identity_provider()
-            .get_token()
-            .map_err(|_| SessionError::Processing("Failed to get token".into()))?;
         let payload = Some(ApplicationPayload::new(&ct, blob).as_content());
 
-        let mut msg = Message::new_publish(self.source(), name, &identity, Some(flags), payload);
+        let mut msg = Message::new_publish(self.source(), name, None, Some(flags), payload);
         if let Some(map) = metadata
             && !map.is_empty()
         {

@@ -683,7 +683,7 @@ impl MessageProcessor {
                                     let sub_msg = Message::new_subscribe(
                                         r.source(),
                                         r.name(),
-                                        r.source_identity(),
+                                        Some(r.source_identity()),
                                         None,
                                     );
                                     if self.send_msg(sub_msg, conn_index).await.is_err() {

@@ -288,7 +288,7 @@ impl ControlPlane {
         let subscribe_msg = DataPlaneMessage::new_subscribe(
             &CONTROLLER_SOURCE_NAME,
             &CONTROLLER_SOURCE_NAME,
-            &CONTROLLER_SOURCE_NAME.to_string(),
+            Some(&CONTROLLER_SOURCE_NAME.to_string()),
             None,
         );
 
@@ -781,7 +781,7 @@ impl ControllerService {
                             let msg = DataPlaneMessage::new_subscribe(
                                 &source,
                                 &name,
-                                identity_token,
+                                Some(identity_token),
                                 Some(SlimHeaderFlags::default().with_recv_from(conn)),
                             );
 
@@ -834,7 +834,7 @@ impl ControllerService {
                             let msg = DataPlaneMessage::new_unsubscribe(
                                 &source,
                                 &name,
-                                identity_token,
+                                Some(identity_token),
                                 Some(SlimHeaderFlags::default().with_recv_from(conn)),
                             );
 

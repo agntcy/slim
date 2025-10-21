@@ -281,13 +281,7 @@ where
         let tx = self.common.tx();
         let source = self.common.source().clone();
         let id = self.common.id();
-        let identity = match self.common.identity_provider().get_token() {
-            Ok(token) => token,
-            Err(_) => {
-                error!("Failed to get token for session {}", session_id);
-                return;
-            }
-        };
+
         tokio::spawn(async move {
             debug!("starting message processing on session {}", session_id);
 
@@ -311,7 +305,6 @@ where
                     let cm = ChannelModerator::new(
                         source.clone(),
                         session_config.channel_name.clone(),
-                        &identity,
                         id,
                         ProtoSessionType::Multicast,
                         60,
@@ -327,7 +320,6 @@ where
                     let cp = ChannelParticipant::new(
                         source.clone(),
                         session_config.channel_name.clone(),
-                        &identity,
                         id,
                         ProtoSessionType::Multicast,
                         60,
@@ -411,10 +403,10 @@ where
                                         match msg.get_session_header().session_message_type() {
                                             ProtoSessionMessageType::RtxRequest => {
                                                 // handle RTX request
-                                                process_incoming_rtx_request(msg, &identity, session_id, &producer, &source, &tx).await;
+                                                process_incoming_rtx_request(msg, session_id, &producer, &source, &tx).await;
                                             }
                                             _ => {
-                                                process_message_from_slim(msg, &identity, session_id, &mut receiver, &source, max_retries, timeout, &rtx_timer_tx, &tx).await;
+                                                process_message_from_slim(msg, session_id, &mut receiver, &source, max_retries, timeout, &rtx_timer_tx, &tx).await;
                                             }
                                         }
                                     }
@@ -473,7 +465,6 @@ where
 
 async fn process_incoming_rtx_request<T>(
     msg: Message,
-    identity: &str,
     session_id: u32,
     producer: &ProducerState,
     source: &Name,
@@ -502,7 +493,7 @@ async fn process_incoming_rtx_request<T>(
             let slim_header = Some(SlimHeader::new(
                 source,
                 &pkt_src,
-                identity,
+                "",
                 Some(
                     SlimHeaderFlags::default()
                         .with_forward_to(incoming_conn)
@@ -534,7 +525,7 @@ async fn process_incoming_rtx_request<T>(
                 .with_forward_to(incoming_conn)
                 .with_error(true);
 
-            let slim_header = Some(SlimHeader::new(source, &pkt_src, identity, Some(flags)));
+            let slim_header = Some(SlimHeader::new(source, &pkt_src, "", Some(flags)));
 
             // no need to set source and destiona here
             let session_header = Some(SessionHeader::new(
@@ -626,7 +617,6 @@ async fn process_message_from_app<T>(
 #[allow(clippy::too_many_arguments)]
 async fn process_message_from_slim<T>(
     msg: Message,
-    identity: &str,
     session_id: u32,
     receiver_state: &mut ReceiverState,
     source: &Name,
@@ -721,7 +711,7 @@ async fn process_message_from_slim<T>(
         let slim_header = Some(SlimHeader::new(
             source,
             &producer_name,
-            identity,
+            "",
             Some(SlimHeaderFlags::default().with_forward_to(producer_conn)),
         ));
 
@@ -1082,7 +1072,7 @@ mod tests {
         let mut message = Message::new_publish(
             &send,
             &recv,
-            "a",
+            None,
             Some(SlimHeaderFlags::default().with_incoming_conn(123)), // set a fake incoming conn, as it is required for the rtx
             payload,
         );
@@ -1158,7 +1148,7 @@ mod tests {
         let mut message = Message::new_publish(
             &sender,
             &receiver,
-            "a",
+            None,
             Some(SlimHeaderFlags::default().with_incoming_conn(123)), // set a fake incoming conn, as it is required for the rtx
             payload,
         );
@@ -1244,7 +1234,7 @@ mod tests {
         );
 
         let payload = Some(ApplicationPayload::new("", vec![0x1, 0x2, 0x3, 0x4]).as_content());
-        let mut message = Message::new_publish(&sender, &receiver, "a", None, payload);
+        let mut message = Message::new_publish(&sender, &receiver, None, None, payload);
 
         // set the session id in the message
         let header = message.get_session_header_mut();
@@ -1382,7 +1372,7 @@ mod tests {
         let mut message = Message::new_publish(
             &send,
             &recv,
-            "a",
+            None,
             Some(SlimHeaderFlags::default().with_incoming_conn(0)),
             payload,
         );

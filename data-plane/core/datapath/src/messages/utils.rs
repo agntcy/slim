@@ -331,8 +331,14 @@ impl SessionHeader {
 /// ProtoSubscribe
 /// This message is used to subscribe to a topic
 impl ProtoSubscribe {
-    pub fn new(source: &Name, dst: &Name, identity: &str, flags: Option<SlimHeaderFlags>) -> Self {
-        let header = Some(SlimHeader::new(source, dst, identity, flags));
+    pub fn new(
+        source: &Name,
+        dst: &Name,
+        identity: Option<&str>,
+        flags: Option<SlimHeaderFlags>,
+    ) -> Self {
+        let id = identity.unwrap_or("");
+        let header = Some(SlimHeader::new(source, dst, id, flags));
 
         ProtoSubscribe { header }
     }
@@ -351,8 +357,14 @@ impl From<ProtoMessage> for ProtoSubscribe {
 /// ProtoUnsubscribe
 /// This message is used to unsubscribe from a topic
 impl ProtoUnsubscribe {
-    pub fn new(source: &Name, dst: &Name, identity: &str, flags: Option<SlimHeaderFlags>) -> Self {
-        let header = Some(SlimHeader::new(source, dst, identity, flags));
+    pub fn new(
+        source: &Name,
+        dst: &Name,
+        identity: Option<&str>,
+        flags: Option<SlimHeaderFlags>,
+    ) -> Self {
+        let id = identity.unwrap_or("");
+        let header = Some(SlimHeader::new(source, dst, id, flags));
 
         ProtoUnsubscribe { header }
     }
@@ -374,11 +386,12 @@ impl ProtoPublish {
     pub fn new(
         source: &Name,
         dst: &Name,
-        identity: &str,
+        identity: Option<&str>,
         flags: Option<SlimHeaderFlags>,
         content: Option<Content>,
     ) -> Self {
-        let slim_header = Some(SlimHeader::new(source, dst, identity, flags));
+        let id = identity.unwrap_or("");
+        let slim_header = Some(SlimHeader::new(source, dst, id, flags));
 
         let session_header = SessionHeader::default();
 
@@ -498,7 +511,7 @@ impl ProtoMessage {
     pub fn new_subscribe(
         source: &Name,
         dst: &Name,
-        identity: &str,
+        identity: Option<&str>,
         flags: Option<SlimHeaderFlags>,
     ) -> Self {
         let subscribe = ProtoSubscribe::new(source, dst, identity, flags);
@@ -509,7 +522,7 @@ impl ProtoMessage {
     pub fn new_unsubscribe(
         source: &Name,
         dst: &Name,
-        identity: &str,
+        identity: Option<&str>,
         flags: Option<SlimHeaderFlags>,
     ) -> Self {
         let unsubscribe = ProtoUnsubscribe::new(source, dst, identity, flags);
@@ -520,7 +533,7 @@ impl ProtoMessage {
     pub fn new_publish(
         source: &Name,
         dst: &Name,
-        identity: &str,
+        identity: Option<&str>,
         flags: Option<SlimHeaderFlags>,
         content: Option<Content>,
     ) -> Self {
@@ -1076,7 +1089,7 @@ mod tests {
         subscription: bool,
         source: Name,
         dst: Name,
-        identity: &str,
+        identity: Option<&str>,
         flags: Option<SlimHeaderFlags>,
     ) {
         let sub = {
@@ -1107,7 +1120,7 @@ mod tests {
     fn test_publish_template(
         source: Name,
         dst: Name,
-        identity: &str,
+        identity: Option<&str>,
         flags: Option<SlimHeaderFlags>,
     ) {
         let content = Some(
@@ -1139,20 +1152,19 @@ mod tests {
     fn test_subscription() {
         let source = Name::from_strings(["org", "ns", "type"]).with_id(1);
         let dst = Name::from_strings(["org", "ns", "type"]).with_id(2);
-        let source_id = source.to_string();
 
         // simple
-        test_subscription_template(true, source.clone(), dst.clone(), &source_id, None);
+        test_subscription_template(true, source.clone(), dst.clone(), None, None);
 
         // with name id
-        test_subscription_template(true, source.clone(), dst.clone(), &source_id, None);
+        test_subscription_template(true, source.clone(), dst.clone(), None, None);
 
         // with recv from
         test_subscription_template(
             true,
             source.clone(),
             dst.clone(),
-            &source_id,
+            None,
             Some(SlimHeaderFlags::default().with_recv_from(50)),
         );
 
@@ -1161,7 +1173,7 @@ mod tests {
             true,
             source.clone(),
             dst.clone(),
-            &source_id,
+            None,
             Some(SlimHeaderFlags::default().with_forward_to(30)),
         );
     }
@@ -1170,20 +1182,19 @@ mod tests {
     fn test_unsubscription() {
         let source = Name::from_strings(["org", "ns", "type"]).with_id(1);
         let dst = Name::from_strings(["org", "ns", "type"]).with_id(2);
-        let source_id = source.to_string();
 
         // simple
-        test_subscription_template(false, source.clone(), dst.clone(), &source_id, None);
+        test_subscription_template(false, source.clone(), dst.clone(), None, None);
 
         // with name id
-        test_subscription_template(false, source.clone(), dst.clone(), &source_id, None);
+        test_subscription_template(false, source.clone(), dst.clone(), None, None);
 
         // with recv from
         test_subscription_template(
             false,
             source.clone(),
             dst.clone(),
-            &source_id,
+            None,
             Some(SlimHeaderFlags::default().with_recv_from(50)),
         );
 
@@ -1192,7 +1203,7 @@ mod tests {
             false,
             source.clone(),
             dst.clone(),
-            &source_id,
+            None,
             Some(SlimHeaderFlags::default().with_forward_to(30)),
         );
     }
@@ -1201,13 +1212,12 @@ mod tests {
     fn test_publish() {
         let source = Name::from_strings(["org", "ns", "type"]).with_id(1);
         let mut dst = Name::from_strings(["org", "ns", "type"]);
-        let source_id = source.to_string();
 
         // simple
         test_publish_template(
             source.clone(),
             dst.clone(),
-            &source_id,
+            None,
             Some(SlimHeaderFlags::default()),
         );
 
@@ -1216,7 +1226,7 @@ mod tests {
         test_publish_template(
             source.clone(),
             dst.clone(),
-            &source_id,
+            None,
             Some(SlimHeaderFlags::default()),
         );
         dst.reset_id();
@@ -1225,7 +1235,7 @@ mod tests {
         test_publish_template(
             source.clone(),
             dst.clone(),
-            &source_id,
+            None,
             Some(SlimHeaderFlags::default().with_recv_from(50)),
         );
 
@@ -1233,7 +1243,7 @@ mod tests {
         test_publish_template(
             source.clone(),
             dst.clone(),
-            &source_id,
+            None,
             Some(SlimHeaderFlags::default().with_forward_to(30)),
         );
 
@@ -1241,7 +1251,7 @@ mod tests {
         test_publish_template(
             source.clone(),
             dst.clone(),
-            &source_id,
+            None,
             Some(SlimHeaderFlags::default().with_fanout(2)),
         );
     }
@@ -1290,11 +1300,10 @@ mod tests {
 
         // ProtoMessage to ProtoSubscribe
         let dst = Name::from_strings(["org", "ns", "type"]).with_id(1);
-        let name_id = name.to_string();
         let proto_subscribe = ProtoMessage::new_subscribe(
             &name,
             &dst,
-            &name_id,
+            None,
             Some(
                 SlimHeaderFlags::default()
                     .with_recv_from(2)
@@ -1309,7 +1318,7 @@ mod tests {
         let proto_unsubscribe = ProtoMessage::new_unsubscribe(
             &name,
             &dst,
-            &name_id,
+            None,
             Some(
                 SlimHeaderFlags::default()
                     .with_recv_from(2)
@@ -1332,7 +1341,7 @@ mod tests {
         let proto_publish = ProtoMessage::new_publish(
             &name,
             &dst,
-            &name_id,
+            None,
             Some(
                 SlimHeaderFlags::default()
                     .with_recv_from(2)
@@ -1351,11 +1360,10 @@ mod tests {
         let dst = Name::from_strings(["org", "ns", "type"]).with_id(2);
 
         // panic if SLIM header is not found
-        let source_id = source.to_string();
         let msg = ProtoMessage::new_subscribe(
             &source,
             &dst,
-            &source_id,
+            None,
             Some(
                 SlimHeaderFlags::default()
                     .with_recv_from(2)
