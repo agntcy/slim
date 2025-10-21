@@ -7,7 +7,7 @@ use twox_hash::XxHash64;
 
 use crate::api::ProtoName;
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Clone, Encode, Decode)]
 pub struct Name {
     /// The hashed components of the name
     components: [u64; 4],
@@ -38,6 +38,21 @@ impl std::fmt::Display for Name {
         write!(
             f,
             "{}/{}/{}/{:x}",
+            self.strings[0], self.strings[1], self.strings[2], self.components[3]
+        )?;
+        Ok(())
+    }
+}
+
+impl std::fmt::Debug for Name {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{:x}/{:x}/{:x}/{:x} ({}/{}/{}/{:x})",
+            self.components[0],
+            self.components[1],
+            self.components[2],
+            self.components[3],
             self.strings[0],
             self.strings[1],
             self.strings[2],
