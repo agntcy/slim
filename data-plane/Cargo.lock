@@ -75,6 +75,7 @@ dependencies = [
  "spiffe",
  "thiserror 2.0.17",
  "tokio",
+ "tokio-test",
  "tokio-util",
  "tower",
  "tower-layer",

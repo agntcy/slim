@@ -247,6 +247,7 @@ mod tests {
     use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::messages::Name;
 
+    use slim_auth::testutils::TEST_VALID_SECRET;
     use slim_session::point_to_point::PointToPointConfiguration;
     use slim_session::{Notification, SessionConfig, SessionError, SessionType};
 
@@ -266,8 +267,8 @@ mod tests {
 
     /// Create test authentication components
     fn create_test_auth() -> (TestProvider, TestVerifier) {
-        let provider = SharedSecret::new("test-app", "test-secret");
-        let verifier = SharedSecret::new("test-app", "test-secret");
+        let provider = SharedSecret::new("test-app", TEST_VALID_SECRET);
+        let verifier = SharedSecret::new("test-app", TEST_VALID_SECRET);
         (provider, verifier)
     }
 
@@ -661,8 +662,8 @@ mod tests {
     async fn test_deterministic_name_generation_same_token() {
         let base_name = create_test_name();
         // Use the same SharedSecret instances to ensure same token IDs
-        let provider = SharedSecret::new("test-app", "test-secret");
-        let verifier = SharedSecret::new("test-app", "test-secret");
+        let provider = SharedSecret::new("test-app", TEST_VALID_SECRET);
+        let verifier = SharedSecret::new("test-app", TEST_VALID_SECRET);
 
         // Create two adapters with the same authentication (should produce same ID)
         let result1 =
@@ -685,11 +686,11 @@ mod tests {
         let base_name = create_test_name();
 
         // Create two different authentication providers
-        let provider1 = SharedSecret::new("app1", "secret1");
-        let verifier1 = SharedSecret::new("app1", "secret1");
+        let provider1 = SharedSecret::new("app1", "secret1-shared-secret-value-0123456789abcdef");
+        let verifier1 = SharedSecret::new("app1", "secret1-shared-secret-value-0123456789abcdef");
 
-        let provider2 = SharedSecret::new("app2", "secret2");
-        let verifier2 = SharedSecret::new("app2", "secret2");
+        let provider2 = SharedSecret::new("app2", "secret2-shared-secret-value-0123456789abcdef");
+        let verifier2 = SharedSecret::new("app2", "secret2-shared-secret-value-0123456789abcdef");
 
         let result1 = BindingsAdapter::new(base_name.clone(), provider1, verifier1, false).await;
         assert!(result1.is_ok());
@@ -708,8 +709,8 @@ mod tests {
     async fn test_consistent_id_generation_multiple_calls() {
         // Test that multiple calls with the same SharedSecret instance produce consistent results
         let base_name = create_test_name();
-        let provider = SharedSecret::new("test-app", "test-secret");
-        let verifier = SharedSecret::new("test-app", "test-secret");
+        let provider = SharedSecret::new("test-app", TEST_VALID_SECRET);
+        let verifier = SharedSecret::new("test-app", TEST_VALID_SECRET);
 
         // Since SharedSecret instances are created separately, they will have different random suffixes
         // But we can test that the same instance produces consistent results

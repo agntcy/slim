@@ -428,6 +428,7 @@ mod tests {
 
     use super::*;
     use slim_auth::shared_secret::SharedSecret;
+    use slim_auth::testutils::TEST_VALID_SECRET;
     use slim_config::grpc::server::ServerConfig;
     use slim_config::tls::server::TlsServerConfig;
     use slim_datapath::api::MessageType;
@@ -496,8 +497,8 @@ mod tests {
         let (sub_app, mut sub_rx) = service
             .create_app(
                 &subscriber_name,
-                SharedSecret::new("a", "group"),
-                SharedSecret::new("a", "group"),
+                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET),
             )
             .await
             .expect("failed to create app");
@@ -507,8 +508,8 @@ mod tests {
         let (pub_app, _rx) = service
             .create_app(
                 &publisher_name,
-                SharedSecret::new("a", "group"),
-                SharedSecret::new("a", "group"),
+                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET),
             )
             .await
             .expect("failed to create app");
@@ -614,8 +615,8 @@ mod tests {
         let (app, _) = service
             .create_app(
                 &name,
-                SharedSecret::new("a", "group"),
-                SharedSecret::new("a", "group"),
+                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET),
             )
             .await
             .expect("failed to create app");

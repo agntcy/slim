@@ -27,7 +27,7 @@ tasks:
         uv run --package slim-bindings-examples p2p                                   \
           --local agntcy/ns/alice                                                     \
           --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}'  \
-          --shared-secret "secret" {{.EXTRA_ARGS}}
+          --shared-secret "abcde-12345-fedcb-67890-deadc" {{.EXTRA_ARGS}}
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
@@ -40,7 +40,7 @@ tasks:
         uv run --package slim-bindings-examples p2p                                   \
           --local agntcy/ns/bob                                                       \
           --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}'  \
-          --shared-secret "secret"                                                    \
+          --shared-secret "abcde-12345-fedcb-67890-deadc"                             \
           --remote agntcy/ns/alice                                                    \
           --message "hey there"                                                       \
     vars:
@@ -55,7 +55,7 @@ tasks:
         uv run --package slim-bindings-examples p2p                                   \
           --local agntcy/ns/bob                                                       \
           --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}'  \
-          --shared-secret "secret"                                                    \
+          --shared-secret "abcde-12345-fedcb-67890-deadc"                             \
           --remote agntcy/ns/alice                                                    \
           --message "hey there"                                                       \
           --enable-mls                                                                \
@@ -69,7 +69,7 @@ tasks:
         uv run --package slim-bindings-examples group                                 \
           --local agntcy/ns/moderator                                                 \
           --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}'  \
-          --shared-secret "secret"                                                    \
+          --shared-secret "abcde-12345-fedcb-67890-deadc"                             \
           --remote agntcy/ns/chat                                                     \
           --invites agntcy/ns/client-1                                                \
           --invites agntcy/ns/client-2                                                \
@@ -84,7 +84,7 @@ tasks:
         uv run --package slim-bindings-examples group                                 \
           --local agntcy/ns/client-1                                                  \
           --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}'  \
-          --shared-secret "secret" {{.EXTRA_ARGS}}
+          --shared-secret "abcde-12345-fedcb-67890-deadc" {{.EXTRA_ARGS}}
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
@@ -95,6 +95,6 @@ tasks:
         uv run --package slim-bindings-examples group                                 \
           --local agntcy/ns/client-2                                                  \
           --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}'  \
-          --shared-secret "secret" {{.EXTRA_ARGS}}
+          --shared-secret "abcde-12345-fedcb-67890-deadc" {{.EXTRA_ARGS}}
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'

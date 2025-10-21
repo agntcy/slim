@@ -73,8 +73,8 @@ async fn main() {
     let (app, mut rx) = svc
         .create_app(
             &app_name,
-            SharedSecret::new("a", "test"),
-            SharedSecret::new("a", "test"),
+            SharedSecret::new("a", slim_auth::testutils::TEST_VALID_SECRET),
+            SharedSecret::new("a", slim_auth::testutils::TEST_VALID_SECRET),
         )
         .await
         .expect("failed to create app");

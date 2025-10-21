@@ -17,14 +17,15 @@
 //! use slim_config::component::ComponentBuilder;
 //! use slim_service::bindings::BindingsAdapter;
 //! use slim_auth::shared_secret::SharedSecret;
+//! use slim_auth::testutils::TEST_VALID_SECRET;
 //! use slim_datapath::messages::Name;
 //!
 //! // Create service instance (handles message processing)
 //! let service = Service::builder().build("svc-0".to_string()).expect("Failed to create service");
 //!
 //! // Create authentication components
-//! let provider = SharedSecret::new("myapp", "my_secret");
-//! let verifier = SharedSecret::new("myapp", "my_secret");
+//! let provider = SharedSecret::new("myapp", TEST_VALID_SECRET);
+//! let verifier = SharedSecret::new("myapp", TEST_VALID_SECRET);
 //!
 //! // Create adapter for language bindings - Method 1: Direct creation
 //! let app_name = Name::from_strings(["org", "ns", "app"]);

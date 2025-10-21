@@ -1,6 +1,26 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+/// Centralized valid shared secret for tests (>=32 chars).
+/// Use this for simple cases where the actual value does not matter.
+pub const TEST_VALID_SECRET: &str = "test-shared-secret-value-0123456789abcdef";
+
+/// Convenience helper returning a pair (provider, verifier) `SharedSecret`
+/// instances initialized with the same valid secret for the given base id.
+/// This reduces duplication across tests that construct both roles.
+pub fn test_identity_pair(
+    base: &str,
+) -> (
+    crate::shared_secret::SharedSecret,
+    crate::shared_secret::SharedSecret,
+) {
+    let secret = format!("{base}-shared-secret-value-0123456789abcdef");
+    (
+        crate::shared_secret::SharedSecret::new(base, &secret),
+        crate::shared_secret::SharedSecret::new(base, &secret),
+    )
+}
+
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::utils::bytes_to_pem;
