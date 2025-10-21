@@ -340,7 +340,7 @@ impl<V> Jwt<V> {
             return Ok(cached_claims);
         }
 
-        // Try to decode the key from the cache first
+        // Try to decode the key from the cache first; if this would require async, return WouldBlockOn
         let decoding_key = self.decoding_key(&token)?;
 
         // If we have a decoding key, proceed with verification
@@ -475,12 +475,18 @@ impl<V> Jwt<V> {
                 AuthError::ConfigError("no issuer found in JWT claims".to_string())
             })?;
 
-            return resolver.get_cached_key(issuer, &token_data.header);
+            match resolver.get_cached_key(issuer, &token_data.header) {
+                Ok(k) => return Ok(k),
+                Err(_e) => {
+                    // No cached key yet; async resolution would be required.
+                    return Err(AuthError::WouldBlockOn);
+                }
+            }
         }
 
-        // If we don't have a decoding key and no resolver, we can't proceed
+        // If we don't have a decoder
         Err(AuthError::ConfigError(
-            "Decoding key not configured for JWT verification".to_string(),
+            "no resolver available for JWT key resolution".to_string(),
         ))
     }
 
@@ -714,6 +720,28 @@ mod tests {
         }
 
         delete_file(file_name).expect("error deleting file");
+    }
+
+    #[test]
+    fn test_jwt_try_verify_would_block_on_missing_cached_key_valid_token() {
+        // Build verifier with auto_resolve (no cached key yet)
+        let verifier = JwtBuilder::new()
+            .issuer("test-issuer")
+            .audience(&["test-audience"])
+            .subject("test-subject")
+            .auto_resolve_keys(true)
+            .build()
+            .unwrap();
+        // Use test utility to generate a syntactically valid unsigned token
+        let token =
+            crate::testutils::generate_test_token("test-issuer", "test-audience", "test-subject");
+
+        let res = verifier.try_verify(&token);
+        assert!(
+            matches!(res, Err(AuthError::WouldBlockOn)),
+            "Expected WouldBlockOn, got {:?}",
+            res
+        );
     }
 
     #[tokio::test]

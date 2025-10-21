@@ -27,8 +27,7 @@ use crate::utils::bytes_to_pem;
 use aws_lc_rs::encoding::AsDer;
 use aws_lc_rs::signature::KeyPair; // Import the KeyPair trait for public_key() method
 use aws_lc_rs::{rand, rsa, signature};
-use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use jsonwebtoken_aws_lc::Algorithm;
 use serde_json::json;
 use wiremock::matchers::{method, path};
@@ -254,6 +253,32 @@ impl TestClaims {
             iat: now,
         }
     }
+}
+
+/// Generate a syntactically valid unsigned JWT for tests where signature verification is not needed.
+/// The token will have HS256 header and include standard fields (iss,aud,sub,exp,iat,nbf).
+/// This is useful for tests that exercise synchronous paths like `try_verify` where
+/// we only need to parse claims and detect missing cached keys.
+pub fn generate_test_token(issuer: &str, audience: &str, subject: &str) -> String {
+    let header_json = r#"{"alg":"HS256","typ":"JWT"}"#;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or(std::time::Duration::from_secs(0))
+        .as_secs();
+    let claims_json = format!(
+        "{{\"iss\":\"{}\",\"aud\":[\"{}\"],\"sub\":\"{}\",\"exp\":{},\"iat\":{},\"nbf\":{}}}",
+        issuer,
+        audience,
+        subject,
+        now + 300,
+        now,
+        now
+    );
+    format!(
+        "{}.{}.sig",
+        URL_SAFE_NO_PAD.encode(header_json.as_bytes()),
+        URL_SAFE_NO_PAD.encode(claims_json.as_bytes())
+    )
 }
 
 /// Setup a mock OIDC server for testing both token provider and verifier
