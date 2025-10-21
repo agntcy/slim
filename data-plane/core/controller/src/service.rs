@@ -1392,7 +1392,7 @@ impl GrpcControllerService for ControllerService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use slim_auth::shared_secret::SharedSecret;
+    use slim_auth::{shared_secret::SharedSecret, testutils::TEST_VALID_SECRET};
     use slim_config::component::id::Kind;
     use tracing_test::traced_test;
 
@@ -1432,10 +1432,12 @@ mod tests {
             message_processor: Arc::new(message_processor_server),
             pubsub_servers: pubsub_servers.to_vec(),
             auth_provider: Some(AuthProvider::SharedSecret(SharedSecret::new(
-                "server", "test",
+                "server",
+                TEST_VALID_SECRET,
             ))),
             auth_verifier: Some(AuthVerifier::SharedSecret(SharedSecret::new(
-                "server", "test",
+                "server",
+                TEST_VALID_SECRET,
             ))),
         });
 
@@ -1448,10 +1450,12 @@ mod tests {
             message_processor: Arc::new(message_processor_client),
             pubsub_servers: pubsub_servers.to_vec(),
             auth_provider: Some(AuthProvider::SharedSecret(SharedSecret::new(
-                "client", "test",
+                "client",
+                TEST_VALID_SECRET,
             ))),
             auth_verifier: Some(AuthVerifier::SharedSecret(SharedSecret::new(
-                "client", "test",
+                "client",
+                TEST_VALID_SECRET,
             ))),
         });
 
