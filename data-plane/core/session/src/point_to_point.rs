@@ -1428,7 +1428,14 @@ mod tests {
 
         let session = PointToPoint::new(
             0,
-            PointToPointConfiguration::default(),
+            PointToPointConfiguration {
+                timeout: Some(Duration::from_millis(500)),
+                max_retries: Some(5),
+                mls_enabled: false,
+                peer_name: None,
+                initiator: true,
+                metadata: HashMap::new(),
+            },
             source.clone(),
             tx,
             SharedSecret::new("a", "group"),
@@ -1578,7 +1585,14 @@ mod tests {
         // this can be a standard p2p session
         let session_recv = PointToPoint::new(
             0,
-            PointToPointConfiguration::default(),
+            PointToPointConfiguration {
+                timeout: Some(Duration::from_millis(500)),
+                max_retries: Some(5),
+                mls_enabled: false,
+                peer_name: None,
+                initiator: false,
+                metadata: HashMap::new(),
+            },
             remote.clone(),
             tx_receiver,
             SharedSecret::new("a", "group"),
@@ -1751,7 +1765,7 @@ mod tests {
             &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
             None,
             None,
-            Some(ApplicationPayload::new("msg", vec![0x1, 0x2, 0x3, 0x4]).as_content()),
+            Some(ApplicationPayload::new("", vec![0x1, 0x2, 0x3, 0x4]).as_content()),
         );
 
         // set the session id in the message

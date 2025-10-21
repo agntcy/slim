@@ -793,7 +793,9 @@ where
         self.endpoint.set_route(&source).await?;
 
         // If names.moderator_name and names.channel_name are the same, skip the join
-        self.endpoint.subscribed = source == self.endpoint.channel_name;
+        if self.endpoint.session_type == ProtoSessionType::PointToPoint {
+            self.endpoint.subscribed = true;
+        }
 
         // set the moderator name after the set route
         self.moderator_name = Some(source);
@@ -2374,8 +2376,8 @@ mod tests {
                 true,
                 true,
                 true,
-                Some(5),
-                Some(Duration::from_secs(5)),
+                Some(3),
+                Some(Duration::from_millis(100)),
                 Some(channel_name.clone()),
             )
             .as_content(),

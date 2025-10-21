@@ -18,7 +18,6 @@ use crate::{errors::SessionError, interceptor::SessionInterceptor};
 // Metadata Keys
 pub const METADATA_MLS_ENABLED: &str = "MLS_ENABLED";
 pub const METADATA_MLS_INIT_COMMIT_ID: &str = "MLS_INIT_COMMIT_ID";
-const METADATA_MLS_ENCRYPTED: &str = "MLS_ENCRYPTED";
 
 pub struct MlsInterceptor<P, V>
 where
@@ -114,14 +113,6 @@ where
             _ => {}
         }
 
-        let is_encrypted =
-            msg.metadata.get(METADATA_MLS_ENCRYPTED).map(|v| v.as_str()) == Some("true");
-
-        if !is_encrypted {
-            debug!("Message not marked as encrypted, skipping decryption");
-            return Ok(());
-        }
-
         let payload = &msg.get_payload().unwrap().as_application_payload().blob;
 
         let decrypted_payload = {
@@ -138,8 +129,6 @@ where
         };
 
         msg.set_payload(ApplicationPayload::new("", decrypted_payload.to_vec()).as_content());
-        msg.remove_metadata(METADATA_MLS_ENCRYPTED);
-
         Ok(())
     }
 }
@@ -240,13 +229,6 @@ mod tests {
                 .blob,
             original_payload
         );
-        assert_eq!(
-            alice_msg
-                .metadata
-                .get(METADATA_MLS_ENCRYPTED)
-                .map(|v| v.as_str()),
-            Some("true")
-        );
 
         let mut bob_msg = alice_msg.clone();
         bob_interceptor
@@ -257,40 +239,6 @@ mod tests {
         assert_eq!(
             bob_msg.get_payload().unwrap().as_application_payload().blob,
             original_payload
-        );
-        assert_eq!(bob_msg.metadata.get(METADATA_MLS_ENCRYPTED), None);
-    }
-
-    #[tokio::test]
-    async fn test_mls_interceptor_non_encrypted_message() {
-        let name =
-            slim_datapath::messages::Name::from_strings(["org", "default", "test_user"]).with_id(0);
-        let mut mls = Mls::new(
-            name,
-            SharedSecret::new("test", "group"),
-            SharedSecret::new("test", "group"),
-            std::path::PathBuf::from("/tmp/mls_interceptor_test_non_encrypted"),
-        );
-        mls.initialize().unwrap();
-        mls.create_group().unwrap();
-
-        let mls_arc = Arc::new(Mutex::new(mls));
-        let interceptor = MlsInterceptor::new(mls_arc);
-
-        let payload =
-            Some(ApplicationPayload::new("text", b"plain text message".to_vec()).as_content());
-        let mut msg = Message::new_publish(
-            &slim_datapath::messages::Name::from_strings(["org", "default", "sender"]).with_id(0),
-            &slim_datapath::messages::Name::from_strings(["org", "default", "receiver"]),
-            None,
-            None,
-            payload,
-        );
-
-        interceptor.on_msg_from_slim(&mut msg).await.unwrap();
-        assert_eq!(
-            msg.get_payload().unwrap().as_application_payload().blob,
-            b"plain text message"
         );
     }
 }

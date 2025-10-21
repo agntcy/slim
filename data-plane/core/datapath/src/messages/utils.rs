@@ -40,9 +40,6 @@ pub enum MessageError {
     IncomingConnectionNotFound,
 }
 
-// Metadata Keys
-pub const SLIM_IDENTITY: &str = "SLIM_IDENTITY";
-
 /// ProtoName from Name
 impl From<&Name> for ProtoName {
     fn from(name: &Name) -> Self {

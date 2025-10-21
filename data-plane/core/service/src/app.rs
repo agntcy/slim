@@ -14,7 +14,7 @@ use slim_datapath::Status;
 use slim_datapath::api::MessageType;
 use slim_datapath::api::ProtoMessage as Message;
 use slim_datapath::messages::Name;
-use slim_datapath::messages::utils::{SLIM_IDENTITY, SlimHeaderFlags};
+use slim_datapath::messages::utils::SlimHeaderFlags;
 
 // Local crate
 use crate::ServiceError;
@@ -176,7 +176,7 @@ where
             .map_err(ServiceError::SessionError)?;
 
         // Add the identity to the message metadata
-        msg.insert_metadata(SLIM_IDENTITY.to_string(), identity);
+        msg.get_slim_header_mut().set_identity(identity);
 
         self.session_layer
             .tx_slim()
@@ -341,9 +341,8 @@ mod tests {
     use slim_session::point_to_point::PointToPointConfiguration;
 
     use slim_auth::shared_secret::SharedSecret;
-    use slim_datapath::{
-        api::{ApplicationPayload, ProtoMessage, ProtoSessionMessageType, ProtoSessionType},
-        messages::{Name, utils::SLIM_IDENTITY},
+    use slim_datapath::api::{
+        ApplicationPayload, ProtoMessage, ProtoSessionMessageType, ProtoSessionType,
     };
 
     #[allow(dead_code)]
@@ -534,8 +533,10 @@ mod tests {
         // As there is no identity, we should not get any message in the app
         assert!(rx_app.try_recv().is_err());
 
-        // Add identity to message
-        message.insert_metadata(SLIM_IDENTITY.to_string(), identity.get_token().unwrap());
+        // set the right identity
+        message
+            .get_slim_header_mut()
+            .set_identity(identity.get_token().unwrap());
 
         // Try again
         app.session_layer
@@ -598,7 +599,7 @@ mod tests {
         let mut message = ProtoMessage::new_publish(
             &source,
             &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
-            None,
+            Some(&identity.get_token().unwrap()),
             None,
             Some(ApplicationPayload::new("msg", vec![0x1, 0x2, 0x3, 0x4]).as_content()),
         );
@@ -622,9 +623,6 @@ mod tests {
             .await
             .expect("no message received")
             .expect("error");
-
-        // Add identity to message
-        message.insert_metadata(SLIM_IDENTITY.to_string(), identity.get_token().unwrap());
 
         msg.set_message_id(0);
         assert_eq!(msg, message);

@@ -36,7 +36,7 @@ use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType, SessionHeade
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::Name;
 use slim_datapath::messages::encoder::calculate_hash;
-use slim_datapath::messages::utils::{SLIM_IDENTITY, SlimHeaderFlags};
+use slim_datapath::messages::utils::SlimHeaderFlags;
 use slim_datapath::tables::SubscriptionTable;
 
 type TxChannel = mpsc::Sender<Result<ControlMessage, Status>>;
@@ -105,7 +105,7 @@ struct ControllerServiceInternal {
     connection_details: Vec<ConnectionDetails>,
 
     /// authentication provider for adding authentication to outgoing messages to clients
-    auth_provider: AuthProvider,
+    auth_provider: Option<AuthProvider>,
 
     /// authentication verifier for verifying incoming messages from clients
     _auth_verifier: Option<AuthVerifier>,
@@ -216,9 +216,7 @@ impl ControlPlane {
                     cancellation_tokens: parking_lot::RwLock::new(HashMap::new()),
                     drain_rx: config.drain_rx,
                     connection_details,
-                    auth_provider: config
-                        .auth_provider
-                        .expect("auth_provider is None and it is required but the controller"),
+                    auth_provider: config.auth_provider,
                     _auth_verifier: config.auth_verifier,
                 }),
             },
@@ -516,19 +514,20 @@ fn create_channel_message(
     request_type: ProtoSessionMessageType,
     session_id: u32,
     message_id: u32,
-    mut metadata: HashMap<String, String>,
     payload: Option<Content>,
-    auth_provider: &AuthProvider,
+    auth_provider: &Option<AuthProvider>,
 ) -> DataPlaneMessage {
-    let identity_token = auth_provider
-        .get_token()
-        .map_err(|e| {
-            error!("failed to generate identity token: {}", e);
-            ControllerError::DatapathError(e.to_string())
-        })
-        .unwrap();
-
-    metadata.insert(SLIM_IDENTITY.to_string(), identity_token.clone());
+    // if the auth_provider is set try to get an identity
+    let identity_token = if let Some(auth) = auth_provider {
+        auth.get_token()
+            .map_err(|e| {
+                error!("failed to generate identity token: {}", e);
+                ControllerError::DatapathError(e.to_string())
+            })
+            .unwrap()
+    } else {
+        "".to_string()
+    };
 
     let slim_header = Some(SlimHeader::new(source, destination, &identity_token, None));
 
@@ -539,18 +538,14 @@ fn create_channel_message(
         message_id,
     ));
 
-    let mut msg = DataPlaneMessage::new_publish_with_headers(slim_header, session_header, payload);
-
-    msg.set_metadata_map(metadata);
-
-    msg
+    DataPlaneMessage::new_publish_with_headers(slim_header, session_header, payload)
 }
 
 fn new_channel_message(
     controller: &Name,
     moderator: &Name,
     channel: &Name,
-    auth_provider: &AuthProvider,
+    auth_provider: &Option<AuthProvider>,
 ) -> DataPlaneMessage {
     let session_id = generate_session_id(moderator, channel);
 
@@ -581,7 +576,6 @@ fn new_channel_message(
         ProtoSessionMessageType::JoinRequest,
         session_id,
         rand::random::<u32>(),
-        metadata,
         invite_payload,
         auth_provider,
     )
@@ -591,7 +585,7 @@ fn delete_channel_message(
     controller: &Name,
     moderator: &Name,
     channel_name: &Name,
-    auth_provider: &AuthProvider,
+    auth_provider: &Option<AuthProvider>,
 ) -> DataPlaneMessage {
     let session_id = generate_session_id(moderator, channel_name);
 
@@ -606,7 +600,6 @@ fn delete_channel_message(
         ProtoSessionMessageType::LeaveRequest,
         session_id,
         rand::random::<u32>(),
-        metadata,
         payaload,
         auth_provider,
     )
@@ -617,7 +610,7 @@ fn invite_participant_message(
     moderator: &Name,
     participant: &Name,
     channel_name: &Name,
-    auth_provider: &AuthProvider,
+    auth_provider: &Option<AuthProvider>,
 ) -> DataPlaneMessage {
     let session_id = generate_session_id(moderator, channel_name);
     let mut metadata = HashMap::new();
@@ -639,7 +632,6 @@ fn invite_participant_message(
         ProtoSessionMessageType::DiscoveryRequest,
         session_id,
         rand::random::<u32>(),
-        metadata,
         payload,
         auth_provider,
     )
@@ -650,7 +642,7 @@ fn remove_participant_message(
     moderator: &Name,
     participant: &Name,
     channel_name: &Name,
-    auth_provider: &AuthProvider,
+    auth_provider: &Option<AuthProvider>,
 ) -> DataPlaneMessage {
     let session_id = generate_session_id(moderator, channel_name);
 
@@ -671,7 +663,6 @@ fn remove_participant_message(
         ProtoSessionMessageType::LeaveRequest,
         session_id,
         rand::random::<u32>(),
-        metadata,
         payload,
         auth_provider,
     )
@@ -737,15 +728,17 @@ impl ControllerService {
                             }
                         }
 
-                        let identity_token = &self
-                            .inner
-                            .auth_provider
-                            .get_token()
-                            .map_err(|e| {
-                                error!("failed to generate identity token: {}", e);
-                                ControllerError::DatapathError(e.to_string())
-                            })
-                            .unwrap();
+                        // if the auth_provider is set try to get an identity
+                        let identity_token = if let Some(auth) = &self.inner.auth_provider {
+                            auth.get_token()
+                                .map_err(|e| {
+                                    error!("failed to generate identity token: {}", e);
+                                    ControllerError::DatapathError(e.to_string())
+                                })
+                                .unwrap()
+                        } else {
+                            "".to_string()
+                        };
 
                         for subscription in &config.subscriptions_to_set {
                             if !self
@@ -781,7 +774,7 @@ impl ControllerService {
                             let msg = DataPlaneMessage::new_subscribe(
                                 &source,
                                 &name,
-                                Some(identity_token),
+                                Some(&identity_token),
                                 Some(SlimHeaderFlags::default().with_recv_from(conn)),
                             );
 
@@ -821,20 +814,22 @@ impl ControllerService {
                             ])
                             .with_id(subscription.id.unwrap_or(Name::NULL_COMPONENT));
 
-                            let identity_token = &self
-                                .inner
-                                .auth_provider
-                                .get_token()
-                                .map_err(|e| {
-                                    error!("failed to generate identity token: {}", e);
-                                    ControllerError::DatapathError(e.to_string())
-                                })
-                                .unwrap();
+                            // if the auth_provider is set try to get an identity
+                            let identity_token = if let Some(auth) = &self.inner.auth_provider {
+                                auth.get_token()
+                                    .map_err(|e| {
+                                        error!("failed to generate identity token: {}", e);
+                                        ControllerError::DatapathError(e.to_string())
+                                    })
+                                    .unwrap()
+                            } else {
+                                "".to_string()
+                            };
 
                             let msg = DataPlaneMessage::new_unsubscribe(
                                 &source,
                                 &name,
-                                Some(identity_token),
+                                Some(&identity_token),
                                 Some(SlimHeaderFlags::default().with_recv_from(conn)),
                             );
 

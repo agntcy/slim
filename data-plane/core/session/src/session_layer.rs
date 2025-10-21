@@ -9,7 +9,6 @@ use base64::Engine;
 // Third-party crates
 use parking_lot::RwLock as SyncRwLock;
 use rand::Rng;
-use slim_datapath::messages::utils::SLIM_IDENTITY;
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, warn};
@@ -534,7 +533,6 @@ where
                         conf.peer_name = Some(message.get_source());
                         conf.mls_enabled = payload.enable_mls;
 
-                        message.remove_metadata(SLIM_IDENTITY);
                         conf.metadata = message.get_metadata_map();
 
                         self.create_session(SessionConfig::PointToPoint(conf), local_name, Some(id))
@@ -548,7 +546,6 @@ where
                         // and then added to the messages sent by this session. so we need to erase the entries
                         // the we want to keep local: IS_MODERATOR and SLIM_IDENTITY
                         conf.initiator = message.remove_metadata("IS_MODERATOR").is_some();
-                        message.remove_metadata(SLIM_IDENTITY);
 
                         conf.metadata = message.get_metadata_map();
 

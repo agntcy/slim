@@ -142,11 +142,9 @@ where
                     debug!("draining period started, do not accept new messages");
                     return Ok(ReceiverDrainStatus::Initiated);
                 }
-                if self.timer_factory.is_some() {
-                    // the sender is waiting for the ack
+                if self.send_acks {
                     self.send_ack(&message).await?;
                 }
-                self.send_ack(&message).await?;
                 self.on_publish_message(message).await?;
             }
             slim_datapath::api::ProtoSessionMessageType::RtxReply => {

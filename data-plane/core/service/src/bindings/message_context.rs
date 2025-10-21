@@ -5,7 +5,6 @@ use std::collections::HashMap;
 
 use slim_datapath::api::{ProtoMessage, ProtoPublishType};
 use slim_datapath::messages::Name;
-use slim_datapath::messages::utils::SLIM_IDENTITY;
 
 use crate::errors::ServiceError;
 
@@ -85,10 +84,7 @@ impl MessageContext {
             })
             .unwrap_or_else(|| "msg".to_string());
         let metadata = msg.get_metadata_map();
-        let identity = metadata
-            .get(SLIM_IDENTITY)
-            .cloned()
-            .unwrap_or("".to_string());
+        let identity = msg.get_identity();
 
         let ctx = Self::new(
             source,
@@ -180,9 +176,8 @@ mod tests {
         let mut metadata = HashMap::new();
         metadata.insert("trace_id".to_string(), "abc123".to_string());
         metadata.insert("user_id".to_string(), "user456".to_string());
-        metadata.insert(SLIM_IDENTITY.to_string(), identity.clone());
 
-        let proto_msg = create_test_proto_message(
+        let mut proto_msg = create_test_proto_message(
             source_name.clone(),
             dest_name.clone(),
             connection_id,
@@ -191,6 +186,10 @@ mod tests {
             metadata.clone(),
         );
 
+        // set identity
+        proto_msg
+            .get_slim_header_mut()
+            .set_identity(identity.clone());
         // Test from_proto_message
         let result = MessageContext::from_proto_message(proto_msg);
         assert!(result.is_ok());
