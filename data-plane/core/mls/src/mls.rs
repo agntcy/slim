@@ -777,8 +777,14 @@ mod tests {
 
         let mut alice_rotated_secret = Mls::new(
             alice_name,
-            SharedSecret::new("alice", "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas123"),
-            SharedSecret::new("alice", "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas123"),
+            SharedSecret::new(
+                "alice",
+                "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas123",
+            ),
+            SharedSecret::new(
+                "alice",
+                "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas123",
+            ),
             std::path::PathBuf::from("/tmp/mls_test_rotation_alice_v2"),
         );
         alice_rotated_secret.initialize()?;
