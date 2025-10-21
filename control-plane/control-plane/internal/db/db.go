@@ -8,6 +8,8 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
+const AllNodesID = "*"
+
 type DataAccess interface {
 	ListNodes() []Node
 	GetNode(id string) (*Node, error)

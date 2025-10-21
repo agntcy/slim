@@ -328,7 +328,7 @@ func (d *dbService) GetRoutesForDestinationNodeID(nodeID string) []Route {
 
 	var routes []Route
 	for _, route := range d.routes {
-		if route.DestNodeID == nodeID {
+		if route.DestNodeID == nodeID && route.SourceNodeID != AllNodesID {
 			routes = append(routes, route)
 		}
 	}

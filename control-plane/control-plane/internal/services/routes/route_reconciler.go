@@ -1,9 +1,7 @@
 package routes
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"reflect"
 
@@ -72,58 +70,6 @@ func (s *RouteReconciler) Run(ctx context.Context) {
 	}
 }
 
-func (s *RouteReconciler) getConnectionDetails(route db.Route) (controllerapi.Connection, error) {
-	if route.DestNodeID == "" {
-		return controllerapi.Connection{
-			ConnectionId: route.DestEndpoint,
-			ConfigData:   route.ConnConfigData,
-		}, nil
-	}
-
-	destNode, err := s.dbService.GetNode(route.DestNodeID)
-	if err != nil {
-		return controllerapi.Connection{}, fmt.Errorf("failed to fetch destination node %s: %w", route.DestNodeID, err)
-	}
-	if len(destNode.ConnDetails) == 0 {
-		return controllerapi.Connection{}, fmt.Errorf("no connections found for destination node %s", destNode.ID)
-	}
-	srcNode, err2 := s.dbService.GetNode(route.SourceNodeID)
-	if err2 != nil {
-		return controllerapi.Connection{}, fmt.Errorf("failed to fetch destination node %s: %w", route.DestNodeID, err2)
-	}
-
-	connDetails, localConnection := selectConnection(destNode, srcNode)
-	connID, configData, err := generateConfigData(connDetails, localConnection)
-	if err != nil {
-		return controllerapi.Connection{}, fmt.Errorf("failed to generate config data for route %v: %w", route, err)
-	}
-
-	return controllerapi.Connection{
-		ConnectionId: connID, // Use endpoint with schema as connection ID
-		ConfigData:   configData,
-	}, nil
-}
-
-// selectConnection selects the most appropriate connection details from the destination node's connections.
-// Returns first connection from source to destination node and true if nodes have the same group name,
-// or the first connection with external endpoint specified and false otherwise,
-// meaning that externalEndpoint should be used to set up connection from src node.
-func selectConnection(dstNode *db.Node, srcNode *db.Node) (db.ConnectionDetails, bool) {
-	if dstNode.GroupName == nil && srcNode.GroupName == nil ||
-		(dstNode.GroupName != nil && srcNode.GroupName != nil && *dstNode.GroupName == *srcNode.GroupName) {
-		// same group, return first connection
-		return dstNode.ConnDetails[0], true
-	}
-	// different groups, return first connection with external endpoint defined
-	for _, conn := range dstNode.ConnDetails {
-		if conn.ExternalEndpoint != nil && *conn.ExternalEndpoint != "" {
-			return conn, false
-		}
-	}
-	// no external endpoint defined, return first connection
-	return dstNode.ConnDetails[0], false
-}
-
 // handleRequest processes a node registration request
 // When a node is registered, it fetches all connections and subscriptions and routes from DbService
 // and wraps them in a ConfigurationCommand message to send to the node
@@ -153,13 +99,8 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 	routes := s.dbService.GetRoutesForNodeID(nodeID)
 	for _, route := range routes {
 		// create connection and subscription for each route
-		apiConnection, err := s.getConnectionDetails(route)
-		if err != nil {
-			zlog.Error().Err(err).Msgf("Failed to get connection details for route %v, skipping", route)
-			continue
-		}
 		apiSubscription := &controllerapi.Subscription{
-			ConnectionId: apiConnection.ConnectionId, // Use endpoint as connection ID
+			ConnectionId: route.DestEndpoint, // Use endpoint as connection ID
 			Component_0:  route.Component0,
 			Component_1:  route.Component1,
 			Component_2:  route.Component2,
@@ -175,7 +116,10 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 			deleteSubscriptionToRouteID[subscriptionKey] = route.GetID()
 			continue
 		}
-		apiConnections[apiConnection.ConnectionId] = &apiConnection
+		apiConnections[route.DestEndpoint] = &controllerapi.Connection{
+			ConnectionId: route.DestEndpoint,
+			ConfigData:   route.ConnConfigData,
+		}
 		apiSubscriptions = append(apiSubscriptions, apiSubscription)
 		subscriptionToRouteID[subscriptionKey] = route.GetID()
 	}
@@ -380,66 +324,4 @@ func (s *RouteReconciler) getSubscriptionErrorKey(subErr *controllerapi.Subscrip
 	connID := subErr.GetSubscription().GetConnectionId()
 	return fmt.Sprintf("%s:%s:%s:%s%s", connID,
 		subErr.Subscription.Component_0, subErr.Subscription.Component_1, subErr.Subscription.Component_2, idStr)
-}
-
-func generateConfigData(detail db.ConnectionDetails, localConnection bool) (string, string, error) {
-	truev := true
-	falsev := false
-	skipVerify := false
-	config := ConnectionConfig{
-		Endpoint: detail.Endpoint,
-	}
-	if !localConnection {
-		if detail.ExternalEndpoint == nil || *detail.ExternalEndpoint == "" {
-			return "", "", fmt.Errorf("no external endpoint defined for connection %v", detail)
-		}
-		config.Endpoint = *detail.ExternalEndpoint
-	} else {
-		skipVerify = true // skip verification for local connections
-	}
-	if !detail.MTLSRequired {
-		config.Endpoint = "http://" + config.Endpoint
-		config.TLS = &TLS{Insecure: &truev}
-	} else {
-		config.Endpoint = "https://" + config.Endpoint
-		config.TLS = &TLS{
-			Insecure:           &falsev,
-			InsecureSkipVerify: &skipVerify,
-			CERTFile:           stringPtr("/svids/tls.crt"),
-			KeyFile:            stringPtr("/svids/tls.key"),
-			CAFile:             stringPtr("/svids/svid_bundle.pem"),
-		}
-	}
-	var bufferSize int64 = 1024
-	config.BufferSize = &bufferSize
-	gzip := Gzip
-	config.Compression = &gzip
-	config.ConnectTimeout = stringPtr("10s")
-	config.Headers = map[string]string{
-		"x-custom-header": "value",
-	}
-
-	config.Keepalive = &KeepaliveClass{
-		HTTPClient2Keepalive: stringPtr("2h"),
-		KeepAliveWhileIdle:   &falsev,
-		TCPKeepalive:         stringPtr("20s"),
-		Timeout:              stringPtr("20s"),
-	}
-	config.Origin = stringPtr("https://client.example.com")
-	config.RateLimit = stringPtr("20/60")
-	config.RequestTimeout = stringPtr("30s")
-
-	// render struct as json
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	err := enc.Encode(config)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to encode connection config: %w", err)
-	}
-
-	return config.Endpoint, buf.String(), nil
-}
-
-func stringPtr(s string) *string {
-	return &s
 }
