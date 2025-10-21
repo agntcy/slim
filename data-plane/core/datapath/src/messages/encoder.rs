@@ -37,11 +37,7 @@ impl std::fmt::Display for Name {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{:x}/{:x}/{:x}/{:x} ({}/{}/{}/{:x})",
-            self.components[0],
-            self.components[1],
-            self.components[2],
-            self.components[3],
+            "{}/{}/{}/{:x}",
             self.strings[0],
             self.strings[1],
             self.strings[2],

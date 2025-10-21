@@ -599,7 +599,7 @@ mod tests {
         let mut message = ProtoMessage::new_publish(
             &source,
             &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
-            Some(&identity.get_token().unwrap()),
+            None,
             None,
             Some(ApplicationPayload::new("msg", vec![0x1, 0x2, 0x3, 0x4]).as_content()),
         );
@@ -623,6 +623,8 @@ mod tests {
             .await
             .expect("no message received")
             .expect("error");
+
+        msg.get_slim_header_mut().set_identity("".to_string());
 
         msg.set_message_id(0);
         assert_eq!(msg, message);
