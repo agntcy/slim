@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::errors::AuthError;
+use crate::jwt::extract_sub_claim_unsafe;
 use crate::resolver::JwksCache;
 use crate::traits::{TokenProvider, Verifier};
 use async_trait::async_trait;
@@ -375,6 +376,11 @@ impl TokenProvider for OidcTokenProvider {
             cache_key
         )))
     }
+
+    fn get_id(&self) -> Result<String, AuthError> {
+        let token = self.get_token()?;
+        extract_sub_claim_unsafe(&token)
+    }
 }
 
 impl Drop for OidcTokenProvider {
@@ -541,10 +547,8 @@ impl Verifier for OidcVerifier {
             let _: serde_json::Value = self.verify_token_util(&token, &cached_jwks)?;
             Ok(())
         } else {
-            Err(AuthError::VerificationError(
-                "No cached JWKS available for verification. Use verify() method instead."
-                    .to_string(),
-            ))
+            // Indicate that a blocking (network) operation would be required
+            Err(AuthError::WouldBlockOn)
         }
     }
 
@@ -595,9 +599,6 @@ mod tests {
         // Test token retrieval
         let token = provider.get_token().unwrap();
         assert_eq!(token, expected_token);
-
-        // Verify mock was called
-        // The mock server automatically verifies that the expected requests were made
     }
 
     #[tokio::test]

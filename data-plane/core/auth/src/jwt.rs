@@ -340,7 +340,7 @@ impl<V> Jwt<V> {
             return Ok(cached_claims);
         }
 
-        // Try to decode the key from the cache first
+        // Try to decode the key from the cache first; if this would require async, return WouldBlockOn
         let decoding_key = self.decoding_key(&token)?;
 
         // If we have a decoding key, proceed with verification
@@ -475,12 +475,18 @@ impl<V> Jwt<V> {
                 AuthError::ConfigError("no issuer found in JWT claims".to_string())
             })?;
 
-            return resolver.get_cached_key(issuer, &token_data.header);
+            match resolver.get_cached_key(issuer, &token_data.header) {
+                Ok(k) => return Ok(k),
+                Err(_e) => {
+                    // No cached key yet; async resolution would be required.
+                    return Err(AuthError::WouldBlockOn);
+                }
+            }
         }
 
-        // If we don't have a decoding key and no resolver, we can't proceed
+        // If we don't have a decoder
         Err(AuthError::ConfigError(
-            "Decoding key not configured for JWT verification".to_string(),
+            "no resolver available for JWT key resolution".to_string(),
         ))
     }
 
@@ -530,11 +536,23 @@ impl TokenProvider for SignerJwt {
     fn get_token(&self) -> Result<String, AuthError> {
         self.sign_internal_claims()
     }
+
+    fn get_id(&self) -> Result<String, AuthError> {
+        self.claims
+            .sub
+            .clone()
+            .ok_or(AuthError::TokenInvalid("missing subject claim".to_string()))
+    }
 }
 
 impl TokenProvider for StaticTokenProvider {
     fn get_token(&self) -> Result<String, AuthError> {
         self.get_token()
+    }
+
+    fn get_id(&self) -> Result<String, AuthError> {
+        let token = self.get_token()?;
+        extract_sub_claim_unsafe(&token)
     }
 }
 
@@ -565,6 +583,28 @@ impl Verifier for VerifierJwt {
     {
         self.try_verify_claims(token)
     }
+}
+
+/// Helper function to extract the 'sub' claim from a JWT token without signature validation
+pub(crate) fn extract_sub_claim_unsafe(token: &str) -> Result<String, AuthError> {
+    let mut validation = Validation::default();
+    validation.insecure_disable_signature_validation();
+
+    // Decode the token without signature validation
+    let token_data = decode::<serde_json::Value>(
+        token,
+        &DecodingKey::from_secret(&[]), // Empty key since we're not validating
+        &validation,
+    )
+    .map_err(|e| AuthError::TokenInvalid(format!("Failed to decode token: {}", e)))?;
+
+    // Extract the 'sub' claim
+    token_data
+        .claims
+        .get("sub")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| AuthError::TokenInvalid("Missing 'sub' claim in token".to_string()))
 }
 
 #[cfg(test)]
@@ -680,6 +720,28 @@ mod tests {
         }
 
         delete_file(file_name).expect("error deleting file");
+    }
+
+    #[test]
+    fn test_jwt_try_verify_would_block_on_missing_cached_key_valid_token() {
+        // Build verifier with auto_resolve (no cached key yet)
+        let verifier = JwtBuilder::new()
+            .issuer("test-issuer")
+            .audience(&["test-audience"])
+            .subject("test-subject")
+            .auto_resolve_keys(true)
+            .build()
+            .unwrap();
+        // Use test utility to generate a syntactically valid unsigned token
+        let token =
+            crate::testutils::generate_test_token("test-issuer", "test-audience", "test-subject");
+
+        let res = verifier.try_verify(&token);
+        assert!(
+            matches!(res, Err(AuthError::WouldBlockOn)),
+            "Expected WouldBlockOn, got {:?}",
+            res
+        );
     }
 
     #[tokio::test]
@@ -1029,6 +1091,134 @@ mod tests {
         assert!(
             result.is_err(),
             "Should have failed due to missing decoding key"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_signer_jwt_get_id() {
+        let signer = JwtBuilder::new()
+            .issuer("test-issuer")
+            .audience(&["test-audience"])
+            .subject("test-user-123")
+            .private_key(&Key {
+                algorithm: Algorithm::HS256,
+                format: KeyFormat::Pem,
+                key: KeyData::Str("secret".to_string()),
+            })
+            .build()
+            .unwrap();
+
+        let id = signer.get_id().unwrap();
+        assert_eq!(id, "test-user-123");
+    }
+
+    #[tokio::test]
+    async fn test_signer_jwt_get_id_missing_sub() {
+        let signer = JwtBuilder::new()
+            .issuer("test-issuer")
+            .audience(&["test-audience"])
+            // No subject set
+            .private_key(&Key {
+                algorithm: Algorithm::HS256,
+                format: KeyFormat::Pem,
+                key: KeyData::Str("secret".to_string()),
+            })
+            .build()
+            .unwrap();
+
+        let result = signer.get_id();
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("missing subject claim")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_static_token_provider_get_id() {
+        // Create a valid JWT token with sub claim
+        let header = JwtHeader::new(Algorithm::HS256);
+        let claims = serde_json::json!({
+            "sub": "static-user-456",
+            "exp": (SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() + 3600)
+        });
+        let key = EncodingKey::from_secret(b"secret");
+        let token = encode(&header, &claims, &key).unwrap();
+
+        let provider: StaticTokenProvider = Jwt::<P>::new(
+            StandardClaims::new(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+                    + 3600,
+            ),
+            Duration::from_secs(3600),
+            Validation::default(),
+        )
+        .with_static_token(Arc::new(RwLock::new(token)));
+
+        let id = provider.get_id().unwrap();
+        assert_eq!(id, "static-user-456");
+    }
+
+    #[tokio::test]
+    async fn test_static_token_provider_get_id_invalid_token() {
+        let provider: StaticTokenProvider = Jwt::<P>::new(
+            StandardClaims::new(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+                    + 3600,
+            ),
+            Duration::from_secs(3600),
+            Validation::default(),
+        )
+        .with_static_token(Arc::new(RwLock::new("invalid.token.here".to_string())));
+
+        let result = provider.get_id();
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Failed to decode token")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_static_token_provider_get_id_missing_sub() {
+        // Create a JWT token without sub claim
+        let header = JwtHeader::new(Algorithm::HS256);
+        let claims = serde_json::json!({
+            "exp": (SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() + 3600)
+        });
+        let key = EncodingKey::from_secret(b"secret");
+        let token = encode(&header, &claims, &key).unwrap();
+
+        let provider: StaticTokenProvider = Jwt::<P>::new(
+            StandardClaims::new(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+                    + 3600,
+            ),
+            Duration::from_secs(3600),
+            Validation::default(),
+        )
+        .with_static_token(Arc::new(RwLock::new(token)));
+
+        let result = provider.get_id();
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Missing 'sub' claim in token")
         );
     }
 }

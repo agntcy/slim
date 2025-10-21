@@ -65,11 +65,11 @@ where
     /// This method encapsulates all creation logic including:
     /// - Service management (global vs local)
     /// - Token validation
-    /// - Name generation with random ID
+    /// - Name generation with token ID
     /// - Adapter creation
     ///
     /// # Arguments
-    /// * `base_name` - Base name for the app (will have random ID appended)
+    /// * `base_name` - Base name for the app (will have token ID appended)
     /// * `identity_provider` - Authentication provider
     /// * `identity_verifier` - Authentication verifier
     /// * `use_local_service` - If true, creates a local service; if false, uses global service
@@ -88,8 +88,19 @@ where
             ServiceError::ConfigError(format!("Failed to get token from provider: {}", e))
         })?;
 
-        // Generate name with random ID
-        let app_name = base_name.with_id(rand::random::<u64>());
+        // Get ID from token and generate name with token ID
+        let token_id = identity_provider.get_id().map_err(|e| {
+            ServiceError::ConfigError(format!("Failed to get ID from token: {}", e))
+        })?;
+
+        // Use a hash of the token ID to convert to u64 for name generation
+        let id_hash = {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            token_id.hash(&mut hasher);
+            hasher.finish()
+        };
+        let app_name = base_name.with_id(id_hash);
 
         // Create or get service
         let service_ref = if use_local_service {
@@ -236,6 +247,7 @@ mod tests {
     use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::messages::Name;
 
+    use slim_auth::testutils::TEST_VALID_SECRET;
     use slim_session::point_to_point::PointToPointConfiguration;
     use slim_session::{Notification, SessionConfig, SessionError, SessionType};
 
@@ -255,8 +267,8 @@ mod tests {
 
     /// Create test authentication components
     fn create_test_auth() -> (TestProvider, TestVerifier) {
-        let provider = SharedSecret::new("test-app", "test-secret");
-        let verifier = SharedSecret::new("test-app", "test-secret");
+        let provider = SharedSecret::new("test-app", TEST_VALID_SECRET);
+        let verifier = SharedSecret::new("test-app", TEST_VALID_SECRET);
         (provider, verifier)
     }
 
@@ -619,5 +631,134 @@ mod tests {
         // Verify adapter still handles app-level operations
         assert!(adapter.id() > 0);
         assert!(!adapter.name().to_string().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_new_uses_token_id_for_name_generation() {
+        let base_name = create_test_name();
+        let (provider, verifier) = create_test_auth();
+
+        // Get the token ID from the same provider instance before using it
+        let token_id = provider.get_id().expect("Failed to get token ID");
+        let expected_id = {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            token_id.hash(&mut hasher);
+            hasher.finish()
+        };
+
+        let result = BindingsAdapter::new(base_name, provider, verifier, false).await;
+        assert!(result.is_ok());
+
+        let (adapter, _service_ref) = result.unwrap();
+
+        // The ID should be derived from the token, not random
+        let app_id = adapter.id();
+        assert!(app_id > 0);
+        assert_eq!(app_id, expected_id);
+    }
+
+    #[tokio::test]
+    async fn test_deterministic_name_generation_same_token() {
+        let base_name = create_test_name();
+        // Use the same SharedSecret instances to ensure same token IDs
+        let provider = SharedSecret::new("test-app", TEST_VALID_SECRET);
+        let verifier = SharedSecret::new("test-app", TEST_VALID_SECRET);
+
+        // Create two adapters with the same authentication (should produce same ID)
+        let result1 =
+            BindingsAdapter::new(base_name.clone(), provider.clone(), verifier.clone(), false)
+                .await;
+        assert!(result1.is_ok());
+        let (adapter1, _) = result1.unwrap();
+
+        let result2 = BindingsAdapter::new(base_name, provider, verifier, false).await;
+        assert!(result2.is_ok());
+        let (adapter2, _) = result2.unwrap();
+
+        // Both adapters should have the same ID since they use the same token
+        assert_eq!(adapter1.id(), adapter2.id());
+        assert_eq!(adapter1.name().id(), adapter2.name().id());
+    }
+
+    #[tokio::test]
+    async fn test_different_tokens_produce_different_ids() {
+        let base_name = create_test_name();
+
+        // Create two different authentication providers
+        let provider1 = SharedSecret::new("app1", "secret1-shared-secret-value-0123456789abcdef");
+        let verifier1 = SharedSecret::new("app1", "secret1-shared-secret-value-0123456789abcdef");
+
+        let provider2 = SharedSecret::new("app2", "secret2-shared-secret-value-0123456789abcdef");
+        let verifier2 = SharedSecret::new("app2", "secret2-shared-secret-value-0123456789abcdef");
+
+        let result1 = BindingsAdapter::new(base_name.clone(), provider1, verifier1, false).await;
+        assert!(result1.is_ok());
+        let (adapter1, _) = result1.unwrap();
+
+        let result2 = BindingsAdapter::new(base_name, provider2, verifier2, false).await;
+        assert!(result2.is_ok());
+        let (adapter2, _) = result2.unwrap();
+
+        // Different tokens should produce different IDs
+        assert_ne!(adapter1.id(), adapter2.id());
+        assert_ne!(adapter1.name().id(), adapter2.name().id());
+    }
+
+    #[tokio::test]
+    async fn test_consistent_id_generation_multiple_calls() {
+        // Test that multiple calls with the same SharedSecret instance produce consistent results
+        let base_name = create_test_name();
+        let provider = SharedSecret::new("test-app", TEST_VALID_SECRET);
+        let verifier = SharedSecret::new("test-app", TEST_VALID_SECRET);
+
+        // Since SharedSecret instances are created separately, they will have different random suffixes
+        // But we can test that the same instance produces consistent results
+        let token_id = provider.get_id().expect("Failed to get ID");
+        let expected_hash = {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            token_id.hash(&mut hasher);
+            hasher.finish()
+        };
+
+        let result1 =
+            BindingsAdapter::new(base_name.clone(), provider.clone(), verifier.clone(), false)
+                .await;
+        let result2 = BindingsAdapter::new(base_name, provider, verifier, false).await;
+
+        assert!(result1.is_ok());
+        assert!(result2.is_ok());
+
+        let (adapter1, _) = result1.unwrap();
+        let (adapter2, _) = result2.unwrap();
+
+        // Both should have the same computed hash ID since we used the same provider instance
+        assert_eq!(adapter1.id(), expected_hash);
+        assert_eq!(adapter2.id(), expected_hash);
+        assert_eq!(adapter1.id(), adapter2.id());
+    }
+
+    #[tokio::test]
+    async fn test_hash_id_generation() {
+        // Test that the hash generation produces expected results
+        let base_name = create_test_name();
+        let (provider, verifier) = create_test_auth();
+
+        // Get the token ID and compute expected hash manually
+        let token_id = provider.get_id().expect("Failed to get token ID");
+        let expected_hash = {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            token_id.hash(&mut hasher);
+            hasher.finish()
+        };
+
+        let result = BindingsAdapter::new(base_name, provider, verifier, false).await;
+        assert!(result.is_ok());
+
+        let (adapter, _) = result.unwrap();
+        assert_eq!(adapter.id(), expected_hash);
+        assert_eq!(adapter.name().id(), expected_hash);
     }
 }

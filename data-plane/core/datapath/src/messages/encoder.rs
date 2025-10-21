@@ -47,7 +47,6 @@ impl std::fmt::Display for Name {
             self.strings[2],
             self.components[3]
         )?;
-
         Ok(())
     }
 }

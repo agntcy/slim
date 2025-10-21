@@ -2237,6 +2237,7 @@ mod tests {
 
     use super::*;
     use slim_auth::shared_secret::SharedSecret;
+    use slim_auth::testutils::TEST_VALID_SECRET;
     use tracing_test::traced_test;
 
     use slim_datapath::messages::Name;
@@ -2261,16 +2262,16 @@ mod tests {
 
         let moderator_mls = MlsState::new(Arc::new(Mutex::new(Mls::new(
             moderator.clone(),
-            SharedSecret::new("moderator", "group"),
-            SharedSecret::new("moderator", "group"),
+            SharedSecret::new("moderator", TEST_VALID_SECRET),
+            SharedSecret::new("moderator", TEST_VALID_SECRET),
             std::path::PathBuf::from("/tmp/test_moderator_mls"),
         ))))
         .unwrap();
 
         let participant_mls = MlsState::new(Arc::new(Mutex::new(Mls::new(
             participant.clone(),
-            SharedSecret::new("participant", "group"),
-            SharedSecret::new("participant", "group"),
+            SharedSecret::new("participant", TEST_VALID_SECRET),
+            SharedSecret::new("participant", TEST_VALID_SECRET),
             std::path::PathBuf::from("/tmp/test_participant_mls"),
         ))))
         .unwrap();
