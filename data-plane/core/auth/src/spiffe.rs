@@ -178,6 +178,11 @@ impl TokenProvider for SpiffeProvider {
         let jwt_svid = self.get_jwt_svid()?;
         Ok(jwt_svid.token().to_string())
     }
+
+    fn get_id(&self) -> Result<String, AuthError> {
+        let jwt_svid = self.get_jwt_svid()?;
+        Ok(jwt_svid.spiffe_id().to_string())
+    }
 }
 
 // JwtSource: background-refreshing source of JWT SVIDs modeled after X509Source APIs
@@ -562,9 +567,7 @@ impl Verifier for SpiffeJwtVerifier {
                 debug!("Successfully verified JWT token");
                 Ok(())
             }
-            None => Err(AuthError::ConfigError(
-                "No JWT bundles cached; cannot verify token".to_string(),
-            )),
+            None => Err(AuthError::WouldBlockOn),
         }
     }
 
@@ -616,10 +619,7 @@ impl Verifier for SpiffeJwtVerifier {
                     AuthError::ConfigError(format!("Failed to deserialize JWT claims: {}", e))
                 })
             }
-            None => Err(AuthError::ConfigError(
-                "SPIFFE JWT claims retrieval requires async context. Use get_claims() instead"
-                    .to_string(),
-            )),
+            None => Err(AuthError::WouldBlockOn),
         }
     }
 }
@@ -691,8 +691,7 @@ mod tests {
         let verifier = SpiffeJwtVerifier::new(spiffe_config);
         let res = verifier.try_verify("token".to_string());
         assert!(res.is_err());
-        let err = format!("{}", res.unwrap_err());
-        assert!(err.contains("No JWT bundles cached"));
+        assert!(matches!(res, Err(AuthError::WouldBlockOn)));
     }
 
     #[tokio::test]
@@ -705,8 +704,7 @@ mod tests {
         let claims_result: Result<serde_json::Value, AuthError> =
             verifier.try_get_claims("token".to_string());
         assert!(claims_result.is_err());
-        let err = format!("{}", claims_result.unwrap_err());
-        assert!(err.contains("SPIFFE JWT claims retrieval requires async context"));
+        assert!(matches!(claims_result, Err(AuthError::WouldBlockOn)));
     }
 
     #[tokio::test]
@@ -1054,9 +1052,9 @@ mod tests {
         // Even with cached bundles (if any), invalid token should fail
         let result = verifier.try_verify("not.a.valid.jwt.token");
         assert!(result.is_err());
-        // Could be either "No JWT bundles cached" or token validation error
-        let err = format!("{}", result.unwrap_err());
-        assert!(err.contains("No JWT bundles cached") || err.contains("JWT"));
+        // It can be either WouldBlockOn or TokenInvalid depending on bundle availability
+        // Since we have not initialized verifier, it should be WouldBlockOn
+        assert!(matches!(result, Err(AuthError::WouldBlockOn)));
     }
 
     #[tokio::test]
@@ -1070,8 +1068,9 @@ mod tests {
         // Should return specific error about async context requirement
         let result: Result<serde_json::Value, AuthError> = verifier.try_get_claims("invalid.token");
         assert!(result.is_err());
-        let err = format!("{}", result.unwrap_err());
-        assert!(err.contains("SPIFFE JWT claims retrieval requires async context"));
+        // It can be either WouldBlockOn or TokenInvalid depending on bundle availability
+        // Since we have not initialized verifier, it should be WouldBlockOn
+        assert!(matches!(result, Err(AuthError::WouldBlockOn)));
     }
 
     #[test]
