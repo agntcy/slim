@@ -591,6 +591,16 @@ impl TokenProvider for StaticTokenProvider {
         let token = self.get_token()?;
         extract_sub_claim_unsafe(&token)
     }
+
+    fn get_token_with_claims(
+        &self,
+        _custom_claims: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Result<String, AuthError> {
+        // This provider does not support custom claims in the token
+        Err(AuthError::UnsupportedOperation(
+            "StaticTokenProvider does not support custom claims".to_string(),
+        ))
+    }
 }
 
 #[async_trait]

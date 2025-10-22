@@ -61,6 +61,7 @@ dependencies = [
  "headers",
  "http",
  "jsonwebtoken-aws-lc",
+ "libc",
  "notify",
  "oauth2",
  "parking_lot",
@@ -83,6 +84,7 @@ dependencies = [
  "tracing",
  "tracing-test",
  "url",
+ "uuid",
  "wiremock",
 ]
 
