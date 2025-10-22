@@ -519,3 +519,18 @@ func generateConfigData(detail db.ConnectionDetails, localConnection bool) (stri
 func stringPtr(s string) *string {
 	return &s
 }
+
+func (s *RouteService) ListRoutes(_ context.Context,
+	request *controlplaneApi.RouteListRequest) (*controlplaneApi.RouteListResponse, error) {
+
+	allRoutes := s.dbService.FilterRoutesBySourceAndDestination(request.GetSrcNodeId(), request.GetDestNodeId())
+	routIDs := make([]string, 0, len(allRoutes))
+	for _, r := range allRoutes {
+		routIDs = append(routIDs, r.GetID())
+	}
+
+	return &controlplaneApi.RouteListResponse{
+		Routes: routIDs,
+	}, nil
+
+}
