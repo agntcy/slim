@@ -6,8 +6,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
-use base64::Engine;
-
 use slim_config::component::id::ID;
 use slim_config::grpc::server::ServerConfig;
 use slim_config::metadata::MetadataValue;
@@ -561,16 +559,7 @@ fn new_channel_message(
         .as_content(),
     );
 
-    let mut metadata = HashMap::new();
-
-    metadata.insert("IS_MODERATOR".to_string(), "true".to_string());
-
-    // by default MLS is always on
-    // TODO(micpapal): define all these metadata constants somewhere
-    // that is accessible everywhere
-    metadata.insert("MLS_ENABLED".to_string(), "true".to_string());
-
-    create_channel_message(
+    let mut msg = create_channel_message(
         controller,
         moderator,
         ProtoSessionMessageType::JoinRequest,
@@ -578,7 +567,10 @@ fn new_channel_message(
         rand::random::<u32>(),
         invite_payload,
         auth_provider,
-    )
+    );
+
+    msg.insert_metadata("IS_MODERATOR".to_string(), "true".to_string());
+    msg
 }
 
 fn delete_channel_message(
@@ -589,12 +581,9 @@ fn delete_channel_message(
 ) -> DataPlaneMessage {
     let session_id = generate_session_id(moderator, channel_name);
 
-    let mut metadata = HashMap::new();
-    metadata.insert("DELETE_GROUP".to_string(), "true".to_string());
-
     let payaload = Some(CommandPayload::new_leave_request_payload(None).as_content());
 
-    create_channel_message(
+    let mut msg = create_channel_message(
         controller,
         moderator,
         ProtoSessionMessageType::LeaveRequest,
@@ -602,7 +591,10 @@ fn delete_channel_message(
         rand::random::<u32>(),
         payaload,
         auth_provider,
-    )
+    );
+
+    msg.insert_metadata("DELETE_GROUP".to_string(), "true".to_string());
+    msg
 }
 
 fn invite_participant_message(
@@ -613,15 +605,6 @@ fn invite_participant_message(
     auth_provider: &Option<AuthProvider>,
 ) -> DataPlaneMessage {
     let session_id = generate_session_id(moderator, channel_name);
-    let mut metadata = HashMap::new();
-
-    let encoded_participant: Vec<u8> =
-        bincode::encode_to_vec(participant, bincode::config::standard())
-            .expect("unable to encode channel join payload");
-    let encoded_participant_str =
-        base64::engine::general_purpose::STANDARD.encode(&encoded_participant);
-
-    metadata.insert("PARTICIPANT_NAME".to_string(), encoded_participant_str);
 
     let payload =
         Some(CommandPayload::new_discovery_request_payload(Some(participant.clone())).as_content());
@@ -645,14 +628,6 @@ fn remove_participant_message(
     auth_provider: &Option<AuthProvider>,
 ) -> DataPlaneMessage {
     let session_id = generate_session_id(moderator, channel_name);
-
-    let mut metadata = HashMap::new();
-    let encoded_participant: Vec<u8> =
-        bincode::encode_to_vec(participant, bincode::config::standard())
-            .expect("unable to encode channel join payload");
-    let encoded_participant_str =
-        base64::engine::general_purpose::STANDARD.encode(&encoded_participant);
-    metadata.insert("PARTICIPANT_NAME".to_string(), encoded_participant_str);
 
     let payload =
         Some(CommandPayload::new_leave_request_payload(Some(participant.clone())).as_content());

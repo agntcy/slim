@@ -149,7 +149,7 @@ message JoinRequestPayload {
   // true if mls is enabled
   bool enable_mls = 3;
   // settings for timers for rtx and acks
-  optional TimerSettings timer_settings = 4; 
+  optional TimerSettings timer_settings = 4;
   // name where to send the messages
   // it can be a channel or the same as the moderator
   optional Name channel = 5;
@@ -178,7 +178,7 @@ message LeaveRequestPayload {
 message LeaveReplyPayload {}
 
 // Group Update
-// sent every time there is a modification 
+// sent every time there is a modification
 // in the participant list
 message GroupUpdatePayload {
   // current list of participants
@@ -203,7 +203,7 @@ message GroupWelcomePayload {
 // sent on mls key rotation
 message GroupProposalPayload {
   // Original name of the endpoint that crated the proposal name
-  // this may by different from the packet source since it is 
+  // this may by different from the packet source since it is
   // forwarded by the moderator on the channel to all the
   // group participants
   Name source = 1;
@@ -216,4 +216,3 @@ message GroupAckPayload {}
 
 // Group Nack
 message GroupNackPayload {}
-

@@ -5,7 +5,6 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use base64::Engine;
 // Third-party crates
 use parking_lot::RwLock as SyncRwLock;
 use rand::Rng;
@@ -428,28 +427,21 @@ where
             // send message to the session and delete it after
             if let Some(session) = self.pool.read().await.get(&id) {
                 if message.get_session_type() == ProtoSessionType::Multicast {
-                    if let Some(string_name) = message.get_metadata("PARTICIPANT_NAME") {
+                    let payload = message
+                        .get_payload()
+                        .unwrap()
+                        .as_command_payload()
+                        .as_leave_request_payload();
+                    if let Some(name) = payload.destination {
                         debug!(
-                            "received a Leave Request message on multicast session with PARTICIPANT_NAME"
+                            "received a Leave Request message on multicast session to be forwarded to name"
                         );
 
-                        let participant_vec = base64::engine::general_purpose::STANDARD
-                            .decode(string_name)
-                            .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?;
-
-                        let participant: Name = bincode::decode_from_slice(
-                            &participant_vec,
-                            bincode::config::standard(),
-                        )
-                        .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?
-                        .0;
-
-                        if &participant == session.source() {
+                        if &Name::from(&name) == session.source() {
                             // the controller want to delete the session on the moderator.
                             // this is equivalent to delete the full group.
                             // TODO (micpapal/msardara): move the moderator role
                             // to another participant and keep the group alive
-                            message.remove_metadata("PARTICIPANT_NAME");
                             message.insert_metadata("DELETE_GROUP".to_string(), "true".to_string());
 
                             debug!("try to remove the moderator, close the session");

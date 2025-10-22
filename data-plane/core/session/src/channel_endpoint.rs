@@ -10,7 +10,6 @@ use std::{
 
 // Third-party crates
 use async_trait::async_trait;
-use base64::Engine;
 use bincode::{Decode, Encode};
 use parking_lot::Mutex;
 use tracing::{debug, error, trace};
@@ -1215,46 +1214,43 @@ where
         Ok(())
     }
 
+    async fn parse_discovery_request(&mut self, mut msg: Message) -> Result<Message, SessionError> {
+        // check if there is a destination name in the payload. If yes recreate the message
+        // with the right destination and send it out
+        let payload = msg
+            .get_payload()
+            .unwrap()
+            .as_command_payload()
+            .as_discovery_request_payload();
+        match payload.destination {
+            Some(dst_name) => {
+                // set the connection id if not done yet
+                self.endpoint.conn = Some(msg.get_incoming_conn());
+
+                // set the route to forward the messages correctly
+                let dst = Name::from(&dst_name);
+                self.endpoint.set_route(&dst).await?;
+
+                // create a new empty payload and change the message destination
+                let p = CommandPayload::new_discovery_request_payload(None).as_content();
+                msg.get_slim_header_mut().set_source(&self.endpoint.name);
+                msg.get_slim_header_mut().set_destination(&dst);
+                msg.set_payload(p);
+                Ok(msg)
+            }
+            None => {
+                // simply forward the message
+                Ok(msg)
+            }
+        }
+    }
+
     async fn forward(&mut self, msg: Message) -> Result<(), SessionError> {
-        let to_forward = if let Some(string_name) = msg.get_metadata("PARTICIPANT_NAME") {
-            debug!("received invite participant from controller: {:?}", msg);
-
-            // set the local connection
-            self.endpoint.conn = Some(msg.get_incoming_conn());
-
-            let dst_vec = base64::engine::general_purpose::STANDARD
-                .decode(string_name)
-                .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?;
-
-            let dst: Name = bincode::decode_from_slice(&dst_vec, bincode::config::standard())
-                .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?
-                .0;
-
-            self.endpoint.set_route(&dst).await?;
-
-            let new_slim_header = SlimHeader::new(&self.endpoint.name, &dst, "", None);
-
-            let new_session_header = SessionHeader::new(
-                ProtoSessionType::Multicast.into(),
-                msg.get_session_header().session_message_type().into(),
-                self.endpoint.session_id,
-                msg.get_id(),
-            );
-
-            Message::new_publish_with_headers(
-                Some(new_slim_header),
-                Some(new_session_header),
-                msg.get_payload().cloned(),
-            )
-        } else {
-            msg
-        };
-
         // forward message received from the app and set a timer
-        let msg_id = to_forward.get_id();
-        self.endpoint.send(to_forward.clone()).await?;
+        let msg_id = msg.get_id();
+        self.endpoint.send(msg.clone()).await?;
         // create a timer for this request
-        self.create_timer(msg_id, 1, to_forward, None);
+        self.create_timer(msg_id, 1, msg, None);
 
         Ok(())
     }
@@ -1794,46 +1790,44 @@ where
         // we need to adjust the message
         // if coming from the controller we need to modify source and destination
         // if coming from the app we need to add the participant id to the destination
-        let leave_message = if let Some(string_name) = msg.get_metadata("PARTICIPANT_NAME") {
-            let dst_vec = base64::engine::general_purpose::STANDARD
-                .decode(string_name)
-                .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?;
+        let payload = msg
+            .get_payload()
+            .unwrap()
+            .as_command_payload()
+            .as_leave_request_payload();
+        let leave_message = match payload.destination {
+            Some(dst_name) => {
+                // Handle case where destination is provided
+                let dst = Name::from(&dst_name);
+                let id = *self
+                    .group_list
+                    .get(&dst)
+                    .ok_or(SessionError::RemoveParticipant(
+                        "participant not found".to_string(),
+                    ))?;
 
-            let dst: Name = bincode::decode_from_slice(&dst_vec, bincode::config::standard())
-                .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?
-                .0;
+                let dst = dst.with_id(id);
 
-            let id = *self
-                .group_list
-                .get(&dst)
-                .ok_or(SessionError::RemoveParticipant(
-                    "participant not found".to_string(),
-                ))?;
+                let new_payload = CommandPayload::new_leave_request_payload(None).as_content();
+                msg.get_slim_header_mut().set_source(&self.endpoint.name);
+                msg.get_slim_header_mut().set_destination(&dst);
+                msg.set_payload(new_payload);
 
-            let dst = dst.with_id(id);
+                msg
+            }
+            None => {
+                // Handle case where no destination is provided, use message destination
+                let dst = msg.get_dst();
+                let id = *self
+                    .group_list
+                    .get(&dst)
+                    .ok_or(SessionError::RemoveParticipant(
+                        "participant not found".to_string(),
+                    ))?;
 
-            let new_slim_header = SlimHeader::new(&self.endpoint.name, &dst, "", None);
-
-            let new_session_header = SessionHeader::new(
-                ProtoSessionType::Multicast.into(),
-                ProtoSessionMessageType::LeaveRequest.into(),
-                self.endpoint.session_id,
-                msg.get_id(),
-            );
-
-            Message::new_publish_with_headers(Some(new_slim_header), Some(new_session_header), None)
-        } else {
-            let dst = msg.get_dst();
-            let id = *self
-                .group_list
-                .get(&dst)
-                .ok_or(SessionError::RemoveParticipant(
-                    "participant not found".to_string(),
-                ))?;
-
-            msg.get_slim_header_mut().set_destination(&dst.with_id(id));
-
-            msg
+                msg.get_slim_header_mut().set_destination(&dst.with_id(id));
+                msg
+            }
         };
 
         // If MLS is on, send the MLS commit and wait for all the
@@ -1978,7 +1972,8 @@ where
                 debug!("Start a new inivte task, send discovery message");
                 let msg_id = msg.get_id();
                 // discovery message coming from the application
-                self.forward(msg).await?;
+                let to_forward = self.parse_discovery_request(msg).await?;
+                self.forward(to_forward).await?;
 
                 // register the discovery start in the current task
                 self.current_task.as_mut().unwrap().discovery_start(msg_id)
@@ -2152,7 +2147,8 @@ where
 
                 let msg_id = msg.get_id();
                 // discovery message coming from the application
-                self.forward(msg).await?;
+                let to_forward = self.parse_discovery_request(msg).await?;
+                self.forward(to_forward).await?;
 
                 // register the discovery start in the current task
                 self.current_task.as_mut().unwrap().discovery_start(msg_id)
@@ -2317,9 +2313,7 @@ mod tests {
             rand::random::<u32>(),
         ));
 
-        let payload = Some(
-            CommandPayload::new_discovery_request_payload(Some(moderator.clone())).as_content(),
-        );
+        let payload = Some(CommandPayload::new_discovery_request_payload(None).as_content());
         let request = Message::new_publish_with_headers(slim_header, session_header, payload);
 
         // receive the request at the session layer
