@@ -60,13 +60,8 @@ pub struct Connection {
     #[prost(string, tag = "2")]
     pub config_data: ::prost::alloc::string::String,
 }
-<<<<<<< HEAD
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ConnectionError {
-=======
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ConnectionAck {
->>>>>>> 3be54b0f (feat: report status on all conns & subs)
     #[prost(string, tag = "1")]
     pub connection_id: ::prost::alloc::string::String,
     #[prost(bool, tag = "2")]
@@ -89,13 +84,8 @@ pub struct Subscription {
     #[prost(string, optional, tag = "6")]
     pub node_id: ::core::option::Option<::prost::alloc::string::String>,
 }
-<<<<<<< HEAD
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct SubscriptionError {
-=======
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SubscriptionAck {
->>>>>>> 3be54b0f (feat: report status on all conns & subs)
     #[prost(message, optional, tag = "1")]
     pub subscription: ::core::option::Option<Subscription>,
     #[prost(bool, tag = "2")]
