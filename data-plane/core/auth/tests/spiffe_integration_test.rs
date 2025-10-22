@@ -19,9 +19,9 @@ use std::time::Duration;
 use tokio::fs;
 use tokio::time::sleep;
 use bollard::Docker;
-use bollard::container::{Config, CreateContainerOptions, LogsOptions, RemoveContainerOptions, StartContainerOptions};
+use bollard::container::{Config, CreateContainerOptions, LogsOptions, RemoveContainerOptions};
 use bollard::network::CreateNetworkOptions;
-use bollard::models::{HostConfig, Mount as BollardMount, MountTypeEnum, PortBinding};
+use bollard::models::{HostConfig, PortBinding};
 use std::collections::HashMap;
 
 
@@ -358,6 +358,11 @@ plugins {{
 
     tracing::info!("Registering workload with SPIRE server...");
 
+    // Get the current process UID
+    #[cfg(unix)]
+    let current_uid = unsafe { libc::getuid() };
+    let uid_selector = format!("unix:uid:{}", current_uid);
+    
     let register_exec_config = CreateExecOptions {
         cmd: Some(vec![
             "/opt/spire/bin/spire-server",
@@ -368,7 +373,7 @@ plugins {{
             "-spiffeID",
             "spiffe://example.org/testservice",
             "-selector",
-            "unix:uid:0",
+            &uid_selector,
         ]),
         attach_stdout: Some(true),
         attach_stderr: Some(true),
