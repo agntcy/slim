@@ -410,7 +410,7 @@ plugins {{
     // Now test our SPIFFE provider
     // Note: The socket directory is mounted from host, agent creates socket inside
     let config = SpiffeProviderConfig {
-        socket_path: Some(socket_path.to_string_lossy().to_string()),
+        socket_path: Some(format!("unix://{}", socket_path.to_string_lossy())),
         target_spiffe_id: None,
         jwt_audiences: vec!["test-audience".to_string()],
     };
