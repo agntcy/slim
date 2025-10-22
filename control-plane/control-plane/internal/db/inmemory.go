@@ -377,3 +377,19 @@ func (d *dbService) GetRouteForSrcAndDestinationAndName(srcNodeID string, compon
 	}
 	return Route{}, fmt.Errorf("route not found")
 }
+
+func (d *dbService) FilterRoutesBySourceAndDestination(sourceNodeID string, destNodeID string) []Route {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	var routes []Route
+	for _, route := range d.routes {
+		sourceMatch := sourceNodeID == "" || route.SourceNodeID == sourceNodeID
+		destMatch := destNodeID == "" || route.DestNodeID == destNodeID
+		if sourceMatch && destMatch {
+			routes = append(routes, route)
+		}
+	}
+
+	return routes
+}

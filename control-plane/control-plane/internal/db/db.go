@@ -26,6 +26,9 @@ type DataAccess interface {
 	GetRouteByID(routeID string) *Route
 	DeleteRoute(routeID string) error
 	MarkRouteAsDeleted(routeID string) error
+	// FilterRoutesBySourceAndDestination returns all routes matching the given sourceNodeID and destNodeID if any.
+	// If any of the parameters is an empty string, it is treated as a wildcard.
+	FilterRoutesBySourceAndDestination(sourceNodeID string, destNodeID string) []Route
 
 	MarkRouteAsApplied(routeID string) error
 	MarkRouteAsFailed(routeID string, msg string) error
