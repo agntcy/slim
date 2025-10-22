@@ -23,7 +23,8 @@ use testcontainers::{
 };
 use tokio::fs;
 use tokio::time::sleep;
-use testcontainers::core::Network;
+
+
 
 const SPIRE_SERVER_IMAGE: &str = "ghcr.io/spiffe/spire-server";
 const SPIRE_AGENT_IMAGE: &str = "ghcr.io/spiffe/spire-agent";
@@ -72,11 +73,32 @@ async fn test_spiffe_provider_initialization() {
         .expect("Failed to create socket dir");
     let socket_path = socket_dir.join("api.sock");
 
-    // Create minimal server config
-    // Create Docker network
-    tracing::info!("Creating Docker network...");
-    let network = Network::new();
+    // Create Docker network using bollard
+    let network_name = "spire-test-network";
+    tracing::info!("Creating Docker network: {}", network_name);
+    
+    // Get Docker client from testcontainers (uses bollard internally)
+    use testcontainers::bollard::Docker;
+    use testcontainers::bollard::network::CreateNetworkOptions;
+    
+    let docker = Docker::connect_with_local_defaults()
+        .expect("Failed to connect to Docker");
+    
+    // Create the network
+    let create_network_options = CreateNetworkOptions {
+        name: network_name,
+        check_duplicate: true,
+        ..Default::default()
+    };
+    
+    let _network_id = docker
+        .create_network(create_network_options)
+        .await
+        .expect("Failed to create Docker network");
+    
+    tracing::info!("Docker network created: {}", network_name);
 
+    // Create minimal server config
     let server_config = format!(
         r#"
 server {{
@@ -125,7 +147,7 @@ plugins {{
             server_config_path.to_string_lossy().to_string(),
             "/opt/spire/conf/server/server.conf", // Mount host config into container
         ))
-        .with_network(&network)
+        .with_network(network_name)
         .with_container_name(SERVER_CONTAINER_NAME)
         .with_cmd(vec![
             "run", // SPIRE server subcommand
@@ -230,7 +252,7 @@ plugins {{
             socket_dir.to_string_lossy().to_string(),
             "/tmp/spire-agent/public", // Mount socket directory
         ))
-        .with_network(&network)
+        .with_network(network_name)
         .with_container_name(AGENT_CONTAINER_NAME)
         .with_cmd(vec![
             "run", // SPIRE agent subcommand
@@ -325,6 +347,10 @@ plugins {{
 
     // Cleanup
     let _ = fs::remove_dir_all(&temp_dir).await;
+    
+    // Remove Docker network
+    tracing::info!("Removing Docker network: {}", network_name);
+    let _ = docker.remove_network(network_name).await;
 }
 
 #[tokio::test]
