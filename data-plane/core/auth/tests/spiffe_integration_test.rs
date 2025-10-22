@@ -8,30 +8,16 @@
 //!
 //! Run with: cargo test --test spiffe_integration_test -- --ignored --nocapture
 
-#![cfg(not(target_family = "windows"))]
+#![cfg(target_os = "linux")]
 
-use futures::StreamExt;
+mod spire_env;
+
+use spire_env::SpireTestEnvironment;
 use slim_auth::spiffe::{
     SpiffeJwtVerifier, SpiffeProvider, SpiffeProviderConfig, SpiffeVerifierConfig,
 };
 use slim_auth::traits::{TokenProvider, Verifier};
-use std::time::Duration;
-use tokio::fs;
-use tokio::time::sleep;
-use bollard::Docker;
-use bollard::container::{Config, CreateContainerOptions, LogsOptions, RemoveContainerOptions};
-use bollard::network::CreateNetworkOptions;
-use bollard::models::{HostConfig, PortBinding};
 use std::collections::HashMap;
-
-
-
-const SPIRE_SERVER_IMAGE: &str = "ghcr.io/spiffe/spire-server";
-const SPIRE_AGENT_IMAGE: &str = "ghcr.io/spiffe/spire-agent";
-const SPIRE_VERSION: &str = "1.13.2";
-const TRUST_DOMAIN: &str = "example.org";
-const SERVER_CONTAINER_NAME: &str = "spire-server";
-const AGENT_CONTAINER_NAME: &str = "spire-agent";
 
 /// Helper to check if Docker is available
 async fn is_docker_available() -> bool {
@@ -60,361 +46,17 @@ macro_rules! require_docker {
 async fn test_spiffe_provider_initialization() {
     require_docker!();
 
-    // Create temporary directory for socket and configs
-    let temp_dir = std::env::temp_dir();
-    fs::create_dir_all(&temp_dir)
+    // Create and start test environment
+    let mut env = SpireTestEnvironment::new()
         .await
-        .expect("Failed to create temp dir");
+        .expect("Failed to create test environment");
 
-    // Create socket directory that will be mounted into the container
-    let socket_dir = temp_dir.join("socket");
-    fs::create_dir_all(&socket_dir)
+    env.start()
         .await
-        .expect("Failed to create socket dir");
-    let socket_path = socket_dir.join("api.sock");
-
-    // Create Docker network using bollard
-    let network_name = "spire-test-network";
-    tracing::info!("Creating Docker network: {}", network_name);
-
-    // Get Docker client
-    let docker = Docker::connect_with_local_defaults()
-        .expect("Failed to connect to Docker");
-
-    // Create the network
-    let create_network_options = CreateNetworkOptions {
-        name: network_name,
-        check_duplicate: true,
-        ..Default::default()
-    };
-
-    let _network_id = docker
-        .create_network(create_network_options)
-        .await
-        .expect("Failed to create Docker network");
-
-    tracing::info!("Docker network created: {}", network_name);
-
-    // Create minimal server config
-    let server_config = format!(
-        r#"
-server {{
-    bind_address = "0.0.0.0"
-    bind_port = "8081"
-    trust_domain = "{}"
-    data_dir = "/opt/spire/data/server"
-    log_level = "INFO"
-    ca_ttl = "1h"
-    default_x509_svid_ttl = "1h"
-    default_jwt_svid_ttl = "1h"
-}}
-
-plugins {{
-    DataStore "sql" {{
-        plugin_data {{
-            database_type = "sqlite3"
-            connection_string = "/opt/spire/data/server/datastore.sqlite3"
-        }}
-    }}
-
-    KeyManager "memory" {{
-        plugin_data {{}}
-    }}
-
-    NodeAttestor "join_token" {{
-        plugin_data {{}}
-    }}
-}}
-"#,
-        TRUST_DOMAIN
-    );
-
-    let server_config_path = temp_dir.join("server.conf");
-    fs::write(&server_config_path, server_config)
-        .await
-        .expect("Failed to write server config");
-
-    tracing::info!("Starting SPIRE server container...");
-
-    // Create SPIRE server container with bollard
-    let mut port_bindings = HashMap::new();
-    port_bindings.insert(
-        "8081/tcp".to_string(),
-        Some(vec![PortBinding {
-            host_ip: Some("0.0.0.0".to_string()),
-            host_port: Some("0".to_string()), // Auto-assign port
-        }]),
-    );
-
-    let server_host_config = HostConfig {
-        network_mode: Some(network_name.to_string()),
-        port_bindings: Some(port_bindings),
-        binds: Some(vec![format!(
-            "{}:/opt/spire/conf/server/server.conf",
-            server_config_path.to_string_lossy()
-        )]),
-        ..Default::default()
-    };
-
-    let mut exposed_ports = HashMap::new();
-    exposed_ports.insert("8081/tcp".to_string(), HashMap::new());
-
-    let server_config = Config {
-        image: Some(format!("{}:{}", SPIRE_SERVER_IMAGE, SPIRE_VERSION)),
-        cmd: Some(vec![
-            "run".to_string(),
-            "-config".to_string(),
-            "/opt/spire/conf/server/server.conf".to_string(),
-        ]),
-        exposed_ports: Some(exposed_ports),
-        host_config: Some(server_host_config),
-        ..Default::default()
-    };
-
-    let server_create_options = CreateContainerOptions {
-        name: SERVER_CONTAINER_NAME,
-        ..Default::default()
-    };
-
-    let server_container = docker
-        .create_container(Some(server_create_options), server_config)
-        .await
-        .expect("Failed to create server container");
-
-    docker
-        .start_container::<String>(&server_container.id, None)
-        .await
-        .expect("Failed to start server container");
-
-    tracing::info!("SPIRE server container started, waiting for ready signal...");
-
-    // Wait for "Starting Server APIs" message in logs
-    let logs_options = LogsOptions::<String> {
-        follow: true,
-        stdout: true,
-        stderr: true,
-        ..Default::default()
-    };
-
-    let mut log_stream = docker.logs(&server_container.id, Some(logs_options));
-    let mut server_ready = false;
-
-    while let Some(log_result) = log_stream.next().await {
-        if let Ok(log) = log_result {
-            let log_str = log.to_string();
-            tracing::debug!("Server log: {}", log_str);
-            if log_str.contains("Starting Server APIs") {
-                server_ready = true;
-                break;
-            }
-        }
-    }
-
-    if !server_ready {
-        panic!("Server did not start properly");
-    }
-
-    tracing::info!("SPIRE server is ready");
-
-    // Get the actual mapped port for the server
-    let server_inspect = docker
-        .inspect_container(&server_container.id, None)
-        .await
-        .expect("Failed to inspect server container");
-
-    let server_port = server_inspect
-        .network_settings
-        .as_ref()
-        .and_then(|ns| ns.ports.as_ref())
-        .and_then(|ports| ports.get("8081/tcp"))
-        .and_then(|bindings| bindings.as_ref())
-        .and_then(|bindings| bindings.first())
-        .and_then(|binding| binding.host_port.as_ref())
-        .and_then(|port| port.parse::<u16>().ok())
-        .expect("Failed to get server port");
-
-    tracing::info!("SPIRE server exposed on host port: {}", server_port);
-
-    // Generate join token for agent by execing into the server container
-    tracing::info!("Generating join token for agent...");
-
-    use bollard::exec::{CreateExecOptions, StartExecResults};
-
-    let exec_config = CreateExecOptions {
-        cmd: Some(vec![
-            "/opt/spire/bin/spire-server",
-            "token",
-            "generate",
-            "-spiffeID",
-            "spiffe://example.org/testagent",
-        ]),
-        attach_stdout: Some(true),
-        attach_stderr: Some(true),
-        ..Default::default()
-    };
-
-    let exec = docker
-        .create_exec(&server_container.id, exec_config)
-        .await
-        .expect("Failed to create exec");
-
-    let mut token_output = String::new();
-    if let StartExecResults::Attached { mut output, .. } = docker.start_exec(&exec.id, None).await.expect("Failed to start exec") {
-        while let Some(Ok(msg)) = output.next().await {
-            token_output.push_str(&msg.to_string());
-        }
-    }
-
-    let join_token = token_output
-        .trim()
-        .strip_prefix("Token: ")
-        .unwrap_or(token_output.trim())
-        .to_string();
-
-    tracing::info!("Generated join token: {}", join_token);
-
-    tracing::info!("Starting SPIRE agent container...");
-
-    // Create agent config with the generated join token
-    let agent_config = format!(
-        r#"
-agent {{
-    data_dir = "/opt/spire/data/agent"
-    log_level = "INFO"
-    server_address = "{server_name}"
-    server_port = "8081"
-    insecure_bootstrap = true
-    trust_domain = "{trust_domain}"
-    socket_path = "/tmp/spire-agent/public/api.sock"
-    join_token = "{join_token}"
-}}
-
-plugins {{
-    KeyManager "memory" {{
-        plugin_data {{}}
-    }}
-
-    NodeAttestor "join_token" {{
-        plugin_data {{}}
-    }}
-
-    WorkloadAttestor "unix" {{
-        plugin_data {{}}
-    }}
-}}
-"#,
-        server_name = SERVER_CONTAINER_NAME,
-        trust_domain = TRUST_DOMAIN,
-        join_token = join_token
-    );
-
-    let agent_config_path = temp_dir.join("agent.conf");
-    fs::write(&agent_config_path, agent_config)
-        .await
-        .expect("Failed to write agent config");
-
-    // Note: Using --pid=host for the agent container to allow proper workload attestation
-
-    // Prepare bind mounts for the agent
-    let binds = vec![
-        format!("{}:/opt/spire/conf/agent/agent.conf", agent_config_path.to_string_lossy()),
-        format!("{}:/tmp/spire-agent/public", socket_dir.to_string_lossy()),
-    ];
-
-    let host_config = HostConfig {
-        pid_mode: Some("host".to_string()),
-        network_mode: Some(network_name.to_string()),
-        binds: Some(binds),
-        ..Default::default()
-    };
-
-    let config = Config {
-        image: Some(format!("{}:{}", SPIRE_AGENT_IMAGE, SPIRE_VERSION)),
-        cmd: Some(vec![
-            "run".to_string(),
-            "-config".to_string(),
-            "/opt/spire/conf/agent/agent.conf".to_string(),
-        ]),
-        host_config: Some(host_config),
-        ..Default::default()
-    };
-
-    let create_options = CreateContainerOptions {
-        name: AGENT_CONTAINER_NAME,
-        ..Default::default()
-    };
-
-    let agent_container = docker
-        .create_container(Some(create_options), config)
-        .await
-        .expect("Failed to create agent container");
-
-    docker
-        .start_container::<String>(&agent_container.id, None)
-        .await
-        .expect("Failed to start agent container");
-
-    tracing::info!("SPIRE agent started");
-
-    tracing::info!("Registering workload with SPIRE server...");
-
-    // Get the current process UID
-    #[cfg(unix)]
-    let current_uid = unsafe { libc::getuid() };
-    let uid_selector = format!("unix:uid:{}", current_uid);
-    
-    let register_exec_config = CreateExecOptions {
-        cmd: Some(vec![
-            "/opt/spire/bin/spire-server",
-            "entry",
-            "create",
-            "-parentID",
-            "spiffe://example.org/testagent",
-            "-spiffeID",
-            "spiffe://example.org/testservice",
-            "-selector",
-            &uid_selector,
-        ]),
-        attach_stdout: Some(true),
-        attach_stderr: Some(true),
-        ..Default::default()
-    };
-
-    let register_exec = docker
-        .create_exec(&server_container.id, register_exec_config)
-        .await
-        .expect("Failed to create exec");
-
-    let mut register_output = String::new();
-    if let StartExecResults::Attached { mut output, .. } = docker.start_exec(&register_exec.id, None).await.expect("Failed to start exec") {
-        while let Some(Ok(msg)) = output.next().await {
-            register_output.push_str(&msg.to_string());
-        }
-    }
-
-    tracing::info!("Workload registration output: {}", register_output);
-
-    let inspect_exec = docker
-        .inspect_exec(&register_exec.id)
-        .await
-        .expect("Failed to inspect exec");
-
-    assert!(
-        inspect_exec.exit_code == Some(0),
-        "Failed to register workload",
-    );
-
-    // Wait for agent to connect to server
-    sleep(Duration::from_secs(5)).await;
+        .expect("Failed to start SPIRE containers");
 
     // Now test our SPIFFE provider
-    // Note: The socket directory is mounted from host, agent creates socket inside
-    let config = SpiffeProviderConfig {
-        socket_path: Some(format!("unix://{}", socket_path.to_string_lossy())),
-        target_spiffe_id: None,
-        jwt_audiences: vec!["test-audience".to_string()],
-    };
-
+    let config = env.get_spiffe_provider_config();
     tracing::info!("Creating SpiffeProvider with config: {:?}", config);
 
     let mut provider = SpiffeProvider::new(config);
@@ -431,7 +73,7 @@ plugins {{
             match provider.get_x509_svid() {
                 Ok(svid) => {
                     tracing::info!("Got X.509 SVID: {}", svid.spiffe_id());
-                    assert!(svid.spiffe_id().to_string().contains(TRUST_DOMAIN));
+                    assert!(svid.spiffe_id().to_string().contains("example.org"));
                 }
                 Err(e) => tracing::warn!("X.509 SVID fetch failed: {}", e),
             }
@@ -446,6 +88,20 @@ plugins {{
                 }
                 Err(e) => tracing::warn!("JWT token fetch failed: {}", e),
             }
+
+            // Test JWT token retrieval with custom claims
+            let custom_claims = HashMap::from([
+                ("pubkey".to_string(), serde_json::Value::String("abcdef".to_string()))
+            ]);
+            match provider.get_token_with_claims(custom_claims) {
+                Ok(token_with_claims) => {
+                    tracing::info!("Got JWT token with custom claims");
+                    assert!(!token_with_claims.is_empty());
+                    let parts: Vec<&str> = token_with_claims.split('.').collect();
+                    assert_eq!(parts.len(), 3, "JWT should have 3 parts");
+                }
+                Err(e) => tracing::warn!("JWT token with claims fetch failed: {}", e),
+            }
         }
         Err(e) => {
             tracing::error!("Provider initialization failed: {}", e);
@@ -454,24 +110,7 @@ plugins {{
     }
 
     // Cleanup
-    let _ = fs::remove_dir_all(&temp_dir).await;
-
-    // Stop and remove containers
-    tracing::info!("Stopping and removing containers");
-    let remove_options = Some(RemoveContainerOptions {
-        force: true,
-        ..Default::default()
-    });
-
-    let _ = docker.stop_container(&agent_container.id, None).await;
-    let _ = docker.remove_container(&agent_container.id, remove_options.clone()).await;
-
-    let _ = docker.stop_container(&server_container.id, None).await;
-    let _ = docker.remove_container(&server_container.id, remove_options).await;
-
-    // Remove Docker network
-    tracing::info!("Removing Docker network: {}", network_name);
-    let _ = docker.remove_network(network_name).await;
+    env.cleanup().await;
 }
 
 #[tokio::test]
