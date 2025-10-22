@@ -135,45 +135,15 @@ where
         }
 
         match message.get_session_message_type() {
-            slim_datapath::api::ProtoSessionMessageType::P2PMsg => {
-                debug!("received P2P message");
+            slim_datapath::api::ProtoSessionMessageType::Msg => {
+                debug!("received message");
                 if self.draining_state == ReceiverDrainStatus::Initiated {
                     // draining period is started, do no accept any new message
                     debug!("draining period started, do not accept new messages");
                     return Ok(ReceiverDrainStatus::Initiated);
                 }
-                if self.timer_factory.is_some() {
-                    // this receiver is reliable but got an unreliable messages
-                    // drop the message
-                    return Err(SessionError::Processing(
-                        "received an unreliable message on a reliable receiver".to_string(),
-                    ));
-                }
-                self.on_publish_message(message).await?;
-            }
-            slim_datapath::api::ProtoSessionMessageType::P2PReliable => {
-                debug!("received P2P reliable message");
-                if self.draining_state == ReceiverDrainStatus::Initiated {
-                    // draining period is started, do no accept any new message
-                    debug!("draining period started, do not accept new messages");
-                    return Ok(ReceiverDrainStatus::Initiated);
-                }
-                if self.timer_factory.is_none() {
-                    // this receiver is unreliable but got an reliable messages
-                    // drop the message
-                    return Err(SessionError::Processing(
-                        "received a reliable message on an unreliable receiver".to_string(),
-                    ));
-                }
-                self.send_ack(&message).await?;
-                self.on_publish_message(message).await?;
-            }
-            slim_datapath::api::ProtoSessionMessageType::MulticastMsg => {
-                debug!("received multicast message");
-                if self.draining_state == ReceiverDrainStatus::Initiated {
-                    // draining period is started, do no accept any new message
-                    debug!("draining period started, do not accept new messages");
-                    return Ok(ReceiverDrainStatus::Initiated);
+                if self.send_acks {
+                    self.send_ack(&message).await?;
                 }
                 self.on_publish_message(message).await?;
             }
@@ -226,7 +196,7 @@ where
             message.get_incoming_conn(),
             false,
             self.session_type,
-            slim_datapath::api::ProtoSessionMessageType::P2PAck,
+            slim_datapath::api::ProtoSessionMessageType::MsgAck,
             message.get_session_header().session_id,
             message.get_id(),
         );
@@ -395,6 +365,7 @@ mod tests {
     use crate::transmitter::SessionTransmitter;
 
     use super::*;
+    use slim_datapath::api::ApplicationPayload;
     use std::time::Duration;
     use tokio::time::timeout;
     use tracing_test::traced_test;
@@ -417,7 +388,7 @@ mod tests {
             Some(settings),
             10,
             local_name.clone(),
-            ProtoSessionType::SessionPointToPoint,
+            ProtoSessionType::PointToPoint,
             true,
             tx,
             Some(tx_signal),
@@ -428,10 +399,10 @@ mod tests {
             &remote_name,
             &local_name,
             None,
-            "test_payload_1",
-            vec![1, 2, 3, 4],
+            None,
+            Some(ApplicationPayload::new("test_payload_1", vec![1, 2, 3, 4]).as_content()),
         );
-        message1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message1.get_session_header_mut().set_message_id(1);
         message1.get_session_header_mut().set_session_id(10);
         message1.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -464,7 +435,7 @@ mod tests {
         assert_eq!(ack1.get_dst(), remote_name);
         assert_eq!(
             ack1.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::P2PAck
+            slim_datapath::api::ProtoSessionMessageType::MsgAck
         );
         assert_eq!(ack1.get_session_header().get_message_id(), 1);
 
@@ -473,10 +444,10 @@ mod tests {
             &remote_name,
             &local_name,
             None,
-            "test_payload_2",
-            vec![5, 6, 7, 8],
+            None,
+            Some(ApplicationPayload::new("test_payload_2", vec![5, 6, 7, 8]).as_content()),
         );
-        message2.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message2.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message2.get_session_header_mut().set_message_id(2);
         message2.get_session_header_mut().set_session_id(10);
         message2.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -509,7 +480,7 @@ mod tests {
         assert_eq!(ack2.get_dst(), remote_name);
         assert_eq!(
             ack2.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::P2PAck
+            slim_datapath::api::ProtoSessionMessageType::MsgAck
         );
         assert_eq!(ack2.get_session_header().get_message_id(), 2);
     }
@@ -532,7 +503,7 @@ mod tests {
             Some(settings),
             10,
             local_name.clone(),
-            ProtoSessionType::SessionPointToPoint,
+            ProtoSessionType::PointToPoint,
             true,
             tx,
             Some(tx_signal),
@@ -543,10 +514,10 @@ mod tests {
             &remote_name,
             &local_name,
             None,
-            "test_payload_1",
-            vec![1, 2, 3, 4],
+            None,
+            Some(ApplicationPayload::new("test_payload_2", vec![5, 6, 7, 8]).as_content()),
         );
-        message1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message1.get_session_header_mut().set_message_id(1);
         message1.get_session_header_mut().set_session_id(10);
         message1.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -577,7 +548,7 @@ mod tests {
         assert_eq!(ack1.get_dst(), remote_name);
         assert_eq!(
             ack1.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::P2PAck
+            slim_datapath::api::ProtoSessionMessageType::MsgAck
         );
         assert_eq!(ack1.get_session_header().get_message_id(), 1);
 
@@ -586,10 +557,10 @@ mod tests {
             &remote_name,
             &local_name,
             None,
-            "test_payload_3",
-            vec![9, 10, 11, 12],
+            None,
+            Some(ApplicationPayload::new("test_payload_3", vec![9, 10, 11, 12]).as_content()),
         );
-        message3.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message3.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message3.get_session_header_mut().set_message_id(3);
         message3.get_session_header_mut().set_session_id(10);
         message3.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -611,7 +582,7 @@ mod tests {
         assert_eq!(ack3.get_dst(), remote_name);
         assert_eq!(
             ack3.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::P2PAck
+            slim_datapath::api::ProtoSessionMessageType::MsgAck
         );
         assert_eq!(ack3.get_session_header().get_message_id(), 3);
 
@@ -759,7 +730,7 @@ mod tests {
             Some(settings),
             10,
             local_name.clone(),
-            ProtoSessionType::SessionPointToPoint,
+            ProtoSessionType::PointToPoint,
             true,
             tx,
             Some(tx_signal),
@@ -770,10 +741,10 @@ mod tests {
             &remote_name,
             &local_name,
             None,
-            "test_payload_1",
-            vec![1, 2, 3, 4],
+            None,
+            Some(ApplicationPayload::new("test_payload_1", vec![1, 2, 3, 4]).as_content()),
         );
-        message1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message1.get_session_header_mut().set_message_id(1);
         message1.get_session_header_mut().set_session_id(10);
         message1.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -804,7 +775,7 @@ mod tests {
         assert_eq!(ack1.get_dst(), remote_name);
         assert_eq!(
             ack1.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::P2PAck
+            slim_datapath::api::ProtoSessionMessageType::MsgAck
         );
         assert_eq!(ack1.get_session_header().get_message_id(), 1);
 
@@ -813,10 +784,10 @@ mod tests {
             &remote_name,
             &local_name,
             None,
-            "test_payload_3",
-            vec![9, 10, 11, 12],
+            None,
+            Some(ApplicationPayload::new("test_payload_3", vec![9, 10, 11, 12]).as_content()),
         );
-        message3.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message3.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message3.get_session_header_mut().set_message_id(3);
         message3.get_session_header_mut().set_session_id(10);
         message3.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -830,15 +801,15 @@ mod tests {
         // Verify ack arriving at rx_slim
         let ack3 = timeout(Duration::from_millis(100), rx_slim.recv())
             .await
-            .expect("timeout waiting for ack1")
+            .expect("timeout waiting for ack3")
             .expect("channel closed")
-            .expect("error in received ack1");
+            .expect("error in received ack3");
 
         // Verify the ack was sent correctly
         assert_eq!(ack3.get_dst(), remote_name);
         assert_eq!(
             ack3.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::P2PAck
+            slim_datapath::api::ProtoSessionMessageType::MsgAck
         );
         assert_eq!(ack3.get_session_header().get_message_id(), 3);
 
@@ -861,8 +832,8 @@ mod tests {
             &remote_name,
             &local_name,
             None,
-            "test_payload_2",
-            vec![5, 6, 7, 8],
+            None,
+            Some(ApplicationPayload::new("test_payload_2", vec![5, 6, 7, 8]).as_content()),
         );
         rtx_reply.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxReply);
         rtx_reply.get_session_header_mut().set_message_id(2);
@@ -921,7 +892,7 @@ mod tests {
             Some(settings),
             10,
             local_name.clone(),
-            ProtoSessionType::SessionPointToPoint,
+            ProtoSessionType::PointToPoint,
             true,
             tx,
             Some(tx_signal),
@@ -932,10 +903,10 @@ mod tests {
             &remote_name,
             &local_name,
             None,
-            "test_payload_1",
-            vec![1, 2, 3, 4],
+            None,
+            Some(ApplicationPayload::new("test_payload_1", vec![1, 2, 3, 4]).as_content()),
         );
-        message1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message1.get_session_header_mut().set_message_id(1);
         message1.get_session_header_mut().set_session_id(10);
         message1.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -966,7 +937,7 @@ mod tests {
         assert_eq!(ack1.get_dst(), remote_name);
         assert_eq!(
             ack1.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::P2PAck
+            slim_datapath::api::ProtoSessionMessageType::MsgAck
         );
         assert_eq!(ack1.get_session_header().get_message_id(), 1);
 
@@ -975,10 +946,10 @@ mod tests {
             &remote_name,
             &local_name,
             None,
-            "test_payload_3",
-            vec![9, 10, 11, 12],
+            None,
+            Some(ApplicationPayload::new("test_payload_3", vec![9, 10, 11, 12]).as_content()),
         );
-        message3.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message3.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message3.get_session_header_mut().set_message_id(3);
         message3.get_session_header_mut().set_session_id(10);
         message3.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -1000,7 +971,7 @@ mod tests {
         assert_eq!(ack3.get_dst(), remote_name);
         assert_eq!(
             ack3.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::P2PAck
+            slim_datapath::api::ProtoSessionMessageType::MsgAck
         );
         assert_eq!(ack3.get_session_header().get_message_id(), 3);
 
@@ -1019,7 +990,13 @@ mod tests {
         assert_eq!(rtx_request.get_id(), 2);
 
         // Create RTX reply with an error for message 2
-        let mut rtx_reply = Message::new_publish(&remote_name, &local_name, None, "", vec![]);
+        let mut rtx_reply = Message::new_publish(
+            &remote_name,
+            &local_name,
+            None,
+            None,
+            Some(ApplicationPayload::new("", vec![]).as_content()),
+        );
         rtx_reply.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxReply);
         rtx_reply.get_session_header_mut().set_message_id(2);
         rtx_reply.get_session_header_mut().set_session_id(10);
@@ -1088,7 +1065,7 @@ mod tests {
             Some(settings),
             10,
             local_name.clone(),
-            ProtoSessionType::SessionPointToPoint,
+            ProtoSessionType::PointToPoint,
             true,
             tx,
             Some(tx_signal),
@@ -1099,11 +1076,10 @@ mod tests {
             &remote1_name,
             &group_name,
             None,
-            "payload_1_r1",
-            vec![1, 2, 3, 4],
+            None,
+            Some(ApplicationPayload::new("payload_1_r1", vec![1, 2, 3, 4]).as_content()),
         );
-        message1_r1
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message1_r1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message1_r1.get_session_header_mut().set_message_id(1);
         message1_r1.get_session_header_mut().set_session_id(10);
         message1_r1.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -1118,11 +1094,10 @@ mod tests {
             &remote2_name,
             &group_name,
             None,
-            "payload_1_r2",
-            vec![5, 6, 7, 8],
+            None,
+            Some(ApplicationPayload::new("payload_1_r2", vec![5, 6, 7, 8]).as_content()),
         );
-        message1_r2
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message1_r2.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message1_r2.get_session_header_mut().set_message_id(1);
         message1_r2.get_session_header_mut().set_session_id(10);
         message1_r2.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -1137,11 +1112,10 @@ mod tests {
             &remote1_name,
             &group_name,
             None,
-            "payload_2_r1",
-            vec![9, 10, 11, 12],
+            None,
+            Some(ApplicationPayload::new("payload_2_r1", vec![9, 10, 11, 12]).as_content()),
         );
-        message2_r1
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message2_r1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message2_r1.get_session_header_mut().set_message_id(2);
         message2_r1.get_session_header_mut().set_session_id(10);
         message2_r1.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -1156,11 +1130,10 @@ mod tests {
             &remote2_name,
             &group_name,
             None,
-            "payload_2_r2",
-            vec![13, 14, 15, 16],
+            None,
+            Some(ApplicationPayload::new("payload_2_r2", vec![13, 14, 15, 16]).as_content()),
         );
-        message2_r2
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message2_r2.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message2_r2.get_session_header_mut().set_message_id(2);
         message2_r2.get_session_header_mut().set_session_id(10);
         message2_r2.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -1232,7 +1205,7 @@ mod tests {
             Some(settings),
             10,
             local_name.clone(),
-            ProtoSessionType::SessionPointToPoint,
+            ProtoSessionType::PointToPoint,
             true,
             tx,
             Some(tx_signal),
@@ -1243,11 +1216,10 @@ mod tests {
             &remote1_name,
             &group_name,
             None,
-            "payload_1_r1",
-            vec![1, 2, 3, 4],
+            None,
+            Some(ApplicationPayload::new("payload_1_r1", vec![1, 2, 3, 4]).as_content()),
         );
-        message1_r1
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message1_r1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message1_r1.get_session_header_mut().set_message_id(1);
         message1_r1.get_session_header_mut().set_session_id(10);
         message1_r1.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -1261,11 +1233,10 @@ mod tests {
             &remote1_name,
             &group_name,
             None,
-            "payload_2_r1",
-            vec![5, 6, 7, 8],
+            None,
+            Some(ApplicationPayload::new("payload_2_r1", vec![5, 6, 7, 8]).as_content()),
         );
-        message2_r1
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message2_r1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message2_r1.get_session_header_mut().set_message_id(2);
         message2_r1.get_session_header_mut().set_session_id(10);
         message2_r1.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -1279,11 +1250,10 @@ mod tests {
             &remote1_name,
             &group_name,
             None,
-            "payload_3_r1",
-            vec![9, 10, 11, 12],
+            None,
+            Some(ApplicationPayload::new("payload_3_r1", vec![9, 10, 11, 12]).as_content()),
         );
-        message3_r1
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message3_r1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message3_r1.get_session_header_mut().set_message_id(3);
         message3_r1.get_session_header_mut().set_session_id(10);
         message3_r1.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -1298,11 +1268,10 @@ mod tests {
             &remote2_name,
             &group_name,
             None,
-            "payload_1_r2",
-            vec![13, 14, 15, 16],
+            None,
+            Some(ApplicationPayload::new("payload_1_r2", vec![13, 14, 15, 16]).as_content()),
         );
-        message1_r2
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message1_r2.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message1_r2.get_session_header_mut().set_message_id(1);
         message1_r2.get_session_header_mut().set_session_id(10);
         message1_r2.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -1316,11 +1285,10 @@ mod tests {
             &remote2_name,
             &group_name,
             None,
-            "payload_3_r2",
-            vec![17, 18, 19, 20],
+            None,
+            Some(ApplicationPayload::new("payload_3_r2", vec![17, 18, 19, 20]).as_content()),
         );
-        message3_r2
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        message3_r2.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message3_r2.get_session_header_mut().set_message_id(3);
         message3_r2.get_session_header_mut().set_session_id(10);
         message3_r2.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -1394,8 +1362,8 @@ mod tests {
             &remote2_name,
             &local_name,
             None,
-            "payload_2_r2",
-            vec![21, 22, 23, 24],
+            None,
+            Some(ApplicationPayload::new("payload_2_r2", vec![21, 22, 23, 24]).as_content()),
         );
         rtx_reply.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxReply);
         rtx_reply.get_session_header_mut().set_message_id(2);

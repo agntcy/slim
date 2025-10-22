@@ -487,6 +487,13 @@ where
 
         Self::map_mls_error(update_proposal.to_bytes())
     }
+
+    /// Get a token from the identity provider
+    pub fn get_token(&self) -> Result<String, MlsError> {
+        self.identity_provider
+            .get_token()
+            .map_err(|e| MlsError::TokenRetrievalFailed(e.to_string()))
+    }
 }
 
 #[cfg(test)]

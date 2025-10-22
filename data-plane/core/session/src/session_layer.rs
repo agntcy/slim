@@ -5,11 +5,9 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use base64::Engine;
 // Third-party crates
 use parking_lot::RwLock as SyncRwLock;
 use rand::Rng;
-use slim_datapath::messages::utils::SLIM_IDENTITY;
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, warn};
@@ -26,7 +24,6 @@ use crate::transmitter::{AppTransmitter, SessionTransmitter};
 // Local crate
 use super::context::SessionContext;
 use super::interceptor::{IdentityInterceptor, SessionInterceptor};
-use super::interceptor_mls::METADATA_MLS_ENABLED;
 use super::multicast::{self, MulticastConfiguration};
 use super::point_to_point::PointToPointConfiguration;
 use super::{
@@ -333,7 +330,7 @@ where
         session_id: u32,
     ) -> Result<bool, SessionError> {
         match session_message_type {
-            ProtoSessionMessageType::ChannelDiscoveryRequest => {
+            ProtoSessionMessageType::DiscoveryRequest => {
                 // reply directly without creating any new Session
                 let msg =
                     handle_channel_discovery_message(message, local_name, session_id, session_type);
@@ -383,7 +380,7 @@ where
             (id, session_type, session_message_type)
         };
 
-        if session_message_type == ProtoSessionMessageType::ChannelDiscoveryRequest {
+        if session_message_type == ProtoSessionMessageType::DiscoveryRequest {
             // received a discovery message
             if let Some(session) = self.pool.read().await.get(&id)
                 && session.session_config().initiator()
@@ -425,33 +422,26 @@ where
             }
         }
 
-        if session_message_type == ProtoSessionMessageType::ChannelLeaveRequest {
+        if session_message_type == ProtoSessionMessageType::LeaveRequest {
             let mut drop_session = true;
             // send message to the session and delete it after
             if let Some(session) = self.pool.read().await.get(&id) {
-                if message.get_session_type() == ProtoSessionType::SessionMulticast {
-                    if let Some(string_name) = message.get_metadata("PARTICIPANT_NAME") {
+                if message.get_session_type() == ProtoSessionType::Multicast {
+                    let payload = message
+                        .get_payload()
+                        .unwrap()
+                        .as_command_payload()
+                        .as_leave_request_payload();
+                    if let Some(name) = payload.destination {
                         debug!(
-                            "received a Leave Request message on multicast session with PARTICIPANT_NAME"
+                            "received a Leave Request message on multicast session to be forwarded to name"
                         );
 
-                        let participant_vec = base64::engine::general_purpose::STANDARD
-                            .decode(string_name)
-                            .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?;
-
-                        let participant: Name = bincode::decode_from_slice(
-                            &participant_vec,
-                            bincode::config::standard(),
-                        )
-                        .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?
-                        .0;
-
-                        if &participant == session.source() {
+                        if &Name::from(&name) == session.source() {
                             // the controller want to delete the session on the moderator.
                             // this is equivalent to delete the full group.
                             // TODO (micpapal/msardara): move the moderator role
                             // to another participant and keep the group alive
-                            message.remove_metadata("PARTICIPANT_NAME");
                             message.insert_metadata("DELETE_GROUP".to_string(), "true".to_string());
 
                             debug!("try to remove the moderator, close the session");
@@ -491,66 +481,75 @@ where
         let local_name = self.get_local_name_for_session(message.get_slim_header().get_dst())?;
 
         let new_session = match session_message_type {
-            ProtoSessionMessageType::P2PMsg | ProtoSessionMessageType::P2PReliable => {
-                let mut conf = self.default_p2p_conf.read().clone();
-
-                // Set that the session was initiated by another app
-                conf.initiator = false;
-
-                // If other session is reliable, set the timeout
-                if session_message_type == ProtoSessionMessageType::P2PReliable {
-                    if conf.timeout.is_none() {
-                        conf.timeout = Some(std::time::Duration::from_secs(5));
-                    }
-
-                    if conf.max_retries.is_none() {
-                        conf.max_retries = Some(5);
-                    }
+            ProtoSessionMessageType::Msg => {
+                // if this is a point to point session create an anycast session otherwise drop the message
+                if message.get_session_type() == ProtoSessionType::PointToPoint {
+                    let mut conf = self.default_p2p_conf.read().clone();
+                    conf.timeout = None;
+                    conf.max_retries = None;
+                    conf.mls_enabled = false;
+                    conf.peer_name = None;
+                    conf.initiator = false;
+                    self.create_session(SessionConfig::PointToPoint(conf), local_name, Some(id))
+                        .await?
+                } else {
+                    debug!("received a multicast message for an unknown session, drop message");
+                    return Ok(());
                 }
-
-                self.create_session(SessionConfig::PointToPoint(conf), local_name, Some(id))
-                    .await?
             }
-            ProtoSessionMessageType::ChannelJoinRequest => {
-                // Create a new session based on the SessionType contained in the message
+            ProtoSessionMessageType::JoinRequest => {
+                // Create a new session based on the message payload
+                let payload = message
+                    .get_payload()
+                    .unwrap()
+                    .as_command_payload()
+                    .as_join_request_payload();
+
                 match message.get_session_header().session_type() {
-                    ProtoSessionType::SessionPointToPoint => {
+                    ProtoSessionType::PointToPoint => {
                         let mut conf = self.default_p2p_conf.read().clone();
                         conf.initiator = false;
 
-                        // TODO (micpapal): this timer should be part of the session context
-                        // to be added in the JoinRequest
-                        if conf.timeout.is_none() {
-                            conf.timeout = Some(std::time::Duration::from_secs(5));
-                        }
-
-                        if conf.max_retries.is_none() {
-                            conf.max_retries = Some(5);
+                        match payload.timer_settings {
+                            Some(s) => {
+                                conf.timeout =
+                                    Some(std::time::Duration::from_millis(s.timeout() as u64));
+                                conf.max_retries = Some(s.max_retries())
+                            }
+                            None => {
+                                conf.timeout = None;
+                                conf.max_retries = None;
+                            }
                         }
 
                         conf.peer_name = Some(message.get_source());
-                        conf.mls_enabled = message.contains_metadata(METADATA_MLS_ENABLED);
+                        conf.mls_enabled = payload.enable_mls;
+
                         conf.metadata = message.get_metadata_map();
 
                         self.create_session(SessionConfig::PointToPoint(conf), local_name, Some(id))
                             .await?
                     }
-                    ProtoSessionType::SessionMulticast => {
+                    ProtoSessionType::Multicast => {
                         let mut conf = self.default_multicast_conf.read().clone();
-                        conf.mls_enabled = message.contains_metadata(METADATA_MLS_ENABLED);
+                        conf.mls_enabled = payload.enable_mls;
 
                         // the metadata of the first received message are copied in the metadata of the session
                         // and then added to the messages sent by this session. so we need to erase the entries
                         // the we want to keep local: IS_MODERATOR and SLIM_IDENTITY
                         conf.initiator = message.remove_metadata("IS_MODERATOR").is_some();
-                        message.remove_metadata(SLIM_IDENTITY);
 
                         conf.metadata = message.get_metadata_map();
 
-                        conf.channel_name = message
-                            .get_session_header()
-                            .get_destination()
-                            .ok_or(SessionError::MissingChannelName)?;
+                        conf.channel_name =
+                            Name::from(&payload.channel.ok_or(SessionError::MissingChannelName)?);
+
+                        let s = payload.timer_settings.ok_or(SessionError::Processing(
+                            "missing timer options".to_string(),
+                        ))?;
+
+                        conf.timeout = std::time::Duration::from_millis(s.timeout() as u64);
+                        conf.max_retries = s.max_retries();
 
                         self.create_session(SessionConfig::Multicast(conf), local_name, Some(id))
                             .await?
@@ -566,19 +565,17 @@ where
                     }
                 }
             }
-            ProtoSessionMessageType::ChannelDiscoveryRequest
-            | ProtoSessionMessageType::ChannelDiscoveryReply
-            | ProtoSessionMessageType::ChannelJoinReply
-            | ProtoSessionMessageType::ChannelLeaveRequest
-            | ProtoSessionMessageType::ChannelLeaveReply
-            | ProtoSessionMessageType::ChannelMlsCommit
-            | ProtoSessionMessageType::ChannelMlsWelcome
-            | ProtoSessionMessageType::ChannelMlsAck
-            | ProtoSessionMessageType::P2PAck
+            ProtoSessionMessageType::DiscoveryRequest
+            | ProtoSessionMessageType::DiscoveryReply
+            | ProtoSessionMessageType::JoinReply
+            | ProtoSessionMessageType::LeaveRequest
+            | ProtoSessionMessageType::LeaveReply
+            | ProtoSessionMessageType::GroupUpdate
+            | ProtoSessionMessageType::GroupWelcome
+            | ProtoSessionMessageType::GroupAck
+            | ProtoSessionMessageType::MsgAck
             | ProtoSessionMessageType::RtxRequest
-            | ProtoSessionMessageType::RtxReply
-            | ProtoSessionMessageType::MulticastMsg
-            | ProtoSessionMessageType::BeaconMulticast => {
+            | ProtoSessionMessageType::RtxReply => {
                 debug!(
                     "received channel message with unknown session id {:?} ",
                     message

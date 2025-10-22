@@ -307,7 +307,7 @@ mod tests {
 
         assert_eq!(adapter.id(), 0);
         assert_eq!(
-            adapter.name().components_strings().unwrap(),
+            adapter.name().components_strings(),
             &["org", "namespace", "test-app"]
         );
     }
@@ -324,7 +324,7 @@ mod tests {
 
         assert!(adapter.id() > 0);
         assert_eq!(
-            adapter.name().components_strings().unwrap(),
+            adapter.name().components_strings(),
             &["org", "namespace", "test-app"]
         );
     }
@@ -337,7 +337,7 @@ mod tests {
         assert_eq!(adapter.id(), 0);
         assert_eq!(adapter.name().id(), 0);
         assert_eq!(
-            adapter.name().components_strings().unwrap(),
+            adapter.name().components_strings(),
             &["org", "namespace", "test-app"]
         );
     }

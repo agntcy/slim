@@ -10,7 +10,6 @@ use std::{
 
 // Third-party crates
 use async_trait::async_trait;
-use base64::Engine;
 use bincode::{Decode, Encode};
 use parking_lot::Mutex;
 use tracing::{debug, error, trace};
@@ -18,8 +17,8 @@ use tracing::{debug, error, trace};
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType, SessionHeader,
-        SlimHeader,
+        CommandPayload, Content, ProtoMessage as Message, ProtoSessionMessageType,
+        ProtoSessionType, SessionHeader, SlimHeader,
     },
     messages::{Name, utils::SlimHeaderFlags},
 };
@@ -213,24 +212,13 @@ where
             return Ok(());
         }
 
-        self.last_mls_msg_id = msg
-            .get_metadata(METADATA_MLS_INIT_COMMIT_ID)
-            .ok_or(SessionError::WelcomeMessage(
-                "received welcome message without commit id, drop it".to_string(),
-            ))?
-            .parse::<u32>()
-            .map_err(|_| {
-                SessionError::WelcomeMessage(
-                    "received welcome message with invalid commit id, drop it".to_string(),
-                )
-            })?;
-
-        let welcome = &msg
+        let payload = msg
             .get_payload()
-            .ok_or(SessionError::WelcomeMessage(
-                "missing payload in MLS welcome, cannot join the group".to_string(),
-            ))?
-            .blob;
+            .unwrap()
+            .as_command_payload()
+            .as_welcome_payload();
+        self.last_mls_msg_id = payload.msl_commit_id();
+        let welcome = payload.mls_welcome();
 
         self.group = self
             .mls
@@ -265,10 +253,10 @@ where
 
             // base on the message type, process it
             match msg.get_session_header().session_message_type() {
-                ProtoSessionMessageType::ChannelMlsProposal => {
+                ProtoSessionMessageType::GroupProposal => {
                     self.process_proposal_message(msg, local_name)?;
                 }
-                ProtoSessionMessageType::ChannelMlsCommit => {
+                ProtoSessionMessageType::GroupUpdate => {
                     self.process_commit_message(msg)?;
                 }
                 _ => {
@@ -286,13 +274,13 @@ where
     fn process_commit_message(&mut self, commit: Message) -> Result<(), SessionError> {
         trace!("processing stored commit {}", commit.get_id());
 
-        // get the payload
-        let commit = &commit
+        let payalod = commit
             .get_payload()
-            .ok_or(SessionError::CommitMessage(
-                "missing payload in MLS commit, cannot process the commit".to_string(),
-            ))?
-            .blob;
+            .unwrap()
+            .as_command_payload()
+            .as_group_update_payload();
+        // get the payload
+        let commit = payalod.mls_commit();
 
         // process the commit message
         self.mls
@@ -308,23 +296,16 @@ where
     ) -> Result<(), SessionError> {
         trace!("processing stored proposal {}", proposal.get_id());
 
-        let content = proposal
+        let payload = proposal
             .get_payload()
-            .map_or_else(
-                || {
-                    error!("missing payload in a Mls Proposal, ignore the message");
-                    Err(SessionError::Processing(
-                        "missing payload in a Mls Proposal".to_string(),
-                    ))
-                },
-                |content| -> Result<(MlsProposalMessagePayload, usize), SessionError> {
-                    bincode::decode_from_slice(&content.blob, bincode::config::standard())
-                        .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))
-                },
-            )?
-            .0;
+            .unwrap()
+            .as_command_payload()
+            .as_group_proposal_payload();
 
-        if content.source_name == *local_name {
+        let original_source = Name::from(payload.source.as_ref().ok_or_else(|| {
+            SessionError::Processing("missing source in proposal payload".to_string())
+        })?);
+        if original_source == *local_name {
             // drop the message as we are the original source
             debug!("Known proposal, drop the message");
             return Ok(());
@@ -332,7 +313,7 @@ where
 
         self.mls
             .lock()
-            .process_proposal(&content.mls_msg, false)
+            .process_proposal(&payload.mls_proposal, false)
             .map_err(|e| SessionError::CommitMessage(e.to_string()))?;
 
         Ok(())
@@ -416,14 +397,13 @@ where
     }
 
     fn add_participant(&mut self, msg: &Message) -> Result<(CommitMsg, WelcomeMsg), SessionError> {
-        let payload = &msg
+        let payload = msg
             .get_payload()
-            .ok_or(SessionError::AddParticipant(
-                "key package is missing. the end point cannot be added to the channel".to_string(),
-            ))?
-            .blob;
+            .unwrap()
+            .as_command_payload()
+            .as_join_reply_payload();
 
-        match self.common.mls.lock().add_member(payload) {
+        match self.common.mls.lock().add_member(payload.key_package()) {
             Ok(ret) => {
                 // add participant to the list
                 self.participants
@@ -502,15 +482,6 @@ where
 pub struct JoinMessagePayload {
     channel_name: Name,
     moderator_name: Name,
-}
-
-impl JoinMessagePayload {
-    fn new(channel_name: Name, moderator_name: Name) -> Self {
-        JoinMessagePayload {
-            channel_name,
-            moderator_name,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
@@ -601,7 +572,7 @@ where
         broadcast: bool,
         request_type: ProtoSessionMessageType,
         message_id: u32,
-        payload: Vec<u8>,
+        payload: Option<Content>,
     ) -> Message {
         let flags = if broadcast {
             Some(SlimHeaderFlags::new(
@@ -615,13 +586,12 @@ where
             None
         };
 
-        let dest = if request_type == ProtoSessionMessageType::ChannelJoinRequest {
-            Some(self.channel_name.clone())
-        } else {
-            None
-        };
-
-        let slim_header = Some(SlimHeader::new(&self.name, destination, flags));
+        let slim_header = Some(SlimHeader::new(
+            &self.name,
+            destination,
+            "", // put empty identity it will be updated by the identity interceptor
+            flags,
+        ));
 
         // no need to specify the source and the destination here. these messages
         // will never be seen by the application
@@ -630,11 +600,9 @@ where
             request_type.into(),
             self.session_id,
             message_id,
-            &None,
-            &dest,
         ));
 
-        Message::new_publish_with_headers(slim_header, session_header, "", payload)
+        Message::new_publish_with_headers(slim_header, session_header, payload)
     }
 
     // creation is set to true is this is the first join to the channel
@@ -649,7 +617,7 @@ where
 
         // subscribe for the channel
         let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn.unwrap()));
-        let mut sub = Message::new_subscribe(&self.name, &self.channel_name, header);
+        let mut sub = Message::new_subscribe(&self.name, &self.channel_name, None, header);
 
         // add in the metadata to indication that the
         // subscription is associated to a channel
@@ -669,6 +637,7 @@ where
         let msg = Message::new_subscribe(
             &self.name,
             route_name,
+            None,
             Some(SlimHeaderFlags::default().with_recv_from(self.conn.unwrap())),
         );
 
@@ -680,6 +649,7 @@ where
         let msg = Message::new_unsubscribe(
             &self.name,
             route_name,
+            None,
             Some(SlimHeaderFlags::default().with_recv_from(self.conn.unwrap())),
         );
 
@@ -689,7 +659,7 @@ where
     async fn leave(&self) -> Result<(), SessionError> {
         // unsubscribe for the channel
         let header = Some(SlimHeaderFlags::default().with_forward_to(self.conn.unwrap()));
-        let mut unsub = Message::new_unsubscribe(&self.name, &self.channel_name, header);
+        let mut unsub = Message::new_unsubscribe(&self.name, &self.channel_name, None, header);
 
         // add in the metadata to indication that the
         // subscription is associated to a channel
@@ -726,6 +696,7 @@ pub fn handle_channel_discovery_message(
     let slim_header = Some(SlimHeader::new(
         &source,
         &destination,
+        "", // the identity will be added by the identity interceptor
         Some(SlimHeaderFlags::default().with_forward_to(message.get_incoming_conn())),
     ));
 
@@ -733,16 +704,15 @@ pub fn handle_channel_discovery_message(
     // will never be seen by the application
     let session_header = Some(SessionHeader::new(
         session_type.into(),
-        ProtoSessionMessageType::ChannelDiscoveryReply.into(),
+        ProtoSessionMessageType::DiscoveryReply.into(),
         session_id,
         msg_id,
-        &None,
-        &None,
     ));
 
     debug!("Received discovery request, reply to the msg source");
 
-    Message::new_publish_with_headers(slim_header, session_header, "", vec![])
+    let payload = Some(CommandPayload::new_discovery_reply_payload().as_content());
+    Message::new_publish_with_headers(slim_header, session_header, payload)
 }
 
 #[derive(Debug)]
@@ -783,7 +753,7 @@ where
         tx: T,
         session_metadata: HashMap<String, String>,
     ) -> Self {
-        let mut endpoint = Endpoint::new(
+        let endpoint = Endpoint::new(
             name,
             channel_name,
             session_id,
@@ -793,11 +763,6 @@ where
             tx,
             session_metadata,
         );
-
-        if session_type == ProtoSessionType::SessionPointToPoint {
-            // Skip channel subscription for P2P sessions
-            endpoint.subscribed = true;
-        }
 
         ChannelParticipant {
             moderator_name: None,
@@ -809,56 +774,58 @@ where
 
     async fn on_join_request(&mut self, msg: Message) -> Result<(), SessionError> {
         // get the payload
-        let names = msg
+        let payload = msg
             .get_payload()
-            .map_or_else(
-                || {
-                    error!("missing payload in a Join Channel request, ignore the message");
-                    Err(SessionError::Processing(
-                        "missing payload in a Join Channel request".to_string(),
-                    ))
-                },
-                |content| -> Result<(JoinMessagePayload, usize), SessionError> {
-                    bincode::decode_from_slice(&content.blob, bincode::config::standard())
-                        .map_err(|e| SessionError::JoinChannelPayload(e.to_string()))
-                },
-            )?
-            .0;
+            .unwrap()
+            .as_command_payload()
+            .as_join_request_payload();
+        let source = msg.get_source();
 
         // set local state according to the info in the message
         self.endpoint.conn = Some(msg.get_incoming_conn());
         self.endpoint.session_id = msg.get_session_header().get_session_id();
-        self.endpoint.channel_name = names.channel_name.clone();
+        self.endpoint.channel_name = Name::from(payload.channel.as_ref().ok_or_else(|| {
+            SessionError::Processing("missing source in proposal payload".to_string())
+        })?);
 
         // set route in order to be able to send packets to the moderator
-        self.endpoint.set_route(&names.moderator_name).await?;
+        self.endpoint.set_route(&source).await?;
+
+        // If names.moderator_name and names.channel_name are the same, skip the join
+        if self.endpoint.session_type == ProtoSessionType::PointToPoint {
+            self.endpoint.subscribed = true;
+        }
 
         // set the moderator name after the set route
-        self.moderator_name = Some(names.moderator_name);
+        self.moderator_name = Some(source);
 
         // send reply to the moderator
         let src = msg.get_source();
-        let payload: Vec<u8> = if msg.contains_metadata(METADATA_MLS_ENABLED) {
+        let payload = if msg.contains_metadata(METADATA_MLS_ENABLED) {
             // if mls we need to provide the key package
-            self.mls_state
+            let key = self
+                .mls_state
                 .as_mut()
                 .ok_or(SessionError::NoMls)?
-                .generate_key_package()?
+                .generate_key_package()?;
+            Some(key)
         } else {
             // without MLS we can set the state for the channel
             // otherwise the endpoint needs to receive a
             // welcome message first
             self.endpoint.join(false).await?;
-            vec![]
+            None
         };
+
+        let content = Some(CommandPayload::new_join_reply_payload(payload).as_content());
 
         // reply to the request
         let reply = self.endpoint.create_channel_message(
             &src,
             false,
-            ProtoSessionMessageType::ChannelJoinReply,
+            ProtoSessionMessageType::JoinReply,
             msg.get_id(),
-            payload,
+            content,
         );
 
         self.endpoint.send(reply).await
@@ -880,9 +847,9 @@ where
         let ack = self.endpoint.create_channel_message(
             &src,
             false,
-            ProtoSessionMessageType::ChannelMlsAck,
+            ProtoSessionMessageType::GroupAck,
             msg.get_id(),
-            vec![],
+            Some(CommandPayload::new_group_ack_payload().as_content()),
         );
 
         self.endpoint.send(ack).await
@@ -911,9 +878,9 @@ where
         let ack = self.endpoint.create_channel_message(
             &msg_source,
             false,
-            ProtoSessionMessageType::ChannelMlsAck,
+            ProtoSessionMessageType::GroupAck,
             msg_id,
-            vec![],
+            Some(CommandPayload::new_group_ack_payload().as_content()),
         );
 
         self.endpoint.send(ack).await
@@ -928,9 +895,9 @@ where
         let reply = self.endpoint.create_channel_message(
             &src,
             false,
-            ProtoSessionMessageType::ChannelLeaveReply,
+            ProtoSessionMessageType::LeaveReply,
             msg.get_id(),
-            vec![],
+            Some(CommandPayload::new_leave_reply_payload().as_content()),
         );
 
         self.endpoint.send(reply).await?;
@@ -949,7 +916,7 @@ where
         Ok(())
     }
 
-    async fn on_mls_ack(&mut self, msg: Message) -> Result<(), SessionError> {
+    async fn on_mls_ack_or_nack(&mut self, msg: Message) -> Result<(), SessionError> {
         // this is the ack for the proposal message (the only MLS ack that can
         // be received by a participant). Stop the timer and wait for the commit
         let msg_id = msg.get_id();
@@ -975,21 +942,12 @@ where
 
         // check the payload of the msg. if is not empty the moderator
         // rejected the proposal so we need to send a new one.
-        match msg.get_payload() {
-            Some(c) => {
-                if c.blob.is_empty() {
-                    // all good the moderator is processing the update
-                    debug!("Proposal message was accepted by the moderator");
-                } else {
-                    debug!("Proposal message was rejected by the moderator, send it again");
-                    self.update_mls_keys().await?;
-                }
-            }
-            None => {
-                return Err(SessionError::ParseProposalMessage(
-                    "prosal ack from the moderator is missing the payload".to_string(),
-                ));
-            }
+        if msg.get_session_message_type() == ProtoSessionMessageType::GroupAck {
+            // all good the moderator is processing the update
+            debug!("Proposal message was accepted by the moderator");
+        } else {
+            debug!("Proposal message was rejected by the moderator, send it again");
+            self.update_mls_keys().await?;
         }
 
         Ok(())
@@ -1023,15 +981,20 @@ where
         }
         let dest = self.moderator_name.as_ref().unwrap();
 
-        let content = MlsProposalMessagePayload::new(self.endpoint.name.clone(), proposal_msg);
-        let payload: Vec<u8> =
-            bincode::encode_to_vec(&content, bincode::config::standard()).unwrap();
+        let payload = Some(
+            CommandPayload::new_group_proposal_payload(
+                Some(self.endpoint.name.clone()),
+                proposal_msg,
+            )
+            .as_content(),
+        );
+
         // get msg id
         let proposal_id = rand::random::<u32>();
         let proposal = self.endpoint.create_channel_message(
             dest,
             true,
-            ProtoSessionMessageType::ChannelMlsProposal,
+            ProtoSessionMessageType::GroupProposal,
             proposal_id,
             payload,
         );
@@ -1090,7 +1053,7 @@ where
     async fn on_message(&mut self, msg: Message) -> Result<(), SessionError> {
         let msg_type = msg.get_session_header().session_message_type();
         match msg_type {
-            ProtoSessionMessageType::ChannelDiscoveryRequest => {
+            ProtoSessionMessageType::DiscoveryRequest => {
                 error!(
                     "Received discovery request message, this should not happen. drop the message"
                 );
@@ -1099,29 +1062,33 @@ where
                     "Received discovery request message, this should not happen".to_string(),
                 ))
             }
-            ProtoSessionMessageType::ChannelJoinRequest => {
+            ProtoSessionMessageType::JoinRequest => {
                 debug!("Received join request message");
                 self.on_join_request(msg).await
             }
-            ProtoSessionMessageType::ChannelMlsWelcome => {
+            ProtoSessionMessageType::GroupWelcome => {
                 debug!("Received mls welcome message");
                 self.on_mls_welcome(msg).await
             }
-            ProtoSessionMessageType::ChannelMlsCommit => {
+            ProtoSessionMessageType::GroupUpdate => {
                 debug!("Received mls commit message");
                 self.on_mls_control_message(msg).await
             }
-            ProtoSessionMessageType::ChannelMlsProposal => {
+            ProtoSessionMessageType::GroupProposal => {
                 debug!("Received mls proposal message");
                 self.on_mls_control_message(msg).await
             }
-            ProtoSessionMessageType::ChannelLeaveRequest => {
+            ProtoSessionMessageType::LeaveRequest => {
                 debug!("Received leave request message");
                 self.on_leave_request(msg).await
             }
-            ProtoSessionMessageType::ChannelMlsAck => {
+            ProtoSessionMessageType::GroupAck => {
                 debug!("Received mls ack message");
-                self.on_mls_ack(msg).await
+                self.on_mls_ack_or_nack(msg).await
+            }
+            ProtoSessionMessageType::GroupNack => {
+                debug!("Received mls mack message");
+                self.on_mls_ack_or_nack(msg).await
             }
             _ => {
                 error!("Received message of type {:?}, drop it", msg_type);
@@ -1171,9 +1138,6 @@ where
     /// list of pending requests and related timers
     pending_requests: HashMap<u32, ChannelTimer>,
 
-    /// channel name as payload to add to the invite messages
-    invite_payload: Vec<u8>,
-
     /// mls state
     mls_state: Option<MlsModeratorState<P, V>>,
 
@@ -1211,10 +1175,6 @@ where
         tx_session: Option<tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>>,
         session_metadata: HashMap<String, String>,
     ) -> Self {
-        let p = JoinMessagePayload::new(channel_name.clone(), name.clone());
-        let invite_payload: Vec<u8> = bincode::encode_to_vec(p, bincode::config::standard())
-            .expect("unable to parse channel name as payload");
-
         let mls_state = mls.map(MlsModeratorState::new);
 
         let endpoint = Endpoint::new(
@@ -1227,12 +1187,12 @@ where
             tx,
             session_metadata,
         );
+
         ChannelModerator {
             endpoint,
             tasks_todo: vec![].into(),
             current_task: None,
             pending_requests: HashMap::new(),
-            invite_payload,
             mls_state,
             group_list: HashMap::new(),
             tx_session,
@@ -1254,54 +1214,43 @@ where
         Ok(())
     }
 
+    async fn parse_discovery_request(&mut self, mut msg: Message) -> Result<Message, SessionError> {
+        // check if there is a destination name in the payload. If yes recreate the message
+        // with the right destination and send it out
+        let payload = msg
+            .get_payload()
+            .unwrap()
+            .as_command_payload()
+            .as_discovery_request_payload();
+        match payload.destination {
+            Some(dst_name) => {
+                // set the connection id if not done yet
+                self.endpoint.conn = Some(msg.get_incoming_conn());
+
+                // set the route to forward the messages correctly
+                let dst = Name::from(&dst_name);
+                self.endpoint.set_route(&dst).await?;
+
+                // create a new empty payload and change the message destination
+                let p = CommandPayload::new_discovery_request_payload(None).as_content();
+                msg.get_slim_header_mut().set_source(&self.endpoint.name);
+                msg.get_slim_header_mut().set_destination(&dst);
+                msg.set_payload(p);
+                Ok(msg)
+            }
+            None => {
+                // simply forward the message
+                Ok(msg)
+            }
+        }
+    }
+
     async fn forward(&mut self, msg: Message) -> Result<(), SessionError> {
-        let to_forward = if let Some(string_name) = msg.get_metadata("PARTICIPANT_NAME") {
-            debug!("received invite participant from controller: {:?}", msg);
-
-            // set the local connection
-            self.endpoint.conn = Some(msg.get_incoming_conn());
-
-            let dst_vec = base64::engine::general_purpose::STANDARD
-                .decode(string_name)
-                .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?;
-
-            let dst: Name = bincode::decode_from_slice(&dst_vec, bincode::config::standard())
-                .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?
-                .0;
-
-            self.endpoint.set_route(&dst).await?;
-
-            let new_slim_header = SlimHeader::new(&self.endpoint.name, &dst, None);
-
-            let new_session_header = SessionHeader::new(
-                ProtoSessionType::SessionMulticast.into(),
-                msg.get_session_header().session_message_type().into(),
-                self.endpoint.session_id,
-                msg.get_id(),
-                &None,
-                &None,
-            );
-
-            let blob = match msg.get_payload() {
-                Some(c) => c.blob.clone(),
-                None => vec![],
-            };
-
-            Message::new_publish_with_headers(
-                Some(new_slim_header),
-                Some(new_session_header),
-                "",
-                blob,
-            )
-        } else {
-            msg
-        };
-
         // forward message received from the app and set a timer
-        let msg_id = to_forward.get_id();
-        self.endpoint.send(to_forward.clone()).await?;
+        let msg_id = msg.get_id();
+        self.endpoint.send(msg.clone()).await?;
         // create a timer for this request
-        self.create_timer(msg_id, 1, to_forward, None);
+        self.create_timer(msg_id, 1, msg, None);
 
         Ok(())
     }
@@ -1360,7 +1309,7 @@ where
 
         if let Some(msg) = to_process {
             match msg.get_session_header().session_message_type() {
-                ProtoSessionMessageType::ChannelLeaveRequest => {
+                ProtoSessionMessageType::LeaveRequest => {
                     debug!("Forward channel leave request after timer cancellation");
                     let msg_id = msg.get_id();
                     self.forward(msg).await?;
@@ -1368,29 +1317,20 @@ where
                     // advance current task state and start leave phase
                     self.current_task.as_mut().unwrap().leave_start(msg_id)?;
                 }
-                ProtoSessionMessageType::ChannelMlsProposal => {
+                ProtoSessionMessageType::GroupProposal => {
                     debug!("Create commit message for mls proposal after timer cancellation");
                     // check the payload of the proposal message
-                    let content = &msg
+                    let payload = msg
                         .get_payload()
-                        .map_or_else(
-                            || {
-                                error!("Missing payload in a Mls Proposal, ignore the message");
-                                Err(SessionError::Processing(
-                                    "Missing payload in a Mls Proposal".to_string(),
-                                ))
-                            },
-                            |content| -> Result<(MlsProposalMessagePayload, usize), SessionError> {
-                                bincode::decode_from_slice(
-                                    &content.blob,
-                                    bincode::config::standard(),
-                                )
-                                .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))
-                            },
-                        )?
-                        .0;
+                        .unwrap()
+                        .as_command_payload()
+                        .as_group_proposal_payload();
 
-                    let commit_payload = if content.source_name == self.endpoint.name {
+                    let original_source = Name::from(payload.source.as_ref().ok_or_else(|| {
+                        SessionError::Processing("missing source in proposal payload".to_string())
+                    })?);
+
+                    let commit = if original_source == self.endpoint.name {
                         // this proposal was originated by the moderator itself
                         // apply it and send the commit
                         self.mls_state
@@ -1403,18 +1343,29 @@ where
                         self.mls_state
                             .as_mut()
                             .unwrap()
-                            .process_proposal_message(&content.mls_msg)?
+                            .process_proposal_message(&payload.mls_proposal)?
                     };
 
                     // broadcast the commit
                     let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
 
+                    let mut participants_vec = vec![];
+                    for (n, id) in &self.group_list {
+                        let name = n.clone().with_id(*id);
+                        participants_vec.push(name);
+                    }
+
+                    let payload = Some(
+                        CommandPayload::new_group_update_payload(participants_vec, Some(commit))
+                            .as_content(),
+                    );
+
                     let commit = self.endpoint.create_channel_message(
                         &self.endpoint.channel_name,
                         true,
-                        ProtoSessionMessageType::ChannelMlsCommit,
+                        ProtoSessionMessageType::GroupUpdate,
                         commit_id,
-                        commit_payload,
+                        payload,
                     );
 
                     // send commit message if needed
@@ -1461,13 +1412,25 @@ where
         let src = msg.get_slim_header().get_source();
         let new_msg_id = rand::random::<u32>();
 
+        let payload = Some(
+            CommandPayload::new_join_request_payload(
+                true,
+                true,
+                self.mls_state.is_some(),
+                Some(self.endpoint.max_retries),
+                Some(self.endpoint.retries_interval),
+                Some(self.endpoint.channel_name.clone()),
+            )
+            .as_content(),
+        );
+
         // this message cannot be received but it is created here
         let mut join = self.endpoint.create_channel_message(
             &src,
             false,
-            ProtoSessionMessageType::ChannelJoinRequest,
+            ProtoSessionMessageType::JoinRequest,
             new_msg_id,
-            self.invite_payload.clone(),
+            payload,
         );
 
         if self.mls_state.is_some() {
@@ -1527,19 +1490,39 @@ where
             let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
             let welcome_id = rand::random::<u32>();
 
+            // Create participants list for commit message
+            let mut participants_vec = vec![];
+            for (n, id) in &self.group_list {
+                let name = n.clone().with_id(*id);
+                participants_vec.push(name);
+            }
+
             let commit = self.endpoint.create_channel_message(
                 &self.endpoint.channel_name,
                 true,
-                ProtoSessionMessageType::ChannelMlsCommit,
+                ProtoSessionMessageType::GroupUpdate,
                 commit_id,
-                commit_payload,
+                Some(
+                    CommandPayload::new_group_update_payload(
+                        participants_vec.clone(),
+                        Some(commit_payload),
+                    )
+                    .as_content(),
+                ),
             );
             let mut welcome = self.endpoint.create_channel_message(
                 &src,
                 false,
-                ProtoSessionMessageType::ChannelMlsWelcome,
+                ProtoSessionMessageType::GroupWelcome,
                 welcome_id,
-                welcome_payload,
+                Some(
+                    CommandPayload::new_group_welcome_payload(
+                        participants_vec,
+                        Some(commit_id),
+                        Some(welcome_payload),
+                    )
+                    .as_content(),
+                ),
             );
             welcome.insert_metadata(
                 METADATA_MLS_INIT_COMMIT_ID.to_string(),
@@ -1616,23 +1599,30 @@ where
         let source = msg.get_source();
         let msg_id = msg.get_id();
 
-        let payload: Vec<u8> = if self.current_task.is_some() {
-            b"busy".to_vec()
+        let msg = if self.current_task.is_some() {
+            // moderator is busy, send nack
+            debug!("Received proposal from a participant, send nack");
+            self.endpoint.create_channel_message(
+                &source,
+                false,
+                ProtoSessionMessageType::GroupNack,
+                msg_id,
+                Some(CommandPayload::new_group_nack_payload().as_content()),
+            )
         } else {
-            vec![]
+            // send an empty ack
+            debug!("Received proposal from a participant, send ack");
+            self.endpoint.create_channel_message(
+                &source,
+                false,
+                ProtoSessionMessageType::GroupAck,
+                msg_id,
+                Some(CommandPayload::new_group_ack_payload().as_content()),
+            )
         };
 
-        // ack the MLS proposal
-        debug!("Received proposal from a participant, send ack");
-        let ack = self.endpoint.create_channel_message(
-            &source,
-            false,
-            ProtoSessionMessageType::ChannelMlsAck,
-            msg_id,
-            payload,
-        );
-
-        self.endpoint.send(ack).await
+        // reply to the the MLS proposal
+        self.endpoint.send(msg).await
     }
 
     async fn on_mls_proposal(&mut self, msg: Message) -> Result<(), SessionError> {
@@ -1646,7 +1636,8 @@ where
             .ok_or(SessionError::CommitMessage(
                 "missing payload in MLS proposal, cannot process it".to_string(),
             ))?
-            .blob;
+            .as_command_payload()
+            .as_group_proposal_payload();
 
         self.ack_msl_proposal(&msg).await?;
 
@@ -1669,27 +1660,34 @@ where
 
         if len == 1 {
             debug!("Only one participant in the group. send the commit");
-            // we have a single participant in the group. apply the proposal and send the commit
-            let content: MlsProposalMessagePayload =
-                bincode::decode_from_slice(payload, bincode::config::standard())
-                    .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?
-                    .0;
 
-            debug!("Process received proposal and send commit (single participant)");
             let commit_payload = self
                 .mls_state
                 .as_mut()
                 .unwrap()
-                .process_proposal_message(&content.mls_msg)?;
+                .process_proposal_message(&payload.mls_proposal)?;
 
             let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
+
+            // Create participants list for commit message
+            let mut participants_vec = vec![];
+            for (n, id) in &self.group_list {
+                let name = n.clone().with_id(*id);
+                participants_vec.push(name);
+            }
 
             let commit = self.endpoint.create_channel_message(
                 &self.endpoint.channel_name,
                 true,
-                ProtoSessionMessageType::ChannelMlsCommit,
+                ProtoSessionMessageType::GroupUpdate,
                 commit_id,
-                commit_payload,
+                Some(
+                    CommandPayload::new_group_update_payload(
+                        participants_vec,
+                        Some(commit_payload),
+                    )
+                    .as_content(),
+                ),
             );
 
             debug!(
@@ -1713,9 +1711,9 @@ where
             let broadcast_msg = self.endpoint.create_channel_message(
                 &self.endpoint.channel_name,
                 true,
-                ProtoSessionMessageType::ChannelMlsProposal,
+                ProtoSessionMessageType::GroupProposal,
                 broadcast_msg_id,
-                payload.to_vec(),
+                msg.get_payload().cloned(),
             );
 
             // send the proposal to all the participants and set the timers
@@ -1754,9 +1752,9 @@ where
             let leave = self.endpoint.create_channel_message(
                 p,
                 false,
-                ProtoSessionMessageType::ChannelLeaveRequest,
+                ProtoSessionMessageType::LeaveRequest,
                 rand::random::<u32>(),
-                vec![],
+                Some(CommandPayload::new_leave_request_payload(Some(p.clone())).as_content()),
             );
             // append the task to the list
             self.tasks_todo.push_back(leave);
@@ -1792,53 +1790,44 @@ where
         // we need to adjust the message
         // if coming from the controller we need to modify source and destination
         // if coming from the app we need to add the participant id to the destination
-        let leave_message = if let Some(string_name) = msg.get_metadata("PARTICIPANT_NAME") {
-            let dst_vec = base64::engine::general_purpose::STANDARD
-                .decode(string_name)
-                .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?;
+        let payload = msg
+            .get_payload()
+            .unwrap()
+            .as_command_payload()
+            .as_leave_request_payload();
+        let leave_message = match payload.destination {
+            Some(dst_name) => {
+                // Handle case where destination is provided
+                let dst = Name::from(&dst_name);
+                let id = *self
+                    .group_list
+                    .get(&dst)
+                    .ok_or(SessionError::RemoveParticipant(
+                        "participant not found".to_string(),
+                    ))?;
 
-            let dst: Name = bincode::decode_from_slice(&dst_vec, bincode::config::standard())
-                .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?
-                .0;
+                let dst = dst.with_id(id);
 
-            let id = *self
-                .group_list
-                .get(&dst)
-                .ok_or(SessionError::RemoveParticipant(
-                    "participant not found".to_string(),
-                ))?;
+                let new_payload = CommandPayload::new_leave_request_payload(None).as_content();
+                msg.get_slim_header_mut().set_source(&self.endpoint.name);
+                msg.get_slim_header_mut().set_destination(&dst);
+                msg.set_payload(new_payload);
 
-            let dst = dst.with_id(id);
+                msg
+            }
+            None => {
+                // Handle case where no destination is provided, use message destination
+                let dst = msg.get_dst();
+                let id = *self
+                    .group_list
+                    .get(&dst)
+                    .ok_or(SessionError::RemoveParticipant(
+                        "participant not found".to_string(),
+                    ))?;
 
-            let new_slim_header = SlimHeader::new(&self.endpoint.name, &dst, None);
-
-            let new_session_header = SessionHeader::new(
-                ProtoSessionType::SessionMulticast.into(),
-                ProtoSessionMessageType::ChannelLeaveRequest.into(),
-                self.endpoint.session_id,
-                msg.get_id(),
-                &None,
-                &None,
-            );
-
-            Message::new_publish_with_headers(
-                Some(new_slim_header),
-                Some(new_session_header),
-                "",
-                vec![],
-            )
-        } else {
-            let dst = msg.get_dst();
-            let id = *self
-                .group_list
-                .get(&dst)
-                .ok_or(SessionError::RemoveParticipant(
-                    "participant not found".to_string(),
-                ))?;
-
-            msg.get_slim_header_mut().set_destination(&dst.with_id(id));
-
-            msg
+                msg.get_slim_header_mut().set_destination(&dst.with_id(id));
+                msg
+            }
         };
 
         // If MLS is on, send the MLS commit and wait for all the
@@ -1850,12 +1839,25 @@ where
 
                 let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
 
+                // Create participants list for commit message
+                let mut participants_vec = vec![];
+                for (n, id) in &self.group_list {
+                    let name = n.clone().with_id(*id);
+                    participants_vec.push(name);
+                }
+
                 let commit = self.endpoint.create_channel_message(
                     &self.endpoint.channel_name,
                     true,
-                    ProtoSessionMessageType::ChannelMlsCommit,
+                    ProtoSessionMessageType::GroupUpdate,
                     commit_id,
-                    commit_payload,
+                    Some(
+                        CommandPayload::new_group_update_payload(
+                            participants_vec,
+                            Some(commit_payload),
+                        )
+                        .as_content(),
+                    ),
                 );
 
                 // send commit message if needed
@@ -1957,7 +1959,7 @@ where
         debug!("Process a new task from the todo list");
         let msg_type = msg.get_session_header().session_message_type();
         match msg_type {
-            ProtoSessionMessageType::ChannelDiscoveryRequest => {
+            ProtoSessionMessageType::DiscoveryRequest => {
                 // now the moderator is busy
                 self.current_task = if self.mls_state.is_some() {
                     Some(ModeratorTask::AddParticipantMls(
@@ -1970,17 +1972,18 @@ where
                 debug!("Start a new inivte task, send discovery message");
                 let msg_id = msg.get_id();
                 // discovery message coming from the application
-                self.forward(msg).await?;
+                let to_forward = self.parse_discovery_request(msg).await?;
+                self.forward(to_forward).await?;
 
                 // register the discovery start in the current task
                 self.current_task.as_mut().unwrap().discovery_start(msg_id)
             }
-            ProtoSessionMessageType::ChannelMlsProposal => {
+            ProtoSessionMessageType::GroupProposal => {
                 // only the moderator itself can schedule a proposal task
                 debug!("Start a new local key update task");
                 self.update_mls_keys().await
             }
-            ProtoSessionMessageType::ChannelLeaveRequest => {
+            ProtoSessionMessageType::LeaveRequest => {
                 // if the metadata contains the key "DELETE_GROUP" remove all the participants
                 // and close the session when all task are completed
                 if msg.contains_metadata("DELETE_GROUP") {
@@ -2024,12 +2027,14 @@ where
             // if busy postpone the task and add it to the todo list
             // at this point we cannot create a real proposal so create
             // a fake one with empty payload and push it to the todo list
+            let payload =
+                Some(CommandPayload::new_group_proposal_payload(None, vec![]).as_content());
             let empty_msg = self.endpoint.create_channel_message(
                 &self.endpoint.channel_name,
                 true,
-                ProtoSessionMessageType::ChannelMlsProposal,
+                ProtoSessionMessageType::GroupProposal,
                 rand::random::<u32>(),
-                vec![],
+                payload,
             );
 
             self.tasks_todo.push_back(empty_msg);
@@ -2057,9 +2062,15 @@ where
         let proposal = self.endpoint.create_channel_message(
             &self.endpoint.channel_name,
             true,
-            ProtoSessionMessageType::ChannelMlsProposal,
+            ProtoSessionMessageType::GroupProposal,
             proposal_id,
-            payload,
+            Some(
+                CommandPayload::new_group_proposal_payload(
+                    Some(self.endpoint.name.clone()),
+                    payload,
+                )
+                .as_content(),
+            ),
         );
 
         debug!("Send MLS Proposal Message to the channel (moderator key update)");
@@ -2112,7 +2123,7 @@ where
     async fn on_message(&mut self, msg: Message) -> Result<(), SessionError> {
         let msg_type = msg.get_session_header().session_message_type();
         match msg_type {
-            ProtoSessionMessageType::ChannelDiscoveryRequest => {
+            ProtoSessionMessageType::DiscoveryRequest => {
                 // the channel discovery starts a new participant invite.
                 // process the request only if not busy
                 if self.current_task.is_some() {
@@ -2136,31 +2147,32 @@ where
 
                 let msg_id = msg.get_id();
                 // discovery message coming from the application
-                self.forward(msg).await?;
+                let to_forward = self.parse_discovery_request(msg).await?;
+                self.forward(to_forward).await?;
 
                 // register the discovery start in the current task
                 self.current_task.as_mut().unwrap().discovery_start(msg_id)
             }
-            ProtoSessionMessageType::ChannelDiscoveryReply => {
+            ProtoSessionMessageType::DiscoveryReply => {
                 // this is part of an invite, process the packet
                 debug!("Received discovery reply message");
                 self.on_discovery_reply(msg).await
             }
-            ProtoSessionMessageType::ChannelJoinReply => {
+            ProtoSessionMessageType::JoinReply => {
                 // this is part of an invite, process the packet
                 debug!("Received join reply message");
                 self.on_join_reply(msg).await
             }
-            ProtoSessionMessageType::ChannelMlsAck => {
+            ProtoSessionMessageType::GroupAck => {
                 // this is part of an mls exchange, process the packet
                 debug!("Received mls ack message");
                 self.on_msl_ack(msg).await
             }
-            ProtoSessionMessageType::ChannelMlsProposal => {
+            ProtoSessionMessageType::GroupProposal => {
                 debug!("Received mls proposal message");
                 self.on_mls_proposal(msg).await
             }
-            ProtoSessionMessageType::ChannelLeaveRequest => {
+            ProtoSessionMessageType::LeaveRequest => {
                 debug!("received leave request message");
                 // leave message coming from the app or the controller
                 // this message starts a new participant removal.
@@ -2194,12 +2206,12 @@ where
                 debug!("Received leave request message on moderator");
                 self.on_leave_request(msg).await
             }
-            ProtoSessionMessageType::ChannelLeaveReply => {
+            ProtoSessionMessageType::LeaveReply => {
                 // this is part of a remove, process the packet
                 debug!("Received leave reply message on moderator");
                 self.on_leave_reply(msg).await
             }
-            ProtoSessionMessageType::ChannelJoinRequest => {
+            ProtoSessionMessageType::JoinRequest => {
                 // packet coming from the controller
                 // this message created a new multicast session on the local app
                 // setting the application as moderator
@@ -2240,6 +2252,7 @@ mod tests {
 
         let moderator = Name::from_strings(["org", "default", "moderator"]).with_id(12345);
         let participant = Name::from_strings(["org", "default", "participant"]).with_id(5120);
+        let moderator_id = &moderator.to_string();
         let channel_name = Name::from_strings(["channel", "channel", "channel"]);
         let conn = 1;
 
@@ -2263,7 +2276,7 @@ mod tests {
             moderator.clone(),
             channel_name.clone(),
             SESSION_ID,
-            ProtoSessionType::SessionUnknown,
+            ProtoSessionType::Unspecified,
             3,
             Duration::from_millis(100),
             Some(moderator_mls),
@@ -2275,7 +2288,7 @@ mod tests {
             participant.clone(),
             channel_name.clone(),
             SESSION_ID,
-            ProtoSessionType::SessionUnknown,
+            ProtoSessionType::Unspecified,
             3,
             Duration::from_millis(100),
             Some(participant_mls),
@@ -2286,19 +2299,22 @@ mod tests {
         // create a discovery request
         let flags = SlimHeaderFlags::default().with_incoming_conn(conn);
 
-        let slim_header = Some(SlimHeader::new(&moderator, &participant, Some(flags)));
+        let slim_header = Some(SlimHeader::new(
+            &moderator,
+            &participant,
+            moderator_id,
+            Some(flags),
+        ));
 
         let session_header = Some(SessionHeader::new(
-            ProtoSessionType::SessionUnknown.into(),
-            ProtoSessionMessageType::ChannelDiscoveryRequest.into(),
+            ProtoSessionType::Unspecified.into(),
+            ProtoSessionMessageType::DiscoveryRequest.into(),
             SESSION_ID,
             rand::random::<u32>(),
-            &None,
-            &None,
         ));
-        let payload: Vec<u8> =
-            bincode::encode_to_vec(&moderator, bincode::config::standard()).unwrap();
-        let request = Message::new_publish_with_headers(slim_header, session_header, "", payload);
+
+        let payload = Some(CommandPayload::new_discovery_request_payload(None).as_content());
+        let request = Message::new_publish_with_headers(slim_header, session_header, payload);
 
         // receive the request at the session layer
         cm.on_message(request.clone()).await.unwrap();
@@ -2316,19 +2332,19 @@ mod tests {
         let slim_header = Some(SlimHeader::new(
             &participant,
             &destination,
+            moderator_id,
             Some(SlimHeaderFlags::default().with_forward_to(msg.get_incoming_conn())),
         ));
 
         let session_header = Some(SessionHeader::new(
-            ProtoSessionType::SessionUnknown.into(),
-            ProtoSessionMessageType::ChannelDiscoveryReply.into(),
+            ProtoSessionType::Unspecified.into(),
+            ProtoSessionMessageType::DiscoveryReply.into(),
             session_id,
             msg_id,
-            &None,
-            &None,
         ));
 
-        let mut msg = Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
+        let payload = Some(CommandPayload::new_discovery_reply_payload().as_content());
+        let mut msg = Message::new_publish_with_headers(slim_header, session_header, payload);
 
         // message reception on moderator side
         msg.set_incoming_conn(Some(conn));
@@ -2337,7 +2353,7 @@ mod tests {
         // the first message is the subscription for the channel name
         // this is also the channel creation
         let header = Some(SlimHeaderFlags::default().with_forward_to(conn));
-        let mut sub = Message::new_subscribe(&moderator, &channel_name, header);
+        let mut sub = Message::new_subscribe(&moderator, &channel_name, None, header);
         sub.insert_metadata(CHANNEL_SUBSCRIPTION.to_string(), "true".to_string());
         sub.insert_metadata(CHANNEL_CREATION.to_string(), "true".to_string());
         let msg = moderator_rx.recv().await.unwrap().unwrap();
@@ -2345,21 +2361,27 @@ mod tests {
 
         // then we have the set route for the channel name
         let header = Some(SlimHeaderFlags::default().with_recv_from(conn));
-        let sub = Message::new_subscribe(&moderator, &channel_name, header);
+        let sub = Message::new_subscribe(&moderator, &channel_name, None, header);
         let msg = moderator_rx.recv().await.unwrap().unwrap();
         assert_eq!(msg, sub);
 
         // create a request to compare with the output of on_message
-        let jp = JoinMessagePayload {
-            channel_name: channel_name.clone(),
-            moderator_name: moderator.clone(),
-        };
+        let payload = Some(
+            CommandPayload::new_join_request_payload(
+                true,
+                true,
+                true,
+                Some(3),
+                Some(Duration::from_millis(100)),
+                Some(channel_name.clone()),
+            )
+            .as_content(),
+        );
 
-        let payload: Vec<u8> = bincode::encode_to_vec(&jp, bincode::config::standard()).unwrap();
         let mut request = cm.endpoint.create_channel_message(
             &participant,
             false,
-            ProtoSessionMessageType::ChannelJoinRequest,
+            ProtoSessionMessageType::JoinRequest,
             0,
             payload,
         );
@@ -2377,17 +2399,18 @@ mod tests {
 
         // the first message is the set route for moderator name
         let header = Some(SlimHeaderFlags::default().with_recv_from(conn));
-        let sub = Message::new_subscribe(&participant, &moderator, header);
+        let sub = Message::new_subscribe(&participant, &moderator, None, header);
         let msg = participant_rx.recv().await.unwrap().unwrap();
         assert_eq!(msg, sub);
 
+        let payload = Some(CommandPayload::new_join_reply_payload(None).as_content());
         // create a reply to compare with the output of on_message
         let reply = cp.endpoint.create_channel_message(
             &moderator,
             false,
-            ProtoSessionMessageType::ChannelJoinReply,
+            ProtoSessionMessageType::JoinReply,
             msg_id,
-            vec![],
+            payload,
         );
         let mut msg = participant_rx.recv().await.unwrap().unwrap();
 
@@ -2403,9 +2426,16 @@ mod tests {
         let mut reply = cm.endpoint.create_channel_message(
             &participant,
             false,
-            ProtoSessionMessageType::ChannelMlsWelcome,
+            ProtoSessionMessageType::GroupWelcome,
             0,
-            vec![],
+            Some(
+                CommandPayload::new_group_welcome_payload(
+                    vec![moderator.clone()],
+                    Some(1),
+                    Some(vec![]),
+                )
+                .as_content(),
+            ),
         );
 
         // this should be the MLS welcome message, we can comprare only
@@ -2422,14 +2452,14 @@ mod tests {
 
         // the first message generated is a subscription for the channel name
         let header = Some(SlimHeaderFlags::default().with_forward_to(conn));
-        let mut sub = Message::new_subscribe(&participant, &channel_name, header);
+        let mut sub = Message::new_subscribe(&participant, &channel_name, None, header);
         sub.insert_metadata(CHANNEL_SUBSCRIPTION.to_string(), "true".to_string());
         let msg = participant_rx.recv().await.unwrap().unwrap();
         assert_eq!(msg, sub);
 
         // then we have the set route for the channel name
         let header = Some(SlimHeaderFlags::default().with_recv_from(conn));
-        let sub = Message::new_subscribe(&participant, &channel_name, header);
+        let sub = Message::new_subscribe(&participant, &channel_name, None, header);
         let msg = participant_rx.recv().await.unwrap().unwrap();
         assert_eq!(msg, sub);
 
@@ -2438,9 +2468,9 @@ mod tests {
         let reply = cp.endpoint.create_channel_message(
             &moderator,
             false,
-            ProtoSessionMessageType::ChannelMlsAck,
+            ProtoSessionMessageType::GroupAck,
             msg_id,
-            vec![],
+            Some(CommandPayload::new_group_ack_payload().as_content()),
         );
 
         let msg = participant_rx.recv().await.unwrap().unwrap();

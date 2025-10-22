@@ -14,7 +14,7 @@ use slim_datapath::Status;
 use slim_datapath::api::MessageType;
 use slim_datapath::api::ProtoMessage as Message;
 use slim_datapath::messages::Name;
-use slim_datapath::messages::utils::{SLIM_IDENTITY, SlimHeaderFlags};
+use slim_datapath::messages::utils::SlimHeaderFlags;
 
 // Local crate
 use crate::ServiceError;
@@ -176,7 +176,7 @@ where
             .map_err(ServiceError::SessionError)?;
 
         // Add the identity to the message metadata
-        msg.insert_metadata(SLIM_IDENTITY.to_string(), identity);
+        msg.get_slim_header_mut().set_identity(identity);
 
         self.session_layer
             .tx_slim()
@@ -200,7 +200,8 @@ where
         } else {
             Some(SlimHeaderFlags::default())
         };
-        let msg = Message::new_subscribe(&self.app_name, &name, header);
+
+        let msg = Message::new_subscribe(&self.app_name, &name, None, header);
 
         // Subscribe
         self.send_message_without_context(msg).await?;
@@ -220,7 +221,8 @@ where
         } else {
             Some(SlimHeaderFlags::default())
         };
-        let msg = Message::new_subscribe(&self.app_name, name, header);
+
+        let msg = Message::new_subscribe(&self.app_name, name, None, header);
 
         // Unsubscribe
         self.send_message_without_context(msg).await?;
@@ -239,6 +241,7 @@ where
         let msg = Message::new_subscribe(
             &self.app_name,
             name,
+            None,
             Some(SlimHeaderFlags::default().with_recv_from(conn)),
         );
         self.send_message_without_context(msg).await
@@ -251,6 +254,7 @@ where
         let msg = Message::new_unsubscribe(
             &self.app_name,
             name,
+            None,
             Some(SlimHeaderFlags::default().with_recv_from(conn)),
         );
 
@@ -267,7 +271,7 @@ where
             debug!("starting message processing loop for {}", app_name);
 
             // subscribe for local name running this loop
-            let subscribe_msg = Message::new_subscribe(&app_name, &app_name, None);
+            let subscribe_msg = Message::new_subscribe(&app_name, &app_name, None, None);
             let tx = session_layer.tx_slim();
             tx.send(Ok(subscribe_msg))
                 .await
@@ -337,9 +341,8 @@ mod tests {
     use slim_session::point_to_point::PointToPointConfiguration;
 
     use slim_auth::{shared_secret::SharedSecret, testutils::TEST_VALID_SECRET};
-    use slim_datapath::{
-        api::{ProtoMessage, ProtoSessionMessageType, ProtoSessionType},
-        messages::{Name, utils::SLIM_IDENTITY},
+    use slim_datapath::api::{
+        ApplicationPayload, ProtoMessage, ProtoSessionMessageType, ProtoSessionType,
     };
 
     #[allow(dead_code)]
@@ -509,15 +512,15 @@ mod tests {
             &name,
             &Name::from_strings(["org", "ns", "type"]).with_id(0),
             None,
-            "msg",
-            vec![0x1, 0x2, 0x3, 0x4],
+            None,
+            Some(ApplicationPayload::new("msg", vec![0x1, 0x2, 0x3, 0x4]).as_content()),
         );
 
         // set the session id in the message
         let header = message.get_session_header_mut();
         header.session_id = 1;
-        header.set_session_type(ProtoSessionType::SessionPointToPoint);
-        header.set_session_message_type(ProtoSessionMessageType::P2PMsg);
+        header.set_session_type(ProtoSessionType::PointToPoint);
+        header.set_session_message_type(ProtoSessionMessageType::Msg);
 
         app.session_layer
             .handle_message_from_slim(message.clone())
@@ -530,8 +533,10 @@ mod tests {
         // As there is no identity, we should not get any message in the app
         assert!(rx_app.try_recv().is_err());
 
-        // Add identity to message
-        message.insert_metadata(SLIM_IDENTITY.to_string(), identity.get_token().unwrap());
+        // set the right identity
+        message
+            .get_slim_header_mut()
+            .set_identity(identity.get_token().unwrap());
 
         // Try again
         app.session_layer
@@ -595,15 +600,15 @@ mod tests {
             &source,
             &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
             None,
-            "msg",
-            vec![0x1, 0x2, 0x3, 0x4],
+            None,
+            Some(ApplicationPayload::new("msg", vec![0x1, 0x2, 0x3, 0x4]).as_content()),
         );
 
         // set the session id in the message
         let header = message.get_session_header_mut();
         header.session_id = 1;
-        header.set_session_type(ProtoSessionType::SessionPointToPoint);
-        header.set_session_message_type(ProtoSessionMessageType::P2PMsg);
+        header.set_session_type(ProtoSessionType::PointToPoint);
+        header.set_session_message_type(ProtoSessionMessageType::Msg);
 
         let res = app
             .session_layer
@@ -619,9 +624,7 @@ mod tests {
             .expect("no message received")
             .expect("error");
 
-        // Removw identity as it might differ
-        message.remove_metadata(SLIM_IDENTITY);
-        msg.remove_metadata(SLIM_IDENTITY);
+        msg.get_slim_header_mut().set_identity("".to_string());
 
         msg.set_message_id(0);
         assert_eq!(msg, message);

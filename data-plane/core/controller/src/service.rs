@@ -4,8 +4,7 @@
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
-
-use base64::Engine;
+use std::time::Duration;
 
 use slim_config::component::id::ID;
 use slim_config::grpc::server::ServerConfig;
@@ -30,12 +29,12 @@ use crate::errors::ControllerError;
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::traits::TokenProvider;
 use slim_config::grpc::client::ClientConfig;
-use slim_datapath::api::ProtoMessage as DataPlaneMessage;
+use slim_datapath::api::{CommandPayload, Content, ProtoMessage as DataPlaneMessage};
 use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType, SessionHeader, SlimHeader};
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::Name;
 use slim_datapath::messages::encoder::calculate_hash;
-use slim_datapath::messages::utils::{SLIM_IDENTITY, SlimHeaderFlags};
+use slim_datapath::messages::utils::SlimHeaderFlags;
 use slim_datapath::tables::SubscriptionTable;
 
 type TxChannel = mpsc::Sender<Result<ControlMessage, Status>>;
@@ -282,8 +281,12 @@ impl ControlPlane {
         let inner = self.controller.inner.clone();
 
         // Send subscription to data-plane to receive messages for the controller source name
-        let subscribe_msg =
-            DataPlaneMessage::new_subscribe(&CONTROLLER_SOURCE_NAME, &CONTROLLER_SOURCE_NAME, None);
+        let subscribe_msg = DataPlaneMessage::new_subscribe(
+            &CONTROLLER_SOURCE_NAME,
+            &CONTROLLER_SOURCE_NAME,
+            Some(&CONTROLLER_SOURCE_NAME.to_string()),
+            None,
+        );
 
         // Send the subscribe message to the data plane
         if let Err(e) = inner.tx_slim.send(Ok(subscribe_msg)).await {
@@ -304,7 +307,7 @@ impl ControlPlane {
                                         let mut unsub_vec = vec![];
 
                                         let dst = msg.get_dst();
-                                        let components = dst.components_strings().unwrap();
+                                        let components = dst.components_strings();
                                         let cmd = v1::Subscription {
                                             component_0: components[0].to_string(),
                                             component_1: components[1].to_string(),
@@ -507,46 +510,34 @@ fn get_name_from_string(string_name: &String) -> Result<Name, ControllerError> {
 fn create_channel_message(
     source: &Name,
     destination: &Name,
-    // TODO(micpapal): this needs to be removed
-    // use the protobuf file to define the payload
-    // of the packets
-    channel: Option<&Name>,
     request_type: ProtoSessionMessageType,
     session_id: u32,
     message_id: u32,
-    mut metadata: HashMap<String, String>,
-    payload: Vec<u8>,
+    payload: Option<Content>,
     auth_provider: &Option<AuthProvider>,
 ) -> DataPlaneMessage {
-    let slim_header = Some(SlimHeader::new(source, destination, None));
-    let dest = channel.unwrap_or(destination);
-
-    let session_header = Some(SessionHeader::new(
-        ProtoSessionType::SessionMulticast.into(),
-        request_type.into(),
-        session_id,
-        message_id,
-        &None,
-        &Some(dest.clone()),
-    ));
-
-    if let Some(auth) = auth_provider {
-        let identity_token = auth
-            .get_token()
+    // if the auth_provider is set try to get an identity
+    let identity_token = if let Some(auth) = auth_provider {
+        auth.get_token()
             .map_err(|e| {
                 error!("failed to generate identity token: {}", e);
                 ControllerError::DatapathError(e.to_string())
             })
-            .unwrap();
+            .unwrap()
+    } else {
+        "".to_string()
+    };
 
-        metadata.insert(SLIM_IDENTITY.to_string(), identity_token);
-    }
-    let mut msg =
-        DataPlaneMessage::new_publish_with_headers(slim_header, session_header, "", payload);
+    let slim_header = Some(SlimHeader::new(source, destination, &identity_token, None));
 
-    msg.set_metadata_map(metadata);
+    let session_header = Some(SessionHeader::new(
+        ProtoSessionType::Multicast.into(),
+        request_type.into(),
+        session_id,
+        message_id,
+    ));
 
-    msg
+    DataPlaneMessage::new_publish_with_headers(slim_header, session_header, payload)
 }
 
 fn new_channel_message(
@@ -557,41 +548,30 @@ fn new_channel_message(
 ) -> DataPlaneMessage {
     let session_id = generate_session_id(moderator, channel);
 
-    // Local copy of JoinMessagePayload (original defined in channel endpoint module for data plane service).
-    // Duplicated here because controller does not depend on the service module.
-    // TODO(micpapal): handle this using the protobuf
-    #[derive(Debug, Clone, bincode::Encode, bincode::Decode)]
-    struct JoinMessagePayloadLocal {
-        channel_name: Name,
-        moderator_name: Name,
-    }
-    let p = JoinMessagePayloadLocal {
-        channel_name: channel.clone(),
-        moderator_name: moderator.clone(),
-    };
-    let invite_payload: Vec<u8> = bincode::encode_to_vec(p, bincode::config::standard())
-        .expect("unable to encode channel join payload");
+    let invite_payload = Some(
+        CommandPayload::new_join_request_payload(
+            true,
+            true,
+            true,
+            Some(10),
+            Some(Duration::from_secs(1)),
+            Some(channel.clone()),
+        )
+        .as_content(),
+    );
 
-    let mut metadata = HashMap::new();
-
-    metadata.insert("IS_MODERATOR".to_string(), "true".to_string());
-
-    // by default MLS is always on
-    // TODO(micpapal): define all these metadata constants somewhere
-    // that is accessible everywhere
-    metadata.insert("MLS_ENABLED".to_string(), "true".to_string());
-
-    create_channel_message(
+    let mut msg = create_channel_message(
         controller,
         moderator,
-        Some(channel),
-        ProtoSessionMessageType::ChannelJoinRequest,
+        ProtoSessionMessageType::JoinRequest,
         session_id,
         rand::random::<u32>(),
-        metadata,
         invite_payload,
         auth_provider,
-    )
+    );
+
+    msg.insert_metadata("IS_MODERATOR".to_string(), "true".to_string());
+    msg
 }
 
 fn delete_channel_message(
@@ -602,20 +582,20 @@ fn delete_channel_message(
 ) -> DataPlaneMessage {
     let session_id = generate_session_id(moderator, channel_name);
 
-    let mut metadata = HashMap::new();
-    metadata.insert("DELETE_GROUP".to_string(), "true".to_string());
+    let payaload = Some(CommandPayload::new_leave_request_payload(None).as_content());
 
-    create_channel_message(
+    let mut msg = create_channel_message(
         controller,
         moderator,
-        None,
-        ProtoSessionMessageType::ChannelLeaveRequest,
+        ProtoSessionMessageType::LeaveRequest,
         session_id,
         rand::random::<u32>(),
-        metadata,
-        vec![],
+        payaload,
         auth_provider,
-    )
+    );
+
+    msg.insert_metadata("DELETE_GROUP".to_string(), "true".to_string());
+    msg
 }
 
 fn invite_participant_message(
@@ -626,25 +606,17 @@ fn invite_participant_message(
     auth_provider: &Option<AuthProvider>,
 ) -> DataPlaneMessage {
     let session_id = generate_session_id(moderator, channel_name);
-    let mut metadata = HashMap::new();
 
-    let encoded_participant: Vec<u8> =
-        bincode::encode_to_vec(participant, bincode::config::standard())
-            .expect("unable to encode channel join payload");
-    let encoded_participant_str =
-        base64::engine::general_purpose::STANDARD.encode(&encoded_participant);
-
-    metadata.insert("PARTICIPANT_NAME".to_string(), encoded_participant_str);
+    let payload =
+        Some(CommandPayload::new_discovery_request_payload(Some(participant.clone())).as_content());
 
     create_channel_message(
         controller,
         moderator,
-        None,
-        ProtoSessionMessageType::ChannelDiscoveryRequest,
+        ProtoSessionMessageType::DiscoveryRequest,
         session_id,
         rand::random::<u32>(),
-        metadata,
-        vec![],
+        payload,
         auth_provider,
     )
 }
@@ -658,23 +630,16 @@ fn remove_participant_message(
 ) -> DataPlaneMessage {
     let session_id = generate_session_id(moderator, channel_name);
 
-    let mut metadata = HashMap::new();
-    let encoded_participant: Vec<u8> =
-        bincode::encode_to_vec(participant, bincode::config::standard())
-            .expect("unable to encode channel join payload");
-    let encoded_participant_str =
-        base64::engine::general_purpose::STANDARD.encode(&encoded_participant);
-    metadata.insert("PARTICIPANT_NAME".to_string(), encoded_participant_str);
+    let payload =
+        Some(CommandPayload::new_leave_request_payload(Some(participant.clone())).as_content());
 
     create_channel_message(
         controller,
         moderator,
-        None,
-        ProtoSessionMessageType::ChannelLeaveRequest,
+        ProtoSessionMessageType::LeaveRequest,
         session_id,
         rand::random::<u32>(),
-        metadata,
-        vec![],
+        payload,
         auth_provider,
     )
 }
@@ -763,6 +728,18 @@ impl ControllerService {
                             });
                         }
 
+                        // if the auth_provider is set try to get an identity
+                        let identity_token = if let Some(auth) = &self.inner.auth_provider {
+                            auth.get_token()
+                                .map_err(|e| {
+                                    error!("failed to generate identity token: {}", e);
+                                    ControllerError::DatapathError(e.to_string())
+                                })
+                                .unwrap()
+                        } else {
+                            "".to_string()
+                        };
+
                         // Process subscriptions to set
                         for subscription in &config.subscriptions_to_set {
                             let mut subscription_success = true;
@@ -801,6 +778,7 @@ impl ControllerService {
                                 let msg = DataPlaneMessage::new_subscribe(
                                     &source,
                                     &name,
+                                    Some(&identity_token),
                                     Some(SlimHeaderFlags::default().with_recv_from(conn)),
                                 );
 
@@ -861,6 +839,7 @@ impl ControllerService {
                                 let msg = DataPlaneMessage::new_unsubscribe(
                                     &source,
                                     &name,
+                                    Some(&identity_token),
                                     Some(SlimHeaderFlags::default().with_recv_from(conn)),
                                 );
 
@@ -916,9 +895,9 @@ impl ControllerService {
                         self.inner.message_processor.subscription_table().for_each(
                             |name, id, local, remote| {
                                 let mut entry = SubscriptionEntry {
-                                    component_0: name.components_strings().unwrap()[0].to_string(),
-                                    component_1: name.components_strings().unwrap()[1].to_string(),
-                                    component_2: name.components_strings().unwrap()[2].to_string(),
+                                    component_0: name.components_strings()[0].to_string(),
+                                    component_1: name.components_strings()[1].to_string(),
+                                    component_2: name.components_strings()[2].to_string(),
                                     id: Some(id),
                                     ..Default::default()
                                 };
@@ -1449,6 +1428,7 @@ impl GrpcControllerService for ControllerService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use slim_auth::{shared_secret::SharedSecret, testutils::TEST_VALID_SECRET};
     use slim_config::component::id::Kind;
     use tracing_test::traced_test;
 
@@ -1487,8 +1467,14 @@ mod tests {
             drain_rx: watch_server,
             message_processor: Arc::new(message_processor_server),
             pubsub_servers: pubsub_servers.to_vec(),
-            auth_provider: None,
-            auth_verifier: None,
+            auth_provider: Some(AuthProvider::SharedSecret(SharedSecret::new(
+                "server",
+                TEST_VALID_SECRET,
+            ))),
+            auth_verifier: Some(AuthVerifier::SharedSecret(SharedSecret::new(
+                "server",
+                TEST_VALID_SECRET,
+            ))),
         });
 
         let mut control_plane_client = ControlPlane::new(ControlPlaneSettings {
@@ -1499,8 +1485,14 @@ mod tests {
             drain_rx: watch_client,
             message_processor: Arc::new(message_processor_client),
             pubsub_servers: pubsub_servers.to_vec(),
-            auth_provider: None,
-            auth_verifier: None,
+            auth_provider: Some(AuthProvider::SharedSecret(SharedSecret::new(
+                "client",
+                TEST_VALID_SECRET,
+            ))),
+            auth_verifier: Some(AuthVerifier::SharedSecret(SharedSecret::new(
+                "client",
+                TEST_VALID_SECRET,
+            ))),
         });
 
         // Start the server

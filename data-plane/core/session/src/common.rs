@@ -6,8 +6,8 @@ use tonic::Status;
 
 use slim_datapath::{
     api::{
-        ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType, SessionHeader,
-        SlimHeader,
+        ApplicationPayload, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType,
+        SessionHeader, SlimHeader,
     },
     messages::{Name, utils::SlimHeaderFlags},
 };
@@ -63,18 +63,20 @@ pub fn new_message_from_session_fields(
         Some(SlimHeaderFlags::default().with_forward_to(target_conn))
     };
 
-    let slim_header = Some(SlimHeader::new(local_name, target_name, flags));
+    let slim_header = Some(SlimHeader::new(local_name, target_name, "", flags));
 
     let session_header = Some(SessionHeader::new(
         session_type.into(),
         message_type.into(),
         session_id,
         message_id,
-        &None,
-        &None,
     ));
 
-    Message::new_publish_with_headers(slim_header, session_header, "", vec![])
+    Message::new_publish_with_headers(
+        slim_header,
+        session_header,
+        Some(ApplicationPayload::new("", vec![]).as_content()),
+    )
 }
 
 /// Message types for communication between session components

@@ -7,14 +7,13 @@ use twox_hash::XxHash64;
 
 use crate::api::ProtoName;
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Clone, Encode, Decode)]
 pub struct Name {
     /// The hashed components of the name
     components: [u64; 4],
 
     // Store the original string representation of the components
-    // This is useful for debugging and logging purposes
-    strings: Option<Box<[String; 3]>>,
+    strings: Box<[String; 3]>,
 }
 
 impl Hash for Name {
@@ -36,34 +35,49 @@ impl Eq for Name {}
 
 impl std::fmt::Display for Name {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(strings) = &self.strings {
-            write!(
-                f,
-                "{}/{}/{}/{:x}",
-                strings[0], strings[1], strings[2], self.components[3]
-            )?;
-        } else {
-            write!(
-                f,
-                "{:x}/{:x}/{:x}/{:x}",
-                self.components[0], self.components[1], self.components[2], self.components[3]
-            )?;
-        }
+        write!(
+            f,
+            "{}/{}/{}/{:x}",
+            self.strings[0], self.strings[1], self.strings[2], self.components[3]
+        )?;
+        Ok(())
+    }
+}
 
+impl std::fmt::Debug for Name {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{:x}/{:x}/{:x}/{:x} ({}/{}/{}/{:x})",
+            self.components[0],
+            self.components[1],
+            self.components[2],
+            self.components[3],
+            self.strings[0],
+            self.strings[1],
+            self.strings[2],
+            self.components[3]
+        )?;
         Ok(())
     }
 }
 
 impl From<&ProtoName> for Name {
     fn from(proto_name: &ProtoName) -> Self {
+        let encoded = proto_name.name.unwrap();
+        let strings = proto_name.str_name.as_ref().unwrap();
         Self {
             components: [
-                proto_name.component_0,
-                proto_name.component_1,
-                proto_name.component_2,
-                proto_name.component_3,
+                encoded.component_0,
+                encoded.component_1,
+                encoded.component_2,
+                encoded.component_3,
             ],
-            strings: None,
+            strings: Box::new([
+                strings.str_component_0.clone(),
+                strings.str_component_1.clone(),
+                strings.str_component_2.clone(),
+            ]),
         }
     }
 }
@@ -82,7 +96,7 @@ impl Name {
                 calculate_hash(&strings[2]),
                 Self::NULL_COMPONENT,
             ],
-            strings: Some(Box::new(strings)),
+            strings: Box::new(strings),
         }
     }
 
@@ -118,8 +132,8 @@ impl Name {
         self.components[3] = Self::NULL_COMPONENT;
     }
 
-    pub fn components_strings(&self) -> Option<&[String; 3]> {
-        self.strings.as_deref()
+    pub fn components_strings(&self) -> &[String; 3] {
+        &self.strings
     }
 
     pub fn match_prefix(&self, other: &Name) -> bool {
