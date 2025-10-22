@@ -199,6 +199,14 @@ impl TokenProvider for AuthProvider {
         }
     }
 
+    fn get_token_with_claims(&self, custom_claims: std::collections::HashMap<String, serde_json::Value>) -> Result<String, AuthError> {
+        match self {
+            AuthProvider::JwtSigner(signer) => signer.get_token_with_claims(custom_claims),
+            AuthProvider::StaticToken(provider) => provider.get_token_with_claims(custom_claims),
+            AuthProvider::SharedSecret(secret) => secret.get_token_with_claims(custom_claims),
+        }
+    }
+
     fn get_id(&self) -> Result<String, AuthError> {
         match self {
             AuthProvider::JwtSigner(signer) => signer.get_id(),

@@ -179,9 +179,149 @@ impl TokenProvider for SpiffeProvider {
         Ok(jwt_svid.token().to_string())
     }
 
+    fn get_token_with_claims(&self, custom_claims: std::collections::HashMap<String, serde_json::Value>) -> Result<String, AuthError> {
+        if custom_claims.is_empty() {
+            return self.get_token();
+        }
+        
+        // SPIFFE tokens come from an external Workload API
+        // Custom claims would require fetching a new token with custom audiences (async operation)
+        // For async context, use `get_token_with_claims_async()` instead
+        Err(AuthError::ConfigError(
+            "get_token_with_claims for SPIFFE requires async context. Use get_token_with_claims_async() instead.".to_string()
+        ))
+    }
+
     fn get_id(&self) -> Result<String, AuthError> {
         let jwt_svid = self.get_jwt_svid()?;
         Ok(jwt_svid.spiffe_id().to_string())
+    }
+}
+
+impl SpiffeProvider {
+    /// Get a token with custom claims (async version)
+    /// 
+    /// Custom claims are encoded as base64 JSON and included as a special audience
+    /// in the format: "slim-claims:{base64_encoded_json}"
+    /// 
+    /// # Arguments
+    /// * `custom_claims` - HashMap of custom claims to include
+    /// 
+    /// # Example
+    /// ```ignore
+    /// let mut claims = HashMap::new();
+    /// claims.insert("tenant_id".to_string(), json!("tenant-123"));
+    /// let token = provider.get_token_with_claims_async(claims).await?;
+    /// ```
+    pub async fn get_token_with_claims_async(
+        &self,
+        custom_claims: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Result<String, AuthError> {
+        if custom_claims.is_empty() {
+            return self.get_token();
+        }
+
+        // Encode custom claims as base64 JSON
+        let claims_json = serde_json::to_string(&custom_claims)
+            .map_err(|e| AuthError::TokenInvalid(format!("failed to serialize claims: {}", e)))?;
+        let claims_b64 = base64::Engine::encode(
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+            claims_json.as_bytes(),
+        );
+
+        // Create a special audience with the custom claims
+        let claims_audience = format!("slim-claims:{}", claims_b64);
+
+        // Build new audiences list with custom claims audience
+        let mut audiences = self.config.jwt_audiences.clone();
+        audiences.push(claims_audience);
+
+        // Create a new client for this request
+        let mut client = if let Some(socket_path) = &self.config.socket_path {
+            WorkloadApiClient::new_from_path(socket_path)
+                .await
+                .map_err(|e| {
+                    AuthError::ConfigError(format!(
+                        "Failed to connect to SPIFFE Workload API: {}",
+                        e
+                    ))
+                })?
+        } else {
+            WorkloadApiClient::default().await.map_err(|e| {
+                AuthError::ConfigError(format!("Failed to connect to SPIFFE Workload API: {}", e))
+            })?
+        };
+
+        // Fetch JWT SVID with custom audiences
+        let parsed_target = if let Some(ref t) = self.config.target_spiffe_id {
+            Some(t.parse().map_err(|e| {
+                AuthError::ConfigError(format!("Invalid SPIFFE ID: {}", e))
+            })?)
+        } else {
+            None
+        };
+
+        let jwt_svid = client
+            .fetch_jwt_svid(&audiences, parsed_target.as_ref())
+            .await
+            .map_err(|e| AuthError::ConfigError(format!("Failed to fetch JWT SVID: {}", e)))?;
+
+        Ok(jwt_svid.token().to_string())
+    }
+    
+    /// Extract custom claims from a SPIFFE JWT token
+    /// 
+    /// Looks for the "slim-claims:{base64}" audience and decodes it
+    pub fn extract_custom_claims_from_token(
+        token: &str,
+    ) -> Result<Option<std::collections::HashMap<String, serde_json::Value>>, AuthError> {
+
+        
+        // Split token to extract payload
+        let parts: Vec<&str> = token.split('.').collect();
+        if parts.len() != 3 {
+            return Err(AuthError::TokenInvalid("invalid token format".to_string()));
+        }
+        
+        // Decode payload (base64 url safe)
+        let payload_bytes = base64::Engine::decode(
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+            parts[1],
+        )
+        .map_err(|_| AuthError::TokenInvalid("invalid payload encoding".to_string()))?;
+        
+        let claims: serde_json::Value = serde_json::from_slice(&payload_bytes)
+            .map_err(|e| AuthError::TokenInvalid(format!("failed to decode payload: {}", e)))?;
+        
+        // Look for audience claim
+        let audiences = claims.get("aud")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| AuthError::TokenInvalid("no audience in token".to_string()))?;
+        
+        // Find the slim-claims audience
+        for aud in audiences {
+            if let Some(aud_str) = aud.as_str() {
+                if let Some(claims_b64) = aud_str.strip_prefix("slim-claims:") {
+                    // Decode the base64 claims
+                    let claims_json = base64::Engine::decode(
+                        &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+                        claims_b64,
+                    )
+                    .map_err(|_| AuthError::TokenInvalid("invalid claims encoding".to_string()))?;
+                    
+                    let claims_str = String::from_utf8(claims_json)
+                        .map_err(|_| AuthError::TokenInvalid("invalid claims utf8".to_string()))?;
+                    
+                    let custom_claims: std::collections::HashMap<String, serde_json::Value> =
+                        serde_json::from_str(&claims_str)
+                            .map_err(|_| AuthError::TokenInvalid("invalid claims json".to_string()))?;
+                    
+                    return Ok(Some(custom_claims));
+                }
+            }
+        }
+        
+        Ok(None)
     }
 }
 
