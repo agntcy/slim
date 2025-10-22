@@ -3,26 +3,26 @@
 
 //! Integration tests for SPIFFE using real SPIRE server and agent
 //!
-//! These tests use testcontainers to spin up actual SPIRE server and agent
+//! These tests use bollard to spin up actual SPIRE server and agent
 //! containers to test the full authentication flow with real workload API interactions.
 //!
 //! Run with: cargo test --test spiffe_integration_test -- --ignored --nocapture
 
 #![cfg(not(target_family = "windows"))]
 
+use futures::StreamExt;
 use slim_auth::spiffe::{
     SpiffeJwtVerifier, SpiffeProvider, SpiffeProviderConfig, SpiffeVerifierConfig,
 };
 use slim_auth::traits::{TokenProvider, Verifier};
 use std::time::Duration;
-use testcontainers::core::IntoContainerPort;
-use testcontainers::{
-    GenericImage, ImageExt,
-    core::{Mount, WaitFor},
-    runners::AsyncRunner,
-};
 use tokio::fs;
 use tokio::time::sleep;
+use bollard::Docker;
+use bollard::container::{Config, CreateContainerOptions, LogsOptions, RemoveContainerOptions, StartContainerOptions};
+use bollard::network::CreateNetworkOptions;
+use bollard::models::{HostConfig, Mount as BollardMount, MountTypeEnum, PortBinding};
+use std::collections::HashMap;
 
 
 
@@ -76,26 +76,23 @@ async fn test_spiffe_provider_initialization() {
     // Create Docker network using bollard
     let network_name = "spire-test-network";
     tracing::info!("Creating Docker network: {}", network_name);
-    
-    // Get Docker client from testcontainers (uses bollard internally)
-    use testcontainers::bollard::Docker;
-    use testcontainers::bollard::network::CreateNetworkOptions;
-    
+
+    // Get Docker client
     let docker = Docker::connect_with_local_defaults()
         .expect("Failed to connect to Docker");
-    
+
     // Create the network
     let create_network_options = CreateNetworkOptions {
         name: network_name,
         check_duplicate: true,
         ..Default::default()
     };
-    
+
     let _network_id = docker
         .create_network(create_network_options)
         .await
         .expect("Failed to create Docker network");
-    
+
     tracing::info!("Docker network created: {}", network_name);
 
     // Create minimal server config
@@ -139,59 +136,134 @@ plugins {{
 
     tracing::info!("Starting SPIRE server container...");
 
-    // Start SPIRE server container with mounted config file
-    let server = GenericImage::new(SPIRE_SERVER_IMAGE, SPIRE_VERSION)
-        .with_exposed_port(8081.tcp())
-        .with_wait_for(WaitFor::message_on_stdout("Starting Server APIs"))
-        .with_mount(Mount::bind_mount(
-            server_config_path.to_string_lossy().to_string(),
-            "/opt/spire/conf/server/server.conf", // Mount host config into container
-        ))
-        .with_network(network_name)
-        .with_container_name(SERVER_CONTAINER_NAME)
-        .with_cmd(vec![
-            "run", // SPIRE server subcommand
-            "-config",
-            "/opt/spire/conf/server/server.conf",
-        ])
-        .start()
+    // Create SPIRE server container with bollard
+    let mut port_bindings = HashMap::new();
+    port_bindings.insert(
+        "8081/tcp".to_string(),
+        Some(vec![PortBinding {
+            host_ip: Some("0.0.0.0".to_string()),
+            host_port: Some("0".to_string()), // Auto-assign port
+        }]),
+    );
+
+    let server_host_config = HostConfig {
+        network_mode: Some(network_name.to_string()),
+        port_bindings: Some(port_bindings),
+        binds: Some(vec![format!(
+            "{}:/opt/spire/conf/server/server.conf",
+            server_config_path.to_string_lossy()
+        )]),
+        ..Default::default()
+    };
+
+    let mut exposed_ports = HashMap::new();
+    exposed_ports.insert("8081/tcp".to_string(), HashMap::new());
+
+    let server_config = Config {
+        image: Some(format!("{}:{}", SPIRE_SERVER_IMAGE, SPIRE_VERSION)),
+        cmd: Some(vec![
+            "run".to_string(),
+            "-config".to_string(),
+            "/opt/spire/conf/server/server.conf".to_string(),
+        ]),
+        exposed_ports: Some(exposed_ports),
+        host_config: Some(server_host_config),
+        ..Default::default()
+    };
+
+    let server_create_options = CreateContainerOptions {
+        name: SERVER_CONTAINER_NAME,
+        ..Default::default()
+    };
+
+    let server_container = docker
+        .create_container(Some(server_create_options), server_config)
         .await
-        .expect("Failed to start SPIRE server");
+        .expect("Failed to create server container");
 
-    tracing::info!("SPIRE server started");
+    docker
+        .start_container::<String>(&server_container.id, None)
+        .await
+        .expect("Failed to start server container");
 
-    // Wait for server to be fully ready
-    sleep(Duration::from_secs(5)).await;
+    tracing::info!("SPIRE server container started, waiting for ready signal...");
+
+    // Wait for "Starting Server APIs" message in logs
+    let logs_options = LogsOptions::<String> {
+        follow: true,
+        stdout: true,
+        stderr: true,
+        ..Default::default()
+    };
+
+    let mut log_stream = docker.logs(&server_container.id, Some(logs_options));
+    let mut server_ready = false;
+
+    while let Some(log_result) = log_stream.next().await {
+        if let Ok(log) = log_result {
+            let log_str = log.to_string();
+            tracing::debug!("Server log: {}", log_str);
+            if log_str.contains("Starting Server APIs") {
+                server_ready = true;
+                break;
+            }
+        }
+    }
+
+    if !server_ready {
+        panic!("Server did not start properly");
+    }
+
+    tracing::info!("SPIRE server is ready");
 
     // Get the actual mapped port for the server
-    let server_port = server
-        .get_host_port_ipv4(8081)
+    let server_inspect = docker
+        .inspect_container(&server_container.id, None)
         .await
+        .expect("Failed to inspect server container");
+
+    let server_port = server_inspect
+        .network_settings
+        .as_ref()
+        .and_then(|ns| ns.ports.as_ref())
+        .and_then(|ports| ports.get("8081/tcp"))
+        .and_then(|bindings| bindings.as_ref())
+        .and_then(|bindings| bindings.first())
+        .and_then(|binding| binding.host_port.as_ref())
+        .and_then(|port| port.parse::<u16>().ok())
         .expect("Failed to get server port");
+
     tracing::info!("SPIRE server exposed on host port: {}", server_port);
 
     // Generate join token for agent by execing into the server container
     tracing::info!("Generating join token for agent...");
 
-    let mut exec_result = server
-        .exec(testcontainers::core::ExecCommand::new(vec![
+    use bollard::exec::{CreateExecOptions, StartExecResults};
+
+    let exec_config = CreateExecOptions {
+        cmd: Some(vec![
             "/opt/spire/bin/spire-server",
             "token",
             "generate",
             "-spiffeID",
             "spiffe://example.org/testagent",
-        ]))
-        .await
-        .expect("Failed to exec into server container");
+        ]),
+        attach_stdout: Some(true),
+        attach_stderr: Some(true),
+        ..Default::default()
+    };
 
-    // Read the stdout to get the join token
-    use tokio::io::AsyncReadExt;
-    let mut stdout = exec_result.stdout();
-    let mut token_output = String::new();
-    stdout
-        .read_to_string(&mut token_output)
+    let exec = docker
+        .create_exec(&server_container.id, exec_config)
         .await
-        .expect("Failed to read join token from stdout");
+        .expect("Failed to create exec");
+
+    let mut token_output = String::new();
+    if let StartExecResults::Attached { mut output, .. } = docker.start_exec(&exec.id, None).await.expect("Failed to start exec") {
+        while let Some(Ok(msg)) = output.next().await {
+            token_output.push_str(&msg.to_string());
+        }
+    }
 
     let join_token = token_output
         .trim()
@@ -241,33 +313,53 @@ plugins {{
         .await
         .expect("Failed to write agent config");
 
-    let _agent = GenericImage::new(SPIRE_AGENT_IMAGE, SPIRE_VERSION)
-        .with_exposed_port(8080_u16.into())
-        .with_wait_for(WaitFor::message_on_stdout("Starting Workload and SDS APIs"))
-        .with_mount(Mount::bind_mount(
-            agent_config_path.to_string_lossy().to_string(),
-            "/opt/spire/conf/agent/agent.conf", // Mount agent config
-        ))
-        .with_mount(Mount::bind_mount(
-            socket_dir.to_string_lossy().to_string(),
-            "/tmp/spire-agent/public", // Mount socket directory
-        ))
-        .with_network(network_name)
-        .with_container_name(AGENT_CONTAINER_NAME)
-        .with_cmd(vec![
-            "run", // SPIRE agent subcommand
-            "-config",
-            "/opt/spire/conf/agent/agent.conf",
-        ])
-        .start()
+    // Note: Using --pid=host for the agent container to allow proper workload attestation
+
+    // Prepare bind mounts for the agent
+    let binds = vec![
+        format!("{}:/opt/spire/conf/agent/agent.conf", agent_config_path.to_string_lossy()),
+        format!("{}:/tmp/spire-agent/public", socket_dir.to_string_lossy()),
+    ];
+
+    let host_config = HostConfig {
+        pid_mode: Some("host".to_string()),
+        network_mode: Some(network_name.to_string()),
+        binds: Some(binds),
+        ..Default::default()
+    };
+
+    let config = Config {
+        image: Some(format!("{}:{}", SPIRE_AGENT_IMAGE, SPIRE_VERSION)),
+        cmd: Some(vec![
+            "run".to_string(),
+            "-config".to_string(),
+            "/opt/spire/conf/agent/agent.conf".to_string(),
+        ]),
+        host_config: Some(host_config),
+        ..Default::default()
+    };
+
+    let create_options = CreateContainerOptions {
+        name: AGENT_CONTAINER_NAME,
+        ..Default::default()
+    };
+
+    let agent_container = docker
+        .create_container(Some(create_options), config)
         .await
-        .unwrap();
+        .expect("Failed to create agent container");
+
+    docker
+        .start_container::<String>(&agent_container.id, None)
+        .await
+        .expect("Failed to start agent container");
 
     tracing::info!("SPIRE agent started");
 
     tracing::info!("Registering workload with SPIRE server...");
-    let mut exec_result = server
-        .exec(testcontainers::core::ExecCommand::new(vec![
+
+    let register_exec_config = CreateExecOptions {
+        cmd: Some(vec![
             "/opt/spire/bin/spire-server",
             "entry",
             "create",
@@ -277,22 +369,33 @@ plugins {{
             "spiffe://example.org/testservice",
             "-selector",
             "unix:uid:0",
-        ]))
-        .await
-        .expect("Failed to exec into server container");
+        ]),
+        attach_stdout: Some(true),
+        attach_stderr: Some(true),
+        ..Default::default()
+    };
 
-    // print stdout
-    let mut stdout = exec_result.stdout();
-    let mut output = String::new();
-    stdout
-        .read_to_string(&mut output)
+    let register_exec = docker
+        .create_exec(&server_container.id, register_exec_config)
         .await
-        .expect("Failed to read stdout");
-    tracing::info!("Workload registration output: {}", output);
-    drop(stdout);
+        .expect("Failed to create exec");
+
+    let mut register_output = String::new();
+    if let StartExecResults::Attached { mut output, .. } = docker.start_exec(&register_exec.id, None).await.expect("Failed to start exec") {
+        while let Some(Ok(msg)) = output.next().await {
+            register_output.push_str(&msg.to_string());
+        }
+    }
+
+    tracing::info!("Workload registration output: {}", register_output);
+
+    let inspect_exec = docker
+        .inspect_exec(&register_exec.id)
+        .await
+        .expect("Failed to inspect exec");
 
     assert!(
-        exec_result.exit_code().await.unwrap().unwrap() == 0,
+        inspect_exec.exit_code == Some(0),
         "Failed to register workload",
     );
 
@@ -347,7 +450,20 @@ plugins {{
 
     // Cleanup
     let _ = fs::remove_dir_all(&temp_dir).await;
-    
+
+    // Stop and remove containers
+    tracing::info!("Stopping and removing containers");
+    let remove_options = Some(RemoveContainerOptions {
+        force: true,
+        ..Default::default()
+    });
+
+    let _ = docker.stop_container(&agent_container.id, None).await;
+    let _ = docker.remove_container(&agent_container.id, remove_options.clone()).await;
+
+    let _ = docker.stop_container(&server_container.id, None).await;
+    let _ = docker.remove_container(&server_container.id, remove_options).await;
+
     // Remove Docker network
     tracing::info!("Removing Docker network: {}", network_name);
     let _ = docker.remove_network(network_name).await;

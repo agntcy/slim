@@ -46,6 +46,6 @@ spiffe = { workspace = true }
 agntcy-slim-config = { path = "../config" }
 tokio-test = { workspace = true }
 tracing-test = { workspace = true }
-testcontainers = "0.23"
+bollard = "0.17"
 uuid = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", "fs"] }
