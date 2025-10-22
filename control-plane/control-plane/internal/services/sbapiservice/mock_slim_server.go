@@ -132,14 +132,12 @@ func (m *MockSlimServer) handleConfigCommand(origMsgID string, cfg *controllerap
 		}
 		key := fmt.Sprintf("%s/%s/%s/%d-->%s", c.Component_0, c.Component_1, c.Component_2, c.GetId().GetValue(),
 			c.ConnectionId)
-		fmt.Printf("---------- add key: %s\n", key)
 		m.recvSubscriptions[key] = c
 	}
 	for _, c := range cfg.SubscriptionsToDelete {
 		if m.recvSubscriptions != nil {
 			key := fmt.Sprintf("%s/%s/%s/%d-->%s", c.Component_0, c.Component_1, c.Component_2, c.GetId().GetValue(),
 				c.ConnectionId)
-			fmt.Printf("---------- remove key: %s\n", key)
 			delete(m.recvSubscriptions, key)
 		}
 	}
