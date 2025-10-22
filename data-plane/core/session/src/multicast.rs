@@ -27,12 +27,12 @@ use slim_datapath::{
 use crate::{
     Common, CommonSession, Id, MessageDirection, MessageHandler, SessionConfig, SessionConfigTrait,
     State, Transmitter,
-    channel_endpoint::{
-        ChannelEndpoint, ChannelModerator, ChannelParticipant, MlsEndpoint, MlsState,
-    },
     common::SessionMessage,
     errors::SessionError,
-    producer_buffer, receiver_buffer, timer,
+    mls_state::{MlsEndpoint, MlsState},
+    producer_buffer, receiver_buffer,
+    session_controller::{SessionController, SessionModerator, SessionParticipant},
+    timer,
 };
 use producer_buffer::ProducerBuffer;
 use receiver_buffer::ReceiverBuffer;
@@ -302,7 +302,7 @@ where
             // create the channel endpoint
             let mut channel_endpoint = match session_config.initiator {
                 true => {
-                    let cm = ChannelModerator::new(
+                    let cm = SessionModerator::new(
                         source.clone(),
                         session_config.channel_name.clone(),
                         id,
@@ -314,10 +314,10 @@ where
                         Some(tx_session),
                         session_config.metadata.clone(),
                     );
-                    ChannelEndpoint::ChannelModerator(cm)
+                    SessionController::SessionModerator(cm)
                 }
                 false => {
-                    let cp = ChannelParticipant::new(
+                    let cp = SessionParticipant::new(
                         source.clone(),
                         session_config.channel_name.clone(),
                         id,
@@ -328,7 +328,7 @@ where
                         tx.clone(),
                         session_config.metadata.clone(),
                     );
-                    ChannelEndpoint::ChannelParticipant(cp)
+                    SessionController::SessionParticipant(cp)
                 }
             };
 
