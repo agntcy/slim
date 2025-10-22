@@ -23,11 +23,14 @@ use testcontainers::{
 };
 use tokio::fs;
 use tokio::time::sleep;
+use testcontainers::core::Network;
 
 const SPIRE_SERVER_IMAGE: &str = "ghcr.io/spiffe/spire-server";
 const SPIRE_AGENT_IMAGE: &str = "ghcr.io/spiffe/spire-agent";
 const SPIRE_VERSION: &str = "1.13.2";
 const TRUST_DOMAIN: &str = "example.org";
+const SERVER_CONTAINER_NAME: &str = "spire-server";
+const AGENT_CONTAINER_NAME: &str = "spire-agent";
 
 /// Helper to check if Docker is available
 async fn is_docker_available() -> bool {
@@ -70,6 +73,10 @@ async fn test_spiffe_provider_initialization() {
     let socket_path = socket_dir.join("api.sock");
 
     // Create minimal server config
+    // Create Docker network
+    tracing::info!("Creating Docker network...");
+    let network = Network::new();
+
     let server_config = format!(
         r#"
 server {{
@@ -118,6 +125,8 @@ plugins {{
             server_config_path.to_string_lossy().to_string(),
             "/opt/spire/conf/server/server.conf", // Mount host config into container
         ))
+        .with_network(&network)
+        .with_container_name(SERVER_CONTAINER_NAME)
         .with_cmd(vec![
             "run", // SPIRE server subcommand
             "-config",
@@ -178,8 +187,8 @@ plugins {{
 agent {{
     data_dir = "/opt/spire/data/agent"
     log_level = "INFO"
-    server_address = "host.docker.internal"
-    server_port = "{server_port}"
+    server_address = "{server_name}"
+    server_port = "8081"
     insecure_bootstrap = true
     trust_domain = "{trust_domain}"
     socket_path = "/tmp/spire-agent/public/api.sock"
@@ -200,8 +209,8 @@ plugins {{
     }}
 }}
 "#,
+        server_name = SERVER_CONTAINER_NAME,
         trust_domain = TRUST_DOMAIN,
-        server_port = server_port,
         join_token = join_token
     );
 
@@ -221,6 +230,8 @@ plugins {{
             socket_dir.to_string_lossy().to_string(),
             "/tmp/spire-agent/public", // Mount socket directory
         ))
+        .with_network(&network)
+        .with_container_name(AGENT_CONTAINER_NAME)
         .with_cmd(vec![
             "run", // SPIRE agent subcommand
             "-config",
