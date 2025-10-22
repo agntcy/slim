@@ -710,11 +710,13 @@ impl ControllerService {
                                     let client_endpoint = &client_config.endpoint;
 
                                     // connect to an endpoint if it's not already connected
-                                    if !self.inner.connections.read().contains_key(client_endpoint) {
+                                    if !self.inner.connections.read().contains_key(client_endpoint)
+                                    {
                                         match client_config.to_channel() {
                                             Err(e) => {
                                                 connection_success = false;
-                                                connection_error_msg = format!("Channel config error: {}", e);
+                                                connection_error_msg =
+                                                    format!("Channel config error: {}", e);
                                             }
                                             Ok(channel) => {
                                                 let ret = self
@@ -731,14 +733,18 @@ impl ControllerService {
                                                 match ret {
                                                     Err(e) => {
                                                         connection_success = false;
-                                                        connection_error_msg = format!("Connection failed: {}", e);
+                                                        connection_error_msg =
+                                                            format!("Connection failed: {}", e);
                                                     }
                                                     Ok(conn_id) => {
                                                         self.inner.connections.write().insert(
                                                             client_endpoint.clone(),
                                                             conn_id.1,
                                                         );
-                                                        info!("Successfully created connection to {}", client_endpoint);
+                                                        info!(
+                                                            "Successfully created connection to {}",
+                                                            client_endpoint
+                                                        );
                                                     }
                                                 }
                                             }
@@ -769,7 +775,8 @@ impl ControllerService {
                                 .contains_key(&subscription.connection_id)
                             {
                                 subscription_success = false;
-                                subscription_error_msg = format!("Connection {} not found", subscription.connection_id);
+                                subscription_error_msg =
+                                    format!("Connection {} not found", subscription.connection_id);
                             } else {
                                 let conn = self
                                     .inner
@@ -801,7 +808,10 @@ impl ControllerService {
                                     subscription_success = false;
                                     subscription_error_msg = format!("Failed to subscribe: {}", e);
                                 } else {
-                                    info!("Successfully created subscription for {:?}", subscription);
+                                    info!(
+                                        "Successfully created subscription for {:?}",
+                                        subscription
+                                    );
                                 }
                             }
 
@@ -825,7 +835,8 @@ impl ControllerService {
                                 .contains_key(&subscription.connection_id)
                             {
                                 subscription_success = false;
-                                subscription_error_msg = format!("Connection {} not found", subscription.connection_id);
+                                subscription_error_msg =
+                                    format!("Connection {} not found", subscription.connection_id);
                             } else {
                                 let conn = self
                                     .inner
@@ -855,9 +866,13 @@ impl ControllerService {
 
                                 if let Err(e) = self.send_control_message(msg).await {
                                     subscription_success = false;
-                                    subscription_error_msg = format!("Failed to unsubscribe: {}", e);
+                                    subscription_error_msg =
+                                        format!("Failed to unsubscribe: {}", e);
                                 } else {
-                                    info!("Successfully deleted subscription for {:?}", subscription);
+                                    info!(
+                                        "Successfully deleted subscription for {:?}",
+                                        subscription
+                                    );
                                 }
                             }
 
