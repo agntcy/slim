@@ -30,7 +30,7 @@ use super::{
     Id, MessageDirection, SESSION_RANGE, Session, SessionConfig, SessionConfigTrait, SessionType,
     SlimChannelSender, Transmitter,
 };
-use super::{SessionError, channel_endpoint::handle_channel_discovery_message};
+use super::{SessionError, session_controller::handle_channel_discovery_message};
 use crate::interceptor::SessionInterceptorProvider; // needed for add_interceptor
 
 /// SessionLayer manages sessions and their lifecycle

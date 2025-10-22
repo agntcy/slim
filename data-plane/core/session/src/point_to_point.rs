@@ -29,10 +29,9 @@ use crate::receiver_buffer::ReceiverBuffer;
 use crate::{
     Common, CommonSession, Id, MessageDirection, MessageHandler, SessionConfig, SessionConfigTrait,
     State, Transmitter,
-    channel_endpoint::{
-        ChannelEndpoint, ChannelModerator, ChannelParticipant, MlsEndpoint, MlsState,
-    },
     errors::SessionError,
+    mls_state::{MlsEndpoint, MlsState},
+    session_controller::{SessionController, SessionModerator, SessionParticipant},
     timer,
 };
 
@@ -182,7 +181,7 @@ where
     send_buffer: VecDeque<Message>,
     sender_state: SenderState,     // send packets with sequential ids
     receiver_state: ReceiverState, // to be used only in case of sticky session
-    channel_endpoint: ChannelEndpoint<P, V, T>,
+    channel_endpoint: SessionController<P, V, T>,
 }
 
 // need two observers in order to distinguish RTX from ACK timers
@@ -1110,7 +1109,7 @@ where
         // Create channel endpoint to handle session discovery and encryption
         let channel_endpoint = match session_config.initiator {
             true => {
-                let cm = ChannelModerator::new(
+                let cm = SessionModerator::new(
                     common.source().clone(),
                     // TODO: this is set to the name of the peer if provided, otherwise to our own name
                     // This needs to be revisited, as this part should be enabled only when a peer name is provided
@@ -1127,10 +1126,10 @@ where
                     None,
                     session_config.metadata.clone(),
                 );
-                ChannelEndpoint::ChannelModerator(cm)
+                SessionController::SessionModerator(cm)
             }
             false => {
-                let cp = ChannelParticipant::new(
+                let cp = SessionParticipant::new(
                     common.source().clone(),
                     // TODO: this is set to the name of the peer if provided, otherwise to our own name
                     // This needs to be revisited, as this part should be enabled only when a peer name is provided
@@ -1146,7 +1145,7 @@ where
                     tx_slim_app.clone(),
                     session_config.metadata.clone(),
                 );
-                ChannelEndpoint::ChannelParticipant(cp)
+                SessionController::SessionParticipant(cp)
             }
         };
 
@@ -1312,7 +1311,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        channel_endpoint::handle_channel_discovery_message, transmitter::SessionTransmitter,
+        session_controller::handle_channel_discovery_message, transmitter::SessionTransmitter,
     };
     use slim_auth::testutils::TEST_VALID_SECRET;
     use slim_datapath::{api::ProtoMessage, messages::Name};
