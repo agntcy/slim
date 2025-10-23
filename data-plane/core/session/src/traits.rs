@@ -9,6 +9,7 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::Status;
 use slim_datapath::api::ProtoMessage as Message;
 use slim_datapath::messages::Name;
+use slim_mls::mls::Mls;
 use std::sync::Arc;
 
 // Local crate
@@ -22,16 +23,23 @@ pub trait SessionConfigTrait {
 }
 
 /// Session transmitter trait
-pub trait Transmitter: SessionInterceptorProvider {
-    fn send_to_slim(
+#[async_trait]
+pub trait Transmitter<P, V>: SessionInterceptorProvider
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    async fn send_to_slim(
         &self,
         message: Result<Message, Status>,
-    ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static;
+        mls: &mut Mls<P, V>,
+    ) -> Result<(), SessionError>;
 
-    fn send_to_app(
+    async fn send_to_app(
         &self,
         message: Result<Message, SessionError>,
-    ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static;
+        mls: &mut Mls<P, V>,
+    ) -> Result<(), SessionError>;
 }
 
 /// Session components lifecycle trait

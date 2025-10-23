@@ -14,9 +14,9 @@ use crate::errors::SessionError;
 #[async_trait::async_trait]
 pub trait SessionInterceptor {
     // interceptor to be executed when a message is received from the app
-    async fn on_msg_from_app(&self, msg: &mut Message) -> Result<(), SessionError>;
+    async fn on_msg_from_app(&mut self, msg: &mut Message) -> Result<(), SessionError>;
     // interceptor to be executed when a message is received from slim
-    async fn on_msg_from_slim(&self, msg: &mut Message) -> Result<(), SessionError>;
+    async fn on_msg_from_slim(&mut self, msg: &mut Message) -> Result<(), SessionError>;
 }
 
 #[async_trait::async_trait]

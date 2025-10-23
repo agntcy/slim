@@ -47,6 +47,9 @@ pub use config::SessionConfig;
 // Common Session Types - internal use
 pub use common::{MessageDirection, SESSION_RANGE, SlimChannelSender};
 
+// MLS constants
+pub(crate) const DEFAULT_MLS_STORAGE_PATH: &str = "./mls_storage";
+
 // Session layer
 pub use session_layer::SessionLayer;
 // Public exports for external crates (like Python bindings)

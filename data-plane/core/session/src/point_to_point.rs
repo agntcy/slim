@@ -10,6 +10,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use parking_lot::RwLock;
 use rand::Rng;
+use slim_mls::mls::Mls;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::{self, Instant};
 use tokio_util::sync::CancellationToken;
@@ -23,6 +24,7 @@ use slim_datapath::api::{
 use slim_datapath::messages::Name;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 
+use crate::interceptor_mls::MlsInterceptor;
 use crate::producer_buffer::ProducerBuffer;
 use crate::receiver_buffer::ReceiverBuffer;
 // Local crate
@@ -164,7 +166,7 @@ struct ReceiverState {
     pending_rtxs: HashMap<u32, (timer::Timer, Message)>,
 }
 
-struct PointToPointState<P, V, T>
+struct PointToPointState<'a, P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
@@ -181,7 +183,25 @@ where
     send_buffer: VecDeque<Message>,
     sender_state: SenderState,     // send packets with sequential ids
     receiver_state: ReceiverState, // to be used only in case of sticky session
-    channel_endpoint: SessionController<P, V, T>,
+    identity_provider: P,
+    identity_verifier: V,
+    mls_enabled: bool,
+    mls_storage_path: Option<std::path::PathBuf>,
+    mls: Option<Mls<P, V>>,
+    channel_endpoint: Option<SessionController<'a, P, V, T>>,
+}
+
+impl<'a, P, V, T> PointToPointState<'a, P, V, T>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+    T: Transmitter + Send + Sync + Clone + 'static,
+{
+    fn channel_endpoint(&mut self) -> &mut SessionController<'a, P, V, T> {
+        self.channel_endpoint
+            .as_mut()
+            .expect("channel endpoint not initialized")
+    }
 }
 
 // need two observers in order to distinguish RTX from ACK timers
@@ -194,13 +214,13 @@ struct AckTimerObserver {
 }
 
 /// The internal part of the Point to Point session that handles message processing
-struct PointToPointProcessor<P, V, T>
+struct PointToPointProcessor<'a, P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
     T: Transmitter + Send + Sync + Clone + 'static,
 {
-    state: PointToPointState<P, V, T>,
+    state: PointToPointState<'a, P, V, T>,
     ack_timer_observer: Arc<AckTimerObserver>,
     rtx_timer_observer: Arc<RtxTimerObserver>,
     rx: Receiver<InternalMessage>,
@@ -267,14 +287,14 @@ impl timer::TimerObserver for RtxTimerObserver {
     }
 }
 
-impl<P, V, T> PointToPointProcessor<P, V, T>
+impl<'a, P, V, T> PointToPointProcessor<'a, P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
     T: Transmitter + Send + Sync + Clone + 'static,
 {
     fn new(
-        state: PointToPointState<P, V, T>,
+        state: PointToPointState<'a, P, V, T>,
         tx: Sender<InternalMessage>,
         rx: Receiver<InternalMessage>,
         cancellation_token: CancellationToken,
@@ -290,6 +310,76 @@ where
 
     async fn process_loop(mut self) {
         debug!("Starting PointToPointProcessor loop");
+
+        // MLS state. This is instantiated regardless of whether MLS is enabled or not.
+        let mut mls_state = None;
+
+        // Setup MLS if enabled
+        if self.state.mls_enabled {
+            debug!("MLS is enabled for session {}", self.state.session_id);
+
+            let mls = Mls::new(
+                self.state.source.clone(),
+                self.state.identity_provider.clone(),
+                self.state.identity_verifier.clone(),
+                self.state
+                    .mls_storage_path
+                    .clone()
+                    .unwrap_or(crate::DEFAULT_MLS_STORAGE_PATH),
+            );
+
+            // Initialize mls
+            mls.initialize().await.expect("failed to initialize mls");
+
+            mls_state = Some(MlsState::new(self.state.mls.as_mut().unwrap()));
+        }
+
+        // Create channel endpoint to handle session discovery and encryption
+        let channel_endpoint = match self.state.config.initiator {
+            true => {
+                let cm = SessionModerator::new(
+                    self.state.source.clone(),
+                    // TODO: this is set to the name of the peer if provided, otherwise to our own name
+                    // This needs to be revisited, as this part should be enabled only when a peer name is provided
+                    self.state
+                        .config
+                        .peer_name
+                        .clone()
+                        .unwrap_or(self.state.source.clone()),
+                    self.state.session_id,
+                    ProtoSessionType::PointToPoint,
+                    60,
+                    Duration::from_secs(1),
+                    mls_state,
+                    self.state.tx.clone(),
+                    None,
+                    self.state.config.metadata.clone(),
+                );
+                SessionController::SessionModerator(cm)
+            }
+            false => {
+                let cp = SessionParticipant::new(
+                    self.state.source.clone(),
+                    // TODO: this is set to the name of the peer if provided, otherwise to our own name
+                    // This needs to be revisited, as this part should be enabled only when a peer name is provided
+                    self.state
+                        .config
+                        .peer_name
+                        .clone()
+                        .unwrap_or(self.state.source.clone()),
+                    self.state.session_id,
+                    ProtoSessionType::PointToPoint,
+                    60,
+                    Duration::from_secs(1),
+                    mls_state,
+                    self.state.tx.clone(),
+                    self.state.config.metadata.clone(),
+                );
+                SessionController::SessionParticipant(cp)
+            }
+        };
+
+        self.state.channel_endpoint = Some(channel_endpoint);
 
         // set timer for mls key rotation if it is enabled
         let sleep = time::sleep(Duration::from_secs(3600));
@@ -307,7 +397,7 @@ where
                     }
                 }
                 () = &mut sleep, if self.state.config.mls_enabled => {
-                        let _ = self.state.channel_endpoint.update_mls_keys().await;
+                        let _ = self.state.channel_endpoint().update_mls_keys().await;
                         sleep.as_mut().reset(Instant::now() + Duration::from_secs(3600));
                 }
                 _ = self.cancellation_token.cancelled() => {
@@ -330,7 +420,7 @@ where
             timer.stop();
         }
 
-        self.state.channel_endpoint.close();
+        self.state.channel_endpoint().close();
 
         debug!("PointToPointProcessor loop exited");
     }
@@ -467,14 +557,17 @@ where
 
         self.state.p2p_session_status = P2PSessionStatus::Discovering;
 
-        self.state.channel_endpoint.on_message(probe_message).await
+        self.state
+            .channel_endpoint()
+            .on_message(probe_message)
+            .await
     }
 
     async fn handle_channel_discovery_reply(
         &mut self,
         message: Message,
     ) -> Result<(), SessionError> {
-        self.state.channel_endpoint.on_message(message).await
+        self.state.channel_endpoint().on_message(message).await
     }
 
     async fn handle_channel_join_request(&mut self, message: Message) -> Result<(), SessionError> {
@@ -483,7 +576,7 @@ where
         let incoming_conn = message.get_incoming_conn();
 
         // pass the message to the channel endpoint
-        self.state.channel_endpoint.on_message(message).await?;
+        self.state.channel_endpoint().on_message(message).await?;
 
         // No error - this session is now established
         *self.state.dst.write() = Some(source.clone());
@@ -507,7 +600,7 @@ where
         );
 
         // send message to channel endpoint
-        self.state.channel_endpoint.on_message(message).await?;
+        self.state.channel_endpoint().on_message(message).await?;
 
         match status {
             P2PSessionStatus::Discovering => {
@@ -734,10 +827,10 @@ where
             | ProtoSessionMessageType::GroupProposal
             | ProtoSessionMessageType::GroupAck => {
                 // Handle mls stuff
-                self.state.channel_endpoint.on_message(message).await?;
+                self.state.channel_endpoint().on_message(message).await?;
 
                 // Flush the send buffer if MLS is enabled
-                if self.state.channel_endpoint.is_mls_up()? {
+                if self.state.channel_endpoint().is_mls_up()? {
                     // If MLS is up, send all buffered messages
                     let messages: Vec<Message> = self.state.send_buffer.drain(..).collect();
 
@@ -1077,7 +1170,7 @@ where
         tx_slim_app: T,
         identity_provider: P,
         identity_verifier: V,
-        storage_path: std::path::PathBuf,
+        storage_path: Option<std::path::PathBuf>,
     ) -> Self {
         let (tx, rx) = mpsc::channel(128);
 
@@ -1091,8 +1184,8 @@ where
             SessionConfig::PointToPoint(session_config.clone()),
             name,
             tx_slim_app.clone(),
-            identity_provider,
-            identity_verifier,
+            identity_provider.clone(),
+            identity_verifier.clone(),
             session_config.mls_enabled,
             storage_path,
         );
@@ -1100,54 +1193,6 @@ where
         if let Some(remote) = session_config.peer_name.clone() {
             common.set_dst(remote);
         }
-
-        // Create mls state if needed
-        let mls = common
-            .mls()
-            .map(|mls| MlsState::new(mls).expect("failed to create MLS state"));
-
-        // Create channel endpoint to handle session discovery and encryption
-        let channel_endpoint = match session_config.initiator {
-            true => {
-                let cm = SessionModerator::new(
-                    common.source().clone(),
-                    // TODO: this is set to the name of the peer if provided, otherwise to our own name
-                    // This needs to be revisited, as this part should be enabled only when a peer name is provided
-                    session_config
-                        .peer_name
-                        .clone()
-                        .unwrap_or(common.source().clone()),
-                    id,
-                    ProtoSessionType::PointToPoint,
-                    60,
-                    Duration::from_secs(1),
-                    mls,
-                    tx_slim_app.clone(),
-                    None,
-                    session_config.metadata.clone(),
-                );
-                SessionController::SessionModerator(cm)
-            }
-            false => {
-                let cp = SessionParticipant::new(
-                    common.source().clone(),
-                    // TODO: this is set to the name of the peer if provided, otherwise to our own name
-                    // This needs to be revisited, as this part should be enabled only when a peer name is provided
-                    session_config
-                        .peer_name
-                        .clone()
-                        .unwrap_or(common.source().clone()),
-                    id,
-                    ProtoSessionType::PointToPoint,
-                    60,
-                    Duration::from_secs(1),
-                    mls,
-                    tx_slim_app.clone(),
-                    session_config.metadata.clone(),
-                );
-                SessionController::SessionParticipant(cp)
-            }
-        };
 
         // PointToPoint internal state
         let state = PointToPointState {
@@ -1160,7 +1205,6 @@ where
             peer_connection: None,
             p2p_session_status: P2PSessionStatus::Uninitialized,
             send_buffer: VecDeque::new(),
-            channel_endpoint,
             sender_state: SenderState {
                 buffer: ProducerBuffer::with_capacity(500),
                 next_id: 0,
@@ -1170,6 +1214,11 @@ where
                 buffer: ReceiverBuffer::default(),
                 pending_rtxs: HashMap::new(),
             },
+            identity_provider: identity_provider,
+            identity_verifier: identity_verifier,
+            mls_enabled: common.mls_enabled(),
+            mls_storage_path: common.mls_storage_path().cloned(),
+            channel_endpoint: None,
         };
 
         // Cancellation token
@@ -1332,7 +1381,7 @@ mod tests {
             tx,
             SharedSecret::new("a", TEST_VALID_SECRET),
             SharedSecret::new("a", TEST_VALID_SECRET),
-            std::path::PathBuf::from("/tmp/test_session"),
+            None,
         );
 
         assert_eq!(session.id(), 0);
@@ -1362,7 +1411,7 @@ mod tests {
             tx,
             SharedSecret::new("a", TEST_VALID_SECRET),
             SharedSecret::new("a", TEST_VALID_SECRET),
-            std::path::PathBuf::from("/tmp/test_session"),
+            None,
         );
 
         assert_eq!(session.dst(), Some(remote));
@@ -1385,7 +1434,7 @@ mod tests {
             tx,
             SharedSecret::new("a", TEST_VALID_SECRET),
             SharedSecret::new("a", TEST_VALID_SECRET),
-            std::path::PathBuf::from("/tmp/test_session"),
+            None,
         );
 
         let payload = Some(ApplicationPayload::new("msg", vec![0x1, 0x2, 0x3, 0x4]).as_content());

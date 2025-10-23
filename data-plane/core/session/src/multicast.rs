@@ -3,6 +3,7 @@
 
 // Standard library imports
 use parking_lot::RwLock;
+use slim_mls::mls::Mls;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 // Third-party crates
@@ -215,7 +216,7 @@ where
         tx_slim_app: T,
         identity_provider: P,
         identity_verifier: V,
-        storage_path: std::path::PathBuf,
+        storage_path: Option<std::path::PathBuf>,
         tx_session: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
     ) -> Self {
         let (tx, rx) = mpsc::channel(128);
@@ -277,7 +278,9 @@ where
             }
         };
 
-        let mls = self.common.mls();
+        let mls_enabled = self.common.mls_enabled();
+        let mls_storage_path = self.common.mls_storage_path().cloned();
+
         let tx = self.common.tx();
         let source = self.common.source().clone();
         let id = self.common.id();
@@ -285,19 +288,33 @@ where
         tokio::spawn(async move {
             debug!("starting message processing on session {}", session_id);
 
-            let mls = mls.map(|mls| MlsState::new(mls).expect("failed to create MLS state"));
+            // MLS state
+            let mut mls_state = None;
 
-            let mls_enable = mls.is_some();
+            // used to send all the messages after the mls is setup
+            let mut flushed = false;
+
+            // Setup MLS if enabled
+            if mls_enabled {
+                debug!("MLS is enabled for session {}", session_id);
+
+                let mls = Mls::new(
+                    self.source().clone(),
+                    self.identity_provider().clone(),
+                    self.identity_verifier().clone(),
+                    mls_storage_path.unwrap_or(std::path::PathBuf::from(crate::DEFAULT_MLS_STORAGE_PATH)),
+                );
+
+                // Initialize mls
+                mls.initialize().await.expect("failed to initialize MLS");
+
+                mls_state = Some(MlsState::new(&mut mls));
+                flushed = true;
+            }
 
             // used to trigger mls key rotation
             let sleep = time::sleep(Duration::from_secs(3600));
             tokio::pin!(sleep);
-
-            // used to send all the messages after the mls is setup
-            let mut flushed = false;
-            if !mls_enable {
-                flushed = true;
-            }
 
             // create the channel endpoint
             let mut channel_endpoint = match session_config.initiator {
@@ -309,7 +326,7 @@ where
                         ProtoSessionType::Multicast,
                         60,
                         Duration::from_secs(1),
-                        mls,
+                        mls_state,
                         tx.clone(),
                         Some(tx_session),
                         session_config.metadata.clone(),
@@ -324,7 +341,7 @@ where
                         ProtoSessionType::Multicast,
                         60,
                         Duration::from_secs(1),
-                        mls,
+                        mls_state,
                         tx.clone(),
                         session_config.metadata.clone(),
                     );
@@ -442,7 +459,7 @@ where
                             }
                         }
                     }
-                    () = &mut sleep, if mls_enable => {
+                    () = &mut sleep, if mls_enabled => {
                         let _ = channel_endpoint.update_mls_keys().await;
                         sleep.as_mut().reset(Instant::now() + Duration::from_secs(3600));
                     }
@@ -964,7 +981,7 @@ mod tests {
             tx.clone(),
             SharedSecret::new("a", slim_auth::testutils::TEST_VALID_SECRET),
             SharedSecret::new("a", slim_auth::testutils::TEST_VALID_SECRET),
-            std::path::PathBuf::from("/tmp/test_session"),
+            None,
             tx_session.clone(),
         );
 
@@ -991,7 +1008,7 @@ mod tests {
             tx,
             SharedSecret::new("a", slim_auth::testutils::TEST_VALID_SECRET),
             SharedSecret::new("a", slim_auth::testutils::TEST_VALID_SECRET),
-            std::path::PathBuf::from("/tmp/test_session"),
+            None,
             tx_session.clone(),
         );
 
@@ -1053,7 +1070,7 @@ mod tests {
             tx_sender,
             SharedSecret::new("a", slim_auth::testutils::TEST_VALID_SECRET),
             SharedSecret::new("a", slim_auth::testutils::TEST_VALID_SECRET),
-            std::path::PathBuf::from("/tmp/test_session_sender"),
+            None,
             tx_session.clone(),
         );
         let receiver = Multicast::new(
@@ -1063,7 +1080,7 @@ mod tests {
             tx_receiver,
             SharedSecret::new("a", slim_auth::testutils::TEST_VALID_SECRET),
             SharedSecret::new("a", slim_auth::testutils::TEST_VALID_SECRET),
-            std::path::PathBuf::from("/tmp/test_session_receiver"),
+            None,
             tx_session.clone(),
         );
 
@@ -1140,7 +1157,7 @@ mod tests {
             tx,
             SharedSecret::new("a", slim_auth::testutils::TEST_VALID_SECRET),
             SharedSecret::new("a", slim_auth::testutils::TEST_VALID_SECRET),
-            std::path::PathBuf::from("/tmp/test_session"),
+            None,
             tx_session.clone(),
         );
 
@@ -1229,7 +1246,7 @@ mod tests {
             tx,
             SharedSecret::new("a", slim_auth::testutils::TEST_VALID_SECRET),
             SharedSecret::new("a", slim_auth::testutils::TEST_VALID_SECRET),
-            std::path::PathBuf::from("/tmp/test_session"),
+            None,
             tx_session.clone(),
         );
 
@@ -1354,7 +1371,7 @@ mod tests {
             tx_sender,
             SharedSecret::new("a", slim_auth::testutils::TEST_VALID_SECRET),
             SharedSecret::new("a", slim_auth::testutils::TEST_VALID_SECRET),
-            std::path::PathBuf::from("/tmp/test_session_sender"),
+            None,
             tx_session.clone(),
         );
         let receiver = Multicast::new(
@@ -1364,7 +1381,7 @@ mod tests {
             tx_receiver,
             SharedSecret::new("a", slim_auth::testutils::TEST_VALID_SECRET),
             SharedSecret::new("a", slim_auth::testutils::TEST_VALID_SECRET),
-            std::path::PathBuf::from("/tmp/test_session_receiver"),
+            None,
             tx_session.clone(),
         );
 

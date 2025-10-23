@@ -74,8 +74,11 @@ where
     /// Optional dst name for point-to-point sessions (interior mutable)
     dst: Arc<RwLock<Option<Name>>>,
 
-    /// MLS state
-    mls: Option<Arc<Mutex<Mls<P, V>>>>,
+    /// Whether MLS is enabled
+    mls_enabled: bool,
+
+    /// MLS storage path (if mls enabled)
+    mls_storage_path: Option<std::path::PathBuf>,
 
     /// Transmitter for sending messages to slim and app
     tx: T,
@@ -479,20 +482,8 @@ where
         identity_provider: P,
         verifier: V,
         mls_enabled: bool,
-        storage_path: std::path::PathBuf,
+        storage_path: Option<std::path::PathBuf>,
     ) -> Self {
-        let mls = if mls_enabled {
-            let mls = Mls::new(
-                source.clone(),
-                identity_provider.clone(),
-                verifier.clone(),
-                storage_path,
-            );
-            Some(Arc::new(Mutex::new(mls)))
-        } else {
-            None
-        };
-
         let session = Self {
             id,
             _state: State::Active,
@@ -501,14 +492,10 @@ where
             session_config: RwLock::new(session_config),
             source,
             dst: Arc::new(RwLock::new(None)),
-            mls,
+            mls_enabled,
+            mls_storage_path: storage_path,
             tx,
         };
-
-        if let Some(mls) = session.mls() {
-            let interceptor = MlsInterceptor::new(mls.clone());
-            session.tx.add_interceptor(Arc::new(interceptor));
-        }
 
         session
     }
@@ -521,8 +508,12 @@ where
         &self.tx
     }
 
-    pub(crate) fn mls(&self) -> Option<Arc<Mutex<Mls<P, V>>>> {
-        self.mls.as_ref().map(|mls| mls.clone())
+    pub(crate) fn mls_enabled(&self) -> bool {
+        self.mls_enabled
+    }
+
+    pub(crate) fn mls_storage_path(&self) -> Option<&std::path::PathBuf> {
+        self.mls_storage_path.as_ref()
     }
 
     /// Internal helper to pass an immutable reference to dst without cloning.

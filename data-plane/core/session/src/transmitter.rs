@@ -7,6 +7,7 @@ use std::sync::Arc;
 // Third-party crates
 use parking_lot::RwLock;
 use slim_auth::traits::{TokenProvider, Verifier};
+use slim_mls::mls::Mls;
 use tokio::sync::mpsc::Sender;
 
 use slim_datapath::Status;
@@ -85,18 +86,34 @@ impl SessionInterceptorProvider for SessionTransmitter {
     }
 }
 
-impl Transmitter for SessionTransmitter {
-    fn send_to_app(
+#[async_trait::async_trait]
+impl<P, V> Transmitter<P, V> for SessionTransmitter
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    async fn send_to_app(
         &self,
         mut message: Result<Message, SessionError>,
-    ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static {
+        &mut mls: Mls<P, V>,
+    ) -> Result<(), SessionError> {
+        // If not an error, decrypt the message first
+        if let Ok(msg) = message.as_mut() {
+            self.decrypt_message(msg, Some(&mut mls)).await?;
+        }
+
         transmit_with_interceptors!(self, message, app_tx, on_msg_from_slim, AppTransmission)
     }
 
-    fn send_to_slim(
+    async fn send_to_slim(
         &self,
         mut message: Result<Message, Status>,
-    ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static {
+    ) -> Result<(), SessionError> {
+        if let Ok(msg) = message.as_mut() {
+            // If not an error, encrypt the message first
+            self.encrypt_message(msg, None).await?;
+        }
+
         transmit_with_interceptors!(self, message, slim_tx, on_msg_from_app, SlimTransmission)
     }
 }
@@ -261,14 +278,14 @@ mod tests {
         tx.add_interceptor(interceptor.clone());
 
         // send_to_slim treats the message as originating from the app -> on_msg_from_app invoked
-        tx.send_to_slim(Ok(make_message())).await.unwrap();
+        tx.send_to_slim(Ok(make_message()), None).await.unwrap();
         let sent = slim_rx.recv().await.unwrap().unwrap();
         assert_eq!(sent.get_metadata("APP").map(|s| s.as_str()), Some("1"));
         assert_eq!(*interceptor.app_calls.read(), 1);
         assert_eq!(*interceptor.slim_calls.read(), 0);
 
         // send_to_app treats the message as coming from slim -> on_msg_from_slim invoked
-        tx.send_to_app(Ok(make_message())).await.unwrap();
+        tx.send_to_app(Ok(make_message()), None).await.unwrap();
         let app_msg = app_rx.recv().await.unwrap().unwrap();
         assert_eq!(app_msg.get_metadata("SLIM").map(|s| s.as_str()), Some("1"));
         assert_eq!(*interceptor.slim_calls.read(), 1); // first slim direction call
@@ -283,7 +300,7 @@ mod tests {
         tx.add_interceptor(interceptor.clone());
 
         // Error result: interceptors should not run, calls remain 0
-        tx.send_to_slim(Err(Status::failed_precondition("err")))
+        tx.send_to_slim(Err(Status::failed_precondition("err")), None)
             .await
             .unwrap();
         let _ = slim_rx.recv().await.unwrap();
@@ -305,7 +322,7 @@ mod tests {
         tx.add_interceptor(interceptor.clone());
 
         // AppTransmitter::send_to_app uses on_msg_from_slim (message inbound from slim)
-        tx.send_to_app(Ok(make_message())).await.unwrap();
+        tx.send_to_app(Ok(make_message()), None).await.unwrap();
         if let Ok(Notification::NewMessage(msg)) = app_rx.recv().await.unwrap() {
             assert_eq!(msg.get_metadata("SLIM").map(|s| s.as_str()), Some("1"));
             assert_eq!(*interceptor.slim_calls.read(), 1);
@@ -315,7 +332,7 @@ mod tests {
         }
 
         // AppTransmitter::send_to_slim uses on_msg_from_app (message outbound to slim)
-        tx.send_to_slim(Ok(make_message())).await.unwrap();
+        tx.send_to_slim(Ok(make_message()), None).await.unwrap();
         let slim_msg = slim_rx.recv().await.unwrap().unwrap();
         assert_eq!(slim_msg.get_metadata("APP").map(|s| s.as_str()), Some("1"));
         assert_eq!(*interceptor.app_calls.read(), 1);
