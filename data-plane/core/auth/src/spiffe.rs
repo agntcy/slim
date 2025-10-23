@@ -997,13 +997,13 @@ impl Verifier for SpiffeJwtVerifier {
         });
 
         // Merge custom claims into the claims object
-        if let Some(obj) = claims_json.as_object_mut() {
-            if !custom_claims_map.is_empty() {
-                obj.insert(
-                    "custom_claims".to_string(),
-                    serde_json::Value::Object(custom_claims_map),
-                );
-            }
+        if let Some(obj) = claims_json.as_object_mut()
+            && !custom_claims_map.is_empty()
+        {
+            obj.insert(
+                "custom_claims".to_string(),
+                serde_json::Value::Object(custom_claims_map),
+            );
         }
 
         serde_json::from_value(claims_json)
@@ -1013,5 +1013,5 @@ impl Verifier for SpiffeJwtVerifier {
 
 #[cfg(test)]
 mod tests {
-    // tested in integratin tests
+    // tested in integration tests
 }

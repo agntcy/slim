@@ -24,7 +24,6 @@ use slim_auth::spiffe::SpiffeProviderConfig;
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::fs;
-use tokio::time::sleep;
 
 const SPIRE_SERVER_IMAGE: &str = "ghcr.io/spiffe/spire-server";
 const SPIRE_AGENT_IMAGE: &str = "ghcr.io/spiffe/spire-agent";
@@ -545,11 +544,6 @@ plugins {{
         }
     }
 
-    /// Get the mapped host port for the SPIRE server (if available)
-    pub fn server_port(&self) -> Option<u16> {
-        self.server_port
-    }
-
     /// Clean up all resources
     ///
     /// Stops and removes all containers, removes the network, and cleans up temporary directories.
@@ -565,10 +559,7 @@ plugins {{
         // Remove agent container
         if let Some(agent_id) = &self.agent_container_id {
             let _ = self.docker.stop_container(agent_id, None).await;
-            let _ = self
-                .docker
-                .remove_container(agent_id, remove_options.clone())
-                .await;
+            let _ = self.docker.remove_container(agent_id, remove_options).await;
         }
 
         // Remove server container

@@ -117,7 +117,7 @@ async fn test_spiffe_provider_initialization() {
     let mut verifier = SpiffeJwtVerifier::new(verifier_config);
 
     let mut should_panic = false;
-    'test_block: loop {
+    'test_block: {
         // Initialize provider
         match provider.initialize().await {
             Ok(_) => {
