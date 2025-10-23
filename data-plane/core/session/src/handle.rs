@@ -5,14 +5,16 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use parking_lot::Mutex;
 use parking_lot::RwLock;
 use slim_auth::traits::{TokenProvider, Verifier};
+use slim_datapath::api::ApplicationPayload;
+use slim_datapath::api::CommandPayload;
 use slim_datapath::api::ProtoMessage as Message;
 use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType, SessionHeader, SlimHeader};
 use slim_datapath::messages::encoder::Name;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 use slim_mls::mls::Mls;
+use tokio::sync::Mutex;
 
 use crate::interceptor_mls::MlsInterceptor;
 use crate::multicast::Multicast;
@@ -225,7 +227,9 @@ where
     ) -> Result<(), SessionError> {
         let ct = payload_type.unwrap_or_else(|| "msg".to_string());
 
-        let mut msg = Message::new_publish(self.source(), name, Some(flags), &ct, blob);
+        let payload = Some(ApplicationPayload::new(&ct, blob).as_content());
+
+        let mut msg = Message::new_publish(self.source(), name, None, Some(flags), payload);
         if let Some(map) = metadata
             && !map.is_empty()
         {
@@ -241,18 +245,23 @@ where
             SessionType::PointToPoint => Err(SessionError::Processing(
                 "cannot invite participant to point-to-point session".into(),
             )),
+
             SessionType::Multicast => {
-                let slim_header = Some(SlimHeader::new(self.source(), destination, None));
+                let identity = self
+                    .identity_provider()
+                    .get_token()
+                    .map_err(|_| SessionError::Processing("Failed to get token".into()))?;
+                let slim_header =
+                    Some(SlimHeader::new(self.source(), destination, &identity, None));
                 let session_header = Some(SessionHeader::new(
-                    ProtoSessionType::SessionMulticast.into(),
-                    ProtoSessionMessageType::ChannelDiscoveryRequest.into(),
+                    ProtoSessionType::Multicast.into(),
+                    ProtoSessionMessageType::DiscoveryRequest.into(),
                     self.id(),
                     rand::random::<u32>(),
-                    &None,
-                    &None,
                 ));
-                let msg =
-                    Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
+                let payload =
+                    Some(CommandPayload::new_discovery_request_payload(None).as_content());
+                let msg = Message::new_publish_with_headers(slim_header, session_header, payload);
                 self.publish_message(msg).await
             }
         }
@@ -264,17 +273,20 @@ where
                 "cannot remove participant from point-to-point session".into(),
             )),
             SessionType::Multicast => {
-                let slim_header = Some(SlimHeader::new(self.source(), destination, None));
+                let identity = self
+                    .identity_provider()
+                    .get_token()
+                    .map_err(|_| SessionError::Processing("Failed to get token".into()))?;
+                let slim_header =
+                    Some(SlimHeader::new(self.source(), destination, &identity, None));
                 let session_header = Some(SessionHeader::new(
-                    ProtoSessionType::SessionUnknown.into(),
-                    ProtoSessionMessageType::ChannelLeaveRequest.into(),
+                    ProtoSessionType::Multicast.into(),
+                    ProtoSessionMessageType::LeaveRequest.into(),
                     self.id(),
                     rand::random::<u32>(),
-                    &None,
-                    &None,
                 ));
-                let msg =
-                    Message::new_publish_with_headers(slim_header, session_header, "", vec![]);
+                let payload = Some(CommandPayload::new_leave_request_payload(None).as_content());
+                let msg = Message::new_publish_with_headers(slim_header, session_header, payload);
                 self.publish_message(msg).await
             }
         }
@@ -904,13 +916,13 @@ mod tests {
             if let Some(Ok(first)) = msgs.first() {
                 assert_eq!(
                     first.get_session_message_type() as u32,
-                    ProtoSessionMessageType::ChannelDiscoveryRequest as u32
+                    ProtoSessionMessageType::DiscoveryRequest as u32
                 );
             }
             if let Some(Ok(second)) = msgs.first() {
                 assert_eq!(
                     second.get_session_message_type() as u32,
-                    ProtoSessionMessageType::ChannelLeaveRequest as u32
+                    ProtoSessionMessageType::LeaveRequest as u32
                 );
             }
         }

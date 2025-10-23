@@ -202,7 +202,7 @@ func TestGetModeratorNode_NodeServiceError(t *testing.T) {
 } */
 
 // TestListRoutes_Success tests the successful retrieval of routes for a node.
-func TestListRoutes_Success(t *testing.T) {
+func TestListSubscriptions_Success(t *testing.T) {
 	// Arrange
 	nodeID := "node1"
 	node := &controlplaneApi.Node{Id: nodeID}
@@ -223,7 +223,7 @@ func TestListRoutes_Success(t *testing.T) {
 	}
 
 	// Act
-	result, err := s.ListRoutes(context.Background(), node)
+	result, err := s.ListSubscriptions(context.Background(), node)
 
 	// Assert
 	assert.NoError(t, err)
@@ -232,9 +232,7 @@ func TestListRoutes_Success(t *testing.T) {
 	mockRouteService.AssertExpectations(t)
 }
 
-// TestListConnections_NodeServiceError tests the scenario where the NodeService returns an error.
-func TestListRoutes_NodeNotFound(t *testing.T) {
-	// Arrange
+func TestListSubscriptions_NodeNotFound(t *testing.T) {
 	nodeID := "nonexistent"
 	node := &controlplaneApi.Node{Id: nodeID}
 	expectedError := errors.New("node not found")
@@ -250,7 +248,7 @@ func TestListRoutes_NodeNotFound(t *testing.T) {
 	}
 
 	// Act
-	result, err := s.ListRoutes(context.Background(), node)
+	result, err := s.ListSubscriptions(context.Background(), node)
 
 	// Assert
 	assert.Error(t, err)

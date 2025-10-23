@@ -514,14 +514,15 @@ impl MessageProcessor {
             Some(out_conn) => {
                 debug!("forward subscription (add = {}) to {}", add, out_conn);
 
-                // get source name
+                // get source name and identity
                 let source = msg.get_source();
+                let identity = msg.get_identity();
 
                 // send message
                 match self.send_msg(msg, out_conn).await {
                     Ok(_) => {
                         self.forwarder()
-                            .on_forwarded_subscription(source, dst, out_conn, add);
+                            .on_forwarded_subscription(source, dst, identity, out_conn, add);
                         Ok(())
                     }
                     Err(e) => Err(DataPathError::UnsubscriptionError(e.to_string())),
@@ -682,6 +683,7 @@ impl MessageProcessor {
                                     let sub_msg = Message::new_subscribe(
                                         r.source(),
                                         r.name(),
+                                        Some(r.source_identity()),
                                         None,
                                     );
                                     if self.send_msg(sub_msg, conn_index).await.is_err() {

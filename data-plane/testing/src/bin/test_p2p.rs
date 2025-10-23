@@ -36,26 +36,6 @@ pub struct Args {
     )]
     mls_disabled: bool,
 
-    /// Runs a unicast p2p session.
-    #[arg(
-        short,
-        long,
-        value_name = "IS_UNICAST",
-        required = false,
-        default_value_t = false
-    )]
-    is_unicast: bool,
-
-    /// Runs a reliable p2p session.
-    #[arg(
-        short,
-        long,
-        value_name = "IS_RELIABLE",
-        required = false,
-        default_value_t = false
-    )]
-    is_reliable: bool,
-
     /// Do not run SLIM node in background.
     #[arg(
         short,
@@ -80,14 +60,6 @@ pub struct Args {
 impl Args {
     pub fn mls_disabled(&self) -> &bool {
         &self.mls_disabled
-    }
-
-    pub fn is_unicast(&self) -> &bool {
-        &self.is_unicast
-    }
-
-    pub fn is_reliable(&self) -> &bool {
-        &self.is_reliable
     }
 
     pub fn slim_disabled(&self) -> &bool {
@@ -226,7 +198,7 @@ async fn run_client_task(name: Name) -> Result<(), String> {
                                                 if let Some(slim_datapath::api::ProtoPublishType(publish)) = msg.message_type.as_ref() {
                                                     let publisher = msg.get_slim_header().get_source();
                                                     let conn = msg.get_slim_header().recv_from.unwrap_or(conn_id);
-                                                    let blob = &publish.get_payload().blob;
+                                                    let blob = &publish.get_payload().as_application_payload().blob;
                                                     match String::from_utf8(blob.to_vec()) {
                                                         Ok(val) => {
                                                             if val != *"hello there" { continue; }
@@ -270,19 +242,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // get command line conf
     let args = Args::parse();
     let msl_enabled = !*args.mls_disabled();
-    let is_unicast = *args.is_unicast();
-    let mut is_reliable = *args.is_reliable();
     let slim_disabled = *args.slim_disabled();
     let apps = *args.apps();
 
-    if is_unicast {
-        // if unicast is also reliable
-        is_reliable = true;
-    }
-
     println!(
-        "run test with MLS = {}, unicast session = {} and reliable session = {}, number of apps = {}, SLIM on = {}",
-        msl_enabled, is_unicast, is_reliable, apps, !slim_disabled,
+        "run test with MLS = {} number of apps = {}, SLIM on = {}",
+        msl_enabled, apps, !slim_disabled,
     );
 
     // start slim node
@@ -343,26 +308,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .map_err(|_| format!("Failed to subscribe for participant {}", name))?;
 
-    let (timeout, max_retries) = if is_reliable {
-        (Some(Duration::from_secs(1)), Some(10))
-    } else {
-        (None, None)
-    };
-
-    // if is unicast set the remote endpoint name
-    let unicast_name = if is_unicast {
-        Some(Name::from_strings(["org", "ns", "client"]))
-    } else {
-        None
-    };
-
     let session_ctx = app
         .create_session(
             slim_session::SessionConfig::PointToPoint(PointToPointConfiguration::new(
-                timeout,
-                max_retries,
+                Some(Duration::from_secs(1)),
+                Some(10),
                 msl_enabled,
-                unicast_name,
+                Some(Name::from_strings(["org", "ns", "client"])),
                 HashMap::new(),
             )),
             None,
@@ -400,7 +352,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             msg.message_type.as_ref()
                         {
                             let sender = msg.get_source();
-                            let p = &publish.get_payload().blob;
+                            let p = &publish.get_payload().as_application_payload().blob;
                             let val = String::from_utf8(p.to_vec())
                                 .expect("error while parsing received message");
                             if val != *"hello there" {
@@ -454,7 +406,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut found_sender = false;
     for (c, n) in recv_msgs.read().iter() {
         sum += *n;
-        if is_unicast && found_sender && *n != 0 {
+        if found_sender && *n != 0 {
             println!(
                 "this is a unicast session but we got messages from multiple clients. test failed"
             );

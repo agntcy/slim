@@ -108,8 +108,8 @@ where
         }
 
         match message.get_session_message_type() {
-            slim_datapath::api::ProtoSessionMessageType::P2PReliable => {
-                debug!("received P2P reliable message");
+            slim_datapath::api::ProtoSessionMessageType::Msg => {
+                debug!("received message");
                 if self.draining_state == SenderDrainStatus::Initiated {
                     // draining period is started, do no accept any new message
                     debug!("draining period started, do not accept new messages");
@@ -117,16 +117,7 @@ where
                 }
                 self.on_publish_message(message).await?;
             }
-            slim_datapath::api::ProtoSessionMessageType::MulticastMsg => {
-                debug!("received multicast message");
-                if self.draining_state == SenderDrainStatus::Initiated {
-                    // draining period is started, do no accept any new message
-                    debug!("draining period started, do not accept new messages");
-                    return Ok(SenderDrainStatus::Initiated);
-                }
-                self.on_publish_message(message).await?;
-            }
-            slim_datapath::api::ProtoSessionMessageType::P2PAck => {
+            slim_datapath::api::ProtoSessionMessageType::MsgAck => {
                 debug!("received ack message");
                 if self.timer_factory.is_none() {
                     // drop the message
@@ -285,7 +276,6 @@ where
                 .set_forward_to(Some(incoming_conn));
             msg.get_session_header_mut()
                 .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxReply);
-            msg.get_session_header_mut().set_destination(&source);
 
             // send the message
             self.tx
@@ -324,7 +314,6 @@ where
                     debug!("resend message {} to {}", id, n);
                     let mut m = message.clone();
                     m.get_slim_header_mut().set_destination(n);
-                    m.get_session_header_mut().set_destination(n);
 
                     // send the message
                     self.tx
@@ -432,6 +421,7 @@ mod tests {
     use crate::transmitter::SessionTransmitter;
 
     use super::*;
+    use slim_datapath::api::ApplicationPayload;
     use std::time::Duration;
     use tokio::time::timeout;
     use tracing_test::traced_test;
@@ -455,11 +445,16 @@ mod tests {
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
-        let mut message =
-            Message::new_publish(&source, &remote, None, "test_payload", vec![1, 2, 3, 4]);
+        let mut message = Message::new_publish(
+            &source,
+            &remote,
+            None,
+            None,
+            Some(ApplicationPayload::new("test_payload", vec![1, 2, 3, 4]).as_content()),
+        );
 
-        // Set session message type to P2PReliable for reliable sender
-        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        // Set session message type to Msg for reliable sender
+        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
 
         // Send the message using on_message function
         sender
@@ -477,7 +472,7 @@ mod tests {
         // Verify the message was received
         assert_eq!(
             received.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::P2PReliable
+            slim_datapath::api::ProtoSessionMessageType::Msg
         );
         assert_eq!(received.get_id(), 1);
 
@@ -497,7 +492,7 @@ mod tests {
         // Verify the message was received
         assert_eq!(
             received.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::P2PReliable
+            slim_datapath::api::ProtoSessionMessageType::Msg
         );
         assert_eq!(received.get_id(), 2);
     }
@@ -521,11 +516,16 @@ mod tests {
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
-        let mut message =
-            Message::new_publish(&source, &remote, None, "test_payload", vec![1, 2, 3, 4]);
+        let mut message = Message::new_publish(
+            &source,
+            &remote,
+            None,
+            None,
+            Some(ApplicationPayload::new("test_payload", vec![1, 2, 3, 4]).as_content()),
+        );
 
-        // Set session message type to P2PReliable for reliable sender
-        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        // Set session message type to Msg for reliable sender
+        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
 
         // Send the message using on_message function
         sender
@@ -543,7 +543,7 @@ mod tests {
         // Verify the message was received
         assert_eq!(
             received.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::P2PReliable
+            slim_datapath::api::ProtoSessionMessageType::Msg
         );
         assert_eq!(received.get_id(), 1);
 
@@ -660,11 +660,16 @@ mod tests {
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
-        let mut message =
-            Message::new_publish(&source, &remote, None, "test_payload", vec![1, 2, 3, 4]);
+        let mut message = Message::new_publish(
+            &source,
+            &remote,
+            None,
+            None,
+            Some(ApplicationPayload::new("test_payload", vec![1, 2, 3, 4]).as_content()),
+        );
 
-        // Set session message type to P2PReliable for reliable sender
-        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        // Set session message type to Msg for reliable sender
+        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
 
         // Send the message using on_message function
         sender
@@ -682,16 +687,22 @@ mod tests {
         // Verify the message was received
         assert_eq!(
             received.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::P2PReliable
+            slim_datapath::api::ProtoSessionMessageType::Msg
         );
         assert_eq!(received.get_id(), 1);
 
         // receive an ack from the remote
-        let mut ack = Message::new_publish(&remote, &source, None, "", vec![]);
+        let mut ack = Message::new_publish(
+            &remote,
+            &source,
+            None,
+            None,
+            Some(ApplicationPayload::new("", vec![]).as_content()),
+        );
 
         ack.get_session_header_mut().set_message_id(1);
         ack.get_session_header_mut()
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PAck);
+            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
 
         sender.on_message(ack).await.expect("error sending message");
 
@@ -724,11 +735,16 @@ mod tests {
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
-        let mut message =
-            Message::new_publish(&source, &group, None, "test_payload", vec![1, 2, 3, 4]);
+        let mut message = Message::new_publish(
+            &source,
+            &group,
+            None,
+            None,
+            Some(ApplicationPayload::new("test_payload", vec![1, 2, 3, 4]).as_content()),
+        );
 
-        // Set session message type to P2PReliable for reliable sender
-        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        // Set session message type to Msg for reliable sender
+        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
 
         // Send the message using on_message function
         sender
@@ -746,25 +762,43 @@ mod tests {
         // Verify the message was received
         assert_eq!(
             received.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::P2PReliable
+            slim_datapath::api::ProtoSessionMessageType::Msg
         );
         assert_eq!(received.get_id(), 1);
 
         // receive acks from all 3 remotes
-        let mut ack1 = Message::new_publish(&remote1, &source, None, "", vec![]);
+        let mut ack1 = Message::new_publish(
+            &remote1,
+            &source,
+            None,
+            None,
+            Some(ApplicationPayload::new("", vec![]).as_content()),
+        );
         ack1.get_session_header_mut().set_message_id(1);
         ack1.get_session_header_mut()
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PAck);
+            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
 
-        let mut ack2 = Message::new_publish(&remote2, &source, None, "", vec![]);
+        let mut ack2 = Message::new_publish(
+            &remote2,
+            &source,
+            None,
+            None,
+            Some(ApplicationPayload::new("", vec![]).as_content()),
+        );
         ack2.get_session_header_mut().set_message_id(1);
         ack2.get_session_header_mut()
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PAck);
+            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
 
-        let mut ack3 = Message::new_publish(&remote3, &source, None, "", vec![]);
+        let mut ack3 = Message::new_publish(
+            &remote3,
+            &source,
+            None,
+            None,
+            Some(ApplicationPayload::new("", vec![]).as_content()),
+        );
         ack3.get_session_header_mut().set_message_id(1);
         ack3.get_session_header_mut()
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PAck);
+            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
 
         // Send all 3 acks
         sender.on_message(ack1).await.expect("error sending ack1");
@@ -800,11 +834,16 @@ mod tests {
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
-        let mut message =
-            Message::new_publish(&source, &group, None, "test_payload", vec![1, 2, 3, 4]);
+        let mut message = Message::new_publish(
+            &source,
+            &group,
+            None,
+            None,
+            Some(ApplicationPayload::new("test_payload", vec![1, 2, 3, 4]).as_content()),
+        );
 
-        // Set session message type to P2PReliable for reliable sender
-        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MulticastMsg);
+        // Set session message type to Msg for reliable sender
+        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
 
         // Send the message using on_message function
         sender
@@ -822,20 +861,32 @@ mod tests {
         // Verify the message was received
         assert_eq!(
             received.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::MulticastMsg
+            slim_datapath::api::ProtoSessionMessageType::Msg
         );
         assert_eq!(received.get_id(), 1);
 
         // receive acks from only remote1 and remote3 (missing ack from remote2)
-        let mut ack1 = Message::new_publish(&remote1, &source, None, "", vec![]);
+        let mut ack1 = Message::new_publish(
+            &remote1,
+            &source,
+            None,
+            None,
+            Some(ApplicationPayload::new("", vec![]).as_content()),
+        );
         ack1.get_session_header_mut().set_message_id(1);
         ack1.get_session_header_mut()
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PAck);
+            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
 
-        let mut ack3 = Message::new_publish(&remote3, &source, None, "", vec![]);
+        let mut ack3 = Message::new_publish(
+            &remote3,
+            &source,
+            None,
+            None,
+            Some(ApplicationPayload::new("", vec![]).as_content()),
+        );
         ack3.get_session_header_mut().set_message_id(1);
         ack3.get_session_header_mut()
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PAck);
+            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
 
         // Send only 2 out of 3 acks (missing ack2)
         sender.on_message(ack1).await.expect("error sending ack1");
@@ -867,7 +918,7 @@ mod tests {
         // Verify the retransmission is the same message with same ID
         assert_eq!(
             retransmission.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::MulticastMsg
+            slim_datapath::api::ProtoSessionMessageType::Msg
         );
         assert_eq!(retransmission.get_id(), 1);
         // The destination should be set to remote2 (the one that didn't ack)
@@ -899,7 +950,7 @@ mod tests {
         // Verify the second retransmission
         assert_eq!(
             retransmission2.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::MulticastMsg
+            slim_datapath::api::ProtoSessionMessageType::Msg
         );
         assert_eq!(retransmission2.get_id(), 1);
         assert_eq!(retransmission2.get_dst(), remote2);
@@ -947,11 +998,16 @@ mod tests {
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
-        let mut message =
-            Message::new_publish(&source, &group, None, "test_payload", vec![1, 2, 3, 4]);
+        let mut message = Message::new_publish(
+            &source,
+            &group,
+            None,
+            None,
+            Some(ApplicationPayload::new("test_payload", vec![1, 2, 3, 4]).as_content()),
+        );
 
-        // Set session message type to P2PReliable for reliable sender
-        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MulticastMsg);
+        // Set session message type to Msg for reliable sender
+        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
 
         // Send the message using on_message function
         sender
@@ -969,20 +1025,32 @@ mod tests {
         // Verify the message was received
         assert_eq!(
             received.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::MulticastMsg
+            slim_datapath::api::ProtoSessionMessageType::Msg
         );
         assert_eq!(received.get_id(), 1);
 
         // receive acks from only remote1 and remote3 (missing ack from remote2)
-        let mut ack1 = Message::new_publish(&remote1, &source, None, "", vec![]);
+        let mut ack1 = Message::new_publish(
+            &remote1,
+            &source,
+            None,
+            None,
+            Some(ApplicationPayload::new("", vec![]).as_content()),
+        );
         ack1.get_session_header_mut().set_message_id(1);
         ack1.get_session_header_mut()
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PAck);
+            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
 
-        let mut ack3 = Message::new_publish(&remote3, &source, None, "", vec![]);
+        let mut ack3 = Message::new_publish(
+            &remote3,
+            &source,
+            None,
+            None,
+            Some(ApplicationPayload::new("", vec![]).as_content()),
+        );
         ack3.get_session_header_mut().set_message_id(1);
         ack3.get_session_header_mut()
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PAck);
+            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
 
         // Send only 2 out of 3 acks (missing ack2)
         sender.on_message(ack1).await.expect("error sending ack1");
@@ -1021,11 +1089,16 @@ mod tests {
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
-        let mut message =
-            Message::new_publish(&source, &group, None, "test_payload", vec![1, 2, 3, 4]);
+        let mut message = Message::new_publish(
+            &source,
+            &group,
+            None,
+            None,
+            Some(ApplicationPayload::new("test_payload", vec![1, 2, 3, 4]).as_content()),
+        );
 
-        // Set session message type to MulticastMsg for reliable sender
-        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MulticastMsg);
+        // Set session message type to Msg for reliable sender
+        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
 
         // Send the message using on_message function
         sender
@@ -1043,27 +1116,45 @@ mod tests {
         // Verify the message was received
         assert_eq!(
             received.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::MulticastMsg
+            slim_datapath::api::ProtoSessionMessageType::Msg
         );
         assert_eq!(received.get_id(), 1);
 
         // receive acks from only remote1 and remote3 (missing ack from remote2)
-        let mut ack1 = Message::new_publish(&remote1, &source, None, "", vec![]);
+        let mut ack1 = Message::new_publish(
+            &remote1,
+            &source,
+            None,
+            None,
+            Some(ApplicationPayload::new("", vec![]).as_content()),
+        );
         ack1.get_session_header_mut().set_message_id(1);
         ack1.get_session_header_mut()
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PAck);
+            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
 
-        let mut ack3 = Message::new_publish(&remote3, &source, None, "", vec![]);
+        let mut ack3 = Message::new_publish(
+            &remote3,
+            &source,
+            None,
+            None,
+            Some(ApplicationPayload::new("", vec![]).as_content()),
+        );
         ack3.get_session_header_mut().set_message_id(1);
         ack3.get_session_header_mut()
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PAck);
+            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
 
         // Send only 2 out of 3 acks (missing ack from remote2)
         sender.on_message(ack1).await.expect("error sending ack1");
         sender.on_message(ack3).await.expect("error sending ack3");
 
         // Send RTX request from endpoint 2 instead of removing it
-        let mut rtx_request = Message::new_publish(&remote2, &source, None, "", vec![]);
+        let mut rtx_request = Message::new_publish(
+            &remote2,
+            &source,
+            None,
+            None,
+            Some(ApplicationPayload::new("", vec![]).as_content()),
+        );
         rtx_request.get_session_header_mut().set_message_id(1);
         rtx_request
             .get_session_header_mut()
@@ -1106,7 +1197,6 @@ mod tests {
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
-
         let mut sender = SessionSender::new(Some(settings), 10, tx, Some(tx_signal));
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
@@ -1114,11 +1204,16 @@ mod tests {
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
-        let mut message =
-            Message::new_publish(&source, &remote, None, "test_payload", vec![1, 2, 3, 4]);
+        let mut message = Message::new_publish(
+            &source,
+            &remote,
+            None,
+            None,
+            Some(ApplicationPayload::new("test_payload", vec![1, 2, 3, 4]).as_content()),
+        );
 
-        // Set session message type to P2PReliable for reliable sender
-        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        // Set session message type to Msg for reliable sender
+        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
 
         // Send the message using on_message function
         sender
@@ -1136,7 +1231,7 @@ mod tests {
         // Verify the message was received
         assert_eq!(
             received.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::P2PReliable
+            slim_datapath::api::ProtoSessionMessageType::Msg
         );
         assert_eq!(received.get_id(), 1);
 
@@ -1166,12 +1261,18 @@ mod tests {
         // Verify the retransmission
         assert_eq!(
             retransmission.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::P2PReliable
+            slim_datapath::api::ProtoSessionMessageType::Msg
         );
         assert_eq!(retransmission.get_id(), 1);
 
         // Now simulate an RTX request from the remote
-        let mut rtx_request = Message::new_publish(&remote, &source, None, "", vec![]);
+        let mut rtx_request = Message::new_publish(
+            &remote,
+            &source,
+            None,
+            None,
+            Some(ApplicationPayload::new("", vec![]).as_content()),
+        );
         rtx_request.get_session_header_mut().set_message_id(1);
         rtx_request
             .get_session_header_mut()
@@ -1203,10 +1304,16 @@ mod tests {
         assert_eq!(rtx_reply.get_slim_header().forward_to(), 123);
 
         // Now send an ack from the remote
-        let mut ack = Message::new_publish(&remote, &source, None, "", vec![]);
+        let mut ack = Message::new_publish(
+            &remote,
+            &source,
+            None,
+            None,
+            Some(ApplicationPayload::new("", vec![]).as_content()),
+        );
         ack.get_session_header_mut().set_message_id(1);
         ack.get_session_header_mut()
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PAck);
+            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
 
         sender.on_message(ack).await.expect("error sending ack");
 
@@ -1234,11 +1341,16 @@ mod tests {
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
-        let mut message =
-            Message::new_publish(&source, &remote, None, "test_payload", vec![1, 2, 3, 4]);
+        let mut message = Message::new_publish(
+            &source,
+            &remote,
+            None,
+            None,
+            Some(ApplicationPayload::new("test_payload", vec![1, 2, 3, 4]).as_content()),
+        );
 
-        // Set session message type to P2PReliable for reliable sender
-        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        // Set session message type to Msg for reliable sender
+        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
 
         // Send the message using on_message function - this should fail
         let result = sender.on_message(message.clone()).await;

@@ -166,7 +166,7 @@ where
         result.map_err(|e| MlsError::Mls(e.to_string()))
     }
 
-    fn generate_key_pair() -> Result<(SignatureSecretKey, SignaturePublicKey), MlsError> {
+    async fn generate_key_pair() -> Result<(SignatureSecretKey, SignaturePublicKey), MlsError> {
         let crypto_provider = AwsLcCryptoProvider::default();
         let cipher_suite_provider = crypto_provider
             .cipher_suite_provider(CIPHERSUITE)
@@ -174,10 +174,11 @@ where
 
         cipher_suite_provider
             .signature_key_generate()
+            .await
             .map_err(|e| MlsError::Mls(e.to_string()))
     }
 
-    pub fn initialize(&mut self) -> Result<(), MlsError> {
+    pub async fn initialize(&mut self) -> Result<(), MlsError> {
         debug!("Initializing MLS client for: {}", self.name);
         let storage_path = self.get_storage_path();
         debug!("Using storage path: {}", storage_path.display());
@@ -193,7 +194,7 @@ where
             StoredIdentity::load_from_storage(&storage_path)?
         } else {
             debug!("Creating new identity");
-            let (private_key, public_key) = Self::generate_key_pair()?;
+            let (private_key, public_key) = Self::generate_key_pair().await?;
 
             let stored = StoredIdentity {
                 identifier: self.name.to_string(),
@@ -232,15 +233,15 @@ where
         Ok(())
     }
 
-    pub fn create_group(&mut self) -> Result<Vec<u8>, MlsError> {
+    pub async fn create_group(&mut self) -> Result<Vec<u8>, MlsError> {
         debug!("Creating new MLS group");
         let client = self.client.as_ref().ok_or(MlsError::ClientNotInitialized)?;
 
-        let group = Self::map_mls_error(client.create_group(
-            ExtensionList::default(),
-            Default::default(),
-            None,
-        ))?;
+        let group = Self::map_mls_error(
+            client
+                .create_group(ExtensionList::default(), Default::default(), None)
+                .await,
+        )?;
 
         let group_id = group.group_id().to_vec();
         self.group = Some(group);
@@ -252,19 +253,22 @@ where
         Ok(group_id)
     }
 
-    pub fn generate_key_package(&self) -> Result<KeyPackageMsg, MlsError> {
+    pub async fn generate_key_package(&self) -> Result<KeyPackageMsg, MlsError> {
         debug!("Generating key package");
         let client = self.client.as_ref().ok_or(MlsError::ClientNotInitialized)?;
 
-        let key_package = Self::map_mls_error(client.generate_key_package_message(
-            Default::default(),
-            Default::default(),
-            None,
-        ))?;
+        let key_package = Self::map_mls_error(
+            client
+                .generate_key_package_message(Default::default(), Default::default(), None)
+                .await,
+        )?;
         Self::map_mls_error(key_package.to_bytes())
     }
 
-    pub fn add_member(&mut self, key_package_bytes: &[u8]) -> Result<MlsAddMemberResult, MlsError> {
+    pub async fn add_member(
+        &mut self,
+        key_package_bytes: &[u8],
+    ) -> Result<MlsAddMemberResult, MlsError> {
         debug!("Adding member to the MLS group");
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
         let key_package = Self::map_mls_error(MlsMessage::from_bytes(key_package_bytes))?;
@@ -275,17 +279,15 @@ where
         let mut ids = HashSet::new();
         for m in old_roster {
             let identifier = Self::map_mls_error(
-                basic::BasicIdentityProvider::new().identity(&m.signing_identity, &m.extensions),
+                basic::BasicIdentityProvider::new()
+                    .identity(&m.signing_identity, &m.extensions)
+                    .await,
             )?;
             ids.insert(identifier);
         }
 
-        let commit = Self::map_mls_error(
-            group
-                .commit_builder()
-                .add_member(key_package)
-                .and_then(|builder| builder.build()),
-        )?;
+        let commit = Self::map_mls_error(group.commit_builder().add_member(key_package))?;
+        let commit = Self::map_mls_error(commit.build().await)?;
 
         // create the commit message to broadcast in the group
         let commit_msg = Self::map_mls_error(commit.commit_message.to_bytes())?;
@@ -298,13 +300,15 @@ where
             .and_then(|welcome| Self::map_mls_error(welcome.to_bytes()))?;
 
         // apply the commit locally
-        Self::map_mls_error(group.apply_pending_commit())?;
+        Self::map_mls_error(group.apply_pending_commit().await)?;
 
         let new_roster = group.roster().members();
         let mut new_id = vec![];
         for m in new_roster {
             let identifier = Self::map_mls_error(
-                basic::BasicIdentityProvider::new().identity(&m.signing_identity, &m.extensions),
+                basic::BasicIdentityProvider::new()
+                    .identity(&m.signing_identity, &m.extensions)
+                    .await,
             )?;
             if !ids.contains(&identifier) {
                 new_id = identifier;
@@ -320,42 +324,38 @@ where
         Ok(ret)
     }
 
-    pub fn remove_member(&mut self, identity: &[u8]) -> Result<CommitMsg, MlsError> {
+    pub async fn remove_member(&mut self, identity: &[u8]) -> Result<CommitMsg, MlsError> {
         debug!("Removing member from the  MLS group");
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
-        let m = Self::map_mls_error(group.member_with_identity(identity))?;
+        let m = Self::map_mls_error(group.member_with_identity(identity).await)?;
 
-        let commit = Self::map_mls_error(
-            group
-                .commit_builder()
-                .remove_member(m.index)
-                .and_then(|builder| builder.build()),
-        )?;
+        let commit = Self::map_mls_error(group.commit_builder().remove_member(m.index))?;
+        let commit = Self::map_mls_error(commit.build().await)?;
 
         let commit_msg = Self::map_mls_error(commit.commit_message.to_bytes())?;
 
-        Self::map_mls_error(group.apply_pending_commit())?;
+        Self::map_mls_error(group.apply_pending_commit().await)?;
 
         Ok(commit_msg)
     }
 
-    pub fn process_commit(&mut self, commit_message: &[u8]) -> Result<(), MlsError> {
+    pub async fn process_commit(&mut self, commit_message: &[u8]) -> Result<(), MlsError> {
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
         let commit = Self::map_mls_error(MlsMessage::from_bytes(commit_message))?;
 
         // process an incoming commit message
-        Self::map_mls_error(group.process_incoming_message(commit))?;
+        Self::map_mls_error(group.process_incoming_message(commit).await)?;
         Ok(())
     }
 
-    pub fn process_welcome(&mut self, welcome_message: &[u8]) -> Result<Vec<u8>, MlsError> {
+    pub async fn process_welcome(&mut self, welcome_message: &[u8]) -> Result<Vec<u8>, MlsError> {
         debug!("Processing welcome message and joining MLS group");
         let client = self.client.as_ref().ok_or(MlsError::ClientNotInitialized)?;
 
         // process the welcome message and connect to the group
         let welcome = Self::map_mls_error(MlsMessage::from_bytes(welcome_message))?;
-        let (group, _) = Self::map_mls_error(client.join_group(None, &welcome, None))?;
+        let (group, _) = Self::map_mls_error(client.join_group(None, &welcome, None).await)?;
 
         let group_id = group.group_id().to_vec();
         self.group = Some(group);
@@ -367,7 +367,7 @@ where
         Ok(group_id)
     }
 
-    pub fn process_proposal(
+    pub async fn process_proposal(
         &mut self,
         proposal_message: &[u8],
         create_commit: bool,
@@ -375,7 +375,7 @@ where
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
         let proposal = Self::map_mls_error(MlsMessage::from_bytes(proposal_message))?;
 
-        Self::map_mls_error(group.process_incoming_message(proposal))?;
+        Self::map_mls_error(group.process_incoming_message(proposal).await)?;
 
         if !create_commit {
             debug!("process proposal but do not create commit. return empty commit");
@@ -383,50 +383,53 @@ where
         }
 
         // create commit message from proposal
-        let commit = Self::map_mls_error(group.commit_builder().build())?;
+        let commit = Self::map_mls_error(group.commit_builder().build().await)?;
 
         // apply the commit locally
-        Self::map_mls_error(group.apply_pending_commit())?;
+        Self::map_mls_error(group.apply_pending_commit().await)?;
 
         // return the commit message
         let commit_msg = Self::map_mls_error(commit.commit_message.to_bytes())?;
         Ok(commit_msg)
     }
 
-    pub fn process_local_pending_proposal(&mut self) -> Result<CommitMsg, MlsError> {
+    pub async fn process_local_pending_proposal(&mut self) -> Result<CommitMsg, MlsError> {
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
         // create commit message from proposal
-        let commit = Self::map_mls_error(group.commit_builder().build())?;
+        let commit = Self::map_mls_error(group.commit_builder().build().await)?;
 
         // apply the commit locally
-        Self::map_mls_error(group.apply_pending_commit())?;
+        Self::map_mls_error(group.apply_pending_commit().await)?;
 
         // return the commit message
         let commit_msg = Self::map_mls_error(commit.commit_message.to_bytes())?;
         Ok(commit_msg)
     }
 
-    pub fn encrypt_message(&mut self, message: &[u8]) -> Result<Vec<u8>, MlsError> {
+    pub async fn encrypt_message(&mut self, message: &[u8]) -> Result<Vec<u8>, MlsError> {
         debug!("Encrypting MLS message");
 
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
-        let encrypted_msg =
-            Self::map_mls_error(group.encrypt_application_message(message, Default::default()))?;
+        let encrypted_msg = Self::map_mls_error(
+            group
+                .encrypt_application_message(message, Default::default())
+                .await,
+        )?;
 
         let msg = Self::map_mls_error(encrypted_msg.to_bytes())?;
         Ok(msg)
     }
 
-    pub fn decrypt_message(&mut self, encrypted_message: &[u8]) -> Result<Vec<u8>, MlsError> {
+    pub async fn decrypt_message(&mut self, encrypted_message: &[u8]) -> Result<Vec<u8>, MlsError> {
         debug!("Decrypting MLS message");
 
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
         let message = Self::map_mls_error(MlsMessage::from_bytes(encrypted_message))?;
 
-        match Self::map_mls_error(group.process_incoming_message(message))? {
+        match Self::map_mls_error(group.process_incoming_message(message).await)? {
             ReceivedMessage::ApplicationMessage(app_msg) => Ok(app_msg.data().to_vec()),
             _ => Err(MlsError::Mls(
                 "Message was not an application message".to_string(),
@@ -434,9 +437,9 @@ where
         }
     }
 
-    pub fn write_to_storage(&mut self) -> Result<(), MlsError> {
+    pub async fn write_to_storage(&mut self) -> Result<(), MlsError> {
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
-        Self::map_mls_error(group.write_to_storage())?;
+        Self::map_mls_error(group.write_to_storage().await)?;
         Ok(())
     }
 
@@ -448,7 +451,7 @@ where
         self.group.as_ref().map(|g| g.current_epoch())
     }
 
-    pub fn create_rotation_proposal(&mut self) -> Result<ProposalMsg, MlsError> {
+    pub async fn create_rotation_proposal(&mut self) -> Result<ProposalMsg, MlsError> {
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
         // get the current credentials
@@ -460,16 +463,16 @@ where
         let credential_data = token.as_bytes().to_vec();
         let basic_cred = BasicCredential::new(credential_data);
 
-        let (new_private_key, new_public_key) = Self::generate_key_pair()?;
+        let (new_private_key, new_public_key) = Self::generate_key_pair().await?;
 
         let new_signing_identity =
             SigningIdentity::new(basic_cred.into_credential(), new_public_key.clone());
 
-        let update_proposal = Self::map_mls_error(group.propose_update_with_identity(
-            new_private_key.clone(),
-            new_signing_identity,
-            vec![],
-        ))?;
+        let update_proposal = Self::map_mls_error(
+            group
+                .propose_update_with_identity(new_private_key.clone(), new_signing_identity, vec![])
+                .await,
+        )?;
 
         debug!(
             "Created credential rotation proposal, store it and return the message to the caller"
@@ -487,6 +490,13 @@ where
 
         Self::map_mls_error(update_proposal.to_bytes())
     }
+
+    /// Get a token from the identity provider
+    pub fn get_token(&self) -> Result<String, MlsError> {
+        self.identity_provider
+            .get_token()
+            .map_err(|e| MlsError::TokenRetrievalFailed(e.to_string()))
+    }
 }
 
 #[cfg(test)]
@@ -500,8 +510,8 @@ mod tests {
 
     const SHARED_SECRET: &str = "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas";
 
-    #[test]
-    fn test_mls_creation() -> Result<(), Box<dyn std::error::Error>> {
+    #[tokio::test]
+    async fn test_mls_creation() -> Result<(), Box<dyn std::error::Error>> {
         let name = Name::from_strings(["org", "default", "alice"]).with_id(0);
         let mut mls = Mls::new(
             name,
@@ -510,14 +520,14 @@ mod tests {
             std::path::PathBuf::from("/tmp/mls_test_creation"),
         );
 
-        mls.initialize()?;
+        mls.initialize().await?;
         assert!(mls.client.is_some());
         assert!(mls.group.is_none());
         Ok(())
     }
 
-    #[test]
-    fn test_group_creation() -> Result<(), Box<dyn std::error::Error>> {
+    #[tokio::test]
+    async fn test_group_creation() -> Result<(), Box<dyn std::error::Error>> {
         let name = Name::from_strings(["org", "default", "alice"]).with_id(0);
         let mut mls = Mls::new(
             name,
@@ -526,15 +536,15 @@ mod tests {
             std::path::PathBuf::from("/tmp/mls_test_group_creation"),
         );
 
-        mls.initialize()?;
-        let _group_id = mls.create_group()?;
+        mls.initialize().await?;
+        let _group_id = mls.create_group().await?;
         assert!(mls.client.is_some());
         assert!(mls.group.is_some());
         Ok(())
     }
 
-    #[test]
-    fn test_key_package_generation() -> Result<(), Box<dyn std::error::Error>> {
+    #[tokio::test]
+    async fn test_key_package_generation() -> Result<(), Box<dyn std::error::Error>> {
         let name = Name::from_strings(["org", "default", "alice"]).with_id(0);
         let mut mls = Mls::new(
             name,
@@ -543,14 +553,14 @@ mod tests {
             std::path::PathBuf::from("/tmp/mls_test_key_package"),
         );
 
-        mls.initialize()?;
-        let key_package = mls.generate_key_package()?;
+        mls.initialize().await?;
+        let key_package = mls.generate_key_package().await?;
         assert!(!key_package.is_empty());
         Ok(())
     }
 
-    #[test]
-    fn test_messaging() -> Result<(), Box<dyn std::error::Error>> {
+    #[tokio::test]
+    async fn test_messaging() -> Result<(), Box<dyn std::error::Error>> {
         let alice = Name::from_strings(["org", "default", "alice"]).with_id(0);
         let bob = Name::from_strings(["org", "default", "bob"]).with_id(0);
         let charlie = Name::from_strings(["org", "default", "charlie"]).with_id(0);
@@ -582,24 +592,24 @@ mod tests {
             std::path::PathBuf::from("/tmp/mls_test_messaging_daniel"),
         );
 
-        alice.initialize()?;
-        bob.initialize()?;
-        charlie.initialize()?;
-        daniel.initialize()?;
+        alice.initialize().await?;
+        bob.initialize().await?;
+        charlie.initialize().await?;
+        daniel.initialize().await?;
 
-        let group_id = alice.create_group()?;
+        let group_id = alice.create_group().await?;
 
         // add bob to the group
-        let bob_key_package = bob.generate_key_package()?;
-        let bob_add_res = alice.add_member(&bob_key_package)?;
+        let bob_key_package = bob.generate_key_package().await?;
+        let bob_add_res = alice.add_member(&bob_key_package).await?;
 
-        let bob_group_id = bob.process_welcome(&bob_add_res.welcome_message)?;
+        let bob_group_id = bob.process_welcome(&bob_add_res.welcome_message).await?;
         assert_eq!(group_id, bob_group_id);
 
         // test encrypt decrypt
         let original_message = b"Hello from Alice 1!";
-        let encrypted = alice.encrypt_message(original_message)?;
-        let decrypted = bob.decrypt_message(&encrypted)?;
+        let encrypted = alice.encrypt_message(original_message).await?;
+        let decrypted = bob.decrypt_message(&encrypted).await?;
 
         assert_eq!(original_message, decrypted.as_slice());
         assert_ne!(original_message.to_vec(), encrypted);
@@ -610,12 +620,14 @@ mod tests {
         thread::sleep(time::Duration::from_millis(1000));
 
         // add charlie
-        let charlie_key_package = charlie.generate_key_package()?;
-        let charlie_add_res = alice.add_member(&charlie_key_package)?;
+        let charlie_key_package = charlie.generate_key_package().await?;
+        let charlie_add_res = alice.add_member(&charlie_key_package).await?;
 
-        bob.process_commit(&charlie_add_res.commit_message)?;
+        bob.process_commit(&charlie_add_res.commit_message).await?;
 
-        let charlie_group_id = charlie.process_welcome(&charlie_add_res.welcome_message)?;
+        let charlie_group_id = charlie
+            .process_welcome(&charlie_add_res.welcome_message)
+            .await?;
         assert_eq!(group_id, charlie_group_id);
 
         assert_eq!(alice.get_epoch().unwrap(), bob.get_epoch().unwrap());
@@ -628,23 +640,23 @@ mod tests {
 
         // test encrypt decrypt
         let original_message = b"Hello from Alice 1!";
-        let encrypted = alice.encrypt_message(original_message)?;
-        let decrypted_1 = bob.decrypt_message(&encrypted)?;
-        let decrypted_2 = charlie.decrypt_message(&encrypted)?;
+        let encrypted = alice.encrypt_message(original_message).await?;
+        let decrypted_1 = bob.decrypt_message(&encrypted).await?;
+        let decrypted_2 = charlie.decrypt_message(&encrypted).await?;
         assert_eq!(original_message, decrypted_1.as_slice());
         assert_eq!(original_message, decrypted_2.as_slice());
 
         let original_message = b"Hello from Charlie!";
-        let encrypted = charlie.encrypt_message(original_message)?;
-        let decrypted_1 = bob.decrypt_message(&encrypted)?;
-        let decrypted_2 = alice.decrypt_message(&encrypted)?;
+        let encrypted = charlie.encrypt_message(original_message).await?;
+        let decrypted_1 = bob.decrypt_message(&encrypted).await?;
+        let decrypted_2 = alice.decrypt_message(&encrypted).await?;
         assert_eq!(original_message, decrypted_1.as_slice());
         assert_eq!(original_message, decrypted_2.as_slice());
 
         // remove bob
-        let remove_msg = alice.remove_member(&bob_add_res.member_identity)?;
-        charlie.process_commit(&remove_msg)?;
-        bob.process_commit(&remove_msg)?;
+        let remove_msg = alice.remove_member(&bob_add_res.member_identity).await?;
+        charlie.process_commit(&remove_msg).await?;
+        bob.process_commit(&remove_msg).await?;
         assert_eq!(alice.get_epoch().unwrap(), charlie.get_epoch().unwrap());
         assert_eq!(
             alice.get_group_id().unwrap(),
@@ -653,22 +665,26 @@ mod tests {
 
         // test encrypt decrypt
         let original_message = b"Hello from Alice 1!";
-        let encrypted = alice.encrypt_message(original_message)?;
-        let decrypted = charlie.decrypt_message(&encrypted)?;
+        let encrypted = alice.encrypt_message(original_message).await?;
+        let decrypted = charlie.decrypt_message(&encrypted).await?;
         assert_eq!(original_message, decrypted.as_slice());
 
         let original_message = b"Hello from Charlie!";
-        let encrypted = charlie.encrypt_message(original_message)?;
-        let decrypted = alice.decrypt_message(&encrypted)?;
+        let encrypted = charlie.encrypt_message(original_message).await?;
+        let decrypted = alice.decrypt_message(&encrypted).await?;
         assert_eq!(original_message, decrypted.as_slice());
 
         // add daniel and remove charlie
-        let daniel_key_package = daniel.generate_key_package()?;
-        let daniel_add_res = alice.add_member(&daniel_key_package)?;
+        let daniel_key_package = daniel.generate_key_package().await?;
+        let daniel_add_res = alice.add_member(&daniel_key_package).await?;
 
-        charlie.process_commit(&daniel_add_res.commit_message)?;
+        charlie
+            .process_commit(&daniel_add_res.commit_message)
+            .await?;
 
-        let daniel_group_id = daniel.process_welcome(&daniel_add_res.welcome_message)?;
+        let daniel_group_id = daniel
+            .process_welcome(&daniel_add_res.welcome_message)
+            .await?;
         assert_eq!(group_id, daniel_group_id);
         assert_eq!(alice.get_epoch().unwrap(), charlie.get_epoch().unwrap());
         assert_eq!(alice.get_epoch().unwrap(), daniel.get_epoch().unwrap());
@@ -681,9 +697,11 @@ mod tests {
             charlie.get_group_id().unwrap()
         );
 
-        let commit = alice.remove_member(&charlie_add_res.member_identity)?;
+        let commit = alice
+            .remove_member(&charlie_add_res.member_identity)
+            .await?;
 
-        daniel.process_commit(&commit)?;
+        daniel.process_commit(&commit).await?;
         assert_eq!(alice.get_epoch().unwrap(), daniel.get_epoch().unwrap());
         assert_eq!(
             alice.get_group_id().unwrap(),
@@ -692,15 +710,15 @@ mod tests {
 
         // test encrypt decrypt
         let original_message = b"Hello from Alice 1!";
-        let encrypted = alice.encrypt_message(original_message)?;
-        let decrypted = daniel.decrypt_message(&encrypted)?;
+        let encrypted = alice.encrypt_message(original_message).await?;
+        let decrypted = daniel.decrypt_message(&encrypted).await?;
         assert_eq!(original_message, decrypted.as_slice());
 
         Ok(())
     }
 
-    #[test]
-    fn test_decrypt_message() -> Result<(), Box<dyn std::error::Error>> {
+    #[tokio::test]
+    async fn test_decrypt_message() -> Result<(), Box<dyn std::error::Error>> {
         let alice = Name::from_strings(["org", "default", "alice"]).with_id(0);
         let bob = Name::from_strings(["org", "default", "bob"]).with_id(1);
 
@@ -717,25 +735,25 @@ mod tests {
             std::path::PathBuf::from("/tmp/mls_test_decrypt_bob"),
         );
 
-        alice.initialize()?;
-        bob.initialize()?;
-        let _group_id = alice.create_group()?;
+        alice.initialize().await?;
+        bob.initialize().await?;
+        let _group_id = alice.create_group().await?;
 
-        let bob_key_package = bob.generate_key_package()?;
-        let res = alice.add_member(&bob_key_package)?;
-        let _bob_group_id = bob.process_welcome(&res.welcome_message)?;
+        let bob_key_package = bob.generate_key_package().await?;
+        let res = alice.add_member(&bob_key_package).await?;
+        let _bob_group_id = bob.process_welcome(&res.welcome_message).await?;
 
         let message = b"Test message";
-        let encrypted = alice.encrypt_message(message)?;
+        let encrypted = alice.encrypt_message(message).await?;
 
-        let decrypted = bob.decrypt_message(&encrypted)?;
+        let decrypted = bob.decrypt_message(&encrypted).await?;
         assert_eq!(decrypted, message);
 
         Ok(())
     }
 
-    #[test]
-    fn test_shared_secret_rotation_same_identity() -> Result<(), Box<dyn std::error::Error>> {
+    #[tokio::test]
+    async fn test_shared_secret_rotation_same_identity() -> Result<(), Box<dyn std::error::Error>> {
         let alice_name = Name::from_strings(["org", "default", "alice"]).with_id(0);
         let bob_name = Name::from_strings(["org", "default", "bob"]).with_id(1);
 
@@ -761,18 +779,18 @@ mod tests {
             std::path::PathBuf::from("/tmp/mls_test_rotation_bob"),
         );
 
-        alice.initialize()?;
-        bob.initialize()?;
-        let _group_id = alice.create_group()?;
+        alice.initialize().await?;
+        bob.initialize().await?;
+        let _group_id = alice.create_group().await?;
 
-        let bob_key_package = bob.generate_key_package()?;
-        let result = alice.add_member(&bob_key_package)?;
+        let bob_key_package = bob.generate_key_package().await?;
+        let result = alice.add_member(&bob_key_package).await?;
         let welcome_message = result.welcome_message;
-        let _bob_group_id = bob.process_welcome(&welcome_message)?;
+        let _bob_group_id = bob.process_welcome(&welcome_message).await?;
 
         let message1 = b"Message with secret_v1";
-        let encrypted1 = alice.encrypt_message(message1)?;
-        let decrypted1 = bob.decrypt_message(&encrypted1)?;
+        let encrypted1 = alice.encrypt_message(message1).await?;
+        let decrypted1 = bob.decrypt_message(&encrypted1).await?;
         assert_eq!(decrypted1, message1);
 
         let mut alice_rotated_secret = Mls::new(
@@ -787,22 +805,22 @@ mod tests {
             ),
             std::path::PathBuf::from("/tmp/mls_test_rotation_alice_v2"),
         );
-        alice_rotated_secret.initialize()?;
+        alice_rotated_secret.initialize().await?;
 
         let message2 = b"Message with rotated secret";
-        let encrypted2_result = alice_rotated_secret.encrypt_message(message2);
+        let encrypted2_result = alice_rotated_secret.encrypt_message(message2).await;
         assert!(encrypted2_result.is_err());
 
         let message3 = b"Message from original alice after secret rotation";
-        let encrypted3 = alice.encrypt_message(message3)?;
-        let decrypted3 = bob.decrypt_message(&encrypted3)?;
+        let encrypted3 = alice.encrypt_message(message3).await?;
+        let decrypted3 = bob.decrypt_message(&encrypted3).await?;
         assert_eq!(decrypted3, message3);
 
         Ok(())
     }
 
-    #[test]
-    fn test_full_credential_rotation_flow() -> Result<(), Box<dyn std::error::Error>> {
+    #[tokio::test]
+    async fn test_full_credential_rotation_flow() -> Result<(), Box<dyn std::error::Error>> {
         let alice_path = "/tmp/mls_test_full_rotation_alice";
         let bob_path = "/tmp/mls_test_full_rotation_bob";
         let moderator_path = "/tmp/mls_test_full_rotation_moderator";
@@ -821,10 +839,10 @@ mod tests {
             secret_m.clone(),
             std::path::PathBuf::from("/tmp/mls_test_moderator"),
         );
-        moderator.initialize()?;
+        moderator.initialize().await?;
 
         // Moderator creates the group
-        let _group_id = moderator.create_group()?;
+        let _group_id = moderator.create_group().await?;
 
         let secret_a = SharedSecret::new("alice", SHARED_SECRET);
         let mut alice = Mls::new(
@@ -833,7 +851,7 @@ mod tests {
             secret_a.clone(),
             alice_path.into(),
         );
-        alice.initialize()?;
+        alice.initialize().await?;
 
         let secret_b = SharedSecret::new("bob", SHARED_SECRET);
         let mut bob = Mls::new(
@@ -842,52 +860,52 @@ mod tests {
             secret_b.clone(),
             bob_path.into(),
         );
-        bob.initialize()?;
+        bob.initialize().await?;
 
         // Moderator adds Alice to the group
-        let alice_key_package = alice.generate_key_package()?;
-        let result = moderator.add_member(&alice_key_package)?;
+        let alice_key_package = alice.generate_key_package().await?;
+        let result = moderator.add_member(&alice_key_package).await?;
         let welcome_alice = result.welcome_message;
-        let _alice_group_id = alice.process_welcome(&welcome_alice)?;
+        let _alice_group_id = alice.process_welcome(&welcome_alice).await?;
 
         // Moderator adds Bob to the group
-        let bob_key_package = bob.generate_key_package()?;
-        let result = moderator.add_member(&bob_key_package)?;
+        let bob_key_package = bob.generate_key_package().await?;
+        let result = moderator.add_member(&bob_key_package).await?;
         let commit_bob = result.commit_message;
         let welcome_bob = result.welcome_message;
-        let _bob_group_id = bob.process_welcome(&welcome_bob)?;
+        let _bob_group_id = bob.process_welcome(&welcome_bob).await?;
 
         // Only Alice needs to process Bob's addition (Bob wasn't in the group when Alice was added)
-        alice.process_commit(&commit_bob)?;
+        alice.process_commit(&commit_bob).await?;
 
         let message1 = b"Message before rotation";
-        let encrypted1 = alice.encrypt_message(message1)?;
-        let decrypted1 = bob.decrypt_message(&encrypted1)?;
+        let encrypted1 = alice.encrypt_message(message1).await?;
+        let decrypted1 = bob.decrypt_message(&encrypted1).await?;
         assert_eq!(decrypted1, message1);
 
         // Alice create a proposal
-        let rotation_proposal = alice.create_rotation_proposal()?;
+        let rotation_proposal = alice.create_rotation_proposal().await?;
 
         // send proposal to the moderator
-        let commit = moderator.process_proposal(&rotation_proposal, true)?;
+        let commit = moderator.process_proposal(&rotation_proposal, true).await?;
         // send proposal also to bob
-        bob.process_proposal(&rotation_proposal, false)?;
+        bob.process_proposal(&rotation_proposal, false).await?;
 
         // broadcast the commit message
-        alice.process_commit(&commit)?;
-        bob.process_commit(&commit)?;
+        alice.process_commit(&commit).await?;
+        bob.process_commit(&commit).await?;
 
         // Test messaging after rotation
         // Bob can decrypt Alice's encrypted message
         let message2 = b"Message after rotation from alice";
-        let encrypted2 = alice.encrypt_message(message2)?;
-        let decrypted2 = bob.decrypt_message(&encrypted2)?;
+        let encrypted2 = alice.encrypt_message(message2).await?;
+        let decrypted2 = bob.decrypt_message(&encrypted2).await?;
         assert_eq!(decrypted2, message2);
 
         // ... and Alice can decrypt Bob's encrypted message
         let message3 = b"Message after rotation from bob";
-        let encrypted3 = bob.encrypt_message(message3)?;
-        let decrypted3 = alice.decrypt_message(&encrypted3)?;
+        let encrypted3 = bob.encrypt_message(message3).await?;
+        let decrypted3 = alice.decrypt_message(&encrypted3).await?;
         assert_eq!(decrypted3, message3);
 
         // Verify epochs are synchronized
