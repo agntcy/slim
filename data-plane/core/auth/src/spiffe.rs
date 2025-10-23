@@ -219,6 +219,7 @@ impl TokenProvider for SpiffeProvider {
 
         jwt_source
             .fetch_with_custom_audiences(audiences, self.config.target_spiffe_id.clone())
+            .await
             .map(|svid| svid.token().to_string())
     }
 
@@ -574,8 +575,9 @@ pub struct SpiffeVerifierConfig {
 #[derive(Clone)]
 pub struct SpiffeJwtVerifier {
     config: SpiffeVerifierConfig,
-    client: Arc<RwLock<Option<WorkloadApiClient>>>,
-    bundles: Arc<RwLock<Option<JwtBundleSet>>>,
+
+    client: Option<WorkloadApiClient>,
+    bundles: Option<JwtBundleSet>,
     cancellation_token: CancellationToken,
 }
 
@@ -584,8 +586,8 @@ impl SpiffeJwtVerifier {
     pub fn new(config: SpiffeVerifierConfig) -> Self {
         Self {
             config,
-            client: Arc::new(RwLock::new(None)),
-            bundles: Arc::new(RwLock::new(None)),
+            client: None,
+            bundles: None,
             cancellation_token: CancellationToken::new(),
         }
     }

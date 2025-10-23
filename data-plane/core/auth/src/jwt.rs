@@ -570,7 +570,7 @@ impl TokenProvider for SignerJwt {
         self.sign_internal_claims()
     }
 
-    fn get_token_with_claims(
+    async fn get_token_with_claims(
         &self,
         custom_claims: std::collections::HashMap<String, serde_json::Value>,
     ) -> Result<String, AuthError> {
@@ -603,7 +603,7 @@ impl TokenProvider for StaticTokenProvider {
         extract_sub_claim_unsafe(&token)
     }
 
-    fn get_token_with_claims(
+    async fn get_token_with_claims(
         &self,
         _custom_claims: std::collections::HashMap<String, serde_json::Value>,
     ) -> Result<String, AuthError> {

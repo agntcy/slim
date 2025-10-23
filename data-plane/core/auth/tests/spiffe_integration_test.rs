@@ -61,8 +61,9 @@ async fn test_spiffe_provider_initialization() {
     // Sleep 3 seconds
     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
-    let mut provider = SpiffeProvider::new(config);
-
+    let mut provider = SpiffeProvider::new(config.clone());
+    let verifier = SpiffeJwtVerifier::new(config)
+;
     // With proper join token attestation, the agent should successfully connect
     // and the provider initialization should work
     let init_result = provider.initialize().await;
@@ -103,7 +104,7 @@ async fn test_spiffe_provider_initialization() {
                 "pubkey".to_string(),
                 serde_json::Value::String("abcdef".to_string()),
             )]);
-            match provider.get_token_with_claims(custom_claims) {
+            match provider.get_token_with_claims(custom_claims).await {
                 Ok(token_with_claims) => {
                     tracing::info!("Got JWT token with custom claims");
                     assert!(!token_with_claims.is_empty());

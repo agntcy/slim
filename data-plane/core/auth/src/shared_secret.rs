@@ -852,8 +852,8 @@ mod tests {
         assert!(!s2.replay_cache_enabled());
     }
 
-    #[test]
-    fn test_custom_claims() {
+    #[tokio::test]
+    async fn test_custom_claims() {
         use serde_json::json;
 
         let s = SharedSecret::new("svc", &valid_secret());
@@ -865,7 +865,7 @@ mod tests {
         custom_claims.insert("tenant_id".to_string(), json!("tenant-456"));
 
         // Generate token with custom claims
-        let token = s.get_token_with_claims(custom_claims).unwrap();
+        let token = s.get_token_with_claims(custom_claims).await.unwrap();
 
         // Verify token format (5 parts)
         let parts: Vec<_> = token.split(':').collect();
@@ -890,13 +890,13 @@ mod tests {
         assert_eq!(custom["tenant_id"].as_str().unwrap(), "tenant-456");
     }
 
-    #[test]
-    fn test_custom_claims_empty() {
+    #[tokio::test]
+    async fn test_custom_claims_empty() {
         let s = SharedSecret::new("svc", &valid_secret());
 
         // Generate token with empty custom claims
         let custom_claims = std::collections::HashMap::new();
-        let token = s.get_token_with_claims(custom_claims).unwrap();
+        let token = s.get_token_with_claims(custom_claims).await.unwrap();
 
         // Verify token format (5 parts)
         let parts: Vec<_> = token.split(':').collect();
