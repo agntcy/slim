@@ -13,11 +13,12 @@
 //! - Registering workload entries
 //! - Automatic cleanup of all resources
 
+use bollard::Docker;
 use bollard::container::{Config, CreateContainerOptions, LogsOptions, RemoveContainerOptions};
 use bollard::exec::{CreateExecOptions, StartExecResults};
+use bollard::image::CreateImageOptions;
 use bollard::models::{HostConfig, PortBinding};
 use bollard::network::CreateNetworkOptions;
-use bollard::Docker;
 use futures::StreamExt;
 use slim_auth::spiffe::SpiffeProviderConfig;
 use std::collections::HashMap;
@@ -49,6 +50,8 @@ const TRUST_DOMAIN: &str = "example.org";
 pub struct SpireTestEnvironment {
     docker: Docker,
     network_name: String,
+    server_name: String,
+    agent_name: String,
     server_container_id: Option<String>,
     agent_container_id: Option<String>,
     temp_dir: std::path::PathBuf,
@@ -73,9 +76,17 @@ impl SpireTestEnvironment {
         // Create unique network name to avoid conflicts
         let network_name = format!("spire-test-{}", uuid::Uuid::new_v4());
 
+        // Create unique server name to avoid conflicts
+        let server_name = format!("spire-server-{}", uuid::Uuid::new_v4());
+
+        // Create unique agent name to avoid conflicts
+        let agent_name = format!("spire-agent-{}", uuid::Uuid::new_v4());
+
         Ok(Self {
             docker,
             network_name,
+            server_name,
+            agent_name,
             server_container_id: None,
             agent_container_id: None,
             temp_dir,
@@ -99,10 +110,46 @@ impl SpireTestEnvironment {
         self.start_agent().await?;
         self.register_workload().await?;
 
-        // Wait for agent to fully connect
-        sleep(Duration::from_secs(5)).await;
-
         Ok(())
+    }
+
+    /// Wait for a specific log message to appear in container logs
+    ///
+    /// This polls the container logs until the specified message is found or a timeout occurs.
+    async fn wait_for_log_message(
+        &self,
+        container_id: &str,
+        message: &str,
+        timeout: Duration,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        tracing::info!("Waiting for log message: '{}'", message);
+
+        let logs_options = LogsOptions::<String> {
+            follow: true,
+            stdout: true,
+            stderr: true,
+            ..Default::default()
+        };
+
+        let mut log_stream = self.docker.logs(container_id, Some(logs_options));
+        let start_time = std::time::Instant::now();
+
+        while let Some(log_result) = log_stream.next().await {
+            if start_time.elapsed() > timeout {
+                return Err(format!("Timeout waiting for log message: '{}'", message).into());
+            }
+
+            if let Ok(log) = log_result {
+                let log_str = log.to_string();
+                tracing::debug!("Container log: {}", log_str);
+                if log_str.contains(message) {
+                    tracing::info!("Found log message: '{}'", message);
+                    return Ok(());
+                }
+            }
+        }
+
+        Err(format!("Log stream ended before finding message: '{}'", message).into())
     }
 
     /// Create Docker network for container communication
@@ -121,9 +168,43 @@ impl SpireTestEnvironment {
         Ok(())
     }
 
+    /// Pull Docker image if not present
+    async fn pull_image(&self, image: &str, tag: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let image_name = format!("{}:{}", image, tag);
+        tracing::info!("Pulling Docker image: {}", image_name);
+
+        let options = Some(CreateImageOptions {
+            from_image: image,
+            tag,
+            ..Default::default()
+        });
+
+        let mut stream = self.docker.create_image(options, None, None);
+
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok(info) => {
+                    if let Some(status) = info.status {
+                        tracing::debug!("Pull status: {}", status);
+                    }
+                    if let Some(error) = info.error {
+                        return Err(format!("Error pulling image: {}", error).into());
+                    }
+                }
+                Err(e) => return Err(format!("Failed to pull image: {}", e).into()),
+            }
+        }
+
+        tracing::info!("Successfully pulled image: {}", image_name);
+        Ok(())
+    }
+
     /// Start SPIRE server container
     async fn start_server(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!("Starting SPIRE server container...");
+
+        // Pull the image first
+        self.pull_image(SPIRE_SERVER_IMAGE, SPIRE_VERSION).await?;
 
         // Create server config
         let server_config = format!(
@@ -197,9 +278,8 @@ plugins {{
             ..Default::default()
         };
 
-        let server_name = format!("spire-server-{}", uuid::Uuid::new_v4());
         let server_create_options = CreateContainerOptions {
-            name: server_name,
+            name: self.server_name.clone(),
             ..Default::default()
         };
 
@@ -217,30 +297,12 @@ plugins {{
         tracing::info!("SPIRE server container started, waiting for ready signal...");
 
         // Wait for server to be ready by watching logs
-        let logs_options = LogsOptions::<String> {
-            follow: true,
-            stdout: true,
-            stderr: true,
-            ..Default::default()
-        };
-
-        let mut log_stream = self.docker.logs(&server_container.id, Some(logs_options));
-        let mut server_ready = false;
-
-        while let Some(log_result) = log_stream.next().await {
-            if let Ok(log) = log_result {
-                let log_str = log.to_string();
-                tracing::debug!("Server log: {}", log_str);
-                if log_str.contains("Starting Server APIs") {
-                    server_ready = true;
-                    break;
-                }
-            }
-        }
-
-        if !server_ready {
-            return Err("Server did not start properly".into());
-        }
+        self.wait_for_log_message(
+            &server_container.id,
+            "Starting Server APIs",
+            Duration::from_secs(30),
+        )
+        .await?;
 
         tracing::info!("SPIRE server is ready");
 
@@ -312,12 +374,10 @@ plugins {{
     async fn start_agent(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!("Starting SPIRE agent container...");
 
-        let join_token = self.generate_join_token().await?;
+        // Pull the image first
+        self.pull_image(SPIRE_AGENT_IMAGE, SPIRE_VERSION).await?;
 
-        let server_name = self
-            .server_container_id
-            .as_ref()
-            .ok_or("Server container not started")?;
+        let join_token = self.generate_join_token().await?;
 
         // Create agent config
         let agent_config = format!(
@@ -347,10 +407,12 @@ plugins {{
     }}
 }}
 "#,
-            server_name = server_name,
+            server_name = self.server_name,
             trust_domain = TRUST_DOMAIN,
             join_token = join_token
         );
+
+        tracing::info!("SPIRE agent config:\n{}", agent_config);
 
         let agent_config_path = self.temp_dir.join("agent.conf");
         fs::write(&agent_config_path, agent_config).await?;
@@ -383,9 +445,8 @@ plugins {{
             ..Default::default()
         };
 
-        let agent_name = format!("spire-agent-{}", uuid::Uuid::new_v4());
         let create_options = CreateContainerOptions {
-            name: agent_name,
+            name: self.agent_name.clone(),
             ..Default::default()
         };
 
@@ -398,9 +459,19 @@ plugins {{
             .start_container::<String>(&agent_container.id, None)
             .await?;
 
-        self.agent_container_id = Some(agent_container.id);
+        self.agent_container_id = Some(agent_container.id.clone());
 
-        tracing::info!("SPIRE agent started");
+        tracing::info!("SPIRE agent container started, waiting for ready signal...");
+
+        // Wait for agent to be ready by watching logs
+        self.wait_for_log_message(
+            &agent_container.id,
+            "Starting Workload and SDS APIs",
+            Duration::from_secs(30),
+        )
+        .await?;
+
+        tracing::info!("SPIRE agent is ready");
         Ok(())
     }
 
@@ -483,7 +554,7 @@ plugins {{
     ///
     /// Stops and removes all containers, removes the network, and cleans up temporary directories.
     /// This should be called explicitly at the end of each test.
-    pub async fn cleanup(&self) {
+    pub async fn cleanup(&self) -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!("Cleaning up SPIRE test environment");
 
         let remove_options = Some(RemoveContainerOptions {
@@ -503,7 +574,10 @@ plugins {{
         // Remove server container
         if let Some(server_id) = &self.server_container_id {
             let _ = self.docker.stop_container(server_id, None).await;
-            let _ = self.docker.remove_container(server_id, remove_options).await;
+            let _ = self
+                .docker
+                .remove_container(server_id, remove_options)
+                .await;
         }
 
         // Remove network
@@ -513,13 +587,19 @@ plugins {{
         let _ = fs::remove_dir_all(&self.temp_dir).await;
 
         tracing::info!("Cleanup complete");
+        Ok(())
     }
 }
 
-impl Drop for SpireTestEnvironment {
-    fn drop(&mut self) {
-        // Note: Can't run async cleanup in Drop, so we just log
-        // Users should call cleanup() explicitly for proper async cleanup
-        tracing::debug!("SpireTestEnvironment dropped - call cleanup() for proper async cleanup");
-    }
-}
+// impl Drop for SpireTestEnvironment {
+//     fn drop(&mut self) {
+//         // Block on async cleanup to ensure proper resource cleanup
+//         if let Ok(handle) = tokio::runtime::Handle::try_current() {
+//             handle.spawn_blocking(async {
+//                 if let Err(e) = self.cleanup().await {
+//                     tracing::error!("Error during SpireTestEnvironment cleanup: {}", e);
+//                 }
+//             });
+//         }
+//     }
+// }

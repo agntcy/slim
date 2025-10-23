@@ -50,6 +50,7 @@ SPDX-License-Identifier: Apache-2.0
 //! * Interior mutability only for the replay cache (parking_lot::Mutex).
 //! * All other fields are immutable after construction.
 
+use async_trait::async_trait;
 use aws_lc_rs::hmac;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -394,7 +395,9 @@ impl SharedSecret {
     fn parse_token(&self, token: &str) -> Result<(String, u64, String, String, String), AuthError> {
         let parts: Vec<&str> = token.split(':').collect();
         if parts.len() != 5 {
-            return Err(AuthError::TokenInvalid("invalid token format, expected 5 parts".to_string()));
+            return Err(AuthError::TokenInvalid(
+                "invalid token format, expected 5 parts".to_string(),
+            ));
         }
         let id = parts[0].to_string();
         let ts = parts[1]
@@ -403,7 +406,7 @@ impl SharedSecret {
         let nonce = parts[2].to_string();
         let claims_b64 = parts[3].to_string();
         let mac = parts[4].to_string();
-        
+
         Ok((id, ts, nonce, claims_b64, mac))
     }
 
@@ -438,6 +441,7 @@ impl SharedSecret {
     }
 }
 
+#[async_trait]
 impl TokenProvider for SharedSecret {
     fn get_token(&self) -> Result<String, AuthError> {
         if self.0.shared_secret.is_empty() {
@@ -452,31 +456,42 @@ impl TokenProvider for SharedSecret {
         Ok(format!("{}:{}:{}::{}", self.id(), ts, nonce, mac))
     }
 
-    fn get_token_with_claims(&self, custom_claims: std::collections::HashMap<String, serde_json::Value>) -> Result<String, AuthError> {
+    async fn get_token_with_claims(
+        &self,
+        custom_claims: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Result<String, AuthError> {
         if self.0.shared_secret.is_empty() {
             return Err(AuthError::TokenInvalid(
                 "shared_secret is empty".to_string(),
             ));
         }
-        
+
         let ts = self.get_current_timestamp();
         let nonce = self.gen_nonce();
-        
+
         // Serialize custom claims to JSON and encode to base64 (empty string if no claims)
         let claims_b64 = if custom_claims.is_empty() {
             String::new()
         } else {
-            let claims_json = serde_json::to_string(&custom_claims)
-                .map_err(|e| AuthError::TokenInvalid(format!("failed to serialize claims: {}", e)))?;
+            let claims_json = serde_json::to_string(&custom_claims).map_err(|e| {
+                AuthError::TokenInvalid(format!("failed to serialize claims: {}", e))
+            })?;
             URL_SAFE_NO_PAD.encode(claims_json.as_bytes())
         };
-        
+
         // Build message with claims included (can be empty)
         let message = self.build_message(self.id(), ts, &nonce, &claims_b64);
         let mac = self.create_hmac_b64(&message)?;
-        
+
         // Format: id:timestamp:nonce:claims_b64:mac (claims_b64 can be empty)
-        Ok(format!("{}:{}:{}:{}:{}", self.id(), ts, nonce, claims_b64, mac))
+        Ok(format!(
+            "{}:{}:{}:{}:{}",
+            self.id(),
+            ts,
+            nonce,
+            claims_b64,
+            mac
+        ))
     }
 
     fn get_id(&self) -> Result<String, AuthError> {
@@ -515,7 +530,7 @@ impl Verifier for SharedSecret {
         self.try_verify(token_str.clone())?;
         let (token_id, ts, _, claims_b64, _) = self.parse_token(&token_str)?;
         let exp = ts + self.0.validity_window.as_secs();
-        
+
         // Decode custom claims if present
         let custom_claims: serde_json::Value = if !claims_b64.is_empty() {
             let claims_json = URL_SAFE_NO_PAD
@@ -528,7 +543,7 @@ impl Verifier for SharedSecret {
         } else {
             serde_json::json!({})
         };
-        
+
         // Build claims JSON with standard fields and custom_claims under its own key
         let claims_json = serde_json::json!({
             "id": token_id,
@@ -536,7 +551,7 @@ impl Verifier for SharedSecret {
             "exp": exp,
             "custom_claims": custom_claims
         });
-        
+
         serde_json::from_value(claims_json)
             .map_err(|_| AuthError::TokenInvalid("claims parse error".to_string()))
     }
@@ -840,34 +855,34 @@ mod tests {
     #[test]
     fn test_custom_claims() {
         use serde_json::json;
-        
+
         let s = SharedSecret::new("svc", &valid_secret());
-        
+
         // Create custom claims
         let mut custom_claims = std::collections::HashMap::new();
         custom_claims.insert("user_id".to_string(), json!("user-123"));
         custom_claims.insert("role".to_string(), json!("admin"));
         custom_claims.insert("tenant_id".to_string(), json!("tenant-456"));
-        
+
         // Generate token with custom claims
         let token = s.get_token_with_claims(custom_claims).unwrap();
-        
+
         // Verify token format (5 parts)
         let parts: Vec<_> = token.split(':').collect();
         assert_eq!(parts.len(), 5);
         assert!(!parts[3].is_empty()); // claims field should not be empty
-        
+
         // Verify token
         assert!(s.try_verify(token.clone()).is_ok());
-        
+
         // Extract claims
         let claims: serde_json::Value = s.try_get_claims(token).unwrap();
-        
+
         // Check standard fields
         assert!(claims["id"].as_str().unwrap().starts_with("svc_"));
         assert!(claims["iat"].as_u64().is_some());
         assert!(claims["exp"].as_u64().is_some());
-        
+
         // Check custom claims under "custom_claims" key
         let custom = &claims["custom_claims"];
         assert_eq!(custom["user_id"].as_str().unwrap(), "user-123");
@@ -878,22 +893,22 @@ mod tests {
     #[test]
     fn test_custom_claims_empty() {
         let s = SharedSecret::new("svc", &valid_secret());
-        
+
         // Generate token with empty custom claims
         let custom_claims = std::collections::HashMap::new();
         let token = s.get_token_with_claims(custom_claims).unwrap();
-        
+
         // Verify token format (5 parts)
         let parts: Vec<_> = token.split(':').collect();
         assert_eq!(parts.len(), 5);
         assert!(parts[3].is_empty()); // claims field should be empty
-        
+
         // Verify token
         assert!(s.try_verify(token.clone()).is_ok());
-        
+
         // Extract claims
         let claims: serde_json::Value = s.try_get_claims(token).unwrap();
-        
+
         // Check custom_claims is an empty object
         let custom = &claims["custom_claims"];
         assert!(custom.is_object());

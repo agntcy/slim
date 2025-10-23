@@ -365,6 +365,7 @@ impl OidcTokenProvider {
     }
 }
 
+#[async_trait]
 impl TokenProvider for OidcTokenProvider {
     fn get_token(&self) -> Result<String, AuthError> {
         let cache_key = self.get_cache_key();
@@ -382,7 +383,7 @@ impl TokenProvider for OidcTokenProvider {
         extract_sub_claim_unsafe(&token)
     }
 
-    fn get_token_with_claims(
+    async fn get_token_with_claims(
         &self,
         _custom_claims: std::collections::HashMap<String, serde_json::Value>,
     ) -> Result<String, AuthError> {

@@ -12,12 +12,13 @@
 
 mod spire_env;
 
-use spire_env::SpireTestEnvironment;
 use slim_auth::spiffe::{
     SpiffeJwtVerifier, SpiffeProvider, SpiffeProviderConfig, SpiffeVerifierConfig,
 };
 use slim_auth::traits::{TokenProvider, Verifier};
+use spire_env::SpireTestEnvironment;
 use std::collections::HashMap;
+use std::thread::sleep;
 
 /// Helper to check if Docker is available
 async fn is_docker_available() -> bool {
@@ -51,13 +52,14 @@ async fn test_spiffe_provider_initialization() {
         .await
         .expect("Failed to create test environment");
 
-    env.start()
-        .await
-        .expect("Failed to start SPIRE containers");
+    env.start().await.expect("Failed to start SPIRE containers");
 
     // Now test our SPIFFE provider
     let config = env.get_spiffe_provider_config();
     tracing::info!("Creating SpiffeProvider with config: {:?}", config);
+
+    // Sleep 3 seconds
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
     let mut provider = SpiffeProvider::new(config);
 
@@ -65,6 +67,7 @@ async fn test_spiffe_provider_initialization() {
     // and the provider initialization should work
     let init_result = provider.initialize().await;
 
+    let mut should_panic = false;
     match init_result {
         Ok(_) => {
             tracing::info!("Provider initialized successfully");
@@ -75,7 +78,10 @@ async fn test_spiffe_provider_initialization() {
                     tracing::info!("Got X.509 SVID: {}", svid.spiffe_id());
                     assert!(svid.spiffe_id().to_string().contains("example.org"));
                 }
-                Err(e) => tracing::warn!("X.509 SVID fetch failed: {}", e),
+                Err(e) => {
+                    tracing::error!("X.509 SVID fetch failed: {}", e);
+                    should_panic = true;
+                }
             }
 
             // Test JWT token retrieval
@@ -86,13 +92,17 @@ async fn test_spiffe_provider_initialization() {
                     let parts: Vec<&str> = token.split('.').collect();
                     assert_eq!(parts.len(), 3, "JWT should have 3 parts");
                 }
-                Err(e) => tracing::warn!("JWT token fetch failed: {}", e),
+                Err(e) => {
+                    tracing::error!("JWT token fetch failed: {}", e);
+                    should_panic = true;
+                }
             }
 
             // Test JWT token retrieval with custom claims
-            let custom_claims = HashMap::from([
-                ("pubkey".to_string(), serde_json::Value::String("abcdef".to_string()))
-            ]);
+            let custom_claims = HashMap::from([(
+                "pubkey".to_string(),
+                serde_json::Value::String("abcdef".to_string()),
+            )]);
             match provider.get_token_with_claims(custom_claims) {
                 Ok(token_with_claims) => {
                     tracing::info!("Got JWT token with custom claims");
@@ -100,17 +110,26 @@ async fn test_spiffe_provider_initialization() {
                     let parts: Vec<&str> = token_with_claims.split('.').collect();
                     assert_eq!(parts.len(), 3, "JWT should have 3 parts");
                 }
-                Err(e) => tracing::warn!("JWT token with claims fetch failed: {}", e),
+                Err(e) => {
+                    tracing::error!("JWT token with claims fetch failed: {}", e);
+                    should_panic = true;
+                }
             }
         }
         Err(e) => {
             tracing::error!("Provider initialization failed: {}", e);
-            panic!("Provider initialization should succeed with proper join token attestation");
+            should_panic = true;
         }
     }
 
     // Cleanup
-    env.cleanup().await;
+    env.cleanup()
+        .await
+        .expect("Failed to cleanup test environment");
+
+    if should_panic {
+        panic!("SPIFFE Provider test failed");
+    }
 }
 
 #[tokio::test]

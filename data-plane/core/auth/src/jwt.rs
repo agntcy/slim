@@ -290,7 +290,10 @@ impl<S> Jwt<S> {
     }
 
     /// Creates a StandardClaims object with custom claims merged in.
-    pub fn create_claims_with_custom(&self, custom_claims: std::collections::HashMap<String, serde_json::Value>) -> StandardClaims {
+    pub fn create_claims_with_custom(
+        &self,
+        custom_claims: std::collections::HashMap<String, serde_json::Value>,
+    ) -> StandardClaims {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or(Duration::from_secs(0))
@@ -330,7 +333,10 @@ impl<S> Jwt<S> {
         self.sign_claims(&claims)
     }
 
-    fn sign_internal_claims_with_custom(&self, custom_claims: std::collections::HashMap<String, serde_json::Value>) -> Result<String, AuthError> {
+    fn sign_internal_claims_with_custom(
+        &self,
+        custom_claims: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Result<String, AuthError> {
         let claims = self.create_claims_with_custom(custom_claims);
         self.sign_claims(&claims)
     }
@@ -558,12 +564,16 @@ impl Signer for SignerJwt {
     }
 }
 
+#[async_trait]
 impl TokenProvider for SignerJwt {
     fn get_token(&self) -> Result<String, AuthError> {
         self.sign_internal_claims()
     }
 
-    fn get_token_with_claims(&self, custom_claims: std::collections::HashMap<String, serde_json::Value>) -> Result<String, AuthError> {
+    fn get_token_with_claims(
+        &self,
+        custom_claims: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Result<String, AuthError> {
         if custom_claims.is_empty() {
             self.sign_internal_claims()
         } else {
@@ -579,6 +589,7 @@ impl TokenProvider for SignerJwt {
     }
 }
 
+#[async_trait]
 impl TokenProvider for StaticTokenProvider {
     fn get_token(&self) -> Result<String, AuthError> {
         self.static_token
