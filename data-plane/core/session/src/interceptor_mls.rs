@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 // Third-party crates
-use parking_lot::Mutex;
+use tokio::sync::Mutex;
 use tracing::{debug, error};
 
 use slim_datapath::api::ProtoSessionMessageType;
@@ -69,10 +69,10 @@ where
 
         let payload = &msg.get_payload().unwrap().as_application_payload().blob;
 
-        let mut mls_guard = self.mls.lock();
+        let mut mls_guard = self.mls.lock().await;
 
         debug!("Encrypting message for group member");
-        let binding = mls_guard.encrypt_message(payload);
+        let binding = mls_guard.encrypt_message(payload).await;
         let encrypted_payload = match &binding {
             Ok(res) => res,
             Err(e) => {
@@ -116,10 +116,10 @@ where
         let payload = &msg.get_payload().unwrap().as_application_payload().blob;
 
         let decrypted_payload = {
-            let mut mls_guard = self.mls.lock();
+            let mut mls_guard = self.mls.lock().await;
 
             debug!("Decrypting message for group member");
-            match mls_guard.decrypt_message(payload) {
+            match mls_guard.decrypt_message(payload).await {
                 Ok(decrypted_payload) => decrypted_payload,
                 Err(e) => {
                     error!("Failed to decrypt message with MLS: {}", e);
@@ -151,7 +151,7 @@ mod tests {
             SharedSecret::new("test", TEST_VALID_SECRET),
             std::path::PathBuf::from("/tmp/mls_interceptor_test_without_group"),
         );
-        mls.initialize().unwrap();
+        mls.initialize().await.unwrap();
 
         let mls_arc = Arc::new(Mutex::new(mls));
         let interceptor = MlsInterceptor::new(mls_arc);
@@ -195,13 +195,13 @@ mod tests {
             std::path::PathBuf::from("/tmp/mls_interceptor_test_bob"),
         );
 
-        alice_mls.initialize().unwrap();
-        bob_mls.initialize().unwrap();
+        alice_mls.initialize().await.unwrap();
+        bob_mls.initialize().await.unwrap();
 
-        let _group_id = alice_mls.create_group().unwrap();
-        let bob_key_package = bob_mls.generate_key_package().unwrap();
-        let ret = alice_mls.add_member(&bob_key_package).unwrap();
-        bob_mls.process_welcome(&ret.welcome_message).unwrap();
+        let _group_id = alice_mls.create_group().await.unwrap();
+        let bob_key_package = bob_mls.generate_key_package().await.unwrap();
+        let ret = alice_mls.add_member(&bob_key_package).await.unwrap();
+        bob_mls.process_welcome(&ret.welcome_message).await.unwrap();
 
         let alice_interceptor = MlsInterceptor::new(Arc::new(Mutex::new(alice_mls)));
         let bob_interceptor = MlsInterceptor::new(Arc::new(Mutex::new(bob_mls)));

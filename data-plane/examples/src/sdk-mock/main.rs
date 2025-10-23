@@ -185,10 +185,10 @@ async fn main() {
                 identity_verifier,
                 std::path::PathBuf::from("/tmp/server_mls"),
             );
-            server_mls.initialize().unwrap();
+            server_mls.initialize().await.unwrap();
 
             // Create group
-            let group_id = server_mls.create_group().unwrap();
+            let group_id = server_mls.create_group().await.unwrap();
             info!("Server created MLS group");
 
             // Wait for client key package
@@ -211,7 +211,7 @@ async fn main() {
             };
 
             // Add client to group and generate welcome message
-            let ret = server_mls.add_member(&key_package).unwrap();
+            let ret = server_mls.add_member(&key_package).await.unwrap();
 
             // Save welcome message for client
             std::fs::write(&welcome_path, &ret.welcome_message).unwrap();
@@ -249,10 +249,10 @@ async fn main() {
                 identity_verifier,
                 std::path::PathBuf::from("/tmp/client_mls"),
             );
-            client_mls.initialize().unwrap();
+            client_mls.initialize().await.unwrap();
 
             // Generate and save key package for server to use
-            let key_package = client_mls.generate_key_package().unwrap();
+            let key_package = client_mls.generate_key_package().await.unwrap();
             let key_package_path = format!("/tmp/mls_key_package_{}", group_identifier);
             std::fs::write(&key_package_path, &key_package).unwrap();
             info!("Client saved key package to: {}", key_package_path);
@@ -275,7 +275,7 @@ async fn main() {
             };
 
             // Join the group
-            let _group_id = client_mls.process_welcome(&welcome_message).unwrap();
+            let _group_id = client_mls.process_welcome(&welcome_message).await.unwrap();
             info!("Client successfully joined group");
         }
 
