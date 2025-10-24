@@ -87,7 +87,8 @@ message Ack {
 message SubscriptionListRequest {}
 
 message SubscriptionListResponse {
-  repeated SubscriptionEntry entries = 1;
+  string original_message_id = 1;
+  repeated SubscriptionEntry entries = 2;
 }
 
 message SubscriptionEntry {
@@ -113,7 +114,8 @@ message ConnectionEntry {
 message ConnectionListRequest {}
 
 message ConnectionListResponse {
-  repeated ConnectionEntry entries = 1;
+  string original_message_id = 1;
+  repeated ConnectionEntry entries = 2;
 }
 
 message Node {
@@ -135,7 +137,8 @@ message RegisterNodeRequest {
 }
 
 message RegisterNodeResponse {
-  bool success = 1;
+  string original_message_id = 1;
+  bool success = 2;
 }
 
 message DeregisterNodeRequest {
@@ -143,7 +146,8 @@ message DeregisterNodeRequest {
 }
 
 message DeregisterNodeResponse {
-  bool success = 1;
+  string original_message_id = 1;
+  bool success = 2;
 }
 
 message CreateChannelRequest {
@@ -187,8 +191,9 @@ message DeleteParticipantRequest {
 message ListChannelsRequest {}
 
 message ListChannelsResponse {
+  string original_message_id = 1;
   // IDs of the channels available in the control plane
-  repeated string channel_name = 1;
+  repeated string channel_name = 2;
 }
 
 message ListParticipantsRequest {
@@ -197,6 +202,7 @@ message ListParticipantsRequest {
 }
 
 message ListParticipantsResponse {
+  string original_message_id = 1;
   // list of participants in the channel
-  repeated string participant_name = 1;
+  repeated string participant_name = 2;
 }

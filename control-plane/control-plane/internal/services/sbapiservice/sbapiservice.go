@@ -143,6 +143,7 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 				},
 			},
 		}
+		//TODO: handle error
 		_ = stream.Send(ackMsg)
 
 		s.routeService.NodeRegistered(ctx, registeredNodeID, connDetailsUpdated)
