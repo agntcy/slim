@@ -77,6 +77,13 @@ type mockRouteService struct {
 	mock.Mock
 }
 
+func (m *mockRouteService) ListRoutes(ctx context.Context,
+	request *controlplaneApi.RouteListRequest) (*controlplaneApi.RouteListResponse, error) {
+
+	args := m.Called(ctx, request)
+	return args.Get(0).(*controlplaneApi.RouteListResponse), args.Error(1)
+}
+
 func (m *mockRouteService) AddRoute(ctx context.Context, route routes.Route) (string, error) {
 	args := m.Called(ctx, route)
 	return args.String(0), args.Error(1)
@@ -138,6 +145,11 @@ func (m *mockRouteService) DeleteSubscription(
 
 type mockDataAccess struct {
 	mock.Mock
+}
+
+func (m *mockDataAccess) FilterRoutesBySourceAndDestination(sourceNodeID string, destNodeID string) []db.Route {
+	args := m.Called(sourceNodeID, destNodeID)
+	return args.Get(0).([]db.Route)
 }
 
 // AddRoute implements db.DataAccess.

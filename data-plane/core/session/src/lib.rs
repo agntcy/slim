@@ -1,7 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-pub mod channel_endpoint;
 mod common;
 mod config;
 pub mod context;
@@ -9,14 +8,19 @@ mod errors;
 mod handle;
 pub mod interceptor;
 pub mod interceptor_mls;
+mod mls_state;
 mod moderator_task;
 pub mod multicast;
 pub mod notification;
 pub mod point_to_point;
 pub mod producer_buffer;
 pub mod receiver_buffer;
+pub mod session_controller;
 mod session_layer;
+pub mod session_receiver;
+pub mod session_sender;
 pub mod timer;
+pub mod timer_factory;
 mod traits;
 pub mod transmitter;
 

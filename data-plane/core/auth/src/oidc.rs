@@ -2,16 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::errors::AuthError;
+use crate::jwt::extract_sub_claim_unsafe;
 use crate::resolver::JwksCache;
 use crate::traits::{TokenProvider, Verifier};
 use async_trait::async_trait;
 use futures::executor::block_on;
 use jsonwebtoken_aws_lc::jwk::JwkSet;
 use jsonwebtoken_aws_lc::{DecodingKey, Validation, decode, decode_header};
-use oauth2::{
-    AuthUrl, ClientId, ClientSecret, Scope, TokenResponse, TokenUrl, basic::BasicClient,
-    reqwest::async_http_client,
-};
+use oauth2::{AuthUrl, ClientId, ClientSecret, Scope, TokenResponse, TokenUrl, basic::BasicClient};
 use parking_lot::RwLock;
 use reqwest::Client as ReqwestClient;
 use std::collections::HashMap;
@@ -266,17 +264,17 @@ impl OidcTokenProvider {
             .map(|s| s.to_string())
             .unwrap_or_else(|| format!("{}/authorize", self.config.issuer_url));
 
-        // Create OAuth2 client
-        let client = BasicClient::new(
-            ClientId::new(self.config.client_id.clone()),
-            Some(ClientSecret::new(self.config.client_secret.clone())),
-            AuthUrl::new(auth_url_str)
-                .map_err(|e| AuthError::ConfigError(format!("Invalid auth URL: {}", e)))?,
-            Some(
+        // Create OAuth2 client (updated for new oauth2 builder API)
+        let client = BasicClient::new(ClientId::new(self.config.client_id.clone()))
+            .set_client_secret(ClientSecret::new(self.config.client_secret.clone()))
+            .set_auth_uri(
+                AuthUrl::new(auth_url_str)
+                    .map_err(|e| AuthError::ConfigError(format!("Invalid auth URL: {}", e)))?,
+            )
+            .set_token_uri(
                 TokenUrl::new(token_endpoint.to_string())
                     .map_err(|e| AuthError::ConfigError(format!("Invalid token URL: {}", e)))?,
-            ),
-        );
+            );
 
         let mut token_request = client.exchange_client_credentials();
 
@@ -285,7 +283,7 @@ impl OidcTokenProvider {
         }
 
         let token_response = token_request
-            .request_async(async_http_client)
+            .request_async(&self.client)
             .await
             .map_err(|e| AuthError::GetTokenError(format!("Failed to exchange token: {}", e)))?;
 
@@ -377,6 +375,11 @@ impl TokenProvider for OidcTokenProvider {
             "No cached token available for key '{}'. Background refresh should handle this.",
             cache_key
         )))
+    }
+
+    fn get_id(&self) -> Result<String, AuthError> {
+        let token = self.get_token()?;
+        extract_sub_claim_unsafe(&token)
     }
 }
 
@@ -544,10 +547,8 @@ impl Verifier for OidcVerifier {
             let _: serde_json::Value = self.verify_token_util(&token, &cached_jwks)?;
             Ok(())
         } else {
-            Err(AuthError::VerificationError(
-                "No cached JWKS available for verification. Use verify() method instead."
-                    .to_string(),
-            ))
+            // Indicate that a blocking (network) operation would be required
+            Err(AuthError::WouldBlockOn)
         }
     }
 
@@ -598,9 +599,6 @@ mod tests {
         // Test token retrieval
         let token = provider.get_token().unwrap();
         assert_eq!(token, expected_token);
-
-        // Verify mock was called
-        // The mock server automatically verifies that the expected requests were made
     }
 
     #[tokio::test]

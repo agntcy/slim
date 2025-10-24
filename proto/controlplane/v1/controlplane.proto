@@ -11,7 +11,7 @@ option go_package = "github.com/agntcy/slim/control-plane/common/proto/controlpl
 service ControlPlaneService {
   rpc AddRoute(AddRouteRequest) returns (AddRouteResponse) {}
   rpc DeleteRoute(DeleteRouteRequest) returns (DeleteRouteResponse) {}
-  rpc ListRoutes(Node) returns (controller.proto.v1.SubscriptionListResponse) {}
+  rpc ListSubscriptions(Node) returns (controller.proto.v1.SubscriptionListResponse) {}
   rpc ListConnections(Node) returns (controller.proto.v1.ConnectionListResponse) {}
   rpc ListNodes(NodeListRequest) returns (NodeListResponse) {}
 
@@ -22,6 +22,11 @@ service ControlPlaneService {
   rpc DeleteParticipant(controller.proto.v1.DeleteParticipantRequest) returns (controller.proto.v1.Ack) {}
   rpc ListChannels(controller.proto.v1.ListChannelsRequest) returns (controller.proto.v1.ListChannelsResponse) {}
   rpc ListParticipants(controller.proto.v1.ListParticipantsRequest) returns (controller.proto.v1.ListParticipantsResponse) {}
+
+  // Route management
+
+  // List routes registered at the controller with optional filtering by source and destination node IDs
+  rpc ListRoutes(RouteListRequest) returns (RouteListResponse) {}
 }
 
 message ConfigurationCommand {
@@ -81,4 +86,18 @@ message CreateChannelRequest {
 message CreateChannelResponse {
   // ID of the channel, to which clients will subscribe
   string channel_name = 1;
+}
+
+// Request to list routes, filtered by optional nodeId and destNodeId
+message RouteListRequest {
+  // the identifier of the source node to filter routes
+  string srcNodeId = 1; // optional
+
+  string destNodeId = 2; // optional
+}
+
+// Response containing a list of route representations
+message RouteListResponse {
+  // list of route representations
+  repeated string routes = 1;
 }

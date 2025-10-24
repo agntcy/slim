@@ -1,30 +1,54 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
-import asyncio
 from datetime import timedelta
-from typing import Optional
 
 from slim_bindings._slim_bindings import (  # type: ignore[attr-defined]
+    PyApp,
     PyIdentityProvider,
     PyIdentityVerifier,
     PyName,
-    PyService,
     PySessionConfiguration,
     PySessionContext,
-    connect,
-    create_pyservice,
-    create_session,
-    delete_session,
-    disconnect,
-    listen_for_session,
-    remove_route,
-    run_server,
-    set_default_session_config,
-    set_route,
-    stop_server,
-    subscribe,
-    unsubscribe,
+)
+from slim_bindings._slim_bindings import (
+    connect as _connect,
+)
+from slim_bindings._slim_bindings import (
+    create_pyapp as _create_pyapp,
+)
+from slim_bindings._slim_bindings import (
+    create_session as _create_session,
+)
+from slim_bindings._slim_bindings import (
+    delete_session as _delete_session,
+)
+from slim_bindings._slim_bindings import (
+    disconnect as _disconnect,
+)
+from slim_bindings._slim_bindings import (
+    listen_for_session as _listen_for_session,
+)
+from slim_bindings._slim_bindings import (
+    remove_route as _remove_route,
+)
+from slim_bindings._slim_bindings import (
+    run_server as _run_server,
+)
+from slim_bindings._slim_bindings import (
+    set_default_session_config as _set_default_session_config,
+)
+from slim_bindings._slim_bindings import (
+    set_route as _set_route,
+)
+from slim_bindings._slim_bindings import (
+    stop_server as _stop_server,
+)
+from slim_bindings._slim_bindings import (
+    subscribe as _subscribe,
+)
+from slim_bindings._slim_bindings import (
+    unsubscribe as _unsubscribe,
 )
 
 from .session import PySession
@@ -86,7 +110,7 @@ class Slim:
 
     def __init__(
         self,
-        svc: PyService,
+        svc: PyApp,
         name: PyName,
     ):
         """
@@ -135,7 +159,7 @@ class Slim:
         Possible errors: Propagates exceptions from create_pyservice.
         """
         return cls(
-            await create_pyservice(name, provider, verifier, local_service),
+            await _create_pyapp(name, provider, verifier, local_service),
             name,
         )
 
@@ -181,8 +205,8 @@ class Slim:
         Returns:
             PySession: Wrapper exposing high-level async operations for the session.
         """
-        ctx: PySessionContext = await create_session(self._svc, session_config)
-        return PySession(self._svc, ctx)
+        ctx: PySessionContext = await _create_session(self._svc, session_config)
+        return PySession(ctx)
 
     async def delete_session(self, session: PySession):
         """
@@ -199,7 +223,7 @@ class Slim:
         """
 
         # Remove the session from SLIM
-        await delete_session(self._svc, session._ctx)
+        await _delete_session(self._svc, session._ctx)
 
     async def set_default_session_config(
         self,
@@ -215,7 +239,7 @@ class Slim:
             None
         """
 
-        set_default_session_config(self._svc, session_config)
+        _set_default_session_config(self._svc, session_config)
 
     async def run_server(self, config: dict):
         """
@@ -229,7 +253,7 @@ class Slim:
             None
         """
 
-        await run_server(self._svc, config)
+        await _run_server(self._svc, config)
 
     async def stop_server(self, endpoint: str):
         """
@@ -242,7 +266,7 @@ class Slim:
             None
         """
 
-        await stop_server(self._svc, endpoint)
+        await _stop_server(self._svc, endpoint)
 
     async def connect(self, client_config: dict) -> int:
         """
@@ -256,7 +280,7 @@ class Slim:
             int: Numeric connection identifier assigned by the service.
         """
 
-        conn_id = await connect(
+        conn_id = await _connect(
             self._svc,
             client_config,
         )
@@ -268,7 +292,7 @@ class Slim:
         self.conn_id = conn_id
 
         # Subscribe to the local name
-        await subscribe(
+        await _subscribe(
             self._svc,
             self._svc.name,
             conn_id,
@@ -290,7 +314,7 @@ class Slim:
 
         """
         conn = self.conn_ids[endpoint]
-        await disconnect(self._svc, conn)
+        await _disconnect(self._svc, conn)
 
     async def set_route(
         self,
@@ -309,7 +333,7 @@ class Slim:
         if self.conn_id is None:
             raise RuntimeError("No active connection. Please connect first.")
 
-        await set_route(
+        await _set_route(
             self._svc,
             name,
             self.conn_id,
@@ -332,7 +356,7 @@ class Slim:
         if self.conn_id is None:
             raise RuntimeError("No active connection. Please connect first.")
 
-        await remove_route(
+        await _remove_route(
             self._svc,
             name,
             self.conn_id,
@@ -349,7 +373,7 @@ class Slim:
             None
         """
 
-        await subscribe(self._svc, name, self.conn_id)
+        await _subscribe(self._svc, name, self.conn_id)
 
     async def unsubscribe(self, name: PyName):
         """
@@ -362,11 +386,9 @@ class Slim:
             None
         """
 
-        await unsubscribe(self._svc, name, self.conn_id)
+        await _unsubscribe(self._svc, name, self.conn_id)
 
-    async def listen_for_session(
-        self, timeout: Optional[timedelta] = None
-    ) -> PySession:
+    async def listen_for_session(self, timeout: timedelta | None = None) -> PySession:
         """
         Await the next inbound session (optionally bounded by timeout).
 
@@ -374,10 +396,5 @@ class Slim:
             PySession: Wrapper for the accepted session context.
         """
 
-        if timeout is None:
-            # Use a very large timeout value instead of trying to use datetime.max
-            timeout = timedelta(days=365 * 100)  # ~100 years
-
-        async with asyncio.timeout(timeout.total_seconds()):
-            session_ctx = await listen_for_session(self._svc)
-            return PySession(self._svc, session_ctx)
+        ctx: PySessionContext = await _listen_for_session(self._svc, timeout)
+        return PySession(ctx)
