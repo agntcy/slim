@@ -38,5 +38,3 @@ cargo test --test spiffe_integration_test -- --ignored --nocapture
 # Run all tests
 cargo test -- --include-ignored
 ```
-
-See [tests/README.md](tests/README.md) for detailed information about the integration tests.
