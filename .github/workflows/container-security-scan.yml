@@ -118,22 +118,8 @@ jobs:
 
       - name: Generate consolidated summary
         run: |
-          echo "## 🛡️ Container Security Scan Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Scanned Images:**" >> $GITHUB_STEP_SUMMARY
-          echo "- slim:0.6.1" >> $GITHUB_STEP_SUMMARY
-          echo "- spire-server:1.13.3" >> $GITHUB_STEP_SUMMARY
-          echo "- spire-agent:1.13.3" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          # Combine individual summaries
-          for summary_file in trivy-artifacts/*/trivy-*-summary.md; do
-            if [[ -f "$summary_file" ]]; then
-              echo "---" >> $GITHUB_STEP_SUMMARY
-              cat "$summary_file" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-            fi
-          done
+          chmod +x .github/workflows/scripts/security/generate_trivy_summary.sh
+          .github/workflows/scripts/security/generate_trivy_summary.sh
 
       - name: Fail if critical vulns found (optional gate)
         if: ${{ github.event_name != 'pull_request' }}
@@ -161,11 +147,4 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          # Process each JSON file to create issues for critical CVEs
-          for json_file in trivy-artifacts/*/trivy-*.json; do
-            if [[ -f "$json_file" ]]; then
-              echo "Processing $json_file for critical CVEs..."
-              cp "$json_file" trivy-results.json
-              node .github/workflows/scripts/security/create_critical_cve_issues.js
-            fi
-          done
+          node .github/workflows/scripts/security/create_critical_cve_issues.js
