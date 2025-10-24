@@ -92,13 +92,15 @@ pub enum SessionMessage {
     },
     TimerTimeout {
         message_id: u32,
-        timeouts: u32,
+        message_type: ProtoSessionMessageType,
         name: Option<Name>,
+        timeouts: u32,
     },
     TimerFailure {
         message_id: u32,
-        timeouts: u32,
+        message_type: ProtoSessionMessageType,
         name: Option<Name>,
+        timeouts: u32,
     },
     DeleteSession {
         session_id: u32,

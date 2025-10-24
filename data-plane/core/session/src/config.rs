@@ -44,6 +44,20 @@ impl SessionConfig {
             SessionConfig::Multicast(c) => c.initiator,
         }
     }
+
+    pub fn max_retries(&self) -> Option<u32> {
+        match self {
+            SessionConfig::PointToPoint(c) => c.max_retries,
+            SessionConfig::Multicast(c) => Some(c.max_retries),
+        }
+    }
+
+    pub fn timer_duration(&self) -> Option<std::time::Duration> {
+        match self {
+            SessionConfig::PointToPoint(c) => c.timeout,
+            SessionConfig::Multicast(c) => Some(c.timeout),
+        }
+    }
 }
 
 #[cfg(test)]

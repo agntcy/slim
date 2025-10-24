@@ -281,11 +281,11 @@ where
             // for each RTX start a timer
             debug!("create rtx timer for message {} form {}", rtx_id, source);
 
-            let timer = self
-                .timer_factory
-                .as_ref()
-                .unwrap()
-                .create_and_start_timer(rtx_id, Some(source.clone()));
+            let timer = self.timer_factory.as_ref().unwrap().create_and_start_timer(
+                rtx_id,
+                slim_datapath::api::ProtoSessionMessageType::RtxRequest,
+                Some(source.clone()),
+            );
 
             let key = PendingRtxKey {
                 name: source.clone(),
@@ -595,8 +595,9 @@ mod tests {
         match signal_msg {
             SessionMessage::TimerTimeout {
                 message_id,
-                timeouts: _,
+                message_type: _,
                 name,
+                timeouts: _,
             } => {
                 receiver
                     .on_timer_timeout(message_id, name.unwrap())
@@ -630,8 +631,9 @@ mod tests {
         match signal_msg {
             SessionMessage::TimerTimeout {
                 message_id,
-                timeouts: _,
+                message_type: _,
                 name,
+                timeouts: _,
             } => {
                 receiver
                     .on_timer_timeout(message_id, name.unwrap())
@@ -664,8 +666,9 @@ mod tests {
         match signal_msg {
             SessionMessage::TimerFailure {
                 message_id,
-                timeouts: _,
+                message_type: _,
                 name,
+                timeouts: _,
             } => {
                 receiver
                     .on_timer_failure(message_id, name.unwrap())

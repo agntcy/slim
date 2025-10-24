@@ -4,11 +4,13 @@
 // Third-party crates
 use async_trait::async_trait;
 
+use parking_lot::Mutex;
 use parking_lot::RwLock;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::Status;
 use slim_datapath::api::ProtoMessage as Message;
 use slim_datapath::messages::Name;
+use slim_mls::mls::Mls;
 use std::sync::Arc;
 
 // Local crate
@@ -72,6 +74,9 @@ where
 
     /// Get a clone of the Arc<RwLock<Option<Name>>> holding the destination
     fn dst_arc(&self) -> Arc<RwLock<Option<Name>>>;
+
+    /// Get the mls state related to this sesson
+    fn mls(&self) -> Option<Arc<Mutex<Mls<P, V>>>>;
 
     // get the session config
     fn session_config(&self) -> SessionConfig;

@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Standard library imports
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
+use slim_mls::mls::Mls;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 // Third-party crates
@@ -243,7 +244,7 @@ where
         mut rx: mpsc::Receiver<Result<(Message, MessageDirection), Status>>,
         tx_session: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
     ) {
-        let session_id = self.common.id();
+        /*let session_id = self.common.id();
 
         let (max_retries, timeout) = match self.common.session_config() {
             SessionConfig::Multicast(multicast_configuration) => (
@@ -455,7 +456,7 @@ where
                 "stopping message processing on multicast session {} for {}",
                 session_id, source
             );
-        });
+        });*/
     }
 
     pub fn with_dst<R>(&self, f: impl FnOnce(Option<&Name>) -> R) -> R {
@@ -915,6 +916,10 @@ where
     fn set_dst(&self, dst: Name) {
         // allow setting on the common even if unused
         self.common.set_dst(dst)
+    }
+
+    fn mls(&self) -> Option<Arc<Mutex<Mls<P, V>>>> {
+        self.common.mls()
     }
 }
 

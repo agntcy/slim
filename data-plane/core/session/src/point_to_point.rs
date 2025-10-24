@@ -853,17 +853,17 @@ where
         let msg_id = message.get_session_header().get_message_id();
         self.stop_and_remove_timer(msg_id, false)?;
 
-        let ack = self.create_ack(&message);
+        //let ack = self.create_ack(&message);
 
         // Forward the message to the app
-        self.send_message_to_app(message).await?;
+        self.send_message_to_app(message).await
 
         // Send the ack
-        self.state
-            .tx
-            .send_to_slim(Ok(ack))
-            .await
-            .map_err(|e| SessionError::SlimTransmission(e.to_string()))
+        /*self.state
+        .tx
+        .send_to_slim(Ok(ack))
+        .await
+        .map_err(|e| SessionError::SlimTransmission(e.to_string()))*/
     }
 
     fn create_ack(&self, message: &Message) -> Message {
@@ -1268,6 +1268,10 @@ where
 
     fn set_dst(&self, dst: Name) {
         self.common.set_dst(dst)
+    }
+
+    fn mls(&self) -> Option<Arc<Mutex<Mls<P, V>>>> {
+        self.common.mls()
     }
 }
 

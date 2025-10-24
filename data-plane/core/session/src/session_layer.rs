@@ -19,6 +19,7 @@ use slim_datapath::messages::Name;
 use crate::MessageHandler;
 use crate::common::SessionMessage;
 use crate::notification::Notification;
+use crate::session_controller::{SessionController, SessionModerator, SessionParticipant};
 use crate::transmitter::{AppTransmitter, SessionTransmitter};
 
 // Local crate
@@ -41,7 +42,7 @@ where
     T: Transmitter + Send + Sync + Clone + 'static,
 {
     /// Session pool
-    pool: Arc<AsyncRwLock<HashMap<Id, Arc<Session<P, V>>>>>,
+    pool: Arc<AsyncRwLock<HashMap<Id, Arc<SessionController<P, V>>>>>,
 
     /// Default name of the local app
     app_id: u64,
@@ -225,6 +226,8 @@ where
 
         tx.add_interceptor(identity_interceptor);
 
+        let initiator = session_config.initiator();
+
         // create a new session
         let session = match session_config {
             SessionConfig::PointToPoint(conf) => Arc::new(Session::from_point_to_point(
@@ -253,7 +256,19 @@ where
         };
 
         // insert the session into the pool
-        let ret = pool.insert(id, session.clone());
+        let session_controller = if initiator {
+            Arc::new(SessionController::SessionModerator(SessionModerator::new(
+                session.clone(),
+                tx,
+                self.tx_session.clone(),
+            )))
+        } else {
+            Arc::new(SessionController::SessionParticipant(
+                SessionParticipant::new(session.clone()),
+            ))
+        };
+
+        let ret = pool.insert(id, session_controller.clone());
 
         // This should never happen, but just in case
         if ret.is_some() {

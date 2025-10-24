@@ -150,6 +150,13 @@ where
         }
     }
 
+    pub fn mls(&self) -> Option<Arc<Mutex<Mls<P, V>>>> {
+        match &self.inner {
+            SessionInner::PointToPoint(s) => s.mls(),
+            SessionInner::Multicast(s) => s.mls(),
+        }
+    }
+
     pub fn session_config(&self) -> SessionConfig {
         match &self.inner {
             SessionInner::PointToPoint(s) => s.session_config(),
@@ -371,6 +378,13 @@ where
         }
     }
 
+    fn mls(&self) -> Option<Arc<Mutex<Mls<P, V>>>> {
+        match &self.inner_ref() {
+            SessionInner::PointToPoint(s) => s.mls(),
+            SessionInner::Multicast(s) => s.mls(),
+        }
+    }
+
     fn session_config(&self) -> SessionConfig {
         self.session_config()
     }
@@ -461,6 +475,10 @@ where
 
     fn tx_ref(&self) -> &T {
         &self.tx
+    }
+
+    fn mls(&self) -> Option<Arc<Mutex<Mls<P, V>>>> {
+        self.mls.as_ref().map(|mls| mls.clone())
     }
 }
 

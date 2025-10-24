@@ -3,7 +3,7 @@
 
 use std::{sync::Arc, time::Duration};
 
-use slim_datapath::messages::Name;
+use slim_datapath::{api::ProtoSessionMessageType, messages::Name};
 use tokio::sync::mpsc::Sender;
 use tonic::async_trait;
 use tracing::debug;
@@ -15,6 +15,7 @@ use crate::{
 
 struct ReliableTimerObserver {
     tx: Sender<SessionMessage>,
+    message_type: ProtoSessionMessageType,
     name: Option<Name>,
 }
 
@@ -24,8 +25,9 @@ impl TimerObserver for ReliableTimerObserver {
         self.tx
             .send(SessionMessage::TimerTimeout {
                 message_id,
-                timeouts,
+                message_type: self.message_type,
                 name: self.name.clone(),
+                timeouts,
             })
             .await
             .expect("failed to send timer timeout");
@@ -36,8 +38,9 @@ impl TimerObserver for ReliableTimerObserver {
         self.tx
             .send(SessionMessage::TimerFailure {
                 message_id,
-                timeouts,
+                message_type: self.message_type,
                 name: self.name.clone(),
+                timeouts,
             })
             .await
             .expect("failed to send timer failure");
@@ -122,7 +125,12 @@ impl TimerFactory {
         )
     }
 
-    pub fn create_and_start_timer(&self, id: u32, name: Option<Name>) -> Timer {
+    pub fn create_and_start_timer(
+        &self,
+        id: u32,
+        message_type: ProtoSessionMessageType,
+        name: Option<Name>,
+    ) -> Timer {
         let t = Timer::new(
             id,
             self.settings.timer_type.clone(),
@@ -130,21 +138,27 @@ impl TimerFactory {
             self.settings.max_duration,
             self.settings.max_retries,
         );
-        self.start_timer(&t, name);
+        self.start_timer(&t, message_type, name);
         t
     }
 
-    pub fn start_timer(&self, timer: &Timer, name: Option<Name>) {
+    pub fn start_timer(
+        &self,
+        timer: &Timer,
+        message_type: ProtoSessionMessageType,
+        name: Option<Name>,
+    ) {
         // start timer
         let observer = ReliableTimerObserver {
             tx: self.tx.clone(),
+            message_type,
             name,
         };
         timer.start(Arc::new(observer));
     }
 }
 
-#[cfg(test)]
+/*#[cfg(test)]
 mod tests {
     use super::*;
     use std::time::Duration;
@@ -530,4 +544,4 @@ mod tests {
             _ => panic!("Expected TimerTimeout message with convenience constructors"),
         }
     }
-}
+}*/

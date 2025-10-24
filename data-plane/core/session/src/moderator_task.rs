@@ -33,7 +33,6 @@ fn unsupported_phase() -> SessionError {
 
 #[derive(Debug)]
 pub enum ModeratorTask {
-    AddParticipant(AddParticipant),
     AddParticipantMls(AddParticipantMls),
     RemoveParticipant(RemoveParticipant),
     RemoveParticipantMls(RemoveParticipantMls),
@@ -43,7 +42,6 @@ pub enum ModeratorTask {
 impl TaskUpdate for ModeratorTask {
     fn discovery_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
         match self {
-            ModeratorTask::AddParticipant(task) => task.discovery_start(timer_id),
             ModeratorTask::AddParticipantMls(task) => task.discovery_start(timer_id),
             _ => Err(unsupported_phase()),
         }
@@ -51,7 +49,6 @@ impl TaskUpdate for ModeratorTask {
 
     fn discovery_complete(&mut self, timer_id: u32) -> Result<(), SessionError> {
         match self {
-            ModeratorTask::AddParticipant(task) => task.discovery_complete(timer_id),
             ModeratorTask::AddParticipantMls(task) => task.discovery_complete(timer_id),
             _ => Err(unsupported_phase()),
         }
@@ -59,7 +56,6 @@ impl TaskUpdate for ModeratorTask {
 
     fn join_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
         match self {
-            ModeratorTask::AddParticipant(task) => task.join_start(timer_id),
             ModeratorTask::AddParticipantMls(task) => task.join_start(timer_id),
             _ => Err(unsupported_phase()),
         }
@@ -67,7 +63,6 @@ impl TaskUpdate for ModeratorTask {
 
     fn join_complete(&mut self, timer_id: u32) -> Result<(), SessionError> {
         match self {
-            ModeratorTask::AddParticipant(task) => task.join_complete(timer_id),
             ModeratorTask::AddParticipantMls(task) => task.join_complete(timer_id),
             _ => Err(unsupported_phase()),
         }
@@ -123,95 +118,11 @@ impl TaskUpdate for ModeratorTask {
 
     fn task_complete(&self) -> bool {
         match self {
-            ModeratorTask::AddParticipant(task) => task.task_complete(),
             ModeratorTask::AddParticipantMls(task) => task.task_complete(),
             ModeratorTask::RemoveParticipant(task) => task.task_complete(),
             ModeratorTask::RemoveParticipantMls(task) => task.task_complete(),
             ModeratorTask::UpdateParticipantMls(task) => task.task_complete(),
         }
-    }
-}
-
-#[derive(Debug, Default)]
-pub struct AddParticipant {
-    discovery: State,
-    join: State,
-}
-
-impl TaskUpdate for AddParticipant {
-    fn discovery_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        debug!(
-            "start discovery on AddParticipant task, timer id {}",
-            timer_id
-        );
-        self.discovery.received = false;
-        self.discovery.timer_id = timer_id;
-        Ok(())
-    }
-
-    fn discovery_complete(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        if self.discovery.timer_id == timer_id {
-            self.discovery.received = true;
-            debug!(
-                "discovery completed on AddParticipant task, timer id {}",
-                timer_id
-            );
-            Ok(())
-        } else {
-            Err(SessionError::ModeratorTask(
-                "unexpected timer id".to_string(),
-            ))
-        }
-    }
-
-    fn join_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        debug!("start join on AddParticipant task, timer id {}", timer_id);
-        self.join.received = false;
-        self.join.timer_id = timer_id;
-        Ok(())
-    }
-
-    fn join_complete(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        if self.join.timer_id == timer_id {
-            self.join.received = true;
-            debug!(
-                "join completed on AddParticipant task, timer id {}",
-                timer_id
-            );
-            Ok(())
-        } else {
-            Err(SessionError::ModeratorTask(
-                "unexpected timer id".to_string(),
-            ))
-        }
-    }
-
-    fn leave_start(&mut self, _timer_id: u32) -> Result<(), SessionError> {
-        Err(unsupported_phase())
-    }
-
-    fn leave_complete(&mut self, _timer_id: u32) -> Result<(), SessionError> {
-        Err(unsupported_phase())
-    }
-
-    fn welcome_start(&mut self, _timer_id: u32) -> Result<(), SessionError> {
-        Err(unsupported_phase())
-    }
-
-    fn proposal_start(&mut self, _timer_id: u32) -> Result<(), SessionError> {
-        Err(unsupported_phase())
-    }
-
-    fn commit_start(&mut self, _timer_id: u32) -> Result<(), SessionError> {
-        Err(unsupported_phase())
-    }
-
-    fn mls_phase_completed(&mut self, _timer_id: u32) -> Result<(), SessionError> {
-        Err(unsupported_phase())
-    }
-
-    fn task_complete(&self) -> bool {
-        self.discovery.received && self.join.received
     }
 }
 
@@ -574,40 +485,6 @@ mod tests {
     use tracing_test::traced_test;
 
     use super::*;
-
-    #[test]
-    #[traced_test]
-    fn test_add_participant() {
-        let mut task = ModeratorTask::AddParticipant(AddParticipant::default());
-        assert!(!task.task_complete());
-
-        let timer_id = 10;
-        task.discovery_start(timer_id)
-            .expect("error on discovery start");
-        assert!(!task.task_complete());
-
-        let mut res = task.discovery_complete(timer_id + 1);
-        assert_eq!(
-            res,
-            Err(SessionError::ModeratorTask(
-                "unexpected timer id".to_string(),
-            ))
-        );
-
-        res = task.leave_start(timer_id);
-        assert_eq!(res, Err(unsupported_phase()));
-
-        task.discovery_complete(timer_id)
-            .expect("error on discovery complete");
-        assert!(!task.task_complete());
-
-        task.join_start(timer_id + 1).expect("error on join start");
-        assert!(!task.task_complete());
-
-        task.join_complete(timer_id + 1)
-            .expect("error on join complete");
-        assert!(task.task_complete());
-    }
 
     #[test]
     #[traced_test]
