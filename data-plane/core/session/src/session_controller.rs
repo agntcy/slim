@@ -35,8 +35,8 @@ use crate::{
     interceptor_mls::{METADATA_MLS_ENABLED, METADATA_MLS_INIT_COMMIT_ID},
     mls_state::{MlsEndpoint, MlsModeratorState, MlsProposalMessagePayload, MlsState},
     moderator_task::{
-        AddParticipantMls, ModeratorTask, RemoveParticipant, RemoveParticipantMls, TaskUpdate,
-        UpdateParticipantMls,
+        AddParticipant, ModeratorTask, RemoveParticipant, TaskUpdate,
+        UpdateParticipant,
     },
     timer,
     timer_factory::TimerSettings,
@@ -877,16 +877,13 @@ where
                                     // the current task failed:
                                     // 1. create the right error message
                                     let error_message = match self.current_task.as_ref().unwrap() {
-                                        ModeratorTask::AddParticipantMls(_) => {
+                                        ModeratorTask::AddParticipant(_) => {
                                             "failed to add a participant to the group"
                                         }
                                         ModeratorTask::RemoveParticipant(_) => {
                                             "failed to remove a participant from the group"
                                         }
-                                        ModeratorTask::RemoveParticipantMls(_) => {
-                                            "failed to remove a participant from the group"
-                                        }
-                                        ModeratorTask::UpdateParticipantMls(_) => {
+                                        ModeratorTask::UpdateParticipant(_) => {
                                             "failed to update state of the participant"
                                         }
                                     };
@@ -988,8 +985,8 @@ where
 
         // now the moderator is busy
         debug!("Create AddParticipantMls task");
-        self.current_task = Some(ModeratorTask::AddParticipantMls(
-            AddParticipantMls::default(),
+        self.current_task = Some(ModeratorTask::AddParticipant(
+            AddParticipant::default(),
         ));
 
         // check if there is a destination name in the payload. If yes recreate the message
@@ -1140,7 +1137,7 @@ where
             // no commit message will be sent so update the task state to consider the commit as received
             // the timer id is not important here, it just need to be consistent
             self.current_task.as_mut().unwrap().commit_start(0)?;
-            self.current_task.as_mut().unwrap().mls_phase_completed(0)?;
+            self.current_task.as_mut().unwrap().update_phase_completed(0)?;
         }
 
         // send welcome message
@@ -1181,8 +1178,8 @@ where
         }
 
         // now the moderator is busy
-        self.current_task = Some(ModeratorTask::RemoveParticipantMls(
-            RemoveParticipantMls::default(),
+        self.current_task = Some(ModeratorTask::RemoveParticipant(
+            RemoveParticipant::default(),
         ));
 
         // adjust the message according to the sender:
@@ -1273,7 +1270,7 @@ where
             // no commit message will be sent so update the task state to consider the commit as received
             // the timer id is not important here, it just need to be consistent
             self.current_task.as_mut().unwrap().commit_start(0)?;
-            self.current_task.as_mut().unwrap().mls_phase_completed(0)?;
+            self.current_task.as_mut().unwrap().update_phase_completed(0)?;
 
             // just send the leave message in this case
             self.common.sender.on_message(&leave_message).await;
@@ -1359,7 +1356,7 @@ where
             self.current_task
                 .as_mut()
                 .unwrap()
-                .mls_phase_completed(msg_id)?;
+                .update_phase_completed(msg_id)?;
 
             // check if the task is complited.
             if self.current_task.as_mut().unwrap().task_complete() {
@@ -1376,7 +1373,7 @@ where
                 if self.postponed_message.is_some()
                     && matches!(
                         self.current_task,
-                        Some(ModeratorTask::RemoveParticipantMls(_))
+                        Some(ModeratorTask::RemoveParticipant(_))
                     )
                 {
                     // send the leave message an progress
