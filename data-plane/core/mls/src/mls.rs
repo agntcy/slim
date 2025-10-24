@@ -533,6 +533,8 @@ where
 mod tests {
     use mls_rs_core::identity::MemberValidationContext;
     use tokio::time;
+    use base64::Engine;
+    use base64::engine::general_purpose::STANDARD as BASE64;
 
     use crate::errors::SlimIdentityError;
 
@@ -915,46 +917,70 @@ mod tests {
         Ok(())
     }
 
+    // -------------------------------------------------------------------------
+    // Test Helpers (reduce duplication between security-related tests)
+    // -------------------------------------------------------------------------
+    async fn init_identity(
+        name: &str,
+        path: &str,
+    ) -> Result<Mls<SharedSecret, SharedSecret>, Box<dyn std::error::Error>> {
+        let _ = std::fs::remove_dir_all(path);
+        let mut mls = Mls::new(
+            SharedSecret::new(name, SHARED_SECRET),
+            SharedSecret::new(name, SHARED_SECRET),
+            path.into(),
+        );
+        mls.initialize().await?;
+        Ok(mls)
+    }
+
+    fn extract_token_and_pubkey(mls: &Mls<SharedSecret, SharedSecret>) -> (&String, Vec<u8>) {
+        let stored = mls
+            .stored_identity
+            .as_ref()
+            .expect("stored identity exists");
+        let token = stored
+            .last_credential
+            .as_ref()
+            .expect("stored credential exists");
+        (token, stored.public_key_bytes.clone())
+    }
+
+    async fn build_fake_identity_with_other_key(
+        stolen_token: &str,
+    ) -> (SigningIdentity, SignaturePublicKey) {
+        let (_priv, attacker_pub) = Mls::<SharedSecret, SharedSecret>::generate_key_pair()
+            .await
+            .expect("key gen");
+        let stolen_cred = BasicCredential::new(stolen_token.as_bytes().to_vec());
+        let signing_id = SigningIdentity::new(stolen_cred.into_credential(), attacker_pub.clone());
+        (signing_id, attacker_pub)
+    }
+
+    fn verify_token_embeds_pubkey(token: &str, expected_pubkey_bytes: &[u8]) {
+        use base64::Engine;
+        use base64::engine::general_purpose::STANDARD as BASE64;
+        let verifier = SharedSecret::new("alice", SHARED_SECRET);
+        let claims_json: serde_json::Value = verifier.try_get_claims(token).expect("claims");
+        let claims = IdentityClaims::from_json(&claims_json).expect("identity claims");
+        assert_eq!(
+            claims.public_key,
+            BASE64.encode(expected_pubkey_bytes),
+            "Token must embed expected public key"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // TEST: Token-only theft with different attacker key triggers PublicKeyMismatch
+    // -------------------------------------------------------------------------
     #[tokio::test]
     async fn test_security_identity_theft_attack() -> Result<(), Box<dyn std::error::Error>> {
-        // SECURITY TEST (TOKEN-ONLY THEFT)
-        // This test exercises the validation path (SlimIdentityProvider::validate_member)
-        // and proves that a stolen credential (JWT token) cannot be reused with a DIFFERENT
-        // public key to join or act in the group.
-        //
-        // Threat model here: Attacker steals only Alice's token (NOT her private signing key).
-        // If attacker also stole the private key, they could impersonate Alice; this test
-        // intentionally does not cover full key compromise.
-        //
-        // What we assert:
-        // 1. Alice's token embeds Alice's public key (base64) in its claims.
-        // 2. Attacker (Bob) creates a SigningIdentity using Alice's token + Bob's own public key.
-        // 3. SlimIdentityProvider::validate_member() returns a PublicKeyMismatch error.
+        // Threat model: attacker steals Alice's token, NOT her private key.
 
-        let alice_path = "/tmp/mls_test_security_alice";
-        let bob_path = "/tmp/mls_test_security_bob";
-        let charlie_path = "/tmp/mls_test_security_charlie";
-        let _ = std::fs::remove_dir_all(alice_path);
-        let _ = std::fs::remove_dir_all(bob_path);
-        let _ = std::fs::remove_dir_all(charlie_path);
+        let mut alice = init_identity("alice", "/tmp/mls_test_security_alice").await?;
+        let mut charlie = init_identity("charlie", "/tmp/mls_test_security_charlie").await?;
 
-        // Alice creates her identity
-        let mut alice = Mls::new(
-            SharedSecret::new("alice", SHARED_SECRET),
-            SharedSecret::new("alice", SHARED_SECRET),
-            alice_path.into(),
-        );
-        alice.initialize().await?;
-
-        // Charlie creates his identity (legitimate group member)
-        let mut charlie = Mls::new(
-            SharedSecret::new("charlie", SHARED_SECRET),
-            SharedSecret::new("charlie", SHARED_SECRET),
-            charlie_path.into(),
-        );
-        charlie.initialize().await?;
-
-        // Alice creates a group and adds Charlie
+        // Group setup
         let _group_id = alice.create_group().await?;
         let charlie_key_package = charlie.generate_key_package().await?;
         let charlie_add_res = alice.add_member(&charlie_key_package).await?;
@@ -962,46 +988,30 @@ mod tests {
             .process_welcome(&charlie_add_res.welcome_message)
             .await?;
 
-        // Alice sends a legitimate message
-        let alice_message = b"Hello from the real Alice!";
-        let encrypted = alice.encrypt_message(alice_message).await?;
+        // Sanity application message
+        let msg = b"Hello from the real Alice!";
+        let encrypted = alice.encrypt_message(msg).await?;
         let decrypted = charlie.decrypt_message(&encrypted).await?;
-        assert_eq!(decrypted, alice_message);
+        assert_eq!(decrypted, msg);
 
-        // === ATTACK SCENARIO (TOKEN ONLY) ===
-        let alice_stored = alice.stored_identity.as_ref().unwrap();
-        let alice_token = alice_stored
-            .last_credential
-            .as_ref()
-            .expect("Alice should have a stored credential with public key claims");
+        // Extract stolen artifacts
+        let (alice_token, alice_pub_bytes) = extract_token_and_pubkey(&alice);
 
-        // Attacker generates their own key pair
-        let (_bob_private_key, bob_public_key) =
-            Mls::<SharedSecret, SharedSecret>::generate_key_pair().await?;
+        // Build fake identity with a different key
+        let (fake_identity, attacker_pub) = build_fake_identity_with_other_key(alice_token).await;
 
-        // Construct SigningIdentity with stolen token + attacker's public key
-        let stolen_cred = BasicCredential::new(alice_token.as_bytes().to_vec());
-        let bob_fake_signing_identity =
-            SigningIdentity::new(stolen_cred.into_credential(), bob_public_key.clone());
-
-        use base64::Engine;
-        use base64::engine::general_purpose::STANDARD as BASE64;
-
-        let alice_public_key_b64 = BASE64.encode(&alice_stored.public_key_bytes);
-        let bob_public_key_b64 = BASE64.encode(bob_public_key.as_ref());
+        let alice_pub_b64 = BASE64.encode(&alice_pub_bytes);
+        let attacker_pub_b64 = BASE64.encode(attacker_pub.as_ref());
         assert_ne!(
-            alice_public_key_b64, bob_public_key_b64,
-            "Precondition: attacker must use a different key"
+            alice_pub_b64, attacker_pub_b64,
+            "Precondition: attacker key must differ"
         );
 
-        // REAL VALIDATION CALL
-        let identity_verifier = SharedSecret::new("alice", SHARED_SECRET);
-        let provider = SlimIdentityProvider::new(identity_verifier.clone());
-        // Create a dummy MemberValidationContext; provider ignores its contents so zeroed is acceptable here.
-        let dummy_ctx: MemberValidationContext<'_> =
-            unsafe { std::mem::MaybeUninit::zeroed().assume_init() };
+        // Validate
+        let verifier = SharedSecret::new("alice", SHARED_SECRET);
+        let provider = SlimIdentityProvider::new(verifier.clone());
         let validation_res = provider
-            .validate_member(&bob_fake_signing_identity, None, dummy_ctx)
+            .validate_member(&fake_identity, None, MemberValidationContext::None)
             .await;
 
         assert!(
@@ -1009,143 +1019,67 @@ mod tests {
                 validation_res,
                 Err(SlimIdentityError::PublicKeyMismatch { .. })
             ),
-            "Expected validation to fail with PublicKeyMismatch"
+            "Expected PublicKeyMismatch for stolen token + different key"
         );
 
-        // For transparency, parse token claims and show embedded key differs
-        let token_claims: serde_json::Value = identity_verifier
+        // Show claims mismatch
+        let claims_json: serde_json::Value = verifier
             .try_get_claims(alice_token.as_str())
-            .unwrap();
-        let alice_identity_claims = IdentityClaims::from_json(&token_claims).expect("parse claims");
-        let alice_pubkey_from_token = &alice_identity_claims.public_key;
-
-        println!("\nPublic Key Comparison:");
-        println!(
-            "  Alice's pubkey (from token): {}",
-            &alice_pubkey_from_token[..40.min(alice_pubkey_from_token.len())]
-        );
-        println!(
-            "  Bob's pubkey (attacker supplied): {}",
-            &bob_public_key_b64[..40.min(bob_public_key_b64.len())]
-        );
-
-        // Reassert mismatch correlates with rejection
+            .expect("claims parse");
+        let claims = IdentityClaims::from_json(&claims_json).expect("claims map");
         assert_ne!(
-            alice_pubkey_from_token, &bob_public_key_b64,
-            "Token-bound key must differ from attacker's key"
-        );
-
-        println!("\n✅ Security test passed.");
-        println!("   Stolen token + different key => PublicKeyMismatch rejection.");
-        println!(
-            "   NOTE: If the attacker also stole Alice's PRIVATE key, they could impersonate her."
+            claims.public_key, attacker_pub_b64,
+            "Token-bound key must differ from attacker key"
         );
 
         Ok(())
     }
+
+    // -------------------------------------------------------------------------
+    // TEST: Token + correct public key but wrong private key => MLS signature failure
+    // -------------------------------------------------------------------------
     #[tokio::test]
     async fn test_signature_mismatch_stolen_token_wrong_private_key()
     -> Result<(), Box<dyn std::error::Error>> {
-        // PURPOSE:
-        // Demonstrate that merely possessing Alice's token (JWT) and public key is NOT enough
-        // to produce valid MLS operations if the attacker does NOT have Alice's private key.
-        //
-        // Scenario:
-        // 1. Alice initializes normally (token + key pair stored).
-        // 2. Attacker steals Alice's token and public key bytes (both are public / obtainable).
-        // 3. Attacker generates THEIR OWN private key (mismatched).
-        // 4. Attacker constructs a SigningIdentity using Alice's token + Alice's public key, but
-        //    supplies the attacker's private key to the MLS client builder.
-        // 5. Attempting MLS cryptographic operations should fail because signatures produced
-        //    with the attacker's private key won't verify against Alice's public key.
-        //
-        // Expected: At least one core operation (group creation or key package generation)
-        // returns an error. If both succeed, the test fails, indicating missing PoP enforcement.
+        // Attacker has Alice's token + public key, but not her private key.
 
-        use crate::identity_claims::IdentityClaims;
-        use crate::identity_provider::SlimIdentityProvider;
-        use base64::Engine;
-        use base64::engine::general_purpose::STANDARD as BASE64;
-        use mls_rs::client::Client;
-        use slim_auth::shared_secret::SharedSecret;
+        let alice = init_identity("alice", "/tmp/mls_test_sig_mismatch_alice").await?;
+        let (alice_token, alice_pub_bytes) = extract_token_and_pubkey(&alice);
 
-        let alice_path = "/tmp/mls_test_sig_mismatch_alice";
-        let _ = std::fs::remove_dir_all(alice_path);
+        // Verify token correctness
+        verify_token_embeds_pubkey(alice_token, &alice_pub_bytes);
 
-        // 1. Legitimate Alice setup
-        let mut alice = Mls::new(
-            SharedSecret::new("alice", SHARED_SECRET),
-            SharedSecret::new("alice", SHARED_SECRET),
-            alice_path.into(),
-        );
-        alice.initialize().await?;
-
-        // Extract Alice's stored identity components
-        let alice_stored = alice
-            .stored_identity
-            .as_ref()
-            .expect("Alice stored identity exists");
-        let alice_token = alice_stored
-            .last_credential
-            .as_ref()
-            .expect("Alice must have a stored credential (JWT)");
-        let alice_public_key_bytes = alice_stored.public_key_bytes.clone();
-
-        // 2. Attacker generates their own (mismatched) key pair
-        let (attacker_private_key, _attacker_public_key) =
+        // Attacker key pair
+        let (attacker_priv, _attacker_pub) =
             Mls::<SharedSecret, SharedSecret>::generate_key_pair().await?;
 
-        // 3. Construct a SigningIdentity with Alice's token + Alice's public key
-        let alice_public_key = SignaturePublicKey::new(alice_public_key_bytes.clone());
+        // Build signing identity using Alice's token + Alice's public key (public part matches)
+        let alice_pub = SignaturePublicKey::new(alice_pub_bytes.clone());
         let stolen_cred = BasicCredential::new(alice_token.as_bytes().to_vec());
-        let fake_signing_identity =
-            SigningIdentity::new(stolen_cred.into_credential(), alice_public_key.clone());
+        let fake_identity = SigningIdentity::new(stolen_cred.into_credential(), alice_pub.clone());
 
-        // Sanity: public key inside token matches Alice's actual public key
+        // Build MLS client with mismatched private key
         let verifier = SharedSecret::new("alice", SHARED_SECRET);
-        let claims_json: serde_json::Value = verifier.try_get_claims(alice_token).unwrap();
-        let claims = IdentityClaims::from_json(&claims_json).expect("parse claims");
-        assert_eq!(
-            claims.public_key,
-            BASE64.encode(&alice_public_key_bytes),
-            "Token must embed Alice's true public key"
-        );
-
-        // 4. Build MLS client with mismatched private key (attacker's) + Alice's public key identity
         let crypto_provider = AwsLcCryptoProvider::default();
         let identity_provider = SlimIdentityProvider::new(verifier.clone());
-
         let client = Client::builder()
             .identity_provider(identity_provider)
             .crypto_provider(crypto_provider)
-            // Here is the critical mismatch: fake_signing_identity (Alice's public key) with attacker's private key
-            .signing_identity(
-                fake_signing_identity,
-                attacker_private_key.clone(),
-                CIPHERSUITE,
-            )
+            .signing_identity(fake_identity, attacker_priv.clone(), CIPHERSUITE)
             .build();
 
-        // 5. Attempt MLS operations that require valid signature alignment.
-        // We expect at least one to fail due to mismatched private/public key pair.
-
-        let group_result = client
+        // Operations expected to fail
+        let group_res = client
             .create_group(ExtensionList::default(), Default::default(), None)
             .await;
 
-        let keypkg_result = client
+        let keypkg_res = client
             .generate_key_package_message(Default::default(), Default::default(), None)
             .await;
 
-        // Assert that at least one operation failed; success of both would indicate missing
-        // enforcement of signature/public key consistency.
         assert!(
-            group_result.is_err() || keypkg_result.is_err(),
-            "Expected MLS to reject operations with mismatched private key; both succeeded."
-        );
-
-        println!(
-            "\n✅ Mismatch test passed: token + public key alone did not allow successful MLS operations with the wrong private key."
+            group_res.is_err() || keypkg_res.is_err(),
+            "Expected at least one MLS operation failure (signature mismatch)"
         );
 
         Ok(())
