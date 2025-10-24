@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4](https://github.com/agntcy/slim/compare/slim-mls-v0.1.3...slim-mls-v0.1.4) - 2025-10-24
+
+### Added
+
+- async mls ([#877](https://github.com/agntcy/slim/pull/877))
+- expand SharedSecret Auth from simple secret:id to HMAC tokens ([#858](https://github.com/agntcy/slim/pull/858))
+
+### Fixed
+
+- handle verifier.try_verify() block call properly ([#865](https://github.com/agntcy/slim/pull/865))
+
+### Other
+
+- implement all control message payload in protobuf ([#862](https://github.com/agntcy/slim/pull/862))
+
 ## [0.1.3](https://github.com/agntcy/slim/compare/slim-mls-v0.1.2...slim-mls-v0.1.3) - 2025-10-17
 
 ### Other

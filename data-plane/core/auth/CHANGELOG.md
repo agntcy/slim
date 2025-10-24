@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0](https://github.com/agntcy/slim/compare/slim-auth-v0.4.0...slim-auth-v0.5.0) - 2025-10-24
+
+### Added
+
+- expand SharedSecret Auth from simple secret:id to HMAC tokens ([#858](https://github.com/agntcy/slim/pull/858))
+- derive name ID part from identity token ([#851](https://github.com/agntcy/slim/pull/851))x
+- implementation of Spire for fetching the certificates/token directly from SPIFFE Workload API ([#646](https://github.com/agntcy/slim/pull/646))
+
+### Fixed
+
+- handle verifier.try_verify() block call properly ([#865](https://github.com/agntcy/slim/pull/865))
+
+### Other
+
+- *(data-plane)* update project dependencies ([#861](https://github.com/agntcy/slim/pull/861))
+
 ## [0.4.0](https://github.com/agntcy/slim/compare/slim-auth-v0.3.1...slim-auth-v0.4.0) - 2025-10-17
 
 ### Added

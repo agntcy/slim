@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1](https://github.com/agntcy/slim/compare/slim-service-v0.8.0...slim-service-v0.8.1) - 2025-10-24
+
+### Added
+
+- expand SharedSecret Auth from simple secret:id to HMAC tokens ([#858](https://github.com/agntcy/slim/pull/858))
+- derive name ID part from identity token ([#851](https://github.com/agntcy/slim/pull/851))x
+
+### Fixed
+
+- *(app.rs)* get app name from local property ([#859](https://github.com/agntcy/slim/pull/859))
+
+### Other
+
+- implement all control message payload in protobuf ([#862](https://github.com/agntcy/slim/pull/862))
+- common rust infrastructure for language bindings ([#840](https://github.com/agntcy/slim/pull/840))
+
 ## [0.8.0](https://github.com/agntcy/slim/compare/slim-service-v0.7.0...slim-service-v0.8.0) - 2025-10-17
 
 ### Added
