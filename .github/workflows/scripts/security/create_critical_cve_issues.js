@@ -1,120 +1,97 @@
+#!/usr/bin/env node
+/**
+ * create_critical_cve_issues.js
+ * Scans downloaded Trivy SARIF artifacts and creates GitHub issues for unique CRITICAL CVEs.
+ */
+const fs = require('fs');
+const glob = require('glob');
 const { Octokit } = require('@octokit/rest');
 
-// Initialize Octokit with token
-const octokit = new Octokit({
-  auth: process.env.GITHUB_TOKEN
-});
-
-// Configuration
-const config = {
-  owner: process.env.GITHUB_REPOSITORY.split('/')[0],
-  repo: process.env.GITHUB_REPOSITORY.split('/')[1],
-  labels: ['security', 'critical-cve', 'trivy-scan'],
-  assignees: [],
-  priorityThreshold: 'CRITICAL' // Only create issues for CRITICAL vulnerabilities
-};
-
-async function main() {
-  try {
-    // Read Trivy scan results
-    const fs = require('fs');
-    const path = 'trivy-results.json';
-
-    if (!fs.existsSync(path)) {
-      console.log('No Trivy results file found');
-      return;
-    }
-
-    const trivyResults = JSON.parse(fs.readFileSync(path, 'utf8'));
-
-    // Process scan results
-    for (const result of trivyResults.Results || []) {
-      if (!result.Vulnerabilities) continue;
-
-      // Filter critical vulnerabilities
-      const criticalVulns = result.Vulnerabilities.filter(
-        vuln => vuln.Severity === config.priorityThreshold
-      );
-
-      for (const vuln of criticalVulns) {
-        await createOrUpdateIssue(vuln, result.Target);
-      }
-    }
-
-    console.log('Finished processing vulnerabilities');
-
-  } catch (error) {
-    console.error('Error:', error);
+function main() {
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) {
+    console.error('GITHUB_TOKEN not set');
     process.exit(1);
   }
-}
-
-async function createOrUpdateIssue(vulnerability, target) {
-  const issueTitle = `🚨 Critical CVE: ${vulnerability.VulnerabilityID} in ${target}`;
-  const issueBody = generateIssueBody(vulnerability, target);
-
-  try {
-    // Check if issue already exists
-    const existingIssues = await octokit.rest.issues.listForRepo({
-      owner: config.owner,
-      repo: config.repo,
-      state: 'open',
-      labels: config.labels.join(',')
-    });
-
-    const existingIssue = existingIssues.data.find(
-      issue => issue.title.includes(vulnerability.VulnerabilityID)
-    );
-
-    if (existingIssue) {
-      console.log(`Issue already exists for ${vulnerability.VulnerabilityID}`);
-      return;
-    }
-
-    // Create new issue
-    const newIssue = await octokit.rest.issues.create({
-      owner: config.owner,
-      repo: config.repo,
-      title: issueTitle,
-      body: issueBody,
-      labels: config.labels,
-      assignees: config.assignees
-    });
-
-    console.log(`Created issue #${newIssue.data.number} for ${vulnerability.VulnerabilityID}`);
-
-  } catch (error) {
-    console.error(`Failed to create issue for ${vulnerability.VulnerabilityID}:`, error);
+  const repoSlug = process.env.GITHUB_REPOSITORY;
+  if (!repoSlug) {
+    console.error('GITHUB_REPOSITORY not set');
+    process.exit(1);
   }
+  const [owner, repo] = repoSlug.split('/');
+  const octokit = new Octokit({ auth: token });
+  const sarifFiles = glob.sync('trivy-artifacts/*/trivy-*.sarif');
+  if (sarifFiles.length === 0) {
+    console.log('No SARIF files found');
+    return;
+  }
+  const criticalFindings = [];
+  for (const file of sarifFiles) {
+    try {
+      const sarif = JSON.parse(fs.readFileSync(file, 'utf8'));
+      for (const run of sarif.runs || []) {
+        const rules = (run.tool && run.tool.driver && run.tool.driver.rules) || [];
+        for (const result of run.results || []) {
+          const rule = rules[result.ruleIndex];
+          if (!rule) continue;
+          const tags = ((rule.properties || {}).tags) || [];
+          if (tags.includes('CRITICAL')) {
+            const cve = rule.id || result.ruleId;
+            const level = result.level;
+            const message = (result.message && result.message.text) || '';
+            const pkgMatch = message.match(/Package:\s([^\n]+)/);
+            const fixMatch = message.match(/Fixed Version:\s([^\n]+)/);
+            criticalFindings.push({ cve, level, package: pkgMatch ? pkgMatch[1] : 'unknown', fixed: fixMatch ? fixMatch[1] : 'unknown', file });
+          }
+        }
+      }
+    } catch (e) {
+      console.error(`Failed to parse ${file}:`, e);
+    }
+  }
+  if (criticalFindings.length === 0) {
+    console.log('No critical CVEs detected');
+    return;
+  }
+  const unique = Object.values(criticalFindings.reduce((acc, f) => { acc[f.cve] = acc[f.cve] || f; return acc; }, {}));
+  console.log(`Unique critical CVEs: ${unique.map(u => u.cve).join(', ')}`);
+
+  octokit.paginate(octokit.issues.listForRepo, { owner, repo, state: 'open', per_page: 100 })
+    .then(existing => {
+      const existingTitles = new Set(existing.map(i => i.title));
+      return Promise.all(unique.map(finding => {
+        const title = `CRITICAL CVE ${finding.cve} in image scan`;
+        if (existingTitles.has(title)) {
+          console.log(`Issue already exists for ${finding.cve}`);
+          return null;
+        }
+        const body = [
+          'Automated security scan detected a CRITICAL vulnerability.',
+          '',
+          `CVE: ${finding.cve}`,
+          `Package: ${finding.package}`,
+          `Fixed Version: ${finding.fixed}`,
+          `Severity Level (SARIF level): ${finding.level}`,
+          `Source SARIF file: ${finding.file}`,
+          'Generated by nightly container security scan workflow.',
+          '',
+          'Action items:',
+          '- [ ] Assess exploitability for our deployment context',
+          '- [ ] Upgrade to fixed version or apply mitigation',
+          '- [ ] Verify remediation and close issue',
+          '',
+          'This issue was created automatically. Edit as needed.'
+        ].join('\n');
+        return octokit.issues.create({ owner, repo, title, body, labels: ['security', 'critical', 'cve'] })
+          .then(r => console.log(`Created issue: ${r.data.html_url}`));
+      }));
+    })
+    .catch(err => {
+      console.error('Failed to list existing issues:', err);
+      process.exit(1);
+    });
 }
 
-function generateIssueBody(vulnerability, target) {
-  return `## 🚨 Critical Security Vulnerability Detected
-
-**CVE ID:** ${vulnerability.VulnerabilityID}
-**Severity:** ${vulnerability.Severity}
-**Target:** ${target}
-**Package:** ${vulnerability.PkgName} ${vulnerability.InstalledVersion}
-
-### Description
-${vulnerability.Description || 'No description available'}
-
-### CVSS Score
-${vulnerability.CVSS ? `**Score:** ${vulnerability.CVSS.nvd?.V3Score || vulnerability.CVSS.redhat?.V3Score || 'N/A'}` : 'No CVSS data available'}
-
-### References
-${vulnerability.References ? vulnerability.References.map(ref => `- ${ref}`).join('\n') : 'No references available'}
-
-### Recommended Action
-${vulnerability.FixedVersion ? `Update to version **${vulnerability.FixedVersion}** or later` : 'No fix currently available - monitor for updates'}
-
-### Additional Information
-- **Vulnerability DB:** ${vulnerability.DataSource?.Name || 'Unknown'}
-- **Published:** ${vulnerability.PublishedDate || 'Unknown'}
-- **Last Modified:** ${vulnerability.LastModifiedDate || 'Unknown'}
-
----
-*This issue was automatically created by our security scanning workflow. Please prioritize resolution due to the critical severity level.*`;
+if (require.main === module) {
+  main();
 }
-
-main().catch(console.error);

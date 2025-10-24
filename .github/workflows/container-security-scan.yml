@@ -1,6 +1,5 @@
-# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# Copyright AGNTCiY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
-
 name: Container Security Scan
 
 on:
@@ -38,18 +37,16 @@ jobs:
           - image: spire-helper
             repo: ghcr.io/spiffe/spiffe-helper
             version: 0.10.1
-
     steps:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
-      - name: Login to GitHub Container Registry
+      - name: Log in to GHCR
         uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Pull image (explicit version)
         run: |
           set -euo pipefail
@@ -68,16 +65,6 @@ jobs:
           severity: 'CRITICAL,HIGH,MEDIUM'
           ignore-unfixed: true
 
-      - name: Run Trivy vulnerability scan (JSON output)
-        uses: aquasecurity/trivy-action@9ab158e8597f3b310480b9a69402b419bc03dbd5 # v0.24.0
-        with:
-          image-ref: ${{ matrix.repo }}:${{ matrix.version }}
-          format: json
-          output: trivy-${{ matrix.image }}.json
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH,MEDIUM'
-          ignore-unfixed: true
-
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@1b1aada464948af03b950897e5eb522f92603cc2 # v3.26.9
         with:
@@ -85,19 +72,11 @@ jobs:
           # Distinguish reports per container image in Code Scanning UI
           category: trivy-${{ matrix.image }}
 
-      - name: Generate Trivy summary
-        run: |
-          chmod +x .github/workflows/scripts/security/generate_trivy_summary.sh
-          .github/workflows/scripts/security/generate_trivy_summary.sh trivy-${{ matrix.image }}.json trivy-${{ matrix.image }}-summary.md
-
-      - name: Upload raw report artifacts
+      - name: Upload raw report artifact
         uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
         with:
           name: trivy-report-${{ matrix.image }}
-          path: |
-            trivy-${{ matrix.image }}.sarif
-            trivy-${{ matrix.image }}.json
-            trivy-${{ matrix.image }}-summary.md
+          path: trivy-${{ matrix.image }}.sarif
           retention-days: 7
 
   summarize:
@@ -122,7 +101,7 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-      - name: Generate consolidated summary
+      - name: Generate summary
         run: |
           chmod +x .github/workflows/scripts/security/generate_trivy_summary.sh
           .github/workflows/scripts/security/generate_trivy_summary.sh
@@ -135,17 +114,6 @@ jobs:
           if [ "${found}" != "0" ]; then
             echo "Critical vulnerabilities detected. (Gate currently informational.)" >&2
           fi
-
-      - name: Setup Node.js for issue creation
-        if: ${{ github.event_name != 'pull_request' }}
-        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
-        with:
-          node-version: '20'
-
-      - name: Install dependencies
-        if: ${{ github.event_name != 'pull_request' }}
-        run: npm install @octokit/rest
-
       - name: Create GitHub issues for critical CVEs
         if: ${{ github.event_name != 'pull_request' }}
         env:
@@ -153,4 +121,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
+          echo "Installing dependencies for issue creation script";
+          npm init -y >/dev/null 2>&1 || true
+          npm install @octokit/rest@21 glob >/dev/null 2>&1
           node .github/workflows/scripts/security/create_critical_cve_issues.js
