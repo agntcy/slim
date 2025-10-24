@@ -2,10 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import slim_bindings
+from slim_bindings._slim_bindings import create_pyapp
 
 
 async def create_svc(
-    name: slim_bindings.PyName, secret: str, local_service: bool = True
+    name: slim_bindings.PyName,
+    secret: str = "testing-secret-123456789012345abc",
+    local_service: bool = True,
 ):
     """Create and return a low-level PyService for tests.
 
@@ -20,19 +23,20 @@ async def create_svc(
         PyService: The underlying service handle usable with session creation
         and message operations.
     """
+
     provider = slim_bindings.PyIdentityProvider.SharedSecret(  # type: ignore
         identity=f"{name}", shared_secret=secret
     )
     verifier = slim_bindings.PyIdentityVerifier.SharedSecret(  # type: ignore
         identity=f"{name}", shared_secret=secret
     )
-    return await slim_bindings.create_pyservice(
-        name, provider, verifier, local_service=local_service
-    )
+    return await create_pyapp(name, provider, verifier, local_service=local_service)
 
 
 async def create_slim(
-    name: slim_bindings.PyName, secret: str, local_service: bool = True
+    name: slim_bindings.PyName,
+    secret: str = "testing-secret-123456789012345abc",
+    local_service: bool = True,
 ):
     """Create and return a high-level Slim instance for tests.
 

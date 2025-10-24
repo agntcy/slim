@@ -5,17 +5,19 @@ go 1.24.0
 toolchain go1.24.1
 
 require (
-	github.com/golang/protobuf v1.5.4
 	github.com/golangci/golangci-lint v1.62.2
 	github.com/ory/go-acc v0.2.8
 	github.com/pavius/impi v0.0.3
 	go.opentelemetry.io/build-tools/multimod v0.13.0
 	golang.org/x/vuln v1.1.2
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.4.0
+	google.golang.org/protobuf v1.36.5
 	helm.sh/helm/v3 v3.18.4
 	k8s.io/kubernetes v1.31.6
 	sigs.k8s.io/kind v0.25.0
 )
+
+replace google.golang.org/protobuf v1.36.5 => google.golang.org/protobuf v1.35.2
 
 require (
 	4d63.com/gocheckcompilerdirectives v1.2.1 // indirect
@@ -299,7 +301,6 @@ require (
 	golang.org/x/tools v0.33.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20241209162323-e6fa225c2576 // indirect
 	google.golang.org/grpc v1.68.1 // indirect
-	google.golang.org/protobuf v1.36.5 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect

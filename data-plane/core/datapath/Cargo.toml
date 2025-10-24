@@ -1,6 +1,6 @@
 [package]
 name = "agntcy-slim-datapath"
-version = "0.10.0"
+version = "0.10.1"
 edition = { workspace = true }
 license = { workspace = true }
 description = "Core data plane functionality for SLIM"
@@ -25,13 +25,14 @@ tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 tonic = { workspace = true }
+tonic-prost = { workspace = true }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 twox-hash = { workspace = true }
 
 [build-dependencies]
 protoc-bin-vendored = { workspace = true }
-tonic-build = { workspace = true }
+tonic-prost-build = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

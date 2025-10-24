@@ -37,6 +37,12 @@ release = true
 changelog_update = true
 
 [[package]]
+name = "agntcy-slim-session"
+publish = true
+release = true
+changelog_update = true
+
+[[package]]
 name = "agntcy-slim-signal"
 publish = true
 release = true

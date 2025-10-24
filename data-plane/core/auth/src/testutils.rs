@@ -1,13 +1,33 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+/// Centralized valid shared secret for tests (>=32 chars).
+/// Use this for simple cases where the actual value does not matter.
+pub const TEST_VALID_SECRET: &str = "test-shared-secret-value-0123456789abcdef";
+
+/// Convenience helper returning a pair (provider, verifier) `SharedSecret`
+/// instances initialized with the same valid secret for the given base id.
+/// This reduces duplication across tests that construct both roles.
+pub fn test_identity_pair(
+    base: &str,
+) -> (
+    crate::shared_secret::SharedSecret,
+    crate::shared_secret::SharedSecret,
+) {
+    let secret = format!("{base}-shared-secret-value-0123456789abcdef");
+    (
+        crate::shared_secret::SharedSecret::new(base, &secret),
+        crate::shared_secret::SharedSecret::new(base, &secret),
+    )
+}
+
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::utils::bytes_to_pem;
 use aws_lc_rs::encoding::AsDer;
 use aws_lc_rs::signature::KeyPair; // Import the KeyPair trait for public_key() method
 use aws_lc_rs::{rand, rsa, signature};
-use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use jsonwebtoken_aws_lc::Algorithm;
 use serde_json::json;
 use wiremock::matchers::{method, path};
@@ -207,27 +227,6 @@ pub async fn setup_test_jwt_resolver(algorithm: Algorithm) -> (String, MockServe
     (test_key, mock_server, alg_str.to_string())
 }
 
-/// Helper function to convert key bytes to PEM format
-fn bytes_to_pem(key_bytes: &[u8], header: &str, footer: &str) -> String {
-    // Use base64 with standard encoding (not URL safe)
-    let encoded = base64::engine::general_purpose::STANDARD.encode(key_bytes);
-
-    // Insert newlines every 64 characters as per PEM format
-    let mut pem_body = String::new();
-    for i in 0..(encoded.len().div_ceil(64)) {
-        let start = i * 64;
-        let end = std::cmp::min(start + 64, encoded.len());
-        if start < encoded.len() {
-            pem_body.push_str(&encoded[start..end]);
-            if end < encoded.len() {
-                pem_body.push('\n');
-            }
-        }
-    }
-
-    format!("{}{}{}", header, pem_body, footer)
-}
-
 /// Test claims structure for JWT testing
 #[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct TestClaims {
@@ -254,6 +253,32 @@ impl TestClaims {
             iat: now,
         }
     }
+}
+
+/// Generate a syntactically valid unsigned JWT for tests where signature verification is not needed.
+/// The token will have HS256 header and include standard fields (iss,aud,sub,exp,iat,nbf).
+/// This is useful for tests that exercise synchronous paths like `try_verify` where
+/// we only need to parse claims and detect missing cached keys.
+pub fn generate_test_token(issuer: &str, audience: &str, subject: &str) -> String {
+    let header_json = r#"{"alg":"HS256","typ":"JWT"}"#;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or(std::time::Duration::from_secs(0))
+        .as_secs();
+    let claims_json = format!(
+        "{{\"iss\":\"{}\",\"aud\":[\"{}\"],\"sub\":\"{}\",\"exp\":{},\"iat\":{},\"nbf\":{}}}",
+        issuer,
+        audience,
+        subject,
+        now + 300,
+        now,
+        now
+    );
+    format!(
+        "{}.{}.sig",
+        URL_SAFE_NO_PAD.encode(header_json.as_bytes()),
+        URL_SAFE_NO_PAD.encode(claims_json.as_bytes())
+    )
 }
 
 /// Setup a mock OIDC server for testing both token provider and verifier

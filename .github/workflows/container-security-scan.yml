@@ -24,7 +24,7 @@ jobs:
       matrix:
         include:
           - image: slim-node
-            repo: ghcr.io/${{ github.repository_owner }}/slim/slim
+            repo: ghcr.io/${{ github.repository_owner }}/slim
             version: 0.6.1
           - image: slim-controller
             repo: ghcr.io/${{ github.repository_owner }}/slim/control-plane

@@ -4,6 +4,8 @@
 pub mod basic;
 pub mod jwt;
 pub mod oidc;
+#[cfg(not(target_family = "windows"))]
+pub mod spiffe;
 pub mod static_jwt;
 
 use thiserror::Error;

@@ -14,7 +14,7 @@ use slim_datapath::Status;
 use slim_datapath::api::MessageType;
 use slim_datapath::api::ProtoMessage as Message;
 use slim_datapath::messages::Name;
-use slim_datapath::messages::utils::{SLIM_IDENTITY, SlimHeaderFlags};
+use slim_datapath::messages::utils::SlimHeaderFlags;
 
 // Local crate
 use crate::ServiceError;
@@ -31,6 +31,9 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
+    /// App name provided when creating the app
+    app_name: Name,
+
     /// Session layer that manages sessions
     session_layer: Arc<SessionLayer<P, V>>,
 
@@ -105,6 +108,7 @@ where
         let cancel_token = tokio_util::sync::CancellationToken::new();
 
         Self {
+            app_name: app_name.clone(),
             session_layer,
             cancel_token,
         }
@@ -118,7 +122,7 @@ where
     ) -> Result<SessionContext<P, V>, SessionError> {
         let ret = self
             .session_layer
-            .create_session(session_config, id)
+            .create_session(session_config, self.app_name.clone(), id)
             .await?;
 
         // return the session info
@@ -154,6 +158,14 @@ where
         self.session_layer.get_default_session_config(session_type)
     }
 
+    /// Get the app name
+    ///
+    /// Returns a reference to the name that was provided when the App was created.
+    /// This name is used for session management and message routing.
+    pub fn app_name(&self) -> &Name {
+        &self.app_name
+    }
+
     /// Send a message to the session layer
     async fn send_message_without_context(&self, mut msg: Message) -> Result<(), ServiceError> {
         // these messages are not associated to a session yet
@@ -164,7 +176,7 @@ where
             .map_err(ServiceError::SessionError)?;
 
         // Add the identity to the message metadata
-        msg.insert_metadata(SLIM_IDENTITY.to_string(), identity);
+        msg.get_slim_header_mut().set_identity(identity);
 
         self.session_layer
             .tx_slim()
@@ -180,13 +192,24 @@ where
     pub async fn subscribe(&self, name: &Name, conn: Option<u64>) -> Result<(), ServiceError> {
         debug!("subscribe {} - conn {:?}", name, conn);
 
+        // Set the ID in the name to be the one of this app
+        let name = name.clone().with_id(self.session_layer.app_id());
+
         let header = if let Some(c) = conn {
             Some(SlimHeaderFlags::default().with_forward_to(c))
         } else {
             Some(SlimHeaderFlags::default())
         };
-        let msg = Message::new_subscribe(self.session_layer.app_name(), name, header);
-        self.send_message_without_context(msg).await
+
+        let msg = Message::new_subscribe(&self.app_name, &name, None, header);
+
+        // Subscribe
+        self.send_message_without_context(msg).await?;
+
+        // Register the subscription
+        self.session_layer.add_app_name(name);
+
+        Ok(())
     }
 
     /// Unsubscribe the app
@@ -198,8 +221,16 @@ where
         } else {
             Some(SlimHeaderFlags::default())
         };
-        let msg = Message::new_subscribe(self.session_layer.app_name(), name, header);
-        self.send_message_without_context(msg).await
+
+        let msg = Message::new_subscribe(&self.app_name, name, None, header);
+
+        // Unsubscribe
+        self.send_message_without_context(msg).await?;
+
+        // Remove the subscription
+        self.session_layer.remove_app_name(name);
+
+        Ok(())
     }
 
     /// Set a route towards another app
@@ -208,8 +239,9 @@ where
 
         // send a message with subscription from
         let msg = Message::new_subscribe(
-            self.session_layer.app_name(),
+            &self.app_name,
             name,
+            None,
             Some(SlimHeaderFlags::default().with_recv_from(conn)),
         );
         self.send_message_without_context(msg).await
@@ -220,16 +252,18 @@ where
 
         //  send a message with unsubscription from
         let msg = Message::new_unsubscribe(
-            self.session_layer.app_name(),
+            &self.app_name,
             name,
+            None,
             Some(SlimHeaderFlags::default().with_recv_from(conn)),
         );
+
         self.send_message_without_context(msg).await
     }
 
     /// SLIM receiver loop
     pub(crate) fn process_messages(&self, mut rx: mpsc::Receiver<Result<Message, Status>>) {
-        let app_name = self.session_layer.app_name().clone();
+        let app_name = self.app_name.clone();
         let session_layer = self.session_layer.clone();
         let token_clone = self.cancel_token.clone();
 
@@ -237,7 +271,7 @@ where
             debug!("starting message processing loop for {}", app_name);
 
             // subscribe for local name running this loop
-            let subscribe_msg = Message::new_subscribe(&app_name, &app_name, None);
+            let subscribe_msg = Message::new_subscribe(&app_name, &app_name, None, None);
             let tx = session_layer.tx_slim();
             tx.send(Ok(subscribe_msg))
                 .await
@@ -306,10 +340,9 @@ mod tests {
     use super::*;
     use slim_session::point_to_point::PointToPointConfiguration;
 
-    use slim_auth::shared_secret::SharedSecret;
-    use slim_datapath::{
-        api::{ProtoMessage, ProtoSessionMessageType, ProtoSessionType},
-        messages::{Name, utils::SLIM_IDENTITY},
+    use slim_auth::{shared_secret::SharedSecret, testutils::TEST_VALID_SECRET};
+    use slim_datapath::api::{
+        ApplicationPayload, ProtoMessage, ProtoSessionMessageType, ProtoSessionType,
     };
 
     #[allow(dead_code)]
@@ -320,8 +353,8 @@ mod tests {
 
         App::new(
             &name,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
             0,
             tx_slim,
             tx_app,
@@ -337,8 +370,8 @@ mod tests {
 
         let app = App::new(
             &name,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
             0,
             tx_slim.clone(),
             tx_app.clone(),
@@ -365,8 +398,8 @@ mod tests {
 
         let session_layer = App::new(
             &name,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
             0,
             tx_slim.clone(),
             tx_app.clone(),
@@ -390,8 +423,8 @@ mod tests {
 
         let session_layer = App::new(
             &name,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
             0,
             tx_slim.clone(),
             tx_app.clone(),
@@ -420,8 +453,8 @@ mod tests {
 
         let app = App::new(
             &name,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
             0,
             tx_slim.clone(),
             tx_app.clone(),
@@ -456,13 +489,14 @@ mod tests {
             "weak pointer should be invalid after deletion"
         );
     }
+
     #[tokio::test]
     async fn test_handle_message_from_slim() {
         let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
         let name = Name::from_strings(["org", "ns", "type"]).with_id(0);
 
-        let identity = SharedSecret::new("a", "group");
+        let identity = SharedSecret::new("a", TEST_VALID_SECRET);
 
         let app = App::new(
             &name,
@@ -476,17 +510,17 @@ mod tests {
 
         let mut message = ProtoMessage::new_publish(
             &name,
-            &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
+            &Name::from_strings(["org", "ns", "type"]).with_id(0),
             None,
-            "msg",
-            vec![0x1, 0x2, 0x3, 0x4],
+            None,
+            Some(ApplicationPayload::new("msg", vec![0x1, 0x2, 0x3, 0x4]).as_content()),
         );
 
         // set the session id in the message
         let header = message.get_session_header_mut();
         header.session_id = 1;
-        header.set_session_type(ProtoSessionType::SessionPointToPoint);
-        header.set_session_message_type(ProtoSessionMessageType::P2PMsg);
+        header.set_session_type(ProtoSessionType::PointToPoint);
+        header.set_session_message_type(ProtoSessionMessageType::Msg);
 
         app.session_layer
             .handle_message_from_slim(message.clone())
@@ -499,8 +533,10 @@ mod tests {
         // As there is no identity, we should not get any message in the app
         assert!(rx_app.try_recv().is_err());
 
-        // Add identity to message
-        message.insert_metadata(SLIM_IDENTITY.to_string(), identity.get_token().unwrap());
+        // set the right identity
+        message
+            .get_slim_header_mut()
+            .set_identity(identity.get_token().unwrap());
 
         // Try again
         app.session_layer
@@ -538,7 +574,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
         let name = Name::from_strings(["org", "ns", "type"]).with_id(0);
 
-        let identity = SharedSecret::new("a", "group");
+        let identity = SharedSecret::new("a", TEST_VALID_SECRET);
 
         let app = App::new(
             &name,
@@ -564,15 +600,15 @@ mod tests {
             &source,
             &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
             None,
-            "msg",
-            vec![0x1, 0x2, 0x3, 0x4],
+            None,
+            Some(ApplicationPayload::new("msg", vec![0x1, 0x2, 0x3, 0x4]).as_content()),
         );
 
         // set the session id in the message
         let header = message.get_session_header_mut();
         header.session_id = 1;
-        header.set_session_type(ProtoSessionType::SessionPointToPoint);
-        header.set_session_message_type(ProtoSessionMessageType::P2PMsg);
+        header.set_session_type(ProtoSessionType::PointToPoint);
+        header.set_session_message_type(ProtoSessionMessageType::Msg);
 
         let res = app
             .session_layer
@@ -588,10 +624,346 @@ mod tests {
             .expect("no message received")
             .expect("error");
 
-        // Add identity to message
-        message.insert_metadata(SLIM_IDENTITY.to_string(), identity.get_token().unwrap());
+        msg.get_slim_header_mut().set_identity("".to_string());
 
         msg.set_message_id(0);
         assert_eq!(msg, message);
+    }
+
+    /// Test configuration for parameterized P2P session tests
+    struct P2PTestConfig {
+        test_name: &'static str,
+        subscriber_suffix: &'static str,
+        publisher_suffix: &'static str,
+        subscription_names: Vec<&'static str>,
+    }
+
+    /// Test configuration for parameterized multicast session tests
+    struct MulticastTestConfig {
+        test_name: &'static str,
+        moderator_suffix: &'static str,
+        channel_suffix: &'static str,
+        participant_suffixes: Vec<&'static str>,
+    }
+
+    /// Parameterized test template for point-to-point sessions with subscriptions.
+    ///
+    /// This test validates the following scenario:
+    /// 1. Creates 2 apps from the same service (subscriber and publisher)
+    /// 2. Subscriber app subscribes to the configured subscription names
+    /// 3. Publisher app creates point-to-point sessions targeting each subscription name
+    /// 4. Publisher sends messages through each session to initiate connections
+    /// 5. Subscriber receives session notifications and verifies:
+    ///    - Source name matches the publisher app name
+    ///    - Destination name matches the publisher app name (from subscriber's perspective)
+    ///    - Session type is PointToPoint
+    ///    - Correct number of sessions (matching subscription count) are received
+    async fn run_p2p_subscription_test(config: P2PTestConfig) {
+        use crate::service::Service;
+        use slim_config::component::id::{ID, Kind};
+        use slim_session::point_to_point::PointToPointConfiguration;
+
+        // Create a service instance with unique name
+        let service_name = format!("test-service-{}", config.test_name);
+        let id = ID::new_with_name(Kind::new("slim").unwrap(), &service_name).unwrap();
+        let service = Service::new(id);
+
+        // Create two apps from the same service
+        let subscriber_name =
+            Name::from_strings(["org", "ns", config.subscriber_suffix]).with_id(0);
+        let publisher_name = Name::from_strings(["org", "ns", config.publisher_suffix]).with_id(0);
+
+        let (subscriber_app, mut subscriber_notifications) = service
+            .create_app(
+                &subscriber_name,
+                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET),
+            )
+            .await
+            .unwrap();
+
+        let (publisher_app, _publisher_notifications) = service
+            .create_app(
+                &publisher_name,
+                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET),
+            )
+            .await
+            .unwrap();
+
+        // Generate subscription names based on configuration
+        let subscription_names: Vec<Name> = if config.subscription_names.len() == 1
+            && config.subscription_names[0] == "subscriber"
+        {
+            // Special case: subscribe to the subscriber's own name
+            vec![subscriber_name.clone()]
+        } else {
+            // Generate multiple subscription names
+            config
+                .subscription_names
+                .iter()
+                .map(|suffix| Name::from_strings(["org", "ns", suffix]).with_id(0))
+                .collect()
+        };
+
+        // Subscribe to all names with the subscriber app
+        for name in &subscription_names {
+            subscriber_app.subscribe(name, None).await.unwrap();
+        }
+
+        // Give some time for subscriptions to be processed
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        // Create point-to-point sessions from publisher app to each subscription name
+        let mut sessions = Vec::new();
+        for name in &subscription_names {
+            // Create session with the subscription name as peer
+
+            println!("Creating session to peer: {}", name);
+            let session_config = PointToPointConfiguration::default().with_peer_name(name.clone());
+            let session_ctx = publisher_app
+                .create_session(
+                    slim_session::SessionConfig::PointToPoint(session_config),
+                    None,
+                )
+                .await
+                .unwrap();
+
+            // Send a message through the session to initiate the connection
+            let session_arc = session_ctx.session_arc().unwrap();
+            let test_message = format!("hello {}", config.test_name).into_bytes();
+            session_arc
+                .publish(name, test_message, None, None)
+                .await
+                .unwrap();
+
+            sessions.push(session_ctx);
+        }
+
+        // Give some time for messages to be processed
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        // Collect received session notifications from subscriber app
+        let mut received_sessions = Vec::new();
+        while let Ok(notification) = subscriber_notifications.try_recv() {
+            match notification.unwrap() {
+                slim_session::notification::Notification::NewSession(session_ctx) => {
+                    received_sessions.push(session_ctx);
+                }
+                _ => continue,
+            }
+        }
+
+        // Verify we received sessions for each subscription
+        assert_eq!(received_sessions.len(), config.subscription_names.len());
+
+        // Test that the received session source information matches the publisher
+        let sub_names_set = subscription_names
+            .iter()
+            .collect::<std::collections::HashSet<_>>();
+        for session_ctx in received_sessions {
+            let session_arc = session_ctx.session_arc().unwrap();
+
+            println!("Verifying session ID: {}", session_arc.source());
+
+            // Check that the source matches is in sub_names_set
+            let src = session_arc.source();
+            println!("Session source: {}", src);
+            assert!(sub_names_set.contains(src));
+
+            // Verify it's a point-to-point session
+            assert_eq!(session_arc.kind(), slim_session::SessionType::PointToPoint);
+
+            // Verify the destination is the publisher app (from subscriber's perspective)
+            let dst = session_arc.dst().unwrap();
+            assert_eq!(dst, publisher_name);
+        }
+
+        // Verify we created sessions for each subscription
+        assert_eq!(sessions.len(), config.subscription_names.len());
+    }
+
+    /// Test point-to-point sessions with multiple different subscription names
+    #[tokio::test]
+    async fn test_p2p_sessions_with_multiple_subscriptions() {
+        let config = P2PTestConfig {
+            test_name: "multiple-subs",
+            subscriber_suffix: "subscriber",
+            publisher_suffix: "publisher",
+            subscription_names: vec!["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"],
+        };
+
+        run_p2p_subscription_test(config).await;
+    }
+
+    /// Test point-to-point sessions with the standard org/ns/subscriber name pattern
+    #[tokio::test]
+    async fn test_p2p_session_with_standard_subscriber_name() {
+        let config = P2PTestConfig {
+            test_name: "standard-name",
+            subscriber_suffix: "subscriber",
+            publisher_suffix: "publisher",
+            subscription_names: vec!["subscriber"], // Special marker to use subscriber's own name
+        };
+
+        run_p2p_subscription_test(config).await;
+    }
+
+    /// Parameterized test template for multicast sessions with multiple participants.
+    ///
+    /// This test validates the following scenario:
+    /// 1. Creates multiple apps from the same service (1 moderator + N participants)
+    /// 2. Participants subscribe to the multicast channel name
+    /// 3. Moderator creates a multicast session with the channel name
+    /// 4. Moderator invites all participants to the multicast session
+    /// 5. Moderator sends messages through the multicast session
+    /// 6. Participants receive session notifications and verify:
+    ///    - Source name matches the channel name (multicast sessions use channel as source)
+    ///    - Destination name matches the channel name
+    ///    - Session type is Multicast
+    ///    - Correct number of sessions are received
+    async fn run_multicast_test(config: MulticastTestConfig) {
+        use crate::service::Service;
+        use slim_config::component::id::{ID, Kind};
+        use slim_session::multicast::MulticastConfiguration;
+        use std::collections::HashMap;
+
+        // Create a service instance with unique name
+        let service_name = format!("test-service-{}", config.test_name);
+        let id = ID::new_with_name(Kind::new("slim").unwrap(), &service_name).unwrap();
+        let service = Service::new(id);
+
+        // Create moderator app
+        let moderator_name = Name::from_strings(["org", "ns", config.moderator_suffix]).with_id(0);
+        let (moderator_app, mut _moderator_notifications) = service
+            .create_app(
+                &moderator_name,
+                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET),
+            )
+            .await
+            .unwrap();
+
+        // Create participant apps and collect their notification channels
+        let mut participant_apps = Vec::new();
+        let mut participant_notifications = Vec::new();
+        let mut participant_names = Vec::new();
+
+        for suffix in &config.participant_suffixes {
+            let participant_name = Name::from_strings(["org", "ns", suffix]).with_id(0);
+            let (app, notifications) = service
+                .create_app(
+                    &participant_name,
+                    SharedSecret::new("a", TEST_VALID_SECRET),
+                    SharedSecret::new("a", TEST_VALID_SECRET),
+                )
+                .await
+                .unwrap();
+
+            participant_apps.push(app);
+            participant_notifications.push(notifications);
+            participant_names.push(participant_name);
+        }
+
+        // Create multicast channel name
+        let channel_name = Name::from_strings(["org", "ns", config.channel_suffix]).with_id(0);
+
+        // Have all participants subscribe to the channel
+        for app in &participant_apps {
+            app.subscribe(&channel_name, None).await.unwrap();
+        }
+
+        // Give some time for subscriptions to be processed
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        // Create multicast session from moderator
+        let multicast_config = MulticastConfiguration::new(
+            channel_name.clone(),
+            Some(5),
+            Some(std::time::Duration::from_millis(1000)),
+            false,
+            HashMap::new(),
+        );
+
+        let session_ctx = moderator_app
+            .create_session(
+                slim_session::SessionConfig::Multicast(multicast_config),
+                None,
+            )
+            .await
+            .unwrap();
+
+        let session_arc = session_ctx.session_arc().unwrap();
+
+        // Invite all participants to the multicast session
+        for participant_name in &participant_names {
+            session_arc
+                .invite_participant(participant_name)
+                .await
+                .unwrap();
+        }
+
+        // Send a test message through the multicast session
+        let test_message = format!("multicast hello {}", config.test_name).into_bytes();
+        session_arc
+            .publish(&channel_name, test_message, None, None)
+            .await
+            .unwrap();
+
+        // Give some time for messages to be processed
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+        // Collect received session notifications from all participants
+        let mut total_received_sessions = 0;
+
+        for (i, mut notifications) in participant_notifications.into_iter().enumerate() {
+            let mut participant_sessions = Vec::new();
+
+            while let Ok(notification) = notifications.try_recv() {
+                match notification.unwrap() {
+                    slim_session::notification::Notification::NewSession(session_ctx) => {
+                        participant_sessions.push(session_ctx);
+                    }
+                    _ => continue,
+                }
+            }
+
+            // Each participant should receive exactly one session notification
+            assert_eq!(
+                participant_sessions.len(),
+                1,
+                "Participant {} should receive exactly 1 session",
+                i
+            );
+
+            // Verify session information for this participant
+            let received_session = &participant_sessions[0];
+            let session_arc = received_session.session_arc().unwrap();
+
+            // Verify it's a multicast session
+            assert_eq!(session_arc.kind(), slim_session::SessionType::Multicast);
+
+            // For multicast sessions, the destination is also the channel name
+            let dst = session_arc.dst().unwrap();
+            assert_eq!(dst, channel_name);
+
+            total_received_sessions += participant_sessions.len();
+        }
+
+        // Verify total number of session notifications matches number of participants
+        assert_eq!(total_received_sessions, config.participant_suffixes.len());
+    }
+
+    /// Test multicast sessions with many participants
+    #[tokio::test]
+    async fn test_multicast_session_with_many_participants() {
+        let config = MulticastTestConfig {
+            test_name: "many-participants",
+            moderator_suffix: "leader",
+            channel_suffix: "broadcast",
+            participant_suffixes: vec!["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"],
+        };
+
+        run_multicast_test(config).await;
     }
 }

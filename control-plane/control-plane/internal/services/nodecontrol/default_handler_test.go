@@ -36,7 +36,8 @@ func TestWaitForResponseByType_ControlMessage_Ack_Failure(t *testing.T) {
 
 	// Wait for message from node1 specifically
 	start := time.Now()
-	_, err := ms.WaitForResponse(ctx, "node1", reflect.TypeOf(&controllerapi.ControlMessage_Ack{}), "notReceivedMessageID")
+	_, err := ms.WaitForResponseWithTimeout(ctx, "node1", reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
+		"notReceivedMessageID", 10*time.Second)
 	duration := time.Since(start)
 
 	if err == nil {
@@ -71,8 +72,8 @@ func TestWaitForResponseByType_ControlMessage_Ack_Success(t *testing.T) {
 	}()
 
 	// Wait for message from node1 specifically
-	foundMsg, err := ms.WaitForResponse(ctx, "node1",
-		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}), "originalMessageId")
+	foundMsg, err := ms.WaitForResponseWithTimeout(ctx, "node1",
+		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}), "originalMessageId", 10*time.Second)
 	if err != nil {
 		t.Fatalf("unexpected error waiting for node1 message: %v", err)
 	}
@@ -155,7 +156,8 @@ func TestWaitForResponseByType_Timeout(t *testing.T) {
 	ctx := context.Background()
 	// This should timeout since no message will be received
 	start := time.Now()
-	_, err := ms.WaitForResponse(ctx, "node1", reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}), "")
+	_, err := ms.WaitForResponseWithTimeout(ctx, "node1",
+		reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}), "", 10*time.Second)
 	duration := time.Since(start)
 
 	if err == nil {

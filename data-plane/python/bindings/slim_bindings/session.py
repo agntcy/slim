@@ -3,15 +3,15 @@
 
 from __future__ import annotations
 
+import datetime
+
 from ._slim_bindings import (
     PyMessageContext,
     PyName,
-    PyService,
     PySessionConfiguration,
     PySessionContext,
     PySessionType,
 )
-from ._slim_bindings import delete_session as _delete_session
 from ._slim_bindings import (
     get_message as _get_message,
 )
@@ -20,6 +20,9 @@ from ._slim_bindings import (
 )
 from ._slim_bindings import (
     publish as _publish,
+)
+from ._slim_bindings import (
+    publish_to as _publish_to,
 )
 from ._slim_bindings import (
     remove as _remove,
@@ -56,8 +59,7 @@ class PySession:
         dst (PyName): Destination name (PointToPoint), Channel name (group)
     """
 
-    def __init__(self, svc: PyService, ctx: PySessionContext):
-        self._svc = svc
+    def __init__(self, ctx: PySessionContext):
         self._ctx = ctx
 
     @property
@@ -122,7 +124,6 @@ class PySession:
         """
 
         await _publish(
-            self._svc,
             self._ctx,
             1,
             msg,
@@ -158,12 +159,10 @@ class PySession:
             RuntimeError (wrapped) if sending fails or the session is closed.
         """
 
-        await _publish(
-            self._svc,
+        await _publish_to(
             self._ctx,
-            1,
+            message_ctx,
             msg,
-            message_ctx=message_ctx,
             payload_type=payload_type,
             metadata=metadata,
         )
@@ -177,7 +176,7 @@ class PySession:
         Raises:
             RuntimeError (wrapped) if the invite fails.
         """
-        await _invite(self._svc, self._ctx, name)
+        await _invite(self._ctx, name)
 
     async def remove(self, name: PyName) -> None:
         """Remove (eject) a participant from this session. Only works for Group.
@@ -188,10 +187,10 @@ class PySession:
         Raises:
             RuntimeError (wrapped) if removal fails.
         """
-        await _remove(self._svc, self._ctx, name)
+        await _remove(self._ctx, name)
 
     async def get_message(
-        self,
+        self, timeout: datetime.timedelta | None = None
     ) -> tuple[PyMessageContext, bytes]:  # PyMessageContext, blob
         """Wait for and return the next inbound message.
 
@@ -202,16 +201,7 @@ class PySession:
         Raises:
             RuntimeError (wrapped) if the session is closed or receive fails.
         """
-        return await _get_message(self._svc, self._ctx)
-
-    async def delete(self) -> None:
-        """Terminate the session and release associated resources."""
-        await _delete_session(self._svc, self._ctx)
-
-    # Convenience aliases
-    async def recv(self) -> tuple[PyMessageContext, bytes]:
-        """Alias for `get_message()`."""
-        return await self.get_message()
+        return await _get_message(self._ctx, timeout)
 
 
 __all__ = [

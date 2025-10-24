@@ -37,6 +37,8 @@ type RouteManager interface {
 
 	AddRoute(ctx context.Context, route routes.Route) (string, error)
 	DeleteRoute(ctx context.Context, route routes.Route) error
+
+	ListRoutes(ctx context.Context, request *controlplaneApi.RouteListRequest) (*controlplaneApi.RouteListResponse, error)
 }
 
 type nbAPIService struct {
@@ -66,7 +68,7 @@ func NewNorthboundAPIServer(
 	return cpServer
 }
 
-func (s *nbAPIService) ListRoutes(
+func (s *nbAPIService) ListSubscriptions(
 	ctx context.Context,
 	node *controlplaneApi.Node,
 ) (*controllerapi.SubscriptionListResponse, error) {
@@ -320,4 +322,10 @@ func isSubscriptionSameAsModerator(
 	return subscription.Component_0 == organization &&
 		subscription.Component_1 == namespace &&
 		subscription.Component_2 == agentType
+}
+
+func (s *nbAPIService) ListRoutes(ctx context.Context,
+	request *controlplaneApi.RouteListRequest) (*controlplaneApi.RouteListResponse, error) {
+
+	return s.routeService.ListRoutes(ctx, request)
 }
