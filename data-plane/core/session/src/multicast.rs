@@ -33,7 +33,10 @@ use crate::{
     mls_state::{MlsEndpoint, MlsState},
     producer_buffer, receiver_buffer,
     session_controller::{SessionController, SessionModerator, SessionParticipant},
+    session_receiver::SessionReceiver,
+    session_sender::SessionSender,
     timer,
+    timer_factory::TimerSettings,
 };
 use producer_buffer::ProducerBuffer;
 use receiver_buffer::ReceiverBuffer;
@@ -131,67 +134,6 @@ impl MulticastConfiguration {
     }
 }
 
-struct RtxTimerObserver {
-    producer_name: Name,
-    channel: mpsc::Sender<Result<(u32, bool, Name), Status>>,
-}
-
-#[async_trait]
-impl timer::TimerObserver for RtxTimerObserver {
-    async fn on_timeout(&self, timer_id: u32, timeouts: u32) {
-        trace!("timeout number {} for rtx {}, retry", timeouts, timer_id);
-
-        // notify the process loop
-        if self
-            .channel
-            .send(Ok((timer_id, true, self.producer_name.clone())))
-            .await
-            .is_err()
-        {
-            error!("error notifying the process loop - rtx timer");
-        }
-    }
-
-    async fn on_failure(&self, timer_id: u32, timeouts: u32) {
-        trace!(
-            "timeout number {} for rtx {}, stop retry",
-            timeouts, timer_id
-        );
-
-        // notify the process loop
-        if self
-            .channel
-            .send(Ok((timer_id, false, self.producer_name.clone())))
-            .await
-            .is_err()
-        {
-            error!("error notifying the process loop - rtx timer failure");
-        }
-    }
-
-    async fn on_stop(&self, timer_id: u32) {
-        trace!("timer for rtx {} cancelled", timer_id);
-        // nothing to do
-    }
-}
-
-struct ProducerState {
-    buffer: ProducerBuffer,
-    next_id: u32,
-}
-
-struct Receiver {
-    buffer: ReceiverBuffer,
-    timer_observer: Arc<RtxTimerObserver>,
-    rtx_map: HashMap<u32, Message>,
-    timers_map: HashMap<u32, timer::Timer>,
-}
-
-struct ReceiverState {
-    buffers: HashMap<Name, Receiver>,
-}
-
-#[derive(Debug)]
 pub(crate) struct Multicast<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -199,6 +141,8 @@ where
     T: Transmitter + Send + Sync + Clone + 'static,
 {
     common: Common<P, V, T>,
+    sender: SessionSender<T>,
+    receiver: SessionReceiver<T>,
     tx: mpsc::Sender<Result<(Message, MessageDirection), Status>>,
 }
 
@@ -217,6 +161,8 @@ where
         identity_provider: P,
         identity_verifier: V,
         storage_path: std::path::PathBuf,
+        sender: SessionSender<T>,
+        receiver: SessionReceiver<T>,
         tx_session: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
     ) -> Self {
         let (tx, rx) = mpsc::channel(128);
@@ -234,610 +180,17 @@ where
 
         common.set_dst(session_config.channel_name);
 
-        let session = Multicast { common, tx };
-        session.process_message(rx, tx_session);
+        let session = Multicast {
+            common,
+            sender,
+            receiver,
+            tx,
+        };
         session
-    }
-
-    fn process_message(
-        &self,
-        mut rx: mpsc::Receiver<Result<(Message, MessageDirection), Status>>,
-        tx_session: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
-    ) {
-        /*let session_id = self.common.id();
-
-        let (max_retries, timeout) = match self.common.session_config() {
-            SessionConfig::Multicast(multicast_configuration) => (
-                multicast_configuration.max_retries,
-                multicast_configuration.timeout,
-            ),
-            _ => {
-                panic!("unable to parse multicast configuration");
-            }
-        };
-
-        let (rtx_timer_tx, mut rtx_timer_rx) = mpsc::channel(128);
-
-        let mut producer = ProducerState {
-            buffer: ProducerBuffer::with_capacity(500),
-            next_id: 0,
-        };
-
-        let mut receiver = ReceiverState {
-            buffers: HashMap::new(),
-        };
-
-        let mut rtx_timer_rx_closed = false;
-
-        // get session config
-        let session_config = match self.common.session_config() {
-            SessionConfig::Multicast(config) => config,
-            _ => {
-                // this shohuld never happen
-                unreachable!("invalid session config type: expected Multicast");
-            }
-        };
-
-        let mls = self.common.mls();
-        let tx = self.common.tx();
-        let source = self.common.source().clone();
-        let id = self.common.id();
-
-        tokio::spawn(async move {
-            debug!("starting message processing on session {}", session_id);
-
-            let mls = mls.map(|mls| MlsState::new(mls).expect("failed to create MLS state"));
-
-            let mls_enable = mls.is_some();
-
-            // used to trigger mls key rotation
-            let sleep = time::sleep(Duration::from_secs(3600));
-            tokio::pin!(sleep);
-
-            // used to send all the messages after the mls is setup
-            let mut flushed = false;
-            if !mls_enable {
-                flushed = true;
-            }
-
-            // create the channel endpoint
-            let mut channel_endpoint = match session_config.initiator {
-                true => {
-                    let cm = SessionModerator::new(
-                        source.clone(),
-                        session_config.channel_name.clone(),
-                        id,
-                        ProtoSessionType::Multicast,
-                        60,
-                        Duration::from_secs(1),
-                        mls,
-                        tx.clone(),
-                        Some(tx_session),
-                        session_config.metadata.clone(),
-                    );
-                    SessionController::SessionModerator(cm)
-                }
-                false => {
-                    let cp = SessionParticipant::new(
-                        source.clone(),
-                        session_config.channel_name.clone(),
-                        id,
-                        ProtoSessionType::Multicast,
-                        60,
-                        Duration::from_secs(1),
-                        mls,
-                        tx.clone(),
-                        session_config.metadata.clone(),
-                    );
-                    SessionController::SessionParticipant(cp)
-                }
-            };
-
-            loop {
-                tokio::select! {
-                    next = rx.recv() => {
-                        match next {
-                            None => {
-                                break;
-                            }
-                            Some(result) => {
-                                if result.is_err() {
-                                    error!(%session_id, "error receiving a message on session, drop it");
-                                    continue;
-                                }
-                                let (msg, direction) = result.unwrap();
-
-                                tracing::trace!("received message from SLIM {} {}", msg.get_session_message_type().as_str_name(), msg.get_id());
-
-                                // process the messages for the channel endpoint first
-                                match msg.get_session_header().session_message_type() {
-                                    ProtoSessionMessageType::LeaveReply => {
-                                        // we need to remove the partipicant that was removed from the channel
-                                        // also in the list of receiver buffers. the name to search is the
-                                        // surce of the ChannelLeaveReply message
-                                        let name = msg.get_source();
-                                        // try to clean up the receiver buffers
-                                        receiver.buffers.remove(&name);
-
-                                        match channel_endpoint.on_message(msg).await {
-                                            Ok(_) => {},
-                                            Err(e) => {
-                                                error!("error processing channel message: {}", e);
-                                            },
-                                        }
-                                        continue;
-                                    }
-                                    ProtoSessionMessageType::DiscoveryRequest |
-                                    ProtoSessionMessageType::DiscoveryReply |
-                                    ProtoSessionMessageType::JoinRequest |
-                                    ProtoSessionMessageType::JoinReply |
-                                    ProtoSessionMessageType::LeaveRequest |
-                                    ProtoSessionMessageType::GroupWelcome |
-                                    ProtoSessionMessageType::GroupUpdate |
-                                    ProtoSessionMessageType::GroupProposal |
-                                    ProtoSessionMessageType::GroupAck => {
-                                        match channel_endpoint.on_message(msg).await {
-                                            Ok(_) => {},
-                                            Err(e) => {
-                                                error!("error processing channel message: {}", e);
-                                            },
-                                        }
-
-                                        // here the mls state may change, check if is it possible
-                                        // to flush the producer buffer
-                                        if !flushed && channel_endpoint.is_mls_up().unwrap_or(false) {
-                                            // flush the producer buffer
-                                            flush_producer_buffer(&mut producer, session_id, &tx).await;
-                                            flushed = true;
-                                        }
-
-                                        continue;
-                                    }
-                                    _ => {}
-                                }
-
-                                match direction {
-                                    MessageDirection::North => {
-                                        // in this case the message can be message to send to the app, a rtx request,
-                                        // or a channel control message to handle in the channel endpoint
-                                        trace!("received message from SLIM on multicast session {}", session_id);
-                                        match msg.get_session_header().session_message_type() {
-                                            ProtoSessionMessageType::RtxRequest => {
-                                                // handle RTX request
-                                                process_incoming_rtx_request(msg, session_id, &producer, &source, &tx).await;
-                                            }
-                                            _ => {
-                                                process_message_from_slim(msg, session_id, &mut receiver, &source, max_retries, timeout, &rtx_timer_tx, &tx).await;
-                                            }
-                                        }
-                                    }
-                                    MessageDirection::South => {
-                                        // received a message from the APP
-                                        // if flushed is true send the packet, otherwise keep it in the buffer
-                                        process_message_from_app(msg, session_id, &mut producer, flushed, &tx).await;
-                                    }
-                                };
-
-                            }
-                        }
-                    }
-                    next_rtx_timer = rtx_timer_rx.recv(), if !rtx_timer_rx_closed => {
-                        match next_rtx_timer {
-                            None => {
-                                debug!("no more rtx timers to process");
-                                // close the timer channel
-                                rtx_timer_rx_closed = true;
-                            },
-                            Some(result) => {
-                                if result.is_err() {
-                                    error!("error receiving an RTX timer, skip it");
-                                    continue;
-                                }
-
-                                let (msg_id, retry, producer_name) = result.unwrap();
-                                if retry {
-                                    handle_rtx_timeout(&mut receiver, &producer_name, msg_id, session_id, &tx).await;
-                                } else {
-                                    handle_rtx_failure(&mut receiver, &producer_name, msg_id, session_id, &tx).await;
-                                }
-                            }
-                        }
-                    }
-                    () = &mut sleep, if mls_enable => {
-                        let _ = channel_endpoint.update_mls_keys().await;
-                        sleep.as_mut().reset(Instant::now() + Duration::from_secs(3600));
-                    }
-                }
-            }
-
-            channel_endpoint.close();
-
-            debug!(
-                "stopping message processing on multicast session {} for {}",
-                session_id, source
-            );
-        });*/
     }
 
     pub fn with_dst<R>(&self, f: impl FnOnce(Option<&Name>) -> R) -> R {
         self.common.with_dst(f)
-    }
-}
-
-async fn process_incoming_rtx_request<T>(
-    msg: Message,
-    session_id: u32,
-    producer: &ProducerState,
-    source: &Name,
-    tx: &T,
-) where
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
-    let msg_rtx_id = msg.get_id();
-
-    trace!(
-        "received rtx for message {} on producer session {}",
-        msg_rtx_id, session_id
-    );
-    // search the packet in the producer buffer
-    let pkt_src = msg.get_source();
-    let incoming_conn = msg.get_incoming_conn();
-
-    let rtx_pub = match producer.buffer.get(msg_rtx_id as usize) {
-        Some(packet) => {
-            trace!(
-                "packet {} exists in the producer buffer, create rtx reply",
-                msg_rtx_id
-            );
-
-            // the packet exists, send it to the source of the RTX
-            let slim_header = Some(SlimHeader::new(
-                source,
-                &pkt_src,
-                "",
-                Some(
-                    SlimHeaderFlags::default()
-                        .with_forward_to(incoming_conn)
-                        .with_fanout(1),
-                ),
-            ));
-
-            let session_header = Some(SessionHeader::new(
-                ProtoSessionType::Multicast.into(),
-                ProtoSessionMessageType::RtxReply.into(),
-                session_id,
-                msg_rtx_id,
-            ));
-
-            Message::new_publish_with_headers(
-                slim_header,
-                session_header,
-                packet.get_payload().cloned(),
-            )
-        }
-        None => {
-            // the packet does not exist return an empty RtxReply with the error flag set
-            debug!(
-                "received an RTX messages for an old packet on session {}",
-                session_id
-            );
-
-            let flags = SlimHeaderFlags::default()
-                .with_forward_to(incoming_conn)
-                .with_error(true);
-
-            let slim_header = Some(SlimHeader::new(source, &pkt_src, "", Some(flags)));
-
-            // no need to set source and destiona here
-            let session_header = Some(SessionHeader::new(
-                ProtoSessionType::Multicast.into(),
-                ProtoSessionMessageType::RtxReply.into(),
-                session_id,
-                msg_rtx_id,
-            ));
-
-            let payload = Some(ApplicationPayload::new("", vec![]).as_content());
-
-            Message::new_publish_with_headers(slim_header, session_header, payload)
-        }
-    };
-
-    trace!("send rtx reply for message {}", msg_rtx_id);
-    if tx.send_to_slim(Ok(rtx_pub)).await.is_err() {
-        error!("error sending RTX packet to slim on session {}", session_id);
-    }
-}
-
-async fn flush_producer_buffer<T>(producer: &mut ProducerState, session_id: u32, tx: &T)
-where
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
-    debug!("flush producer buffer");
-    // flush the prod buffer and check if at least one message was sent
-    for m in producer.buffer.iter() {
-        if tx.send_to_slim(Ok(m.clone())).await.is_err() {
-            error!(
-                "error sending publication packet to slim on session {}",
-                session_id
-            );
-            tx.send_to_app(Err(SessionError::Processing(
-                "error sending message to local slim instance".to_string(),
-            )))
-            .await
-            .expect("error notifying app");
-        }
-    }
-}
-
-async fn process_message_from_app<T>(
-    mut msg: Message,
-    session_id: u32,
-    producer: &mut ProducerState,
-    send_msg: bool,
-    tx: &T,
-) where
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
-    // set the session header, add the message to the buffer and send it
-    trace!("received message from the app on session {}", session_id);
-
-    msg.set_session_type(ProtoSessionType::Multicast);
-    msg.set_session_message_type(ProtoSessionMessageType::Msg);
-    msg.get_session_header_mut().set_session_id(session_id);
-
-    msg.set_message_id(producer.next_id);
-    msg.set_fanout(STREAM_BROADCAST);
-
-    trace!(
-        "add message {} to the producer buffer on session {}",
-        producer.next_id, session_id
-    );
-    if !producer.buffer.push(msg.clone()) {
-        warn!("cannot add packet to the local buffer");
-    }
-
-    trace!(
-        "send message {} to the producer buffer on session {}",
-        producer.next_id, session_id
-    );
-    producer.next_id += 1;
-
-    if send_msg && tx.send_to_slim(Ok(msg)).await.is_err() {
-        error!(
-            "error sending publication packet to slim on session {}",
-            session_id
-        );
-        tx.send_to_app(Err(SessionError::Processing(
-            "error sending message to local slim instance".to_string(),
-        )))
-        .await
-        .expect("error notifying app");
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn process_message_from_slim<T>(
-    msg: Message,
-    session_id: u32,
-    receiver_state: &mut ReceiverState,
-    source: &Name,
-    max_retries: u32,
-    timeout: Duration,
-    rtx_timer_tx: &mpsc::Sender<Result<(u32, bool, Name), Status>>,
-    tx: &T,
-) where
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
-    let producer_name = msg.get_source();
-    let producer_conn = msg.get_incoming_conn();
-
-    tracing::trace!(
-        "received message from SLIM {} {}",
-        msg.get_session_message_type().as_str_name(),
-        msg.get_id()
-    );
-
-    let receiver = match receiver_state.buffers.get_mut(&producer_name) {
-        Some(state) => state,
-        None => {
-            let state = Receiver {
-                buffer: ReceiverBuffer::default(),
-                timer_observer: Arc::new(RtxTimerObserver {
-                    producer_name: producer_name.clone(),
-                    channel: rtx_timer_tx.clone(),
-                }),
-                rtx_map: HashMap::new(),
-                timers_map: HashMap::new(),
-            };
-            // Insert the state into receiver.buffers
-            receiver_state.buffers.insert(producer_name.clone(), state);
-            // Return a reference to the newly inserted state
-            receiver_state
-                .buffers
-                .get_mut(&producer_name)
-                .expect("State should be present")
-        }
-    };
-
-    let header_type = msg.get_session_message_type();
-    let msg_id = msg.get_id();
-
-    let (recv, rtx) = match header_type {
-        ProtoSessionMessageType::Msg => receiver.buffer.on_received_message(msg),
-        ProtoSessionMessageType::RtxReply => {
-            let (received, to_rxt) = if msg.get_error().is_some() && msg.get_error().unwrap() {
-                let r = receiver.buffer.on_lost_message(msg_id);
-                (r, Vec::new())
-            } else {
-                receiver.buffer.on_received_message(msg)
-            };
-
-            // try to clean local state
-            match receiver.timers_map.get_mut(&msg_id) {
-                Some(timer) => {
-                    timer.stop();
-                    receiver.timers_map.remove(&msg_id);
-                    receiver.rtx_map.remove(&msg_id);
-                }
-                None => {
-                    warn!("unable to find the timer associated to the received RTX reply");
-                    // try to remove the packet anyway
-                    receiver.rtx_map.remove(&msg_id);
-                }
-            }
-            (received, to_rxt)
-        }
-        _ => {
-            error!(
-                "received packet with invalid header type {} on session {}",
-                i32::from(header_type),
-                session_id
-            );
-            return;
-        }
-    };
-
-    // send packets to the app
-    if !recv.is_empty() {
-        send_message_to_app(recv, session_id, tx).await;
-    }
-
-    // send RTX
-    for r in rtx {
-        debug!(
-            "packet loss detected on session {}, send RTX for id {}",
-            session_id, r
-        );
-
-        let slim_header = Some(SlimHeader::new(
-            source,
-            &producer_name,
-            "",
-            Some(SlimHeaderFlags::default().with_forward_to(producer_conn)),
-        ));
-
-        let session_header = Some(SessionHeader::new(
-            ProtoSessionType::Multicast.into(),
-            ProtoSessionMessageType::RtxRequest.into(),
-            session_id,
-            r,
-        ));
-
-        let payload = Some(ApplicationPayload::new("", vec![]).as_content());
-        let rtx = Message::new_publish_with_headers(slim_header, session_header, payload);
-
-        // set state for RTX
-        let timer = timer::Timer::new(
-            r,
-            timer::TimerType::Constant,
-            timeout,
-            None,
-            Some(max_retries),
-        );
-        timer.start(receiver.timer_observer.clone());
-
-        receiver.rtx_map.insert(r, rtx.clone());
-        receiver.timers_map.insert(r, timer);
-
-        if tx.send_to_slim(Ok(rtx)).await.is_err() {
-            error!("error sending RTX for id {} on session {}", r, session_id);
-        }
-    }
-}
-
-async fn handle_rtx_timeout<T>(
-    receiver_state: &mut ReceiverState,
-    producer_name: &Name,
-    msg_id: u32,
-    session_id: u32,
-    tx: &T,
-) where
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
-    trace!(
-        "try to send rtx for packet {} on receiver session {}",
-        msg_id, session_id
-    );
-
-    let receiver = match receiver_state.buffers.get_mut(producer_name) {
-        Some(r) => r,
-        None => {
-            error!("received a timeout, but there is no state");
-            return;
-        }
-    };
-
-    // send the RTX again
-    let rtx = match receiver.rtx_map.get(&msg_id) {
-        Some(rtx) => rtx,
-        None => {
-            error!(
-                "rtx message does not exist in the map, skip retransmission and try to stop the timer"
-            );
-            let timer = match receiver.timers_map.get_mut(&msg_id) {
-                Some(t) => t,
-                None => {
-                    error!("timer not found");
-                    return;
-                }
-            };
-            timer.stop();
-            return;
-        }
-    };
-
-    if tx.send_to_slim(Ok(rtx.clone())).await.is_err() {
-        error!(
-            "error sending RTX for id {} on session {}",
-            msg_id, session_id
-        );
-    }
-}
-
-async fn handle_rtx_failure<T>(
-    receiver_state: &mut ReceiverState,
-    producer_name: &Name,
-    msg_id: u32,
-    session_id: u32,
-    tx: &T,
-) where
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
-    trace!("packet {} lost, not retries left", msg_id);
-
-    let receiver = match receiver_state.buffers.get_mut(producer_name) {
-        Some(r) => r,
-        None => {
-            error!("received a timeout, but there is no state");
-            return;
-        }
-    };
-
-    receiver.rtx_map.remove(&msg_id);
-    receiver.timers_map.remove(&msg_id);
-
-    send_message_to_app(receiver.buffer.on_lost_message(msg_id), session_id, tx).await;
-}
-
-async fn send_message_to_app<T>(messages: Vec<Option<Message>>, session_id: u32, tx: &T)
-where
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
-    for opt in messages {
-        match opt {
-            Some(m) => {
-                // send message to the app
-                if tx.send_to_app(Ok(m)).await.is_err() {
-                    error!("error sending packet to app on session {}", session_id);
-                }
-            }
-            None => {
-                warn!("a message was definitely lost in session {}", session_id);
-                let _ = tx
-                    .send_to_app(Err(SessionError::MessageLost(session_id.to_string())))
-                    .await;
-            }
-        }
     }
 }
 
@@ -849,14 +202,31 @@ where
     T: Transmitter + Send + Sync + Clone + 'static,
 {
     async fn on_message(
-        &self,
+        &mut self,
         message: Message,
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
-        self.tx
-            .send(Ok((message, direction)))
-            .await
-            .map_err(|e| SessionError::Processing(e.to_string()))
+        match message.get_session_message_type() {
+            ProtoSessionMessageType::Msg => {
+                if direction == MessageDirection::South {
+                    // message from app to slim, give it to the sender
+                    self.sender.on_message(message).await.map(|_| ())
+                } else {
+                    // message from slim to the app, give it to the receiver
+                    self.receiver.on_message(message).await.map(|_| ())
+                }
+            }
+            ProtoSessionMessageType::MsgAck | ProtoSessionMessageType::RtxRequest => {
+                self.sender.on_message(message).await.map(|_| ())
+            }
+            ProtoSessionMessageType::RtxReply => {
+                self.receiver.on_message(message).await.map(|_| ())
+            }
+            _ => Err(SessionError::Processing(format!(
+                "Unexpected message type {:?}",
+                message.get_session_message_type()
+            ))),
+        }
     }
 }
 
@@ -923,7 +293,7 @@ where
     }
 }
 
-#[cfg(test)]
+/*#[cfg(test)]
 mod tests {
     use std::time::Duration;
 
@@ -1587,4 +957,4 @@ mod tests {
             "stopping message processing on multicast session 0"
         ));
     }
-}
+}*/

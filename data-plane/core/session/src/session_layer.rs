@@ -4,6 +4,7 @@
 // Standard library imports
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Duration;
 
 // Third-party crates
 use parking_lot::RwLock as SyncRwLock;
@@ -16,11 +17,15 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType};
 use slim_datapath::messages::Name;
 
-use crate::MessageHandler;
 use crate::common::SessionMessage;
+use crate::controller_sender::ControllerSender;
 use crate::notification::Notification;
 use crate::session_controller::{SessionController, SessionModerator, SessionParticipant};
+use crate::session_receiver::SessionReceiver;
+use crate::session_sender::SessionSender;
+use crate::timer_factory::TimerSettings;
 use crate::transmitter::{AppTransmitter, SessionTransmitter};
+use crate::{MessageHandler, timer};
 
 // Local crate
 use super::context::SessionContext;
@@ -228,20 +233,74 @@ where
 
         let initiator = session_config.initiator();
 
+        // create the senders and receiver
+        let controller_timer_settings = TimerSettings {
+            duration: Duration::from_secs(1),
+            max_duration: None,
+            max_retries: Some(10),
+            timer_type: timer::TimerType::Constant,
+        };
+
+        let (tx_controller, rx_controller) = tokio::sync::mpsc::channel(128);
+
+        let session_timer_settings = if let Some(duration) = session_config.timer_duration() {
+            Some(TimerSettings {
+                duration,
+                max_duration: None,
+                max_retries: session_config.max_retries(),
+                timer_type: timer::TimerType::Constant,
+            })
+        } else {
+            None
+        };
+
+        let controller_sender = ControllerSender::new(
+            controller_timer_settings,
+            self.transmitter.clone(),
+            tx_controller.clone(),
+        );
+        let sender = SessionSender::new(
+            session_timer_settings.clone(),
+            id,
+            tx.clone(),
+            Some(tx_controller.clone()),
+        );
+        let send_acks = session_timer_settings.is_some();
+
         // create a new session
         let session = match session_config {
-            SessionConfig::PointToPoint(conf) => Arc::new(Session::from_point_to_point(
-                super::point_to_point::PointToPoint::new(
+            SessionConfig::PointToPoint(conf) => {
+                let _receiver = SessionReceiver::new(
+                    session_timer_settings.clone(),
                     id,
-                    conf,
-                    local_name,
+                    local_name.clone(),
+                    ProtoSessionType::PointToPoint,
+                    send_acks,
                     tx.clone(),
-                    self.identity_provider.clone(),
-                    self.identity_verifier.clone(),
-                    self.storage_path.clone(),
-                ),
-            )),
+                    Some(tx_controller.clone()),
+                );
+                Arc::new(Session::from_point_to_point(
+                    super::point_to_point::PointToPoint::new(
+                        id,
+                        conf,
+                        local_name,
+                        tx.clone(),
+                        self.identity_provider.clone(),
+                        self.identity_verifier.clone(),
+                        self.storage_path.clone(),
+                    ),
+                ))
+            }
             SessionConfig::Multicast(conf) => {
+                let receiver = SessionReceiver::new(
+                    session_timer_settings,
+                    id,
+                    local_name.clone(),
+                    ProtoSessionType::PointToPoint,
+                    send_acks,
+                    tx.clone(),
+                    Some(tx_controller.clone()),
+                );
                 Arc::new(Session::from_multicast(multicast::Multicast::new(
                     id,
                     conf,
@@ -250,6 +309,8 @@ where
                     self.identity_provider.clone(),
                     self.identity_verifier.clone(),
                     self.storage_path.clone(),
+                    sender,
+                    receiver,
                     self.tx_session.clone(),
                 )))
             }
@@ -259,14 +320,18 @@ where
         let session_controller: Arc<SessionController<P, V, T>> = if initiator {
             Arc::new(SessionController::SessionModerator(SessionModerator::new(
                 session.clone(),
-                self.transmitter.clone(),
+                controller_sender,
+                tx_controller.clone(),
+                rx_controller,
                 self.tx_session.clone(),
             )))
         } else {
             Arc::new(SessionController::SessionParticipant(
                 SessionParticipant::new(
                     session.clone(),
-                    self.transmitter.clone(),
+                    controller_sender,
+                    tx_controller.clone(),
+                    rx_controller,
                     self.tx_session.clone(),
                 ),
             ))

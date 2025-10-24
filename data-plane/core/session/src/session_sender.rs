@@ -34,7 +34,7 @@ struct GroupTimer {
 }
 
 #[allow(dead_code)]
-struct SessionSender<T>
+pub struct SessionSender<T>
 where
     T: Transmitter + Send + Sync + Clone + 'static,
 {
@@ -73,7 +73,7 @@ impl<T> SessionSender<T>
 where
     T: Transmitter + Send + Sync + Clone + 'static,
 {
-    fn new(
+    pub fn new(
         timer_settings: Option<TimerSettings>,
         session_id: u32,
         tx: T,
@@ -100,7 +100,10 @@ where
         }
     }
 
-    async fn on_message(&mut self, message: Message) -> Result<SenderDrainStatus, SessionError> {
+    pub async fn on_message(
+        &mut self,
+        message: Message,
+    ) -> Result<SenderDrainStatus, SessionError> {
         if self.draining_state == SenderDrainStatus::Completed {
             return Err(SessionError::Processing(
                 "sender closed, drop message".to_string(),
@@ -184,11 +187,11 @@ where
             // create a timer for the new packet and update the state
             let gt = GroupTimer {
                 missing_timers: self.endpoints_list.clone(),
-                timer: self
-                    .timer_factory
-                    .as_ref()
-                    .unwrap()
-                    .create_and_start_timer(message_id, None),
+                timer: self.timer_factory.as_ref().unwrap().create_and_start_timer(
+                    message_id,
+                    message.get_session_message_type(),
+                    None,
+                ),
             };
 
             // insert in pending acks
@@ -303,7 +306,7 @@ where
         }
     }
 
-    async fn on_timer_timeout(&mut self, id: u32) -> Result<(), SessionError> {
+    pub async fn on_timer_timeout(&mut self, id: u32) -> Result<(), SessionError> {
         debug!("timeout for message {}", id);
         if let Some(message) = self.buffer.get(id as usize) {
             debug!("the message is still in the buffer, try to send it again to all the remotes");
@@ -333,7 +336,7 @@ where
         Ok(())
     }
 
-    async fn on_timer_failure(&mut self, id: u32) -> Result<(), SessionError> {
+    pub async fn on_timer_failure(&mut self, id: u32) -> Result<(), SessionError> {
         debug!("timer failure for message id {}, clear state", id);
         // remove all the state related to this timer
         if let Some(gt) = self.pending_acks.get_mut(&id) {
@@ -356,13 +359,13 @@ where
             .await
     }
 
-    fn add_endpoint(&mut self, endpoint: Name) {
+    pub fn add_endpoint(&mut self, endpoint: Name) {
         debug!("add endpoint {}", endpoint);
         // add endpoint to the list
         self.endpoints_list.insert(endpoint);
     }
 
-    fn remove_endpoint(&mut self, endpoint: &Name) {
+    pub fn remove_endpoint(&mut self, endpoint: &Name) {
         debug!("remove endpoint {}", endpoint);
         // remove endpoint from the list and remove all the ack state
         // notice that no ack state may be associated to the endpoint
@@ -394,7 +397,7 @@ where
         self.endpoints_list.remove(endpoint);
     }
 
-    fn start_drain(&mut self) -> SenderDrainStatus {
+    pub fn start_drain(&mut self) -> SenderDrainStatus {
         if self.pending_acks.is_empty() {
             debug!("closing sender");
             self.draining_state = SenderDrainStatus::Completed;
@@ -405,7 +408,7 @@ where
         self.draining_state.clone()
     }
 
-    fn check_drain_completion(&self) -> bool {
+    pub fn check_drain_completion(&self) -> bool {
         // Drain is complete if we're draining and no pending acks remain
         if self.draining_state == SenderDrainStatus::Completed
             || self.draining_state == SenderDrainStatus::Initiated && self.pending_acks.is_empty()

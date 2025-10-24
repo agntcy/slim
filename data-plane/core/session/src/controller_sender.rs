@@ -123,7 +123,7 @@ where
         Ok(())
     }
 
-    pub async fn on_send_message(
+    async fn on_send_message(
         &mut self,
         message: &Message,
         expected_replies: u32,
@@ -147,7 +147,7 @@ where
             .map_err(|e| SessionError::SlimTransmission(e.to_string()))
     }
 
-    pub fn on_reply_message(&mut self, message: &Message) {
+    fn on_reply_message(&mut self, message: &Message) {
         let id = message.get_id();
         let mut delete = false;
         if let Some(pending) = self.pending_replies.get_mut(&id) {

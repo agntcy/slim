@@ -53,7 +53,7 @@ enum ReceiverDrainStatus {
 }
 
 #[allow(dead_code)]
-struct SessionReceiver<T>
+pub struct SessionReceiver<T>
 where
     T: Transmitter + Send + Sync + Clone + 'static,
 {
@@ -97,7 +97,7 @@ where
     /// to create the timer factory and send rtx messages
     /// timer_settings and tx_timer must be not null
     #[allow(clippy::too_many_arguments)]
-    fn new(
+    pub fn new(
         timer_settings: Option<TimerSettings>,
         session_id: u32,
         local_name: Name,
@@ -127,7 +127,10 @@ where
         }
     }
 
-    async fn on_message(&mut self, message: Message) -> Result<ReceiverDrainStatus, SessionError> {
+    pub async fn on_message(
+        &mut self,
+        message: Message,
+    ) -> Result<ReceiverDrainStatus, SessionError> {
         if self.draining_state == ReceiverDrainStatus::Completed {
             return Err(SessionError::Processing(
                 "receiver closed, drop message".to_string(),
@@ -165,7 +168,7 @@ where
         Ok(self.draining_state.clone())
     }
 
-    async fn on_publish_message(&mut self, message: Message) -> Result<(), SessionError> {
+    pub async fn on_publish_message(&mut self, message: Message) -> Result<(), SessionError> {
         if self.timer_factory.is_none() {
             debug!(
                 "received message {} from {}, send it to the app without reordering",
@@ -184,7 +187,7 @@ where
             .await
     }
 
-    async fn send_ack(&mut self, message: &Message) -> Result<(), SessionError> {
+    pub async fn send_ack(&mut self, message: &Message) -> Result<(), SessionError> {
         if !self.send_acks {
             // nothing to do
             return Ok(());
@@ -204,7 +207,7 @@ where
         self.tx.send_to_slim(Ok(ack)).await
     }
 
-    async fn on_rtx_message(&mut self, message: Message) -> Result<(), SessionError> {
+    pub async fn on_rtx_message(&mut self, message: Message) -> Result<(), SessionError> {
         // in case we get the and RTX reply the session must be reliable
         let source = message.get_source();
         let id = message.get_id();
@@ -305,7 +308,7 @@ where
         Ok(())
     }
 
-    async fn on_timer_timeout(&mut self, id: u32, name: Name) -> Result<(), SessionError> {
+    pub async fn on_timer_timeout(&mut self, id: u32, name: Name) -> Result<(), SessionError> {
         debug!("timeout for message {} from {}", id, name);
         let key = PendingRtxKey { name, id };
         let pending = self.pending_rtxs.get(&key).ok_or_else(|| {
@@ -316,7 +319,7 @@ where
         self.tx.send_to_slim(Ok(pending.message.clone())).await
     }
 
-    async fn on_timer_failure(&mut self, id: u32, name: Name) -> Result<(), SessionError> {
+    pub async fn on_timer_failure(&mut self, id: u32, name: Name) -> Result<(), SessionError> {
         debug!(
             "timer failure for message {} from {}, clear state",
             id, name
@@ -338,7 +341,7 @@ where
             .await
     }
 
-    fn start_drain(&mut self) -> ReceiverDrainStatus {
+    pub fn start_drain(&mut self) -> ReceiverDrainStatus {
         if self.pending_rtxs.is_empty() {
             debug!("closing receiver");
             self.draining_state = ReceiverDrainStatus::Completed;
@@ -349,7 +352,7 @@ where
         self.draining_state.clone()
     }
 
-    fn check_drain_completion(&self) -> bool {
+    pub fn check_drain_completion(&self) -> bool {
         // Drain is complete if we're draining and no pending rtx remain
         if self.draining_state == ReceiverDrainStatus::Completed
             || self.draining_state == ReceiverDrainStatus::Initiated && self.pending_rtxs.is_empty()

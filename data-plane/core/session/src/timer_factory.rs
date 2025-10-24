@@ -51,6 +51,7 @@ impl TimerObserver for ReliableTimerObserver {
     }
 }
 
+#[derive(Clone)]
 pub struct TimerSettings {
     pub duration: Duration,
     pub max_duration: Option<Duration>,

@@ -100,7 +100,7 @@ where
 pub(crate) trait MessageHandler {
     // publish a message as part of the session
     async fn on_message(
-        &self,
+        &mut self,
         message: Message,
         direction: MessageDirection,
     ) -> Result<(), SessionError>;

@@ -187,20 +187,14 @@ impl TaskUpdate for AddParticipant {
     }
 
     fn welcome_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        debug!(
-            "start welcome on AddParticipan task, timer id {}",
-            timer_id
-        );
+        debug!("start welcome on AddParticipan task, timer id {}", timer_id);
         self.welcome.received = false;
         self.welcome.timer_id = timer_id;
         Ok(())
     }
 
     fn commit_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        debug!(
-            "start commit on AddParticipan task, timer id {}",
-            timer_id
-        );
+        debug!("start commit on AddParticipan task, timer id {}", timer_id);
         self.commit.received = false;
         self.commit.timer_id = timer_id;
         Ok(())

@@ -35,8 +35,7 @@ use crate::{
     interceptor_mls::{METADATA_MLS_ENABLED, METADATA_MLS_INIT_COMMIT_ID},
     mls_state::{MlsEndpoint, MlsModeratorState, MlsProposalMessagePayload, MlsState},
     moderator_task::{
-        AddParticipant, ModeratorTask, RemoveParticipant, TaskUpdate,
-        UpdateParticipant,
+        AddParticipant, ModeratorTask, RemoveParticipant, TaskUpdate, UpdateParticipant,
     },
     timer,
     timer_factory::TimerSettings,
@@ -326,28 +325,19 @@ where
 {
     pub(crate) fn new(
         session: Arc<Session<P, V>>,
-        transmitter: T,
+        sender: ControllerSender<T>,
+        controller_tx: tokio::sync::mpsc::Sender<SessionMessage>,
+        controller_rx: tokio::sync::mpsc::Receiver<SessionMessage>,
         tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
     ) -> Self {
-        let timer_settings = TimerSettings {
-            duration: Duration::from_secs(1),
-            max_duration: None,
-            max_retries: Some(10),
-            timer_type: timer::TimerType::Constant,
-        };
-
-        let (tx, rx) = mpsc::channel(128);
-
-        let sender = ControllerSender::new(timer_settings, transmitter.clone(), tx.clone());
-
-        // Create the processor
-        let processor = SessionParticipantProcessor::new(session, sender, rx, tx_to_session_layer);
+        let processor =
+            SessionParticipantProcessor::new(session, sender, controller_rx, tx_to_session_layer);
 
         // Start the processor loop
         tokio::spawn(processor.process_loop());
 
         SessionParticipant {
-            tx,
+            tx: controller_tx,
             _phantom: PhantomData,
         }
     }
@@ -716,29 +706,19 @@ where
 {
     pub(crate) fn new(
         session: Arc<Session<P, V>>,
-        transmitter: T,
+        sender: ControllerSender<T>,
+        controller_tx: tokio::sync::mpsc::Sender<SessionMessage>,
+        controller_rx: tokio::sync::mpsc::Receiver<SessionMessage>,
         tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
     ) -> Self {
-        let timer_settings = TimerSettings {
-            duration: Duration::from_secs(1),
-            max_duration: None,
-            max_retries: Some(10),
-            timer_type: timer::TimerType::Constant,
-        };
-
-        let (tx, rx) = mpsc::channel(128);
-
-        let sender = ControllerSender::new(timer_settings, transmitter.clone(), tx.clone());
-
-        // Create the processor
-        let source = session.source().clone();
-        let processor = SessionModeratorProcessor::new(session, sender, rx, tx_to_session_layer);
+        let processor =
+            SessionModeratorProcessor::new(session, sender, controller_rx, tx_to_session_layer);
 
         // Start the processor loop
         tokio::spawn(processor.process_loop());
 
         SessionModerator {
-            tx,
+            tx: controller_tx,
             _phantom: PhantomData,
         }
     }
@@ -985,9 +965,7 @@ where
 
         // now the moderator is busy
         debug!("Create AddParticipantMls task");
-        self.current_task = Some(ModeratorTask::AddParticipant(
-            AddParticipant::default(),
-        ));
+        self.current_task = Some(ModeratorTask::AddParticipant(AddParticipant::default()));
 
         // check if there is a destination name in the payload. If yes recreate the message
         // with the right destination and send it out
@@ -1137,7 +1115,10 @@ where
             // no commit message will be sent so update the task state to consider the commit as received
             // the timer id is not important here, it just need to be consistent
             self.current_task.as_mut().unwrap().commit_start(0)?;
-            self.current_task.as_mut().unwrap().update_phase_completed(0)?;
+            self.current_task
+                .as_mut()
+                .unwrap()
+                .update_phase_completed(0)?;
         }
 
         // send welcome message
@@ -1270,7 +1251,10 @@ where
             // no commit message will be sent so update the task state to consider the commit as received
             // the timer id is not important here, it just need to be consistent
             self.current_task.as_mut().unwrap().commit_start(0)?;
-            self.current_task.as_mut().unwrap().update_phase_completed(0)?;
+            self.current_task
+                .as_mut()
+                .unwrap()
+                .update_phase_completed(0)?;
 
             // just send the leave message in this case
             self.common.sender.on_message(&leave_message).await;
@@ -1371,10 +1355,7 @@ where
                 // if the task is not finished yet we may need to send a leave
                 // message that was postponed to send all group update first
                 if self.postponed_message.is_some()
-                    && matches!(
-                        self.current_task,
-                        Some(ModeratorTask::RemoveParticipant(_))
-                    )
+                    && matches!(self.current_task, Some(ModeratorTask::RemoveParticipant(_)))
                 {
                     // send the leave message an progress
                     let leave_message = self.postponed_message.as_ref().unwrap();
