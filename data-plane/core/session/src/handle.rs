@@ -566,6 +566,10 @@ mod tests {
     #[derive(Clone, Default)]
     struct DummyTokenProvider;
     impl TokenProvider for DummyTokenProvider {
+        async fn initialize(&mut self) -> Result<(), AuthError> {
+            Ok(())
+        }
+
         fn get_token(&self) -> Result<String, AuthError> {
             Ok("token".into())
         }
@@ -582,6 +586,10 @@ mod tests {
     struct DummyVerifier;
     #[async_trait]
     impl Verifier for DummyVerifier {
+        async fn initialize(&mut self) -> Result<(), AuthError> {
+            Ok(())
+        }
+        
         async fn verify(&self, _token: impl Into<String> + Send) -> Result<(), AuthError> {
             Ok(())
         }

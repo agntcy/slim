@@ -63,7 +63,7 @@ impl SpiffeProvider {
     }
 
     /// Initialize the SPIFFE provider and start credential rotation
-    pub async fn initialize(&mut self) -> Result<(), AuthError> {
+    async fn initialize(&mut self) -> Result<(), AuthError> {
         info!("Initializing SPIFFE provider");
 
         // Create WorkloadApiClient
@@ -174,6 +174,10 @@ impl SpiffeProvider {
 }
 
 impl TokenProvider for SpiffeProvider {
+    async fn initialize(&mut self) -> Result<(), AuthError> {
+        self.initialize().await
+    }
+
     fn get_token(&self) -> Result<String, AuthError> {
         let jwt_svid = self.get_jwt_svid()?;
         Ok(jwt_svid.token().to_string())
@@ -383,7 +387,7 @@ impl SpiffeJwtVerifier {
     }
 
     /// Initialize the verifier with a WorkloadApiClient
-    pub async fn initialize(&self) -> Result<(), AuthError> {
+    async fn initialize(&mut self) -> Result<(), AuthError> {
         // Create WorkloadApiClient
         let client = if let Some(socket_path) = &self.config.socket_path {
             debug!("Connecting to SPIFFE Workload API at: {}", socket_path);
@@ -549,6 +553,10 @@ impl Drop for SpiffeJwtVerifier {
 
 #[async_trait]
 impl Verifier for SpiffeJwtVerifier {
+    async fn initialize(&mut self) -> Result<(), AuthError> { 
+        self.initialize().await
+    }
+
     async fn verify(&self, token: impl Into<String> + Send) -> Result<(), AuthError> {
         let token_str = token.into();
         let bundles = self.get_jwt_bundles().await?;

@@ -66,6 +66,9 @@ impl StandardClaims {
 /// Trait for verifying JWT tokens
 #[async_trait]
 pub trait Verifier {
+    /// Initializes the verifier asynchronously.
+    async fn initialize(&mut self) -> Result<(), AuthError>;
+
     /// Verifies the token.
     async fn verify(&self, token: impl Into<String> + Send) -> Result<(), AuthError>;
 
@@ -103,9 +106,22 @@ pub trait Signer {
 
 /// Trait for providing JWT claims
 pub trait TokenProvider {
-    // Try to get a token
+    /// Initializes the token provider asynchronously.
+    ///
+    /// Usage notes:
+    /// - For most lightweight providers (SharedSecret, SignerJwt, StaticTokenProvider) this is a
+    ///   no-op and can be safely skipped.
+    /// - For providers that manage background tasks or external resources (e.g. `SpiffeProvider`
+    ///   and `OidcTokenProvider`), call their inherent `initialize` method (e.g.
+    ///   `spiffe_provider.initialize().await`) immediately after construction. The trait-level
+    ///   `initialize` is currently a no-op placeholder to satisfy generic constraints.
+    /// - Framework code that receives a generic `P: TokenProvider` MAY call `initialize` for
+    ///   uniformity; implementations that need real setup should rely on an inherent method.
+    async fn initialize(&mut self) -> Result<(), AuthError>;
+
+    /// Try to get a token
     fn get_token(&self) -> Result<String, AuthError>;
 
-    // Get ID from the identity provider
+    /// Get ID from the identity provider
     fn get_id(&self) -> Result<String, AuthError>;
 }

@@ -436,6 +436,10 @@ impl SharedSecret {
 }
 
 impl TokenProvider for SharedSecret {
+    async fn initialize(&mut self) -> Result<(), AuthError> {
+        // SharedSecret has no async initialization steps.
+        Ok(())
+    }
     fn get_token(&self) -> Result<String, AuthError> {
         if self.0.shared_secret.is_empty() {
             return Err(AuthError::TokenInvalid(
@@ -456,6 +460,10 @@ impl TokenProvider for SharedSecret {
 
 #[async_trait::async_trait]
 impl Verifier for SharedSecret {
+    async fn initialize(&mut self) -> Result<(), AuthError> { 
+        Ok(()) 
+    }
+
     async fn verify(&self, token: impl Into<String> + Send) -> Result<(), AuthError> {
         self.try_verify(token)
     }
@@ -787,5 +795,13 @@ mod tests {
         let s2 = s.with_replay_cache_max(original_max * 2);
         assert_eq!(original_max, s2.replay_cache_max());
         assert!(!s2.replay_cache_enabled());
+    }
+
+    #[tokio::test]
+    async fn initialize_shared_secret() -> Result<(), AuthError> {
+        let mut provider = SharedSecret::new("svc", &"abcdefghijklmnopqrstuvwxyz012345");
+        provider.initialize().await?; // no-op
+        let _ = provider.get_token()?;
+        Ok(())
     }
 }
