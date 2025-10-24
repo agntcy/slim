@@ -35,7 +35,7 @@ jobs:
           - image: spire-agent
             repo: ghcr.io/spiffe/spire-agent
             version: 1.13.3
-          - image: spire-agent
+          - image: spire-helper
             repo: ghcr.io/spiffe/spiffe-helper
             version: 0.10.1
 
