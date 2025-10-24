@@ -12,6 +12,7 @@ name = "slim_mls"
 agntcy-slim-auth = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 async-trait = { workspace = true }
+base64 = { workspace = true }
 hex = "0.4"
 mls-rs = { workspace = true }
 mls-rs-core = { workspace = true }
