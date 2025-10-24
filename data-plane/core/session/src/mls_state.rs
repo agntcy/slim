@@ -9,7 +9,7 @@ use std::{
 
 // Third-party crates
 use bincode::{Decode, Encode};
-use parking_lot::Mutex;
+use tokio::sync::Mutex;
 use tracing::{debug, error, trace};
 
 use slim_auth::traits::{TokenProvider, Verifier};
@@ -59,9 +59,11 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    pub(crate) fn new(mls: Arc<Mutex<Mls<P, V>>>) -> Result<Self, SessionError> {
+    pub(crate) async fn new(mls: Arc<Mutex<Mls<P, V>>>) -> Result<Self, SessionError> {
         mls.lock()
+            .await
             .initialize()
+            .await
             .map_err(|e| SessionError::MLSInit(e.to_string()))?;
 
         Ok(MlsState {
@@ -73,14 +75,19 @@ where
         })
     }
 
-    pub(crate) fn generate_key_package(&mut self) -> Result<KeyPackageMsg, SessionError> {
+    pub(crate) async fn generate_key_package(&mut self) -> Result<KeyPackageMsg, SessionError> {
         self.mls
             .lock()
+            .await
             .generate_key_package()
+            .await
             .map_err(|e| SessionError::MLSInit(e.to_string()))
     }
 
-    pub(crate) fn process_welcome_message(&mut self, msg: &Message) -> Result<(), SessionError> {
+    pub(crate) async fn process_welcome_message(
+        &mut self,
+        msg: &Message,
+    ) -> Result<(), SessionError> {
         if self.last_mls_msg_id != 0 {
             debug!("Welcome message already received, drop");
             // we already got a welcome message, ignore this one
@@ -98,7 +105,9 @@ where
         self.group = self
             .mls
             .lock()
+            .await
             .process_welcome(welcome)
+            .await
             .map_err(|e| SessionError::WelcomeMessage(e.to_string()))?;
 
         self.mls_up = true;
@@ -106,7 +115,7 @@ where
         Ok(())
     }
 
-    pub(crate) fn process_control_message(
+    pub(crate) async fn process_control_message(
         &mut self,
         msg: Message,
         local_name: &Name,
@@ -129,10 +138,10 @@ where
             // base on the message type, process it
             match msg.get_session_header().session_message_type() {
                 ProtoSessionMessageType::GroupProposal => {
-                    self.process_proposal_message(msg, local_name)?;
+                    self.process_proposal_message(msg, local_name).await?;
                 }
                 ProtoSessionMessageType::GroupUpdate => {
-                    self.process_commit_message(msg)?;
+                    self.process_commit_message(msg).await?;
                 }
                 _ => {
                     error!("unknown control message type, drop it");
@@ -146,7 +155,7 @@ where
         Ok(true)
     }
 
-    fn process_commit_message(&mut self, commit: Message) -> Result<(), SessionError> {
+    async fn process_commit_message(&mut self, commit: Message) -> Result<(), SessionError> {
         trace!("processing stored commit {}", commit.get_id());
 
         let payalod = commit
@@ -160,11 +169,13 @@ where
         // process the commit message
         self.mls
             .lock()
+            .await
             .process_commit(commit)
+            .await
             .map_err(|e| SessionError::CommitMessage(e.to_string()))
     }
 
-    fn process_proposal_message(
+    async fn process_proposal_message(
         &mut self,
         proposal: Message,
         local_name: &Name,
@@ -188,7 +199,9 @@ where
 
         self.mls
             .lock()
+            .await
             .process_proposal(&payload.mls_proposal, false)
+            .await
             .map_err(|e| SessionError::CommitMessage(e.to_string()))?;
 
         Ok(())
@@ -262,16 +275,18 @@ where
         }
     }
 
-    pub(crate) fn init_moderator(&mut self) -> Result<(), SessionError> {
+    pub(crate) async fn init_moderator(&mut self) -> Result<(), SessionError> {
         self.common
             .mls
             .lock()
+            .await
             .create_group()
+            .await
             .map(|_| ())
             .map_err(|e| SessionError::MLSInit(e.to_string()))
     }
 
-    pub(crate) fn add_participant(
+    pub(crate) async fn add_participant(
         &mut self,
         msg: &Message,
     ) -> Result<(CommitMsg, WelcomeMsg), SessionError> {
@@ -281,7 +296,14 @@ where
             .as_command_payload()
             .as_join_reply_payload();
 
-        match self.common.mls.lock().add_member(payload.key_package()) {
+        match self
+            .common
+            .mls
+            .lock()
+            .await
+            .add_member(payload.key_package())
+            .await
+        {
             Ok(ret) => {
                 // add participant to the list
                 self.participants
@@ -296,7 +318,10 @@ where
         }
     }
 
-    pub(crate) fn remove_participant(&mut self, msg: &Message) -> Result<CommitMsg, SessionError> {
+    pub(crate) async fn remove_participant(
+        &mut self,
+        msg: &Message,
+    ) -> Result<CommitMsg, SessionError> {
         debug!("Remove participant from the MLS group");
         let name = msg.get_dst();
         let id = match self.participants.get(&name) {
@@ -312,7 +337,9 @@ where
             .common
             .mls
             .lock()
+            .await
             .remove_member(id)
+            .await
             .map_err(|e| SessionError::RemoveParticipant(e.to_string()))?;
 
         // remove the participant from the list
@@ -321,7 +348,7 @@ where
         Ok(ret)
     }
 
-    pub(crate) fn process_proposal_message(
+    pub(crate) async fn process_proposal_message(
         &mut self,
         proposal: &ProposalMsg,
     ) -> Result<CommitMsg, SessionError> {
@@ -329,18 +356,24 @@ where
             .common
             .mls
             .lock()
+            .await
             .process_proposal(proposal, true)
+            .await
             .map_err(|e| SessionError::CommitMessage(e.to_string()))?;
 
         Ok(commit)
     }
 
-    pub(crate) fn process_local_pending_proposal(&mut self) -> Result<CommitMsg, SessionError> {
+    pub(crate) async fn process_local_pending_proposal(
+        &mut self,
+    ) -> Result<CommitMsg, SessionError> {
         let commit = self
             .common
             .mls
             .lock()
+            .await
             .process_local_pending_proposal()
+            .await
             .map_err(|e| SessionError::CommitMessage(e.to_string()))?;
 
         Ok(commit)

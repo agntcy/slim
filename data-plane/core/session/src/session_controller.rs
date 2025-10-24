@@ -458,7 +458,8 @@ where
                 .mls_state
                 .as_mut()
                 .ok_or(SessionError::NoMls)?
-                .generate_key_package()?;
+                .generate_key_package()
+                .await?;
             Some(key)
         } else {
             // without MLS we can set the state for the channel
@@ -486,7 +487,8 @@ where
         self.mls_state
             .as_mut()
             .ok_or(SessionError::NoMls)?
-            .process_welcome_message(&msg)?;
+            .process_welcome_message(&msg)
+            .await?;
 
         debug!("Welcome message correctly processed, MLS state initialized");
 
@@ -515,7 +517,8 @@ where
             .mls_state
             .as_mut()
             .ok_or(SessionError::NoMls)?
-            .process_control_message(msg, &self.endpoint.name)?;
+            .process_control_message(msg, &self.endpoint.name)
+            .await?;
 
         if !ret {
             // message already processed, drop it
@@ -625,9 +628,11 @@ where
         let mls = self.mls_state.as_mut().unwrap();
         let proposal_msg;
         {
-            let mut lock = mls.mls.lock();
+            let lock = mls.mls.lock();
             proposal_msg = lock
+                .await
                 .create_rotation_proposal()
+                .await
                 .map_err(|e| SessionError::NewProposalMessage(e.to_string()))?;
         }
         let dest = self.moderator_name.as_ref().unwrap();
@@ -858,7 +863,7 @@ where
 
             // create mls group if needed
             if let Some(mls) = self.mls_state.as_mut() {
-                mls.init_moderator()?;
+                mls.init_moderator().await?;
             }
         }
 
@@ -987,14 +992,16 @@ where
                         self.mls_state
                             .as_mut()
                             .unwrap()
-                            .process_local_pending_proposal()?
+                            .process_local_pending_proposal()
+                            .await?
                     } else {
                         // the proposal comes from a participant
                         // process the content and send the commit
                         self.mls_state
                             .as_mut()
                             .unwrap()
-                            .process_proposal_message(&payload.mls_proposal)?
+                            .process_proposal_message(&payload.mls_proposal)
+                            .await?
                     };
 
                     // broadcast the commit
@@ -1134,8 +1141,12 @@ where
 
         // send MLS messages if needed
         if self.mls_state.is_some() {
-            let (commit_payload, welcome_payload) =
-                self.mls_state.as_mut().unwrap().add_participant(&msg)?;
+            let (commit_payload, welcome_payload) = self
+                .mls_state
+                .as_mut()
+                .unwrap()
+                .add_participant(&msg)
+                .await?;
 
             // send the commit message to the channel
             let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
@@ -1316,7 +1327,8 @@ where
                 .mls_state
                 .as_mut()
                 .unwrap()
-                .process_proposal_message(&payload.mls_proposal)?;
+                .process_proposal_message(&payload.mls_proposal)
+                .await?;
 
             let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
 
@@ -1486,7 +1498,7 @@ where
         // the message
         match self.mls_state.as_mut() {
             Some(state) => {
-                let commit_payload = state.remove_participant(&leave_message)?;
+                let commit_payload = state.remove_participant(&leave_message).await?;
 
                 let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
 
@@ -1700,9 +1712,11 @@ where
         let mls = &self.mls_state.as_mut().unwrap().common;
         let proposal_msg;
         {
-            let mut lock = mls.mls.lock();
+            let lock = mls.mls.lock();
             proposal_msg = lock
+                .await
                 .create_rotation_proposal()
+                .await
                 .map_err(|e| SessionError::NewProposalMessage(e.to_string()))?;
         }
 
@@ -1883,10 +1897,10 @@ mod tests {
     use crate::transmitter::SessionTransmitter;
 
     use super::*;
-    use parking_lot::Mutex;
     use slim_auth::shared_secret::SharedSecret;
     use slim_auth::testutils::TEST_VALID_SECRET;
     use slim_mls::mls::Mls;
+    use tokio::sync::Mutex;
     use tracing_test::traced_test;
 
     use slim_datapath::messages::Name;
@@ -1915,6 +1929,7 @@ mod tests {
             SharedSecret::new("moderator", TEST_VALID_SECRET),
             std::path::PathBuf::from("/tmp/test_moderator_mls"),
         ))))
+        .await
         .unwrap();
 
         let participant_mls = MlsState::new(Arc::new(Mutex::new(Mls::new(
@@ -1923,6 +1938,7 @@ mod tests {
             SharedSecret::new("participant", TEST_VALID_SECRET),
             std::path::PathBuf::from("/tmp/test_participant_mls"),
         ))))
+        .await
         .unwrap();
 
         let mut cm = SessionModerator::new(

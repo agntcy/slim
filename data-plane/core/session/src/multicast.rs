@@ -285,7 +285,14 @@ where
         tokio::spawn(async move {
             debug!("starting message processing on session {}", session_id);
 
-            let mls = mls.map(|mls| MlsState::new(mls).expect("failed to create MLS state"));
+            let mls = match mls {
+                Some(mls_state) => Some(
+                    MlsState::new(mls_state)
+                        .await
+                        .expect("failed to create MLS state"),
+                ),
+                None => None,
+            };
 
             let mls_enable = mls.is_some();
 

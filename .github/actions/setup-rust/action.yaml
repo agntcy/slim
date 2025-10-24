@@ -19,6 +19,7 @@ runs:
       with:
         cache: false
         components: rustc, clippy, rustfmt
+        rustflags: ""
 
     - name: Setup Taskfile
       shell: bash

@@ -40,13 +40,14 @@ fn resolve_slim_identity(signing_id: &SigningIdentity) -> Result<String, SlimIde
     Ok(credential_data.to_string())
 }
 
+#[async_trait::async_trait]
 impl<V> IdentityProvider for SlimIdentityProvider<V>
 where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     type Error = SlimIdentityError;
 
-    fn validate_member(
+    async fn validate_member(
         &self,
         signing_identity: &SigningIdentity,
         _timestamp: Option<MlsTime>,
@@ -72,7 +73,7 @@ where
         Ok(())
     }
 
-    fn validate_external_sender(
+    async fn validate_external_sender(
         &self,
         signing_identity: &SigningIdentity,
         _timestamp: Option<MlsTime>,
@@ -98,7 +99,7 @@ where
         Ok(())
     }
 
-    fn identity(
+    async fn identity(
         &self,
         signing_identity: &SigningIdentity,
         _extensions: &ExtensionList,
@@ -107,7 +108,7 @@ where
         Ok(identity.into_bytes())
     }
 
-    fn valid_successor(
+    async fn valid_successor(
         &self,
         predecessor: &SigningIdentity,
         successor: &SigningIdentity,
