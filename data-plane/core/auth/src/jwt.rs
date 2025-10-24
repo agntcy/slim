@@ -562,6 +562,11 @@ impl Signer for SignerJwt {
 
 #[async_trait]
 impl TokenProvider for SignerJwt {
+    async fn initialize(&mut self) -> Result<(), AuthError> {
+        // SignerJwt has no asynchronous initialization requirements.
+        Ok(())
+    }
+
     fn get_token(&self) -> Result<String, AuthError> {
         self.sign_internal_claims()
     }
@@ -584,6 +589,10 @@ impl TokenProvider for SignerJwt {
 
 #[async_trait]
 impl TokenProvider for StaticTokenProvider {
+    async fn initialize(&mut self) -> Result<(), AuthError> {
+        // StaticTokenProvider exposes a statically loaded token; nothing async to perform.
+        Ok(())
+    }
     fn get_token(&self) -> Result<String, AuthError> {
         self.static_token
             .as_ref()
@@ -609,6 +618,10 @@ impl TokenProvider for StaticTokenProvider {
 
 #[async_trait]
 impl Verifier for VerifierJwt {
+    async fn initialize(&mut self) -> Result<(), AuthError> { 
+        Ok(()) // no-op
+    }
+
     async fn verify(&self, token: impl Into<String> + Send) -> Result<(), AuthError> {
         // Just verify the token is valid, don't extract claims
         self.verify_claims::<StandardClaims>(token)
@@ -703,7 +716,7 @@ mod tests {
         create_file(file_name, first_key).expect("failed to create file");
 
         // create jwt builder
-        let jwt = JwtBuilder::new()
+        let mut jwt = JwtBuilder::new()
             .issuer("test-issuer")
             .audience(&["test-audience"])
             .subject("test-subject")
@@ -715,6 +728,7 @@ mod tests {
             .build()
             .unwrap();
 
+        let _ = jwt.initialize().await;
         let claims = jwt.create_claims();
 
         assert_eq!(claims.iss.unwrap(), "test-issuer");
@@ -1280,5 +1294,19 @@ mod tests {
                 .to_string()
                 .contains("Missing 'sub' claim in token")
         );
+    }
+
+    #[tokio::test]
+    async fn initialize_jwt_signer() -> Result<(), AuthError> {
+        let jwt = JwtBuilder::new()
+            .issuer("test-issuer")
+            .audience(&["aud"])
+            .subject("sub")
+            .private_key(&Key { algorithm: Algorithm::HS256, format: KeyFormat::Pem, key: KeyData::Str("secret-key".into()) })
+            .build()?;
+        let mut signer: SignerJwt = jwt;
+        signer.initialize().await?; // no-op
+        let _ = signer.get_token()?;
+        Ok(())
     }
 }

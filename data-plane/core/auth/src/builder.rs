@@ -763,4 +763,20 @@ mod tests {
         let token = provider.get_token().unwrap();
         assert_eq!(token, new_token_value);
     }
+
+
+    #[tokio::test]
+    async fn initialize_static_token_provider() -> Result<(), AuthError> {
+        let jwt = JwtBuilder::new()
+            .issuer("test-issuer")
+            .audience(&["aud"])
+            .subject("sub")
+            .private_key(&Key { algorithm: Algorithm::HS256, format: KeyFormat::Pem, key: KeyData::Str("secret-key".into()) })
+            .build()?;
+        let token = Arc::new(RwLock::new("header.payload.sig".to_string()));
+        let mut static_provider: StaticTokenProvider = jwt.with_static_token(token);
+        static_provider.initialize().await?; // no-op
+        let _ = static_provider.get_token()?; // may not be a valid JWT; only presence matters here
+        Ok(())
+    }
 }
