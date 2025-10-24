@@ -13,7 +13,7 @@ require (
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.4.0
 	google.golang.org/protobuf v1.36.5
 	helm.sh/helm/v3 v3.18.5
-	k8s.io/kubernetes v1.31.6
+	k8s.io/kubernetes v1.32.7
 	sigs.k8s.io/kind v0.25.0
 )
 
