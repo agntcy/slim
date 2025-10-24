@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use parking_lot::Mutex;
 use parking_lot::RwLock;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::ApplicationPayload;
@@ -15,6 +14,7 @@ use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType, SessionHeade
 use slim_datapath::messages::encoder::Name;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 use slim_mls::mls::Mls;
+use tokio::sync::Mutex;
 
 use crate::interceptor_mls::MlsInterceptor;
 use crate::multicast::Multicast;
