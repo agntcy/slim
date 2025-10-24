@@ -183,6 +183,9 @@ where
             .map_err(|e| MlsError::TokenRetrievalFailed(e.to_string()))?;
 
         let credential_data = token.as_bytes().to_vec();
+
+        // Notice that we use BasicCredentials just as a way to transport the token,
+        // the actual verification is done via the SlimIdentityProvider
         let basic_cred = BasicCredential::new(credential_data);
         let signing_identity =
             SigningIdentity::new(basic_cred.into_credential(), public_key.clone());
