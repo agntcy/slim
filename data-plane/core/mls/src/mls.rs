@@ -918,7 +918,7 @@ mod tests {
     }
 
     // -------------------------------------------------------------------------
-    // Test Helpers (reduce duplication between security-related tests)
+    // Test Helpers
     // -------------------------------------------------------------------------
     async fn init_identity(
         name: &str,
