@@ -7,6 +7,7 @@ use tracing::info;
 
 use slim::config;
 use slim_auth::shared_secret::SharedSecret;
+use slim_auth::testutils::TEST_VALID_SECRET;
 use slim_datapath::messages::Name;
 use slim_session::{self, PointToPointConfiguration, SessionConfig};
 
@@ -36,14 +37,14 @@ fn spawn_session_receiver(
                             Some(Ok(message)) => match &message.message_type {
                                 Some(slim_datapath::api::MessageType::Publish(msg)) => {
                                     let payload = msg.get_payload();
-                                    match std::str::from_utf8(&payload.blob) {
+                                    match std::str::from_utf8(&payload.as_application_payload().blob) {
                                         Ok(text) => {
                                             info!("received message: {}", text);
                                         }
                                         Err(_) => {
                                             info!(
                                                 "received encrypted message: {} bytes",
-                                                payload.blob.len()
+                                                payload.as_application_payload().blob.len()
                                             );
                                         }
                                     }
@@ -131,8 +132,8 @@ async fn main() {
     let (app, mut rx) = svc
         .create_app(
             &name,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
         )
         .await
         .expect("failed to create app");
@@ -176,8 +177,8 @@ async fn main() {
             None
         } else {
             // Server: create group and wait for client key package
-            let identity_provider = SharedSecret::new("server", "group");
-            let identity_verifier = SharedSecret::new("server", "group");
+            let identity_provider = SharedSecret::new("server", TEST_VALID_SECRET);
+            let identity_verifier = SharedSecret::new("server", TEST_VALID_SECRET);
             let mut server_mls = slim_mls::mls::Mls::new(
                 name.clone(),
                 identity_provider,
@@ -240,8 +241,8 @@ async fn main() {
         // Client MLS setup, only if mls_group_id is provided
         if let Some(group_identifier) = mls_group_id {
             // Client: generate key package and wait for welcome message
-            let identity_provider = SharedSecret::new("client", "group");
-            let identity_verifier = SharedSecret::new("client", "group");
+            let identity_provider = SharedSecret::new("client", TEST_VALID_SECRET);
+            let identity_verifier = SharedSecret::new("client", TEST_VALID_SECRET);
             let mut client_mls = slim_mls::mls::Mls::new(
                 name.clone(),
                 identity_provider,

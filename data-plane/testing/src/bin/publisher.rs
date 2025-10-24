@@ -120,8 +120,8 @@ async fn main() {
     let (app, _rx) = svc
         .create_app(
             &app_name,
-            SharedSecret::new("a", "test"),
-            SharedSecret::new("a", "test"),
+            SharedSecret::new("a", slim_auth::testutils::TEST_VALID_SECRET),
+            SharedSecret::new("a", slim_auth::testutils::TEST_VALID_SECRET),
         )
         .await
         .expect("failed to create app");
@@ -239,7 +239,7 @@ async fn main() {
                             let msg = message.unwrap();
                                     if msg.get_session_header().get_session_id() != session_id { continue; }
                                     if let Some(slim_datapath::api::ProtoPublishType(publish)) = msg.message_type.as_ref() {
-                                        let payload = &publish.get_payload().blob;
+                                        let payload = &publish.get_payload().as_application_payload().blob;
                                         if payload.len() < 18 { panic!("error parsing message"); }
                                         let pub_id = u64::from_be_bytes(payload[0..8].try_into().unwrap());
                                         let recv_id = u64::from_be_bytes(payload[9..17].try_into().unwrap());

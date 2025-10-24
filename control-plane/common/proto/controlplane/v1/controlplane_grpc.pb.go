@@ -25,7 +25,7 @@ const _ = grpc.SupportPackageIsVersion8
 const (
 	ControlPlaneService_AddRoute_FullMethodName          = "/controlplane.proto.v1.ControlPlaneService/AddRoute"
 	ControlPlaneService_DeleteRoute_FullMethodName       = "/controlplane.proto.v1.ControlPlaneService/DeleteRoute"
-	ControlPlaneService_ListRoutes_FullMethodName        = "/controlplane.proto.v1.ControlPlaneService/ListRoutes"
+	ControlPlaneService_ListSubscriptions_FullMethodName = "/controlplane.proto.v1.ControlPlaneService/ListSubscriptions"
 	ControlPlaneService_ListConnections_FullMethodName   = "/controlplane.proto.v1.ControlPlaneService/ListConnections"
 	ControlPlaneService_ListNodes_FullMethodName         = "/controlplane.proto.v1.ControlPlaneService/ListNodes"
 	ControlPlaneService_CreateChannel_FullMethodName     = "/controlplane.proto.v1.ControlPlaneService/CreateChannel"
@@ -34,6 +34,7 @@ const (
 	ControlPlaneService_DeleteParticipant_FullMethodName = "/controlplane.proto.v1.ControlPlaneService/DeleteParticipant"
 	ControlPlaneService_ListChannels_FullMethodName      = "/controlplane.proto.v1.ControlPlaneService/ListChannels"
 	ControlPlaneService_ListParticipants_FullMethodName  = "/controlplane.proto.v1.ControlPlaneService/ListParticipants"
+	ControlPlaneService_ListRoutes_FullMethodName        = "/controlplane.proto.v1.ControlPlaneService/ListRoutes"
 )
 
 // ControlPlaneServiceClient is the client API for ControlPlaneService service.
@@ -42,7 +43,7 @@ const (
 type ControlPlaneServiceClient interface {
 	AddRoute(ctx context.Context, in *AddRouteRequest, opts ...grpc.CallOption) (*AddRouteResponse, error)
 	DeleteRoute(ctx context.Context, in *DeleteRouteRequest, opts ...grpc.CallOption) (*DeleteRouteResponse, error)
-	ListRoutes(ctx context.Context, in *Node, opts ...grpc.CallOption) (*v1.SubscriptionListResponse, error)
+	ListSubscriptions(ctx context.Context, in *Node, opts ...grpc.CallOption) (*v1.SubscriptionListResponse, error)
 	ListConnections(ctx context.Context, in *Node, opts ...grpc.CallOption) (*v1.ConnectionListResponse, error)
 	ListNodes(ctx context.Context, in *NodeListRequest, opts ...grpc.CallOption) (*NodeListResponse, error)
 	// MLS group management
@@ -52,6 +53,8 @@ type ControlPlaneServiceClient interface {
 	DeleteParticipant(ctx context.Context, in *v1.DeleteParticipantRequest, opts ...grpc.CallOption) (*v1.Ack, error)
 	ListChannels(ctx context.Context, in *v1.ListChannelsRequest, opts ...grpc.CallOption) (*v1.ListChannelsResponse, error)
 	ListParticipants(ctx context.Context, in *v1.ListParticipantsRequest, opts ...grpc.CallOption) (*v1.ListParticipantsResponse, error)
+	// List routes registered at the controller with optional filtering by source and destination node IDs
+	ListRoutes(ctx context.Context, in *RouteListRequest, opts ...grpc.CallOption) (*RouteListResponse, error)
 }
 
 type controlPlaneServiceClient struct {
@@ -82,10 +85,10 @@ func (c *controlPlaneServiceClient) DeleteRoute(ctx context.Context, in *DeleteR
 	return out, nil
 }
 
-func (c *controlPlaneServiceClient) ListRoutes(ctx context.Context, in *Node, opts ...grpc.CallOption) (*v1.SubscriptionListResponse, error) {
+func (c *controlPlaneServiceClient) ListSubscriptions(ctx context.Context, in *Node, opts ...grpc.CallOption) (*v1.SubscriptionListResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(v1.SubscriptionListResponse)
-	err := c.cc.Invoke(ctx, ControlPlaneService_ListRoutes_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, ControlPlaneService_ListSubscriptions_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -172,13 +175,23 @@ func (c *controlPlaneServiceClient) ListParticipants(ctx context.Context, in *v1
 	return out, nil
 }
 
+func (c *controlPlaneServiceClient) ListRoutes(ctx context.Context, in *RouteListRequest, opts ...grpc.CallOption) (*RouteListResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RouteListResponse)
+	err := c.cc.Invoke(ctx, ControlPlaneService_ListRoutes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ControlPlaneServiceServer is the server API for ControlPlaneService service.
 // All implementations must embed UnimplementedControlPlaneServiceServer
 // for forward compatibility
 type ControlPlaneServiceServer interface {
 	AddRoute(context.Context, *AddRouteRequest) (*AddRouteResponse, error)
 	DeleteRoute(context.Context, *DeleteRouteRequest) (*DeleteRouteResponse, error)
-	ListRoutes(context.Context, *Node) (*v1.SubscriptionListResponse, error)
+	ListSubscriptions(context.Context, *Node) (*v1.SubscriptionListResponse, error)
 	ListConnections(context.Context, *Node) (*v1.ConnectionListResponse, error)
 	ListNodes(context.Context, *NodeListRequest) (*NodeListResponse, error)
 	// MLS group management
@@ -188,6 +201,8 @@ type ControlPlaneServiceServer interface {
 	DeleteParticipant(context.Context, *v1.DeleteParticipantRequest) (*v1.Ack, error)
 	ListChannels(context.Context, *v1.ListChannelsRequest) (*v1.ListChannelsResponse, error)
 	ListParticipants(context.Context, *v1.ListParticipantsRequest) (*v1.ListParticipantsResponse, error)
+	// List routes registered at the controller with optional filtering by source and destination node IDs
+	ListRoutes(context.Context, *RouteListRequest) (*RouteListResponse, error)
 	mustEmbedUnimplementedControlPlaneServiceServer()
 }
 
@@ -201,8 +216,8 @@ func (UnimplementedControlPlaneServiceServer) AddRoute(context.Context, *AddRout
 func (UnimplementedControlPlaneServiceServer) DeleteRoute(context.Context, *DeleteRouteRequest) (*DeleteRouteResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteRoute not implemented")
 }
-func (UnimplementedControlPlaneServiceServer) ListRoutes(context.Context, *Node) (*v1.SubscriptionListResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ListRoutes not implemented")
+func (UnimplementedControlPlaneServiceServer) ListSubscriptions(context.Context, *Node) (*v1.SubscriptionListResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListSubscriptions not implemented")
 }
 func (UnimplementedControlPlaneServiceServer) ListConnections(context.Context, *Node) (*v1.ConnectionListResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListConnections not implemented")
@@ -227,6 +242,9 @@ func (UnimplementedControlPlaneServiceServer) ListChannels(context.Context, *v1.
 }
 func (UnimplementedControlPlaneServiceServer) ListParticipants(context.Context, *v1.ListParticipantsRequest) (*v1.ListParticipantsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListParticipants not implemented")
+}
+func (UnimplementedControlPlaneServiceServer) ListRoutes(context.Context, *RouteListRequest) (*RouteListResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListRoutes not implemented")
 }
 func (UnimplementedControlPlaneServiceServer) mustEmbedUnimplementedControlPlaneServiceServer() {}
 
@@ -277,20 +295,20 @@ func _ControlPlaneService_DeleteRoute_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ControlPlaneService_ListRoutes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _ControlPlaneService_ListSubscriptions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(Node)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ControlPlaneServiceServer).ListRoutes(ctx, in)
+		return srv.(ControlPlaneServiceServer).ListSubscriptions(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: ControlPlaneService_ListRoutes_FullMethodName,
+		FullMethod: ControlPlaneService_ListSubscriptions_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ControlPlaneServiceServer).ListRoutes(ctx, req.(*Node))
+		return srv.(ControlPlaneServiceServer).ListSubscriptions(ctx, req.(*Node))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -439,6 +457,24 @@ func _ControlPlaneService_ListParticipants_Handler(srv interface{}, ctx context.
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ControlPlaneService_ListRoutes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RouteListRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlPlaneServiceServer).ListRoutes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ControlPlaneService_ListRoutes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlPlaneServiceServer).ListRoutes(ctx, req.(*RouteListRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ControlPlaneService_ServiceDesc is the grpc.ServiceDesc for ControlPlaneService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -455,8 +491,8 @@ var ControlPlaneService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ControlPlaneService_DeleteRoute_Handler,
 		},
 		{
-			MethodName: "ListRoutes",
-			Handler:    _ControlPlaneService_ListRoutes_Handler,
+			MethodName: "ListSubscriptions",
+			Handler:    _ControlPlaneService_ListSubscriptions_Handler,
 		},
 		{
 			MethodName: "ListConnections",
@@ -489,6 +525,10 @@ var ControlPlaneService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListParticipants",
 			Handler:    _ControlPlaneService_ListParticipants_Handler,
+		},
+		{
+			MethodName: "ListRoutes",
+			Handler:    _ControlPlaneService_ListRoutes_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

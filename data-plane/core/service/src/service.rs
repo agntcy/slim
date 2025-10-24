@@ -169,6 +169,11 @@ impl Service {
         self.signal
     }
 
+    /// Create a new ServiceBuilder
+    pub fn builder() -> ServiceBuilder {
+        ServiceBuilder::new()
+    }
+
     /// Run the service
     pub async fn run(&mut self) -> Result<(), ServiceError> {
         // Check that at least one client or server is configured
@@ -371,7 +376,7 @@ impl Component for Service {
 pub struct ServiceBuilder;
 
 impl ServiceBuilder {
-    // Create a new NopComponentBuilder
+    // Create a new ServiceBuilder
     pub fn new() -> Self {
         ServiceBuilder {}
     }
@@ -423,6 +428,7 @@ mod tests {
 
     use super::*;
     use slim_auth::shared_secret::SharedSecret;
+    use slim_auth::testutils::TEST_VALID_SECRET;
     use slim_config::grpc::server::ServerConfig;
     use slim_config::tls::server::TlsServerConfig;
     use slim_datapath::api::MessageType;
@@ -491,8 +497,8 @@ mod tests {
         let (sub_app, mut sub_rx) = service
             .create_app(
                 &subscriber_name,
-                SharedSecret::new("a", "group"),
-                SharedSecret::new("a", "group"),
+                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET),
             )
             .await
             .expect("failed to create app");
@@ -502,8 +508,8 @@ mod tests {
         let (pub_app, _rx) = service
             .create_app(
                 &publisher_name,
-                SharedSecret::new("a", "group"),
-                SharedSecret::new("a", "group"),
+                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET),
             )
             .await
             .expect("failed to create app");
@@ -569,7 +575,10 @@ mod tests {
         };
 
         // make sure message is correct
-        assert_eq!(publ.get_payload().blob, message_blob);
+        assert_eq!(
+            publ.get_payload().as_application_payload().blob,
+            message_blob
+        );
 
         // Now remove the session from the 2 apps
         pub_app
@@ -609,8 +618,8 @@ mod tests {
         let (app, _) = service
             .create_app(
                 &name,
-                SharedSecret::new("a", "group"),
-                SharedSecret::new("a", "group"),
+                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET),
             )
             .await
             .expect("failed to create app");

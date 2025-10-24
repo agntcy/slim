@@ -487,6 +487,13 @@ where
 
         Self::map_mls_error(update_proposal.to_bytes())
     }
+
+    /// Get a token from the identity provider
+    pub fn get_token(&self) -> Result<String, MlsError> {
+        self.identity_provider
+            .get_token()
+            .map_err(|e| MlsError::TokenRetrievalFailed(e.to_string()))
+    }
 }
 
 #[cfg(test)]
@@ -498,13 +505,15 @@ mod tests {
     use slim_auth::shared_secret::SharedSecret;
     use std::thread;
 
+    const SHARED_SECRET: &str = "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas";
+
     #[test]
     fn test_mls_creation() -> Result<(), Box<dyn std::error::Error>> {
         let name = Name::from_strings(["org", "default", "alice"]).with_id(0);
         let mut mls = Mls::new(
             name,
-            SharedSecret::new("alice", "group"),
-            SharedSecret::new("alice", "group"),
+            SharedSecret::new("alice", SHARED_SECRET),
+            SharedSecret::new("alice", SHARED_SECRET),
             std::path::PathBuf::from("/tmp/mls_test_creation"),
         );
 
@@ -519,8 +528,8 @@ mod tests {
         let name = Name::from_strings(["org", "default", "alice"]).with_id(0);
         let mut mls = Mls::new(
             name,
-            SharedSecret::new("alice", "group"),
-            SharedSecret::new("alice", "group"),
+            SharedSecret::new("alice", SHARED_SECRET),
+            SharedSecret::new("alice", SHARED_SECRET),
             std::path::PathBuf::from("/tmp/mls_test_group_creation"),
         );
 
@@ -536,8 +545,8 @@ mod tests {
         let name = Name::from_strings(["org", "default", "alice"]).with_id(0);
         let mut mls = Mls::new(
             name,
-            SharedSecret::new("alice", "group"),
-            SharedSecret::new("alice", "group"),
+            SharedSecret::new("alice", SHARED_SECRET),
+            SharedSecret::new("alice", SHARED_SECRET),
             std::path::PathBuf::from("/tmp/mls_test_key_package"),
         );
 
@@ -557,26 +566,26 @@ mod tests {
         // alice will work as moderator
         let mut alice = Mls::new(
             alice,
-            SharedSecret::new("alice", "group"),
-            SharedSecret::new("alice", "group"),
+            SharedSecret::new("alice", SHARED_SECRET),
+            SharedSecret::new("alice", SHARED_SECRET),
             std::path::PathBuf::from("/tmp/mls_test_messaging_alice"),
         );
         let mut bob = Mls::new(
             bob,
-            SharedSecret::new("bob", "group"),
-            SharedSecret::new("bob", "group"),
+            SharedSecret::new("bob", SHARED_SECRET),
+            SharedSecret::new("bob", SHARED_SECRET),
             std::path::PathBuf::from("/tmp/mls_test_messaging_bob"),
         );
         let mut charlie = Mls::new(
             charlie,
-            SharedSecret::new("charlie", "group"),
-            SharedSecret::new("charlie", "group"),
+            SharedSecret::new("charlie", SHARED_SECRET),
+            SharedSecret::new("charlie", SHARED_SECRET),
             std::path::PathBuf::from("/tmp/mls_test_messaging_charlie"),
         );
         let mut daniel = Mls::new(
             daniel,
-            SharedSecret::new("daniel", "group"),
-            SharedSecret::new("daniel", "group"),
+            SharedSecret::new("daniel", SHARED_SECRET),
+            SharedSecret::new("daniel", SHARED_SECRET),
             std::path::PathBuf::from("/tmp/mls_test_messaging_daniel"),
         );
 
@@ -704,14 +713,14 @@ mod tests {
 
         let mut alice = Mls::new(
             alice,
-            SharedSecret::new("alice", "group"),
-            SharedSecret::new("alice", "group"),
+            SharedSecret::new("alice", SHARED_SECRET),
+            SharedSecret::new("alice", SHARED_SECRET),
             std::path::PathBuf::from("/tmp/mls_test_decrypt_alice"),
         );
         let mut bob = Mls::new(
             bob,
-            SharedSecret::new("bob", "group"),
-            SharedSecret::new("bob", "group"),
+            SharedSecret::new("bob", SHARED_SECRET),
+            SharedSecret::new("bob", SHARED_SECRET),
             std::path::PathBuf::from("/tmp/mls_test_decrypt_bob"),
         );
 
@@ -737,16 +746,25 @@ mod tests {
         let alice_name = Name::from_strings(["org", "default", "alice"]).with_id(0);
         let bob_name = Name::from_strings(["org", "default", "bob"]).with_id(1);
 
+        let identity_a = SharedSecret::new("alice", SHARED_SECRET);
+
+        // make sure the token provider is rotating the tokens
+        let token_a = identity_a.get_token().unwrap();
+        let token_b = identity_a.get_token().unwrap();
+        assert!(token_a != token_b);
+
         let mut alice = Mls::new(
             alice_name.clone(),
-            SharedSecret::new("alice", "secret_v1"),
-            SharedSecret::new("alice", "secret_v1"),
+            identity_a.clone(),
+            identity_a.clone(),
             std::path::PathBuf::from("/tmp/mls_test_rotation_alice"),
         );
+
+        let identity_b = SharedSecret::new("bob", SHARED_SECRET);
         let mut bob = Mls::new(
             bob_name.clone(),
-            SharedSecret::new("bob", "secret_v1"),
-            SharedSecret::new("bob", "secret_v1"),
+            identity_b.clone(),
+            identity_b.clone(),
             std::path::PathBuf::from("/tmp/mls_test_rotation_bob"),
         );
 
@@ -766,8 +784,14 @@ mod tests {
 
         let mut alice_rotated_secret = Mls::new(
             alice_name,
-            SharedSecret::new("alice", "secret_v2"),
-            SharedSecret::new("alice", "secret_v2"),
+            SharedSecret::new(
+                "alice",
+                "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas123",
+            ),
+            SharedSecret::new(
+                "alice",
+                "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas123",
+            ),
             std::path::PathBuf::from("/tmp/mls_test_rotation_alice_v2"),
         );
         alice_rotated_secret.initialize()?;
@@ -797,10 +821,11 @@ mod tests {
         let bob_name = Name::from_strings(["org", "default", "bob"]).with_id(1);
         let moderator_name = Name::from_strings(["org", "default", "moderator"]).with_id(2);
 
+        let secret_m = SharedSecret::new("moderator", SHARED_SECRET);
         let mut moderator = Mls::new(
             moderator_name.clone(),
-            SharedSecret::new("moderator", "secret_v1"),
-            SharedSecret::new("moderator", "secret_v1"),
+            secret_m.clone(),
+            secret_m.clone(),
             std::path::PathBuf::from("/tmp/mls_test_moderator"),
         );
         moderator.initialize()?;
@@ -808,18 +833,20 @@ mod tests {
         // Moderator creates the group
         let _group_id = moderator.create_group()?;
 
+        let secret_a = SharedSecret::new("alice", SHARED_SECRET);
         let mut alice = Mls::new(
             alice_name.clone(),
-            SharedSecret::new("alice", "secret_v1"),
-            SharedSecret::new("alice", "secret_v1"),
+            secret_a.clone(),
+            secret_a.clone(),
             alice_path.into(),
         );
         alice.initialize()?;
 
+        let secret_b = SharedSecret::new("bob", SHARED_SECRET);
         let mut bob = Mls::new(
             bob_name.clone(),
-            SharedSecret::new("bob", "secret_v1"),
-            SharedSecret::new("bob", "secret_v1"),
+            secret_b.clone(),
+            secret_b.clone(),
             bob_path.into(),
         );
         bob.initialize()?;

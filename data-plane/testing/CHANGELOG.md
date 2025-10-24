@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/agntcy/slim/compare/slim-testutils-v0.6.0...slim-testutils-v0.6.1) (2025-10-17)
+
+
+### Features
+
+* move session code in a new crate ([#828](https://github.com/agntcy/slim/issues/828)) ([6d0cf90](https://github.com/agntcy/slim/commit/6d0cf90a67cdfd62039fee857cf103a52a0380b1))
+
 ## [0.6.0](https://github.com/agntcy/slim/compare/slim-testutils-v0.2.2...slim-testutils-v0.6.0) (2025-10-09)
 
 

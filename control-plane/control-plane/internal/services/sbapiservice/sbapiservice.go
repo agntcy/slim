@@ -25,11 +25,15 @@ type SouthboundAPIServer interface {
 	controllerapi.ControllerServiceServer
 }
 
+type SouthboundServiceDataAccess interface {
+	SaveNode(node db.Node) (string, bool, error)
+}
+
 type sbAPIService struct {
 	config    config.APIConfig
 	logConfig config.LogConfig
 	controllerapi.UnimplementedControllerServiceServer
-	dbService          db.DataAccess
+	dbService          SouthboundServiceDataAccess
 	nodeCommandHandler nodecontrol.NodeCommandHandler
 	routeService       *routes.RouteService
 	groupservice       groupservice.GroupManager
@@ -37,7 +41,7 @@ type sbAPIService struct {
 
 func NewSBAPIService(config config.APIConfig,
 	logConfig config.LogConfig,
-	dbService db.DataAccess,
+	dbService SouthboundServiceDataAccess,
 	cmdHandler nodecontrol.NodeCommandHandler,
 	routeService *routes.RouteService,
 	groupservice groupservice.GroupManager) SouthboundAPIServer {
@@ -117,7 +121,7 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 			zlog.Info().Msgf("Connection details: %v", connDetails)
 		}
 
-		_, err = s.dbService.SaveNode(db.Node{
+		_, connDetailsUpdated, err := s.dbService.SaveNode(db.Node{
 			ID:          registeredNodeID,
 			GroupName:   regReq.RegisterNodeRequest.GroupName,
 			ConnDetails: connDetails,
@@ -141,7 +145,7 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 		}
 		_ = stream.Send(ackMsg)
 
-		s.routeService.NodeRegistered(ctx, registeredNodeID)
+		s.routeService.NodeRegistered(ctx, registeredNodeID, connDetailsUpdated)
 	}
 
 	if registeredNodeID == "" {
@@ -282,6 +286,10 @@ func (s *sbAPIService) handleNodeMessages(ctx context.Context,
 			continue
 		case *controllerapi.ControlMessage_Ack:
 			zlog.Debug().Msgf("Received ACK for message ID: %s, Success: %t", msg.MessageId, payload.Ack.Success)
+			s.nodeCommandHandler.ResponseReceived(ctx, registeredNodeID, msg)
+			continue
+		case *controllerapi.ControlMessage_ConfigCommandAck:
+			zlog.Debug().Msgf("Received ConfigCommandACK for message ID: %s.", msg.MessageId)
 			s.nodeCommandHandler.ResponseReceived(ctx, registeredNodeID, msg)
 			continue
 		case *controllerapi.ControlMessage_ConnectionListResponse:

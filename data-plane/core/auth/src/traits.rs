@@ -105,4 +105,7 @@ pub trait Signer {
 pub trait TokenProvider {
     // Try to get a token
     fn get_token(&self) -> Result<String, AuthError>;
+
+    // Get ID from the identity provider
+    fn get_id(&self) -> Result<String, AuthError>;
 }

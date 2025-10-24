@@ -52,4 +52,7 @@ pub enum AuthError {
 
     #[error("Invalid issuer endpoint URL: {0}")]
     InvalidIssuerEndpoint(String),
+
+    #[error("operation would block on async I/O; call async variant")]
+    WouldBlockOn,
 }
