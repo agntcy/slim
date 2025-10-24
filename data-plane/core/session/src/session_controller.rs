@@ -35,17 +35,17 @@ use crate::{
     interceptor_mls::{METADATA_MLS_ENABLED, METADATA_MLS_INIT_COMMIT_ID},
     mls_state::{MlsEndpoint, MlsModeratorState, MlsProposalMessagePayload, MlsState},
     moderator_task::{
-        AddParticipant, AddParticipantMls, ModeratorTask, RemoveParticipant, RemoveParticipantMls,
-        TaskUpdate, UpdateParticipantMls,
+        AddParticipantMls, ModeratorTask, RemoveParticipant, RemoveParticipantMls, TaskUpdate,
+        UpdateParticipantMls,
     },
     timer,
     timer_factory::TimerSettings,
     traits::SessionComponentLifecycle,
 };
 
-trait OnMessageReceived {
-    async fn on_message(&mut self, msg: Message) -> Result<(), SessionError>;
-}
+//trait OnMessageReceived {
+//    async fn on_message(&mut self, msg: Message) -> Result<(), SessionError>;
+//}
 
 impl<P, V, T> MlsEndpoint for SessionController<P, V, T>
 where
@@ -88,13 +88,15 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
     T: Transmitter + Send + Sync + Clone + 'static,
 {
-    pub async fn on_message(&mut self, msg: Message) -> Result<(), SessionError> {
-        todo!()
-        // still needed?
-        //match self {
-        //    SessionController::SessionParticipant(cp) => cp.on_message(msg).await,
-        //    SessionController::SessionModerator(cm) => cm.on_message(msg).await,
-        //}
+    pub async fn on_message(
+        &self,
+        msg: Message,
+        direction: MessageDirection,
+    ) -> Result<(), SessionError> {
+        match self {
+            SessionController::SessionParticipant(cp) => cp.on_message(msg, direction).await,
+            SessionController::SessionModerator(cm) => cm.on_message(msg, direction).await,
+        }
     }
 
     pub fn close(&mut self) {
@@ -104,6 +106,13 @@ where
         //    SessionController::SessionParticipant(cp) => cp.close(),
         //    SessionController::SessionModerator(cm) => cm.close(),
         //}
+    }
+
+    pub fn is_initiator(&self) -> bool {
+        match self {
+            SessionController::SessionParticipant(_) => false,
+            SessionController::SessionModerator(_) => true,
+        }
     }
 }
 
@@ -364,18 +373,6 @@ where
     T: Transmitter + Send + Sync + Clone + 'static,
 {
     fn close(&mut self) {
-        todo!()
-        // probably we don't need this anymore
-    }
-}
-
-impl<P, V, T> OnMessageReceived for SessionParticipant<P, V, T>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
-    async fn on_message(&mut self, _msg: Message) -> Result<(), SessionError> {
         todo!()
         // probably we don't need this anymore
     }
@@ -734,6 +731,7 @@ where
         let sender = ControllerSender::new(timer_settings, transmitter.clone(), tx.clone());
 
         // Create the processor
+        let source = session.source().clone();
         let processor = SessionModeratorProcessor::new(session, sender, rx, tx_to_session_layer);
 
         // Start the processor loop
@@ -766,18 +764,6 @@ where
     T: Transmitter + Send + Sync + Clone + 'static,
 {
     fn close(&mut self) {
-        todo!()
-        // probably we don't need this anymore
-    }
-}
-
-impl<P, V, T> OnMessageReceived for SessionModerator<P, V, T>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
-    async fn on_message(&mut self, _msg: Message) -> Result<(), SessionError> {
         todo!()
         // probably we don't need this anymore
     }
@@ -952,6 +938,19 @@ where
                 // if the metadata contains the key "DELETE_GROUP" remove all the participants
                 // and close the session when all task are completed
                 if message.contains_metadata("DELETE_GROUP") {
+                    return self.delete_all(message).await;
+                }
+
+                // if the message contains a payaload and the name is the same as the
+                // local one, call the delete all anyway
+                if let Some(n) = message
+                    .get_payload()
+                    .unwrap()
+                    .as_command_payload()
+                    .as_leave_request_payload()
+                    .destination
+                    && n == self.common.session.source().into()
+                {
                     return self.delete_all(message).await;
                 }
 

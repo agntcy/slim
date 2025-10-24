@@ -42,7 +42,7 @@ where
     T: Transmitter + Send + Sync + Clone + 'static,
 {
     /// Session pool
-    pool: Arc<AsyncRwLock<HashMap<Id, Arc<SessionController<P, V>>>>>,
+    pool: Arc<AsyncRwLock<HashMap<Id, Arc<SessionController<P, V, T>>>>>,
 
     /// Default name of the local app
     app_id: u64,
@@ -235,7 +235,7 @@ where
                     id,
                     conf,
                     local_name,
-                    tx,
+                    tx.clone(),
                     self.identity_provider.clone(),
                     self.identity_verifier.clone(),
                     self.storage_path.clone(),
@@ -246,7 +246,7 @@ where
                     id,
                     conf,
                     local_name,
-                    tx,
+                    tx.clone(),
                     self.identity_provider.clone(),
                     self.identity_verifier.clone(),
                     self.storage_path.clone(),
@@ -256,15 +256,19 @@ where
         };
 
         // insert the session into the pool
-        let session_controller = if initiator {
+        let session_controller: Arc<SessionController<P, V, T>> = if initiator {
             Arc::new(SessionController::SessionModerator(SessionModerator::new(
                 session.clone(),
-                tx,
+                self.transmitter.clone(),
                 self.tx_session.clone(),
             )))
         } else {
             Arc::new(SessionController::SessionParticipant(
-                SessionParticipant::new(session.clone()),
+                SessionParticipant::new(
+                    session.clone(),
+                    self.transmitter.clone(),
+                    self.tx_session.clone(),
+                ),
             ))
         };
 
@@ -343,25 +347,20 @@ where
         session_type: ProtoSessionType,
         session_message_type: ProtoSessionMessageType,
         session_id: u32,
-    ) -> Result<bool, SessionError> {
+    ) -> Result<(), SessionError> {
         match session_message_type {
             ProtoSessionMessageType::DiscoveryRequest => {
                 // reply directly without creating any new Session
                 let msg =
                     handle_channel_discovery_message(message, local_name, session_id, session_type);
 
-                self.transmitter
-                    .send_to_slim(Ok(msg))
-                    .await
-                    .map(|_| true)
-                    .map_err(|e| {
-                        SessionError::SlimTransmission(format!(
-                            "error sending discovery reply: {}",
-                            e
-                        ))
-                    })
+                self.transmitter.send_to_slim(Ok(msg)).await.map_err(|e| {
+                    SessionError::SlimTransmission(format!("error sending discovery reply: {}", e))
+                })
             }
-            _ => Ok(false),
+            _ => Err(SessionError::SlimTransmission(format!(
+                "unexpected message type",
+            ))),
         }
     }
 
@@ -397,20 +396,28 @@ where
 
         if session_message_type == ProtoSessionMessageType::DiscoveryRequest {
             // received a discovery message
-            if let Some(session) = self.pool.read().await.get(&id)
-                && session.session_config().initiator()
+            if let Some(controller) = self.pool.read().await.get(&id)
+                && controller.is_initiator()
+                && message
+                    .get_payload()
+                    .unwrap()
+                    .as_command_payload()
+                    .as_discovery_request_payload()
+                    .destination
+                    .is_some()
             {
-                // if the message is for a session that already exists and the local app
-                // is the initiator of the session this message is coming from the controller
-                // that wants to add new participant to the session
-                return session.on_message(message, MessageDirection::North).await;
+                // if the message is for a session that already exists and the session
+                // is the initiator of the session and the message contains a name in the payload
+                // this message is coming from the controller that wants to add new participant to the session
+                return controller
+                    .on_message(message, MessageDirection::North)
+                    .await;
             } else {
                 // in this case we handle the message without creating a new local session
-
                 let local_name =
                     self.get_local_name_for_session(message.get_slim_header().get_dst())?;
 
-                match self
+                return self
                     .handle_message_from_slim_without_session(
                         &local_name,
                         &message,
@@ -418,84 +425,22 @@ where
                         session_message_type,
                         id,
                     )
-                    .await
-                {
-                    Ok(done) => {
-                        if done {
-                            // message process concluded
-                            return Ok(());
-                        }
-                    }
-                    Err(e) => {
-                        // return an error
-                        return Err(SessionError::SlimReception(format!(
-                            "error processing packets from slim {}",
-                            e
-                        )));
-                    }
-                }
+                    .await;
             }
         }
 
-        if session_message_type == ProtoSessionMessageType::LeaveRequest {
-            let mut drop_session = true;
-            // send message to the session and delete it after
-            if let Some(session) = self.pool.read().await.get(&id) {
-                if message.get_session_type() == ProtoSessionType::Multicast {
-                    let payload = message
-                        .get_payload()
-                        .unwrap()
-                        .as_command_payload()
-                        .as_leave_request_payload();
-                    if let Some(name) = payload.destination {
-                        debug!(
-                            "received a Leave Request message on multicast session to be forwarded to name"
-                        );
-
-                        if &Name::from(&name) == session.source() {
-                            // the controller want to delete the session on the moderator.
-                            // this is equivalent to delete the full group.
-                            // TODO (micpapal/msardara): move the moderator role
-                            // to another participant and keep the group alive
-                            message.insert_metadata("DELETE_GROUP".to_string(), "true".to_string());
-
-                            debug!("try to remove the moderator, close the session");
-                        }
-
-                        drop_session = false;
-                    } else if message.contains_metadata("DELETE_GROUP") {
-                        debug!(
-                            "received a Leave Request message on multicast session with DELETE GROUP"
-                        );
-                        drop_session = false;
-                    }
-                }
-                session.on_message(message, MessageDirection::North).await?;
-            } else {
-                warn!(
-                    "received Channel Leave Request message with unknown session id, drop the message"
-                );
-                return Err(SessionError::SessionUnknown(
-                    session_type.as_str_name().to_string(),
-                ));
-            }
-
-            if drop_session {
-                // remove the session
-                self.remove_session(id).await;
-            }
-            return Ok(());
-        }
-
-        if let Some(session) = self.pool.read().await.get(&id) {
+        if let Some(controller) = self.pool.read().await.get(&id) {
             // pass the message to the session
-            return session.on_message(message, MessageDirection::North).await;
+            return controller
+                .on_message(message, MessageDirection::North)
+                .await;
         }
 
         // get local name for the session
         let local_name = self.get_local_name_for_session(message.get_slim_header().get_dst())?;
 
         let new_session = match session_message_type {
+            // TODO: do we want to keep this option?
             ProtoSessionMessageType::Msg => {
                 // if this is a point to point session create an anycast session otherwise drop the message
                 if message.get_session_type() == ProtoSessionType::PointToPoint {
@@ -654,7 +599,8 @@ where
     }
 
     /// Add an interceptor to a session
-    #[allow(dead_code)]
+    /// TODO: do we need this??
+    /*#[allow(dead_code)]
     pub async fn add_session_interceptor(
         &self,
         session_id: Id,
@@ -668,7 +614,7 @@ where
         } else {
             Err(SessionError::SessionNotFound(session_id))
         }
-    }
+    }*/
 
     /// Check if the session pool is empty (for testing purposes)
     #[cfg(test)]
