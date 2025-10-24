@@ -140,7 +140,7 @@ tower-service = "0.3.3"
 tracing = "0.1.41"
 tracing-opentelemetry = "0.32.0"
 tracing-subscriber = "0.3.19"
-tracing-test = { version = "0.2.5", features = ["no-env-filter"] }
+tracing-test = { version = "0.2.5" }
 twox-hash = "2.1.1"
 
 url = "2.5.0"

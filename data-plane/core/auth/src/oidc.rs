@@ -365,6 +365,7 @@ impl OidcTokenProvider {
     }
 }
 
+#[async_trait]
 impl TokenProvider for OidcTokenProvider {
     fn get_token(&self) -> Result<String, AuthError> {
         let cache_key = self.get_cache_key();
@@ -380,6 +381,16 @@ impl TokenProvider for OidcTokenProvider {
     fn get_id(&self) -> Result<String, AuthError> {
         let token = self.get_token()?;
         extract_sub_claim_unsafe(&token)
+    }
+
+    async fn get_token_with_claims(
+        &self,
+        _custom_claims: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Result<String, AuthError> {
+        // This provider does not support custom claims in the token
+        Err(AuthError::UnsupportedOperation(
+            "OIDC Token Provider does not support custom claims".to_string(),
+        ))
     }
 }
 

@@ -36,7 +36,7 @@ tonic-prost-build = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
-tracing-test = { workspace = true }
+tracing-test = { workspace = true, features = ["no-env-filter"] }
 
 [[bench]]
 name = "pool_benchmark"
