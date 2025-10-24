@@ -26,6 +26,10 @@ pub enum MlsError {
     TokenRetrievalFailed(String),
     #[error("Failed to sync file: {0}")]
     FileSyncFailed(String),
+    #[error("Identifier not found: {0}")]
+    IdentifierNotFound(String),
+    #[error("Credential not found in stored identity")]
+    CredentialNotFound,
 }
 
 #[derive(Error, Debug)]
@@ -41,6 +45,20 @@ pub enum SlimIdentityError {
 
     #[error("External sender validation failed: {0}")]
     ExternalSenderFailed(String),
+
+    #[error("Public key not found in signed identity")]
+    PublicKeyNotFound,
+
+    #[error(
+        "Public key mismatch: identity public key does not match provided public key: expected: {expected}, found: {found}"
+    )]
+    PublicKeyMismatch { expected: String, found: String },
+
+    #[error("Subject not found")]
+    SubjectNotFound,
+
+    #[error("External commit not supported")]
+    ExternalCommitNotSupported,
 }
 
 impl IntoAnyError for SlimIdentityError {}

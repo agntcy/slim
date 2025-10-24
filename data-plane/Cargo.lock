@@ -213,6 +213,7 @@ dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
  "async-trait",
+ "base64",
  "hex",
  "mls-rs",
  "mls-rs-core",

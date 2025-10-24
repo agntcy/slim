@@ -1924,7 +1924,6 @@ mod tests {
         let conn = 1;
 
         let moderator_mls = MlsState::new(Arc::new(Mutex::new(Mls::new(
-            moderator.clone(),
             SharedSecret::new("moderator", TEST_VALID_SECRET),
             SharedSecret::new("moderator", TEST_VALID_SECRET),
             std::path::PathBuf::from("/tmp/test_moderator_mls"),
@@ -1933,7 +1932,6 @@ mod tests {
         .unwrap();
 
         let participant_mls = MlsState::new(Arc::new(Mutex::new(Mls::new(
-            participant.clone(),
             SharedSecret::new("participant", TEST_VALID_SECRET),
             SharedSecret::new("participant", TEST_VALID_SECRET),
             std::path::PathBuf::from("/tmp/test_participant_mls"),

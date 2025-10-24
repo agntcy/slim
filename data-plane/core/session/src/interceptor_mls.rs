@@ -142,11 +142,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mls_interceptor_without_group() {
-        let name =
-            slim_datapath::messages::Name::from_strings(["org", "default", "test_user"]).with_id(0);
-
         let mut mls = Mls::new(
-            name,
             SharedSecret::new("test", TEST_VALID_SECRET),
             SharedSecret::new("test", TEST_VALID_SECRET),
             std::path::PathBuf::from("/tmp/mls_interceptor_test_without_group"),
@@ -178,18 +174,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_mls_interceptor_with_group() {
-        let alice =
-            slim_datapath::messages::Name::from_strings(["org", "default", "alice"]).with_id(0);
-        let bob = slim_datapath::messages::Name::from_strings(["org", "default", "bob"]).with_id(1);
-
         let mut alice_mls = Mls::new(
-            alice,
             SharedSecret::new("alice", TEST_VALID_SECRET),
             SharedSecret::new("alice", TEST_VALID_SECRET),
             std::path::PathBuf::from("/tmp/mls_interceptor_test_alice"),
         );
         let mut bob_mls = Mls::new(
-            bob,
             SharedSecret::new("bob", TEST_VALID_SECRET),
             SharedSecret::new("bob", TEST_VALID_SECRET),
             std::path::PathBuf::from("/tmp/mls_interceptor_test_bob"),

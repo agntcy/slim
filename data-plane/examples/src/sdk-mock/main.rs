@@ -180,7 +180,6 @@ async fn main() {
             let identity_provider = SharedSecret::new("server", TEST_VALID_SECRET);
             let identity_verifier = SharedSecret::new("server", TEST_VALID_SECRET);
             let mut server_mls = slim_mls::mls::Mls::new(
-                name.clone(),
                 identity_provider,
                 identity_verifier,
                 std::path::PathBuf::from("/tmp/server_mls"),
@@ -244,7 +243,6 @@ async fn main() {
             let identity_provider = SharedSecret::new("client", TEST_VALID_SECRET);
             let identity_verifier = SharedSecret::new("client", TEST_VALID_SECRET);
             let mut client_mls = slim_mls::mls::Mls::new(
-                name.clone(),
                 identity_provider,
                 identity_verifier,
                 std::path::PathBuf::from("/tmp/client_mls"),

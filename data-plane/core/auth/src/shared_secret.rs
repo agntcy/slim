@@ -546,7 +546,7 @@ impl Verifier for SharedSecret {
 
         // Build claims JSON with standard fields and custom_claims under its own key
         let claims_json = serde_json::json!({
-            "id": token_id,
+            "sub": token_id,
             "iat": ts,
             "exp": exp,
             "custom_claims": custom_claims
@@ -566,7 +566,7 @@ mod tests {
 
     #[derive(Debug, Deserialize)]
     struct BasicClaims {
-        id: String,
+        sub: String,
         iat: u64,
         exp: u64,
     }
@@ -781,7 +781,7 @@ mod tests {
         let s = SharedSecret::new("svc", &valid_secret()); // replay disabled
         let token = s.get_token().unwrap();
         let claims: BasicClaims = s.try_get_claims(token).unwrap();
-        assert!(claims.id.starts_with("svc_"));
+        assert!(claims.sub.starts_with("svc_"));
         assert_eq!(claims.exp, claims.iat + s.validity_window_secs());
     }
 
@@ -790,7 +790,7 @@ mod tests {
         let s = SharedSecret::new("svc", &valid_secret()).with_replay_cache_enabled(64);
         let token = s.get_token().unwrap();
         let claims: BasicClaims = s.try_get_claims(token).unwrap();
-        assert!(claims.id.starts_with("svc_"));
+        assert!(claims.sub.starts_with("svc_"));
         assert_eq!(claims.exp, claims.iat + s.validity_window_secs());
     }
 
@@ -879,7 +879,7 @@ mod tests {
         let claims: serde_json::Value = s.try_get_claims(token).unwrap();
 
         // Check standard fields
-        assert!(claims["id"].as_str().unwrap().starts_with("svc_"));
+        assert!(claims["sub"].as_str().unwrap().starts_with("svc_"));
         assert!(claims["iat"].as_u64().is_some());
         assert!(claims["exp"].as_u64().is_some());
 
