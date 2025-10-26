@@ -226,8 +226,8 @@ impl TokenProvider for AuthProvider {
 
 #[async_trait]
 impl Verifier for AuthVerifier {
-    async fn initialize(&mut self) -> Result<(), AuthError> { 
-        Ok(()) 
+    async fn initialize(&mut self) -> Result<(), AuthError> {
+        Ok(())
     }
 
     async fn verify(&self, token: impl Into<String> + Send) -> Result<(), AuthError> {
@@ -535,7 +535,8 @@ mod tests {
     #[tokio::test]
     async fn initialize_auth_provider_variants() -> Result<(), AuthError> {
         // SharedSecret variant
-        let mut shared = AuthProvider::shared_secret_from_str("svc", "abcdefghijklmnopqrstuvwxyz012345");
+        let mut shared =
+            AuthProvider::shared_secret_from_str("svc", "abcdefghijklmnopqrstuvwxyz012345");
         shared.initialize().await?;
 
         // JwtSigner variant
@@ -543,7 +544,11 @@ mod tests {
             .issuer("test-issuer")
             .audience(&["aud"])
             .subject("sub")
-            .private_key(&Key { algorithm: Algorithm::HS256, format: KeyFormat::Pem, key: KeyData::Str("secret-key".into()) })
+            .private_key(&Key {
+                algorithm: Algorithm::HS256,
+                format: KeyFormat::Pem,
+                key: KeyData::Str("secret-key".into()),
+            })
             .build()?;
         let mut auth_signer = AuthProvider::jwt_signer(signer);
         auth_signer.initialize().await?;

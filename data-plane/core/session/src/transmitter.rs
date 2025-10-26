@@ -207,7 +207,6 @@ mod tests {
         async fn initialize(&mut self) -> Result<(), AuthError> {
             Ok(())
         }
-        
         async fn verify(&self, _token: impl Into<String> + Send) -> Result<(), AuthError> {
             Ok(())
         }

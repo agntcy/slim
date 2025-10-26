@@ -503,8 +503,8 @@ impl TokenProvider for SharedSecret {
 
 #[async_trait::async_trait]
 impl Verifier for SharedSecret {
-    async fn initialize(&mut self) -> Result<(), AuthError> { 
-        Ok(()) 
+    async fn initialize(&mut self) -> Result<(), AuthError> {
+        Ok(())
     }
 
     async fn verify(&self, token: impl Into<String> + Send) -> Result<(), AuthError> {

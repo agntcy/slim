@@ -618,7 +618,7 @@ impl TokenProvider for StaticTokenProvider {
 
 #[async_trait]
 impl Verifier for VerifierJwt {
-    async fn initialize(&mut self) -> Result<(), AuthError> { 
+    async fn initialize(&mut self) -> Result<(), AuthError> {
         Ok(()) // no-op
     }
 
@@ -1302,7 +1302,11 @@ mod tests {
             .issuer("test-issuer")
             .audience(&["aud"])
             .subject("sub")
-            .private_key(&Key { algorithm: Algorithm::HS256, format: KeyFormat::Pem, key: KeyData::Str("secret-key".into()) })
+            .private_key(&Key {
+                algorithm: Algorithm::HS256,
+                format: KeyFormat::Pem,
+                key: KeyData::Str("secret-key".into()),
+            })
             .build()?;
         let mut signer: SignerJwt = jwt;
         signer.initialize().await?; // no-op

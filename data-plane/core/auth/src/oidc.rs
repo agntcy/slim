@@ -612,7 +612,7 @@ mod tests {
             scope: Some("api:read".to_string()),
             timeout: None,
         };
-        let provider = OidcTokenProvider::new(config).unwrap();
+        let mut provider = OidcTokenProvider::new(config).unwrap();
         provider.initialize().await.unwrap();
 
         // Test token retrieval
@@ -634,7 +634,7 @@ mod tests {
             scope: None,
             timeout: None,
         };
-        let provider = OidcTokenProvider::new(config).unwrap();
+        let mut provider = OidcTokenProvider::new(config).unwrap();
         provider.initialize().await.unwrap();
 
         // First call - should fetch token
@@ -914,7 +914,7 @@ mod tests {
 
         // Test that the provider can be created successfully with proper OIDC server
         match provider_result {
-            Ok(provider) => {
+            Ok(mut provider) => {
                 assert_eq!(provider.config.scope, Some("scope".to_string()));
                 // Test that initialization works
                 provider.initialize().await.unwrap();
@@ -972,7 +972,7 @@ mod tests {
             scope: None,
             timeout: None,
         };
-        let provider = OidcTokenProvider::new(config).unwrap();
+        let mut provider = OidcTokenProvider::new(config).unwrap();
         provider.initialize().await.unwrap();
 
         let now = 1000;
@@ -1168,8 +1168,13 @@ mod tests {
 
     #[tokio::test]
     async fn initialize_oidc_provider_trait_noop() {
-        use slim_auth::oidc::{OidcProviderConfig, OidcTokenProvider};
-        let config = OidcProviderConfig { client_id: "id".into(), client_secret: "secretsecretsecretsecret".into(), issuer_url: "https://example.com".into(), scope: None, timeout: Some(Duration::from_secs(1)) };
+        let config = OidcProviderConfig {
+            client_id: "id".into(),
+            client_secret: "secretsecretsecretsecret".into(),
+            issuer_url: "https://example.com".into(),
+            scope: None,
+            timeout: Some(Duration::from_secs(1)),
+        };
         let provider = OidcTokenProvider::new(config).unwrap();
         // Calling inherent initialize would perform network calls; trait-level is no-op
         let mut provider_clone = provider.clone();

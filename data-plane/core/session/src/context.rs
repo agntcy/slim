@@ -127,6 +127,9 @@ mod tests {
     struct DummyVerifier;
     #[async_trait]
     impl Verifier for DummyVerifier {
+        async fn initialize(&mut self) -> Result<(), AuthError> {
+            Ok(())
+        }
         async fn verify(&self, _t: impl Into<String> + Send) -> Result<(), AuthError> {
             Ok(())
         }
