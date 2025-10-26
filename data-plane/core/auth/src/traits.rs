@@ -106,17 +106,7 @@ pub trait Signer {
 
 /// Trait for providing JWT claims
 pub trait TokenProvider {
-    /// Initializes the token provider asynchronously.
-    ///
-    /// Usage notes:
-    /// - For most lightweight providers (SharedSecret, SignerJwt, StaticTokenProvider) this is a
-    ///   no-op and can be safely skipped.
-    /// - For providers that manage background tasks or external resources (e.g. `SpiffeProvider`
-    ///   and `OidcTokenProvider`), call their inherent `initialize` method (e.g.
-    ///   `spiffe_provider.initialize().await`) immediately after construction. The trait-level
-    ///   `initialize` is currently a no-op placeholder to satisfy generic constraints.
-    /// - Framework code that receives a generic `P: TokenProvider` MAY call `initialize` for
-    ///   uniformity; implementations that need real setup should rely on an inherent method.
+    #[allow(async_fn_in_trait)]
     async fn initialize(&mut self) -> Result<(), AuthError>;
 
     /// Try to get a token

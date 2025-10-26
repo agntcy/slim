@@ -13,6 +13,7 @@ use slim_auth::spiffe::{
     SpiffeJwtVerifier, SpiffeProvider, SpiffeProviderConfig as AuthSpiffeConfig,
     SpiffeVerifierConfig,
 };
+use slim_auth::traits::TokenProvider; // bring trait into scope for initialize()
 
 /// SPIFFE authentication configuration
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
@@ -122,7 +123,6 @@ impl Config {
             jwt_audiences: self.jwt_audiences.clone(),
         };
         let verifier = SpiffeJwtVerifier::new(config);
-        let _ = verifier.initialize().await;
         Ok(verifier)
     }
 }
