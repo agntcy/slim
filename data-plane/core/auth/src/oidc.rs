@@ -193,7 +193,7 @@ impl OidcTokenProvider {
     }
 
     /// Initialize the provider asynchronously - starts background tasks and fetches initial token
-    async fn initialize(&self) -> Result<(), AuthError> {
+    async fn initialize(&mut self) -> Result<(), AuthError> {
         // Check if already initialized
         if self.refresh_task.lock().is_some() {
             return Ok(());
@@ -368,7 +368,7 @@ impl OidcTokenProvider {
 #[async_trait]
 impl TokenProvider for OidcTokenProvider {
     async fn initialize(&mut self) -> Result<(), AuthError> {
-        self.initialize().await
+        OidcTokenProvider::initialize(self).await
     }
 
     fn get_token(&self) -> Result<String, AuthError> {
@@ -547,7 +547,7 @@ impl OidcVerifier {
 
 #[async_trait]
 impl Verifier for OidcVerifier {
-    async fn initialize(&self) -> Result<(), AuthError> {
+    async fn initialize(&mut self) -> Result<(), AuthError> {
         Ok(()) // no-op
     }
 

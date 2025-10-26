@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{AuthError, ClientAuthenticator, ServerAuthenticator};
 use slim_auth::oidc::{OidcProviderConfig, OidcTokenProvider, OidcVerifier};
+use slim_auth::traits::TokenProvider; // bring trait into scope for initialize()
 
 /// Unified OIDC Configuration that can act as both provider and verifier
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
@@ -183,7 +184,7 @@ impl Config {
     /// Create an OIDC token provider from this configuration
     pub async fn create_provider(&self) -> Result<OidcTokenProvider, AuthError> {
         let config = self.to_auth_config()?;
-        let provider = OidcTokenProvider::new(config).map_err(|e| {
+        let mut provider = OidcTokenProvider::new(config).map_err(|e| {
             AuthError::ConfigError(format!("Failed to create OIDC provider: {}", e))
         })?;
         provider.initialize().await.map_err(|e| {

@@ -226,7 +226,7 @@ impl TokenProvider for AuthProvider {
 
 #[async_trait]
 impl Verifier for AuthVerifier {
-    async fn initialize(&self) -> Result<(), AuthError> { 
+    async fn initialize(&mut self) -> Result<(), AuthError> { 
         Ok(()) 
     }
 
