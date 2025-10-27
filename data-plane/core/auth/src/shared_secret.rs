@@ -921,7 +921,6 @@ mod tests {
 
     #[tokio::test]
     async fn initialize_shared_secret() -> Result<(), AuthError> {
-        // Use a valid ASCII secret string; previous version contained grave accents causing a parse error.
         let mut provider = SharedSecret::new("svc", "abcdefghijklmnopqrstuvwxyz012345");
         // Disambiguate TokenProvider::initialize since SharedSecret also implements Verifier
         crate::traits::TokenProvider::initialize(&mut provider).await?; // no-op
