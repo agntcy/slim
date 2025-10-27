@@ -581,16 +581,3 @@ plugins {{
         Ok(())
     }
 }
-
-// impl Drop for SpireTestEnvironment {
-//     fn drop(&mut self) {
-//         // Block on async cleanup to ensure proper resource cleanup
-//         if let Ok(handle) = tokio::runtime::Handle::try_current() {
-//             handle.spawn_blocking(async {
-//                 if let Err(e) = self.cleanup().await {
-//                     tracing::error!("Error during SpireTestEnvironment cleanup: {}", e);
-//                 }
-//             });
-//         }
-//     }
-// }
