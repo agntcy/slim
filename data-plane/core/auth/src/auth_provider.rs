@@ -446,6 +446,8 @@ pub enum TokenVerifierType {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::builder::JwtBuilder;
+    use crate::jwt::{Algorithm, Key, KeyData, KeyFormat};
 
     const TEST_SECRET: &str = "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas";
 
