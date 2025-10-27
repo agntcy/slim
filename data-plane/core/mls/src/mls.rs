@@ -1,25 +1,26 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::errors::MlsError;
-use crate::identity_provider::SlimIdentityProvider;
 use mls_rs::IdentityProvider;
 use mls_rs::{
     CipherSuite, CipherSuiteProvider, Client, CryptoProvider, ExtensionList, Group, MlsMessage,
     crypto::{SignaturePublicKey, SignatureSecretKey},
     group::ReceivedMessage,
-    identity::{
-        SigningIdentity,
-        basic::{self, BasicCredential},
-    },
+    identity::{SigningIdentity, basic::BasicCredential},
 };
+
 use mls_rs_crypto_awslc::AwsLcCryptoProvider;
 use serde::{Deserialize, Serialize};
-use slim_auth::traits::{TokenProvider, Verifier};
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{Read, Write};
 use tracing::debug;
+
+use slim_auth::traits::{TokenProvider, Verifier};
+
+use crate::errors::MlsError;
+use crate::identity_claims::IdentityClaims;
+use crate::identity_provider::SlimIdentityProvider;
 
 const CIPHERSUITE: CipherSuite = CipherSuite::CURVE25519_AES128;
 const IDENTITY_FILENAME: &str = "identity.json";
@@ -76,7 +77,7 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    name: slim_datapath::messages::Name,
+    identity: Option<String>,
     storage_path: Option<std::path::PathBuf>,
     stored_identity: Option<StoredIdentity>,
     client: Option<
@@ -113,7 +114,7 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut debug_struct = f.debug_struct("mls");
         debug_struct
-            .field("name", &self.name)
+            .field("identity", &self.identity)
             .field("has_client", &self.client.is_some())
             .field("has_group", &self.group.is_some());
 
@@ -133,7 +134,6 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     pub fn new(
-        name: slim_datapath::messages::Name,
         identity_provider: P,
         identity_verifier: V,
         storage_path: std::path::PathBuf,
@@ -141,7 +141,7 @@ where
         let mls_storage_path = Some(storage_path.join("mls"));
 
         Self {
-            name,
+            identity: None,
             storage_path: mls_storage_path,
             stored_identity: None,
             client: None,
@@ -166,6 +166,47 @@ where
         result.map_err(|e| MlsError::Mls(e.to_string()))
     }
 
+    /// Helper method to create a signing identity from key pair and update storage
+    /// Generates a token with the public key in the claims, creates a BasicCredential,
+    /// and updates the stored identity with the new keys and token
+    async fn create_signing_identity_and_update_storage(
+        &mut self,
+        private_key: &SignatureSecretKey,
+        public_key: &SignaturePublicKey,
+        is_rotation: bool,
+    ) -> Result<SigningIdentity, MlsError> {
+        // Generate a fresh token with the public key in claims
+        let token = self
+            .identity_provider
+            .get_token_with_claims(IdentityClaims::from_public_key_bytes(public_key.as_ref()))
+            .await
+            .map_err(|e| MlsError::TokenRetrievalFailed(e.to_string()))?;
+
+        let credential_data = token.as_bytes().to_vec();
+
+        // Notice that we use BasicCredentials just as a way to transport the token,
+        // the actual verification is done via the SlimIdentityProvider
+        let basic_cred = BasicCredential::new(credential_data);
+        let signing_identity =
+            SigningIdentity::new(basic_cred.into_credential(), public_key.clone());
+
+        // Update storage
+        let storage_path = self.get_storage_path();
+        if let Some(stored) = self.stored_identity.as_mut() {
+            stored.last_credential = Some(token);
+            stored.public_key_bytes = public_key.as_bytes().to_vec();
+            stored.private_key_bytes = private_key.as_bytes().to_vec();
+
+            if is_rotation {
+                stored.credential_version = stored.credential_version.saturating_add(1);
+            }
+
+            stored.save_to_storage(&storage_path)?;
+        }
+
+        Ok(signing_identity)
+    }
+
     async fn generate_key_pair() -> Result<(SignatureSecretKey, SignaturePublicKey), MlsError> {
         let crypto_provider = AwsLcCryptoProvider::default();
         let cipher_suite_provider = crypto_provider
@@ -179,15 +220,9 @@ where
     }
 
     pub async fn initialize(&mut self) -> Result<(), MlsError> {
-        debug!("Initializing MLS client for: {}", self.name);
         let storage_path = self.get_storage_path();
         debug!("Using storage path: {}", storage_path.display());
         std::fs::create_dir_all(&storage_path).map_err(MlsError::StorageDirectoryCreation)?;
-
-        let token = self
-            .identity_provider
-            .get_token()
-            .map_err(|e| MlsError::TokenRetrievalFailed(e.to_string()))?;
 
         let stored_identity = if StoredIdentity::exists(&storage_path) {
             debug!("Loading existing identity from file");
@@ -196,11 +231,21 @@ where
             debug!("Creating new identity");
             let (private_key, public_key) = Self::generate_key_pair().await?;
 
+            self.identity = Some(
+                self.identity_provider
+                    .get_id()
+                    .map_err(|e| MlsError::IdentifierNotFound(e.to_string()))?,
+            );
+
             let stored = StoredIdentity {
-                identifier: self.name.to_string(),
+                identifier: self
+                    .identity
+                    .clone()
+                    .map(|id| id.to_string())
+                    .expect("MLS identity could not be determined from identity provider"),
                 public_key_bytes: public_key.as_bytes().to_vec(),
                 private_key_bytes: private_key.as_bytes().to_vec(),
-                last_credential: Some(token.clone()),
+                last_credential: None,
                 credential_version: 1,
             };
 
@@ -214,9 +259,10 @@ where
 
         self.stored_identity = Some(stored_identity);
 
-        let credential_data = token.as_bytes().to_vec();
-        let basic_cred = BasicCredential::new(credential_data);
-        let signing_identity = SigningIdentity::new(basic_cred.into_credential(), public_key);
+        // Always generate a fresh token and update storage (not a rotation)
+        let signing_identity = self
+            .create_signing_identity_and_update_storage(&private_key, &public_key, false)
+            .await?;
 
         let crypto_provider = AwsLcCryptoProvider::default();
 
@@ -273,13 +319,15 @@ where
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
         let key_package = Self::map_mls_error(MlsMessage::from_bytes(key_package_bytes))?;
 
+        let identity_provider = SlimIdentityProvider::new(self.identity_verifier.clone());
+
         // create a set of the current identifiers in the group
         // to detect the new one after the insertion
         let old_roster = group.roster().members();
         let mut ids = HashSet::new();
         for m in old_roster {
             let identifier = Self::map_mls_error(
-                basic::BasicIdentityProvider::new()
+                identity_provider
                     .identity(&m.signing_identity, &m.extensions)
                     .await,
             )?;
@@ -306,7 +354,7 @@ where
         let mut new_id = vec![];
         for m in new_roster {
             let identifier = Self::map_mls_error(
-                basic::BasicIdentityProvider::new()
+                identity_provider
                     .identity(&m.signing_identity, &m.extensions)
                     .await,
             )?;
@@ -452,21 +500,16 @@ where
     }
 
     pub async fn create_rotation_proposal(&mut self) -> Result<ProposalMsg, MlsError> {
-        let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
-
-        // get the current credentials
-        let token = self
-            .identity_provider
-            .get_token()
-            .map_err(|e| MlsError::TokenRetrievalFailed(e.to_string()))?;
-
-        let credential_data = token.as_bytes().to_vec();
-        let basic_cred = BasicCredential::new(credential_data);
-
+        // Generate new key pair
         let (new_private_key, new_public_key) = Self::generate_key_pair().await?;
 
-        let new_signing_identity =
-            SigningIdentity::new(basic_cred.into_credential(), new_public_key.clone());
+        // Create signing identity with token containing the new public key and update storage
+        let new_signing_identity = self
+            .create_signing_identity_and_update_storage(&new_private_key, &new_public_key, true)
+            .await?;
+
+        // Now get mutable reference to group after creating signing identity
+        let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
         let update_proposal = Self::map_mls_error(
             group
@@ -475,18 +518,8 @@ where
         )?;
 
         debug!(
-            "Created credential rotation proposal, store it and return the message to the caller"
+            "Created credential rotation proposal, stored new keys and incremented credential version"
         );
-
-        let storage_path = self.get_storage_path();
-        if let Some(stored) = self.stored_identity.as_mut() {
-            stored.last_credential = Some(token);
-            stored.credential_version = stored.credential_version.saturating_add(1);
-            stored.public_key_bytes = new_public_key.as_bytes().to_vec();
-            stored.private_key_bytes = new_private_key.as_bytes().to_vec();
-
-            stored.save_to_storage(&storage_path)?;
-        }
 
         Self::map_mls_error(update_proposal.to_bytes())
     }
@@ -501,8 +534,12 @@ where
 
 #[cfg(test)]
 mod tests {
-    use slim_datapath::messages::Name;
+    use base64::Engine;
+    use base64::engine::general_purpose::STANDARD as BASE64;
+    use mls_rs_core::identity::MemberValidationContext;
     use tokio::time;
+
+    use crate::errors::SlimIdentityError;
 
     use super::*;
     use slim_auth::shared_secret::SharedSecret;
@@ -512,9 +549,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mls_creation() -> Result<(), Box<dyn std::error::Error>> {
-        let name = Name::from_strings(["org", "default", "alice"]).with_id(0);
         let mut mls = Mls::new(
-            name,
             SharedSecret::new("alice", SHARED_SECRET),
             SharedSecret::new("alice", SHARED_SECRET),
             std::path::PathBuf::from("/tmp/mls_test_creation"),
@@ -528,9 +563,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_group_creation() -> Result<(), Box<dyn std::error::Error>> {
-        let name = Name::from_strings(["org", "default", "alice"]).with_id(0);
         let mut mls = Mls::new(
-            name,
             SharedSecret::new("alice", SHARED_SECRET),
             SharedSecret::new("alice", SHARED_SECRET),
             std::path::PathBuf::from("/tmp/mls_test_group_creation"),
@@ -545,9 +578,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_key_package_generation() -> Result<(), Box<dyn std::error::Error>> {
-        let name = Name::from_strings(["org", "default", "alice"]).with_id(0);
         let mut mls = Mls::new(
-            name,
             SharedSecret::new("alice", SHARED_SECRET),
             SharedSecret::new("alice", SHARED_SECRET),
             std::path::PathBuf::from("/tmp/mls_test_key_package"),
@@ -561,32 +592,23 @@ mod tests {
 
     #[tokio::test]
     async fn test_messaging() -> Result<(), Box<dyn std::error::Error>> {
-        let alice = Name::from_strings(["org", "default", "alice"]).with_id(0);
-        let bob = Name::from_strings(["org", "default", "bob"]).with_id(0);
-        let charlie = Name::from_strings(["org", "default", "charlie"]).with_id(0);
-        let daniel = Name::from_strings(["org", "default", "daniel"]).with_id(0);
-
         // alice will work as moderator
         let mut alice = Mls::new(
-            alice,
             SharedSecret::new("alice", SHARED_SECRET),
             SharedSecret::new("alice", SHARED_SECRET),
             std::path::PathBuf::from("/tmp/mls_test_messaging_alice"),
         );
         let mut bob = Mls::new(
-            bob,
             SharedSecret::new("bob", SHARED_SECRET),
             SharedSecret::new("bob", SHARED_SECRET),
             std::path::PathBuf::from("/tmp/mls_test_messaging_bob"),
         );
         let mut charlie = Mls::new(
-            charlie,
             SharedSecret::new("charlie", SHARED_SECRET),
             SharedSecret::new("charlie", SHARED_SECRET),
             std::path::PathBuf::from("/tmp/mls_test_messaging_charlie"),
         );
         let mut daniel = Mls::new(
-            daniel,
             SharedSecret::new("daniel", SHARED_SECRET),
             SharedSecret::new("daniel", SHARED_SECRET),
             std::path::PathBuf::from("/tmp/mls_test_messaging_daniel"),
@@ -719,17 +741,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_decrypt_message() -> Result<(), Box<dyn std::error::Error>> {
-        let alice = Name::from_strings(["org", "default", "alice"]).with_id(0);
-        let bob = Name::from_strings(["org", "default", "bob"]).with_id(1);
-
         let mut alice = Mls::new(
-            alice,
             SharedSecret::new("alice", SHARED_SECRET),
             SharedSecret::new("alice", SHARED_SECRET),
             std::path::PathBuf::from("/tmp/mls_test_decrypt_alice"),
         );
         let mut bob = Mls::new(
-            bob,
             SharedSecret::new("bob", SHARED_SECRET),
             SharedSecret::new("bob", SHARED_SECRET),
             std::path::PathBuf::from("/tmp/mls_test_decrypt_bob"),
@@ -754,9 +771,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_shared_secret_rotation_same_identity() -> Result<(), Box<dyn std::error::Error>> {
-        let alice_name = Name::from_strings(["org", "default", "alice"]).with_id(0);
-        let bob_name = Name::from_strings(["org", "default", "bob"]).with_id(1);
-
         let identity_a = SharedSecret::new("alice", SHARED_SECRET);
 
         // make sure the token provider is rotating the tokens
@@ -765,7 +779,6 @@ mod tests {
         assert!(token_a != token_b);
 
         let mut alice = Mls::new(
-            alice_name.clone(),
             identity_a.clone(),
             identity_a.clone(),
             std::path::PathBuf::from("/tmp/mls_test_rotation_alice"),
@@ -773,7 +786,6 @@ mod tests {
 
         let identity_b = SharedSecret::new("bob", SHARED_SECRET);
         let mut bob = Mls::new(
-            bob_name.clone(),
             identity_b.clone(),
             identity_b.clone(),
             std::path::PathBuf::from("/tmp/mls_test_rotation_bob"),
@@ -794,7 +806,6 @@ mod tests {
         assert_eq!(decrypted1, message1);
 
         let mut alice_rotated_secret = Mls::new(
-            alice_name,
             SharedSecret::new(
                 "alice",
                 "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas123",
@@ -828,13 +839,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(bob_path);
         let _ = std::fs::remove_dir_all(moderator_path);
 
-        let alice_name = Name::from_strings(["org", "default", "alice"]).with_id(0);
-        let bob_name = Name::from_strings(["org", "default", "bob"]).with_id(1);
-        let moderator_name = Name::from_strings(["org", "default", "moderator"]).with_id(2);
-
         let secret_m = SharedSecret::new("moderator", SHARED_SECRET);
         let mut moderator = Mls::new(
-            moderator_name.clone(),
             secret_m.clone(),
             secret_m.clone(),
             std::path::PathBuf::from("/tmp/mls_test_moderator"),
@@ -845,21 +851,11 @@ mod tests {
         let _group_id = moderator.create_group().await?;
 
         let secret_a = SharedSecret::new("alice", SHARED_SECRET);
-        let mut alice = Mls::new(
-            alice_name.clone(),
-            secret_a.clone(),
-            secret_a.clone(),
-            alice_path.into(),
-        );
+        let mut alice = Mls::new(secret_a.clone(), secret_a.clone(), alice_path.into());
         alice.initialize().await?;
 
         let secret_b = SharedSecret::new("bob", SHARED_SECRET);
-        let mut bob = Mls::new(
-            bob_name.clone(),
-            secret_b.clone(),
-            secret_b.clone(),
-            bob_path.into(),
-        );
+        let mut bob = Mls::new(secret_b.clone(), secret_b.clone(), bob_path.into());
         bob.initialize().await?;
 
         // Moderator adds Alice to the group
@@ -921,6 +917,174 @@ mod tests {
         );
 
         // The end.
+        Ok(())
+    }
+
+    // -------------------------------------------------------------------------
+    // Test Helpers
+    // -------------------------------------------------------------------------
+    async fn init_identity(
+        name: &str,
+        path: &str,
+    ) -> Result<Mls<SharedSecret, SharedSecret>, Box<dyn std::error::Error>> {
+        let _ = std::fs::remove_dir_all(path);
+        let mut mls = Mls::new(
+            SharedSecret::new(name, SHARED_SECRET),
+            SharedSecret::new(name, SHARED_SECRET),
+            path.into(),
+        );
+        mls.initialize().await?;
+        Ok(mls)
+    }
+
+    fn extract_token_and_pubkey(mls: &Mls<SharedSecret, SharedSecret>) -> (&String, Vec<u8>) {
+        let stored = mls
+            .stored_identity
+            .as_ref()
+            .expect("stored identity exists");
+        let token = stored
+            .last_credential
+            .as_ref()
+            .expect("stored credential exists");
+        (token, stored.public_key_bytes.clone())
+    }
+
+    async fn build_fake_identity_with_other_key(
+        stolen_token: &str,
+    ) -> (SigningIdentity, SignaturePublicKey) {
+        let (_priv, attacker_pub) = Mls::<SharedSecret, SharedSecret>::generate_key_pair()
+            .await
+            .expect("key gen");
+        let stolen_cred = BasicCredential::new(stolen_token.as_bytes().to_vec());
+        let signing_id = SigningIdentity::new(stolen_cred.into_credential(), attacker_pub.clone());
+        (signing_id, attacker_pub)
+    }
+
+    fn verify_token_embeds_pubkey(token: &str, expected_pubkey_bytes: &[u8]) {
+        use base64::Engine;
+        use base64::engine::general_purpose::STANDARD as BASE64;
+        let verifier = SharedSecret::new("alice", SHARED_SECRET);
+        let claims_json: serde_json::Value = verifier.try_get_claims(token).expect("claims");
+        let claims = IdentityClaims::from_json(&claims_json).expect("identity claims");
+        assert_eq!(
+            claims.public_key,
+            BASE64.encode(expected_pubkey_bytes),
+            "Token must embed expected public key"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // TEST: Token-only theft with different attacker key triggers PublicKeyMismatch
+    // -------------------------------------------------------------------------
+    #[tokio::test]
+    async fn test_security_identity_theft_attack() -> Result<(), Box<dyn std::error::Error>> {
+        // Threat model: attacker steals Alice's token, NOT her private key.
+
+        let mut alice = init_identity("alice", "/tmp/mls_test_security_alice").await?;
+        let mut charlie = init_identity("charlie", "/tmp/mls_test_security_charlie").await?;
+
+        // Group setup
+        let _group_id = alice.create_group().await?;
+        let charlie_key_package = charlie.generate_key_package().await?;
+        let charlie_add_res = alice.add_member(&charlie_key_package).await?;
+        charlie
+            .process_welcome(&charlie_add_res.welcome_message)
+            .await?;
+
+        // Sanity application message
+        let msg = b"Hello from the real Alice!";
+        let encrypted = alice.encrypt_message(msg).await?;
+        let decrypted = charlie.decrypt_message(&encrypted).await?;
+        assert_eq!(decrypted, msg);
+
+        // Extract stolen artifacts
+        let (alice_token, alice_pub_bytes) = extract_token_and_pubkey(&alice);
+
+        // Build fake identity with a different key
+        let (fake_identity, attacker_pub) = build_fake_identity_with_other_key(alice_token).await;
+
+        let alice_pub_b64 = BASE64.encode(&alice_pub_bytes);
+        let attacker_pub_b64 = BASE64.encode(attacker_pub.as_ref());
+        assert_ne!(
+            alice_pub_b64, attacker_pub_b64,
+            "Precondition: attacker key must differ"
+        );
+
+        // Validate
+        let verifier = SharedSecret::new("alice", SHARED_SECRET);
+        let provider = SlimIdentityProvider::new(verifier.clone());
+        let validation_res = provider
+            .validate_member(&fake_identity, None, MemberValidationContext::None)
+            .await;
+
+        assert!(
+            matches!(
+                validation_res,
+                Err(SlimIdentityError::PublicKeyMismatch { .. })
+            ),
+            "Expected PublicKeyMismatch for stolen token + different key"
+        );
+
+        // Show claims mismatch
+        let claims_json: serde_json::Value = verifier
+            .try_get_claims(alice_token.as_str())
+            .expect("claims parse");
+        let claims = IdentityClaims::from_json(&claims_json).expect("claims map");
+        assert_ne!(
+            claims.public_key, attacker_pub_b64,
+            "Token-bound key must differ from attacker key"
+        );
+
+        Ok(())
+    }
+
+    // -------------------------------------------------------------------------
+    // TEST: Token + correct public key but wrong private key => MLS signature failure
+    // -------------------------------------------------------------------------
+    #[tokio::test]
+    async fn test_signature_mismatch_stolen_token_wrong_private_key()
+    -> Result<(), Box<dyn std::error::Error>> {
+        // Attacker has Alice's token + public key, but not her private key.
+
+        let alice = init_identity("alice", "/tmp/mls_test_sig_mismatch_alice").await?;
+        let (alice_token, alice_pub_bytes) = extract_token_and_pubkey(&alice);
+
+        // Verify token correctness
+        verify_token_embeds_pubkey(alice_token, &alice_pub_bytes);
+
+        // Attacker key pair
+        let (attacker_priv, _attacker_pub) =
+            Mls::<SharedSecret, SharedSecret>::generate_key_pair().await?;
+
+        // Build signing identity using Alice's token + Alice's public key (public part matches)
+        let alice_pub = SignaturePublicKey::new(alice_pub_bytes.clone());
+        let stolen_cred = BasicCredential::new(alice_token.as_bytes().to_vec());
+        let fake_identity = SigningIdentity::new(stolen_cred.into_credential(), alice_pub.clone());
+
+        // Build MLS client with mismatched private key
+        let verifier = SharedSecret::new("alice", SHARED_SECRET);
+        let crypto_provider = AwsLcCryptoProvider::default();
+        let identity_provider = SlimIdentityProvider::new(verifier.clone());
+        let client = Client::builder()
+            .identity_provider(identity_provider)
+            .crypto_provider(crypto_provider)
+            .signing_identity(fake_identity, attacker_priv.clone(), CIPHERSUITE)
+            .build();
+
+        // Operations expected to fail
+        let group_res = client
+            .create_group(ExtensionList::default(), Default::default(), None)
+            .await;
+
+        let keypkg_res = client
+            .generate_key_package_message(Default::default(), Default::default(), None)
+            .await;
+
+        assert!(
+            group_res.is_err() || keypkg_res.is_err(),
+            "Expected at least one MLS operation failure (signature mismatch)"
+        );
+
         Ok(())
     }
 }
