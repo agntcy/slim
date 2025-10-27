@@ -7,10 +7,9 @@
 //! This module provides direct integration with SPIFFE Workload API to retrieve
 //! X.509 SVID certificates and JWT tokens.
 
-use crate::errors::AuthError;
-use crate::traits::{TokenProvider, Verifier};
-use crate::utils::bytes_to_pem;
 use async_trait::async_trait;
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use futures::StreamExt; // for .next() on the JWT bundle stream
 use parking_lot::RwLock; // switched to parking_lot for sync RwLock
 use serde::de::DeserializeOwned;
@@ -24,6 +23,10 @@ use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info}; // for sync access in TokenProvider impl
+
+use crate::errors::AuthError;
+use crate::traits::{TokenProvider, Verifier};
+use crate::utils::bytes_to_pem;
 
 /// Helper for encoding/decoding custom claims in JWT audiences
 ///
@@ -73,8 +76,6 @@ impl CustomClaimsCodec {
     fn encode_audience(
         custom_claims: &std::collections::HashMap<String, serde_json::Value>,
     ) -> Result<String, AuthError> {
-        use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-
         let claims_json = serde_json::to_string(custom_claims).map_err(|e| {
             AuthError::ConfigError(format!("Failed to serialize custom claims: {}", e))
         })?;
