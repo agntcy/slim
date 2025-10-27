@@ -262,30 +262,36 @@ impl MessageProcessor {
             .await
     }
 
-    pub fn disconnect(&self, conn: u64) -> Result<(), DataPathError> {
-        match self.forwarder().get_connection(conn) {
+    pub fn disconnect(&self, conn: u64) -> Result<ClientConfig, DataPathError> {
+        let connection = match self.forwarder().get_connection(conn) {
+            Some(c) => c,
             None => {
                 error!("error handling disconnect: connection unknown");
                 return Err(DataPathError::DisconnectionError(
                     "connection not found".to_string(),
                 ));
             }
-            Some(c) => {
-                match c.cancellation_token() {
-                    None => {
-                        error!("error handling disconnect: missing cancellation token");
-                    }
-                    Some(t) => {
-                        // here token cancel will stop the receiving loop on
-                        // conn and this will cause the delition of the state
-                        // for this connection
-                        t.cancel();
-                    }
-                }
-            }
-        }
+        };
 
-        Ok(())
+        let token = match connection.cancellation_token() {
+            Some(t) => t,
+            None => {
+                error!("error handling disconnect: missing cancellation token");
+                return Err(DataPathError::DisconnectionError(
+                    "missing cancellation token".to_string(),
+                ));
+            }
+        };
+
+        // Cancel receiving loop; this triggers deletion of connection state.
+        token.cancel();
+
+        connection
+            .config_data()
+            .cloned()
+            .ok_or(DataPathError::DisconnectionError(
+                "missing client config data".to_string(),
+            ))
     }
 
     pub fn register_local_connection(

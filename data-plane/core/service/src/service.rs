@@ -344,9 +344,27 @@ impl Service {
     pub fn disconnect(&self, conn: u64) -> Result<(), ServiceError> {
         info!("disconnect from conn {}", conn);
 
-        self.message_processor
-            .disconnect(conn)
-            .map_err(|e| ServiceError::DisconnectError(e.to_string()))
+        match self.message_processor.disconnect(conn) {
+            Ok(cfg) => {
+                let endpoint = cfg.endpoint.clone();
+                let mut clients = self.clients.write();
+                if let Some(stored_conn) = clients.get(&endpoint) {
+                    if *stored_conn == conn {
+                        clients.remove(&endpoint);
+                        info!("removed client mapping for endpoint {}", endpoint);
+                    } else {
+                        debug!(
+                            "client mapping endpoint {} has different conn_id {} != {}",
+                            endpoint, stored_conn, conn
+                        );
+                    }
+                } else {
+                    debug!("no client mapping found for endpoint {}", endpoint);
+                }
+                Ok(())
+            }
+            Err(e) => Err(ServiceError::DisconnectError(e.to_string())),
+        }
     }
 
     pub fn get_connection_id(&self, endpoint: &str) -> Option<u64> {
@@ -467,6 +485,62 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         assert!(logs_contain("shutting down server"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_service_disconnection() {
+        // create the service (server + one client we will disconnect)
+        let tls_config = TlsServerConfig::new().with_insecure(true);
+        let server_config =
+            ServerConfig::with_endpoint("0.0.0.0:12346").with_tls_settings(tls_config);
+        let config = ServiceConfiguration::new().with_server([server_config].to_vec());
+        let mut service = config
+            .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test-disconnect").unwrap())
+            .unwrap();
+
+        service.run().await.expect("failed to run service");
+
+        // wait a bit for server loop to start
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // build client configuration and connect
+        let mut client_conf =
+            slim_config::grpc::client::ClientConfig::with_endpoint("http://0.0.0.0:12346");
+        client_conf.tls_setting.insecure = true;
+        let conn_id = service
+            .connect(&client_conf)
+            .await
+            .expect("failed to connect client");
+
+        assert!(service.get_connection_id(&client_conf.endpoint).is_some());
+
+        // disconnect
+        service
+            .disconnect(conn_id)
+            .expect("disconnect should succeed");
+
+        // allow cancellation token to propagate and stream to terminate
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        // verify connection is removed from internal client mapping
+        assert!(
+            service.get_connection_id(&client_conf.endpoint).is_none(),
+            "client mapping should be removed after disconnect"
+        );
+
+        // verify connection is removed from connection table
+        assert!(
+            service
+                .message_processor
+                .connection_table()
+                .get(conn_id as usize)
+                .is_none(),
+            "connection should be removed after disconnect"
+        );
+
+        // verify disconnect log
+        assert!(logs_contain("disconnect from conn"));
     }
 
     #[tokio::test]
