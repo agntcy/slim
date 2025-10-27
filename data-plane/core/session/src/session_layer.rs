@@ -23,9 +23,9 @@ use crate::notification::Notification;
 use crate::session_controller::{SessionController, SessionModerator, SessionParticipant};
 use crate::session_receiver::SessionReceiver;
 use crate::session_sender::SessionSender;
+use crate::timer;
 use crate::timer_factory::TimerSettings;
 use crate::transmitter::{AppTransmitter, SessionTransmitter};
-use crate::{MessageHandler, timer};
 
 // Local crate
 use super::context::SessionContext;
@@ -66,7 +66,7 @@ where
 
     /// Tx channels
     tx_slim: SlimChannelSender,
-    tx_app: Sender<Result<Notification<P, V>, SessionError>>,
+    tx_app: Sender<Result<Notification<P, V, T>, SessionError>>,
 
     // Transmitter to bypass sessions
     transmitter: T,
@@ -96,7 +96,7 @@ where
         identity_verifier: V,
         conn_id: u64,
         tx_slim: SlimChannelSender,
-        tx_app: Sender<Result<Notification<P, V>, SessionError>>,
+        tx_app: Sender<Result<Notification<P, V, T>, SessionError>>,
         transmitter: T,
         storage_path: std::path::PathBuf,
     ) -> Self {
@@ -130,7 +130,7 @@ where
         self.tx_slim.clone()
     }
 
-    pub fn tx_app(&self) -> Sender<Result<Notification<P, V>, SessionError>> {
+    pub fn tx_app(&self) -> Sender<Result<Notification<P, V, T>, SessionError>> {
         self.tx_app.clone()
     }
 
@@ -187,7 +187,7 @@ where
         session_config: SessionConfig,
         local_name: Name,
         id: Option<Id>,
-    ) -> Result<SessionContext<P, V>, SessionError> {
+    ) -> Result<SessionContext<P, V, T>, SessionError> {
         // TODO(msardara): the session identifier should be a combination of the
         // session ID and the app ID, to prevent collisions.
 
@@ -233,16 +233,14 @@ where
 
         let initiator = session_config.initiator();
 
-        // create the senders and receiver
-        let controller_timer_settings = TimerSettings {
-            duration: Duration::from_secs(1),
-            max_duration: None,
-            max_retries: Some(10),
-            timer_type: timer::TimerType::Constant,
-        };
+        // create timer settings for controller sender
+        let controller_timer_settings =
+            TimerSettings::constant(Duration::from_secs(1)).with_max_retries(10);
 
+        // tx/rx controller used to communincate with the controller
         let (tx_controller, rx_controller) = tokio::sync::mpsc::channel(128);
 
+        // create timer settings for the session if needed
         let session_timer_settings = if let Some(duration) = session_config.timer_duration() {
             Some(TimerSettings {
                 duration,
@@ -254,15 +252,22 @@ where
             None
         };
 
+        // create the controller sender
         let controller_sender = ControllerSender::new(
             controller_timer_settings,
+            // used by the sender to send messages to slim/app
             self.transmitter.clone(),
+            // used by the sender to send messages to the controller
             tx_controller.clone(),
         );
+
+        // create the session sender
         let sender = SessionSender::new(
             session_timer_settings.clone(),
             id,
+            // send messages to slim/app
             tx.clone(),
+            // send signals to the controller
             Some(tx_controller.clone()),
         );
         let send_acks = session_timer_settings.is_some();
@@ -270,26 +275,9 @@ where
         // create a new session
         let session = match session_config {
             SessionConfig::PointToPoint(conf) => {
-                let _receiver = SessionReceiver::new(
-                    session_timer_settings.clone(),
-                    id,
-                    local_name.clone(),
-                    ProtoSessionType::PointToPoint,
-                    send_acks,
-                    tx.clone(),
-                    Some(tx_controller.clone()),
-                );
-                Arc::new(Session::from_point_to_point(
-                    super::point_to_point::PointToPoint::new(
-                        id,
-                        conf,
-                        local_name,
-                        tx.clone(),
-                        self.identity_provider.clone(),
-                        self.identity_verifier.clone(),
-                        self.storage_path.clone(),
-                    ),
-                ))
+                todo!();
+                // the session receiver requires the session type.
+                // create th receiver according to it
             }
             SessionConfig::Multicast(conf) => {
                 let receiver = SessionReceiver::new(
@@ -344,7 +332,7 @@ where
             panic!("session already exists: {}", ret.is_some());
         }
 
-        Ok(SessionContext::new(session, app_rx))
+        Ok(SessionContext::new(session_controller, app_rx))
     }
 
     /// Remove a session from the pool
@@ -392,13 +380,13 @@ where
     pub async fn handle_message_from_app(
         &self,
         message: Message,
-        context: &SessionContext<P, V>,
+        context: &SessionContext<P, V, T>,
     ) -> Result<(), SessionError> {
         context
             .session()
             .upgrade()
             .ok_or(SessionError::SessionNotFound(0))?
-            .publish_message(message)
+            .on_message(message, MessageDirection::South)
             .await
     }
 
@@ -614,8 +602,6 @@ where
                 ));
             }
         };
-
-        debug_assert!(new_session.session().upgrade().unwrap().id() == id);
 
         // process the message
         new_session

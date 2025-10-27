@@ -12,6 +12,7 @@ use crate::{
     common::SessionMessage,
     timer::Timer,
     timer_factory::{TimerFactory, TimerSettings},
+    transmitter::SessionTransmitter,
 };
 
 /// used a result in OnMessage function
@@ -35,10 +36,7 @@ struct PendingReply {
 }
 
 #[allow(dead_code)]
-pub struct ControllerSender<T>
-where
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
+pub struct ControllerSender {
     /// timer factory to crate timers for acks
     timer_factory: TimerFactory,
 
@@ -46,18 +44,19 @@ where
     pending_replies: HashMap<u32, PendingReply>,
 
     /// send packets to slim or the app
-    tx: T,
+    tx: SessionTransmitter,
 
     /// drain state - when true, no new messages from app are accepted
     draining_state: ControllerSenderDrainStatus,
 }
 
 #[allow(dead_code)]
-impl<T> ControllerSender<T>
-where
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
-    pub fn new(timer_settings: TimerSettings, tx: T, tx_signals: Sender<SessionMessage>) -> Self {
+impl ControllerSender {
+    pub fn new(
+        timer_settings: TimerSettings,
+        tx: SessionTransmitter,
+        tx_signals: Sender<SessionMessage>,
+    ) -> Self {
         ControllerSender {
             timer_factory: TimerFactory::new(timer_settings, tx_signals),
             pending_replies: HashMap::new(),

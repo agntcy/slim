@@ -8,6 +8,7 @@ use tokio::sync::mpsc::Sender;
 use tracing::debug;
 
 use crate::common::new_message_from_session_fields;
+use crate::transmitter::SessionTransmitter;
 use crate::{
     SessionError, Transmitter,
     common::SessionMessage,
@@ -34,10 +35,7 @@ struct GroupTimer {
 }
 
 #[allow(dead_code)]
-pub struct SessionSender<T>
-where
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
+pub struct SessionSender {
     /// buffer storing messages coming from the application
     buffer: ProducerBuffer,
 
@@ -62,21 +60,18 @@ where
     session_id: u32,
 
     /// send packets to slim or the app
-    tx: T,
+    tx: SessionTransmitter,
 
     /// drain state - when true, no new messages from app are accepted
     draining_state: SenderDrainStatus,
 }
 
 #[allow(dead_code)]
-impl<T> SessionSender<T>
-where
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
+impl SessionSender {
     pub fn new(
         timer_settings: Option<TimerSettings>,
         session_id: u32,
-        tx: T,
+        tx: SessionTransmitter,
         tx_signals: Option<Sender<SessionMessage>>,
     ) -> Self {
         let factory = if let Some(settings) = timer_settings

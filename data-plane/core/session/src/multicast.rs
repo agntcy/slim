@@ -4,7 +4,7 @@
 // Standard library imports
 use parking_lot::{Mutex, RwLock};
 use slim_mls::mls::Mls;
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, fs::DirEntry, sync::Arc, time::Duration};
 
 // Third-party crates
 use async_trait::async_trait;
@@ -26,8 +26,7 @@ use slim_datapath::{
 
 // Local crate
 use crate::{
-    Common, CommonSession, Id, MessageDirection, MessageHandler, SessionConfig, SessionConfigTrait,
-    State, Transmitter,
+    MessageDirection, State, Transmitter,
     common::SessionMessage,
     errors::SessionError,
     mls_state::{MlsEndpoint, MlsState},
@@ -44,7 +43,7 @@ use receiver_buffer::ReceiverBuffer;
 // this must be a number > 1
 const STREAM_BROADCAST: u32 = 50;
 
-/// Configuration for the Multicast session
+/*/// Configuration for the Multicast session
 #[derive(Debug, Clone, PartialEq)]
 pub struct MulticastConfiguration {
     pub channel_name: Name,
@@ -132,40 +131,29 @@ impl MulticastConfiguration {
             metadata,
         }
     }
+}*/
+
+pub(crate) struct Multicast {
+    //common: Common<P, V, T>,
+    sender: SessionSender,
+    receiver: SessionReceiver,
+    // tx: mpsc::Sender<Result<(Message, MessageDirection), Status>>,
 }
 
-pub(crate) struct Multicast<P, V, T>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
-    common: Common<P, V, T>,
-    sender: SessionSender<T>,
-    receiver: SessionReceiver<T>,
-    tx: mpsc::Sender<Result<(Message, MessageDirection), Status>>,
-}
-
-impl<P, V, T> Multicast<P, V, T>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
-    #[allow(clippy::too_many_arguments)]
+impl Multicast {
+    //#[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
-        id: Id,
-        session_config: MulticastConfiguration,
-        name: Name,
-        tx_slim_app: T,
-        identity_provider: P,
-        identity_verifier: V,
-        storage_path: std::path::PathBuf,
-        sender: SessionSender<T>,
-        receiver: SessionReceiver<T>,
-        tx_session: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
+        //    id: Id,
+        //    name: Name,
+        //    tx_slim_app: T,
+        //    identity_provider: P,
+        //    identity_verifier: V,
+        //    storage_path: std::path::PathBuf,
+        sender: SessionSender,
+        receiver: SessionReceiver,
+        //    tx_session: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
     ) -> Self {
-        let (tx, rx) = mpsc::channel(128);
+        /*    let (tx, rx) = mpsc::channel(128);
 
         let common = Common::new(
             id,
@@ -178,30 +166,40 @@ where
             storage_path,
         );
 
-        common.set_dst(session_config.channel_name);
+        common.set_dst(session_config.channel_name);*/
 
-        let session = Multicast {
-            common,
-            sender,
-            receiver,
-            tx,
-        };
-        session
+        Multicast { sender, receiver }
     }
 
-    pub fn with_dst<R>(&self, f: impl FnOnce(Option<&Name>) -> R) -> R {
-        self.common.with_dst(f)
-    }
-}
+    //pub fn with_dst<R>(&self, f: impl FnOnce(Option<&Name>) -> R) -> R {
+    //    self.common.with_dst(f)
+    //}
 
-#[async_trait]
-impl<P, V, T> MessageHandler for Multicast<P, V, T>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
-    async fn on_message(
+    async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
+        match message {
+            SessionMessage::OnMessage { message, direction } => {
+                self.on_application_message(message, direction).await
+            }
+            SessionMessage::TimerTimeout {
+                message_id,
+                message_type,
+                name,
+                timeouts: _,
+            } => self.on_timer_timeout(message_id, message_type, name).await,
+            SessionMessage::TimerFailure {
+                message_id,
+                message_type,
+                name,
+                timeouts: _,
+            } => self.on_timer_failure(message_id, message_type, name).await,
+            SessionMessage::DeleteSession { session_id } => todo!(),
+            SessionMessage::AddEndpoint { endpoint } => todo!(),
+            SessionMessage::RemoveEndpoint { endpoint } => todo!(),
+            SessionMessage::Drain { grace_period_ms } => todo!(),
+        }
+    }
+
+    async fn on_application_message(
         &mut self,
         message: Message,
         direction: MessageDirection,
@@ -228,9 +226,45 @@ where
             ))),
         }
     }
+
+    async fn on_timer_timeout(
+        &mut self,
+        id: u32,
+        message_type: ProtoSessionMessageType,
+        name: Option<Name>,
+    ) -> Result<(), SessionError> {
+        match message_type {
+            ProtoSessionMessageType::Msg => self.sender.on_timer_timeout(id).await,
+            ProtoSessionMessageType::RtxRequest => {
+                self.receiver.on_timer_timeout(id, name.unwrap()).await
+            }
+            _ => Err(SessionError::Processing(format!(
+                "Unexpected message type {:?}",
+                message_type
+            ))),
+        }
+    }
+
+    async fn on_timer_failure(
+        &mut self,
+        id: u32,
+        message_type: ProtoSessionMessageType,
+        name: Option<Name>,
+    ) -> Result<(), SessionError> {
+        match message_type {
+            ProtoSessionMessageType::Msg => self.sender.on_timer_failure(id).await,
+            ProtoSessionMessageType::RtxRequest => {
+                self.receiver.on_timer_failure(id, name.unwrap()).await
+            }
+            _ => Err(SessionError::Processing(format!(
+                "Unexpected message type {:?}",
+                message_type
+            ))),
+        }
+    }
 }
 
-#[async_trait]
+/*#[async_trait]
 impl<P, V, T> CommonSession<P, V, T> for Multicast<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -291,7 +325,7 @@ where
     fn mls(&self) -> Option<Arc<Mutex<Mls<P, V>>>> {
         self.common.mls()
     }
-}
+}*/
 
 /*#[cfg(test)]
 mod tests {

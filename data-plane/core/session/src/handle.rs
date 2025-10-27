@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
+/*use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -19,7 +19,6 @@ use slim_mls::mls::Mls;
 use crate::interceptor_mls::MlsInterceptor;
 use crate::multicast::Multicast;
 use crate::point_to_point::PointToPoint;
-use crate::traits::MessageHandler;
 use crate::traits::SessionConfigTrait;
 use crate::traits::Transmitter;
 use crate::transmitter::SessionTransmitter;
@@ -82,7 +81,6 @@ where
 }
 
 /// Internal session representation (private)
-#[derive(Debug)]
 enum SessionInner<P, V, T = SessionTransmitter>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -94,7 +92,6 @@ where
 }
 
 /// Public opaque session handle
-#[derive(Debug)]
 pub struct Session<P, V, T = SessionTransmitter>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -182,7 +179,7 @@ where
         &self.inner
     }
 
-    pub async fn publish_message(&self, message: Message) -> Result<(), SessionError> {
+    pub async fn publish_message(&mut self, message: Message) -> Result<(), SessionError> {
         self.on_message(message, MessageDirection::South).await
     }
 
@@ -305,25 +302,6 @@ where
         match &self.inner {
             SessionInner::PointToPoint(s) => s.with_dst(f),
             SessionInner::Multicast(s) => s.with_dst(f),
-        }
-    }
-}
-
-#[async_trait]
-impl<P, V, T> MessageHandler for Session<P, V, T>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
-    async fn on_message(
-        &self,
-        message: Message,
-        direction: MessageDirection,
-    ) -> Result<(), SessionError> {
-        match self.inner_ref() {
-            SessionInner::PointToPoint(session) => session.on_message(message, direction).await,
-            SessionInner::Multicast(session) => session.on_message(message, direction).await,
         }
     }
 }
@@ -1039,4 +1017,4 @@ mod tests {
             "no interceptor expected when MLS disabled"
         );
     }
-}
+}*/

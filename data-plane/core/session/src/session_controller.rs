@@ -12,6 +12,8 @@ use std::{
 // Third-party crates
 use async_trait::async_trait;
 use bincode::{Decode, Encode};
+use parking_lot::Mutex;
+use slim_mls::mls::Mls;
 use tokio::{net::unix::pipe::Receiver, sync::mpsc};
 use tokio_util::future::FutureExt;
 use tracing::{debug, error, trace};
@@ -19,7 +21,7 @@ use tracing::{debug, error, trace};
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        CommandPayload, Content,
+        ApplicationPayload, CommandPayload, Content,
         MessageType::{self, Subscribe},
         ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType, SessionHeader,
         SlimHeader,
@@ -29,7 +31,7 @@ use slim_datapath::{
 
 // Local crate
 use crate::{
-    Id, MessageDirection, Session, SessionError, Transmitter,
+    MessageDirection, SessionError, Transmitter,
     common::SessionMessage,
     controller_sender::ControllerSender,
     interceptor_mls::{METADATA_MLS_ENABLED, METADATA_MLS_INIT_COMMIT_ID},
@@ -37,20 +39,23 @@ use crate::{
     moderator_task::{
         AddParticipant, ModeratorTask, RemoveParticipant, TaskUpdate, UpdateParticipant,
     },
+    multicast::{self, Multicast},
+    session_receiver::SessionReceiver,
+    session_sender::SessionSender,
     timer,
     timer_factory::TimerSettings,
     traits::SessionComponentLifecycle,
+    transmitter::SessionTransmitter,
 };
 
 //trait OnMessageReceived {
 //    async fn on_message(&mut self, msg: Message) -> Result<(), SessionError>;
 //}
 
-impl<P, V, T> MlsEndpoint for SessionController<P, V, T>
+/*impl<P, V, SessionTransmitter> MlsEndpoint for SessionController<P, V, SessionTransmitter>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: Transmitter + Send + Sync + Clone + 'static,
 {
     fn is_mls_up(&self) -> Result<bool, SessionError> {
         todo!()
@@ -69,48 +74,252 @@ where
         //    SessionController::SessionModerator(cm) => cm.update_mls_keys().await,
         //}
     }
-}
+}*/
 
-pub(crate) enum SessionController<P, V, T>
+pub(crate) enum SessionControllerImpl<P, V, SessionTransmitter>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: Transmitter + Send + Sync + Clone + 'static,
 {
-    SessionParticipant(SessionParticipant<P, V, T>),
-    SessionModerator(SessionModerator<P, V, T>),
+    SessionParticipant(SessionParticipant<P, V, SessionTransmitter>),
+    SessionModerator(SessionModerator<P, V, SessionTransmitter>),
 }
 
-impl<P, V, T> SessionController<P, V, T>
+pub(crate) struct SessionController<P, V, SessionTransmitter>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: Transmitter + Send + Sync + Clone + 'static,
 {
+    /// session id
+    id: u32,
+
+    /// local name
+    source: Name,
+
+    /// group or remote endpoint name
+    destination: Name,
+
+    /// session kind
+    session_type: ProtoSessionType,
+
+    /// controller (participant or moderator)
+    controller: SessionControllerImpl<P, V, SessionTransmitter>,
+}
+
+impl<P, V> SessionController<P, V, SessionTransmitter>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    pub fn new(
+        id: u32,
+        session_type: ProtoSessionType,
+        source: Name,
+        destination: Name,
+        conn: Option<u64>,
+        config: SessionConfig,
+        identity_provider: P,
+        identity_verifier: V,
+        storage_path: std::path::PathBuf,
+        tx: SessionTransmitter,
+        tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
+    ) -> Self {
+        let controller = if config.initiator {
+            SessionControllerImpl::SessionModerator(SessionModerator::new(
+                id,
+                session_type,
+                source.clone(),
+                destination.clone(),
+                conn,
+                config,
+                identity_provider,
+                identity_verifier,
+                storage_path,
+                tx,
+                tx_to_session_layer,
+            ))
+        } else {
+            SessionControllerImpl::SessionParticipant(SessionParticipant::new(
+                id,
+                session_type,
+                source.clone(),
+                destination.clone(),
+                conn,
+                config,
+                identity_provider,
+                identity_verifier,
+                storage_path,
+                tx,
+                tx_to_session_layer,
+            ))
+        };
+
+        SessionController {
+            id,
+            source,
+            destination,
+            session_type,
+            controller,
+        }
+    }
+
+    /// getters
+    pub fn id(&self) -> u32 {
+        self.id
+    }
+
+    pub fn source(&self) -> &Name {
+        &self.source
+    }
+
+    pub fn dst(&self) -> &Name {
+        &self.destination
+    }
+
+    pub fn session_type(&self) -> ProtoSessionType {
+        self.session_type
+    }
+
+    pub fn is_initiator(&self) -> bool {
+        match self.controller {
+            SessionControllerImpl::SessionParticipant(_) => false,
+            SessionControllerImpl::SessionModerator(_) => true,
+        }
+    }
+
+    /// public functions
     pub async fn on_message(
         &self,
         msg: Message,
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
-        match self {
-            SessionController::SessionParticipant(cp) => cp.on_message(msg, direction).await,
-            SessionController::SessionModerator(cm) => cm.on_message(msg, direction).await,
+        match &self.controller {
+            SessionControllerImpl::SessionParticipant(cp) => cp.on_message(msg, direction).await,
+            SessionControllerImpl::SessionModerator(cm) => cm.on_message(msg, direction).await,
         }
     }
 
     pub fn close(&mut self) {
         todo!()
         // still needed?
-        //match self {
-        //    SessionController::SessionParticipant(cp) => cp.close(),
-        //    SessionController::SessionModerator(cm) => cm.close(),
-        //}
     }
 
-    pub fn is_initiator(&self) -> bool {
-        match self {
-            SessionController::SessionParticipant(_) => false,
-            SessionController::SessionModerator(_) => true,
+    pub async fn publish_message(&self, message: Message) -> Result<(), SessionError> {
+        self.on_message(message, MessageDirection::South).await
+    }
+
+    /// Publish a message to a specific connection (forward_to)
+    pub async fn publish_to(
+        &self,
+        name: &Name,
+        forward_to: u64,
+        blob: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<(), SessionError> {
+        self.publish_with_flags(
+            name,
+            SlimHeaderFlags::default().with_forward_to(forward_to),
+            blob,
+            payload_type,
+            metadata,
+        )
+        .await
+    }
+
+    /// Publish a message to a specific app name
+    pub async fn publish(
+        &self,
+        name: &Name,
+        blob: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<(), SessionError> {
+        self.publish_with_flags(
+            name,
+            SlimHeaderFlags::default(),
+            blob,
+            payload_type,
+            metadata,
+        )
+        .await
+    }
+
+    /// Publish a message with specific flags
+    pub async fn publish_with_flags(
+        &self,
+        name: &Name,
+        flags: SlimHeaderFlags,
+        blob: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<(), SessionError> {
+        let ct = payload_type.unwrap_or_else(|| "msg".to_string());
+
+        let payload = Some(ApplicationPayload::new(&ct, blob).as_content());
+
+        let mut msg = Message::new_publish(self.source(), name, None, Some(flags), payload);
+        if let Some(map) = metadata
+            && !map.is_empty()
+        {
+            msg.set_metadata_map(map);
+        }
+
+        // southbound=true means towards slim
+        self.publish_message(msg).await
+    }
+
+    pub async fn invite_participant(&self, destination: &Name) -> Result<(), SessionError> {
+        match self.session_type() {
+            ProtoSessionType::PointToPoint => Err(SessionError::Processing(
+                "cannot invite participant to point-to-point session".into(),
+            )),
+            ProtoSessionType::Multicast => {
+                if !self.is_initiator() {
+                    return Err(SessionError::Processing(
+                        "cannot remove participant from this session session".into(),
+                    ));
+                }
+                let slim_header = Some(SlimHeader::new(self.source(), destination, "", None));
+                let session_header = Some(SessionHeader::new(
+                    ProtoSessionType::Multicast.into(),
+                    ProtoSessionMessageType::DiscoveryRequest.into(),
+                    self.id(),
+                    rand::random::<u32>(),
+                ));
+                let payload =
+                    Some(CommandPayload::new_discovery_request_payload(None).as_content());
+                let msg = Message::new_publish_with_headers(slim_header, session_header, payload);
+                self.publish_message(msg).await
+            }
+            _ => Err(SessionError::Processing("unexpected session type".into())),
+        }
+    }
+
+    pub async fn remove_participant(&self, destination: &Name) -> Result<(), SessionError> {
+        match self.session_type() {
+            ProtoSessionType::PointToPoint => Err(SessionError::Processing(
+                "cannot remove participant to point-to-point session".into(),
+            )),
+            ProtoSessionType::Multicast => {
+                if !self.is_initiator() {
+                    return Err(SessionError::Processing(
+                        "cannot remove participant from this session session".into(),
+                    ));
+                }
+                let slim_header = Some(SlimHeader::new(self.source(), destination, "", None));
+                let session_header = Some(SessionHeader::new(
+                    ProtoSessionType::Multicast.into(),
+                    ProtoSessionMessageType::LeaveRequest.into(),
+                    self.id(),
+                    rand::random::<u32>(),
+                ));
+                let payload =
+                    Some(CommandPayload::new_discovery_request_payload(None).as_content());
+                let msg = Message::new_publish_with_headers(slim_header, session_header, payload);
+                self.publish_message(msg).await
+            }
+            _ => Err(SessionError::Processing("unexpected session type".into())),
         }
     }
 }
@@ -118,7 +327,7 @@ where
 pub fn handle_channel_discovery_message(
     message: &Message,
     app_name: &Name,
-    session_id: Id,
+    session_id: u32,
     session_type: ProtoSessionType,
 ) -> Message {
     let destination = message.get_source();
@@ -154,17 +363,48 @@ pub fn handle_channel_discovery_message(
     Message::new_publish_with_headers(slim_header, session_header, payload)
 }
 
-pub struct SessionControllerCommon<P, V, T>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
-    /// connection used to send messages
+pub struct SessionConfig {
+    /// number of retries for each message/rtx
+    max_retries: Option<u32>,
+
+    /// time between retries
+    duration: Option<std::time::Duration>,
+
+    /// true is mls is enabled
+    mls_enabled: bool,
+
+    /// true is the local endpoint is initiator of the session
+    initiator: bool,
+
+    /// metadata related to the sessions
+    metadata: HashMap<String, String>,
+}
+
+pub struct SessionControllerCommon {
+    /// session id
+    id: u32,
+
+    /// session type
+    session_type: ProtoSessionType,
+
+    ///local name
+    source: Name,
+
+    /// remote/group name
+    /// in case of remote the name the id may be updated after the discovery phase
+    destination: Name,
+
+    /// connection with the remote slim node where to send/recv messages
     conn: Option<u64>,
 
+    /// session configuration
+    config: SessionConfig,
+
     /// sender for command messages
-    sender: ControllerSender<T>,
+    sender: ControllerSender,
+
+    /// directly sent to the slim/app
+    tx: SessionTransmitter,
 
     /// channel used to recevied messages from the session layer
     /// and timeouts from timers
@@ -174,32 +414,92 @@ where
     tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
 
     /// the session itself
-    session: Arc<Session<P, V>>,
+    /// TODO rename it in session
+    session: Multicast,
 }
 
-impl<P, V, T> SessionControllerCommon<P, V, T>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
+impl SessionControllerCommon {
     const MAX_FANOUT: u32 = 256;
 
     fn new(
-        sender: ControllerSender<T>,
-        rx_from_session_layer: tokio::sync::mpsc::Receiver<SessionMessage>,
+        id: u32,
+        session_type: ProtoSessionType,
+        source: Name,
+        destination: Name,
+        conn: Option<u64>,
+        config: SessionConfig,
+        tx: SessionTransmitter,
+        tx_controller: tokio::sync::mpsc::Sender<SessionMessage>,
+        rx_controller: tokio::sync::mpsc::Receiver<SessionMessage>,
         tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
-        session: Arc<Session<P, V>>,
     ) -> Self {
+        // timers settings for the controller
+        let controller_timer_settings =
+            TimerSettings::constant(Duration::from_secs(1)).with_max_retries(10);
+
+        // timers settings for the application
+        let (session_timer_settings, send_acks) = if let Some(duration) = config.duration
+            && let Some(max_retries) = config.max_retries
+        {
+            (
+                Some(TimerSettings::constant(duration).with_max_retries(max_retries)),
+                true,
+            )
+        } else {
+            (None, false)
+        };
+
+        // create the controller sender
+        let controller_sender = ControllerSender::new(
+            controller_timer_settings,
+            // send messages to slim/app
+            tx.clone(),
+            // send signal to the controller
+            tx_controller.clone(),
+        );
+
+        // create the session sender
+        let sender = SessionSender::new(
+            session_timer_settings.clone(),
+            id,
+            // send messages to slim/app
+            tx.clone(),
+            // send signals to the controller
+            Some(tx_controller.clone()),
+        );
+
+        // create the session receiver
+        let receiver = SessionReceiver::new(
+            session_timer_settings,
+            id,
+            source.clone(),
+            session_type,
+            send_acks,
+            // send messages to slim/app
+            tx.clone(),
+            // send signals to the controller
+            Some(tx_controller.clone()),
+        );
+
+        // TODO rename multicast in session
+        let session = Multicast::new(sender, receiver);
+
         SessionControllerCommon {
-            conn: None,
-            sender,
-            rx_from_session_layer,
+            id,
+            session_type,
+            source,
+            destination,
+            conn,
+            config,
+            sender: controller_sender,
+            tx,
+            rx_from_session_layer: rx_controller,
             tx_to_session_layer,
             session,
         }
     }
 
+    /// internal and helper functions
     fn is_command_message(&self, message_type: ProtoSessionMessageType) -> bool {
         match message_type {
             ProtoSessionMessageType::DiscoveryRequest
@@ -218,12 +518,7 @@ where
     }
 
     async fn send_to_slim(&self, message: Message) -> Result<(), SessionError> {
-        self.session
-            .tx_ref()
-            .slim_tx
-            .send(Ok(message))
-            .await
-            .map_err(|e| SessionError::Processing(format!("failed to send route message: {}", e)))
+        self.tx.send_to_slim(Ok(message)).await
     }
 
     async fn send_with_timer(&mut self, message: Message) -> Result<(), SessionError> {
@@ -232,7 +527,7 @@ where
 
     async fn set_route(&self, name: &Name) -> Result<(), SessionError> {
         let route = Message::new_subscribe(
-            &self.session.source(),
+            &self.source,
             &name,
             None,
             Some(SlimHeaderFlags::default().with_recv_from(self.conn.unwrap())),
@@ -243,7 +538,7 @@ where
 
     async fn delete_route(&self, name: &Name) -> Result<(), SessionError> {
         let route = Message::new_unsubscribe(
-            &self.session.source(),
+            &self.source,
             &name,
             None,
             Some(SlimHeaderFlags::default().with_recv_from(self.conn.unwrap())),
@@ -273,21 +568,16 @@ where
         };
 
         let slim_header = Some(SlimHeader::new(
-            &self.session.source(),
+            &self.source,
             dst,
             "", // put empty identity it will be updated by the identity interceptor
             flags,
         ));
 
-        let session_type = match self.session.kind() {
-            crate::SessionType::PointToPoint => ProtoSessionType::PointToPoint,
-            crate::SessionType::Multicast => ProtoSessionType::Multicast,
-        };
-
         let session_header = Some(SessionHeader::new(
-            session_type.into(),
+            self.session_type.into(),
             message_type.into(),
-            self.session.id(),
+            self.id,
             message_id,
         ));
 
@@ -307,37 +597,57 @@ where
     }
 }
 
-pub struct SessionParticipant<P, V, T>
+pub struct SessionParticipant<P, V, SessionTransmitter>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: Transmitter + Send + Sync + Clone + 'static,
 {
     tx: tokio::sync::mpsc::Sender<SessionMessage>,
-    _phantom: PhantomData<(P, V, T)>,
+    _phantom: PhantomData<(P, V, SessionTransmitter)>,
 }
 
-impl<P, V, T> SessionParticipant<P, V, T>
+impl<P, V> SessionParticipant<P, V, SessionTransmitter>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: Transmitter + Send + Sync + Clone + 'static,
 {
     pub(crate) fn new(
-        session: Arc<Session<P, V>>,
-        sender: ControllerSender<T>,
-        controller_tx: tokio::sync::mpsc::Sender<SessionMessage>,
-        controller_rx: tokio::sync::mpsc::Receiver<SessionMessage>,
+        id: u32,
+        session_type: ProtoSessionType,
+        source: Name,
+        destination: Name,
+        conn: Option<u64>,
+        config: SessionConfig,
+        identity_provider: P,
+        identity_verifier: V,
+        storage_path: std::path::PathBuf,
+        tx: SessionTransmitter,
         tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
     ) -> Self {
-        let processor =
-            SessionParticipantProcessor::new(session, sender, controller_rx, tx_to_session_layer);
+        // tx/rx controller used to receive messages from the session_layer
+        let (tx_controller, rx_controller) = tokio::sync::mpsc::channel(128);
+
+        let processor = SessionModeratorProcessor::new(
+            id,
+            session_type,
+            source,
+            destination,
+            conn,
+            config,
+            identity_provider,
+            identity_verifier,
+            storage_path,
+            tx,
+            tx_controller.clone(),
+            rx_controller,
+            tx_to_session_layer,
+        );
 
         // Start the processor loop
         tokio::spawn(processor.process_loop());
 
         SessionParticipant {
-            tx: controller_tx,
+            tx: tx_controller,
             _phantom: PhantomData,
         }
     }
@@ -368,11 +678,10 @@ where
     }
 }
 
-pub struct SessionParticipantProcessor<P, V, T>
+pub struct SessionParticipantProcessor<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: Transmitter + Send + Sync + Clone + 'static,
 {
     /// name of the moderator, used to send mls proposal messages
     moderator_name: Option<Name>,
@@ -383,40 +692,62 @@ where
     /// mls state
     mls_state: Option<MlsState<P, V>>,
 
-    common: SessionControllerCommon<P, V, T>,
+    /// common session state
+    common: SessionControllerCommon,
 }
 
-impl<P, V, T> SessionParticipantProcessor<P, V, T>
+impl<P, V> SessionParticipantProcessor<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: Transmitter + Send + Sync + Clone + 'static,
 {
-    /// session: pointer to the session
-    /// sender: controller sender for timers
-    /// rx_channel: messages coming from the session layer
-    /// tx_channel: messages to the session layer,
     pub fn new(
-        session: Arc<Session<P, V>>,
-        sender: ControllerSender<T>,
-        rx_from_session_layer: tokio::sync::mpsc::Receiver<SessionMessage>,
+        id: u32,
+        session_type: ProtoSessionType,
+        source: Name,
+        destination: Name,
+        conn: Option<u64>,
+        config: SessionConfig,
+        identity_provider: P,
+        identity_verifier: V,
+        storage_path: std::path::PathBuf,
+        tx: SessionTransmitter,
+        tx_controller: tokio::sync::mpsc::Sender<SessionMessage>,
+        rx_controller: tokio::sync::mpsc::Receiver<SessionMessage>,
         tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
     ) -> Self {
-        let mls_state = session
-            .mls()
-            .map(|mls| MlsState::new(mls).expect("failed to create MLS state"));
+        let mls_state = if config.mls_enabled {
+            Some(
+                MlsState::new(Arc::new(Mutex::new(Mls::new(
+                    source.clone(),
+                    identity_provider,
+                    identity_verifier,
+                    storage_path,
+                ))))
+                .expect("failed to create MLS state"),
+            )
+        } else {
+            None
+        };
+
+        let common = SessionControllerCommon::new(
+            id,
+            session_type,
+            source,
+            destination,
+            conn,
+            config,
+            tx,
+            tx_controller,
+            rx_controller,
+            tx_to_session_layer,
+        );
 
         SessionParticipantProcessor {
             moderator_name: None,
             group_list: HashSet::new(),
             mls_state,
-            common: SessionControllerCommon {
-                conn: None,
-                sender,
-                rx_from_session_layer,
-                tx_to_session_layer,
-                session,
-            },
+            common,
         }
     }
 
@@ -433,7 +764,6 @@ where
                                     todo!()
                                 }
                             }
-                            SessionMessage::SetPointToPointConfig { config } => todo!(),
                             SessionMessage::TimerTimeout { message_id, message_type, name: _, timeouts: _ } => {
                                 if self.common.is_command_message(message_type) {
                                     // check it needed
@@ -456,7 +786,7 @@ where
                             SessionMessage::Drain { grace_period_ms } => todo!(),
                         }
                         None => {
-                            debug!("session controller close channel {}", self.common.session.id());
+                            debug!("session controller close channel {}", self.common.id);
                             break;
                         }
                     }
@@ -564,7 +894,7 @@ where
             .mls_state
             .as_mut()
             .ok_or(SessionError::NoMls)?
-            .process_control_message(msg.clone(), &self.common.session.source())?;
+            .process_control_message(msg.clone(), &self.common.source)?;
 
         if !ret {
             // message already processed, drop it
@@ -619,7 +949,7 @@ where
         self.common
             .tx_to_session_layer
             .send(Ok(SessionMessage::DeleteSession {
-                session_id: self.common.session.id(),
+                session_id: self.common.id,
             }))
             .await
             .map_err(|e| SessionError::Processing(format!("failed to notify session layer: {}", e)))
@@ -632,23 +962,17 @@ where
     /// helper functions
     async fn join(&self) -> Result<(), SessionError> {
         // we need to setup the network only in case of multicast session
-        let session_type = match self.common.session.kind() {
-            crate::SessionType::PointToPoint => ProtoSessionType::PointToPoint,
-            crate::SessionType::Multicast => ProtoSessionType::Multicast,
-        };
 
-        if session_type == ProtoSessionType::PointToPoint {
+        if self.common.session_type == ProtoSessionType::PointToPoint {
             // simply return
             return Ok(());
         }
 
         // set route and subscription for the group name
-        self.common
-            .set_route(&self.common.session.dst().unwrap())
-            .await;
+        self.common.set_route(&self.common.destination).await;
         let sub = Message::new_subscribe(
-            &self.common.session.source(),
-            self.common.session.dst().as_ref().unwrap(),
+            &self.common.source,
+            &self.common.destination,
             None,
             Some(SlimHeaderFlags::default().with_forward_to(self.common.conn.unwrap())),
         );
@@ -658,17 +982,10 @@ where
 
     async fn leave(&self) -> Result<(), SessionError> {
         // delete route to the remote endpoint
-        self.common
-            .delete_route(&self.common.session.dst().unwrap())
-            .await;
+        self.common.delete_route(&self.common.destination).await;
 
         // we need to setup the network only in case of multicast session
-        let session_type = match self.common.session.kind() {
-            crate::SessionType::PointToPoint => ProtoSessionType::PointToPoint,
-            crate::SessionType::Multicast => ProtoSessionType::Multicast,
-        };
-
-        if session_type == ProtoSessionType::PointToPoint {
+        if self.common.session_type == ProtoSessionType::PointToPoint {
             // simply return
             return Ok(());
         }
@@ -678,8 +995,8 @@ where
             .delete_route(&self.moderator_name.as_ref().unwrap())
             .await;
         let sub = Message::new_unsubscribe(
-            &self.common.session.source(),
-            self.common.session.dst().as_ref().unwrap(),
+            &self.common.source,
+            &self.common.destination,
             None,
             Some(SlimHeaderFlags::default().with_forward_to(self.common.conn.unwrap())),
         );
@@ -688,37 +1005,48 @@ where
     }
 }
 
-pub struct SessionModerator<P, V, T>
+impl<P, V> SessionModerator<P, V, SessionTransmitter>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
-    tx: tokio::sync::mpsc::Sender<SessionMessage>,
-    _phantom: PhantomData<(P, V, T)>,
-}
-
-impl<P, V, T> SessionModerator<P, V, T>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-    T: Transmitter + Send + Sync + Clone + 'static,
 {
     pub(crate) fn new(
-        session: Arc<Session<P, V>>,
-        sender: ControllerSender<T>,
-        controller_tx: tokio::sync::mpsc::Sender<SessionMessage>,
-        controller_rx: tokio::sync::mpsc::Receiver<SessionMessage>,
+        id: u32,
+        session_type: ProtoSessionType,
+        source: Name,
+        destination: Name,
+        conn: Option<u64>,
+        config: SessionConfig,
+        identity_provider: P,
+        identity_verifier: V,
+        storage_path: std::path::PathBuf,
+        tx: SessionTransmitter,
         tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
     ) -> Self {
-        let processor =
-            SessionModeratorProcessor::new(session, sender, controller_rx, tx_to_session_layer);
+        // tx/rx controller used to receive messages from the session_layer
+        let (tx_controller, rx_controller) = tokio::sync::mpsc::channel(128);
+
+        let processor = SessionModeratorProcessor::new(
+            id,
+            session_type,
+            source,
+            destination,
+            conn,
+            config,
+            identity_provider,
+            identity_verifier,
+            storage_path,
+            tx,
+            tx_controller.clone(),
+            rx_controller,
+            tx_to_session_layer,
+        );
 
         // Start the processor loop
         tokio::spawn(processor.process_loop());
 
         SessionModerator {
-            tx: controller_tx,
+            tx: tx_controller,
             _phantom: PhantomData,
         }
     }
@@ -736,6 +1064,14 @@ where
             .map_err(|e| SessionError::SlimTransmission(e.to_string()))
     }
 }
+pub struct SessionModerator<P, V, SessionTransmitter>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    tx: tokio::sync::mpsc::Sender<SessionMessage>,
+    _phantom: PhantomData<(P, V, SessionTransmitter)>,
+}
 
 impl<P, V, T> SessionComponentLifecycle for SessionModerator<P, V, T>
 where
@@ -749,11 +1085,10 @@ where
     }
 }
 
-pub struct SessionModeratorProcessor<P, V, T>
+pub struct SessionModeratorProcessor<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: Transmitter + Send + Sync + Clone + 'static,
 {
     /// list of pending task to execute
     tasks_todo: VecDeque<Message>,
@@ -774,7 +1109,7 @@ where
     group_list: HashMap<Name, u64>,
 
     /// TODO: add arc a session sender and session receiver
-    common: SessionControllerCommon<P, V, T>,
+    common: SessionControllerCommon,
 
     /// a postponed message is a leave message that we need to
     /// send after the receptions of all the acks for the group
@@ -789,41 +1124,59 @@ where
     closing: bool,
 }
 
-impl<P, V, T> SessionModeratorProcessor<P, V, T>
+impl<P, V> SessionModeratorProcessor<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: Transmitter + Send + Sync + Clone + 'static,
 {
-    const MAX_FANOUT: u32 = 256;
-
-    /// session: pointer to the session
-    /// sender: controller sender for timers
-    /// rx_channel: messages coming from the session layer
-    /// tx_channel: messages to the session layer,
     pub fn new(
-        session: Arc<Session<P, V>>,
-        sender: ControllerSender<T>,
-        rx_from_session_layer: tokio::sync::mpsc::Receiver<SessionMessage>,
+        id: u32,
+        session_type: ProtoSessionType,
+        source: Name,
+        destination: Name,
+        conn: Option<u64>,
+        config: SessionConfig,
+        identity_provider: P,
+        identity_verifier: V,
+        storage_path: std::path::PathBuf,
+        tx: SessionTransmitter,
+        tx_controller: tokio::sync::mpsc::Sender<SessionMessage>,
+        rx_controller: tokio::sync::mpsc::Receiver<SessionMessage>,
         tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
     ) -> Self {
-        let mls_state = session.mls().map(|mls| {
-            let mls_state = MlsState::new(mls).expect("failed to create MLS state");
-            MlsModeratorState::new(mls_state)
-        });
+        let mls_state = if config.mls_enabled {
+            Some(MlsModeratorState::new(
+                MlsState::new(Arc::new(Mutex::new(Mls::new(
+                    source.clone(),
+                    identity_provider.clone(),
+                    identity_verifier.clone(),
+                    storage_path,
+                ))))
+                .expect("failed to create MLS state"),
+            ))
+        } else {
+            None
+        };
+
+        let common = SessionControllerCommon::new(
+            id,
+            session_type,
+            source,
+            destination,
+            conn,
+            config,
+            tx,
+            tx_controller,
+            rx_controller,
+            tx_to_session_layer,
+        );
 
         SessionModeratorProcessor {
             tasks_todo: vec![].into(),
             current_task: None,
             mls_state,
             group_list: HashMap::new(),
-            common: SessionControllerCommon {
-                conn: None,
-                sender,
-                rx_from_session_layer,
-                tx_to_session_layer,
-                session,
-            },
+            common,
             postponed_message: None,
             subscribed: false,
             closing: false,
@@ -843,7 +1196,6 @@ where
                                     todo!()
                                 }
                             }
-                            SessionMessage::SetPointToPointConfig { config } => todo!(),
                             SessionMessage::TimerTimeout { message_id, message_type, name: _, timeouts: _ } => {
                                 if self.common.is_command_message(message_type) {
                                     self.common.sender.on_timer_timeout(message_id).await;
@@ -869,10 +1221,7 @@ where
                                     };
 
                                     // 2. notify the application
-                                    self.common.session
-                                        .tx_ref()
-                                        .app_tx
-                                        .send(Err(SessionError::ModeratorTask(error_message.to_string())))
+                                    self.common.tx.send_to_app(Err(SessionError::ModeratorTask(error_message.to_string())))
                                         .await
                                         .map_err(|e| SessionError::Processing(format!("failed to notify application: {}", e)));
 
@@ -891,7 +1240,7 @@ where
                             SessionMessage::Drain { grace_period_ms } => todo!(),
                         }
                         None => {
-                            debug!("session controller close channel {}", self.common.session.id());
+                            debug!("session controller close channel {}", self.common.id);
                             break;
                         }
                     }
@@ -926,7 +1275,7 @@ where
                     .as_command_payload()
                     .as_leave_request_payload()
                     .destination
-                    && n == self.common.session.source().into()
+                    && Name::from(&n) == self.common.source
                 {
                     return self.delete_all(message).await;
                 }
@@ -986,8 +1335,7 @@ where
 
                 // create a new empty payload and change the message destination
                 let p = CommandPayload::new_discovery_request_payload(None).as_content();
-                msg.get_slim_header_mut()
-                    .set_source(&self.common.session.source());
+                msg.get_slim_header_mut().set_source(&self.common.source);
                 msg.get_slim_header_mut().set_destination(&dst);
                 msg.set_payload(p);
                 msg
@@ -1029,9 +1377,9 @@ where
             true,
             true,
             self.mls_state.is_some(),
-            self.common.session.session_config().max_retries(),
-            self.common.session.session_config().timer_duration(),
-            Some(self.common.session.dst().unwrap()),
+            self.common.config.max_retries,
+            self.common.config.duration,
+            Some(self.common.destination.clone()),
         )
         .as_content();
 
@@ -1100,7 +1448,7 @@ where
                     .as_content();
             self.common
                 .send_control_message(
-                    &self.common.session.dst().unwrap(),
+                    &self.common.destination.clone(),
                     ProtoSessionMessageType::GroupUpdate,
                     commit_id,
                     update_payload,
@@ -1186,8 +1534,7 @@ where
                 let dst = dst.with_id(id);
 
                 let new_payload = CommandPayload::new_leave_request_payload(None).as_content();
-                msg.get_slim_header_mut()
-                    .set_source(&self.common.session.source());
+                msg.get_slim_header_mut().set_source(&self.common.source);
                 msg.get_slim_header_mut().set_destination(&dst);
                 msg.set_payload(new_payload);
                 msg.set_message_id(rand::random::<u32>());
@@ -1234,7 +1581,7 @@ where
                     .as_content();
             self.common
                 .send_control_message(
-                    &self.common.session.dst().unwrap(),
+                    &self.common.destination.clone(),
                     ProtoSessionMessageType::GroupUpdate,
                     msg_id,
                     update_payload,
@@ -1426,15 +1773,14 @@ where
         self.common.conn = Some(in_conn);
 
         let sub = Message::new_subscribe(
-            &self.common.session.source(),
-            self.common.session.dst().as_ref().unwrap(),
+            &self.common.source,
+            &self.common.destination,
             None,
             Some(SlimHeaderFlags::default().with_forward_to(self.common.conn.unwrap())),
         );
 
         self.common.send_to_slim(sub).await?;
-        self.common
-            .set_route(self.common.session.dst().as_ref().unwrap());
+        self.common.set_route(&self.common.destination);
 
         // create mls group if needed
         if let Some(mls) = self.mls_state.as_mut() {
@@ -1442,7 +1788,7 @@ where
         }
 
         // add ourself to the participants
-        let local_name = self.common.session.source().clone();
+        let local_name = self.common.source.clone();
         let id = local_name.id();
         self.group_list.insert(local_name, id);
 
@@ -1454,15 +1800,14 @@ where
         debug!("Signal session layer to close the session, all tasks are done");
 
         // delete route for the channel
-        self.common
-            .delete_route(&self.common.session.dst().unwrap());
+        self.common.delete_route(&self.common.destination);
 
         // notify the session layer
         let res = self
             .common
             .tx_to_session_layer
             .send(Ok(SessionMessage::DeleteSession {
-                session_id: self.common.session.id(),
+                session_id: self.common.id,
             }))
             .await;
 

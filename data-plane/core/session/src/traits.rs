@@ -14,14 +14,13 @@ use slim_mls::mls::Mls;
 use std::sync::Arc;
 
 // Local crate
-use super::SessionConfig;
 use super::SessionError;
 use super::SessionInterceptorProvider;
-use crate::{Id, MessageDirection, common::State};
+use crate::{MessageDirection, common::State};
 
-pub trait SessionConfigTrait {
-    fn replace(&mut self, session_config: &SessionConfig) -> Result<(), SessionError>;
-}
+//pub trait SessionConfigTrait {
+//    fn replace(&mut self, session_config: &SessionConfig) -> Result<(), SessionError>;
+//}
 
 /// Session transmitter trait
 pub trait Transmitter: SessionInterceptorProvider {
@@ -43,7 +42,7 @@ pub trait SessionComponentLifecycle {
     fn close(&mut self);
 }
 
-#[async_trait]
+/*#[async_trait]
 pub(crate) trait CommonSession<P, V, T>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -94,14 +93,4 @@ where
     /// get a reference to the transmitter
     #[allow(dead_code)]
     fn tx_ref(&self) -> &T;
-}
-
-#[async_trait]
-pub(crate) trait MessageHandler {
-    // publish a message as part of the session
-    async fn on_message(
-        &mut self,
-        message: Message,
-        direction: MessageDirection,
-    ) -> Result<(), SessionError>;
-}
+}*/

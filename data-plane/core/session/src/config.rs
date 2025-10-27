@@ -5,10 +5,10 @@ use std::collections::HashMap;
 
 use slim_datapath::messages::Name;
 
-use crate::multicast::MulticastConfiguration;
-use crate::point_to_point::PointToPointConfiguration;
+//use crate::multicast::MulticastConfiguration;
+//use crate::point_to_point::PointToPointConfiguration;
 
-#[derive(Clone, PartialEq, Debug)]
+/*#[derive(Clone, PartialEq, Debug)]
 pub enum SessionConfig {
     PointToPoint(PointToPointConfiguration),
     Multicast(MulticastConfiguration),
@@ -121,4 +121,4 @@ mod tests {
         assert_eq!(sc.destination_name(), Some(channel.clone()));
         assert_eq!(format!("{}", sc), format!("{}", cfg));
     }
-}
+}*/

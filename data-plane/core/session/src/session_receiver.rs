@@ -10,6 +10,7 @@ use tokio::sync::mpsc::Sender;
 use tracing::debug;
 
 use crate::common::new_message_from_session_fields;
+use crate::transmitter::SessionTransmitter;
 use crate::{
     SessionError, Transmitter,
     common::SessionMessage,
@@ -53,10 +54,7 @@ enum ReceiverDrainStatus {
 }
 
 #[allow(dead_code)]
-pub struct SessionReceiver<T>
-where
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
+pub struct SessionReceiver {
     /// buffer with received packets one per endpoint
     buffer: HashMap<Name, ReceiverBuffer>,
 
@@ -83,17 +81,14 @@ where
     send_acks: bool,
 
     /// send to slim/app
-    tx: T,
+    tx: SessionTransmitter,
 
     /// drain state - when true, no new messages from app are accepted
     draining_state: ReceiverDrainStatus,
 }
 
 #[allow(dead_code)]
-impl<T> SessionReceiver<T>
-where
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
+impl SessionReceiver {
     /// to create the timer factory and send rtx messages
     /// timer_settings and tx_timer must be not null
     #[allow(clippy::too_many_arguments)]
@@ -103,7 +98,7 @@ where
         local_name: Name,
         session_type: ProtoSessionType,
         send_acks: bool,
-        tx: T,
+        tx: SessionTransmitter,
         tx_signals: Option<Sender<SessionMessage>>,
     ) -> Self {
         let factory = if let Some(settings) = timer_settings

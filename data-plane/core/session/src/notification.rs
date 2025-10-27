@@ -12,15 +12,13 @@ use crate::context::SessionContext;
 use crate::transmitter::SessionTransmitter;
 
 /// Session context
-#[derive(Debug)]
-pub enum Notification<P, V, T = SessionTransmitter>
+pub enum Notification<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: Transmitter + Send + Sync + Clone + 'static,
 {
     /// New session notification
-    NewSession(SessionContext<P, V, T>),
+    NewSession(SessionContext<P, V, SessionTransmitter>),
     /// Normal message notification
     NewMessage(Box<Message>),
 }

@@ -13,7 +13,7 @@ use slim_datapath::{
 };
 
 // Local crate
-use crate::{PointToPointConfiguration, SessionError};
+use crate::SessionError;
 
 /// Reserved session id
 pub const SESSION_RANGE: std::ops::Range<u32> = 0..(u32::MAX - 1000);
@@ -86,9 +86,6 @@ pub enum SessionMessage {
     OnMessage {
         message: Message,
         direction: MessageDirection,
-    },
-    SetPointToPointConfig {
-        config: PointToPointConfiguration,
     },
     TimerTimeout {
         message_id: u32,
