@@ -12,6 +12,7 @@ use rmcp::{
 };
 use slim::config::ConfigResult;
 use slim_auth::shared_secret::SharedSecret;
+use slim_auth::testutils::TEST_VALID_SECRET;
 use slim_datapath::messages::Name;
 use slim_session::{
     PointToPointConfiguration, SessionConfig,
@@ -124,7 +125,7 @@ where
                                 incoming_conn_id = Some(message.get_incoming_conn());
                                 debug!("Initialized remote routing: name={:?} conn_id={:?}", remote_name, incoming_conn_id);
                             }
-                            let payload = match message.get_payload() { Some(p) => p.blob.to_vec(), None => { error!("empty payload"); continue; } };
+                            let payload = match message.get_payload() { Some(p) => p.as_application_payload().blob.to_vec(), None => { error!("empty payload"); continue; } };
                             let jsonrpcmsg: JsonRpcMessage<ClientRequest, ClientResult, ClientNotification> = match serde_json::from_slice(&payload) {
                                 Ok(v) => v,
                                 Err(e) => { error!("error parsing message: {}", e); continue; }
@@ -240,8 +241,8 @@ impl Proxy {
         let (app, mut slim_rx) = svc
             .create_app(
                 &self.name,
-                SharedSecret::new("id", "secret"),
-                SharedSecret::new("id", "secret"),
+                SharedSecret::new("id", TEST_VALID_SECRET),
+                SharedSecret::new("id", TEST_VALID_SECRET),
             )
             .await
             .expect("failed to create app");

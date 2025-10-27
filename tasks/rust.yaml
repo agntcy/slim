@@ -44,15 +44,12 @@ env:
   CC_aarch64_unknown_linux_gnu: "{{.CLANG}}"
   CFLAGS_aarch64_unknown_linux_gnu: "-fuse-ld={{.LINKER}}"
   STRIP_aarch64_unknown_linux_gnu: "{{.STRIP}}"
-  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: "aarch64-linux-gnu-gcc"
-  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS: "--codegen linker=aarch64-linux-gnu-gcc"
 
   # linux/amd64 + gnu
   AR_x86_64_unknown_linux_gnu: "{{.AR}}"
   CC_x86_64_unknown_linux_gnu: "{{.CLANG}}"
   CFLAGS_x86_64_unknown_linux_gnu: "-fuse-ld={{.LINKER}}"
   STRIP_x86_64_unknown_linux_gnu: "{{.STRIP}}"
-  CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: "x86_64-linux-gnu-gcc"
 
 tasks:
   print-vars:

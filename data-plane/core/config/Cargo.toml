@@ -1,6 +1,6 @@
 [package]
 name = "agntcy-slim-config"
-version = "0.4.0"
+version = "0.4.1"
 edition = { workspace = true }
 license = { workspace = true }
 description = "Configuration utilities"
@@ -36,6 +36,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tonic = { workspace = true }
+tonic-prost = { workspace = true }
 tonic-tls = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
@@ -45,7 +46,7 @@ tracing = { workspace = true }
 
 [build-dependencies]
 protoc-bin-vendored = { workspace = true }
-tonic-build = { workspace = true }
+tonic-prost-build = { workspace = true }
 
 [dev-dependencies]
 rand = { workspace = true }

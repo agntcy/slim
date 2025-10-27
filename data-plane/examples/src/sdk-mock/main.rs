@@ -7,6 +7,7 @@ use tracing::info;
 
 use slim::config;
 use slim_auth::shared_secret::SharedSecret;
+use slim_auth::testutils::TEST_VALID_SECRET;
 use slim_datapath::messages::Name;
 use slim_session::{self, PointToPointConfiguration, SessionConfig};
 
@@ -36,14 +37,14 @@ fn spawn_session_receiver(
                             Some(Ok(message)) => match &message.message_type {
                                 Some(slim_datapath::api::MessageType::Publish(msg)) => {
                                     let payload = msg.get_payload();
-                                    match std::str::from_utf8(&payload.blob) {
+                                    match std::str::from_utf8(&payload.as_application_payload().blob) {
                                         Ok(text) => {
                                             info!("received message: {}", text);
                                         }
                                         Err(_) => {
                                             info!(
                                                 "received encrypted message: {} bytes",
-                                                payload.blob.len()
+                                                payload.as_application_payload().blob.len()
                                             );
                                         }
                                     }
@@ -131,8 +132,8 @@ async fn main() {
     let (app, mut rx) = svc
         .create_app(
             &name,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
         )
         .await
         .expect("failed to create app");
@@ -176,18 +177,18 @@ async fn main() {
             None
         } else {
             // Server: create group and wait for client key package
-            let identity_provider = SharedSecret::new("server", "group");
-            let identity_verifier = SharedSecret::new("server", "group");
+            let identity_provider = SharedSecret::new("server", TEST_VALID_SECRET);
+            let identity_verifier = SharedSecret::new("server", TEST_VALID_SECRET);
             let mut server_mls = slim_mls::mls::Mls::new(
                 name.clone(),
                 identity_provider,
                 identity_verifier,
                 std::path::PathBuf::from("/tmp/server_mls"),
             );
-            server_mls.initialize().unwrap();
+            server_mls.initialize().await.unwrap();
 
             // Create group
-            let group_id = server_mls.create_group().unwrap();
+            let group_id = server_mls.create_group().await.unwrap();
             info!("Server created MLS group");
 
             // Wait for client key package
@@ -210,7 +211,7 @@ async fn main() {
             };
 
             // Add client to group and generate welcome message
-            let ret = server_mls.add_member(&key_package).unwrap();
+            let ret = server_mls.add_member(&key_package).await.unwrap();
 
             // Save welcome message for client
             std::fs::write(&welcome_path, &ret.welcome_message).unwrap();
@@ -240,18 +241,18 @@ async fn main() {
         // Client MLS setup, only if mls_group_id is provided
         if let Some(group_identifier) = mls_group_id {
             // Client: generate key package and wait for welcome message
-            let identity_provider = SharedSecret::new("client", "group");
-            let identity_verifier = SharedSecret::new("client", "group");
+            let identity_provider = SharedSecret::new("client", TEST_VALID_SECRET);
+            let identity_verifier = SharedSecret::new("client", TEST_VALID_SECRET);
             let mut client_mls = slim_mls::mls::Mls::new(
                 name.clone(),
                 identity_provider,
                 identity_verifier,
                 std::path::PathBuf::from("/tmp/client_mls"),
             );
-            client_mls.initialize().unwrap();
+            client_mls.initialize().await.unwrap();
 
             // Generate and save key package for server to use
-            let key_package = client_mls.generate_key_package().unwrap();
+            let key_package = client_mls.generate_key_package().await.unwrap();
             let key_package_path = format!("/tmp/mls_key_package_{}", group_identifier);
             std::fs::write(&key_package_path, &key_package).unwrap();
             info!("Client saved key package to: {}", key_package_path);
@@ -274,7 +275,7 @@ async fn main() {
             };
 
             // Join the group
-            let _group_id = client_mls.process_welcome(&welcome_message).unwrap();
+            let _group_id = client_mls.process_welcome(&welcome_message).await.unwrap();
             info!("Client successfully joined group");
         }
 

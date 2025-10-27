@@ -1,0 +1,218 @@
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+package dataplane.proto.v1;
+
+service DataPlaneService {
+  rpc OpenChannel(stream Message) returns (stream Message) {}
+}
+
+// SLIM messages
+message Subscribe {
+  SLIMHeader header = 1;
+}
+
+message Unsubscribe {
+  SLIMHeader header = 1;
+}
+
+message Publish {
+  SLIMHeader header = 1;
+  SessionHeader session = 2;
+  Content msg = 3;
+}
+
+message Message {
+  oneof message_type {
+    Subscribe subscribe = 1;
+    Unsubscribe unsubscribe = 2;
+    Publish publish = 3;
+  }
+  map<string, string> metadata = 4;
+}
+
+// SLIM headers
+
+// recvFrom = connection from where the sub/unsub is supposed to be received
+// forwardTo = connection where to forward the message
+// incomingConn = connection from where the packet was received
+// error = if true the publication contains an error notification
+message SLIMHeader {
+  Name source = 1;
+  Name destination = 2;
+  string identity = 4;
+  uint32 fanout = 3;
+  optional uint64 recv_from = 5;
+  optional uint64 forward_to = 6;
+  optional uint64 incoming_conn = 7;
+  optional bool error = 8;
+}
+
+message SessionHeader {
+  SessionType session_type = 1;
+  SessionMessageType session_message_type = 2;
+  uint32 session_id = 3;
+  uint32 message_id = 4;
+}
+
+message Name {
+  EncodedName name = 1;
+  StringName str_name = 2;
+}
+
+message EncodedName {
+  uint64 component_0 = 1;
+  uint64 component_1 = 2;
+  uint64 component_2 = 3;
+  uint64 component_3 = 4;
+}
+
+message StringName {
+  string str_component_0 = 1;
+  string str_component_1 = 2;
+  string str_component_2 = 3;
+}
+
+enum SessionType {
+  SESSION_TYPE_UNSPECIFIED = 0;
+  SESSION_TYPE_POINT_TO_POINT = 1;
+  SESSION_TYPE_MULTICAST = 2;
+}
+
+enum SessionMessageType {
+  SESSION_MESSAGE_TYPE_UNSPECIFIED = 0;
+  SESSION_MESSAGE_TYPE_MSG = 1;
+  SESSION_MESSAGE_TYPE_MSG_ACK = 2;
+  SESSION_MESSAGE_TYPE_RTX_REQUEST = 3;
+  SESSION_MESSAGE_TYPE_RTX_REPLY = 4;
+  SESSION_MESSAGE_TYPE_DISCOVERY_REQUEST = 5;
+  SESSION_MESSAGE_TYPE_DISCOVERY_REPLY = 6;
+  SESSION_MESSAGE_TYPE_JOIN_REQUEST = 7;
+  SESSION_MESSAGE_TYPE_JOIN_REPLY = 8;
+  SESSION_MESSAGE_TYPE_LEAVE_REQUEST = 9;
+  SESSION_MESSAGE_TYPE_LEAVE_REPLY = 10;
+  SESSION_MESSAGE_TYPE_GROUP_UPDATE = 11;
+  SESSION_MESSAGE_TYPE_GROUP_WELCOME = 12;
+  SESSION_MESSAGE_TYPE_GROUP_PROPOSAL = 13;
+  SESSION_MESSAGE_TYPE_GROUP_ACK = 14;
+  SESSION_MESSAGE_TYPE_GROUP_NACK = 15;
+}
+
+// SLIM message content
+message Content {
+  oneof content_type {
+    ApplicationPayload app_payload = 1;
+    CommandPayload command_payload = 2;
+  }
+}
+
+message ApplicationPayload {
+  string payload_type = 1;
+  bytes blob = 2;
+}
+
+message CommandPayload {
+  oneof command_payload_type {
+    DiscoveryRequestPayload discovery_request = 1;
+    DiscoveryReplyPayload discovery_reply = 2;
+    JoinRequestPayload join_request = 3;
+    JoinReplyPayload join_reply = 4;
+    LeaveRequestPayload leave_request = 5;
+    LeaveReplyPayload leave_reply = 6;
+    GroupUpdatePayload group_update = 7;
+    GroupWelcomePayload group_welcome = 8;
+    GroupProposalPayload group_proposal = 9;
+    GroupAckPayload group_ack = 10;
+    GroupNackPayload group_nack = 11;
+  }
+}
+
+// Payloads for Command messages
+
+// Discovery Request
+// The destination is Optional. If present the message should be forwarded
+// to the destination in the payload.
+message DiscoveryRequestPayload {
+  optional Name destination = 1;
+}
+
+// Discovery Reply
+message DiscoveryReplyPayload {}
+
+// Join Request
+message JoinRequestPayload {
+  // specifies if acks are expected or not
+  bool require_acks = 1;
+  // specifies if rtx are expected or not
+  bool require_rtx = 2;
+  // true if mls is enabled
+  bool enable_mls = 3;
+  // settings for timers for rtx and acks
+  optional TimerSettings timer_settings = 4;
+  // name where to send the messages
+  // it can be a channel or the same as the moderator
+  optional Name channel = 5;
+}
+
+message TimerSettings {
+  // timeout is intended in ms
+  optional uint32 timeout = 1;
+  optional uint32 max_retries = 2;
+}
+
+// Join Reply
+message JoinReplyPayload {
+  // to be used only is MLS is enabled
+  optional bytes key_package = 1;
+}
+
+// Leave Request
+// The destination is Optional. If present the message should be forwarded
+// to the destination in the payload.
+message LeaveRequestPayload {
+  optional Name destination = 1;
+}
+
+// Leave Reply
+message LeaveReplyPayload {}
+
+// Group Update
+// sent every time there is a modification
+// in the participant list
+message GroupUpdatePayload {
+  // current list of participants
+  repeated Name participant = 1;
+  // used only when MLS is enabled
+  optional bytes mls_commit = 2;
+}
+
+// Group Welcome
+// sent on group join
+message GroupWelcomePayload {
+  repeated Name participant = 1;
+  // used only when MLS is enabled
+  // id of the last MLS commit to keep
+  // track of the order
+  optional uint32 msl_commit_id = 2;
+  // MLS welcome message
+  optional bytes mls_welcome = 3;
+}
+
+// Group Proposal
+// sent on mls key rotation
+message GroupProposalPayload {
+  // Original name of the endpoint that crated the proposal name
+  // this may by different from the packet source since it is
+  // forwarded by the moderator on the channel to all the
+  // group participants
+  Name source = 1;
+  // MLS proposal message
+  bytes mls_proposal = 2;
+}
+
+// Group Ack
+message GroupAckPayload {}
+
+// Group Nack
+message GroupNackPayload {}

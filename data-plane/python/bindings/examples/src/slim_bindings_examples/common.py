@@ -263,7 +263,7 @@ def common_options(function):
         "--shared-secret",
         type=str,
         help="Shared secret for authentication. Don't use this in production.",
-        default="secret",
+        default="abcde-12345-fedcb-67890-deadc",
     )(function)
 
     # JWT token path (static token case).
@@ -310,7 +310,7 @@ async def create_local_app(
     slim: dict,
     remote: str | None = None,
     enable_opentelemetry: bool = False,
-    shared_secret: str = "secret",
+    shared_secret: str = "abcde-12345-fedcb-67890-deadc",
     jwt: str | None = None,
     spire_trust_bundle: str | None = None,
     audience: list[str] | None = None,

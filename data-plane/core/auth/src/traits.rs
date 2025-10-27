@@ -102,7 +102,24 @@ pub trait Signer {
 }
 
 /// Trait for providing JWT claims
+#[async_trait]
 pub trait TokenProvider {
-    // Try to get a token
+    /// Try to get a token
     fn get_token(&self) -> Result<String, AuthError>;
+
+    /// Try to get a token with custom claims
+    ///
+    /// # Arguments
+    /// * `custom_claims` - Additional custom claims to include in the token.
+    async fn get_token_with_claims(
+        &self,
+        custom_claims: HashMap<String, serde_json::Value>,
+    ) -> Result<String, AuthError> {
+        // Default implementation ignores custom claims for backward compatibility
+        let _ = custom_claims;
+        self.get_token()
+    }
+
+    /// Get ID from the identity provider, e.g. the sub claim in JWT
+    fn get_id(&self) -> Result<String, AuthError>;
 }

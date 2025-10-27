@@ -6,18 +6,23 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
-	db "github.com/agntcy/slim/control-plane/control-plane/internal/db"
+	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
 )
 
 // mockDB implements the data access interface for testing.
 type mockDB struct {
 	saveChannelErr error
+}
+
+func (m *mockDB) FilterRoutesBySourceAndDestination(_ string, _ string) []db.Route {
+	panic("unimplemented")
 }
 
 // AddRoute implements db.DataAccess.
@@ -45,19 +50,11 @@ func (m *mockDB) MarkRouteAsDeleted(_ string) error {
 	panic("unimplemented")
 }
 
+// Channel operations
 func (m *mockDB) SaveChannel(_ string, _ []string) error { return m.saveChannelErr }
-func (m *mockDB) DeleteConnection(_ string) error        { return nil }
-
-// Stubs for node operations
-func (m *mockDB) ListNodes() []db.Node               { return nil }
-func (m *mockDB) GetNode(_ string) (*db.Node, error) { return nil, nil }
-func (m *mockDB) SaveNode(_ db.Node) (string, error) { return "", nil }
-func (m *mockDB) DeleteNode(_ string) error          { return nil }
-
-// Stubs for channel operations
-func (m *mockDB) DeleteChannel(_ string) error        { return nil }
-func (m *mockDB) UpdateChannel(_ db.Channel) error    { return nil }
-func (m *mockDB) ListChannels() ([]db.Channel, error) { return nil, nil }
+func (m *mockDB) DeleteChannel(_ string) error           { return nil }
+func (m *mockDB) UpdateChannel(_ db.Channel) error       { return nil }
+func (m *mockDB) ListChannels() ([]db.Channel, error)    { return nil, nil }
 
 func (m *mockDB) GetChannel(channelName string) (db.Channel, error) {
 	if channelName == "validParticipantList" {
@@ -105,6 +102,12 @@ func (m *mockNodeCommandHandler) UpdateConnectionStatus(
 
 func (m *mockNodeCommandHandler) WaitForResponse(
 	_ context.Context, _ string, _ reflect.Type, _ string,
+) (*controllerapi.ControlMessage, error) {
+	return nil, nil
+}
+
+func (m *mockNodeCommandHandler) WaitForResponseWithTimeout(
+	_ context.Context, _ string, _ reflect.Type, _ string, _ time.Duration,
 ) (*controllerapi.ControlMessage, error) {
 	return nil, nil
 }

@@ -20,7 +20,11 @@ import (
 	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/util"
 )
 
-const nodeIDFlag = "node-id"
+const (
+	nodeIDFlag       = "node-id"
+	targetNodeIDFlag = "target-node-id"
+	originNodeIDFlag = "origin-node-id"
+)
 
 func NewRouteCmd(opts *options.CommonOptions) *cobra.Command {
 	cmd := &cobra.Command{
@@ -29,24 +33,19 @@ func NewRouteCmd(opts *options.CommonOptions) *cobra.Command {
 		Long:  `Manage SLIM routes`,
 	}
 
-	cmd.PersistentFlags().StringP(nodeIDFlag, "n", "", "ID of the node to manage routes for")
-	err := cmd.MarkPersistentFlagRequired(nodeIDFlag)
-	if err != nil {
-		fmt.Printf("Error marking persistent flag required: %v\n", err)
-	}
-
-	cmd.AddCommand(newListCmd(opts))
-	cmd.AddCommand(newAddCmd(opts))
-	cmd.AddCommand(newDelCmd(opts))
+	cmd.AddCommand(markNodeIDRequired(newListSubscriptionsCmd(opts)))
+	cmd.AddCommand(markNodeIDRequired(newAddCmd(opts)))
+	cmd.AddCommand(markNodeIDRequired(newDelCmd(opts)))
+	cmd.AddCommand(newOutlineRoutesCmd(opts))
 
 	return cmd
 }
 
-func newListCmd(opts *options.CommonOptions) *cobra.Command {
+func newListSubscriptionsCmd(opts *options.CommonOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List routes",
-		Long:  `List routes`,
+		Short: "List subscriptions",
+		Long:  `List subscriptions for a SLIM instance`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			nodeID, _ := cmd.Flags().GetString(nodeIDFlag)
 			fmt.Printf("Listing routes for node ID: %s\n", nodeID)
@@ -58,7 +57,7 @@ func newListCmd(opts *options.CommonOptions) *cobra.Command {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
 
-			subscriptionListResponse, err := cpClient.ListRoutes(ctx, &controlplaneApi.Node{
+			subscriptionListResponse, err := cpClient.ListSubscriptions(ctx, &controlplaneApi.Node{
 				Id: nodeID,
 			})
 			if err != nil {
@@ -238,5 +237,55 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 			return nil
 		},
 	}
+	return cmd
+}
+
+func newOutlineRoutesCmd(opts *options.CommonOptions) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "outline",
+		Short: "List routes from the controller",
+		Long:  `List routes from the controller eventually filtered by origin node ID and/or target node ID`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			srcNodeID, _ := cmd.Flags().GetString(originNodeIDFlag)
+			destNodeID, _ := cmd.Flags().GetString(targetNodeIDFlag)
+			fmt.Printf("Outline routes (origin:[%s] target:[%s]) \n", srcNodeID, destNodeID)
+
+			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
+			defer cancel()
+
+			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
+			if err != nil {
+				return fmt.Errorf("failed to get control plane client: %w", err)
+			}
+
+			outlineRoutesResponse, err := cpClient.ListRoutes(ctx, &controlplaneApi.RouteListRequest{
+				SrcNodeId:  srcNodeID,
+				DestNodeId: destNodeID,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to outline routes: %w", err)
+			}
+
+			fmt.Printf("number of routes #: %v\n\n", len(outlineRoutesResponse.GetRoutes()))
+			for _, routeID := range outlineRoutesResponse.GetRoutes() {
+				fmt.Printf("%s\n", routeID)
+			}
+
+			return nil
+		},
+	}
+	cmd.PersistentFlags().StringP(originNodeIDFlag, "o", "", "ID of the route origin (node)")
+	cmd.PersistentFlags().StringP(targetNodeIDFlag, "t", "", "ID of the route target (node)")
+	return cmd
+}
+
+// markNodeIDRequired marks the node-id flag as required for the given cobra command.
+func markNodeIDRequired(cmd *cobra.Command) *cobra.Command {
+	cmd.PersistentFlags().StringP(nodeIDFlag, "n", "", "ID of the node to manage routes for")
+	err := cmd.MarkPersistentFlagRequired(nodeIDFlag)
+	if err != nil {
+		fmt.Printf("Error marking node-id flag as required: %v\n", err)
+	}
+
 	return cmd
 }

@@ -1,9 +1,7 @@
 package routes
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"reflect"
 
@@ -72,58 +70,6 @@ func (s *RouteReconciler) Run(ctx context.Context) {
 	}
 }
 
-func (s *RouteReconciler) getConnectionDetails(route db.Route) (controllerapi.Connection, error) {
-	if route.DestNodeID == "" {
-		return controllerapi.Connection{
-			ConnectionId: route.DestEndpoint,
-			ConfigData:   route.ConnConfigData,
-		}, nil
-	}
-
-	destNode, err := s.dbService.GetNode(route.DestNodeID)
-	if err != nil {
-		return controllerapi.Connection{}, fmt.Errorf("failed to fetch destination node %s: %w", route.DestNodeID, err)
-	}
-	if len(destNode.ConnDetails) == 0 {
-		return controllerapi.Connection{}, fmt.Errorf("no connections found for destination node %s", destNode.ID)
-	}
-	srcNode, err2 := s.dbService.GetNode(route.SourceNodeID)
-	if err2 != nil {
-		return controllerapi.Connection{}, fmt.Errorf("failed to fetch destination node %s: %w", route.DestNodeID, err2)
-	}
-
-	connDetails, localConnection := selectConnection(destNode, srcNode)
-	connID, configData, err := generateConfigData(connDetails, localConnection)
-	if err != nil {
-		return controllerapi.Connection{}, fmt.Errorf("failed to generate config data for route %v: %w", route, err)
-	}
-
-	return controllerapi.Connection{
-		ConnectionId: connID, // Use endpoint with schema as connection ID
-		ConfigData:   configData,
-	}, nil
-}
-
-// selectConnection selects the most appropriate connection details from the destination node's connections.
-// Returns first connection from source to destination node and true if nodes have the same group name,
-// or the first connection with external endpoint specified and false otherwise,
-// meaning that externalEndpoint should be used to set up connection from src node.
-func selectConnection(dstNode *db.Node, srcNode *db.Node) (db.ConnectionDetails, bool) {
-	if dstNode.GroupName == nil && srcNode.GroupName == nil ||
-		(dstNode.GroupName != nil && srcNode.GroupName != nil && *dstNode.GroupName == *srcNode.GroupName) {
-		// same group, return first connection
-		return dstNode.ConnDetails[0], true
-	}
-	// different groups, return first connection with external endpoint defined
-	for _, conn := range dstNode.ConnDetails {
-		if conn.ExternalEndpoint != nil && *conn.ExternalEndpoint != "" {
-			return conn, false
-		}
-	}
-	// no external endpoint defined, return first connection
-	return dstNode.ConnDetails[0], false
-}
-
 // handleRequest processes a node registration request
 // When a node is registered, it fetches all connections and subscriptions and routes from DbService
 // and wraps them in a ConfigurationCommand message to send to the node
@@ -144,29 +90,29 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 	apiConnections := make(map[string]*controllerapi.Connection, 0)
 	var apiSubscriptions []*controllerapi.Subscription
 	var apiSubscriptionsToDelete []*controllerapi.Subscription
-	var deletedRoutes []string
 
 	routes := s.dbService.GetRoutesForNodeID(nodeID)
 	for _, route := range routes {
 		// create connection and subscription for each route
-		apiConnection, err := s.getConnectionDetails(route)
-		if err != nil {
-			zlog.Error().Err(err).Msgf("Failed to get connection details for route %v, skipping", route)
-			continue
-		}
 		apiSubscription := &controllerapi.Subscription{
-			ConnectionId: apiConnection.ConnectionId, // Use endpoint as connection ID
+			ConnectionId: route.DestEndpoint, // Use endpoint as connection ID
 			Component_0:  route.Component0,
 			Component_1:  route.Component1,
 			Component_2:  route.Component2,
 			Id:           route.ComponentID,
 		}
+		if route.DestNodeID != "" {
+			apiSubscription.NodeId = &route.DestNodeID
+		}
+
 		if route.Deleted {
 			apiSubscriptionsToDelete = append(apiSubscriptionsToDelete, apiSubscription)
-			deletedRoutes = append(deletedRoutes, route.GetID())
 			continue
 		}
-		apiConnections[apiConnection.ConnectionId] = &apiConnection
+		apiConnections[route.DestEndpoint] = &controllerapi.Connection{
+			ConnectionId: route.DestEndpoint,
+			ConfigData:   route.ConnConfigData,
+		}
 		apiSubscriptions = append(apiSubscriptions, apiSubscription)
 	}
 
@@ -205,105 +151,108 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 		return fmt.Errorf("failed to send configuration command to node %s: %w", nodeID, err)
 	}
 
-	// Wait for ACK response from the node
+	// Wait for ConfigCommandAck response from the node
 	response, err := s.nodeCommandHandler.WaitForResponse(ctx,
 		nodeID,
-		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
+		reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommandAck{}),
 		messageID,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to receive ACK response from node %s: %w", nodeID, err)
+		return fmt.Errorf("failed to receive ConfigCommandAck response from node %s: %w", nodeID, err)
 	}
 
-	// Validate ACK response
-	if ack := response.GetAck(); ack != nil {
-		if !ack.Success {
-			zlog.Error().
-				Strs("error_messages", ack.Messages).
-				Msgf("Sending route configs for node %s failed", nodeID)
-			return fmt.Errorf("sending route config for node %s failed: %v", nodeID, ack.Messages)
+	// Handle ConfigCommandAck response
+	if ack := response.GetConfigCommandAck(); ack != nil {
+		// Create a map of connection errors for quick lookup
+		connectionErrors := make(map[string]string)
+		for _, connAck := range ack.GetConnectionsStatus() {
+			if !connAck.Success {
+				connectionErrors[connAck.ConnectionId] = connAck.ErrorMsg
+			}
 		}
 
-		// If there are any deleted routes, remove them from the database
-		if len(deletedRoutes) > 0 {
-			for _, routeID := range deletedRoutes {
-				if err := s.dbService.DeleteRoute(routeID); err != nil {
-					zlog.Error().Msgf("failed to delete route %s from database: %v", routeID, err)
+		for _, subAck := range ack.GetSubscriptionsStatus() {
+			// get route key to find the corresponding route
+			routeKey := s.getSubscriptionToRouteKey(nodeID, subAck.Subscription)
+
+			// Fetch route from database using the route key
+			route := s.dbService.GetRouteByID(routeKey)
+			if route == nil {
+				zlog.Warn().
+					Str("route_key", routeKey).
+					Msg("Route not found for subscription acknowledgment")
+				continue
+			}
+
+			if subAck.Success {
+				// Success case: mark route as applied or delete if it was marked as deleted
+				if route.Deleted {
+					// Route was for deletion, so delete it from database
+					if err := s.dbService.DeleteRoute(routeKey); err != nil {
+						zlog.Error().
+							Err(err).
+							Str("route_key", routeKey).
+							Msg("Failed to delete route from database")
+						return fmt.Errorf("failed to delete route %s: %w", routeKey, err)
+					}
+					zlog.Info().
+						Str("route_key", routeKey).
+						Msg("Successfully deleted route")
+				} else {
+					// Route was for creation/update, mark as applied
+					if err := s.dbService.MarkRouteAsApplied(routeKey); err != nil {
+						zlog.Error().
+							Err(err).
+							Str("route_key", routeKey).
+							Msg("Failed to mark route as applied")
+						return fmt.Errorf("failed to mark route %s as applied: %w", routeKey, err)
+					}
+					zlog.Debug().
+						Str("route_key", routeKey).
+						Msg("Successfully marked route as applied")
 				}
+			} else {
+				// Failure case: mark route as failed with error message
+				failedMsg := subAck.ErrorMsg
+
+				// Check if there's a connection error with the same connectionID
+				if connErr, exists := connectionErrors[subAck.Subscription.ConnectionId]; exists {
+					failedMsg = connErr
+				}
+
+				if err := s.dbService.MarkRouteAsFailed(routeKey, failedMsg); err != nil {
+					zlog.Error().
+						Err(err).
+						Str("route_key", routeKey).
+						Str("error_msg", failedMsg).
+						Msg("Failed to mark route as failed")
+					return fmt.Errorf("failed to mark route %s as failed: %w", routeKey, err)
+				}
+				zlog.Info().
+					Str("route_key", routeKey).
+					Str("error_msg", failedMsg).
+					Msg("Marked route as failed")
 			}
 		}
 
 		zlog.Info().
 			Str("original_message_id", ack.OriginalMessageId).
-			Strs("ack_messages", ack.Messages).
 			Str("node_id", nodeID).
-			Msg("Sending routes completed successfully")
+			Msg("Configuration command processing completed")
 
 	} else {
-		return fmt.Errorf("received invalid ACK response from node %s", nodeID)
+		return fmt.Errorf("received invalid ConfigCommandAck response from node %s", nodeID)
 	}
 
 	return nil
 }
 
-func generateConfigData(detail db.ConnectionDetails, localConnection bool) (string, string, error) {
-	truev := true
-	falsev := false
-	skipVerify := false
-	config := ConnectionConfig{
-		Endpoint: detail.Endpoint,
+// getSubscriptionErrorKey creates a unique key for subscription error mapping
+func (s *RouteReconciler) getSubscriptionToRouteKey(sourceNodeID string, sub *controllerapi.Subscription) string {
+	nodeID := ""
+	if sub.NodeId != nil {
+		nodeID = *sub.NodeId
 	}
-	if !localConnection {
-		if detail.ExternalEndpoint == nil || *detail.ExternalEndpoint == "" {
-			return "", "", fmt.Errorf("no external endpoint defined for connection %v", detail)
-		}
-		config.Endpoint = *detail.ExternalEndpoint
-	} else {
-		skipVerify = true // skip verification for local connections
-	}
-	if !detail.MTLSRequired {
-		config.Endpoint = "http://" + config.Endpoint
-		config.TLS = &TLS{Insecure: &truev}
-	} else {
-		config.Endpoint = "https://" + config.Endpoint
-		config.TLS = &TLS{
-			Insecure:           &falsev,
-			InsecureSkipVerify: &skipVerify,
-			CERTFile:           stringPtr("/svids/tls.crt"),
-			KeyFile:            stringPtr("/svids/tls.key"),
-			CAFile:             stringPtr("/svids/svid_bundle.pem"),
-		}
-	}
-	var bufferSize int64 = 1024
-	config.BufferSize = &bufferSize
-	gzip := Gzip
-	config.Compression = &gzip
-	config.ConnectTimeout = stringPtr("10s")
-	config.Headers = map[string]string{
-		"x-custom-header": "value",
-	}
-
-	config.Keepalive = &KeepaliveClass{
-		HTTPClient2Keepalive: stringPtr("2h"),
-		KeepAliveWhileIdle:   &falsev,
-		TCPKeepalive:         stringPtr("20s"),
-		Timeout:              stringPtr("20s"),
-	}
-	config.Origin = stringPtr("https://client.example.com")
-	config.RateLimit = stringPtr("20/60")
-	config.RequestTimeout = stringPtr("30s")
-
-	// render struct as json
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	err := enc.Encode(config)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to encode connection config: %w", err)
-	}
-
-	return config.Endpoint, buf.String(), nil
-}
-
-func stringPtr(s string) *string {
-	return &s
+	return fmt.Sprintf("%s:%s/%s/%s/%v->%s[%s]", sourceNodeID,
+		sub.Component_0, sub.Component_1, sub.Component_2, sub.Id, nodeID, sub.ConnectionId)
 }

@@ -2,7 +2,7 @@
 name = "agntcy-slim-mls"
 edition = { workspace = true }
 license = { workspace = true }
-version = "0.1.2"
+version = "0.1.3"
 description = "Messaging Layer Security for SLIM data plane."
 
 [lib]
@@ -11,6 +11,7 @@ name = "slim_mls"
 [dependencies]
 agntcy-slim-auth = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
+async-trait = { workspace = true }
 hex = "0.4"
 mls-rs = { workspace = true }
 mls-rs-core = { workspace = true }

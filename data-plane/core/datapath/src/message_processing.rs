@@ -356,8 +356,11 @@ impl MessageProcessor {
                 let parent_context = extract_parent_context(&msg);
                 let span = create_span("send_message", out_conn, &msg);
 
-                if let Some(ctx) = parent_context {
-                    span.set_parent(ctx);
+                if let Some(ctx) = parent_context
+                    && let Err(e) = span.set_parent(ctx)
+                {
+                    // log the error but don't fail the message sending
+                    error!("error setting parent context: {:?}", e);
                 }
                 let _guard = span.enter();
                 inject_current_context(&mut msg);
@@ -517,14 +520,15 @@ impl MessageProcessor {
             Some(out_conn) => {
                 debug!("forward subscription (add = {}) to {}", add, out_conn);
 
-                // get source name
+                // get source name and identity
                 let source = msg.get_source();
+                let identity = msg.get_identity();
 
                 // send message
                 match self.send_msg(msg, out_conn).await {
                     Ok(_) => {
                         self.forwarder()
-                            .on_forwarded_subscription(source, dst, out_conn, add);
+                            .on_forwarded_subscription(source, dst, identity, out_conn, add);
                         Ok(())
                     }
                     Err(e) => Err(DataPathError::UnsubscriptionError(e.to_string())),
@@ -588,8 +592,11 @@ impl MessageProcessor {
 
             let span = create_span("process_local", conn_index, &msg);
 
-            if let Some(ctx) = parent_context {
-                span.set_parent(ctx);
+            if let Some(ctx) = parent_context
+                && let Err(e) = span.set_parent(ctx)
+            {
+                // log the error but don't fail the message processing
+                error!("error setting parent context: {:?}", e);
             }
             let _guard = span.enter();
 
@@ -682,6 +689,7 @@ impl MessageProcessor {
                                     let sub_msg = Message::new_subscribe(
                                         r.source(),
                                         r.name(),
+                                        Some(r.source_identity()),
                                         None,
                                     );
                                     if self.send_msg(sub_msg, conn_index).await.is_err() {

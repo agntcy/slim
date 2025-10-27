@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 type dbService struct {
@@ -111,18 +112,114 @@ func (d *dbService) GetNode(id string) (*Node, error) {
 }
 
 // SaveNode implements DataAccess.
-func (d *dbService) SaveNode(node Node) (string, error) {
+func (d *dbService) SaveNode(node Node) (string, bool, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
+	connDetailsChanged := false
 	if node.ID == "" {
 		node.ID = uuid.New().String()
+		connDetailsChanged = false
+	} else {
+		// Check if node exists and compare connection details
+		if existingNode, exists := d.nodes[node.ID]; exists {
+			connDetailsChanged = d.hasConnectionDetailsChanged(existingNode.ConnDetails, node.ConnDetails)
+		} else {
+			connDetailsChanged = false
+		}
 	}
 
 	node.LastUpdated = time.Now()
-
 	d.nodes[node.ID] = node
-	return node.ID, nil
+
+	return node.ID, connDetailsChanged, nil
+}
+
+// hasConnectionDetailsChanged compares two slices of ConnectionDetails and returns true if they differ
+func (d *dbService) hasConnectionDetailsChanged(existing, newConnDetails []ConnectionDetails) bool {
+	// If lengths are different, details have changed
+	if len(existing) != len(newConnDetails) {
+		return true
+	}
+
+	// Create maps for efficient comparison
+	existingMap := make(map[string]ConnectionDetails)
+	for _, cd := range existing {
+		key := d.getConnectionDetailsKey(cd)
+		existingMap[key] = cd
+	}
+
+	newMap := make(map[string]ConnectionDetails)
+	for _, cd := range newConnDetails {
+		key := d.getConnectionDetailsKey(cd)
+		newMap[key] = cd
+	}
+
+	// Check if all existing connections are still present and unchanged
+	for key, existingCD := range existingMap {
+		newCD, exists := newMap[key]
+		if !exists {
+			return true // Connection removed
+		}
+		if !d.connectionDetailsEqual(existingCD, newCD) {
+			return true // Connection details changed
+		}
+	}
+
+	// Check if there are any new connections
+	for key := range newMap {
+		if _, exists := existingMap[key]; !exists {
+			return true // New connection added
+		}
+	}
+
+	return false
+}
+
+// getConnectionDetailsKey creates a unique key for a ConnectionDetails for comparison
+func (d *dbService) getConnectionDetailsKey(cd ConnectionDetails) string {
+	return cd.Endpoint // Use endpoint as the primary key
+}
+
+// connectionDetailsEqual compares two ConnectionDetails structs for equality
+func (d *dbService) connectionDetailsEqual(cd1, cd2 ConnectionDetails) bool {
+	// Compare Endpoint
+	if cd1.Endpoint != cd2.Endpoint {
+		return false
+	}
+
+	// Compare MTLSRequired
+	if cd1.MTLSRequired != cd2.MTLSRequired {
+		return false
+	}
+
+	// Compare ExternalEndpoint (handling nil pointers)
+	if cd1.ExternalEndpoint == nil && cd2.ExternalEndpoint != nil {
+		return false
+	}
+	if cd1.ExternalEndpoint != nil && cd2.ExternalEndpoint == nil {
+		return false
+	}
+	if cd1.ExternalEndpoint != nil && cd2.ExternalEndpoint != nil {
+		if *cd1.ExternalEndpoint != *cd2.ExternalEndpoint {
+			return false
+		}
+	}
+
+	// Compare GroupName (handling nil pointers)
+	if cd1.GroupName == nil && cd2.GroupName != nil {
+		return false
+	}
+	if cd1.GroupName != nil && cd2.GroupName == nil {
+		return false
+	}
+	if cd1.GroupName != nil && cd2.GroupName != nil {
+		if *cd1.GroupName != *cd2.GroupName {
+			return false
+		}
+	}
+
+	return true
 }
 
 // DeleteNode implements DataAccess.
@@ -173,6 +270,35 @@ func (d *dbService) MarkRouteAsDeleted(routeID string) error {
 	return nil
 }
 
+// MarkRouteAsApplied implements DataAccess.
+func (d *dbService) MarkRouteAsApplied(routeID string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	route, exists := d.routes[routeID]
+	if !exists {
+		return fmt.Errorf("route %s not found", routeID)
+	}
+	route.LastUpdated = time.Now()
+	route.Status = RouteStatusApplied
+	d.routes[routeID] = route
+	return nil
+}
+
+// MarkRouteAsFailed implements DataAccess.
+func (d *dbService) MarkRouteAsFailed(routeID string, msg string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	route, exists := d.routes[routeID]
+	if !exists {
+		return fmt.Errorf("route %s not found", routeID)
+	}
+	route.LastUpdated = time.Now()
+	route.Status = RouteStatusFailed
+	route.StatusMsg = msg
+	d.routes[routeID] = route
+	return nil
+}
+
 func (d *dbService) GetRouteByID(routeID string) *Route {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -192,5 +318,78 @@ func (d *dbService) GetRoutesForNodeID(nodeID string) []Route {
 	}
 
 	// Return empty slice instead of error when no routes found
+	return routes
+}
+
+func (d *dbService) GetRoutesForDestinationNodeID(nodeID string) []Route {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	var routes []Route
+	for _, route := range d.routes {
+		if route.DestNodeID == nodeID && route.SourceNodeID != AllNodesID {
+			routes = append(routes, route)
+		}
+	}
+
+	// Return empty slice instead of error when no routes found
+	return routes
+}
+
+func (d *dbService) GetRoutesForDestinationNodeIDAndName(nodeID string, component0 string, component1 string,
+	component2 string, componentID *wrapperspb.UInt64Value) []Route {
+
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	var routes []Route
+	for _, route := range d.routes {
+		if route.DestNodeID == nodeID &&
+			route.Component0 == component0 &&
+			route.Component1 == component1 &&
+			route.Component2 == component2 {
+			if (componentID == nil && route.ComponentID == nil) ||
+				(componentID != nil && route.ComponentID != nil && componentID.Value == route.ComponentID.Value) {
+				routes = append(routes, route)
+			}
+		}
+	}
+	return routes
+}
+
+func (d *dbService) GetRouteForSrcAndDestinationAndName(srcNodeID string, component0 string, component1 string,
+	component2 string, componentID *wrapperspb.UInt64Value, destNodeID string, destEndpoint string) (Route, error) {
+
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	for _, route := range d.routes {
+		if route.SourceNodeID == srcNodeID &&
+			(route.DestNodeID == destNodeID ||
+				route.DestEndpoint == destEndpoint) &&
+			route.Component0 == component0 &&
+			route.Component1 == component1 &&
+			route.Component2 == component2 {
+			if (componentID == nil && route.ComponentID == nil) ||
+				(componentID != nil && route.ComponentID != nil && componentID.Value == route.ComponentID.Value) {
+				return route, nil
+			}
+		}
+	}
+	return Route{}, fmt.Errorf("route not found")
+}
+
+func (d *dbService) FilterRoutesBySourceAndDestination(sourceNodeID string, destNodeID string) []Route {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	var routes []Route
+	for _, route := range d.routes {
+		sourceMatch := sourceNodeID == "" || route.SourceNodeID == sourceNodeID
+		destMatch := destNodeID == "" || route.DestNodeID == destNodeID
+		if sourceMatch && destMatch {
+			routes = append(routes, route)
+		}
+	}
+
 	return routes
 }

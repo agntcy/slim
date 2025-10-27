@@ -8,7 +8,7 @@ use mls_rs::{
     time::MlsTime,
 };
 use mls_rs_core::identity::MemberValidationContext;
-use slim_auth::traits::Verifier;
+use slim_auth::{errors::AuthError, traits::Verifier};
 use tracing::debug;
 
 #[derive(Clone)]
@@ -40,13 +40,14 @@ fn resolve_slim_identity(signing_id: &SigningIdentity) -> Result<String, SlimIde
     Ok(credential_data.to_string())
 }
 
+#[async_trait::async_trait]
 impl<V> IdentityProvider for SlimIdentityProvider<V>
 where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     type Error = SlimIdentityError;
 
-    fn validate_member(
+    async fn validate_member(
         &self,
         signing_identity: &SigningIdentity,
         _timestamp: Option<MlsTime>,
@@ -54,15 +55,25 @@ where
     ) -> Result<(), Self::Error> {
         debug!("Validating MLS group member identity");
         let identity = resolve_slim_identity(signing_identity)?;
-
-        self.identity_verifier
-            .try_verify(&identity)
-            .map_err(|e| SlimIdentityError::VerificationFailed(e.to_string()))?;
+        match self.identity_verifier.try_verify(&identity) {
+            Ok(()) => {}
+            Err(e) => {
+                if matches!(e, AuthError::WouldBlockOn) {
+                    // Fallback to async verification
+                    let async_res = tokio::runtime::Handle::current()
+                        .block_on(self.identity_verifier.verify(&identity));
+                    async_res
+                        .map_err(|ae| SlimIdentityError::VerificationFailed(ae.to_string()))?;
+                } else {
+                    return Err(SlimIdentityError::VerificationFailed(e.to_string()));
+                }
+            }
+        }
 
         Ok(())
     }
 
-    fn validate_external_sender(
+    async fn validate_external_sender(
         &self,
         signing_identity: &SigningIdentity,
         _timestamp: Option<MlsTime>,
@@ -70,15 +81,25 @@ where
     ) -> Result<(), Self::Error> {
         debug!("Validating external sender identity");
         let identity = resolve_slim_identity(signing_identity)?;
-
-        self.identity_verifier
-            .try_verify(&identity)
-            .map_err(|e| SlimIdentityError::ExternalSenderFailed(e.to_string()))?;
+        match self.identity_verifier.try_verify(&identity) {
+            Ok(()) => {}
+            Err(e) => {
+                if matches!(e, AuthError::WouldBlockOn) {
+                    // Fallback to async verification for external sender
+                    let async_res = tokio::runtime::Handle::current()
+                        .block_on(self.identity_verifier.verify(&identity));
+                    async_res
+                        .map_err(|ae| SlimIdentityError::ExternalSenderFailed(ae.to_string()))?;
+                } else {
+                    return Err(SlimIdentityError::ExternalSenderFailed(e.to_string()));
+                }
+            }
+        }
 
         Ok(())
     }
 
-    fn identity(
+    async fn identity(
         &self,
         signing_identity: &SigningIdentity,
         _extensions: &ExtensionList,
@@ -87,7 +108,7 @@ where
         Ok(identity.into_bytes())
     }
 
-    fn valid_successor(
+    async fn valid_successor(
         &self,
         predecessor: &SigningIdentity,
         successor: &SigningIdentity,
