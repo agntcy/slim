@@ -82,12 +82,12 @@ mod tests {
 
     // use slim_config_grpc::headers_middleware::SetRequestHeader;
     use slim_auth::jwt::{Key, KeyData};
-    use slim_auth::testutils::setup_test_jwt_resolver;
     use slim_auth::traits::Signer;
     use slim_config::grpc::{client::ClientConfig, server::ServerConfig};
     use slim_config::testutils::helloworld::HelloRequest;
     use slim_config::testutils::helloworld::greeter_client::GreeterClient;
     use slim_config::testutils::helloworld::greeter_server::GreeterServer;
+    use slim_testing::utils::setup_test_jwt_resolver;
 
     static TEST_DATA_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata");
 
@@ -100,7 +100,9 @@ mod tests {
         // instantiate server from config and start listening
         let greeter = TestGreeter::new(client_config);
 
-        let ret = server_config.to_server_future(&[GreeterServer::new(greeter)]);
+        let ret = server_config
+            .to_server_future(&[GreeterServer::new(greeter)])
+            .await;
         assert!(ret.is_ok(), "error: {:?}", ret.err());
 
         let server_future = ret.unwrap();
@@ -121,7 +123,7 @@ mod tests {
                 .unwrap();
         });
 
-        let channel_result = client_config.to_channel();
+        let channel_result = client_config.to_channel().await;
 
         // assert no error occurred
         assert!(channel_result.is_ok(), "error: {:?}", channel_result.err());
@@ -235,6 +237,7 @@ mod tests {
         let channel = client_config
             .with_auth(auth_wrong_client_config)
             .to_channel()
+            .await
             .unwrap();
 
         let mut client = GreeterClient::new(channel);
@@ -739,4 +742,52 @@ mod tests {
         // Test RSA JWT configuration
         test_tls_jwt_resolver_grpc_configuration(Algorithm::EdDSA, 51119).await;
     }
+#[cfg(feature = "testutils")]
+#[tokio::test]
+#[tokio::test]
+#[traced_test]
+async fn test_tls_spiffe_grpc_configuration() {
+    // SPIFFE / SPIRE mTLS integration test.
+    // Sets up a SPIRE server + agent and uses SPIFFE directly in both client and server
+    // without manual certificate/key extraction.
+
+    if std::process::Command::new("docker").arg("ps").status().is_err() {
+        tracing::warn!("Docker not available - skipping SPIFFE mTLS test");
+        return;
+    }
+
+    // Start SPIRE environment
+    let mut env = slim_testing::utils::spire_env::SpireTestEnvironment::new()
+        .await
+        .expect("Failed to create SPIRE test environment");
+    env.start().await.expect("Failed to start SPIRE server/agent");
+
+    // Unified SPIFFE config (socket path + audiences)
+    let spiffe_cfg = env.get_spiffe_config();
+
+    // Server TLS config uses dynamic SPIFFE resolver (no cert/key files)
+    let server_tls = TlsServerConfig::new()
+        .with_spiffe(spiffe_cfg.clone())
+        .with_tls_version("tls1.3");
+
+    let server_config = ServerConfig::with_endpoint("[::1]:50071")
+        .with_tls_settings(server_tls);
+
+    // Client TLS config uses dynamic SPIFFE client cert resolver (no cert/key injection)
+    let client_tls = TlsClientConfig::new()
+        .with_spiffe(spiffe_cfg.clone())
+        .with_tls_version("tls1.3");
+
+    let client_config = ClientConfig::with_endpoint("http://[::1]:50071")
+        .with_tls_setting(client_tls);
+
+    // Perform round‑trip
+    setup_client_and_server(client_config, server_config).await;
+
+    // Cleanup
+    env.cleanup()
+        .await
+        .expect("Failed to cleanup SPIRE test environment");
+}
+
 }

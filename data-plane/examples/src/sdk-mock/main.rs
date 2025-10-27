@@ -7,9 +7,9 @@ use tracing::info;
 
 use slim::config;
 use slim_auth::shared_secret::SharedSecret;
-use slim_auth::testutils::TEST_VALID_SECRET;
 use slim_datapath::messages::Name;
 use slim_session::{self, PointToPointConfiguration, SessionConfig};
+use slim_testing::utils::TEST_VALID_SECRET;
 
 mod args;
 

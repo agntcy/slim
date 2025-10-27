@@ -137,7 +137,7 @@ where
 mod tests {
     use super::*;
     use slim_auth::shared_secret::SharedSecret;
-    use slim_auth::testutils::TEST_VALID_SECRET;
+    use slim_testing::utils::TEST_VALID_SECRET;
     use std::sync::Arc;
 
     #[tokio::test]

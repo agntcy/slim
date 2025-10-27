@@ -355,7 +355,7 @@ impl ClientConfig {
     /// If the configuration is invalid, it will return a ConfigError.
     /// The function will set the headers, tls settings, keepalive settings, rate limit settings
     /// timeout settings, buffer size settings, and origin settings.
-    pub fn to_channel(
+    pub async fn to_channel(
         &self,
     ) -> Result<
         impl tonic::client::GrpcService<
@@ -385,11 +385,12 @@ impl ClientConfig {
         let header_map = self.parse_headers()?;
 
         // Load TLS configuration
-        let tls_config = self.load_tls_config()?;
+        let tls_config = self.load_tls_config().await?;
 
         // Create the channel with appropriate connector
-        let channel =
-            self.create_channel_with_connector(uri, builder, http_connector, tls_config)?;
+        let channel = self
+            .create_channel_with_connector(uri, builder, http_connector, tls_config)
+            .await?;
 
         // Apply authentication and headers
         self.apply_auth_and_headers(channel, header_map)
@@ -531,13 +532,15 @@ impl ClientConfig {
     }
 
     /// Loads TLS configuration
-    fn load_tls_config(&self) -> Result<Option<rustls::ClientConfig>, ConfigError> {
-        TLSSetting::load_rustls_config(&self.tls_setting)
+    async fn load_tls_config(&self) -> Result<Option<rustls::ClientConfig>, ConfigError> {
+        self.tls_setting
+            .load_rustls_config()
+            .await
             .map_err(|e| ConfigError::TLSSettingError(e.to_string()))
     }
 
     /// Creates the channel with the appropriate connector (proxy or direct)
-    fn create_channel_with_connector(
+    async fn create_channel_with_connector(
         &self,
         uri: Uri,
         builder: tonic::transport::Endpoint,
@@ -545,14 +548,14 @@ impl ClientConfig {
         tls_config: Option<rustls::ClientConfig>,
     ) -> Result<Channel, ConfigError> {
         // Create the appropriate connection type
-        let connection = self.create_connection(uri, http_connector)?;
+        let connection = self.create_connection(uri, http_connector).await?;
 
         // Apply TLS and create the channel
         self.create_channel_from_connection(builder, connection, tls_config)
     }
 
     /// Creates the appropriate connection type based on proxy configuration
-    fn create_connection(
+    async fn create_connection(
         &self,
         uri: Uri,
         http_connector: HttpConnector,
@@ -561,6 +564,7 @@ impl ClientConfig {
         if let Some(intercept) = self.proxy.should_use_proxy(uri.to_string()) {
             // Use proxy for this host
             self.create_proxy_connection(intercept, http_connector)
+                .await
         } else {
             // Skip proxy for this host, use direct connection
             Ok(ConnectionType::Direct(http_connector))
@@ -568,7 +572,7 @@ impl ClientConfig {
     }
 
     /// Creates a proxy connection
-    fn create_proxy_connection(
+    async fn create_proxy_connection(
         &self,
         intercept: Intercept,
         http_connector: HttpConnector,
@@ -583,6 +587,7 @@ impl ClientConfig {
                 .proxy
                 .tls_setting
                 .load_rustls_config()
+                .await
                 .map_err(|e| {
                     ConfigError::TLSSettingError(format!("Failed to load proxy TLS config: {}", e))
                 })?
@@ -779,17 +784,17 @@ mod test {
         let mut client = ClientConfig::default();
 
         // as the endpoint is missing, this should fail
-        let mut channel = client.to_channel();
+        let mut channel = client.to_channel().await;
         assert!(channel.is_err());
 
         // Set the endpoint
         client.endpoint = "http://localhost:8080".to_string();
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
 
         // Set the tls settings
         client.tls_setting.insecure = true;
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
 
         // Set the tls settings
@@ -800,22 +805,22 @@ mod test {
             tls
         };
         debug!("{}/testdata/{}", test_path, "ca.crt");
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
 
         // Set keepalive settings
         client.keepalive = Some(KeepaliveConfig::default());
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
 
         // Set rate limit settings
         client.rate_limit = Some("100/10".to_string());
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
 
         // Set rate limit settings wrong
         client.rate_limit = Some("100".to_string());
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_err());
 
         // reset config
@@ -823,34 +828,34 @@ mod test {
 
         // Set timeout settings
         client.request_timeout = Duration::from_secs(10).into();
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
 
         // Set buffer size settings
         client.buffer_size = Some(1024);
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
 
         // Set origin settings
         client.origin = Some("http://example.com".to_string());
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
 
         // set additional header to add to the request
         client
             .headers
             .insert("X-Test".to_string(), "test".to_string());
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
 
         // Set proxy settings
         client.proxy = ProxyConfig::new("http://proxy.example.com:8080");
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
 
         // Set proxy with authentication
         client.proxy = ProxyConfig::new("http://proxy.example.com:8080").with_auth("user", "pass");
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
 
         // Set proxy with headers
@@ -858,17 +863,17 @@ mod test {
         proxy_headers.insert("X-Proxy-Header".to_string(), "value".to_string());
         client.proxy =
             ProxyConfig::new("http://proxy.example.com:8080").with_headers(proxy_headers);
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
 
         // Set HTTPS proxy settings
         client.proxy = ProxyConfig::new("https://proxy.example.com:8080");
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
 
         // Set HTTPS proxy with authentication
         client.proxy = ProxyConfig::new("https://proxy.example.com:8080").with_auth("user", "pass");
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
 
         // Set HTTPS proxy with headers
@@ -876,7 +881,7 @@ mod test {
         https_proxy_headers.insert("X-Proxy-Header".to_string(), "value".to_string());
         client.proxy =
             ProxyConfig::new("https://proxy.example.com:8080").with_headers(https_proxy_headers);
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
     }
 

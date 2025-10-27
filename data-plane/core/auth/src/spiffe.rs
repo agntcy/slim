@@ -4,8 +4,63 @@
 #![cfg(not(target_family = "windows"))]
 
 //! SPIFFE integration for SLIM authentication
-//! This module provides direct integration with SPIFFE Workload API to retrieve
-//! X.509 SVID certificates and JWT tokens.
+//!
+//! Unified SPIFFE interface: the `SpiffeIdentityManager` encapsulates both
+//! credential acquisition (X.509 & JWT SVIDs) and verification (JWT validation
+//! plus access to X.509 trust bundles) using a single configuration struct
+//! `SpiffeConfig`.
+//!
+//! Features:
+//! - Single struct for providing and verifying identities (`SpiffeIdentityManager`)
+//! - Automatic rotation of X.509 SVIDs and JWT SVIDs via background sources
+//! - Access to private key & certificate PEM for mTLS
+//! - Access to JWT tokens (optionally with custom claims encoded in audiences)
+//! - Synchronous and asynchronous JWT verification (`try_verify` / `verify`)
+//! - Claims extraction with transparent custom claim decoding
+//! - Trust domain bundle retrieval (`get_x509_bundle`)
+//!
+//! Primary types:
+//! - `SpiffeConfig`: configuration (socket path, target SPIFFE ID for JWT requests, audiences)
+//! - `SpiffeIdentityManager`: unified provider + verifier
+//!
+//! Basic usage:
+//! ```rust,no_run
+//! use slim_auth::spiffe::{SpiffeIdentityManager, SpiffeConfig};
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! let mut mgr = SpiffeIdentityManager::new(SpiffeConfig {
+//!     socket_path: None,              // Use SPIFFE_ENDPOINT_SOCKET env var
+//!     target_spiffe_id: None,         // Optional: specify a target for JWT SVID
+//!     jwt_audiences: vec!["my-app".into()],
+//! });
+//! mgr.initialize().await?;
+//!
+//! // Obtain JWT token
+//! let token = mgr.get_token()?;
+//!
+//! // Verify the token (async or sync)
+//! mgr.verify(&token).await?;
+//! mgr.try_verify(&token)?;
+//!
+//! // Extract claims
+//! let claims: serde_json::Value = mgr.get_claims(&token).await?;
+//!
+//! // Access X.509 materials for TLS
+//! let cert_pem = mgr.get_x509_cert_pem()?;
+//! let key_pem  = mgr.get_x509_key_pem()?;
+//!
+//! // Access trust bundle for custom verification
+//! let x509_bundle = mgr.get_x509_bundle()?;
+//! # Ok(()) }
+//! ```
+//!
+//! Custom claims:
+//! Use `get_token_with_claims` to embed additional claims via a special audience
+//! encoding. The verifier automatically decodes and exposes them under
+//! the `custom_claims` field in returned claim structures.
+//!
+//! This unified design replaced the previous split between
+//! `SpiffeProvider` and `SpiffeJwtVerifier`.
 
 use crate::errors::AuthError;
 use crate::traits::{TokenProvider, Verifier};
@@ -16,8 +71,8 @@ use parking_lot::RwLock; // switched to parking_lot for sync RwLock
 use serde::de::DeserializeOwned;
 use serde_json;
 use spiffe::{
-    BundleSource, JwtBundleSet, JwtSvid, SvidSource, WorkloadApiClient, X509Bundle, X509Source,
-    X509SourceBuilder, X509Svid,
+    BundleSource, JwtBundleSet, JwtSvid, SvidSource, TrustDomain, WorkloadApiClient, X509Bundle,
+    X509Source, X509SourceBuilder, X509Svid,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -153,49 +208,103 @@ async fn create_workload_client(
 }
 
 /// Configuration for SPIFFE authentication
+/// Unified configuration for SPIFFE identity (used for both providing and verifying)
 #[derive(Debug, Clone)]
-pub struct SpiffeProviderConfig {
-    /// Path to the SPIFFE Workload API socket
-    pub socket_path: Option<String>,
-    /// Target SPIFFE ID for JWT tokens (optional)
-    pub target_spiffe_id: Option<String>,
-    /// JWT audiences for token requests
-    pub jwt_audiences: Vec<String>,
+struct SpiffeIdentityManagerConfig {
+    socket_path: Option<String>,
+    target_spiffe_id: Option<String>,
+    jwt_audiences: Vec<String>,
+    trust_domain: Option<String>,
 }
 
-impl Default for SpiffeProviderConfig {
+impl Default for SpiffeIdentityManagerConfig {
     fn default() -> Self {
         Self {
-            socket_path: None, // Will use SPIFFE_ENDPOINT_SOCKET env var
+            socket_path: None,
             target_spiffe_id: None,
             jwt_audiences: vec!["slim".to_string()],
+            trust_domain: None,
+        }
+    }
+}
+
+/// Builder for constructing a SpiffeIdentityManager
+pub struct SpiffeIdentityManagerBuilder {
+    socket_path: Option<String>,
+    target_spiffe_id: Option<String>,
+    jwt_audiences: Vec<String>,
+    trust_domain: Option<String>,
+}
+
+impl Default for SpiffeIdentityManagerBuilder {
+    fn default() -> Self {
+        Self {
+            socket_path: None,
+            target_spiffe_id: None,
+            jwt_audiences: vec!["slim".to_string()],
+            trust_domain: None,
+        }
+    }
+}
+
+impl SpiffeIdentityManagerBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_socket_path(mut self, socket_path: impl Into<String>) -> Self {
+        self.socket_path = Some(socket_path.into());
+        self
+    }
+
+    pub fn with_target_spiffe_id(mut self, target_spiffe_id: impl Into<String>) -> Self {
+        self.target_spiffe_id = Some(target_spiffe_id.into());
+        self
+    }
+
+    pub fn with_jwt_audiences(mut self, audiences: Vec<String>) -> Self {
+        self.jwt_audiences = audiences;
+        self
+    }
+
+    pub fn with_trust_domain(mut self, trust_domain: impl Into<String>) -> Self {
+        self.trust_domain = Some(trust_domain.into());
+        self
+    }
+
+    pub fn build(self) -> SpiffeIdentityManager {
+        SpiffeIdentityManager {
+            config: SpiffeIdentityManagerConfig {
+                socket_path: self.socket_path,
+                target_spiffe_id: self.target_spiffe_id,
+                jwt_audiences: self.jwt_audiences,
+                trust_domain: self.trust_domain,
+            },
+            client: None,
+            x509_source: None,
+            jwt_source: None,
         }
     }
 }
 
 /// SPIFFE certificate and JWT provider that automatically rotates credentials
 #[derive(Clone)]
-pub struct SpiffeProvider {
-    config: SpiffeProviderConfig,
+pub struct SpiffeIdentityManager {
+    config: SpiffeIdentityManagerConfig,
     client: Option<WorkloadApiClient>,
     x509_source: Option<Arc<X509Source>>,
     jwt_source: Option<Arc<JwtSource>>,
 }
 
-impl SpiffeProvider {
-    /// Create a new SpiffeProvider with the given configuration
-    pub fn new(config: SpiffeProviderConfig) -> Self {
-        Self {
-            config,
-            client: None,
-            x509_source: None,
-            jwt_source: None,
-        }
+impl SpiffeIdentityManager {
+    /// Convenience: start building a new SpiffeIdentityManager
+    pub fn builder() -> SpiffeIdentityManagerBuilder {
+        SpiffeIdentityManagerBuilder::new()
     }
 
-    /// Initialize the SPIFFE provider and start credential rotation
+    /// Initialize the SPIFFE identity manager (sources for X.509 & JWT)
     pub async fn initialize(&mut self) -> Result<(), AuthError> {
-        info!("Initializing SPIFFE provider");
+        info!("Initializing SPIFFE identity manager");
 
         // Create WorkloadApiClient
         let client = create_workload_client(self.config.socket_path.as_ref()).await?;
@@ -233,23 +342,21 @@ impl SpiffeProvider {
         Ok(())
     }
 
-    /// Get the current X.509 SVID certificate
+    /// Get the current X.509 SVID (leaf cert + key)
     pub fn get_x509_svid(&self) -> Result<X509Svid, AuthError> {
-        let x509_source_guard = &self.x509_source;
-        let x509_source = x509_source_guard
+        let x509_source = self
+            .x509_source
             .as_ref()
             .ok_or_else(|| AuthError::ConfigError("X509Source not initialized".to_string()))?;
-
         let svid = x509_source
             .get_svid()
             .map_err(|e| AuthError::ConfigError(format!("Failed to get X509 SVID: {}", e)))?
             .ok_or_else(|| AuthError::ConfigError("No X509 SVID available".to_string()))?;
-
         debug!("Retrieved X509 SVID with SPIFFE ID: {}", svid.spiffe_id());
         Ok(svid)
     }
 
-    /// Get the X.509 certificate in PEM format
+    /// Get the X.509 certificate (leaf) in PEM format
     pub fn get_x509_cert_pem(&self) -> Result<String, AuthError> {
         let svid = self.get_x509_svid()?;
         let cert_chain = svid.cert_chain();
@@ -282,7 +389,7 @@ impl SpiffeProvider {
         ))
     }
 
-    /// Get a cached JWT SVID via the background-refreshing JwtSource (sync)
+    /// Get a cached JWT SVID (background refreshed)
     pub fn get_jwt_svid(&self) -> Result<JwtSvid, AuthError> {
         let src = self
             .jwt_source
@@ -292,10 +399,91 @@ impl SpiffeProvider {
             .map_err(|e| AuthError::ConfigError(format!("Failed to get JWT SVID: {}", e)))?
             .ok_or_else(|| AuthError::ConfigError("No JWT SVID available".to_string()))
     }
+
+    /// Get X.509 bundle for the trust domain of our SVID (for verification use-cases)
+    pub fn get_x509_bundle(&self) -> Result<X509Bundle, AuthError> {
+        let x509_source = self
+            .x509_source
+            .as_ref()
+            .ok_or_else(|| AuthError::ConfigError("X509Source not initialized".to_string()))?;
+        // If a trust_domain override is configured, use it directly
+        if let Some(ref td_override) = self.config.trust_domain {
+            let td_parsed = TrustDomain::new(td_override).map_err(|e| {
+                AuthError::ConfigError(format!(
+                    "Invalid trust domain override '{}': {}",
+                    td_override, e
+                ))
+            })?;
+            return x509_source
+                .get_bundle_for_trust_domain(&td_parsed)
+                .map_err(|e| {
+                    AuthError::ConfigError(format!(
+                        "Failed to get X509 bundle for trust domain {}: {}",
+                        td_override, e
+                    ))
+                })?
+                .ok_or_else(|| {
+                    AuthError::ConfigError(format!(
+                        "No X509 bundle for trust domain {}",
+                        td_override
+                    ))
+                });
+        }
+        // Fallback: derive trust domain from current SVID
+        let svid = x509_source
+            .get_svid()
+            .map_err(|e| AuthError::ConfigError(format!("Failed to get X509 SVID: {}", e)))?
+            .ok_or_else(|| AuthError::ConfigError("No X509 SVID available".to_string()))?;
+        let td = svid.spiffe_id().trust_domain();
+        x509_source
+            .get_bundle_for_trust_domain(&td)
+            .map_err(|e| AuthError::ConfigError(format!("Failed to get X509 bundle: {}", e)))?
+            .ok_or_else(|| {
+                AuthError::ConfigError(format!("No X509 bundle for trust domain {}", td))
+            })
+    }
+
+    /// Get the X.509 bundle for an explicit trust domain (ignores config override)
+    pub fn get_x509_bundle_for_trust_domain(
+        &self,
+        trust_domain: impl Into<String>,
+    ) -> Result<X509Bundle, AuthError> {
+        let td_str = trust_domain.into();
+        let x509_source = self
+            .x509_source
+            .as_ref()
+            .ok_or_else(|| AuthError::ConfigError("X509Source not initialized".to_string()))?;
+        let td_parsed = TrustDomain::new(&td_str).map_err(|e| {
+            AuthError::ConfigError(format!("Invalid trust domain '{}': {}", td_str, e))
+        })?;
+        x509_source
+            .get_bundle_for_trust_domain(&td_parsed)
+            .map_err(|e| {
+                AuthError::ConfigError(format!(
+                    "Failed to get X509 bundle for trust domain {}: {}",
+                    td_str, e
+                ))
+            })?
+            .ok_or_else(|| {
+                AuthError::ConfigError(format!("No X509 bundle for trust domain {}", td_str))
+            })
+    }
+
+    /// Internal helper to access JWT bundles
+    fn get_jwt_bundles(&self) -> Result<JwtBundleSet, AuthError> {
+        let jwt_source = self
+            .jwt_source
+            .as_ref()
+            .ok_or_else(|| AuthError::ConfigError("JwtSource not initialized".to_string()))?;
+        jwt_source
+            .get_bundles()
+            .map_err(|e| AuthError::ConfigError(format!("Failed to get JWT bundles: {}", e)))?
+            .ok_or_else(|| AuthError::ConfigError("JWT bundles not yet available".to_string()))
+    }
 }
 
 #[async_trait]
-impl TokenProvider for SpiffeProvider {
+impl TokenProvider for SpiffeIdentityManager {
     fn get_token(&self) -> Result<String, AuthError> {
         let jwt_svid = self.get_jwt_svid()?;
         Ok(jwt_svid.token().to_string())
@@ -784,173 +972,8 @@ fn calculate_refresh_interval(svid: &JwtSvid) -> Duration {
     default
 }
 
-/// Configuration for SPIFFE verifier
-#[derive(Debug, Clone)]
-pub struct SpiffeVerifierConfig {
-    /// Path to the SPIFFE Workload API socket
-    pub socket_path: Option<String>,
-    /// JWT audiences expected in tokens
-    pub jwt_audiences: Vec<String>,
-}
-
-/// SPIFFE Verifier for validating X.509 certificates and JWT tokens
-///
-/// This verifier provides a simple, clean interface for verification using SPIFFE bundles.
-///
-/// ## Features
-///
-/// - **X.509 Bundle Management**: Uses `X509Source` to automatically maintain and rotate
-///   X.509 trust bundles for certificate verification
-/// - **JWT Bundle Caching**: Maintains a simple background task that streams JWT bundles
-/// - **Automatic Rotation**: Both X.509 and JWT bundles are automatically updated as they rotate
-/// - **Sync and Async Access**: Both `verify()` and `try_verify()` work with cached bundles
-///
-/// ## Architecture
-///
-/// The verifier:
-/// 1. Initializes an `X509Source` for X.509 bundle management (handles rotation automatically)
-/// 2. Spawns a simple background task to stream and cache JWT bundles
-/// 3. Provides sync access to cached bundles, just like X509Source does for X.509 bundles
-///
-/// This mirrors how `X509Source` works internally - bundles are maintained in the background,
-/// and verification methods have synchronous access to the cached bundles.
-///
-/// ## Usage
-///
-/// ```rust,no_run
-/// # use slim_auth::spiffe::{SpiffeJwtVerifier, SpiffeVerifierConfig};
-/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-/// let config = SpiffeVerifierConfig {
-///     socket_path: None, // Uses SPIFFE_ENDPOINT_SOCKET env var
-///     jwt_audiences: vec!["my-service".to_string()],
-/// };
-///
-/// let mut verifier = SpiffeJwtVerifier::new(config);
-/// verifier.initialize().await?;
-///
-/// // Get X.509 bundle for certificate verification
-/// let x509_bundle = verifier.get_x509_bundle()?;
-///
-/// // Or get the X509Source directly for more control
-/// let x509_source = verifier.get_x509_source()?;
-///
-/// // Verify a JWT token (async or sync, both use cached bundles)
-/// verifier.verify("eyJ...").await?;
-/// verifier.try_verify("eyJ...")?;  // Synchronous version
-/// # Ok(())
-/// # }
-/// ```
-#[derive(Clone)]
-pub struct SpiffeJwtVerifier {
-    config: SpiffeVerifierConfig,
-    client: Option<WorkloadApiClient>,
-    x509_source: Option<Arc<X509Source>>,
-    jwt_source: Option<Arc<JwtSource>>,
-}
-
-impl SpiffeJwtVerifier {
-    /// Create a new SPIFFE verifier
-    pub fn new(config: SpiffeVerifierConfig) -> Self {
-        Self {
-            config,
-            client: None,
-            x509_source: None,
-            jwt_source: None,
-        }
-    }
-
-    /// Initialize the verifier and start bundle rotation
-    pub async fn initialize(&mut self) -> Result<(), AuthError> {
-        info!("Initializing SPIFFE verifier");
-
-        // Create WorkloadApiClient
-        let client = create_workload_client(self.config.socket_path.as_ref()).await?;
-
-        // Initialize X509Source for certificate bundle management
-        let x509_source = X509SourceBuilder::new()
-            .with_client(client.clone())
-            .build()
-            .await
-            .map_err(|e| {
-                AuthError::ConfigError(format!("Failed to initialize X509Source: {}", e))
-            })?;
-
-        self.x509_source = Some(x509_source);
-
-        // Initialize JwtSource for JWT bundle management
-        let jwt_source = JwtSource::new(
-            self.config.jwt_audiences.clone(),
-            None, // No target SPIFFE ID needed for verification
-            Some(client.clone()),
-        )
-        .await
-        .map_err(|e| AuthError::ConfigError(format!("Failed to initialize JwtSource: {}", e)))?;
-
-        self.jwt_source = Some(jwt_source);
-
-        info!("SPIFFE verifier initialized successfully");
-
-        self.client = Some(client);
-
-        Ok(())
-    }
-
-    /// Get the X.509 bundle for a specific trust domain
-    ///
-    /// Returns the X.509 bundle (CA certificates) for the default trust domain.
-    /// This bundle can be used to verify X.509 certificates from workloads in the trust domain.
-    pub fn get_x509_bundle(&self) -> Result<X509Bundle, AuthError> {
-        let x509_source = self
-            .x509_source
-            .as_ref()
-            .ok_or_else(|| AuthError::ConfigError("X509Source not initialized".to_string()))?;
-
-        // Get the SVID to determine the trust domain
-        let svid = x509_source
-            .get_svid()
-            .map_err(|e| AuthError::ConfigError(format!("Failed to get X509 SVID: {}", e)))?
-            .ok_or_else(|| AuthError::ConfigError("No X509 SVID available".to_string()))?;
-
-        let trust_domain = svid.spiffe_id().trust_domain();
-
-        // Get the bundle for the trust domain
-        x509_source
-            .get_bundle_for_trust_domain(trust_domain)
-            .map_err(|e| {
-                AuthError::ConfigError(format!(
-                    "Failed to get X509 bundle for trust domain {}: {}",
-                    trust_domain, e
-                ))
-            })?
-            .ok_or_else(|| {
-                AuthError::ConfigError(format!(
-                    "No X509 bundle available for trust domain {}",
-                    trust_domain
-                ))
-            })
-    }
-
-    /// Get JWT bundles for token validation
-    fn get_jwt_bundles(&self) -> Result<JwtBundleSet, AuthError> {
-        let jwt_source = self
-            .jwt_source
-            .as_ref()
-            .ok_or_else(|| AuthError::ConfigError("JwtSource not initialized".to_string()))?;
-
-        jwt_source
-            .get_bundles()
-            .map_err(|e| AuthError::ConfigError(format!("Failed to get JWT bundles: {}", e)))?
-            .ok_or_else(|| {
-                AuthError::ConfigError(
-                    "JWT bundles not yet available - background task still initializing"
-                        .to_string(),
-                )
-            })
-    }
-}
-
 #[async_trait]
-impl Verifier for SpiffeJwtVerifier {
+impl Verifier for SpiffeIdentityManager {
     async fn verify(&self, token: impl Into<String> + Send) -> Result<(), AuthError> {
         self.try_verify(token)
     }

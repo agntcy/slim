@@ -1898,8 +1898,8 @@ mod tests {
 
     use super::*;
     use slim_auth::shared_secret::SharedSecret;
-    use slim_auth::testutils::TEST_VALID_SECRET;
     use slim_mls::mls::Mls;
+    use slim_testing::utils::TEST_VALID_SECRET;
     use tokio::sync::Mutex;
     use tracing_test::traced_test;
 

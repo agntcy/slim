@@ -286,7 +286,7 @@ impl ServerConfig {
         Self { auth, ..self }
     }
 
-    pub fn to_server_future<S>(&self, svc: &[S]) -> Result<ServerFuture, ConfigError>
+    pub async fn to_server_future<S>(&self, svc: &[S]) -> Result<ServerFuture, ConfigError>
     where
         S: tower_service::Service<
                 http::Request<tonic::body::Body>,
@@ -300,29 +300,23 @@ impl ServerConfig {
             + Sync,
         S::Future: Send + 'static,
     {
-        // Make sure at least one service is provided
         if svc.is_empty() {
             return Err(ConfigError::MissingServices);
         }
 
-        // Check if the endpoint is missing
         if self.endpoint.is_empty() {
             return Err(ConfigError::MissingEndpoint);
         }
 
-        // make sure endpoint is valid
         let addr = SocketAddr::from_str(self.endpoint.as_str())
             .map_err(|e| ConfigError::EndpointParseError(e.to_string()))?;
 
-        // create a new TcpIncoming
         let incoming =
             TcpIncoming::bind(addr).map_err(|e| ConfigError::TcpIncomingError(e.to_string()))?;
 
-        // Create initial server config
         let builder: tonic::transport::Server =
             tonic::transport::Server::builder().accept_http1(false);
 
-        // Set max number of concurrent streams per connection
         let builder = match self.max_concurrent_streams {
             Some(max_concurrent_streams) => {
                 builder.concurrency_limit_per_connection(max_concurrent_streams as usize)
@@ -330,27 +324,26 @@ impl ServerConfig {
             None => builder,
         };
 
-        // Set max size of messages accepted by the server
         let builder = match self.max_frame_size {
             Some(max_frame_size) => builder.max_frame_size(max_frame_size * 1024 * 1024),
             None => builder,
         };
 
-        // Set max header list size
         let builder = match self.max_header_list_size {
             Some(max_header_list_size) => builder.http2_max_header_list_size(max_header_list_size),
             None => builder,
         };
 
-        // Set keepalive parameters
         let builder = builder.http2_keepalive_interval(Some(self.keepalive.time.into()));
         let builder = builder.http2_keepalive_timeout(Some(self.keepalive.timeout.into()));
 
-        // Set max connection age
         let mut builder = builder.max_connection_age(self.keepalive.max_connection_age.into());
 
-        // TLS configuration
-        let tls_config = TLSSetting::load_rustls_config(&self.tls_setting)
+        // Async TLS configuration load (may involve SPIFFE operations)
+        let tls_config = self
+            .tls_setting
+            .load_rustls_config()
+            .await
             .map_err(|e| ConfigError::TLSSettingError(e.to_string()))?;
 
         match &self.auth {
@@ -371,7 +364,6 @@ impl ServerConfig {
                         tonic_tls::rustls::TlsIncoming::new(incoming, Arc::new(tls_config))
                             .map_err(|e| ConfigError::TcpIncomingError(e.to_string()));
 
-                    // Return the server future with the TLS configuration
                     return Ok(router.serve_with_incoming(incoming).boxed());
                 };
 
@@ -395,7 +387,6 @@ impl ServerConfig {
                         tonic_tls::rustls::TlsIncoming::new(incoming, Arc::new(tls_config))
                             .map_err(|e| ConfigError::TcpIncomingError(e.to_string()));
 
-                    // Return the server future with the TLS configuration
                     return Ok(router.serve_with_incoming(incoming).boxed());
                 };
 
@@ -412,7 +403,6 @@ impl ServerConfig {
                         tonic_tls::rustls::TlsIncoming::new(incoming, Arc::new(tls_config))
                             .map_err(|e| ConfigError::TcpIncomingError(e.to_string()));
 
-                    // Return the server future with the TLS configuration
                     return Ok(router.serve_with_incoming(incoming).boxed());
                 };
 
@@ -421,7 +411,7 @@ impl ServerConfig {
         }
     }
 
-    pub fn run_server<S>(
+    pub async fn run_server<S>(
         &self,
         svc: &[S],
         drain_rx: drain::Watch,
@@ -440,7 +430,7 @@ impl ServerConfig {
         S::Future: Send + 'static,
     {
         info!(%self, "server configured: setting it up");
-        let server_future = self.to_server_future(svc)?;
+        let server_future = self.to_server_future(svc).await?;
 
         // create a new cancellation token
         let token = CancellationToken::new();
@@ -521,23 +511,31 @@ mod tests {
         let empty_service = Arc::new(Empty::new());
 
         // no endpoint - should return an error
-        let ret = server_config.to_server_future(&[GreeterServer::from_arc(empty_service.clone())]);
+        let ret = server_config
+            .to_server_future(&[GreeterServer::from_arc(empty_service.clone())])
+            .await;
         // Make sure the error is a ConfigError::MissingEndpoint
         assert!(ret.is_err_and(|e| { e.to_string().contains("missing grpc endpoint") }));
 
         // set the endpoint in the config. Now it shouhld fail because of the invalid endpoint
         server_config.endpoint = "0.0.0.0:123456".to_string();
-        let ret = server_config.to_server_future(&[GreeterServer::from_arc(empty_service.clone())]);
+        let ret = server_config
+            .to_server_future(&[GreeterServer::from_arc(empty_service.clone())])
+            .await;
         assert!(ret.is_err_and(|e| { e.to_string().contains("error parsing grpc endpoint") }));
 
         // set a valid endpoint in the config. Now it should fail because of the missing cert/key files for tls
         server_config.endpoint = "0.0.0.0:12345".to_string();
-        let ret = server_config.to_server_future(&[GreeterServer::from_arc(empty_service.clone())]);
+        let ret = server_config
+            .to_server_future(&[GreeterServer::from_arc(empty_service.clone())])
+            .await;
         assert!(ret.is_err_and(|e| { e.to_string().contains("tls setting error") }));
 
         // set the tls setting to insecure. Now it should return a server future
         server_config.tls_setting.insecure = true;
-        let ret = server_config.to_server_future(&[GreeterServer::from_arc(empty_service.clone())]);
+        let ret = server_config
+            .to_server_future(&[GreeterServer::from_arc(empty_service.clone())])
+            .await;
         assert!(ret.is_ok());
 
         // drop it, as we have a server listening on the port now
@@ -547,7 +545,9 @@ mod tests {
         server_config.tls_setting.insecure = false;
         server_config.tls_setting.config.cert_file = Some(format!("{}/server.crt", TEST_DATA_PATH));
         server_config.tls_setting.config.key_file = Some(format!("{}/server.key", TEST_DATA_PATH));
-        let ret = server_config.to_server_future(&[GreeterServer::from_arc(empty_service.clone())]);
+        let ret = server_config
+            .to_server_future(&[GreeterServer::from_arc(empty_service.clone())])
+            .await;
         assert!(ret.is_ok());
     }
 

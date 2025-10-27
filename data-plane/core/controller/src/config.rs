@@ -179,13 +179,13 @@ impl Configuration for Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use slim_auth::testutils::TEST_VALID_SECRET;
     use slim_config::auth::jwt::Config as JwtConfig;
     use slim_config::auth::static_jwt::Config as StaticJwtConfig;
     use slim_config::component::id::{ID, Kind};
     use slim_config::grpc::client::ClientConfig;
     use slim_config::grpc::server::ServerConfig;
     use slim_datapath::message_processing::MessageProcessor;
+    use slim_testing::utils::TEST_VALID_SECRET;
     use std::sync::Arc;
 
     fn create_test_server_config() -> ServerConfig {

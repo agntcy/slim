@@ -340,10 +340,11 @@ mod tests {
     use super::*;
     use slim_session::point_to_point::PointToPointConfiguration;
 
-    use slim_auth::{shared_secret::SharedSecret, testutils::TEST_VALID_SECRET};
+    use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::api::{
         ApplicationPayload, ProtoMessage, ProtoSessionMessageType, ProtoSessionType,
     };
+    use slim_testing::utils::TEST_VALID_SECRET;
 
     #[allow(dead_code)]
     fn create_app() -> App<SharedSecret, SharedSecret> {

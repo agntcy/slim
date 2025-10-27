@@ -647,7 +647,7 @@ impl MessageProcessor {
         cancellation_token: &CancellationToken,
     ) -> bool {
         let config = client_conf.unwrap();
-        match config.to_channel() {
+        match config.to_channel().await {
             Err(e) => {
                 error!(
                     "cannot parse connection config, unable to reconnect {:?}",

@@ -121,42 +121,163 @@ impl StaticCertResolver {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
-pub struct Config {
-    /// Path to the CA cert. For a client this verifies the server certificate.
-    /// For a server this verifies client certificates. If empty uses system root CA.
-    /// (optional)
-    pub ca_file: Option<String>,
+pub struct PemSources {
+    /// PEM encoded CA bundle
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ca: Option<String>,
+    /// PEM encoded end-entity certificate
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cert: Option<String>,
+    /// PEM encoded private key
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+}
 
-    /// In memory PEM encoded cert. (optional)
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
+pub struct FileSources {
+    /// Path to CA bundle
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ca: Option<String>,
+    /// Path to certificate
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cert: Option<String>,
+    /// Path to private key
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
+pub struct SpireSources {
+    /// Flattened SPIFFE configuration (socket_path, target_spiffe_id, jwt_audiences, trust_domain)
+    #[serde(flatten)]
+    pub spiffe: crate::auth::spiffe::SpiffeConfig,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
+pub struct Config {
+    // Hierarchical PEM sources (preferred over legacy *_pem fields)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pem: Option<PemSources>,
+    // Hierarchical file sources (preferred over legacy *_file fields)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<FileSources>,
+    // SPIRE / SPIFFE source for dynamic SVID and bundle resolution
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spire: Option<SpireSources>,
+
+    /// (LEGACY) Path to the CA cert. Prefer file.ca
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ca_file: Option<String>,
+    /// (LEGACY) In memory PEM encoded CA cert. Prefer pem.ca
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ca_pem: Option<String>,
 
-    /// If true, load system CA certificates pool in addition to the certificates
-    /// configured in this struct.
+    /// If true, also load system root CA certificates
     #[serde(default = "default_include_system_ca_certs_pool")]
     pub include_system_ca_certs_pool: bool,
 
-    /// Path to the TLS cert to use for TLS required connections. (optional)
+    /// (LEGACY) Path to TLS cert. Prefer file.cert
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cert_file: Option<String>,
-
-    /// In memory PEM encoded TLS cert to use for TLS required connections. (optional)
+    /// (LEGACY) PEM TLS cert. Prefer pem.cert
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cert_pem: Option<String>,
 
-    /// Path to the TLS key to use for TLS required connections. (optional)
+    /// (LEGACY) Path to private key. Prefer file.key
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub key_file: Option<String>,
-
-    /// In memory PEM encoded TLS key to use for TLS required connections. (optional)
+    /// (LEGACY) PEM private key. Prefer pem.key
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub key_pem: Option<String>,
 
-    /// The TLS version to use. If not set, the default is "tls1.3".
-    /// The value must be either "tls1.2" or "tls1.3".
-    /// (optional)
+    // TLS protocol version ("tls1.2" or "tls1.3")
     #[serde(default = "default_tls_version")]
     pub tls_version: String,
 
-    /// ReloadInterval specifies the duration after which the certificate will be reloaded
-    /// If not set, it will never be reloaded
-    // TODO(msardara): not implemented yet
+    // Certificate/key reload interval (None disables reload)
     pub reload_interval: Option<Duration>,
+}
+
+// Resolver backed by SPIRE Workload API providing dynamic SVID and bundle refresh.
+pub(crate) struct SpireCertResolver {
+    provider: slim_auth::spiffe::SpiffeIdentityManager,
+}
+
+// Manual Debug impl (SpiffeIdentityManager does not implement Debug)
+impl std::fmt::Debug for SpireCertResolver {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SpireCertResolver {{ provider: <opaque> }}")
+    }
+}
+
+impl SpireCertResolver {
+    pub(crate) async fn new(
+        spiffe_cfg: crate::auth::spiffe::SpiffeConfig,
+    ) -> Result<Self, ConfigError> {
+        // Build SpiffeIdentityManager internally from configuration
+        let mut builder = slim_auth::spiffe::SpiffeIdentityManager::builder()
+            .with_jwt_audiences(spiffe_cfg.jwt_audiences.clone());
+
+        if let Some(ref socket) = spiffe_cfg.socket_path {
+            builder = builder.with_socket_path(socket.clone());
+        }
+        if let Some(ref id) = spiffe_cfg.target_spiffe_id {
+            builder = builder.with_target_spiffe_id(id.clone());
+        }
+        if let Some(ref td) = spiffe_cfg.trust_domain {
+            builder = builder.with_trust_domain(td.clone());
+        }
+
+        let mut provider = builder.build();
+        provider
+            .initialize()
+            .await
+            .map_err(|e| ConfigError::InvalidFile(e.to_string()))?;
+
+        Ok(Self { provider })
+    }
+
+    pub(crate) fn has_certs(&self) -> bool {
+        self.provider.get_x509_svid().is_ok()
+    }
+
+    pub(crate) fn build_certified_key(&self) -> Result<(Arc<CertifiedKey>, usize), ConfigError> {
+        // Build full SVID certificate chain (leaf + intermediates) for the CertifiedKey
+        let svid = self
+            .provider
+            .get_x509_svid()
+            .map_err(|e| ConfigError::InvalidFile(e.to_string()))?;
+
+        let mut chain_der: Vec<CertificateDer<'static>> =
+            Vec::with_capacity(svid.cert_chain().len());
+        for c in svid.cert_chain().iter() {
+            chain_der.push(c.as_ref().to_vec().into());
+        }
+
+        // Obtain private key PEM and convert to DER
+        let key_der = PrivateKeyDer::Pkcs8(svid.private_key().as_ref().to_vec().into());
+
+        // Build CertifiedKey from full chain
+        let crypto = CryptoProvider::get_default().ok_or(ConfigError::Unknown)?;
+        let cert_key = to_certified_key(chain_der.clone(), key_der, &**crypto);
+        Ok((Arc::new(cert_key), chain_der.len()))
+    }
+
+    pub(crate) fn load_ca_bundle(&self) -> Result<Vec<CertificateDer<'static>>, ConfigError> {
+        let svid = self
+            .provider
+            .get_x509_svid()
+            .map_err(|e| ConfigError::InvalidFile(e.to_string()))?;
+        let chain = svid.cert_chain();
+        if chain.len() <= 1 {
+            return Ok(Vec::new());
+        }
+        let mut der_chain = Vec::with_capacity(chain.len() - 1);
+        for c in chain.iter().skip(1) {
+            der_chain.push(CertificateDer::from(c.as_ref().to_vec()));
+        }
+        Ok(der_chain)
+    }
 }
 
 /// Errors for Config
@@ -186,6 +307,9 @@ pub enum ConfigError {
 impl Default for Config {
     fn default() -> Config {
         Config {
+            pem: None,
+            file: None,
+            spire: None,
             ca_file: None,
             ca_pem: None,
             include_system_ca_certs_pool: default_include_system_ca_certs_pool(),
@@ -193,7 +317,7 @@ impl Default for Config {
             cert_pem: None,
             key_file: None,
             key_pem: None,
-            tls_version: "tls1.3".to_string(),
+            tls_version: default_tls_version(),
             reload_interval: None,
         }
     }
@@ -210,70 +334,97 @@ fn default_tls_version() -> String {
 }
 
 impl Config {
-    pub(crate) fn with_ca_file(self, ca_file: &str) -> Config {
-        Config {
-            ca_file: Some(ca_file.to_string()),
-            ..self
-        }
+    pub(crate) fn with_ca_file(mut self, ca_file: &str) -> Config {
+        self.ca_file = Some(ca_file.to_string());
+        // Sync hierarchical representation
+        let file = self.file.get_or_insert(FileSources {
+            ca: None,
+            cert: None,
+            key: None,
+        });
+        file.ca = Some(ca_file.to_string());
+        self
     }
 
-    pub(crate) fn with_ca_pem(self, ca_pem: &str) -> Config {
-        Config {
-            ca_pem: Some(ca_pem.to_string()),
-            ..self
-        }
+    pub(crate) fn with_ca_pem(mut self, ca_pem: &str) -> Config {
+        self.ca_pem = Some(ca_pem.to_string());
+        // Sync hierarchical representation
+        let pem = self.pem.get_or_insert(PemSources {
+            ca: None,
+            cert: None,
+            key: None,
+        });
+        pem.ca = Some(ca_pem.to_string());
+        self
     }
 
     pub(crate) fn with_include_system_ca_certs_pool(
-        self,
+        mut self,
         include_system_ca_certs_pool: bool,
     ) -> Config {
-        Config {
-            include_system_ca_certs_pool,
-            ..self
-        }
+        self.include_system_ca_certs_pool = include_system_ca_certs_pool;
+        self
     }
 
-    pub(crate) fn with_cert_file(self, cert_file: &str) -> Config {
-        Config {
-            cert_file: Some(cert_file.to_string()),
-            ..self
-        }
+    pub(crate) fn with_cert_file(mut self, cert_file: &str) -> Config {
+        self.cert_file = Some(cert_file.to_string());
+        let file = self.file.get_or_insert(FileSources {
+            ca: None,
+            cert: None,
+            key: None,
+        });
+        file.cert = Some(cert_file.to_string());
+        self
     }
 
-    pub(crate) fn with_cert_pem(self, cert_pem: &str) -> Config {
-        Config {
-            cert_pem: Some(cert_pem.to_string()),
-            ..self
-        }
+    pub(crate) fn with_cert_pem(mut self, cert_pem: &str) -> Config {
+        self.cert_pem = Some(cert_pem.to_string());
+        let pem = self.pem.get_or_insert(PemSources {
+            ca: None,
+            cert: None,
+            key: None,
+        });
+        pem.cert = Some(cert_pem.to_string());
+        self
     }
 
-    pub(crate) fn with_key_file(self, key_file: &str) -> Config {
-        Config {
-            key_file: Some(key_file.to_string()),
-            ..self
-        }
+    pub(crate) fn with_key_file(mut self, key_file: &str) -> Config {
+        self.key_file = Some(key_file.to_string());
+        let file = self.file.get_or_insert(FileSources {
+            ca: None,
+            cert: None,
+            key: None,
+        });
+        file.key = Some(key_file.to_string());
+        self
     }
 
-    pub(crate) fn with_key_pem(self, key_pem: &str) -> Config {
-        Config {
-            key_pem: Some(key_pem.to_string()),
-            ..self
-        }
+    pub(crate) fn with_key_pem(mut self, key_pem: &str) -> Config {
+        self.key_pem = Some(key_pem.to_string());
+        let pem = self.pem.get_or_insert(PemSources {
+            ca: None,
+            cert: None,
+            key: None,
+        });
+        pem.key = Some(key_pem.to_string());
+        self
     }
 
-    pub(crate) fn with_tls_version(self, tls_version: &str) -> Config {
-        Config {
-            tls_version: tls_version.to_string(),
-            ..self
-        }
+    pub(crate) fn with_tls_version(mut self, tls_version: &str) -> Config {
+        self.tls_version = tls_version.to_string();
+        self
     }
 
-    pub(crate) fn with_reload_interval(self, reload_interval: Option<Duration>) -> Config {
-        Config {
-            reload_interval,
-            ..self
-        }
+    pub(crate) fn with_reload_interval(mut self, reload_interval: Option<Duration>) -> Config {
+        self.reload_interval = reload_interval;
+        self
+    }
+
+    /// Attach a SPIFFE configuration enabling SPIRE-based SVID and bundle resolution.
+    /// This sets the `spire` field with a `SpireSources` wrapper.
+    pub(crate) fn with_spiffe(mut self, spiffe: crate::auth::spiffe::SpiffeConfig) -> Config {
+        self.spire = Some(SpireSources { spiffe });
+        self
     }
 
     pub(crate) fn load_ca_cert_pool(&self) -> Result<RootCertStore, ConfigError> {
@@ -281,6 +432,39 @@ impl Config {
 
         self.add_system_ca_certs(&mut root_store)?;
         self.add_custom_ca_cert(&mut root_store)?;
+
+        Ok(root_store)
+    }
+
+    /// Async variant supporting SPIRE CA bundle retrieval.
+    pub async fn load_ca_cert_pool_async(&self) -> Result<RootCertStore, ConfigError> {
+        // Start with synchronous portions
+        let mut root_store = self.load_ca_cert_pool()?;
+
+        // Integrate SPIRE bundles if configured
+        if let Some(spire_cfg) = &self.spire {
+            let spiffe_cfg = &spire_cfg.spiffe;
+            if spiffe_cfg.socket_path.is_some() {
+                // Build provider & initialize using builder pattern with flattened spiffe config
+
+                let resolver = SpireCertResolver::new(spiffe_cfg.clone())
+                    .await
+                    .map_err(|_e| ConfigError::Unknown)?;
+
+                match resolver.load_ca_bundle() {
+                    Ok(bundle) => {
+                        for cert in bundle {
+                            if let Err(e) = root_store.add(cert) {
+                                tracing::warn!(error=%e, "error adding SPIRE CA cert to root store");
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(error=%e, "failed to load SPIRE CA bundle");
+                    }
+                }
+            }
+        }
 
         Ok(root_store)
     }
@@ -311,6 +495,41 @@ impl Config {
     }
 
     fn load_ca_certificates(&self) -> Result<Vec<CertificateDer<'static>>, ConfigError> {
+        // Prefer hierarchical sources over legacy
+        if let Some(spire_cfg) = &self.spire {
+            if let Some(socket_path) = &spire_cfg.spiffe.socket_path {
+                // Attempt synchronous CA bundle retrieval via already-initialized resolver (needs async elsewhere).
+                // Here we return empty and rely on load_ca_cert_pool_async for SPIRE integration.
+                tracing::debug!(
+                    "SPIRE config detected (socket_path={}); defer CA bundle to async loader",
+                    socket_path
+                );
+                return Ok(Vec::new());
+            }
+        }
+        if let Some(file) = &self.file {
+            if let Some(ref ca_path) = file.ca {
+                if self.ca_pem.is_some() {
+                    return Err(ConfigError::CannotUseBoth("ca".to_string()));
+                }
+                let cert_path = Path::new(ca_path);
+                let certs: Result<Vec<_>, _> = CertificateDer::pem_file_iter(cert_path)
+                    .map_err(ConfigError::InvalidPem)?
+                    .collect();
+                return certs.map_err(ConfigError::InvalidPem);
+            }
+        }
+        if let Some(pem) = &self.pem {
+            if let Some(ref ca_pem) = pem.ca {
+                if self.ca_file.is_some() {
+                    return Err(ConfigError::CannotUseBoth("ca".to_string()));
+                }
+                let cert_bytes = ca_pem.as_bytes();
+                let certs: Result<Vec<_>, _> = CertificateDer::pem_slice_iter(cert_bytes).collect();
+                return certs.map_err(ConfigError::InvalidPem);
+            }
+        }
+        // Fallback to legacy logic
         match (self.has_ca_file(), self.has_ca_pem()) {
             (true, true) => Err(ConfigError::CannotUseBoth("ca".to_string())),
             (true, false) => {
@@ -331,7 +550,10 @@ impl Config {
 
     /// Returns true if the config has a CA cert
     pub fn has_ca(&self) -> bool {
-        self.has_ca_file() || self.has_ca_pem()
+        (self.file.as_ref().and_then(|f| f.ca.as_ref()).is_some())
+            || (self.pem.as_ref().and_then(|p| p.ca.as_ref()).is_some())
+            || self.has_ca_file()
+            || self.has_ca_pem()
     }
 
     /// Returns true if the config has a CA file
@@ -346,28 +568,29 @@ impl Config {
 
     /// Returns true if the config has a cert file
     pub fn has_cert_file(&self) -> bool {
-        self.cert_file.is_some()
+        self.file.as_ref().and_then(|f| f.cert.as_ref()).is_some() || self.cert_file.is_some()
     }
 
     /// Returns true if the config has a cert PEM
     pub fn has_cert_pem(&self) -> bool {
-        self.cert_pem.is_some()
+        self.pem.as_ref().and_then(|p| p.cert.as_ref()).is_some() || self.cert_pem.is_some()
     }
 
     /// Returns true if the config has a key file
     pub fn has_key_file(&self) -> bool {
-        self.key_file.is_some()
+        self.file.as_ref().and_then(|f| f.key.as_ref()).is_some() || self.key_file.is_some()
     }
 
     /// Returns true if the config has a key PEM
     pub fn has_key_pem(&self) -> bool {
-        self.key_pem.is_some()
+        self.pem.as_ref().and_then(|p| p.key.as_ref()).is_some() || self.key_pem.is_some()
     }
 }
 
 // trait load_rustls_config
+#[async_trait::async_trait]
 pub trait RustlsConfigLoader<T> {
-    fn load_rustls_config(&self) -> Result<Option<T>, ConfigError>;
+    async fn load_rustls_config(&self) -> Result<Option<T>, ConfigError>;
 }
 
 // Tests

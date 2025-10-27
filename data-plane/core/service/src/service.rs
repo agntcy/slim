@@ -187,7 +187,7 @@ impl Service {
         // Run servers
         for server in self.config.servers().iter() {
             info!("starting server {}", server.endpoint);
-            self.run_server(server)?;
+            self.run_server(server).await?;
         }
 
         // Run clients
@@ -275,7 +275,7 @@ impl Service {
         Ok((app, rx_app))
     }
 
-    pub fn run_server(&self, config: &ServerConfig) -> Result<(), ServiceError> {
+    pub async fn run_server(&self, config: &ServerConfig) -> Result<(), ServiceError> {
         info!(%config, "server configured: setting it up");
 
         let cancellation_token = config
@@ -285,6 +285,7 @@ impl Service {
                 )],
                 self.watch.clone(),
             )
+            .await
             .map_err(|e| ServiceError::ConfigError(format!("failed to run server: {}", e)))?;
 
         self.cancellation_tokens
@@ -314,7 +315,7 @@ impl Service {
             ));
         }
 
-        match config.to_channel() {
+        match config.to_channel().await {
             Err(e) => {
                 error!("error reading channel config {:?}", e);
                 Err(ServiceError::ConfigError(e.to_string()))
@@ -428,11 +429,11 @@ mod tests {
 
     use super::*;
     use slim_auth::shared_secret::SharedSecret;
-    use slim_auth::testutils::TEST_VALID_SECRET;
     use slim_config::grpc::server::ServerConfig;
     use slim_config::tls::server::TlsServerConfig;
     use slim_datapath::api::MessageType;
     use slim_datapath::messages::Name;
+    use slim_testing::utils::TEST_VALID_SECRET;
     use std::time::Duration;
     use tokio::time;
     use tracing_test::traced_test;

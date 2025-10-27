@@ -14,6 +14,7 @@ use rustls::{
     version::{TLS12, TLS13},
 };
 use rustls_pki_types::{CertificateDer, ServerName, UnixTime};
+
 use schemars::JsonSchema;
 use serde;
 use serde::{Deserialize, Serialize};
@@ -22,8 +23,11 @@ use tracing::warn;
 use super::common::{Config, ConfigError, RustlsConfigLoader};
 use crate::{
     component::configuration::{Configuration, ConfigurationError},
-    tls::common::{StaticCertResolver, WatcherCertResolver},
+    tls::common::{SpireCertResolver, StaticCertResolver, WatcherCertResolver},
 };
+
+// Dynamic SPIFFE (SPIRE Workload API) client certificate resolver providing per-handshake SVID.
+// Removed local SpireClientCertResolver; using unified super::common::SpireCertResolver
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
 pub struct TlsClientConfig {
@@ -144,6 +148,26 @@ impl ResolvesClientCert for super::common::StaticCertResolver {
     }
 }
 
+impl ResolvesClientCert for SpireCertResolver {
+    fn resolve(
+        &self,
+        _acceptable_issuers: &[&[u8]],
+        _sigschemes: &[rustls::SignatureScheme],
+    ) -> Option<Arc<CertifiedKey>> {
+        match self.build_certified_key() {
+            Ok((ck, _)) => Some(ck),
+            Err(e) => {
+                tracing::warn!(error=%e, "spire cert resolver: failed to build client cert");
+                None
+            }
+        }
+    }
+
+    fn has_certs(&self) -> bool {
+        self.has_certs()
+    }
+}
+
 // methods for ClientConfig to create a RustlsClientConfig from the config
 impl TlsClientConfig {
     /// Create a new TlsClientConfig
@@ -245,7 +269,17 @@ impl TlsClientConfig {
         }
     }
 
-    fn load_rustls_client_config(
+    /// Attach a SPIFFE configuration enabling SPIRE-based SVID and bundle resolution.
+    pub fn with_spiffe(self, spiffe: crate::auth::spiffe::SpiffeConfig) -> Self {
+        TlsClientConfig {
+            config: self.config.with_spiffe(spiffe),
+            ..self
+        }
+    }
+
+
+
+    async fn load_rustls_client_config(
         &self,
         root_store: RootCertStore,
     ) -> Result<RustlsClientConfig, ConfigError> {
@@ -301,16 +335,56 @@ impl TlsClientConfig {
 }
 
 // trait implementation
+#[async_trait::async_trait]
 impl RustlsConfigLoader<RustlsClientConfig> for TlsClientConfig {
-    fn load_rustls_config(&self) -> Result<Option<RustlsClientConfig>, ConfigError> {
+    async fn load_rustls_config(&self) -> Result<Option<RustlsClientConfig>, ConfigError> {
+        // If SPIFFE/SPIRE is configured we need the async CA loading path.
+        if let Some(spire_sources) = &self.config.spire {
+            // Use unified SpireCertResolver which internally builds and initializes the SPIFFE identity manager
+            let spiffe_cfg = &spire_sources.spiffe;
+
+            // Load CA bundle including SPIRE trust bundle (resolver will build provider internally)
+            let root_store = self.config.load_ca_cert_pool_async().await?;
+
+            // TLS version
+            let tls_version = match self.config.tls_version.as_str() {
+                "tls1.2" => &TLS12,
+                "tls1.3" => &TLS13,
+                _ => {
+                    return Err(ConfigError::InvalidTlsVersion(
+                        self.config.tls_version.clone(),
+                    ))
+                }
+            };
+
+            let config_builder =
+                RustlsClientConfig::builder_with_protocol_versions(&[tls_version])
+                    .with_root_certificates(root_store);
+
+            // Dynamic SPIFFE client cert resolver (no manual cert/key injection)
+            let spire_resolver = super::common::SpireCertResolver::new(spiffe_cfg.clone())
+                .await
+                .map_err(|e| ConfigError::InvalidFile(e.to_string()))?;
+            let mut client_config =
+                config_builder.with_client_cert_resolver(Arc::new(spire_resolver));
+
+            if self.insecure_skip_verify {
+                client_config
+                    .dangerous()
+                    .set_certificate_verifier(Arc::new(NoVerifier));
+            }
+
+            return Ok(Some(client_config));
+        }
+
+        // Legacy / non-SPIFFE path
         if self.insecure && !self.config.has_ca() {
             return Ok(None);
         }
 
         let root_store = self.config.load_ca_cert_pool()?;
-        let mut client_config = self.load_rustls_client_config(root_store)?;
+        let mut client_config = self.load_rustls_client_config(root_store).await?;
 
-        // Set unsecure stuff
         if self.insecure_skip_verify {
             client_config
                 .dangerous()

@@ -249,7 +249,7 @@ impl ControlPlane {
 
         // run all servers
         for server in servers {
-            self.run_server(server)?;
+            self.run_server(server).await?;
         }
 
         // run all clients
@@ -433,7 +433,7 @@ impl ControlPlane {
     /// Run a server configuration.
     /// This function starts a server using the provided server configuration.
     /// It checks if the server is already running and if not, it starts a new server.
-    pub fn run_server(&mut self, config: ServerConfig) -> Result<(), ControllerError> {
+    pub async fn run_server(&mut self, config: ServerConfig) -> Result<(), ControllerError> {
         info!(%config.endpoint, "starting control plane server");
 
         // Check if the server is already running
@@ -456,6 +456,7 @@ impl ControlPlane {
                 &[ControllerServiceServer::new(self.controller.clone())],
                 self.controller.inner.drain_rx.clone(),
             )
+            .await
             .map_err(|e| {
                 error!("failed to run server {}: {}", config.endpoint, e);
                 ControllerError::ConfigError(e.to_string())
@@ -677,7 +678,7 @@ impl ControllerService {
                                     // connect to an endpoint if it's not already connected
                                     if !self.inner.connections.read().contains_key(client_endpoint)
                                     {
-                                        match client_config.to_channel() {
+                                        match client_config.to_channel().await {
                                             Err(e) => {
                                                 connection_success = false;
                                                 connection_error_msg =
@@ -1327,7 +1328,7 @@ impl ControllerService {
     ) -> Result<mpsc::Sender<Result<ControlMessage, Status>>, ControllerError> {
         info!(%config.endpoint, "connecting to control plane");
 
-        let channel = config.to_channel().map_err(|e| {
+        let channel = config.to_channel().await.map_err(|e| {
             error!("error reading channel config: {}", e);
             ControllerError::ConfigError(e.to_string())
         })?;
@@ -1428,8 +1429,9 @@ impl GrpcControllerService for ControllerService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use slim_auth::{shared_secret::SharedSecret, testutils::TEST_VALID_SECRET};
+    use slim_auth::shared_secret::SharedSecret;
     use slim_config::component::id::Kind;
+    use slim_testing::utils::TEST_VALID_SECRET;
     use tracing_test::traced_test;
 
     #[tokio::test]

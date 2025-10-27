@@ -12,6 +12,5 @@ pub mod resolver;
 pub mod shared_secret;
 #[cfg(not(target_family = "windows"))]
 pub mod spiffe;
-pub mod testutils;
 pub mod traits;
 pub mod utils;

@@ -20,7 +20,7 @@ use bollard::image::CreateImageOptions;
 use bollard::models::{HostConfig, PortBinding};
 use bollard::network::CreateNetworkOptions;
 use futures::StreamExt;
-use slim_auth::spiffe::SpiffeProviderConfig;
+use slim_config::auth::spiffe::SpiffeConfig;
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::fs;
@@ -535,12 +535,13 @@ plugins {{
         format!("unix://{}", self.socket_path.to_string_lossy())
     }
 
-    /// Get a ready-to-use SPIFFE provider config
-    pub fn get_spiffe_provider_config(&self) -> SpiffeProviderConfig {
-        SpiffeProviderConfig {
+    /// Get a ready-to-use unified SPIFFE config (from slim_config crate)
+    pub fn get_spiffe_config(&self) -> SpiffeConfig {
+        SpiffeConfig {
             socket_path: Some(self.socket_path()),
             target_spiffe_id: None,
             jwt_audiences: vec!["test-audience".to_string()],
+            trust_domain: None,
         }
     }
 

@@ -680,7 +680,7 @@ mod tests {
     use slim_config::tls::provider::initialize_crypto_provider;
 
     use crate::builder::JwtBuilder;
-    use crate::testutils::setup_test_jwt_resolver;
+    use slim_testing::utils::setup_test_jwt_resolver;
 
     fn create_file(file_path: &str, content: &str) -> std::io::Result<()> {
         let mut file = File::create(file_path)?;
@@ -791,8 +791,11 @@ mod tests {
             .build()
             .unwrap();
         // Use test utility to generate a syntactically valid unsigned token
-        let token =
-            crate::testutils::generate_test_token("test-issuer", "test-audience", "test-subject");
+        let token = slim_testing::utils::generate_test_token(
+            "test-issuer",
+            "test-audience",
+            "test-subject",
+        );
 
         let res = verifier.try_verify(&token);
         assert!(

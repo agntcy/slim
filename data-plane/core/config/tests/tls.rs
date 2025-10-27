@@ -53,7 +53,7 @@ impl Default for ErrorMessage {
 }
 
 // server config tests
-fn test_load_rustls_config<T>(
+async fn test_load_rustls_config<T>(
     test_name: &str,
     config: &dyn RustlsConfigLoader<T>,
     error_expected: &bool,
@@ -64,7 +64,7 @@ fn test_load_rustls_config<T>(
     println!("Running test {}", test_name);
 
     // Try to create a tls config from the server config
-    let result = config.load_rustls_config();
+    let result = config.load_rustls_config().await;
     match error_expected {
         true => assert!(result.is_err()),
         false => assert!(result.is_ok()),
@@ -300,7 +300,8 @@ async fn test_load_rustls_client() {
             error_expected,
             error_message,
             print_error,
-        );
+        )
+        .await;
     }
 }
 
@@ -459,6 +460,7 @@ async fn test_load_rustls_server() {
             error_expected,
             error_message,
             print_error,
-        );
+        )
+        .await;
     }
 }

@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use super::common::{Config, ConfigError, RustlsConfigLoader};
 use crate::{
     component::configuration::{Configuration, ConfigurationError},
-    tls::common::{StaticCertResolver, WatcherCertResolver},
+    tls::common::{SpireCertResolver, StaticCertResolver, WatcherCertResolver},
 };
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Clone)]
@@ -82,6 +82,18 @@ impl ResolvesServerCert for StaticCertResolver {
         _client_hello: rustls::server::ClientHello<'_>,
     ) -> Option<Arc<rustls::sign::CertifiedKey>> {
         Some(self.cert.clone())
+    }
+}
+
+impl ResolvesServerCert for SpireCertResolver {
+    fn resolve(&self, _client_hello: rustls::server::ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
+        match self.build_certified_key() {
+            Ok((ck, _)) => Some(ck),
+            Err(e) => {
+                tracing::warn!(error=%e, "spire cert resolver: failed to build server cert");
+                None
+            }
+        }
     }
 }
 
@@ -206,7 +218,22 @@ impl TlsServerConfig {
         }
     }
 
+    /// Attach a SPIFFE configuration (SPIRE Workload API) for dynamic SVID + bundle based TLS.
+    pub fn with_spiffe(self, spiffe: crate::auth::spiffe::SpiffeConfig) -> Self {
+        TlsServerConfig {
+            config: self.config.with_spiffe(spiffe),
+            ..self
+        }
+    }
+
     pub fn load_rustls_server_config(&self) -> Result<Option<RustlsServerConfig>, ConfigError> {
+        // SPIFFE/SPIRE configured => use async path (return error if called synchronously)
+        if self.config.spire.is_some() {
+            return Err(ConfigError::InvalidFile(
+                "SPIFFE is configured; use async TLS loader".to_string(),
+            ));
+        }
+
         // Check if insecure is set
         if self.insecure {
             return Ok(None);
@@ -290,13 +317,119 @@ impl TlsServerConfig {
         // We are good to go
         Ok(Some(server_config))
     }
+
+    /// Async variant supporting SPIFFE/SPIRE dynamic SVID + bundle.
+    pub async fn load_rustls_server_config_async(
+        &self,
+    ) -> Result<Option<RustlsServerConfig>, ConfigError> {
+        // If insecure skip TLS
+        if self.insecure {
+            return Ok(None);
+        }
+
+        // TLS version
+        let tls_version = match self.config.tls_version.as_str() {
+            "tls1.2" => &TLS12,
+            "tls1.3" => &TLS13,
+            _ => {
+                return Err(ConfigError::InvalidTlsVersion(
+                    self.config.tls_version.clone(),
+                ));
+            }
+        };
+
+        let config_builder = RustlsServerConfig::builder_with_protocol_versions(&[tls_version]);
+
+        // SPIFFE resolver branch
+        if let Some(spire_sources) = &self.config.spire {
+            let spiffe_cfg = &spire_sources.spiffe;
+            // Build provider
+            // Build unified SPIFFE resolver directly from configuration (no external provider construction)
+            let spire_resolver = super::common::SpireCertResolver::new(spiffe_cfg.clone())
+                .await
+                .map_err(|e| ConfigError::InvalidFile(e.to_string()))?;
+
+            // Build client CA root store from SPIRE bundles (async). This SPIRE bundle
+            // now acts as the implicit client_ca when SPIFFE is configured, so callers
+            // do not need to set client_ca_file or client_ca_pem explicitly.
+            //
+            // Additionally, if caller still provided client_ca_file or client_ca_pem,
+            // we merge those CAs into the SPIRE-derived root store (allowing mixed trust).
+                        let mut root_store = self
+                            .config
+                            .load_ca_cert_pool_async()
+                            .await
+                            .map_err(|e| e)?;
+                        // Merge explicit client CA sources if present (optional)
+                        if let Some(ca_file) = &self.client_ca_file {
+                            match CertificateDer::pem_file_iter(Path::new(ca_file)) {
+                                Ok(iter) => {
+                                    for cert_res in iter {
+                                        match cert_res {
+                                            Ok(cert) => {
+                                                if let Err(e) = root_store.add(cert) {
+                                                    tracing::warn!(error=%e, "failed adding client_ca_file cert");
+                                                }
+                                            }
+                                            Err(e) => tracing::warn!(error=%e, "invalid PEM in client_ca_file"),
+                                        }
+                                    }
+                                }
+                                Err(e) => tracing::warn!(error=%e, "failed reading client_ca_file"),
+                            }
+                        }
+                        if let Some(ca_pem) = &self.client_ca_pem {
+                            match CertificateDer::pem_slice_iter(ca_pem.as_bytes()) {
+                                ok_iter => {
+                                    for cert_res in ok_iter {
+                                        match cert_res {
+                                            Ok(cert) => {
+                                                if let Err(e) = root_store.add(cert) {
+                                                    tracing::warn!(error=%e, "failed adding client_ca_pem cert");
+                                                }
+                                            }
+                                            Err(e) => tracing::warn!(error=%e, "invalid PEM in client_ca_pem"),
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if root_store.is_empty() {
+                            tracing::warn!(
+                                "SPIRE + explicit client CA sources produced empty root store; client cert verification will fail"
+                            );
+                        }
+
+            // If empty, attempt adding SVID intermediates (optional)
+            if root_store.is_empty() {
+                tracing::warn!("SPIFFE root store empty; client cert verification may fail");
+            }
+
+            let verifier = WebPkiClientVerifier::builder(root_store.into())
+                .build()
+                .map_err(ConfigError::VerifierBuilder)?;
+
+            let server_config = config_builder
+                .with_client_cert_verifier(verifier)
+                .with_cert_resolver(Arc::new(spire_resolver));
+
+            return Ok(Some(server_config));
+        }
+
+        // Fallback to synchronous path if no SPIFFE
+        self.load_rustls_server_config()
+    }
 }
 
 // trait implementation
+#[async_trait::async_trait]
 impl RustlsConfigLoader<RustlsServerConfig> for TlsServerConfig {
-    fn load_rustls_config(&self) -> Result<Option<RustlsServerConfig>, ConfigError> {
-        let server_config = self.load_rustls_server_config()?;
-        Ok(server_config)
+    async fn load_rustls_config(&self) -> Result<Option<RustlsServerConfig>, ConfigError> {
+        if self.config.spire.is_some() {
+            self.load_rustls_server_config_async().await
+        } else {
+            self.load_rustls_server_config()
+        }
     }
 }
 

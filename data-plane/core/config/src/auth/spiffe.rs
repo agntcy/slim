@@ -3,75 +3,72 @@
 
 #![cfg(not(target_family = "windows"))]
 
-//! SPIFFE authentication configuration for SLIM
+//! Unified SPIFFE authentication configuration for SLIM.
 //!
-//! This module provides configuration for SPIFFE-based authentication using both
-//! X.509 SVIDs and JWT SVIDs. The provider can fetch X.509 certificates and JWT tokens,
-//! while the verifier can validate both X.509 certificates and JWT tokens using
-//! automatically rotated bundles from the SPIFFE Workload API.
+//! This module exposes a single configuration struct `SpiffeConfig` that can be
+//! used to build a unified `SpiffeIdentityManager` for both providing and
+//! verifying SPIFFE identities (X.509 & JWT SVIDs).
+//!
+//! Features:
+//! - Configure socket path, target SPIFFE ID (for JWT acquisition), audiences,
+//!   and optional trust domain override.
+//! - Create a provider (`create_provider`) that fetches & rotates X.509 and JWT SVIDs.
+//! - Create a verifier (`create_jwt_verifier`) that focuses on verification; target
+//!   SPIFFE ID is cleared automatically.
+//! - Optional `trust_domain` forces bundle retrieval for a specific trust domain.
+//!
+//! This configuration is local to the config crate. When constructing runtime SPIFFE
+//! components it is converted into the auth crate's `slim_auth::spiffe::SpiffeConfig`.
 
 use super::{AuthError, ClientAuthenticator, ServerAuthenticator};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use slim_auth::jwt_middleware::{AddJwtLayer, ValidateJwtLayer};
-use slim_auth::spiffe::{
-    SpiffeJwtVerifier, SpiffeProvider, SpiffeProviderConfig as AuthSpiffeConfig,
-    SpiffeVerifierConfig,
-};
+use slim_auth::spiffe::SpiffeIdentityManager;
 
 /// SPIFFE authentication configuration
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
-pub struct Config {
-    /// Path to the SPIFFE Workload API socket (optional, defaults to SPIFFE_ENDPOINT_SOCKET env var)
+pub struct SpiffeConfig {
+    /// Path to the SPIFFE Workload API socket (None => use SPIFFE_ENDPOINT_SOCKET env var)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub socket_path: Option<String>,
-
-    /// Target SPIFFE ID for JWT tokens (optional)
+    /// Optional target SPIFFE ID when requesting JWT SVIDs
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_spiffe_id: Option<String>,
-
-    /// JWT audiences for token requests
+    /// Audiences to request / verify for JWT SVIDs
     #[serde(default = "default_audiences")]
     pub jwt_audiences: Vec<String>,
-
-    /// Enable X.509 SVID certificate authentication
-    #[serde(default = "default_enable_jwt")]
-    pub enable_x509: bool,
-
-    /// Enable JWT SVID token authentication
-    #[serde(default = "default_enable_x509")]
-    pub enable_jwt: bool,
+    /// Optional trust domain override for X.509 bundle retrieval. If set,
+    /// `get_x509_bundle()` uses this instead of deriving from the current SVID.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trust_domain: Option<String>,
 }
 
 fn default_audiences() -> Vec<String> {
     vec!["slim".to_string()]
 }
 
-fn default_enable_jwt() -> bool {
-    true
-}
-
-fn default_enable_x509() -> bool {
-    true
-}
-
-impl Default for Config {
+impl Default for SpiffeConfig {
     fn default() -> Self {
-        Config {
+        Self {
             socket_path: None,
             target_spiffe_id: None,
             jwt_audiences: default_audiences(),
-            enable_x509: true,
-            enable_jwt: true,
+            trust_domain: None,
         }
     }
 }
 
-impl Config {
+// removed unused AuthSpiffeConfig import
+
+impl SpiffeConfig {
     /// Create a new SPIFFE configuration
     pub fn new() -> Self {
         Self::default()
     }
+
+    /// (Deprecated) Conversion to auth SpiffeConfig no longer needed:
+    /// we now build the identity manager directly via its builder.
 
     /// Set the socket path
     pub fn with_socket_path(mut self, socket_path: impl Into<String>) -> Self {
@@ -91,115 +88,78 @@ impl Config {
         self
     }
 
-    /// Enable or disable X.509 SVID authentication
-    pub fn with_x509_enabled(mut self, enabled: bool) -> Self {
-        self.enable_x509 = enabled;
+    /// Set a trust domain override for X.509 bundle retrieval
+    pub fn with_trust_domain(mut self, trust_domain: impl Into<String>) -> Self {
+        self.trust_domain = Some(trust_domain.into());
         self
     }
+    // Removed: direct conversion now superseded by builder pattern.
 
-    /// Enable or disable JWT SVID authentication
-    pub fn with_jwt_enabled(mut self, enabled: bool) -> Self {
-        self.enable_jwt = enabled;
-        self
-    }
+    /// Create a SPIFFE provider from this configuration using the builder.
+    /// Returns an initialized SpiffeIdentityManager that will rotate X.509 & JWT SVIDs.
+    pub async fn create_provider(&self) -> Result<SpiffeIdentityManager, AuthError> {
+        let mut builder =
+            SpiffeIdentityManager::builder().with_jwt_audiences(self.jwt_audiences.clone());
 
-    /// Convert to the auth crate's SpiffeConfig
-    pub fn to_auth_config(&self) -> AuthSpiffeConfig {
-        AuthSpiffeConfig {
-            socket_path: self.socket_path.clone(),
-            target_spiffe_id: self.target_spiffe_id.clone(),
-            jwt_audiences: self.jwt_audiences.clone(),
+        if let Some(ref socket) = self.socket_path {
+            builder = builder.with_socket_path(socket.clone());
         }
-    }
+        if let Some(ref target) = self.target_spiffe_id {
+            builder = builder.with_target_spiffe_id(target.clone());
+        }
+        if let Some(ref td) = self.trust_domain {
+            builder = builder.with_trust_domain(td.clone());
+        }
 
-    /// Create a SPIFFE provider from this configuration
-    ///
-    /// The provider can fetch:
-    /// - X.509 SVIDs (certificates and private keys) for mTLS
-    /// - JWT SVIDs (tokens) for bearer authentication
-    ///
-    /// Both types of credentials are automatically rotated by the provider.
-    pub async fn create_provider(&self) -> Result<SpiffeProvider, AuthError> {
-        let auth_config = self.to_auth_config();
-        let mut provider = SpiffeProvider::new(auth_config);
-        let _ = provider.initialize().await;
+        let mut provider = builder.build();
+        provider
+            .initialize()
+            .await
+            .map_err(|e| AuthError::ConfigError(e.to_string()))?;
         Ok(provider)
     }
 
-    /// Create a SPIFFE verifier from this configuration
-    ///
-    /// The verifier can validate:
-    /// - JWT tokens using automatically rotated JWT bundles
-    /// - X.509 certificates using automatically rotated X.509 bundles
-    ///
-    /// The verifier maintains background tasks that continuously update the trust bundles
-    /// from the SPIFFE Workload API, ensuring that certificate and token validation
-    /// always uses the latest trust anchors.
-    ///
-    /// # Usage
-    ///
-    /// ```rust,no_run
-    /// # use slim_config::auth::spiffe::Config;
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let config = Config::new()
-    ///     .with_jwt_audiences(vec!["my-service".to_string()]);
-    ///
-    /// let verifier = config.create_jwt_verifier().await?;
-    ///
-    /// // Get X.509 bundle (CA certificates) for certificate verification
-    /// let x509_bundle = verifier.get_x509_bundle()?;
-    ///
-    /// // Or get the X509Source directly for more control over bundle access
-    /// let x509_source = verifier.get_x509_source()?;
-    ///
-    /// // JWT verification happens automatically when using ValidateJwtLayer
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub async fn create_jwt_verifier(&self) -> Result<SpiffeJwtVerifier, AuthError> {
-        let config = SpiffeVerifierConfig {
-            socket_path: self.socket_path.clone(),
-            jwt_audiences: self.jwt_audiences.clone(),
-        };
-        let mut verifier = SpiffeJwtVerifier::new(config);
-        let _ = verifier.initialize().await;
+    /// Create a SPIFFE verifier (identity manager used only for verification).
+    /// Skips target SPIFFE ID (not needed when validating tokens).
+    pub async fn create_jwt_verifier(&self) -> Result<SpiffeIdentityManager, AuthError> {
+        let mut builder =
+            SpiffeIdentityManager::builder().with_jwt_audiences(self.jwt_audiences.clone());
+
+        if let Some(ref socket) = self.socket_path {
+            builder = builder.with_socket_path(socket.clone());
+        }
+        // Intentionally do NOT set target_spiffe_id here.
+        if let Some(ref td) = self.trust_domain {
+            builder = builder.with_trust_domain(td.clone());
+        }
+
+        let mut verifier = builder.build();
+        verifier
+            .initialize()
+            .await
+            .map_err(|e| AuthError::ConfigError(e.to_string()))?;
         Ok(verifier)
     }
 }
 
-impl ClientAuthenticator for Config {
-    type ClientLayer = AddJwtLayer<SpiffeProvider>;
+impl ClientAuthenticator for SpiffeConfig {
+    type ClientLayer = AddJwtLayer<SpiffeIdentityManager>;
 
     fn get_client_layer(&self) -> Result<Self::ClientLayer, AuthError> {
-        if !self.enable_jwt {
-            return Err(AuthError::ConfigError(
-                "JWT authentication is disabled".to_string(),
-            ));
-        }
-
-        // This is a placeholder - in practice, we'd need to create the provider asynchronously
-        // The actual implementation would need to be done in an async context
+        // Creation requires async context due to initialization
         Err(AuthError::ConfigError(
             "SPIFFE client layer creation requires async context".to_string(),
         ))
     }
 }
 
-impl<Response> ServerAuthenticator<Response> for Config
+impl<Response> ServerAuthenticator<Response> for SpiffeConfig
 where
     Response: Default + Send + Sync + 'static,
 {
-    type ServerLayer = ValidateJwtLayer<serde_json::Value, SpiffeJwtVerifier>;
+    type ServerLayer = ValidateJwtLayer<serde_json::Value, SpiffeIdentityManager>;
 
     fn get_server_layer(&self) -> Result<Self::ServerLayer, AuthError> {
-        if !self.enable_jwt {
-            return Err(AuthError::ConfigError(
-                "JWT authentication is disabled".to_string(),
-            ));
-        }
-
-        // This is a placeholder - in practice, we'd need to create the verifier asynchronously
-        // The actual implementation would need to be done in an async context
         Err(AuthError::ConfigError(
             "SPIFFE server layer creation requires async context".to_string(),
         ))
@@ -207,36 +167,25 @@ where
 }
 
 /// Async helper functions for creating SPIFFE authentication layers
-impl Config {
+impl SpiffeConfig {
     /// Create a client authentication layer asynchronously
-    pub async fn get_client_layer_async(&self) -> Result<AddJwtLayer<SpiffeProvider>, AuthError> {
-        if !self.enable_jwt {
-            return Err(AuthError::ConfigError(
-                "JWT authentication is disabled".to_string(),
-            ));
-        }
-
+    pub async fn get_client_layer_async(
+        &self,
+    ) -> Result<AddJwtLayer<SpiffeIdentityManager>, AuthError> {
         let provider = self.create_provider().await?;
-        // Default token duration of 1 hour
-        let duration = 3600;
+        let duration = 3600; // 1 hour token duration
         Ok(AddJwtLayer::new(provider, duration))
     }
 
     /// Create a server authentication layer asynchronously
     pub async fn get_server_layer_async<Response>(
         &self,
-    ) -> Result<ValidateJwtLayer<serde_json::Value, SpiffeJwtVerifier>, AuthError>
+    ) -> Result<ValidateJwtLayer<serde_json::Value, SpiffeIdentityManager>, AuthError>
     where
         Response: Default + Send + Sync + 'static,
     {
-        if !self.enable_jwt {
-            return Err(AuthError::ConfigError(
-                "JWT authentication is disabled".to_string(),
-            ));
-        }
-
         let verifier = self.create_jwt_verifier().await?;
-        let claims = serde_json::json!({}); // Empty default claims
+        let claims = serde_json::json!({});
         Ok(ValidateJwtLayer::new(verifier, claims))
     }
 }
@@ -247,22 +196,20 @@ mod tests {
 
     #[test]
     fn test_config_default() {
-        let config = Config::default();
+        let config = SpiffeConfig::default();
         assert!(config.socket_path.is_none());
         assert!(config.target_spiffe_id.is_none());
         assert_eq!(config.jwt_audiences, vec!["slim"]);
-        assert!(config.enable_x509);
-        assert!(config.enable_jwt);
+        assert!(config.trust_domain.is_none());
     }
 
     #[test]
     fn test_config_builder() {
-        let config = Config::new()
+        let config = SpiffeConfig::new()
             .with_socket_path("unix:/tmp/spire-agent/public/api.sock")
             .with_target_spiffe_id("spiffe://example.org/slim")
             .with_jwt_audiences(vec!["audience1".to_string(), "audience2".to_string()])
-            .with_x509_enabled(false)
-            .with_jwt_enabled(true);
+            .with_trust_domain("example.org");
 
         assert_eq!(
             config.socket_path,
@@ -273,32 +220,18 @@ mod tests {
             Some("spiffe://example.org/slim".to_string())
         );
         assert_eq!(config.jwt_audiences, vec!["audience1", "audience2"]);
-        assert!(!config.enable_x509);
-        assert!(config.enable_jwt);
+        assert_eq!(config.trust_domain, Some("example.org".to_string()));
     }
 
     #[test]
-    fn test_to_auth_config() {
-        let config = Config::new()
+    fn test_serialization_roundtrip() {
+        let config = SpiffeConfig::new()
             .with_socket_path("unix:/tmp/spire-agent/public/api.sock")
-            .with_jwt_audiences(vec!["test".to_string()]);
-
-        let auth_config = config.to_auth_config();
-        assert_eq!(
-            auth_config.socket_path,
-            Some("unix:/tmp/spire-agent/public/api.sock".to_string())
-        );
-        assert_eq!(auth_config.jwt_audiences, vec!["test"]);
-    }
-
-    #[tokio::test]
-    async fn test_config_serialization() {
-        let config = Config::new()
-            .with_socket_path("unix:/tmp/spire-agent/public/api.sock")
-            .with_jwt_audiences(vec!["test".to_string()]);
+            .with_jwt_audiences(vec!["test".to_string()])
+            .with_trust_domain("example.org");
 
         let yaml = serde_yaml::to_string(&config).unwrap();
-        let deserialized: Config = serde_yaml::from_str(&yaml).unwrap();
+        let deserialized: SpiffeConfig = serde_yaml::from_str(&yaml).unwrap();
         assert_eq!(config, deserialized);
     }
 }
