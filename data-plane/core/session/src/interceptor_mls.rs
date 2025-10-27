@@ -5,6 +5,7 @@
 use std::sync::Arc;
 
 // Third-party crates
+use async_trait::async_trait;
 use tokio::sync::Mutex;
 use tracing::{debug, error};
 
@@ -37,7 +38,7 @@ where
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl<P, V> SessionInterceptor for MlsInterceptor<P, V>
 where
     P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,

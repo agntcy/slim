@@ -443,7 +443,6 @@ impl SharedSecret {
 }
 
 #[async_trait]
-#[async_trait::async_trait]
 impl TokenProvider for SharedSecret {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         // SharedSecret has no async initialization steps.
@@ -502,7 +501,7 @@ impl TokenProvider for SharedSecret {
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl Verifier for SharedSecret {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         Ok(())

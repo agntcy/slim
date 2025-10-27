@@ -561,7 +561,6 @@ impl Signer for SignerJwt {
 }
 
 #[async_trait]
-#[async_trait::async_trait]
 impl TokenProvider for SignerJwt {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         // SignerJwt has no asynchronous initialization requirements.
@@ -589,7 +588,6 @@ impl TokenProvider for SignerJwt {
 }
 
 #[async_trait]
-#[async_trait::async_trait]
 impl TokenProvider for StaticTokenProvider {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         // StaticTokenProvider exposes a statically loaded token; nothing async to perform.
@@ -1312,7 +1310,9 @@ mod tests {
             .build()?;
         let mut signer: SignerJwt = jwt;
         signer.initialize().await?; // no-op
-        let _ = signer.get_token()?;
+        // Produce a token explicitly to verify signer works after initialize.
+        let claims = signer.create_claims();
+        let _token = signer.sign(&claims)?;
         Ok(())
     }
 }

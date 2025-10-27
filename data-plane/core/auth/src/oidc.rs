@@ -366,7 +366,6 @@ impl OidcTokenProvider {
 }
 
 #[async_trait]
-#[async_trait::async_trait]
 impl TokenProvider for OidcTokenProvider {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         OidcTokenProvider::initialize(self).await

@@ -5,13 +5,14 @@
 use std::sync::Arc;
 
 // Third-party crates
+use async_trait::async_trait;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::ProtoMessage as Message;
 
 // Local crate
 use crate::errors::SessionError;
 
-#[async_trait::async_trait]
+#[async_trait]
 pub trait SessionInterceptor {
     // interceptor to be executed when a message is received from the app
     async fn on_msg_from_app(&self, msg: &mut Message) -> Result<(), SessionError>;
@@ -19,7 +20,7 @@ pub trait SessionInterceptor {
     async fn on_msg_from_slim(&self, msg: &mut Message) -> Result<(), SessionError>;
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 pub trait SessionInterceptorProvider {
     /// add an interceptor to the session
     fn add_interceptor(&self, interceptor: Arc<dyn SessionInterceptor + Send + Sync + 'static>);
@@ -75,7 +76,7 @@ where
 /// from the app, and verify the identity when a message is received from slim.
 /// If the identity is not found in the message metadata, it will return an error.
 /// If the identity verification fails, it will return an error as well.
-#[async_trait::async_trait]
+#[async_trait]
 impl<P, V> SessionInterceptor for IdentityInterceptor<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
