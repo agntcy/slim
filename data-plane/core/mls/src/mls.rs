@@ -534,10 +534,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use mls_rs_core::identity::MemberValidationContext;
-    use tokio::time;
     use base64::Engine;
     use base64::engine::general_purpose::STANDARD as BASE64;
+    use mls_rs_core::identity::MemberValidationContext;
+    use tokio::time;
 
     use crate::errors::SlimIdentityError;
 
