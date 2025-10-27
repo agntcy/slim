@@ -7,8 +7,9 @@ import (
 	"sync"
 	"time"
 
-	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	"github.com/rs/zerolog"
+
+	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 )
 
 const DefaultResponseTimeout = 90
@@ -112,7 +113,8 @@ func (m *defaultNodeCommandHandler) ResponseReceived(ctx context.Context, nodeID
 	key := nodeID + ":" + reflect.TypeOf(command.GetPayload()).String() + ":" + originalMessageID
 	ch, ok := m.nodeResponseMsgMap.Load(key)
 	if !ok {
-		zlog.Warn().Msgf("No channel found for node %s and message type %s ID: %s\n", nodeID, reflect.TypeOf(command.GetPayload()), originalMessageID)
+		zlog.Warn().Msgf("No channel found for node %s and message type %s ID: %s\n", nodeID,
+			reflect.TypeOf(command.GetPayload()), originalMessageID)
 		return
 	}
 
@@ -138,7 +140,8 @@ func (m *defaultNodeCommandHandler) GetConnectionStatus(_ context.Context, nodeI
 }
 
 // UpdateConnectionStatus implements NodeCommandHandler.
-func (m *defaultNodeCommandHandler) UpdateConnectionStatus(_ context.Context, nodeID string, status NodeStatus) {
+func (m *defaultNodeCommandHandler) UpdateConnectionStatus(_ context.Context,
+	nodeID string, status NodeStatus) {
 	m.nodeConnectionStatusMap.Store(nodeID, status)
 }
 
