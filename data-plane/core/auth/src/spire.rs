@@ -434,7 +434,11 @@ impl SpireIdentityManager {
 }
 
 #[async_trait]
-impl TokenProvider for SpireIdentityManager {
+impl TokenProvider for SpiffeIdentityManager {
+    async fn initialize(&mut self) -> Result<(), AuthError> {
+        self.initialize().await
+    }
+
     fn get_token(&self) -> Result<String, AuthError> {
         let jwt_svid = self.get_jwt_svid()?;
         Ok(jwt_svid.token().to_string())

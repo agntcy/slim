@@ -192,6 +192,7 @@ impl std::fmt::Debug for AuthVerifier {
 }
 
 #[async_trait]
+#[async_trait::async_trait]
 impl TokenProvider for AuthProvider {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         Ok(())

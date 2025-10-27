@@ -560,6 +560,7 @@ mod tests {
     // validate token contents—only that code paths do not error out when a token is requested.
     #[derive(Clone, Default)]
     struct DummyTokenProvider;
+    #[async_trait]
     impl TokenProvider for DummyTokenProvider {
         async fn initialize(&mut self) -> Result<(), AuthError> {
             Ok(())

@@ -561,6 +561,7 @@ impl Signer for SignerJwt {
 }
 
 #[async_trait]
+#[async_trait::async_trait]
 impl TokenProvider for SignerJwt {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         // SignerJwt has no asynchronous initialization requirements.
@@ -588,6 +589,7 @@ impl TokenProvider for SignerJwt {
 }
 
 #[async_trait]
+#[async_trait::async_trait]
 impl TokenProvider for StaticTokenProvider {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         // StaticTokenProvider exposes a statically loaded token; nothing async to perform.

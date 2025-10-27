@@ -121,7 +121,7 @@ pub trait TokenProvider {
 
     /// Get ID from the identity provider, e.g. the sub claim in JWT
     fn get_id(&self) -> Result<String, AuthError>;
-    
+
     /// Initializes the token provider asynchronously.
     /// Usage notes:
     /// - For most lightweight providers (SharedSecret, SignerJwt, StaticTokenProvider) this is a

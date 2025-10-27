@@ -111,6 +111,7 @@ mod tests {
     // Lightweight provider / verifier used to satisfy generic bounds of PointToPoint sessions.
     #[derive(Clone, Default)]
     struct DummyProvider;
+    #[async_trait]
     impl TokenProvider for DummyProvider {
         async fn initialize(&mut self) -> Result<(), AuthError> {
             Ok(())

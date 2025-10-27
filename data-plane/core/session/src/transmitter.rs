@@ -186,6 +186,7 @@ mod tests {
 
     #[derive(Clone, Default)]
     struct DummyProvider;
+    #[async_trait]
     impl TokenProvider for DummyProvider {
         async fn initialize(&mut self) -> Result<(), AuthError> {
             Ok(())
