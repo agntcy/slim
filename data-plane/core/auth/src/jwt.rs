@@ -289,6 +289,30 @@ impl<S> Jwt<S> {
         }
     }
 
+    /// Creates a StandardClaims object with custom claims merged in.
+    pub fn create_claims_with_custom(
+        &self,
+        custom_claims: std::collections::HashMap<String, serde_json::Value>,
+    ) -> StandardClaims {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or(Duration::from_secs(0))
+            .as_secs();
+
+        let expiration = now + self.token_duration.as_secs();
+
+        let mut merged_claims = self.claims.custom_claims.clone();
+        merged_claims.extend(custom_claims);
+
+        StandardClaims {
+            exp: expiration,
+            iat: Some(now),
+            nbf: Some(now),
+            custom_claims: merged_claims,
+            ..self.claims.clone()
+        }
+    }
+
     fn sign_claims<Claims: Serialize>(&self, claims: &Claims) -> Result<String, AuthError> {
         // Ensure we have an encoding key for signing
 
@@ -306,6 +330,14 @@ impl<S> Jwt<S> {
 
     fn sign_internal_claims(&self) -> Result<String, AuthError> {
         let claims = self.create_claims();
+        self.sign_claims(&claims)
+    }
+
+    fn sign_internal_claims_with_custom(
+        &self,
+        custom_claims: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Result<String, AuthError> {
+        let claims = self.create_claims_with_custom(custom_claims);
         self.sign_claims(&claims)
     }
 }
@@ -532,9 +564,21 @@ impl Signer for SignerJwt {
     }
 }
 
+#[async_trait]
 impl TokenProvider for SignerJwt {
     fn get_token(&self) -> Result<String, AuthError> {
         self.sign_internal_claims()
+    }
+
+    async fn get_token_with_claims(
+        &self,
+        custom_claims: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Result<String, AuthError> {
+        if custom_claims.is_empty() {
+            self.sign_internal_claims()
+        } else {
+            self.sign_internal_claims_with_custom(custom_claims)
+        }
     }
 
     fn get_id(&self) -> Result<String, AuthError> {
@@ -545,14 +589,28 @@ impl TokenProvider for SignerJwt {
     }
 }
 
+#[async_trait]
 impl TokenProvider for StaticTokenProvider {
     fn get_token(&self) -> Result<String, AuthError> {
-        self.get_token()
+        self.static_token
+            .as_ref()
+            .ok_or_else(|| AuthError::ConfigError("Static token not configured".to_string()))
+            .map(|token| token.read().clone())
     }
 
     fn get_id(&self) -> Result<String, AuthError> {
         let token = self.get_token()?;
         extract_sub_claim_unsafe(&token)
+    }
+
+    async fn get_token_with_claims(
+        &self,
+        _custom_claims: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Result<String, AuthError> {
+        // This provider does not support custom claims in the token
+        Err(AuthError::UnsupportedOperation(
+            "StaticTokenProvider does not support custom claims".to_string(),
+        ))
     }
 }
 

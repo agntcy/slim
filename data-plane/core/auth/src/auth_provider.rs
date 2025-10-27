@@ -190,12 +190,26 @@ impl std::fmt::Debug for AuthVerifier {
     }
 }
 
+#[async_trait]
 impl TokenProvider for AuthProvider {
     fn get_token(&self) -> Result<String, AuthError> {
         match self {
             AuthProvider::JwtSigner(signer) => signer.get_token(),
             AuthProvider::StaticToken(provider) => provider.get_token(),
             AuthProvider::SharedSecret(secret) => secret.get_token(),
+        }
+    }
+
+    async fn get_token_with_claims(
+        &self,
+        custom_claims: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Result<String, AuthError> {
+        match self {
+            AuthProvider::JwtSigner(signer) => signer.get_token_with_claims(custom_claims).await,
+            AuthProvider::StaticToken(provider) => {
+                provider.get_token_with_claims(custom_claims).await
+            }
+            AuthProvider::SharedSecret(secret) => secret.get_token_with_claims(custom_claims).await,
         }
     }
 
