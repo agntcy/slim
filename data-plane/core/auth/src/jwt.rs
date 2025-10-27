@@ -1297,7 +1297,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn initialize_jwt_signer() -> Result<(), AuthError> {
+    async fn test_initialize_jwt_signer() -> Result<(), AuthError> {
         let jwt = JwtBuilder::new()
             .issuer("test-issuer")
             .audience(&["aud"])
@@ -1310,9 +1310,24 @@ mod tests {
             .build()?;
         let mut signer: SignerJwt = jwt;
         signer.initialize().await?; // no-op
+        
+        // Verify the signer is properly configured
+        assert!(signer.encoding_key.is_some());
+        assert!(signer.decoding_key.is_none());
+        
         // Produce a token explicitly to verify signer works after initialize.
         let claims = signer.create_claims();
-        let _token = signer.sign(&claims)?;
+        assert_eq!(claims.iss.as_ref().unwrap(), "test-issuer");
+        assert_eq!(claims.aud.as_ref().unwrap(), &["aud"]);
+        assert_eq!(claims.sub.as_ref().unwrap(), "sub");
+        assert!(claims.exp > 0);
+        assert!(claims.iat.is_some());
+        assert!(claims.nbf.is_some());
+        
+        let token = signer.sign(&claims)?;
+        assert!(!token.is_empty());
+        assert_eq!(token.split('.').count(), 3); // JWT should have 3 parts
+        
         Ok(())
     }
 }
