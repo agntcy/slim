@@ -38,10 +38,10 @@ pub struct SpiffeConfig {
     /// Audiences to request / verify for JWT SVIDs
     #[serde(default = "default_audiences")]
     pub jwt_audiences: Vec<String>,
-    /// Optional trust domain override for X.509 bundle retrieval. If set,
+    /// Optional trust domains override for X.509 bundle retrieval. If set,
     /// `get_x509_bundle()` uses this instead of deriving from the current SVID.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub trust_domain: Option<String>,
+    #[serde(default)]
+    pub trust_domains: Vec<String>,
 }
 
 fn default_audiences() -> Vec<String> {
@@ -54,7 +54,7 @@ impl Default for SpiffeConfig {
             socket_path: None,
             target_spiffe_id: None,
             jwt_audiences: default_audiences(),
-            trust_domain: None,
+            trust_domains: Vec::new(),
         }
     }
 }
@@ -66,9 +66,6 @@ impl SpiffeConfig {
     pub fn new() -> Self {
         Self::default()
     }
-
-    /// (Deprecated) Conversion to auth SpiffeConfig no longer needed:
-    /// we now build the identity manager directly via its builder.
 
     /// Set the socket path
     pub fn with_socket_path(mut self, socket_path: impl Into<String>) -> Self {
@@ -88,9 +85,15 @@ impl SpiffeConfig {
         self
     }
 
-    /// Set a trust domain override for X.509 bundle retrieval
+    /// Add a single trust domain override for X.509 bundle retrieval
     pub fn with_trust_domain(mut self, trust_domain: impl Into<String>) -> Self {
-        self.trust_domain = Some(trust_domain.into());
+        self.trust_domains.push(trust_domain.into());
+        self
+    }
+
+    /// Replace all trust domains overrides at once
+    pub fn with_trust_domains(mut self, trust_domains: Vec<String>) -> Self {
+        self.trust_domains = trust_domains;
         self
     }
     // Removed: direct conversion now superseded by builder pattern.
@@ -107,9 +110,6 @@ impl SpiffeConfig {
         if let Some(ref target) = self.target_spiffe_id {
             builder = builder.with_target_spiffe_id(target.clone());
         }
-        if let Some(ref td) = self.trust_domain {
-            builder = builder.with_trust_domain(td.clone());
-        }
 
         let mut provider = builder.build();
         provider
@@ -120,17 +120,12 @@ impl SpiffeConfig {
     }
 
     /// Create a SPIFFE verifier (identity manager used only for verification).
-    /// Skips target SPIFFE ID (not needed when validating tokens).
     pub async fn create_jwt_verifier(&self) -> Result<SpiffeIdentityManager, AuthError> {
         let mut builder =
             SpiffeIdentityManager::builder().with_jwt_audiences(self.jwt_audiences.clone());
 
         if let Some(ref socket) = self.socket_path {
             builder = builder.with_socket_path(socket.clone());
-        }
-        // Intentionally do NOT set target_spiffe_id here.
-        if let Some(ref td) = self.trust_domain {
-            builder = builder.with_trust_domain(td.clone());
         }
 
         let mut verifier = builder.build();
@@ -200,7 +195,7 @@ mod tests {
         assert!(config.socket_path.is_none());
         assert!(config.target_spiffe_id.is_none());
         assert_eq!(config.jwt_audiences, vec!["slim"]);
-        assert!(config.trust_domain.is_none());
+        assert!(config.trust_domains.is_empty());
     }
 
     #[test]
@@ -220,7 +215,7 @@ mod tests {
             Some("spiffe://example.org/slim".to_string())
         );
         assert_eq!(config.jwt_audiences, vec!["audience1", "audience2"]);
-        assert_eq!(config.trust_domain, Some("example.org".to_string()));
+        assert_eq!(config.trust_domains, vec!["example.org".to_string()]);
     }
 
     #[test]

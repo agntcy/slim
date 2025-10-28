@@ -1,8 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-#![cfg(target_os = "linux")]
-
 //! SPIRE test environment for integration tests
 //!
 //! This module provides a reusable test environment that manages SPIRE server and agent
@@ -488,6 +486,8 @@ plugins {{
         let current_uid = unsafe { libc::getuid() };
         let uid_selector = format!("unix:uid:{}", current_uid);
 
+        let dns_name = format!("testservice.{}", TRUST_DOMAIN);
+
         let register_exec_config = CreateExecOptions {
             cmd: Some(vec![
                 "/opt/spire/bin/spire-server",
@@ -499,6 +499,8 @@ plugins {{
                 "spiffe://example.org/testservice",
                 "-selector",
                 &uid_selector,
+                "-dns",
+                &dns_name,
             ]),
             attach_stdout: Some(true),
             attach_stderr: Some(true),
@@ -535,13 +537,18 @@ plugins {{
         format!("unix://{}", self.socket_path.to_string_lossy())
     }
 
+    /// Get the dynamically generated SPIRE server name (container/network hostname)
+    pub fn server_name(&self) -> &str {
+        &self.server_name
+    }
+
     /// Get a ready-to-use unified SPIFFE config (from slim_config crate)
     pub fn get_spiffe_config(&self) -> SpiffeConfig {
         SpiffeConfig {
             socket_path: Some(self.socket_path()),
             target_spiffe_id: None,
             jwt_audiences: vec!["test-audience".to_string()],
-            trust_domain: None,
+            trust_domains: vec![TRUST_DOMAIN.to_string()],
         }
     }
 

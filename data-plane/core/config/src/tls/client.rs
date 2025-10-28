@@ -4,8 +4,7 @@
 use std::sync::Arc;
 
 use rustls::{
-    ClientConfig as RustlsClientConfig, DigitallySignedStruct, Error, RootCertStore,
-    SignatureScheme,
+    ClientConfig as RustlsClientConfig, DigitallySignedStruct, Error, SignatureScheme,
     client::{
         ResolvesClientCert,
         danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
@@ -20,7 +19,7 @@ use serde;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use super::common::{Config, ConfigError, RustlsConfigLoader};
+use super::common::{Config, ConfigError, RustlsConfigLoader, TlsSource};
 use crate::{
     component::configuration::{Configuration, ConfigurationError},
     tls::common::{SpireCertResolver, StaticCertResolver, WatcherCertResolver},
@@ -277,60 +276,84 @@ impl TlsClientConfig {
         }
     }
 
-
-
-    async fn load_rustls_client_config(
-        &self,
-        root_store: RootCertStore,
-    ) -> Result<RustlsClientConfig, ConfigError> {
+    async fn load_rustls_client_config(&self) -> Result<Option<RustlsClientConfig>, ConfigError> {
         use ConfigError::*;
 
-        // Check TLS version
+        // If insecure (disable TLS) and no CA configured, return None early
+        if self.insecure {
+            match &self.config.source {
+                Some(TlsSource::File { ca: Some(_), .. })
+                | Some(TlsSource::Pem { ca: Some(_), .. }) => {
+                    // CA provided; continue building TLS config
+                }
+                _ => {
+                    return Ok(None);
+                }
+            }
+        }
+
+        // Resolve TLS version
         let tls_version = match self.config.tls_version.as_str() {
             "tls1.2" => &TLS12,
             "tls1.3" => &TLS13,
-            _ => {
-                // return an error if the tls version is invalid
-                return Err(InvalidTlsVersion(self.config.tls_version.clone()));
-            }
+            _ => return Err(InvalidTlsVersion(self.config.tls_version.clone())),
         };
 
-        // create a client ConfigBuilder
+        // Load CA root store (async if SPIFFE)
+        let root_store = self.config.load_ca_cert_pool().await?;
+
+        // Base builder
         let config_builder = RustlsClientConfig::builder_with_protocol_versions(&[tls_version])
             .with_root_certificates(root_store);
 
-        // Check if enable client auth or not
-        match (
-            self.config.has_cert_file() && self.config.has_key_file(),
-            self.config.has_cert_pem() && self.config.has_key_pem(),
-        ) {
-            (true, true) => {
-                // If both cert_file and cert_pem are set, return an error
-                Err(CannotUseBoth("cert".to_string()))
+        // Build client config including client auth (SPIFFE / file / pem)
+        let client_config = match &self.config.source {
+            Some(TlsSource::Spire { config: spiffe_cfg }) => {
+                // Dynamic SPIFFE client cert resolver (no manual cert/key injection)
+                let spire_resolver =
+                    SpireCertResolver::new(spiffe_cfg.clone(), config_builder.crypto_provider())
+                        .await
+                        .map_err(|e| ConfigError::InvalidFile(e.to_string()))?;
+                config_builder.with_client_cert_resolver(Arc::new(spire_resolver))
             }
-            (false, false) => {
-                // If no client auth, return the config with client auth disabled
-                Ok(config_builder.with_no_client_auth())
+            Some(TlsSource::File { cert, key, .. }) => {
+                match (cert, key) {
+                    (Some(cert_path), Some(key_path)) => {
+                        let cert_resolver = WatcherCertResolver::new(
+                            key_path,
+                            cert_path,
+                            config_builder.crypto_provider(),
+                        )?;
+                        config_builder.with_client_cert_resolver(Arc::new(cert_resolver))
+                    }
+                    (None, None) => config_builder.with_no_client_auth(),
+                    _ => {
+                        // Mismatched presence – both must be present for client auth
+                        return Err(MissingServerCertAndKey);
+                    }
+                }
             }
-            (true, false) => {
-                // Create a custom Certificate provider that watches for changes in the certificate or the key file
-                let cert_resolver = WatcherCertResolver::new(
-                    self.config.key_file.as_ref().unwrap(),
-                    self.config.cert_file.as_ref().unwrap(),
-                    config_builder.crypto_provider(),
-                )?;
+            Some(TlsSource::Pem { cert, key, .. }) => match (cert, key) {
+                (Some(cert_pem), Some(key_pem)) => {
+                    let cert_resolver = StaticCertResolver::new(
+                        key_pem,
+                        cert_pem,
+                        config_builder.crypto_provider(),
+                    )?;
+                    config_builder.with_client_cert_resolver(Arc::new(cert_resolver))
+                }
+                (None, None) => config_builder.with_no_client_auth(),
+                _ => {
+                    return Err(MissingServerCertAndKey);
+                }
+            },
+            None => {
+                // No source configured => no client auth; may still have system CA roots
+                config_builder.with_no_client_auth()
+            }
+        };
 
-                Ok(config_builder.with_client_cert_resolver(Arc::new(cert_resolver)))
-            }
-            (false, true) => {
-                let cert_resolver = StaticCertResolver::new(
-                    self.config.key_pem.as_ref().unwrap(),
-                    self.config.cert_pem.as_ref().unwrap(),
-                    config_builder.crypto_provider(),
-                )?;
-                Ok(config_builder.with_client_cert_resolver(Arc::new(cert_resolver)))
-            }
-        }
+        Ok(Some(client_config))
     }
 }
 
@@ -338,52 +361,10 @@ impl TlsClientConfig {
 #[async_trait::async_trait]
 impl RustlsConfigLoader<RustlsClientConfig> for TlsClientConfig {
     async fn load_rustls_config(&self) -> Result<Option<RustlsClientConfig>, ConfigError> {
-        // If SPIFFE/SPIRE is configured we need the async CA loading path.
-        if let Some(spire_sources) = &self.config.spire {
-            // Use unified SpireCertResolver which internally builds and initializes the SPIFFE identity manager
-            let spiffe_cfg = &spire_sources.spiffe;
-
-            // Load CA bundle including SPIRE trust bundle (resolver will build provider internally)
-            let root_store = self.config.load_ca_cert_pool_async().await?;
-
-            // TLS version
-            let tls_version = match self.config.tls_version.as_str() {
-                "tls1.2" => &TLS12,
-                "tls1.3" => &TLS13,
-                _ => {
-                    return Err(ConfigError::InvalidTlsVersion(
-                        self.config.tls_version.clone(),
-                    ))
-                }
-            };
-
-            let config_builder =
-                RustlsClientConfig::builder_with_protocol_versions(&[tls_version])
-                    .with_root_certificates(root_store);
-
-            // Dynamic SPIFFE client cert resolver (no manual cert/key injection)
-            let spire_resolver = super::common::SpireCertResolver::new(spiffe_cfg.clone())
-                .await
-                .map_err(|e| ConfigError::InvalidFile(e.to_string()))?;
-            let mut client_config =
-                config_builder.with_client_cert_resolver(Arc::new(spire_resolver));
-
-            if self.insecure_skip_verify {
-                client_config
-                    .dangerous()
-                    .set_certificate_verifier(Arc::new(NoVerifier));
-            }
-
-            return Ok(Some(client_config));
-        }
-
-        // Legacy / non-SPIFFE path
-        if self.insecure && !self.config.has_ca() {
+        // Delegate all logic (SPIFFE + legacy) to consolidated function
+        let Some(mut client_config) = self.load_rustls_client_config().await? else {
             return Ok(None);
-        }
-
-        let root_store = self.config.load_ca_cert_pool()?;
-        let mut client_config = self.load_rustls_client_config(root_store).await?;
+        };
 
         if self.insecure_skip_verify {
             client_config

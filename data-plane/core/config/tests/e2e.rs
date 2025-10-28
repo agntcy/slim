@@ -44,11 +44,21 @@ impl Greeter for TestGreeter {
         for (key, value) in self.config.headers.iter() {
             // check that the additional headers we set are there
             let header = request.metadata().get(key);
-            assert!(header.is_some());
+            if header.is_none() {
+                return Err(Status::failed_precondition(format!(
+                    "missing expected header '{}'",
+                    key
+                )));
+            }
 
             // check that the value is correct
             let header = header.unwrap();
-            assert_eq!(header.to_str().unwrap(), value);
+            if header.to_str().unwrap() != value {
+                return Err(Status::failed_precondition(format!(
+                    "header '{}' value mismatch",
+                    key
+                )));
+            }
         }
 
         let reply = HelloReply {
@@ -103,33 +113,37 @@ mod tests {
         let ret = server_config
             .to_server_future(&[GreeterServer::new(greeter)])
             .await;
-        assert!(ret.is_ok(), "error: {:?}", ret.err());
 
-        let server_future = ret.unwrap();
+        // Propagate error instead of asserting
+        let server_future = match ret {
+            Ok(fut) => fut,
+            Err(e) => return Err(e.into()),
+        };
+
         server_future.await?;
 
         Ok(())
     }
 
-    async fn setup_client_and_server(client_config: ClientConfig, server_config: ServerConfig) {
+    async fn setup_client_and_server(
+        client_config: ClientConfig,
+        server_config: ServerConfig,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         provider::initialize_crypto_provider();
 
         // run grpc server
         let client_config_clone = client_config.clone();
         let _server = tokio::spawn(async move {
-            // clone the client configuration
-            run_server(client_config_clone, server_config)
-                .await
-                .unwrap();
+            if let Err(e) = run_server(client_config_clone, server_config).await {
+                tracing::error!("server error: {e}");
+            }
         });
 
-        let channel_result = client_config.to_channel().await;
-
-        // assert no error occurred
-        assert!(channel_result.is_ok(), "error: {:?}", channel_result.err());
-
         // create a client using the channel
-        let channel = channel_result.unwrap();
+        let channel = match client_config.to_channel().await {
+            Ok(ch) => ch,
+            Err(e) => return Err(Box::new(e)),
+        };
         let mut client = GreeterClient::new(channel);
 
         // send request to server
@@ -138,16 +152,20 @@ mod tests {
         });
 
         // wait for response
-        let response = client.say_hello(request).await;
-        assert!(response.is_ok(), "error: {:?}", response.err());
+        let response = match client.say_hello(request).await {
+            Ok(resp) => resp,
+            Err(e) => return Err(Box::new(e)),
+        };
 
         // print response
         debug!("RESPONSE={:?}", response);
+
+        Ok(())
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_grpc_configuration() {
+    async fn test_grpc_configuration() -> Result<(), Box<dyn std::error::Error>> {
         // create a client configuration and derive a channel from it
         let client_config = ClientConfig::with_endpoint("http://[::1]:50051")
             .with_headers(HashMap::from([(
@@ -166,7 +184,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_tls_grpc_configuration() {
+    async fn test_tls_grpc_configuration() -> Result<(), Box<dyn std::error::Error>> {
         // create a client configuration and derive a channel from it
         let client_config = ClientConfig::with_endpoint("https://[::1]:50052")
             .with_headers(HashMap::from([(
@@ -183,8 +201,8 @@ mod tests {
 
         // create server config
         let data_dir = std::path::PathBuf::from_iter([TEST_DATA_PATH]);
-        let cert = std::fs::read_to_string(data_dir.join("tls/server-1.crt")).unwrap();
-        let key = std::fs::read_to_string(data_dir.join("tls/server-1.key")).unwrap();
+        let cert = std::fs::read_to_string(data_dir.join("tls/server-1.crt"))?;
+        let key = std::fs::read_to_string(data_dir.join("tls/server-1.key"))?;
         let server_config = ServerConfig::with_endpoint("[::1]:50052").with_tls_settings(
             TlsServerConfig::new()
                 .with_insecure(false)
@@ -201,7 +219,7 @@ mod tests {
         auth_server_config: ServerAuthenticationConfig,
         auth_wrong_client_config: ClientAuthenticationConfig,
         port: u16,
-    ) {
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // create a client configuration and derive a channel from it
         let client_config = ClientConfig::with_endpoint(&format!("https://[::1]:{}", port))
             .with_headers(HashMap::from([(
@@ -231,14 +249,13 @@ mod tests {
             .with_auth(auth_server_config);
 
         // run grpc server and client
-        setup_client_and_server(client_config.clone(), server_config).await;
+        setup_client_and_server(client_config.clone(), server_config).await?;
 
         // create a new client with wrong credentials
         let channel = client_config
             .with_auth(auth_wrong_client_config)
             .to_channel()
-            .await
-            .unwrap();
+            .await?;
 
         let mut client = GreeterClient::new(channel);
 
@@ -247,12 +264,15 @@ mod tests {
 
         // wait for response
         let response = client.say_hello(request).await;
-        assert!(response.is_err(), "error: {:?}", response.err());
+        if response.is_ok() {
+            return Err("expected authentication failure for wrong credentials".into());
+        }
+        Ok(())
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_tls_auth_grpc_configuration() {
+    async fn test_tls_auth_grpc_configuration() -> Result<(), Box<dyn std::error::Error>> {
         // create a client configuration and derive a channel from it
         let client_config =
             ClientAuthenticationConfig::Basic(BasicAuthConfig::new("user", "password"));
@@ -266,12 +286,12 @@ mod tests {
             ClientAuthenticationConfig::Basic(BasicAuthConfig::new("wrong", "password"));
 
         // run grpc server and client
-        test_grpc_auth(client_config, server_config, wrong_client_config, 50054).await;
+        test_grpc_auth(client_config, server_config, wrong_client_config, 50054).await
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_tls_static_jwt_grpc_configuration() {
+    async fn test_tls_static_jwt_grpc_configuration() -> Result<(), Box<dyn std::error::Error>> {
         // Create temporary token files
         let token_path = std::env::temp_dir().join("test_token.jwt");
         let wrong_token_path = std::env::temp_dir().join("wrong_test_token.jwt");
@@ -292,8 +312,7 @@ mod tests {
                 format: KeyFormat::Pem,
                 key: KeyData::Str("shared-secret".to_string()),
             })
-            .build()
-            .unwrap();
+            .build()?;
 
         // Create another signer with wrong key for invalid token
         let wrong_signer = slim_auth::builder::JwtBuilder::new()
@@ -305,15 +324,14 @@ mod tests {
                 format: KeyFormat::Pem,
                 key: KeyData::Str("wrong-secret".to_string()),
             })
-            .build()
-            .unwrap();
+            .build()?;
 
         // Generate JWT tokens and write to files
-        let valid_token = signer.sign_standard_claims().unwrap();
-        let invalid_token = wrong_signer.sign_standard_claims().unwrap();
+        let valid_token = signer.sign_standard_claims()?;
+        let invalid_token = wrong_signer.sign_standard_claims()?;
 
-        std::fs::write(&token_path, valid_token).unwrap();
-        std::fs::write(&wrong_token_path, invalid_token).unwrap();
+        std::fs::write(&token_path, valid_token)?;
+        std::fs::write(&wrong_token_path, invalid_token)?;
 
         // create a client configuration with StaticJwt (file-based)
         let client_config = ClientAuthenticationConfig::StaticJwt(BearerAuthConfig::with_file(
@@ -337,11 +355,12 @@ mod tests {
         );
 
         // run grpc server and client
-        test_grpc_auth(client_config, server_config, wrong_client_config, 50055).await;
+        test_grpc_auth(client_config, server_config, wrong_client_config, 50055).await?;
 
         // Clean up temporary files
         let _ = std::fs::remove_file(token_path);
         let _ = std::fs::remove_file(wrong_token_path);
+        Ok(())
     }
 
     async fn test_tls_jwt_grpc_configuration(
@@ -349,7 +368,7 @@ mod tests {
         key_server: Key,
         key_client_wrong: Key,
         port: u16,
-    ) {
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // Create JWT claims
         let claims = slim_config::auth::jwt::Claims::default()
             .with_issuer("test-issuer")
@@ -375,12 +394,12 @@ mod tests {
         ));
 
         // run grpc server and client
-        test_grpc_auth(client_config, server_config, wring_client_config, port).await;
+        test_grpc_auth(client_config, server_config, wring_client_config, port).await
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_tls_jwt_hs256_grpc_configuration() {
+    async fn test_tls_jwt_hs256_grpc_configuration() -> Result<(), Box<dyn std::error::Error>> {
         // Test RSA JWT configuration
         test_tls_jwt_grpc_configuration(
             Key {
@@ -400,12 +419,12 @@ mod tests {
             },
             50057,
         )
-        .await;
+        .await
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_tls_jwt_rsa256_grpc_configuration() {
+    async fn test_tls_jwt_rsa256_grpc_configuration() -> Result<(), Box<dyn std::error::Error>> {
         // Test RSA JWT configuration
         test_tls_jwt_grpc_configuration(
             Key {
@@ -425,12 +444,12 @@ mod tests {
             },
             50058,
         )
-        .await;
+        .await
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_tls_jwt_rsa384_grpc_configuration() {
+    async fn test_tls_jwt_rsa384_grpc_configuration() -> Result<(), Box<dyn std::error::Error>> {
         // Test RSA JWT configuration
         test_tls_jwt_grpc_configuration(
             Key {
@@ -450,12 +469,12 @@ mod tests {
             },
             50059,
         )
-        .await;
+        .await
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_tls_jwt_rsa512_grpc_configuration() {
+    async fn test_tls_jwt_rsa512_grpc_configuration() -> Result<(), Box<dyn std::error::Error>> {
         // Test RSA JWT configuration
         test_tls_jwt_grpc_configuration(
             Key {
@@ -475,12 +494,12 @@ mod tests {
             },
             50060,
         )
-        .await;
+        .await
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_tls_jwt_ecdsa256_grpc_configuration() {
+    async fn test_tls_jwt_ecdsa256_grpc_configuration() -> Result<(), Box<dyn std::error::Error>> {
         // Test RSA JWT configuration
         test_tls_jwt_grpc_configuration(
             Key {
@@ -500,12 +519,12 @@ mod tests {
             },
             50061,
         )
-        .await;
+        .await
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_tls_jwt_ecdsa384_grpc_configuration() {
+    async fn test_tls_jwt_ecdsa384_grpc_configuration() -> Result<(), Box<dyn std::error::Error>> {
         // Test RSA JWT configuration
         test_tls_jwt_grpc_configuration(
             Key {
@@ -525,12 +544,12 @@ mod tests {
             },
             50062,
         )
-        .await;
+        .await
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_tls_jwt_ps256_grpc_configuration() {
+    async fn test_tls_jwt_ps256_grpc_configuration() -> Result<(), Box<dyn std::error::Error>> {
         // Test RSA JWT configuration
         test_tls_jwt_grpc_configuration(
             Key {
@@ -550,12 +569,12 @@ mod tests {
             },
             50063,
         )
-        .await;
+        .await
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_tls_jwt_ps384_grpc_configuration() {
+    async fn test_tls_jwt_ps384_grpc_configuration() -> Result<(), Box<dyn std::error::Error>> {
         // Test RSA JWT configuration
         test_tls_jwt_grpc_configuration(
             Key {
@@ -575,12 +594,12 @@ mod tests {
             },
             50064,
         )
-        .await;
+        .await
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_tls_jwt_ps512_grpc_configuration() {
+    async fn test_tls_jwt_ps512_grpc_configuration() -> Result<(), Box<dyn std::error::Error>> {
         // Test RSA JWT configuration
         test_tls_jwt_grpc_configuration(
             Key {
@@ -600,12 +619,12 @@ mod tests {
             },
             50065,
         )
-        .await;
+        .await
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_tls_jwt_eddsa_grpc_configuration() {
+    async fn test_tls_jwt_eddsa_grpc_configuration() -> Result<(), Box<dyn std::error::Error>> {
         // Test RSA JWT configuration
         test_tls_jwt_grpc_configuration(
             Key {
@@ -625,10 +644,13 @@ mod tests {
             },
             50066,
         )
-        .await;
+        .await
     }
 
-    async fn test_tls_jwt_resolver_grpc_configuration(algorithm: Algorithm, port: u16) {
+    async fn test_tls_jwt_resolver_grpc_configuration(
+        algorithm: Algorithm,
+        port: u16,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let (test_key, mock_server, _alg_str) = setup_test_jwt_resolver(algorithm).await;
 
         // Create JWT claims
@@ -677,117 +699,140 @@ mod tests {
         ));
 
         // run grpc server and client
-        test_grpc_auth(client_config, server_config, wring_client_config, port).await;
+        test_grpc_auth(client_config, server_config, wring_client_config, port).await
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_tls_jwt_ecdsa256_autoresolve_grpc_configuration() {
+    async fn test_tls_jwt_ecdsa256_autoresolve_grpc_configuration()
+    -> Result<(), Box<dyn std::error::Error>> {
         // Test RSA JWT configuration
-        test_tls_jwt_resolver_grpc_configuration(Algorithm::ES256, 51111).await;
+        test_tls_jwt_resolver_grpc_configuration(Algorithm::ES256, 51111).await
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_tls_jwt_ecdsa384_autoresolve_grpc_configuration() {
+    async fn test_tls_jwt_ecdsa384_autoresolve_grpc_configuration()
+    -> Result<(), Box<dyn std::error::Error>> {
         // Test RSA JWT configuration
-        test_tls_jwt_resolver_grpc_configuration(Algorithm::ES384, 51112).await;
+        test_tls_jwt_resolver_grpc_configuration(Algorithm::ES384, 51112).await
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_tls_jwt_rsa256_autoresolve_grpc_configuration() {
+    async fn test_tls_jwt_rsa256_autoresolve_grpc_configuration()
+    -> Result<(), Box<dyn std::error::Error>> {
         // Test RSA JWT configuration
-        test_tls_jwt_resolver_grpc_configuration(Algorithm::RS256, 51113).await;
+        test_tls_jwt_resolver_grpc_configuration(Algorithm::RS256, 51113).await
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_tls_jwt_rsa384_autoresolve_grpc_configuration() {
+    async fn test_tls_jwt_rsa384_autoresolve_grpc_configuration()
+    -> Result<(), Box<dyn std::error::Error>> {
         // Test RSA JWT configuration
-        test_tls_jwt_resolver_grpc_configuration(Algorithm::RS384, 51114).await;
+        test_tls_jwt_resolver_grpc_configuration(Algorithm::RS384, 51114).await
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_tls_jwt_rsa512_autoresolve_grpc_configuration() {
+    async fn test_tls_jwt_rsa512_autoresolve_grpc_configuration()
+    -> Result<(), Box<dyn std::error::Error>> {
         // Test RSA JWT configuration
-        test_tls_jwt_resolver_grpc_configuration(Algorithm::RS512, 51115).await;
+        test_tls_jwt_resolver_grpc_configuration(Algorithm::RS512, 51115).await
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_tls_jwt_rsap256_autoresolve_grpc_configuration() {
+    async fn test_tls_jwt_rsap256_autoresolve_grpc_configuration()
+    -> Result<(), Box<dyn std::error::Error>> {
         // Test RSA JWT configuration
-        test_tls_jwt_resolver_grpc_configuration(Algorithm::PS256, 51116).await;
+        test_tls_jwt_resolver_grpc_configuration(Algorithm::PS256, 51116).await
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_tls_jwt_rsap384_autoresolve_grpc_configuration() {
+    async fn test_tls_jwt_rsap384_autoresolve_grpc_configuration()
+    -> Result<(), Box<dyn std::error::Error>> {
         // Test RSA JWT configuration
-        test_tls_jwt_resolver_grpc_configuration(Algorithm::PS384, 51117).await;
+        test_tls_jwt_resolver_grpc_configuration(Algorithm::PS384, 51117).await
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_tls_jwt_rsap512_autoresolve_grpc_configuration() {
+    async fn test_tls_jwt_rsap512_autoresolve_grpc_configuration()
+    -> Result<(), Box<dyn std::error::Error>> {
         // Test RSA JWT configuration
-        test_tls_jwt_resolver_grpc_configuration(Algorithm::PS512, 51118).await;
+        test_tls_jwt_resolver_grpc_configuration(Algorithm::PS512, 51118).await
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_tls_jwt_eddsa_autoresolve_grpc_configuration() {
+    async fn test_tls_jwt_eddsa_autoresolve_grpc_configuration()
+    -> Result<(), Box<dyn std::error::Error>> {
         // Test RSA JWT configuration
-        test_tls_jwt_resolver_grpc_configuration(Algorithm::EdDSA, 51119).await;
-    }
-#[cfg(feature = "testutils")]
-#[tokio::test]
-#[tokio::test]
-#[traced_test]
-async fn test_tls_spiffe_grpc_configuration() {
-    // SPIFFE / SPIRE mTLS integration test.
-    // Sets up a SPIRE server + agent and uses SPIFFE directly in both client and server
-    // without manual certificate/key extraction.
-
-    if std::process::Command::new("docker").arg("ps").status().is_err() {
-        tracing::warn!("Docker not available - skipping SPIFFE mTLS test");
-        return;
+        test_tls_jwt_resolver_grpc_configuration(Algorithm::EdDSA, 51119).await
     }
 
-    // Start SPIRE environment
-    let mut env = slim_testing::utils::spire_env::SpireTestEnvironment::new()
-        .await
-        .expect("Failed to create SPIRE test environment");
-    env.start().await.expect("Failed to start SPIRE server/agent");
+    #[tokio::test]
+    #[traced_test]
+    async fn test_tls_spiffe_grpc_configuration() -> Result<(), Box<dyn std::error::Error>> {
+        // SPIFFE / SPIRE mTLS integration test.
+        // Sets up a SPIRE server + agent and uses SPIFFE directly in both client and server
+        // without manual certificate/key extraction.
 
-    // Unified SPIFFE config (socket path + audiences)
-    let spiffe_cfg = env.get_spiffe_config();
+        if std::process::Command::new("docker")
+            .arg("ps")
+            .status()
+            .is_err()
+        {
+            tracing::warn!("Docker not available - skipping SPIFFE mTLS test");
+            return Ok(());
+        }
 
-    // Server TLS config uses dynamic SPIFFE resolver (no cert/key files)
-    let server_tls = TlsServerConfig::new()
-        .with_spiffe(spiffe_cfg.clone())
-        .with_tls_version("tls1.3");
+        // Create SPIRE environment
+        let mut env = slim_testing::utils::spire_env::SpireTestEnvironment::new().await?;
 
-    let server_config = ServerConfig::with_endpoint("[::1]:50071")
-        .with_tls_settings(server_tls);
+        // Start SPIRE server/agent; cleanup on failure
+        if let Err(e) = env.start().await {
+            let _ = env.cleanup().await;
+            return Err(e);
+        }
 
-    // Client TLS config uses dynamic SPIFFE client cert resolver (no cert/key injection)
-    let client_tls = TlsClientConfig::new()
-        .with_spiffe(spiffe_cfg.clone())
-        .with_tls_version("tls1.3");
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
-    let client_config = ClientConfig::with_endpoint("http://[::1]:50071")
-        .with_tls_setting(client_tls);
+        // Unified SPIFFE config (socket path + audiences)
+        let spiffe_cfg = env.get_spiffe_config();
 
-    // Perform round‑trip
-    setup_client_and_server(client_config, server_config).await;
+        // Server TLS config uses dynamic SPIFFE resolver (no cert/key files)
+        let server_tls = TlsServerConfig::new()
+            .with_spiffe(spiffe_cfg.clone())
+            .with_tls_version("tls1.3");
 
-    // Cleanup
-    env.cleanup()
-        .await
-        .expect("Failed to cleanup SPIRE test environment");
-}
+        let server_config =
+            ServerConfig::with_endpoint("[::1]:50071").with_tls_settings(server_tls);
 
+        // Client TLS config uses dynamic SPIFFE client cert resolver (no cert/key injection)
+        let client_tls = TlsClientConfig::new()
+            .with_spiffe(spiffe_cfg.clone())
+            .with_tls_version("tls1.3");
+
+        let client_config = ClientConfig::with_endpoint("https://[::1]:50071")
+            .with_tls_setting(client_tls)
+            .with_server_name(env.server_name());
+
+        // Perform round‑trip; cleanup on failure
+        if let Err(e) = setup_client_and_server(client_config, server_config).await {
+            let _ = env.cleanup().await;
+            return Err(e);
+        }
+
+        // Cleanup (propagate error if cleanup itself fails)
+        if let Err(e) = env.cleanup().await {
+            tracing::error!("Failed to cleanup SPIRE test environment: {e}");
+            return Err(e);
+        }
+
+        Ok(())
+    }
 }

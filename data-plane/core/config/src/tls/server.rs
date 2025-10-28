@@ -15,15 +15,21 @@ use serde::{Deserialize, Serialize};
 use super::common::{Config, ConfigError, RustlsConfigLoader};
 use crate::{
     component::configuration::{Configuration, ConfigurationError},
-    tls::common::{SpireCertResolver, StaticCertResolver, WatcherCertResolver},
+    tls::common::{self, SpireCertResolver, StaticCertResolver, WatcherCertResolver},
 };
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Clone)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientCaSources {
-    File { path: String },
-    Pem { data: String },
-    Spire { config: crate::auth::spiffe::SpiffeConfig },
+    File {
+        path: String,
+    },
+    Pem {
+        data: String,
+    },
+    Spire {
+        config: crate::auth::spiffe::SpiffeConfig,
+    },
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Clone)]
@@ -90,8 +96,6 @@ impl ResolvesServerCert for StaticCertResolver {
     }
 }
 
-
-
 // methods for ServerConfig to create a RustlsServerConfig from the config
 impl TlsServerConfig {
     /// Create a new TlsServerConfig
@@ -118,7 +122,9 @@ impl TlsServerConfig {
     /// Set client CA from file
     pub fn with_client_ca_file(self, client_ca_file: &str) -> Self {
         TlsServerConfig {
-            client_ca: Some(ClientCaSources::File { path: client_ca_file.to_string() }),
+            client_ca: Some(ClientCaSources::File {
+                path: client_ca_file.to_string(),
+            }),
             ..self
         }
     }
@@ -126,7 +132,9 @@ impl TlsServerConfig {
     /// Set client CA from PEM
     pub fn with_client_ca_pem(self, client_ca_pem: &str) -> Self {
         TlsServerConfig {
-            client_ca: Some(ClientCaSources::Pem { data: client_ca_pem.to_string() }),
+            client_ca: Some(ClientCaSources::Pem {
+                data: client_ca_pem.to_string(),
+            }),
             ..self
         }
     }
@@ -134,7 +142,9 @@ impl TlsServerConfig {
     /// Set client CA from SPIFFE (SPIRE)
     pub fn with_client_ca_spire(self, client_ca_spire: crate::auth::spiffe::SpiffeConfig) -> Self {
         TlsServerConfig {
-            client_ca: Some(ClientCaSources::Spire { config: client_ca_spire }),
+            client_ca: Some(ClientCaSources::Spire {
+                config: client_ca_spire,
+            }),
             ..self
         }
     }
@@ -230,7 +240,11 @@ impl TlsServerConfig {
     }
 
     /// Unified async loader supporting legacy file/pem certs and SPIFFE/SPIRE dynamic SVID.
-    pub async fn load_rustls_server_config(&self) -> Result<Option<RustlsServerConfig>, ConfigError> {
+    pub async fn load_rustls_server_config(
+        &self,
+    ) -> Result<Option<RustlsServerConfig>, ConfigError> {
+        use ConfigError::*;
+
         // Insecure => no TLS
         if self.insecure {
             return Ok(None);
@@ -240,178 +254,147 @@ impl TlsServerConfig {
         let tls_version = match self.config.tls_version.as_str() {
             "tls1.2" => &TLS12,
             "tls1.3" => &TLS13,
-            _ => return Err(ConfigError::InvalidTlsVersion(self.config.tls_version.clone())),
+            _ => return Err(InvalidTlsVersion(self.config.tls_version.clone())),
         };
 
         let config_builder = RustlsServerConfig::builder_with_protocol_versions(&[tls_version]);
 
-        // SPIFFE/SPIRE branch (dynamic server cert + bundled client CA verification)
-        if let Some(spire_sources) = &self.config.spire {
-            let spiffe_cfg = &spire_sources.spiffe;
-            // Extract client CA enum variant (if any)
-            let client_ca_variant = self.client_ca.as_ref();
+        // Unified handling based on TlsSource enum
+        let resolver: Arc<dyn ResolvesServerCert> = match &self.config.source {
+            // SPIFFE server cert path (dynamic SVID)
+            Some(super::common::TlsSource::Spire { config: spiffe_cfg }) => {
+                let spire_resolver =
+                    SpireCertResolver::new(spiffe_cfg.clone(), config_builder.crypto_provider())
+                        .await
+                        .map_err(|e| ConfigError::InvalidFile(e.to_string()))?;
 
-            // Dynamic resolver for server SVID
-            let spire_resolver = super::common::SpireCertResolver::new(spiffe_cfg.clone())
-                .await
-                .map_err(|e| ConfigError::InvalidFile(e.to_string()))?;
+                // Build client CA root store (start with async CA bundle including SPIRE trust bundle)
+                let mut root_store = self.config.load_ca_cert_pool().await?;
 
-            // Start with SPIRE CA bundle (server spire config)
-            let mut root_store = self
-                .config
-                .load_ca_cert_pool_async()
-                .await
-                .map_err(|e| e)?;
-
-            // Optionally merge a distinct SPIFFE client CA source (client_ca_spire)
-            if let Some(ClientCaSources::Spire { config: client_spiffe_cfg }) = client_ca_variant {
-                if let Ok(client_spire_resolver) = SpireCertResolver::new(client_spiffe_cfg.clone()).await {
-                    if let Ok(bundle) = client_spire_resolver.load_ca_bundle() {
-                        for cert in bundle {
-                            let _ = root_store.add(cert);
-                        }
-                    }
-                }
-            }
-
-            // Merge explicit client CA (file)
-            if let Some(ClientCaSources::File { path: ca_file }) = client_ca_variant {
-                match CertificateDer::pem_file_iter(Path::new(ca_file)) {
-                    Ok(iter) => {
-                        for cert_res in iter {
-                            match cert_res {
-                                Ok(cert) => {
-                                    if let Err(e) = root_store.add(cert) {
-                                        tracing::warn!(error=%e, "failed adding client_ca_file cert");
-                                    }
+                // Merge client CA sources if provided (file/pem/spire)
+                if let Some(client_ca_variant) = &self.client_ca {
+                    match client_ca_variant {
+                        ClientCaSources::File { path } => {
+                            if let Ok(iter) = CertificateDer::pem_file_iter(Path::new(path)) {
+                                for cert in iter.flatten() {
+                                    let _ = root_store.add(cert);
                                 }
-                                Err(e) => tracing::warn!(error=%e, "invalid PEM in client_ca_file"),
                             }
                         }
-                    }
-                    Err(e) => tracing::warn!(error=%e, "failed reading client_ca_file"),
-                }
-            }
-
-            // Merge explicit client CA (pem)
-            if let Some(ClientCaSources::Pem { data: ca_pem }) = client_ca_variant {
-                match CertificateDer::pem_slice_iter(ca_pem.as_bytes()) {
-                    ok_iter => {
-                        for cert_res in ok_iter {
-                            match cert_res {
-                                Ok(cert) => {
-                                    if let Err(e) = root_store.add(cert) {
-                                        tracing::warn!(error=%e, "failed adding client_ca_pem cert");
-                                    }
-                                }
-                                Err(e) => tracing::warn!(error=%e, "invalid PEM in client_ca_pem"),
-                            }
-                        }
-                    }
-                }
-            }
-
-            if root_store.is_empty() {
-                tracing::warn!(
-                    "SPIRE + explicit client CA sources produced empty root store; client cert verification will fail"
-                );
-            }
-
-            let verifier = WebPkiClientVerifier::builder(root_store.into())
-                .build()
-                .map_err(ConfigError::VerifierBuilder)?;
-
-            let server_config = config_builder
-                .with_client_cert_verifier(verifier)
-                .with_cert_resolver(Arc::new(spire_resolver));
-
-            return Ok(Some(server_config));
-        }
-
-        // Legacy file/pem branch
-        let resolver: Arc<dyn ResolvesServerCert> = match (
-            self.config.has_cert_file() && self.config.has_key_file(),
-            self.config.has_cert_pem() && self.config.has_key_pem(),
-        ) {
-            (true, true) => return Err(ConfigError::CannotUseBoth("cert".to_string())),
-            (false, false) => return Err(ConfigError::MissingServerCertAndKey),
-            (true, false) => Arc::new(WatcherCertResolver::new(
-                self.config.key_file.as_ref().unwrap(),
-                self.config.cert_file.as_ref().unwrap(),
-                config_builder.crypto_provider(),
-            )?),
-            (false, true) => Arc::new(StaticCertResolver::new(
-                self.config.key_pem.as_ref().unwrap(),
-                self.config.cert_pem.as_ref().unwrap(),
-                config_builder.crypto_provider(),
-            )?),
-        };
-
-        // Optional client auth root store
-        // Enum variant access
-        let client_ca_variant = self.client_ca.as_ref();
-
-        let client_ca_certs = match client_ca_variant {
-            Some(ClientCaSources::File { path }) => {
-                let certs: Result<Vec<_>, _> = CertificateDer::pem_file_iter(Path::new(path))
-                    .map_err(ConfigError::InvalidPem)?
-                    .collect();
-                Some(certs.map_err(ConfigError::InvalidPem)?)
-            }
-            Some(ClientCaSources::Pem { data }) => {
-                let certs: Result<Vec<_>, _> =
-                    CertificateDer::pem_slice_iter(data.as_bytes()).collect();
-                Some(certs.map_err(ConfigError::InvalidPem)?)
-            }
-            _ => None, // Spire handled separately; None means no explicit file/pem
-        };
-
-        let server_config = match client_ca_certs {
-            Some(client_ca_certs) => {
-                let mut root_store = RootCertStore::empty();
-                for cert in client_ca_certs {
-                    root_store.add(cert).map_err(ConfigError::RootStore)?;
-                }
-                // Merge SPIFFE client CA bundle if client_ca_spire is set
-                if let Some(ClientCaSources::Spire { config: spiffe_cfg }) = client_ca_variant {
-                    if let Ok(spire_resolver) = SpireCertResolver::new(spiffe_cfg.clone()).await {
-                        if let Ok(bundle) = spire_resolver.load_ca_bundle() {
-                            for cert in bundle {
+                        ClientCaSources::Pem { data } => {
+                            for cert in CertificateDer::pem_slice_iter(data.as_bytes()).flatten() {
                                 let _ = root_store.add(cert);
                             }
                         }
+                        ClientCaSources::Spire {
+                            config: client_spiffe_cfg,
+                        } => {
+                            common::add_spiffe_bundles(&mut root_store, client_spiffe_cfg)
+                                .await
+                                .map_err(|e| {
+                                    ConfigError::Spire(format!(
+                                        "Failed to load SPIRE client CA bundle: {}",
+                                        e
+                                    ))
+                                })?;
+                        }
                     }
                 }
+
                 let verifier = WebPkiClientVerifier::builder(root_store.into())
                     .build()
                     .map_err(ConfigError::VerifierBuilder)?;
-                config_builder
+
+                let server_config = config_builder
                     .with_client_cert_verifier(verifier)
-                    .with_cert_resolver(resolver)
+                    .with_cert_resolver(Arc::new(spire_resolver));
+
+                return Ok(Some(server_config));
             }
-            None => {
-                // If a SPIFFE client CA source is provided, enable client auth with its bundle
-                if let Some(ClientCaSources::Spire { config: spiffe_cfg }) = client_ca_variant {
-                    let mut root_store = RootCertStore::empty();
-                    if let Ok(spire_resolver) = SpireCertResolver::new(spiffe_cfg.clone()).await {
-                        if let Ok(bundle) = spire_resolver.load_ca_bundle() {
-                            for cert in bundle {
-                                let _ = root_store.add(cert);
-                            }
+
+            // Static file-based certificates
+            Some(super::common::TlsSource::File { cert, key, .. }) => match (cert, key) {
+                (Some(cert_path), Some(key_path)) => Arc::new(WatcherCertResolver::new(
+                    key_path,
+                    cert_path,
+                    config_builder.crypto_provider(),
+                )?),
+                (None, None) => return Err(MissingServerCertAndKey),
+                _ => return Err(MissingServerCertAndKey),
+            },
+
+            // Static PEM-based certificates
+            Some(super::common::TlsSource::Pem { cert, key, .. }) => match (cert, key) {
+                (Some(cert_pem), Some(key_pem)) => Arc::new(StaticCertResolver::new(
+                    key_pem,
+                    cert_pem,
+                    config_builder.crypto_provider(),
+                )?),
+                (None, None) => return Err(MissingServerCertAndKey),
+                _ => return Err(MissingServerCertAndKey),
+            },
+
+            // No source configured
+            None => return Err(MissingServerCertAndKey),
+        };
+
+        // Build optional client auth verifier (non-SPIFFE server cert path)
+        let client_ca_variant = self.client_ca.as_ref();
+
+        // Collect client CA certificates based on variant (single source)
+        let maybe_root_store = match client_ca_variant {
+            Some(ClientCaSources::File { path }) => {
+                let mut rs = RootCertStore::empty();
+                let certs: Result<Vec<_>, _> = CertificateDer::pem_file_iter(Path::new(path))
+                    .map_err(ConfigError::InvalidPem)?
+                    .collect();
+                for cert in certs.map_err(ConfigError::InvalidPem)? {
+                    rs.add(cert).map_err(ConfigError::RootStore)?;
+                }
+                Some(rs)
+            }
+            Some(ClientCaSources::Pem { data }) => {
+                let mut rs = RootCertStore::empty();
+                let certs: Result<Vec<_>, _> =
+                    CertificateDer::pem_slice_iter(data.as_bytes()).collect();
+                for cert in certs.map_err(ConfigError::InvalidPem)? {
+                    rs.add(cert).map_err(ConfigError::RootStore)?;
+                }
+                Some(rs)
+            }
+            Some(ClientCaSources::Spire { config: spiffe_cfg }) => {
+                // Load SPIRE bundle for client auth
+                if let Ok(spire_resolver) =
+                    SpireCertResolver::new(spiffe_cfg.clone(), config_builder.crypto_provider())
+                        .await
+                {
+                    if let Ok(bundle) = spire_resolver.load_ca_bundle() {
+                        let mut rs = RootCertStore::empty();
+                        for cert in bundle {
+                            let _ = rs.add(cert);
                         }
+                        Some(rs)
+                    } else {
+                        None
                     }
-                    let verifier = WebPkiClientVerifier::builder(root_store.into())
-                        .build()
-                        .map_err(ConfigError::VerifierBuilder)?;
-                    config_builder
-                        .with_client_cert_verifier(verifier)
-                        .with_cert_resolver(resolver)
                 } else {
-                    config_builder
-                        .with_no_client_auth()
-                        .with_cert_resolver(resolver)
+                    None
                 }
             }
+            None => None,
+        };
+
+        let server_config = if let Some(root_store) = maybe_root_store {
+            let verifier = WebPkiClientVerifier::builder(root_store.into())
+                .build()
+                .map_err(ConfigError::VerifierBuilder)?;
+            config_builder
+                .with_client_cert_verifier(verifier)
+                .with_cert_resolver(resolver)
+        } else {
+            config_builder
+                .with_no_client_auth()
+                .with_cert_resolver(resolver)
         };
 
         Ok(Some(server_config))

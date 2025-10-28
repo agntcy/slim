@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use duration_string::DurationString;
+use rustls_pki_types::ServerName;
+
 use std::time::Duration;
 use std::{collections::HashMap, str::FromStr};
 use tower::ServiceExt;
@@ -18,22 +20,51 @@ use tonic::codegen::{Body, Bytes, StdError};
 use tonic::transport::{Channel, Uri};
 use tracing::warn;
 
-/// Macro to create TLS-enabled or plain connectors based on TLS configuration
+use super::compression::CompressionType;
+use super::errors::ConfigError;
+use super::headers_middleware::SetRequestHeaderLayer;
+use crate::auth::ClientAuthenticator;
+use crate::auth::basic::Config as BasicAuthenticationConfig;
+use crate::auth::jwt::Config as JwtAuthenticationConfig;
+use crate::auth::static_jwt::Config as BearerAuthenticationConfig;
+use crate::component::configuration::{Configuration, ConfigurationError};
+use crate::grpc::proxy::ProxyConfig;
+use crate::metadata::MetadataMap;
+use crate::tls::{client::TlsClientConfig as TLSSetting, common::RustlsConfigLoader};
+
+/// Creates an HTTPS connector with optional SNI based on the origin
+fn https_connector<S>(
+    s: S,
+    tls: &rustls::ClientConfig,
+    server_name: Option<String>,
+) -> hyper_rustls::HttpsConnector<S>
+where
+    S: tower::Service<Uri>,
+{
+    let tls = tls.clone();
+    let mut builder = hyper_rustls::HttpsConnectorBuilder::new()
+        .with_tls_config(tls)
+        .https_or_http();
+
+    if let Some(origin_str) = server_name {
+        builder =
+            builder.with_server_name_resolver(move |_: &_| ServerName::try_from(origin_str.clone()))
+    }
+
+    builder.enable_http2().wrap_connector(s)
+}
+
+/// Macro to create TLS-enabled or plain connectors based on TLS configuration,
+/// applying the optional origin (for SNI) when TLS is enabled.
 macro_rules! create_connector {
-    ($builder:expr, $base_connector:expr, $tls_config:expr) => {
+    ($builder:expr, $base_connector:expr, $tls_config:expr, $server_name:expr) => {
         match $tls_config {
             Some(tls) => {
                 let connector = tower::ServiceBuilder::new()
                     .layer_fn(move |s| {
-                        let tls = tls.clone();
-                        hyper_rustls::HttpsConnectorBuilder::new()
-                            .with_tls_config(tls)
-                            .https_or_http()
-                            .enable_http2()
-                            .wrap_connector(s)
+                        https_connector(s, &tls, $server_name.map(|s| s.to_string()))
                     })
                     .service($base_connector);
-
                 Ok($builder.connect_with_connector_lazy(connector))
             }
             None => Ok($builder.connect_with_connector_lazy($base_connector)),
@@ -57,18 +88,6 @@ macro_rules! create_auth_service {
             .boxed())
     }};
 }
-
-use super::compression::CompressionType;
-use super::errors::ConfigError;
-use super::headers_middleware::SetRequestHeaderLayer;
-use crate::auth::ClientAuthenticator;
-use crate::auth::basic::Config as BasicAuthenticationConfig;
-use crate::auth::jwt::Config as JwtAuthenticationConfig;
-use crate::auth::static_jwt::Config as BearerAuthenticationConfig;
-use crate::component::configuration::{Configuration, ConfigurationError};
-use crate::grpc::proxy::ProxyConfig;
-use crate::metadata::MetadataMap;
-use crate::tls::{client::TlsClientConfig as TLSSetting, common::RustlsConfigLoader};
 
 /// Enum to handle all connection types: direct connections and proxy tunnels
 enum ConnectionType {
@@ -159,8 +178,12 @@ pub struct ClientConfig {
     /// The target the client will connect to.
     pub endpoint: String,
 
-    /// Origin for the client.
+    /// Origin (HTTP Host authority override) for the client.
     pub origin: Option<String>,
+
+    /// Optional TLS SNI server name override. If set, this value is used for TLS
+    /// server name verification (SNI) instead of the host extracted from endpoint/origin.
+    pub server_name: Option<String>,
 
     /// Compression type - TODO(msardara): not implemented yet.
     pub compression: Option<CompressionType>,
@@ -211,6 +234,7 @@ impl Default for ClientConfig {
         ClientConfig {
             endpoint: String::new(),
             origin: None,
+            server_name: None,
             compression: None,
             rate_limit: None,
             tls_setting: TLSSetting::default(),
@@ -239,9 +263,10 @@ impl std::fmt::Display for ClientConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "ClientConfig {{ endpoint: {}, origin: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, proxy: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?}, metadata: {:?} }}",
+            "ClientConfig {{ endpoint: {}, origin: {:?}, server_name: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, proxy: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?}, metadata: {:?} }}",
             self.endpoint,
             self.origin,
+            self.server_name,
             self.compression,
             self.rate_limit,
             self.tls_setting,
@@ -278,6 +303,13 @@ impl ClientConfig {
     pub fn with_origin(self, origin: &str) -> Self {
         Self {
             origin: Some(origin.to_string()),
+            ..self
+        }
+    }
+
+    pub fn with_server_name(self, server_name: &str) -> Self {
+        Self {
+            server_name: Some(server_name.to_string()),
             ..self
         }
     }
@@ -622,13 +654,13 @@ impl ClientConfig {
     ) -> Result<Channel, ConfigError> {
         match connection {
             ConnectionType::Direct(connector) => {
-                create_connector!(builder, connector, tls_config)
+                create_connector!(builder, connector, tls_config, self.server_name.as_deref())
             }
             ConnectionType::ProxyHttp(tunnel) => {
-                create_connector!(builder, tunnel, tls_config)
+                create_connector!(builder, tunnel, tls_config, self.server_name.as_deref())
             }
             ConnectionType::ProxyHttps(tunnel) => {
-                create_connector!(builder, tunnel, tls_config)
+                create_connector!(builder, tunnel, tls_config, self.server_name.as_deref())
             }
         }
     }
@@ -733,6 +765,7 @@ fn parse_rate_limit(rate_limit: &str) -> Result<(u64, Duration), ConfigError> {
 mod test {
     #[allow(unused_imports)]
     use super::*;
+    use crate::tls::common::TlsSource;
     use tracing::debug;
     use tracing_test::traced_test;
 
@@ -800,7 +833,11 @@ mod test {
         // Set the tls settings
         client.tls_setting = {
             let mut tls = TLSSetting::default();
-            tls.config.ca_file = Some(format!("{}/testdata/grpc/{}", test_path, "ca.crt"));
+            tls.config.source = Some(TlsSource::File {
+                ca: Some(format!("{}/testdata/grpc/{}", test_path, "ca.crt")),
+                cert: None,
+                key: None,
+            });
             tls.insecure = false;
             tls
         };

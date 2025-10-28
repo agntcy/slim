@@ -165,4 +165,5 @@ ignored = [
     "agntcy-slim-session",
     "agntcy-slim-signal",
     "agntcy-slim-tracing",
+    "agntcy-slim-testing",
 ]

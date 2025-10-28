@@ -207,33 +207,11 @@ async fn create_workload_client(
     }
 }
 
-/// Configuration for SPIFFE authentication
-/// Unified configuration for SPIFFE identity (used for both providing and verifying)
-#[derive(Debug, Clone)]
-struct SpiffeIdentityManagerConfig {
-    socket_path: Option<String>,
-    target_spiffe_id: Option<String>,
-    jwt_audiences: Vec<String>,
-    trust_domain: Option<String>,
-}
-
-impl Default for SpiffeIdentityManagerConfig {
-    fn default() -> Self {
-        Self {
-            socket_path: None,
-            target_spiffe_id: None,
-            jwt_audiences: vec!["slim".to_string()],
-            trust_domain: None,
-        }
-    }
-}
-
 /// Builder for constructing a SpiffeIdentityManager
 pub struct SpiffeIdentityManagerBuilder {
     socket_path: Option<String>,
     target_spiffe_id: Option<String>,
     jwt_audiences: Vec<String>,
-    trust_domain: Option<String>,
 }
 
 impl Default for SpiffeIdentityManagerBuilder {
@@ -242,7 +220,6 @@ impl Default for SpiffeIdentityManagerBuilder {
             socket_path: None,
             target_spiffe_id: None,
             jwt_audiences: vec!["slim".to_string()],
-            trust_domain: None,
         }
     }
 }
@@ -267,19 +244,11 @@ impl SpiffeIdentityManagerBuilder {
         self
     }
 
-    pub fn with_trust_domain(mut self, trust_domain: impl Into<String>) -> Self {
-        self.trust_domain = Some(trust_domain.into());
-        self
-    }
-
     pub fn build(self) -> SpiffeIdentityManager {
         SpiffeIdentityManager {
-            config: SpiffeIdentityManagerConfig {
-                socket_path: self.socket_path,
-                target_spiffe_id: self.target_spiffe_id,
-                jwt_audiences: self.jwt_audiences,
-                trust_domain: self.trust_domain,
-            },
+            socket_path: self.socket_path,
+            target_spiffe_id: self.target_spiffe_id,
+            jwt_audiences: self.jwt_audiences,
             client: None,
             x509_source: None,
             jwt_source: None,
@@ -290,7 +259,9 @@ impl SpiffeIdentityManagerBuilder {
 /// SPIFFE certificate and JWT provider that automatically rotates credentials
 #[derive(Clone)]
 pub struct SpiffeIdentityManager {
-    config: SpiffeIdentityManagerConfig,
+    socket_path: Option<String>,
+    target_spiffe_id: Option<String>,
+    jwt_audiences: Vec<String>,
     client: Option<WorkloadApiClient>,
     x509_source: Option<Arc<X509Source>>,
     jwt_source: Option<Arc<JwtSource>>,
@@ -307,7 +278,7 @@ impl SpiffeIdentityManager {
         info!("Initializing SPIFFE identity manager");
 
         // Create WorkloadApiClient
-        let client = create_workload_client(self.config.socket_path.as_ref()).await?;
+        let client = create_workload_client(self.socket_path.as_ref()).await?;
 
         // Initialize X509Source for certificate management
         let x509_source = X509SourceBuilder::new()
@@ -322,10 +293,10 @@ impl SpiffeIdentityManager {
 
         // Initialize JwtSource for JWT token management
         let mut jwt_builder = JwtSourceBuilder::new()
-            .with_audiences(self.config.jwt_audiences.clone())
+            .with_audiences(self.jwt_audiences.clone())
             .with_client(client.clone());
 
-        if let Some(ref target_id) = self.config.target_spiffe_id {
+        if let Some(ref target_id) = self.target_spiffe_id {
             jwt_builder = jwt_builder.with_target_spiffe_id(target_id.clone());
         }
 
@@ -406,37 +377,17 @@ impl SpiffeIdentityManager {
             .x509_source
             .as_ref()
             .ok_or_else(|| AuthError::ConfigError("X509Source not initialized".to_string()))?;
-        // If a trust_domain override is configured, use it directly
-        if let Some(ref td_override) = self.config.trust_domain {
-            let td_parsed = TrustDomain::new(td_override).map_err(|e| {
-                AuthError::ConfigError(format!(
-                    "Invalid trust domain override '{}': {}",
-                    td_override, e
-                ))
-            })?;
-            return x509_source
-                .get_bundle_for_trust_domain(&td_parsed)
-                .map_err(|e| {
-                    AuthError::ConfigError(format!(
-                        "Failed to get X509 bundle for trust domain {}: {}",
-                        td_override, e
-                    ))
-                })?
-                .ok_or_else(|| {
-                    AuthError::ConfigError(format!(
-                        "No X509 bundle for trust domain {}",
-                        td_override
-                    ))
-                });
-        }
-        // Fallback: derive trust domain from current SVID
+
+        // Derive trust domain from current SVID
         let svid = x509_source
             .get_svid()
             .map_err(|e| AuthError::ConfigError(format!("Failed to get X509 SVID: {}", e)))?
             .ok_or_else(|| AuthError::ConfigError("No X509 SVID available".to_string()))?;
+
         let td = svid.spiffe_id().trust_domain();
+
         x509_source
-            .get_bundle_for_trust_domain(&td)
+            .get_bundle_for_trust_domain(td)
             .map_err(|e| AuthError::ConfigError(format!("Failed to get X509 bundle: {}", e)))?
             .ok_or_else(|| {
                 AuthError::ConfigError(format!("No X509 bundle for trust domain {}", td))
@@ -501,7 +452,7 @@ impl TokenProvider for SpiffeIdentityManager {
         let claims_audience = CustomClaimsCodec::encode_audience(&custom_claims)?;
 
         // Build audiences list with custom claims audience
-        let mut audiences = self.config.jwt_audiences.clone();
+        let mut audiences = self.jwt_audiences.clone();
         audiences.push(claims_audience);
 
         // Get the jwt_source
@@ -511,7 +462,7 @@ impl TokenProvider for SpiffeIdentityManager {
             .ok_or_else(|| AuthError::ConfigError("JwtSource not initialized".to_string()))?;
 
         jwt_source
-            .fetch_with_custom_audiences(audiences, self.config.target_spiffe_id.clone())
+            .fetch_with_custom_audiences(audiences, self.target_spiffe_id.clone())
             .await
             .map(|svid| svid.token().to_string())
     }
@@ -980,7 +931,7 @@ impl Verifier for SpiffeIdentityManager {
 
     fn try_verify(&self, token: impl Into<String>) -> Result<(), AuthError> {
         let bundles = self.get_jwt_bundles()?;
-        JwtSvid::parse_and_validate(&token.into(), &bundles, &self.config.jwt_audiences)
+        JwtSvid::parse_and_validate(&token.into(), &bundles, &self.jwt_audiences)
             .map_err(|e| AuthError::TokenInvalid(format!("JWT validation failed: {}", e)))?;
         debug!("Successfully verified JWT token (sync)");
         Ok(())
@@ -998,9 +949,8 @@ impl Verifier for SpiffeIdentityManager {
         Claims: DeserializeOwned + Send,
     {
         let bundles = self.get_jwt_bundles()?;
-        let jwt_svid =
-            JwtSvid::parse_and_validate(&token.into(), &bundles, &self.config.jwt_audiences)
-                .map_err(|e| AuthError::TokenInvalid(format!("JWT validation failed: {}", e)))?;
+        let jwt_svid = JwtSvid::parse_and_validate(&token.into(), &bundles, &self.jwt_audiences)
+            .map_err(|e| AuthError::TokenInvalid(format!("JWT validation failed: {}", e)))?;
 
         debug!(
             "Successfully extracted claims for SPIFFE ID: {}",

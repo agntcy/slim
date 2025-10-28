@@ -4,8 +4,8 @@
 use tracing::info;
 
 use slim_config::tls::client::TlsClientConfig;
-use slim_config::tls::common::{Config, RustlsConfigLoader};
-use slim_config::tls::server::TlsServerConfig;
+use slim_config::tls::common::{Config, RustlsConfigLoader, TlsSource};
+use slim_config::tls::server::{ClientCaSources, TlsServerConfig};
 
 static TEST_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/tls");
 
@@ -107,7 +107,11 @@ async fn test_load_rustls_client() {
             "test-valid-ca-1",
             Box::new(|| TlsClientConfig {
                 config: Config {
-                    ca_file: Some(format!("{}/{}", TEST_PATH, "ca-1.crt")),
+                    source: Some(TlsSource::File {
+                        ca: Some(format!("{}/{}", TEST_PATH, "ca-1.crt")),
+                        cert: None,
+                        key: None,
+                    }),
                     ..Default::default()
                 },
                 ..Default::default()
@@ -120,7 +124,11 @@ async fn test_load_rustls_client() {
             "test-valid-ca-2",
             Box::new(|| TlsClientConfig {
                 config: Config {
-                    ca_file: Some(format!("{}/{}", TEST_PATH, "ca-2.crt")),
+                    source: Some(TlsSource::File {
+                        ca: Some(format!("{}/{}", TEST_PATH, "ca-2.crt")),
+                        cert: None,
+                        key: None,
+                    }),
                     ..Default::default()
                 },
                 ..Default::default()
@@ -133,7 +141,11 @@ async fn test_load_rustls_client() {
             "test-ca-file-not-found",
             Box::new(|| TlsClientConfig {
                 config: Config {
-                    ca_file: Some(format!("{}/{}", TEST_PATH, "ca-.crt")),
+                    source: Some(TlsSource::File {
+                        ca: Some(format!("{}/{}", TEST_PATH, "ca-.crt")),
+                        cert: None,
+                        key: None,
+                    }),
                     ..Default::default()
                 },
                 ..Default::default()
@@ -146,8 +158,11 @@ async fn test_load_rustls_client() {
             "test-client-certificate-file",
             Box::new(|| TlsClientConfig {
                 config: Config {
-                    cert_file: Some(format!("{}/{}", TEST_PATH, "client-1.crt")),
-                    key_file: Some(format!("{}/{}", TEST_PATH, "client-1.key")),
+                    source: Some(TlsSource::File {
+                        ca: None,
+                        cert: Some(format!("{}/{}", TEST_PATH, "client-1.crt")),
+                        key: Some(format!("{}/{}", TEST_PATH, "client-1.key")),
+                    }),
                     ..Default::default()
                 },
                 ..Default::default()
@@ -191,7 +206,11 @@ async fn test_load_rustls_client() {
 
                 TlsClientConfig {
                     config: Config {
-                        ca_pem: Some(ca_pem),
+                        source: Some(TlsSource::Pem {
+                            ca: Some(ca_pem),
+                            cert: None,
+                            key: None,
+                        }),
                         ..Default::default()
                     },
                     ..Default::default()
@@ -207,9 +226,13 @@ async fn test_load_rustls_client() {
                 // set wrong PEM
                 TlsClientConfig {
                     config: Config {
-                        ca_pem: Some(String::from(
-                            "-----BEGIN CERTIFICATE-----\nwrong\n-----END CERTIFICATE-----",
-                        )),
+                        source: Some(TlsSource::Pem {
+                            ca: Some(String::from(
+                                "-----BEGIN CERTIFICATE-----\nwrong\n-----END CERTIFICATE-----",
+                            )),
+                            cert: None,
+                            key: None,
+                        }),
                         ..Default::default()
                     },
                     ..Default::default()
@@ -231,8 +254,11 @@ async fn test_load_rustls_client() {
 
                 TlsClientConfig {
                     config: Config {
-                        cert_pem: Some(cert_pem),
-                        key_pem: Some(key_pem),
+                        source: Some(TlsSource::Pem {
+                            ca: None,
+                            cert: Some(cert_pem),
+                            key: Some(key_pem),
+                        }),
                         ..Default::default()
                     },
                     ..Default::default()
@@ -252,8 +278,11 @@ async fn test_load_rustls_client() {
 
                 TlsClientConfig {
                     config: Config {
-                        cert_pem: Some(cert_pem),
-                        key_pem: Some(key_pem),
+                        source: Some(TlsSource::Pem {
+                            ca: None,
+                            cert: Some(cert_pem),
+                            key: Some(key_pem),
+                        }),
                         ..Default::default()
                     },
                     ..Default::default()
@@ -315,7 +344,11 @@ async fn test_load_rustls_server() {
             "test-no-certificate-file",
             Box::new(|| TlsServerConfig {
                 config: Config {
-                    key_file: Some(format!("{}/{}", TEST_PATH, "server-1.key")),
+                    source: Some(TlsSource::File {
+                        ca: None,
+                        cert: None,
+                        key: Some(format!("{}/{}", TEST_PATH, "server-1.key")),
+                    }),
                     ..Default::default()
                 },
                 ..Default::default()
@@ -328,7 +361,11 @@ async fn test_load_rustls_server() {
             "test-no-key-file",
             Box::new(|| TlsServerConfig {
                 config: Config {
-                    cert_file: Some(format!("{}/{}", TEST_PATH, "server-1.crt")),
+                    source: Some(TlsSource::File {
+                        ca: None,
+                        cert: Some(format!("{}/{}", TEST_PATH, "server-1.crt")),
+                        key: None,
+                    }),
                     ..Default::default()
                 },
                 ..Default::default()
@@ -341,8 +378,11 @@ async fn test_load_rustls_server() {
             "test-server-certificate-file",
             Box::new(|| TlsServerConfig {
                 config: Config {
-                    cert_file: Some(format!("{}/{}", TEST_PATH, "server-1.crt")),
-                    key_file: Some(format!("{}/{}", TEST_PATH, "server-1.key")),
+                    source: Some(TlsSource::File {
+                        ca: None,
+                        cert: Some(format!("{}/{}", TEST_PATH, "server-1.crt")),
+                        key: Some(format!("{}/{}", TEST_PATH, "server-1.key")),
+                    }),
                     ..Default::default()
                 },
                 ..Default::default()
@@ -356,8 +396,11 @@ async fn test_load_rustls_server() {
             Box::new(|| TlsServerConfig {
                 config: Config {
                     tls_version: String::from("tls1.2"),
-                    cert_file: Some(format!("{}/{}", TEST_PATH, "server-1.crt")),
-                    key_file: Some(format!("{}/{}", TEST_PATH, "server-1.key")),
+                    source: Some(TlsSource::File {
+                        ca: None,
+                        cert: Some(format!("{}/{}", TEST_PATH, "server-1.crt")),
+                        key: Some(format!("{}/{}", TEST_PATH, "server-1.key")),
+                    }),
                     ..Default::default()
                 },
                 ..Default::default()
@@ -371,8 +414,11 @@ async fn test_load_rustls_server() {
             Box::new(|| TlsServerConfig {
                 config: Config {
                     tls_version: String::from("tls1.4"),
-                    cert_file: Some(format!("{}/{}", TEST_PATH, "server-1.crt")),
-                    key_file: Some(format!("{}/{}", TEST_PATH, "server-1.key")),
+                    source: Some(TlsSource::File {
+                        ca: None,
+                        cert: Some(format!("{}/{}", TEST_PATH, "server-1.crt")),
+                        key: Some(format!("{}/{}", TEST_PATH, "server-1.key")),
+                    }),
                     ..Default::default()
                 },
                 ..Default::default()
@@ -385,11 +431,16 @@ async fn test_load_rustls_server() {
             "test-client-ca-file",
             Box::new(|| TlsServerConfig {
                 config: Config {
-                    cert_file: Some(format!("{}/{}", TEST_PATH, "server-1.crt")),
-                    key_file: Some(format!("{}/{}", TEST_PATH, "server-1.key")),
+                    source: Some(TlsSource::File {
+                        ca: None,
+                        cert: Some(format!("{}/{}", TEST_PATH, "server-1.crt")),
+                        key: Some(format!("{}/{}", TEST_PATH, "server-1.key")),
+                    }),
                     ..Default::default()
                 },
-                client_ca_file: Some(format!("{}/{}", TEST_PATH, "ca-1.crt")),
+                client_ca: Some(ClientCaSources::File {
+                    path: format!("{}/{}", TEST_PATH, "ca-1.crt"),
+                }),
                 ..Default::default()
             }) as Box<dyn Fn() -> TlsServerConfig>,
             false,
@@ -400,11 +451,16 @@ async fn test_load_rustls_server() {
             "test-client-ca-file-not-found",
             Box::new(|| TlsServerConfig {
                 config: Config {
-                    cert_file: Some(format!("{}/{}", TEST_PATH, "server-1.crt")),
-                    key_file: Some(format!("{}/{}", TEST_PATH, "server-1.key")),
+                    source: Some(TlsSource::File {
+                        ca: None,
+                        cert: Some(format!("{}/{}", TEST_PATH, "server-1.crt")),
+                        key: Some(format!("{}/{}", TEST_PATH, "server-1.key")),
+                    }),
                     ..Default::default()
                 },
-                client_ca_file: Some(format!("{}/{}", TEST_PATH, "ca1.crt")),
+                client_ca: Some(ClientCaSources::File {
+                    path: format!("{}/{}", TEST_PATH, "ca1.crt"),
+                }),
                 ..Default::default()
             }) as Box<dyn Fn() -> TlsServerConfig>,
             true,
@@ -420,11 +476,14 @@ async fn test_load_rustls_server() {
 
                 TlsServerConfig {
                     config: Config {
-                        cert_file: Some(format!("{}/{}", TEST_PATH, "server-1.crt")),
-                        key_file: Some(format!("{}/{}", TEST_PATH, "server-1.key")),
+                        source: Some(TlsSource::File {
+                            ca: None,
+                            cert: Some(format!("{}/{}", TEST_PATH, "server-1.crt")),
+                            key: Some(format!("{}/{}", TEST_PATH, "server-1.key")),
+                        }),
                         ..Default::default()
                     },
-                    client_ca_pem: Some(ca_pem),
+                    client_ca: Some(ClientCaSources::Pem { data: ca_pem }),
                     ..Default::default()
                 }
             }) as Box<dyn Fn() -> TlsServerConfig>,
@@ -436,13 +495,18 @@ async fn test_load_rustls_server() {
             "test-client-ca-wrong-pem",
             Box::new(|| TlsServerConfig {
                 config: Config {
-                    cert_file: Some(format!("{}/{}", TEST_PATH, "server-1.crt")),
-                    key_file: Some(format!("{}/{}", TEST_PATH, "server-1.key")),
+                    source: Some(TlsSource::File {
+                        ca: None,
+                        cert: Some(format!("{}/{}", TEST_PATH, "server-1.crt")),
+                        key: Some(format!("{}/{}", TEST_PATH, "server-1.key")),
+                    }),
                     ..Default::default()
                 },
-                client_ca_pem: Some(String::from(
-                    "-----BEGIN CERTIFICATE-----\nwrong\n-----END CERTIFICATE-----",
-                )),
+                client_ca: Some(ClientCaSources::Pem {
+                    data: String::from(
+                        "-----BEGIN CERTIFICATE-----\nwrong\n-----END CERTIFICATE-----",
+                    ),
+                }),
                 ..Default::default()
             }) as Box<dyn Fn() -> TlsServerConfig>,
             true,

@@ -470,6 +470,7 @@ impl ServerConfig {
 mod tests {
     use super::*;
     use crate::testutils::{Empty, helloworld::greeter_server::GreeterServer};
+    use crate::tls::common::TlsSource;
     use serde_json;
 
     static TEST_DATA_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/grpc");
@@ -541,10 +542,13 @@ mod tests {
         // drop it, as we have a server listening on the port now
         drop(ret.unwrap());
 
-        // Set insecure to false and set the path to the cert and key files
+        // Set insecure to false and configure certificate/key via TlsSource::File
         server_config.tls_setting.insecure = false;
-        server_config.tls_setting.config.cert_file = Some(format!("{}/server.crt", TEST_DATA_PATH));
-        server_config.tls_setting.config.key_file = Some(format!("{}/server.key", TEST_DATA_PATH));
+        server_config.tls_setting.config.source = Some(TlsSource::File {
+            ca: None,
+            cert: Some(format!("{}/server.crt", TEST_DATA_PATH)),
+            key: Some(format!("{}/server.key", TEST_DATA_PATH)),
+        });
         let ret = server_config
             .to_server_future(&[GreeterServer::from_arc(empty_service.clone())])
             .await;

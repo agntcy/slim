@@ -46,7 +46,7 @@ fn test_config_with_socket(socket_path: &str) -> SpiffeConfig {
         socket_path: Some(socket_path.to_string()),
         target_spiffe_id: None,
         jwt_audiences: vec!["test".to_string()],
-        trust_domain: None,
+        trust_domains: vec![],
     }
 }
 
@@ -56,7 +56,7 @@ fn test_config() -> SpiffeConfig {
         socket_path: None,
         target_spiffe_id: None,
         jwt_audiences: vec!["test".to_string()],
-        trust_domain: None,
+        trust_domains: vec![],
     }
 }
 
@@ -66,7 +66,7 @@ fn test_config_with_socket_and_audiences(socket_path: &str) -> SpiffeConfig {
         socket_path: Some(socket_path.to_string()),
         target_spiffe_id: None,
         jwt_audiences: vec!["test-audience".to_string(), "another-audience".to_string()],
-        trust_domain: None,
+        trust_domains: vec![],
     }
 }
 
@@ -80,9 +80,6 @@ fn build_manager_from(cfg: &SpiffeConfig) -> SpiffeIdentityManager {
     }
     if let Some(ref id) = cfg.target_spiffe_id {
         builder = builder.with_target_spiffe_id(id.clone());
-    }
-    if let Some(ref td) = cfg.trust_domain {
-        builder = builder.with_trust_domain(td.clone());
     }
 
     builder.build()
@@ -318,7 +315,7 @@ async fn test_spiffe_provider_configurations() {
         socket_path: Some("unix:///custom/path".to_string()),
         target_spiffe_id: Some("spiffe://example.org/backend".to_string()),
         jwt_audiences: vec!["api".to_string(), "web".to_string()],
-        trust_domain: None,
+        trust_domains: vec![],
     };
 
     let provider = build_manager_from(&custom_config);
@@ -364,7 +361,7 @@ async fn test_spiffe_verifier_config() {
         socket_path: Some("unix:///tmp/test".to_string()),
         target_spiffe_id: None,
         jwt_audiences: vec![],
-        trust_domain: None,
+        trust_domains: vec![],
     };
     let verifier_empty_aud = build_manager_from(&empty_cfg);
     assert_manager_uninitialized(&verifier_empty_aud);
