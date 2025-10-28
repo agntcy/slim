@@ -30,7 +30,6 @@ use crate::transmitter::{AppTransmitter, SessionTransmitter};
 // Local crate
 use super::context::SessionContext;
 use super::interceptor::{IdentityInterceptor, SessionInterceptor};
-use super::multicast::{self};
 use super::{MessageDirection, SESSION_RANGE, SlimChannelSender, Transmitter};
 use super::{SessionError, session_controller::handle_channel_discovery_message};
 use crate::interceptor::SessionInterceptorProvider; // needed for add_interceptor

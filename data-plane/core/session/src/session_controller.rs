@@ -10,21 +10,15 @@ use std::{
 };
 
 // Third-party crates
-use async_trait::async_trait;
-use bincode::{Decode, Encode};
 use parking_lot::Mutex;
 use slim_mls::mls::Mls;
-use tokio::{net::unix::pipe::Receiver, sync::mpsc};
-use tokio_util::future::FutureExt;
-use tracing::{debug, error, trace};
+use tracing::{debug, error};
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        ApplicationPayload, CommandPayload, Content,
-        MessageType::{self, Subscribe},
-        ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType, SessionHeader,
-        SlimHeader,
+        ApplicationPayload, CommandPayload, Content, ProtoMessage as Message,
+        ProtoSessionMessageType, ProtoSessionType, SessionHeader, SlimHeader,
     },
     messages::{Name, utils::SlimHeaderFlags},
 };
@@ -34,47 +28,14 @@ use crate::{
     MessageDirection, SessionError, Transmitter,
     common::SessionMessage,
     controller_sender::ControllerSender,
-    interceptor_mls::{METADATA_MLS_ENABLED, METADATA_MLS_INIT_COMMIT_ID},
-    mls_state::{MlsEndpoint, MlsModeratorState, MlsProposalMessagePayload, MlsState},
-    moderator_task::{
-        AddParticipant, ModeratorTask, RemoveParticipant, TaskUpdate, UpdateParticipant,
-    },
-    multicast::{self, Multicast},
+    mls_state::{MlsModeratorState, MlsState},
+    moderator_task::{AddParticipant, ModeratorTask, RemoveParticipant, TaskUpdate},
+    session::Session,
     session_receiver::SessionReceiver,
     session_sender::SessionSender,
-    timer,
     timer_factory::TimerSettings,
-    traits::SessionComponentLifecycle,
     transmitter::SessionTransmitter,
 };
-
-//trait OnMessageReceived {
-//    async fn on_message(&mut self, msg: Message) -> Result<(), SessionError>;
-//}
-
-/*impl<P, V, SessionTransmitter> MlsEndpoint for SessionController<P, V, SessionTransmitter>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
-    fn is_mls_up(&self) -> Result<bool, SessionError> {
-        todo!()
-        // still needed?
-        //match self {
-        //    SessionController::SessionParticipant(cp) => cp.is_mls_up(),
-        //    SessionController::SessionModerator(cm) => cm.is_mls_up(),
-        //}
-    }
-
-    async fn update_mls_keys(&mut self) -> Result<(), SessionError> {
-        todo!()
-        // still needed?
-        //match self {
-        //    SessionController::SessionParticipant(cp) => cp.update_mls_keys().await,
-        //    SessionController::SessionModerator(cm) => cm.update_mls_keys().await,
-        //}
-    }
-}*/
 
 pub(crate) enum SessionControllerImpl<P, V>
 where
@@ -416,7 +377,7 @@ pub struct SessionControllerCommon {
 
     /// the session itself
     /// TODO rename it in session
-    session: Multicast,
+    session: Session,
 }
 
 impl SessionControllerCommon {
@@ -483,7 +444,7 @@ impl SessionControllerCommon {
         );
 
         // TODO rename multicast in session
-        let session = Multicast::new(sender, receiver);
+        let session = Session::new(sender, receiver);
 
         SessionControllerCommon {
             id,
@@ -746,27 +707,27 @@ where
                 next = self.common.rx_from_session_layer.recv() => {
                     match next {
                         Some(message) => match message {
-                            SessionMessage::OnMessage { message, direction: _ } => {
+                            SessionMessage::OnMessage { message, direction } => {
                                 if self.common.is_command_message(message.get_session_message_type()) {
                                     self.process_control_message(message).await;
                                 } else {
-                                    todo!()
+                                    self.common.session.on_message(SessionMessage::OnMessage { message, direction }).await;
                                 }
                             }
-                            SessionMessage::TimerTimeout { message_id, message_type, name: _, timeouts: _ } => {
+                            SessionMessage::TimerTimeout { message_id, message_type, name, timeouts } => {
                                 if self.common.is_command_message(message_type) {
                                     // check it needed
                                     self.common.sender.on_timer_timeout(message_id).await;
                                 } else {
-                                    todo!()
+                                    self.common.session.on_message(SessionMessage::TimerTimeout { message_id, message_type, name, timeouts }).await;
                                 }
                             }
-                            SessionMessage::TimerFailure { message_id, message_type, name: _, timeouts: _ } => {
+                            SessionMessage::TimerFailure { message_id, message_type, name, timeouts } => {
                                 if self.common.is_command_message(message_type) {
                                     // check if needed
                                     self.common.sender.on_timer_failure(message_id).await;
                                 } else {
-                                    todo!()
+                                    self.common.session.on_message(SessionMessage::TimerFailure { message_id, message_type, name, timeouts }).await;
                                 }
                             }
                             SessionMessage::DeleteSession { session_id } => todo!(),
@@ -1166,21 +1127,21 @@ where
                 next = self.common.rx_from_session_layer.recv() => {
                     match next {
                         Some(message) => match message {
-                            SessionMessage::OnMessage { message, direction: _ } => {
+                            SessionMessage::OnMessage { message, direction } => {
                                 if self.common.is_command_message(message.get_session_message_type()) {
                                     self.process_control_message(message).await;
                                 } else {
-                                    todo!()
+                                    self.common.session.on_message(SessionMessage::OnMessage { message, direction }).await;
                                 }
                             }
-                            SessionMessage::TimerTimeout { message_id, message_type, name: _, timeouts: _ } => {
+                            SessionMessage::TimerTimeout { message_id, message_type, name, timeouts } => {
                                 if self.common.is_command_message(message_type) {
                                     self.common.sender.on_timer_timeout(message_id).await;
                                 } else {
-                                    todo!()
+                                    self.common.session.on_message(SessionMessage::TimerTimeout { message_id, message_type, name, timeouts }).await;
                                 }
                             }
-                            SessionMessage::TimerFailure { message_id, message_type, name: _, timeouts: _ } => {
+                            SessionMessage::TimerFailure { message_id, message_type, name, timeouts} => {
                                 if self.common.is_command_message(message_type) {
                                     self.common.sender.on_timer_failure(message_id).await;
                                     // the current task failed:
@@ -1208,7 +1169,7 @@ where
                                         error!("Failed to pop next task: {:?}", e);
                                     }
                                 } else {
-                                    todo!()
+                                    self.common.session.on_message(SessionMessage::TimerFailure { message_id, message_type, name, timeouts }).await;
                                 }
                             }
                             SessionMessage::DeleteSession { session_id } => todo!(),
