@@ -1,13 +1,15 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use slim_datapath::api::ProtoSessionType;
 use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::messages::Name;
 use slim_session::context::SessionContext;
-use slim_session::{Notification, Session, SessionConfig, SessionError};
+use slim_session::session_controller::{SessionConfig, SessionController};
+use slim_session::{Notification, SessionError};
 
 use crate::app::App;
 use crate::bindings::builder::AppAdapterBuilder;
@@ -143,29 +145,21 @@ where
     pub async fn create_session(
         &self,
         session_config: SessionConfig,
+        session_type: ProtoSessionType,
+        destination: Name,
+        id: Option<u32>,
     ) -> Result<SessionContext<P, V>, SessionError> {
-        self.app.create_session(session_config, None).await
+        self.app
+            .create_session(session_config, session_type, destination, id)
+            .await
     }
 
     /// Delete a session by its context
-    pub async fn delete_session(&self, session: &Session<P, V>) -> Result<(), SessionError> {
-        self.app.delete_session(session).await
-    }
-
-    /// Set the default session configuration
-    pub fn set_default_session_config(
+    pub async fn delete_session(
         &self,
-        session_config: &slim_session::SessionConfig,
+        session: &SessionController<P, V>,
     ) -> Result<(), SessionError> {
-        self.app.set_default_session_config(session_config)
-    }
-
-    /// Get the default session configuration for a given session type
-    pub fn get_default_session_config(
-        &self,
-        session_type: slim_session::SessionType,
-    ) -> Result<slim_session::SessionConfig, SessionError> {
-        self.app.get_default_session_config(session_type)
+        self.app.delete_session(session).await
     }
 
     /// Subscribe to a name with optional connection ID
@@ -248,8 +242,7 @@ mod tests {
     use slim_datapath::messages::Name;
 
     use slim_auth::testutils::TEST_VALID_SECRET;
-    use slim_session::point_to_point::PointToPointConfiguration;
-    use slim_session::{Notification, SessionConfig, SessionError, SessionType};
+    use slim_session::{Notification, SessionError};
 
     use crate::bindings::session_context::BindingsSessionContext;
 
@@ -340,48 +333,6 @@ mod tests {
             adapter.name().components_strings(),
             &["org", "namespace", "test-app"]
         );
-    }
-
-    #[tokio::test]
-    async fn test_create_session() {
-        let service = create_test_service().await;
-        let app_name = create_test_name();
-        let (provider, verifier) = create_test_auth();
-
-        let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .await
-            .expect("Failed to create adapter");
-
-        let config = SessionConfig::PointToPoint(PointToPointConfiguration::default());
-        let session = adapter
-            .create_session(config)
-            .await
-            .expect("Failed to create session");
-
-        // Just verify we got a session context
-        assert!(session.session.upgrade().is_some());
-    }
-
-    #[tokio::test]
-    async fn test_session_config_operations() {
-        let service = create_test_service().await;
-        let app_name = create_test_name();
-        let (provider, verifier) = create_test_auth();
-
-        let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .await
-            .expect("Failed to create adapter");
-
-        let config = SessionConfig::PointToPoint(PointToPointConfiguration::default());
-        adapter
-            .set_default_session_config(&config)
-            .expect("Failed to set config");
-
-        let retrieved_config = adapter
-            .get_default_session_config(SessionType::PointToPoint)
-            .expect("Failed to get config");
-
-        assert!(matches!(retrieved_config, SessionConfig::PointToPoint(_)));
     }
 
     #[tokio::test]
@@ -513,9 +464,10 @@ mod tests {
             .expect("Failed to create adapter");
 
         // Create a session
-        let config = SessionConfig::PointToPoint(PointToPointConfiguration::default());
+        let session_config = SessionConfig::default();
+        let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
-            .create_session(config)
+            .create_session(session_config, ProtoSessionType::PointToPoint, dst, None)
             .await
             .expect("Failed to create session");
 
@@ -591,9 +543,10 @@ mod tests {
         .expect("Failed to create adapter");
 
         // Create a session
-        let config = SessionConfig::PointToPoint(PointToPointConfiguration::default());
+        let config = SessionConfig::default();
+        let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
-            .create_session(config)
+            .create_session(config, ProtoSessionType::PointToPoint, dst, None)
             .await
             .expect("Failed to create session");
 

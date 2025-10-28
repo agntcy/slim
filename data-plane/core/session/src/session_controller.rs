@@ -76,16 +76,16 @@ where
     }
 }*/
 
-pub(crate) enum SessionControllerImpl<P, V, SessionTransmitter>
+pub(crate) enum SessionControllerImpl<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    SessionParticipant(SessionParticipant<P, V, SessionTransmitter>),
-    SessionModerator(SessionModerator<P, V, SessionTransmitter>),
+    SessionParticipant(SessionParticipant<P, V>),
+    SessionModerator(SessionModerator<P, V>),
 }
 
-pub(crate) struct SessionController<P, V, SessionTransmitter>
+pub struct SessionController<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
@@ -103,10 +103,10 @@ where
     session_type: ProtoSessionType,
 
     /// controller (participant or moderator)
-    controller: SessionControllerImpl<P, V, SessionTransmitter>,
+    controller: SessionControllerImpl<P, V>,
 }
 
-impl<P, V> SessionController<P, V, SessionTransmitter>
+impl<P, V> SessionController<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
@@ -598,16 +598,16 @@ impl SessionControllerCommon {
     }
 }
 
-pub struct SessionParticipant<P, V, SessionTransmitter>
+pub struct SessionParticipant<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
     tx: tokio::sync::mpsc::Sender<SessionMessage>,
-    _phantom: PhantomData<(P, V, SessionTransmitter)>,
+    _phantom: PhantomData<(P, V)>,
 }
 
-impl<P, V> SessionParticipant<P, V, SessionTransmitter>
+impl<P, V> SessionParticipant<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
@@ -664,18 +664,6 @@ where
             .send(msg)
             .await
             .map_err(|e| SessionError::SlimTransmission(e.to_string()))
-    }
-}
-
-impl<P, V, T> SessionComponentLifecycle for SessionParticipant<P, V, T>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
-    fn close(&mut self) {
-        todo!()
-        // probably we don't need this anymore
     }
 }
 
@@ -1006,7 +994,7 @@ where
     }
 }
 
-impl<P, V> SessionModerator<P, V, SessionTransmitter>
+impl<P, V> SessionModerator<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
@@ -1065,25 +1053,13 @@ where
             .map_err(|e| SessionError::SlimTransmission(e.to_string()))
     }
 }
-pub struct SessionModerator<P, V, SessionTransmitter>
+pub struct SessionModerator<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
     tx: tokio::sync::mpsc::Sender<SessionMessage>,
-    _phantom: PhantomData<(P, V, SessionTransmitter)>,
-}
-
-impl<P, V, T> SessionComponentLifecycle for SessionModerator<P, V, T>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
-    fn close(&mut self) {
-        todo!()
-        // probably we don't need this anymore
-    }
+    _phantom: PhantomData<(P, V)>,
 }
 
 pub struct SessionModeratorProcessor<P, V>

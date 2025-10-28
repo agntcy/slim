@@ -43,7 +43,7 @@ where
     T: Transmitter + Send + Sync + Clone + 'static,
 {
     /// Session pool
-    pool: Arc<AsyncRwLock<HashMap<u32, Arc<SessionController<P, V, SessionTransmitter>>>>>,
+    pool: Arc<AsyncRwLock<HashMap<u32, Arc<SessionController<P, V>>>>>,
 
     /// Default name of the local app
     app_id: u64,
@@ -177,7 +177,7 @@ where
         destination: Name,
         id: Option<u32>,
         conn: Option<u64>,
-    ) -> Result<SessionContext<P, V, SessionTransmitter>, SessionError> {
+    ) -> Result<SessionContext<P, V>, SessionError> {
         // TODO(msardara): the session identifier should be a combination of the
         // session ID and the app ID, to prevent collisions.
 
@@ -290,7 +290,7 @@ where
     pub async fn handle_message_from_app(
         &self,
         message: Message,
-        context: &SessionContext<P, V, SessionTransmitter>,
+        context: &SessionContext<P, V>,
     ) -> Result<(), SessionError> {
         context
             .session()

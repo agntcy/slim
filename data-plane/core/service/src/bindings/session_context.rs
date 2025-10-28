@@ -1,14 +1,15 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use slim_session::session_controller::SessionController;
 use std::collections::HashMap;
 use tokio::sync::RwLock;
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::messages::Name;
 use slim_datapath::messages::utils::SlimHeaderFlags;
+use slim_session::SessionError;
 use slim_session::context::SessionContext;
-use slim_session::{Session, SessionError};
 
 use crate::bindings::message_context::MessageContext;
 use crate::errors::ServiceError;
@@ -23,7 +24,7 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     /// Weak reference to the underlying session
-    pub session: std::sync::Weak<Session<P, V>>,
+    pub session: std::sync::Weak<SessionController<P, V>>,
     /// Message receiver wrapped in RwLock for concurrent access
     pub rx: RwLock<slim_session::AppChannelReceiver>,
 }
@@ -187,9 +188,9 @@ mod tests {
     use slim_auth::shared_secret::SharedSecret;
     use slim_auth::testutils::TEST_VALID_SECRET;
     use slim_config::component::ComponentBuilder;
+    use slim_datapath::api::ProtoSessionType;
     use slim_datapath::messages::Name;
-    use slim_session::SessionConfig;
-    use slim_session::point_to_point::PointToPointConfiguration;
+    use slim_session::session_controller::SessionConfig;
 
     use crate::bindings::adapter::BindingsAdapter;
     use crate::service::Service;
@@ -226,9 +227,10 @@ mod tests {
             .await
             .expect("Failed to create adapter");
 
-        let config = SessionConfig::PointToPoint(PointToPointConfiguration::default());
+        let config = SessionConfig::default();
+        let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
-            .create_session(config)
+            .create_session(config, ProtoSessionType::PointToPoint, dst, None)
             .await
             .expect("Failed to create session");
 
@@ -249,9 +251,10 @@ mod tests {
             .expect("Failed to create adapter");
 
         // Create a session and convert to BindingsSessionContext
-        let config = SessionConfig::PointToPoint(PointToPointConfiguration::default());
+        let config = SessionConfig::default();
+        let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
-            .create_session(config)
+            .create_session(config, ProtoSessionType::PointToPoint, dst, None)
             .await
             .expect("Failed to create session");
         let bindings_ctx = BindingsSessionContext::from(session_ctx);
@@ -277,9 +280,10 @@ mod tests {
             .expect("Failed to create adapter");
 
         // Create a session and convert to BindingsSessionContext
-        let config = SessionConfig::PointToPoint(PointToPointConfiguration::default());
+        let config = SessionConfig::default();
+        let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
-            .create_session(config)
+            .create_session(config, ProtoSessionType::PointToPoint, dst, None)
             .await
             .expect("Failed to create session");
         let bindings_ctx = BindingsSessionContext::from(session_ctx);
@@ -307,9 +311,10 @@ mod tests {
             .expect("Failed to create adapter");
 
         // Create a session and convert to BindingsSessionContext
-        let config = SessionConfig::PointToPoint(PointToPointConfiguration::default());
+        let config = SessionConfig::default();
+        let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
-            .create_session(config)
+            .create_session(config, ProtoSessionType::PointToPoint, dst, None)
             .await
             .expect("Failed to create session");
         let bindings_ctx = BindingsSessionContext::from(session_ctx);
@@ -347,9 +352,10 @@ mod tests {
             .expect("Failed to create adapter");
 
         // Create a session first
-        let config = SessionConfig::PointToPoint(PointToPointConfiguration::default());
+        let config = SessionConfig::default();
+        let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
-            .create_session(config)
+            .create_session(config, ProtoSessionType::PointToPoint, dst, None)
             .await
             .expect("Failed to create session");
         let session_bindings = BindingsSessionContext::from(session_ctx);

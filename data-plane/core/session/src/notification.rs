@@ -18,7 +18,7 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     /// New session notification
-    NewSession(SessionContext<P, V, SessionTransmitter>),
+    NewSession(SessionContext<P, V>),
     /// Normal message notification
     NewMessage(Box<Message>),
 }

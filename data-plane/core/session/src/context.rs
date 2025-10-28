@@ -18,28 +18,25 @@ pub type Id = u32;
 
 /// Session context
 #[derive(Debug)]
-pub struct SessionContext<P, V, SessionTransmitter>
+pub struct SessionContext<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
     /// Weak reference to session (lifecycle managed externally)
-    pub session: Weak<SessionController<P, V, SessionTransmitter>>,
+    pub session: Weak<SessionController<P, V>>,
 
     /// Receive queue for the session
     pub rx: AppChannelReceiver,
 }
 
-impl<P, V> SessionContext<P, V, SessionTransmitter>
+impl<P, V> SessionContext<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
     /// Create a new SessionContext
-    pub fn new(
-        session: Arc<SessionController<P, V, SessionTransmitter>>,
-        rx: AppChannelReceiver,
-    ) -> Self {
+    pub fn new(session: Arc<SessionController<P, V>>, rx: AppChannelReceiver) -> Self {
         SessionContext {
             session: Arc::downgrade(&session),
             rx,
@@ -47,22 +44,17 @@ where
     }
 
     /// Get a weak reference to the underlying session handle.
-    pub fn session(&self) -> &Weak<SessionController<P, V, SessionTransmitter>> {
+    pub fn session(&self) -> &Weak<SessionController<P, V>> {
         &self.session
     }
 
     /// Get a Arc to the underlying session handle
-    pub fn session_arc(&self) -> Option<Arc<SessionController<P, V, SessionTransmitter>>> {
+    pub fn session_arc(&self) -> Option<Arc<SessionController<P, V>>> {
         self.session().upgrade()
     }
 
     /// Consume the context returning session, receiver and optional metadata.
-    pub fn into_parts(
-        self,
-    ) -> (
-        Weak<SessionController<P, V, SessionTransmitter>>,
-        AppChannelReceiver,
-    ) {
+    pub fn into_parts(self) -> (Weak<SessionController<P, V>>, AppChannelReceiver) {
         (self.session, self.rx)
     }
 
@@ -80,11 +72,9 @@ where
     /// });
     /// // keep using `session` for lifecycle operations (e.g. deletion)
     /// ```
-    pub fn spawn_receiver<F, Fut>(self, f: F) -> Weak<SessionController<P, V, SessionTransmitter>>
+    pub fn spawn_receiver<F, Fut>(self, f: F) -> Weak<SessionController<P, V>>
     where
-        F: FnOnce(AppChannelReceiver, Weak<SessionController<P, V, SessionTransmitter>>) -> Fut
-            + Send
-            + 'static,
+        F: FnOnce(AppChannelReceiver, Weak<SessionController<P, V>>) -> Fut + Send + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
         let (session, rx) = self.into_parts();

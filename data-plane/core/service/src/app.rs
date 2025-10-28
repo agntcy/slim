@@ -6,6 +6,8 @@ use std::sync::Arc;
 
 // Third-party crates
 use parking_lot::RwLock as SyncRwLock;
+use slim_datapath::api::ProtoSessionType;
+use slim_session::transmitter::SessionTransmitter;
 use tokio::sync::mpsc;
 use tracing::{debug, error};
 
@@ -15,14 +17,14 @@ use slim_datapath::api::MessageType;
 use slim_datapath::api::ProtoMessage as Message;
 use slim_datapath::messages::Name;
 use slim_datapath::messages::utils::SlimHeaderFlags;
+use slim_session::session_controller::{SessionConfig, SessionController};
 
 // Local crate
 use crate::ServiceError;
-use slim_session::Session;
+use slim_session::SlimChannelSender;
 use slim_session::interceptor::{IdentityInterceptor, SessionInterceptorProvider};
 use slim_session::notification::Notification;
 use slim_session::transmitter::AppTransmitter;
-use slim_session::{Id, SessionConfig, SlimChannelSender};
 use slim_session::{SessionError, SessionLayer, context::SessionContext};
 
 #[derive(Clone)]
@@ -118,11 +120,20 @@ where
     pub async fn create_session(
         &self,
         session_config: SessionConfig,
-        id: Option<Id>,
+        session_type: ProtoSessionType,
+        destination: Name,
+        id: Option<u32>,
     ) -> Result<SessionContext<P, V>, SessionError> {
         let ret = self
             .session_layer
-            .create_session(session_config, self.app_name.clone(), id)
+            .create_session(
+                session_config,
+                session_type,
+                self.app_name.clone(),
+                destination,
+                id,
+                None,
+            )
             .await?;
 
         // return the session info
@@ -130,32 +141,16 @@ where
     }
 
     /// Delete a session.
-    pub async fn delete_session(&self, session: &Session<P, V>) -> Result<(), SessionError> {
+    pub async fn delete_session(
+        &self,
+        session: &SessionController<P, V>,
+    ) -> Result<(), SessionError> {
         // remove the session from the pool
         if self.session_layer.remove_session(session.id()).await {
             Ok(())
         } else {
             Err(SessionError::SessionNotFound(session.id()))
         }
-    }
-
-    /// Set config for a session
-    pub fn set_default_session_config(
-        &self,
-        session_config: &slim_session::SessionConfig,
-    ) -> Result<(), SessionError> {
-        // set the session config
-        self.session_layer
-            .set_default_session_config(session_config)
-    }
-
-    /// Get default session config
-    pub fn get_default_session_config(
-        &self,
-        session_type: slim_session::SessionType,
-    ) -> Result<slim_session::SessionConfig, SessionError> {
-        // get the default session config
-        self.session_layer.get_default_session_config(session_type)
     }
 
     /// Get the app name
@@ -337,8 +332,9 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
-    use slim_session::point_to_point::PointToPointConfiguration;
 
     use slim_auth::{shared_secret::SharedSecret, testutils::TEST_VALID_SECRET};
     use slim_datapath::api::{
@@ -377,10 +373,12 @@ mod tests {
             tx_app.clone(),
             std::path::PathBuf::from("/tmp/test_storage"),
         );
-        let session_config = PointToPointConfiguration::default();
+
+        let config = SessionConfig::default();
+        let dst = Name::from_strings(["org", "ns", "dst"]);
 
         let ret = app
-            .create_session(SessionConfig::PointToPoint(session_config), Some(1))
+            .create_session(config, ProtoSessionType::PointToPoint, dst, Some(1))
             .await;
 
         assert!(ret.is_ok());
@@ -406,12 +404,12 @@ mod tests {
             std::path::PathBuf::from("/tmp/test_storage"),
         );
 
+        let config = SessionConfig::default();
+        let dst = Name::from_strings(["org", "ns", "dst"]);
         let res = session_layer
-            .create_session(
-                SessionConfig::PointToPoint(PointToPointConfiguration::default()),
-                None,
-            )
+            .create_session(config, ProtoSessionType::PointToPoint, dst, None)
             .await;
+
         assert!(res.is_ok());
     }
 
@@ -431,12 +429,12 @@ mod tests {
             std::path::PathBuf::from("/tmp/test_storage"),
         );
 
+        let config = SessionConfig::default();
+        let dst = Name::from_strings(["org", "ns", "dst"]);
         let res = session_layer
-            .create_session(
-                SessionConfig::PointToPoint(PointToPointConfiguration::default()),
-                Some(1),
-            )
+            .create_session(config, ProtoSessionType::PointToPoint, dst, None)
             .await;
+
         assert!(res.is_ok());
 
         session_layer
@@ -461,11 +459,10 @@ mod tests {
             std::path::PathBuf::from("/tmp/test_storage"),
         );
 
+        let config = SessionConfig::default();
+        let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = app
-            .create_session(
-                SessionConfig::PointToPoint(PointToPointConfiguration::default()),
-                Some(42),
-            )
+            .create_session(config, ProtoSessionType::PointToPoint, dst, Some(42))
             .await
             .expect("failed to create session");
 
@@ -586,11 +583,17 @@ mod tests {
             std::path::PathBuf::from("/tmp/test_storage"),
         );
 
-        let session_config = PointToPointConfiguration::default();
+        let session_config = SessionConfig::default();
+        let dst = Name::from_strings(["cisco", "default", "remote"]).with_id(0);
 
         // create a new session
         let res = app
-            .create_session(SessionConfig::PointToPoint(session_config), Some(1))
+            .create_session(
+                session_config,
+                ProtoSessionType::PointToPoint,
+                dst.clone(),
+                Some(1),
+            )
             .await
             .unwrap();
 
@@ -598,7 +601,7 @@ mod tests {
 
         let mut message = ProtoMessage::new_publish(
             &source,
-            &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
+            &dst,
             None,
             None,
             Some(ApplicationPayload::new("msg", vec![0x1, 0x2, 0x3, 0x4]).as_content()),
@@ -661,7 +664,6 @@ mod tests {
     async fn run_p2p_subscription_test(config: P2PTestConfig) {
         use crate::service::Service;
         use slim_config::component::id::{ID, Kind};
-        use slim_session::point_to_point::PointToPointConfiguration;
 
         // Create a service instance with unique name
         let service_name = format!("test-service-{}", config.test_name);
@@ -720,10 +722,12 @@ mod tests {
             // Create session with the subscription name as peer
 
             println!("Creating session to peer: {}", name);
-            let session_config = PointToPointConfiguration::default().with_peer_name(name.clone());
+            let session_config = SessionConfig::default();
             let session_ctx = publisher_app
                 .create_session(
-                    slim_session::SessionConfig::PointToPoint(session_config),
+                    session_config,
+                    ProtoSessionType::PointToPoint,
+                    name.clone(),
                     None,
                 )
                 .await
@@ -772,11 +776,11 @@ mod tests {
             assert!(sub_names_set.contains(src));
 
             // Verify it's a point-to-point session
-            assert_eq!(session_arc.kind(), slim_session::SessionType::PointToPoint);
+            assert_eq!(session_arc.session_type(), ProtoSessionType::PointToPoint);
 
             // Verify the destination is the publisher app (from subscriber's perspective)
-            let dst = session_arc.dst().unwrap();
-            assert_eq!(dst, publisher_name);
+            let dst = session_arc.dst();
+            assert_eq!(dst, &publisher_name);
         }
 
         // Verify we created sessions for each subscription
@@ -825,8 +829,6 @@ mod tests {
     async fn run_multicast_test(config: MulticastTestConfig) {
         use crate::service::Service;
         use slim_config::component::id::{ID, Kind};
-        use slim_session::multicast::MulticastConfiguration;
-        use std::collections::HashMap;
 
         // Create a service instance with unique name
         let service_name = format!("test-service-{}", config.test_name);
@@ -877,17 +879,19 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         // Create multicast session from moderator
-        let multicast_config = MulticastConfiguration::new(
-            channel_name.clone(),
-            Some(5),
-            Some(std::time::Duration::from_millis(1000)),
-            false,
-            HashMap::new(),
-        );
+        let session_config = SessionConfig {
+            max_retries: Some(5),
+            duration: Some(std::time::Duration::from_millis(1000)),
+            mls_enabled: true,
+            initiator: true,
+            metadata: HashMap::new(),
+        };
 
         let session_ctx = moderator_app
             .create_session(
-                slim_session::SessionConfig::Multicast(multicast_config),
+                session_config,
+                ProtoSessionType::Multicast,
+                channel_name.clone(),
                 None,
             )
             .await
@@ -941,11 +945,11 @@ mod tests {
             let session_arc = received_session.session_arc().unwrap();
 
             // Verify it's a multicast session
-            assert_eq!(session_arc.kind(), slim_session::SessionType::Multicast);
+            assert_eq!(session_arc.session_type(), ProtoSessionType::Multicast);
 
             // For multicast sessions, the destination is also the channel name
-            let dst = session_arc.dst().unwrap();
-            assert_eq!(dst, channel_name);
+            let dst = session_arc.dst();
+            assert_eq!(dst, &channel_name);
 
             total_received_sessions += participant_sessions.len();
         }
