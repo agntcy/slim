@@ -1,7 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use slim_datapath::api::ProtoSessionType;
 use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};
 
@@ -237,7 +236,7 @@ mod tests {
     use tokio::sync::mpsc;
 
     use slim_auth::shared_secret::SharedSecret;
-    use slim_datapath::messages::Name;
+    use slim_datapath::{api::ProtoSessionType, messages::Name};
 
     use slim_auth::testutils::TEST_VALID_SECRET;
     use slim_session::{Notification, SessionError};

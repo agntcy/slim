@@ -6,18 +6,6 @@ license = { workspace = true }
 publish = false
 
 [[bin]]
-name = "workload-gen"
-path = "src/bin/workload-gen.rs"
-
-[[bin]]
-name = "subscriber"
-path = "src/bin/subscriber.rs"
-
-[[bin]]
-name = "publisher"
-path = "src/bin/publisher.rs"
-
-[[bin]]
 name = "channel"
 path = "src/bin/channel.rs"
 

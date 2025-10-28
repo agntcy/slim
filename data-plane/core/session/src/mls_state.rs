@@ -20,14 +20,6 @@ use crate::SessionError;
 use slim_datapath::messages::Name;
 use slim_mls::mls::{CommitMsg, KeyPackageMsg, Mls, MlsIdentity, ProposalMsg, WelcomeMsg};
 
-pub(crate) trait MlsEndpoint {
-    /// check whether MLS is up
-    fn is_mls_up(&self) -> Result<bool, SessionError>;
-
-    /// rotate MLS keys
-    async fn update_mls_keys(&mut self) -> Result<(), SessionError>;
-}
-
 #[derive(Debug)]
 pub struct MlsState<P, V>
 where
@@ -353,20 +345,5 @@ where
 
     pub(crate) fn is_mls_up(&self) -> Result<bool, SessionError> {
         self.common.is_mls_up()
-    }
-}
-
-#[derive(Debug, Clone, Encode, Decode)]
-pub struct MlsProposalMessagePayload {
-    pub(crate) source_name: Name,
-    pub(crate) mls_msg: Vec<u8>,
-}
-
-impl MlsProposalMessagePayload {
-    pub(crate) fn new(source_name: Name, mls_msg: Vec<u8>) -> Self {
-        MlsProposalMessagePayload {
-            source_name,
-            mls_msg,
-        }
     }
 }

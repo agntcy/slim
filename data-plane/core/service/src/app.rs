@@ -6,8 +6,6 @@ use std::sync::Arc;
 
 // Third-party crates
 use parking_lot::RwLock as SyncRwLock;
-use slim_datapath::api::ProtoSessionType;
-use slim_session::transmitter::SessionTransmitter;
 use tokio::sync::mpsc;
 use tracing::{debug, error};
 

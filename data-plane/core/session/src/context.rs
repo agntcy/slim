@@ -8,13 +8,8 @@ use std::sync::{Arc, Weak};
 // Third-party crates
 use slim_auth::traits::{TokenProvider, Verifier};
 
-use crate::Transmitter;
 use crate::common::AppChannelReceiver;
 use crate::session_controller::SessionController;
-use crate::transmitter::SessionTransmitter;
-
-/// Session ID
-pub type Id = u32;
 
 /// Session context
 #[derive(Debug)]
@@ -86,29 +81,23 @@ where
     }
 }
 
-/*#[cfg(test)]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::SessionError;
     use crate::common::AppChannelSender;
-    use crate::handle::Session as PublicSession;
-    use crate::interceptor::SessionInterceptor;
-    use crate::interceptor::SessionInterceptorProvider;
-    use crate::point_to_point::{PointToPoint, PointToPointConfiguration};
-    use crate::session_controller::SessionController;
-    use crate::traits::Transmitter;
+    use crate::session_controller::{SessionConfig, SessionController};
+    use crate::transmitter::SessionTransmitter;
     use async_trait::async_trait;
     use slim_auth::errors::AuthError;
     use slim_auth::traits::{TokenProvider, Verifier};
-    use slim_datapath::Status;
-    use slim_datapath::api::ProtoMessage as Message;
-    use slim_datapath::messages::encoder::Name;
-    use std::time::Duration;
+    use slim_datapath::api::ProtoSessionType;
+    use slim_datapath::messages::Name;
     use tokio::sync::mpsc;
     use tokio::sync::oneshot;
 
     // --- Test doubles -----------------------------------------------------------------------
-    // Lightweight provider / verifier used to satisfy generic bounds of PointToPoint sessions.
+    // Lightweight provider / verifier used to satisfy generic bounds of sessions.
     #[derive(Clone, Default)]
     struct DummyProvider;
     impl TokenProvider for DummyProvider {
@@ -147,53 +136,6 @@ mod tests {
         }
     }
 
-    // Minimal transmitter capturing messages; we don't assert on content here, only need a
-    // concrete Transmitter implementation for constructing a real session.
-    #[derive(Clone, Default)]
-    struct TestTransmitter {
-        app_tx: Option<AppChannelSender>,
-    }
-
-    impl SessionInterceptorProvider for TestTransmitter {
-        fn add_interceptor(&self, _i: Arc<dyn SessionInterceptor + Send + Sync + 'static>) {}
-        fn get_interceptors(&self) -> Vec<Arc<dyn SessionInterceptor + Send + Sync + 'static>> {
-            vec![]
-        }
-    }
-
-    impl Transmitter for TestTransmitter {
-        #[allow(clippy::manual_async_fn)]
-        fn send_to_slim(
-            &self,
-            _msg: Result<Message, Status>,
-        ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static {
-            async move { Ok(()) }
-        }
-
-        fn send_to_app(
-            &self,
-            msg: Result<Message, crate::SessionError>,
-        ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static {
-            let tx = self.app_tx.clone();
-            async move {
-                if let Some(tx) = tx {
-                    tx.send(msg)
-                        .await
-                        .map_err(|e| crate::SessionError::AppTransmission(e.to_string()))?;
-                }
-                Ok(())
-            }
-        }
-    }
-
-    impl TestTransmitter {
-        fn with_app_tx(app_tx: AppChannelSender) -> Self {
-            Self {
-                app_tx: Some(app_tx),
-            }
-        }
-    }
-
     fn make_name(parts: [&str; 3]) -> Name {
         Name::from_strings(parts).with_id(0)
     }
@@ -201,58 +143,43 @@ mod tests {
     fn build_session_controller_with_app_tx(
         id: u32,
         app_tx: AppChannelSender,
-    ) -> Arc<SessionController<DummyProvider, DummyVerifier, TestTransmitter>> {
+    ) -> Arc<SessionController<DummyProvider, DummyVerifier>> {
         use crate::SlimChannelSender;
-        use crate::controller_sender::ControllerSender;
-        use crate::session_controller::SessionParticipant;
-        use crate::timer_factory::TimerSettings;
-        use crate::transmitter::SessionTransmitter;
-        use std::time::Duration;
+        use crate::common::SessionMessage;
 
         let source = make_name(["a", "b", "c"]);
-        let cfg = PointToPointConfiguration::default();
+        let destination = make_name(["x", "y", "z"]);
+        let cfg = SessionConfig {
+            session_type: ProtoSessionType::PointToPoint,
+            max_retries: Some(3),
+            duration: Some(std::time::Duration::from_secs(1)),
+            mls_enabled: false,
+            initiator: false,
+            metadata: Default::default(),
+        };
 
         // Create channels for SessionTransmitter
         let (slim_tx, _slim_rx): (SlimChannelSender, _) = mpsc::channel(32);
 
-        // Create a SessionTransmitter for the Session handle
+        // Create a SessionTransmitter
         let session_tx = SessionTransmitter::new(slim_tx, app_tx.clone());
 
-        let p2p = PointToPoint::new(
+        // Create channel for session layer communication
+        let (tx_session, _rx_session): (mpsc::Sender<Result<SessionMessage, SessionError>>, _) =
+            mpsc::channel(32);
+
+        // Create a SessionController
+        Arc::new(SessionController::new(
             id,
-            cfg.clone(),
-            source.clone(),
-            session_tx,
+            source,
+            destination,
+            None, // conn
+            cfg,
             DummyProvider,
             DummyVerifier,
             std::env::temp_dir(),
-        );
-        let session = Arc::new(PublicSession::from_point_to_point(p2p));
-
-        // Create channels for the controller
-        let (tx_controller, rx_controller) = mpsc::channel(32);
-        let (tx_session, _rx_session): (
-            mpsc::Sender<Result<crate::common::SessionMessage, SessionError>>,
-            _,
-        ) = mpsc::channel(32);
-
-        // Create timer settings and controller sender with TestTransmitter
-        let timer_settings = TimerSettings::constant(Duration::from_secs(1)).with_max_retries(3);
-        let controller_sender = ControllerSender::new(
-            timer_settings,
-            TestTransmitter::with_app_tx(app_tx),
-            tx_controller.clone(),
-        );
-
-        // Create a SessionParticipant (simpler than SessionModerator for testing)
-        Arc::new(SessionController::SessionParticipant(
-            SessionParticipant::new(
-                session,
-                controller_sender,
-                tx_controller,
-                rx_controller,
-                tx_session,
-            ),
+            session_tx,
+            tx_session,
         ))
     }
 
@@ -305,10 +232,10 @@ mod tests {
 
     #[tokio::test]
     // Ensures the spawned receiver task (which only reads from rx) terminates once
-    // the session (and implicitly, in real usage, the channel sender owned by it) is dropped.
+    // the channel is explicitly closed (e.g., by dropping the sender).
     async fn context_spawn_receiver_task_finishes_on_session_drop() {
         let (tx_app, rx_app) = mpsc::channel(4);
-        let session_controller = build_session_controller_with_app_tx(5, tx_app);
+        let session_controller = build_session_controller_with_app_tx(5, tx_app.clone());
         let ctx = SessionContext::new(session_controller.clone(), rx_app);
         let (done_tx, done_rx) = oneshot::channel();
         let weak = ctx.spawn_receiver(move |mut rx, _s| async move {
@@ -316,12 +243,13 @@ mod tests {
             while rx.recv().await.is_some() {}
             let _ = done_tx.send(());
         });
-        // Dropping session drops the transmitter which owns the only sender.
+        // Drop both the sender and session controller to close the channel
+        drop(tx_app);
         drop(session_controller);
-        tokio::time::timeout(std::time::Duration::from_millis(100), done_rx)
+        tokio::time::timeout(std::time::Duration::from_millis(200), done_rx)
             .await
-            .expect("receiver task did not finish after session drop")
+            .expect("receiver task did not finish after channel close")
             .ok();
         assert!(weak.upgrade().is_none(), "session Arc should be gone");
     }
-}*/
+}

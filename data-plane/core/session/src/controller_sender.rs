@@ -194,7 +194,7 @@ impl ControllerSender {
         self.pending_replies.remove(&id);
     }
 
-    pub fn start_drain(&mut self) -> ControllerSenderDrainStatus {
+    pub fn start_drain(&mut self) {
         if self.pending_replies.is_empty() {
             debug!("closing controller sender");
             self.draining_state = ControllerSenderDrainStatus::Completed;
@@ -202,7 +202,6 @@ impl ControllerSender {
             debug!("controller sender drain initiated");
             self.draining_state = ControllerSenderDrainStatus::Initiated;
         }
-        self.draining_state.clone()
     }
 
     pub fn check_drain_completion(&self) -> bool {
