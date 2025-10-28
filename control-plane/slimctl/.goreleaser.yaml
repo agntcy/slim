@@ -1,0 +1,108 @@
+version: 2
+
+before:
+  hooks:
+    # You may remove this if you don't use go modules.
+    - go mod tidy
+    # you may remove this if you don't need go generate
+    - go generate ./...
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+
+archives:
+  - name_template: "slimctl_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "slimctl_checksums.txt"
+
+changelog:
+  disable: true
+
+
+homebrew_casks:
+  -
+    name: slimctl
+
+
+    # Binary name inside the cask
+    #
+    # Default: the cask name.
+    # Templates: allowed.
+    binaries:
+      - slimctl
+
+    url:
+      # URL which is determined by the given Token (github, gitlab or gitea).
+      #
+      # Default depends on the client.
+      # Templates: allowed.
+      template: "https://github.com/agntcy/slim/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+
+      # Download strategy or format specification
+      # See official Cask Cookbook for allowed values.
+      # Templates: allowed.
+      using: ":homebrew_curl"
+
+
+    # The project name and current git tag are used in the format string.
+    #
+    # Templates: allowed.
+    commit_msg_template: "Brew cask update for {{ .ProjectName }} version {{ .Tag }}"
+
+    # Directory inside the repository to put the cask.
+    # Default: Casks
+    directory: Casks
+
+    # Your app's homepage.
+    #
+    # Default: inferred from global metadata.
+    homepage: "https://example.com/"
+
+    # Your app's description.
+    #
+    # Templates: allowed.
+    # Default: inferred from global metadata.
+    description: "A CLI tool for managing SLIM Devices"
+
+
+
+    # Setting this will prevent goreleaser to actually try to commit the updated
+    # cask - instead, the cask file will be stored on the dist directory
+    # only, leaving the responsibility of publishing it to the user.
+    # If set to auto, the release will not be uploaded to the homebrew tap
+    # in case there is an indicator for prerelease in the tag e.g. v1.0.0-rc1
+    #
+    # Templates: allowed.
+    skip_upload: true
+
+    # Repository to push the generated files to.
+    repository:
+      # Repository owner.
+      #
+      # Templates: allowed.
+      owner: agntcy
+
+      # Repository name.
+      #
+      # Templates: allowed.
+      name: slim
+
+      # Optionally a branch can be provided.
+      #
+      # Default: default repository branch.
+      # Templates: allowed.
+      branch: main
+
+      # Optionally a token can be provided, if it differs from the token
+      # provided to GoReleaser
+      #
+      # Templates: allowed.
+      token: "{{ .Env.GITHUB_PERSONAL_AUTH_TOKEN }}"
+
+
