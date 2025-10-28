@@ -16,7 +16,7 @@ use slim_auth::traits::Verifier;
 use slim_datapath::messages::encoder::Name;
 use slim_service::bindings::BindingsAdapter;
 use slim_service::{ServiceError, ServiceRef};
-use slim_session::{session_controller::SessionConfig, SessionError};
+use slim_session::{SessionError, session_controller::SessionConfig};
 
 use crate::pyidentity::IdentityProvider;
 use crate::pyidentity::IdentityVerifier;
@@ -94,7 +94,11 @@ impl PyApp {
         destination: Name,
         session_config: SessionConfig,
     ) -> Result<PySessionContext, SessionError> {
-        let ctx = self.internal.adapter.create_session(session_config, destination).await?;
+        let ctx = self
+            .internal
+            .adapter
+            .create_session(session_config, destination)
+            .await?;
         Ok(PySessionContext::from(ctx))
     }
 

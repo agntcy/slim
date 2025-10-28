@@ -20,8 +20,8 @@ mod _slim_bindings {
     #[pymodule_export]
     use pyapp::{
         PyApp, connect, create_pyapp, create_session, delete_session, disconnect,
-        listen_for_session, remove_route, run_server, set_route,
-        stop_server, subscribe, unsubscribe,
+        listen_for_session, remove_route, run_server, set_route, stop_server, subscribe,
+        unsubscribe,
     };
 
     #[pymodule_export]

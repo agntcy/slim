@@ -8,8 +8,8 @@ use tracing::info;
 use slim::config;
 use slim_auth::shared_secret::SharedSecret;
 use slim_auth::testutils::TEST_VALID_SECRET;
-use slim_datapath::messages::Name;
-use slim_session::{self, PointToPointConfiguration, SessionConfig};
+use slim_datapath::{api::ProtoSessionType, messages::Name};
+use slim_session::session_controller::{SessionConfig, SessionController};
 
 mod args;
 
@@ -18,7 +18,7 @@ fn spawn_session_receiver(
     session_ctx: slim_session::context::SessionContext<SharedSecret, SharedSecret>,
     local_name: String,
     route: Name,
-) -> std::sync::Arc<slim_session::Session<SharedSecret, SharedSecret>> {
+) -> std::sync::Arc<SessionController<SharedSecret, SharedSecret>> {
     session_ctx
         .spawn_receiver(|mut rx, weak| async move {
             info!("Session handler task started");
@@ -150,9 +150,9 @@ async fn main() {
     app.subscribe(&local_app_name, Some(conn_id)).await.unwrap();
 
     // Set a route for the remote app
-    let route = Name::from_strings(["org", "default", remote_name]);
-    info!("allowing messages to remote app: {:?}", route);
-    app.set_route(&route, conn_id).await.unwrap();
+    let remote_app_name = Name::from_strings(["org", "default", remote_name]);
+    info!("allowing messages to remote app: {:?}", remote_app_name);
+    app.set_route(&remote_app_name, conn_id).await.unwrap();
 
     // wait for the connection to be established
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -229,12 +229,9 @@ async fn main() {
 
     // check what to do with the message
     if let Some(msg) = message {
-        // create a p2p session
+        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
         let session_ctx = app
-            .create_session(
-                SessionConfig::PointToPoint(PointToPointConfiguration::default()),
-                None,
-            )
+            .create_session(config, remote_app_name.clone(), None)
             .await
             .expect("error creating p2p session");
 
@@ -280,14 +277,15 @@ async fn main() {
         }
 
         // Get the session and spawn receiver for handling responses
-        let session = spawn_session_receiver(session_ctx, local_name.to_string(), route.clone());
+        let session =
+            spawn_session_receiver(session_ctx, local_name.to_string(), remote_app_name.clone());
         // let session = session_ctx.session_arc().unwrap();
 
-        info!("Sending message to {}", route);
+        info!("Sending message to {}", remote_app_name);
 
         // publish message using session context
         session
-            .publish(&route, msg.into(), None, None)
+            .publish(&remote_app_name, msg.into(), None, None)
             .await
             .unwrap();
 
@@ -315,7 +313,7 @@ async fn main() {
                         let session = spawn_session_receiver(
                             session,
                             local_name.to_string(),
-                            route.clone(),
+                            remote_app_name.clone(),
                         );
 
                         // Save the session

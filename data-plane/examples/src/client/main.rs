@@ -25,13 +25,9 @@ fn spawn_session_receiver(
 
             if let Some(m) = message_clone {
                 if let Some(s) = session.upgrade() {
-                    if let Some(dst) = s.dst() {
-                        if let Err(e) = s.publish(&dst, m.encode_to_vec(), None, None).await {
+                        if let Err(e) = s.publish(&s.dst(), m.encode_to_vec(), None, None).await {
                             error!("Failed to publish message to session: {:?}", e);
                         }
-                    } else {
-                        error!("Failed to get session destination");
-                    }
                 } else {
                     error!("Failed to upgrade session weak reference");
                 }

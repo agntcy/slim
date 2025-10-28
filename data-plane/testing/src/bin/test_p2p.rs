@@ -18,7 +18,8 @@ use slim_config::tls::client::TlsClientConfig;
 use slim_config::tls::server::TlsServerConfig;
 use slim_datapath::messages::Name;
 use slim_service::ServiceConfiguration;
-use slim_session::{Notification, PointToPointConfiguration};
+use slim_session::Notification;
+use slim_session::session_controller::SessionConfig;
 use slim_tracing::TracingConfiguration;
 
 const DEFAULT_DATAPLANE_PORT: u16 = 46357;
@@ -30,7 +31,7 @@ pub struct Args {
     #[arg(
         short,
         long,
-        value_name = "MSL_DISABLED",
+        value_name = "MLS_DISABLED",
         required = false,
         default_value_t = false
     )]
@@ -241,13 +242,13 @@ async fn run_client_task(name: Name) -> Result<(), String> {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // get command line conf
     let args = Args::parse();
-    let msl_enabled = !*args.mls_disabled();
+    let mls_enabled = !*args.mls_disabled();
     let slim_disabled = *args.slim_disabled();
     let apps = *args.apps();
 
     println!(
         "run test with MLS = {} number of apps = {}, SLIM on = {}",
-        msl_enabled, apps, !slim_disabled,
+        mls_enabled, apps, !slim_disabled,
     );
 
     // start slim node
@@ -308,17 +309,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .map_err(|_| format!("Failed to subscribe for participant {}", name))?;
 
+    let conf = SessionConfig {
+        session_type: slim_datapath::api::ProtoSessionType::Multicast,
+        max_retries: Some(10),
+        duration: Some(Duration::from_secs(1)),
+        mls_enabled,
+        initiator: true,
+        metadata: HashMap::new(),
+    };
     let session_ctx = app
-        .create_session(
-            slim_session::SessionConfig::PointToPoint(PointToPointConfiguration::new(
-                Some(Duration::from_secs(1)),
-                Some(10),
-                msl_enabled,
-                Some(Name::from_strings(["org", "ns", "client"])),
-                HashMap::new(),
-            )),
-            None,
-        )
+        .create_session(conf, Name::from_strings(["org", "ns", "client"]), None)
         .await
         .expect("error creating session");
 

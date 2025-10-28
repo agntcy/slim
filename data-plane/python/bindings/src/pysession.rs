@@ -13,7 +13,7 @@ use pyo3_stub_gen::derive::gen_stub_pyclass;
 use pyo3_stub_gen::derive::gen_stub_pyclass_enum;
 use pyo3_stub_gen::derive::gen_stub_pyfunction;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
-use slim_session::{session_controller::SessionConfig, SessionError};
+use slim_session::{SessionError, session_controller::SessionConfig};
 
 use crate::pyidentity::{IdentityProvider, IdentityVerifier};
 use crate::pymessage::PyMessageContext;
@@ -181,7 +181,7 @@ impl PySessionContext {
             None => match &message_ctx {
                 Some(ctx) => (&ctx.source_name, Some(ctx.input_connection)),
                 None => (&PyName::from(session.dst().clone()), None),
-            }
+            },
         };
 
         let target_name = Name::from(target_name);
@@ -350,18 +350,18 @@ impl From<ProtoSessionType> for PySessionType {
 #[pyclass]
 #[derive(Clone)]
 pub struct PySessionConfiguration {
-        /// session type
-        session_type: ProtoSessionType,
-        /// Optional maximum retry attempts.
-        max_retries: Option<u32>,
-        /// interval between attempts
-        timeout: Option<std::time::Duration>,
-        /// Enable (true) or disable (false) MLS features.
-        mls_enabled: bool,
-        /// True is this endpoint is the initiator of the session
-        initiator: bool,
-        /// Arbitrary metadata key/value pairs.
-        metadata: HashMap<String, String>,
+    /// session type
+    session_type: ProtoSessionType,
+    /// Optional maximum retry attempts.
+    max_retries: Option<u32>,
+    /// interval between attempts
+    timeout: Option<std::time::Duration>,
+    /// Enable (true) or disable (false) MLS features.
+    mls_enabled: bool,
+    /// True is this endpoint is the initiator of the session
+    initiator: bool,
+    /// Arbitrary metadata key/value pairs.
+    metadata: HashMap<String, String>,
 }
 
 // TODO(msardara): unify the configs as now they became identical
@@ -414,7 +414,6 @@ impl From<SessionConfig> for PySessionConfiguration {
         }
     }
 }
-
 
 impl From<&PySessionConfiguration> for SessionConfig {
     fn from(value: &PySessionConfiguration) -> Self {

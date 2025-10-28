@@ -9,7 +9,7 @@ use tracing::{error, info};
 
 use slim_auth::shared_secret::SharedSecret;
 use slim_datapath::messages::{Name, utils::SlimHeaderFlags};
-use slim_session::{MulticastConfiguration, Notification};
+use slim_session::{Notification, session_controller::SessionConfig};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -137,7 +137,7 @@ async fn main() {
     let local_name_str = args.name().clone();
     let frequency = *args.frequency();
     let is_moderator = *args.is_moderator();
-    let msl_enabled = !*args.mls_disabled();
+    let mls_enabled = !*args.mls_disabled();
     let moderator_name = args.moderator_name().clone();
     let max_packets = args.max_packets;
     let participants_str = args.participants().clone();
@@ -206,17 +206,16 @@ async fn main() {
 
     if is_moderator {
         // create session
+        let config = SessionConfig {
+            session_type: slim_datapath::api::ProtoSessionType::Multicast,
+            max_retries: Some(10),
+            duration: Some(Duration::from_secs(1)),
+            mls_enabled,
+            initiator: true,
+            metadata: HashMap::new(),
+        };
         let session_ctx = app
-            .create_session(
-                slim_session::SessionConfig::Multicast(MulticastConfiguration::new(
-                    channel_name.clone(),
-                    Some(10),
-                    Some(Duration::from_secs(1)),
-                    msl_enabled,
-                    HashMap::new(),
-                )),
-                Some(12345),
-            )
+            .create_session(config, channel_name.clone(), Some(12345))
             .await
             .expect("error creating session");
 
