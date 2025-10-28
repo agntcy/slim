@@ -227,10 +227,10 @@ mod tests {
             .await
             .expect("Failed to create adapter");
 
-        let config = SessionConfig::default();
+        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
-            .create_session(config, ProtoSessionType::PointToPoint, dst, None)
+            .create_session(config, dst)
             .await
             .expect("Failed to create session");
 
@@ -251,10 +251,10 @@ mod tests {
             .expect("Failed to create adapter");
 
         // Create a session and convert to BindingsSessionContext
-        let config = SessionConfig::default();
+        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
-            .create_session(config, ProtoSessionType::PointToPoint, dst, None)
+            .create_session(config, dst)
             .await
             .expect("Failed to create session");
         let bindings_ctx = BindingsSessionContext::from(session_ctx);
@@ -280,10 +280,10 @@ mod tests {
             .expect("Failed to create adapter");
 
         // Create a session and convert to BindingsSessionContext
-        let config = SessionConfig::default();
+        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
-            .create_session(config, ProtoSessionType::PointToPoint, dst, None)
+            .create_session(config, dst)
             .await
             .expect("Failed to create session");
         let bindings_ctx = BindingsSessionContext::from(session_ctx);
@@ -311,10 +311,10 @@ mod tests {
             .expect("Failed to create adapter");
 
         // Create a session and convert to BindingsSessionContext
-        let config = SessionConfig::default();
+        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
-            .create_session(config, ProtoSessionType::PointToPoint, dst, None)
+            .create_session(config, dst)
             .await
             .expect("Failed to create session");
         let bindings_ctx = BindingsSessionContext::from(session_ctx);
@@ -352,10 +352,10 @@ mod tests {
             .expect("Failed to create adapter");
 
         // Create a session first
-        let config = SessionConfig::default();
+        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
-            .create_session(config, ProtoSessionType::PointToPoint, dst, None)
+            .create_session(config, dst)
             .await
             .expect("Failed to create session");
         let session_bindings = BindingsSessionContext::from(session_ctx);

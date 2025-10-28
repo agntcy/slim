@@ -120,20 +120,12 @@ where
     pub async fn create_session(
         &self,
         session_config: SessionConfig,
-        session_type: ProtoSessionType,
         destination: Name,
         id: Option<u32>,
     ) -> Result<SessionContext<P, V>, SessionError> {
         let ret = self
             .session_layer
-            .create_session(
-                session_config,
-                session_type,
-                self.app_name.clone(),
-                destination,
-                id,
-                None,
-            )
+            .create_session(session_config, self.app_name.clone(), destination, id, None)
             .await?;
 
         // return the session info
@@ -374,12 +366,10 @@ mod tests {
             std::path::PathBuf::from("/tmp/test_storage"),
         );
 
-        let config = SessionConfig::default();
+        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
         let dst = Name::from_strings(["org", "ns", "dst"]);
 
-        let ret = app
-            .create_session(config, ProtoSessionType::PointToPoint, dst, Some(1))
-            .await;
+        let ret = app.create_session(config, dst, Some(1)).await;
 
         assert!(ret.is_ok());
 
@@ -404,11 +394,9 @@ mod tests {
             std::path::PathBuf::from("/tmp/test_storage"),
         );
 
-        let config = SessionConfig::default();
+        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
         let dst = Name::from_strings(["org", "ns", "dst"]);
-        let res = session_layer
-            .create_session(config, ProtoSessionType::PointToPoint, dst, None)
-            .await;
+        let res = session_layer.create_session(config, dst, None).await;
 
         assert!(res.is_ok());
     }
@@ -429,11 +417,9 @@ mod tests {
             std::path::PathBuf::from("/tmp/test_storage"),
         );
 
-        let config = SessionConfig::default();
+        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
         let dst = Name::from_strings(["org", "ns", "dst"]);
-        let res = session_layer
-            .create_session(config, ProtoSessionType::PointToPoint, dst, None)
-            .await;
+        let res = session_layer.create_session(config, dst, None).await;
 
         assert!(res.is_ok());
 
@@ -459,10 +445,10 @@ mod tests {
             std::path::PathBuf::from("/tmp/test_storage"),
         );
 
-        let config = SessionConfig::default();
+        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = app
-            .create_session(config, ProtoSessionType::PointToPoint, dst, Some(42))
+            .create_session(config, dst, Some(42))
             .await
             .expect("failed to create session");
 
@@ -583,17 +569,13 @@ mod tests {
             std::path::PathBuf::from("/tmp/test_storage"),
         );
 
-        let session_config = SessionConfig::default();
+        let session_config =
+            SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
         let dst = Name::from_strings(["cisco", "default", "remote"]).with_id(0);
 
         // create a new session
         let res = app
-            .create_session(
-                session_config,
-                ProtoSessionType::PointToPoint,
-                dst.clone(),
-                Some(1),
-            )
+            .create_session(session_config, dst.clone(), Some(1))
             .await
             .unwrap();
 
@@ -722,14 +704,10 @@ mod tests {
             // Create session with the subscription name as peer
 
             println!("Creating session to peer: {}", name);
-            let session_config = SessionConfig::default();
+            let session_config =
+                SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
             let session_ctx = publisher_app
-                .create_session(
-                    session_config,
-                    ProtoSessionType::PointToPoint,
-                    name.clone(),
-                    None,
-                )
+                .create_session(session_config, name.clone(), None)
                 .await
                 .unwrap();
 
@@ -880,6 +858,7 @@ mod tests {
 
         // Create multicast session from moderator
         let session_config = SessionConfig {
+            session_type: ProtoSessionType::Multicast,
             max_retries: Some(5),
             duration: Some(std::time::Duration::from_millis(1000)),
             mls_enabled: true,
@@ -888,12 +867,7 @@ mod tests {
         };
 
         let session_ctx = moderator_app
-            .create_session(
-                session_config,
-                ProtoSessionType::Multicast,
-                channel_name.clone(),
-                None,
-            )
+            .create_session(session_config, channel_name.clone(), None)
             .await
             .unwrap();
 

@@ -522,17 +522,10 @@ mod tests {
         // subscription is done automatically.
 
         // create a point to point session
-        let config = SessionConfig::default();
+        let config = SessionConfig::default()
+            .with_session_type(slim_datapath::api::ProtoSessionType::PointToPoint);
         let dst = Name::from_strings(["org", "ns", "dst"]);
-        let send_session = pub_app
-            .create_session(
-                config,
-                slim_datapath::api::ProtoSessionType::PointToPoint,
-                dst,
-                None,
-            )
-            .await
-            .unwrap();
+        let send_session = pub_app.create_session(config, dst, None).await.unwrap();
 
         // publish a message
         let message_blob = "very complicated message".as_bytes().to_vec();
@@ -629,15 +622,11 @@ mod tests {
             .expect("failed to create app");
 
         //////////////////////////// p2p session ////////////////////////////////////////////////////////////////////////
-        let session_config = SessionConfig::default();
+        let session_config = SessionConfig::default()
+            .with_session_type(slim_datapath::api::ProtoSessionType::PointToPoint);
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_info = app
-            .create_session(
-                session_config,
-                slim_datapath::api::ProtoSessionType::PointToPoint,
-                dst,
-                None,
-            )
+            .create_session(session_config, dst, None)
             .await
             .expect("failed to create session");
 
@@ -652,6 +641,7 @@ mod tests {
         let stream = Name::from_strings(["agntcy", "ns", "stream"]);
 
         let session_config = SessionConfig {
+            session_type: slim_datapath::api::ProtoSessionType::Multicast,
             max_retries: Some(5),
             duration: Some(Duration::from_millis(1000)),
             mls_enabled: true,
@@ -659,12 +649,7 @@ mod tests {
             metadata: HashMap::new(),
         };
         let _session_info = app
-            .create_session(
-                session_config,
-                slim_datapath::api::ProtoSessionType::Multicast,
-                stream.clone(),
-                None,
-            )
+            .create_session(session_config, stream.clone(), None)
             .await
             .expect("failed to create session");
 

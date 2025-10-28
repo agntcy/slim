@@ -4,7 +4,6 @@
 // Standard library imports
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::Duration;
 
 // Third-party crates
 use parking_lot::RwLock as SyncRwLock;
@@ -18,18 +17,13 @@ use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType, Proto
 use slim_datapath::messages::Name;
 
 use crate::common::SessionMessage;
-use crate::controller_sender::ControllerSender;
 use crate::notification::Notification;
-use crate::session_controller::{self, SessionController, SessionModerator, SessionParticipant};
-use crate::session_receiver::SessionReceiver;
-use crate::session_sender::SessionSender;
-use crate::timer;
-use crate::timer_factory::TimerSettings;
+use crate::session_controller::{SessionConfig, SessionController};
 use crate::transmitter::{AppTransmitter, SessionTransmitter};
 
 // Local crate
 use super::context::SessionContext;
-use super::interceptor::{IdentityInterceptor, SessionInterceptor};
+use super::interceptor::IdentityInterceptor;
 use super::{MessageDirection, SESSION_RANGE, SlimChannelSender, Transmitter};
 use super::{SessionError, session_controller::handle_channel_discovery_message};
 use crate::interceptor::SessionInterceptorProvider; // needed for add_interceptor
@@ -170,8 +164,7 @@ where
 
     pub async fn create_session(
         &self,
-        session_config: crate::session_controller::SessionConfig,
-        session_type: ProtoSessionType,
+        session_config: SessionConfig,
         local_name: Name,
         destination: Name,
         id: Option<u32>,
@@ -222,7 +215,6 @@ where
 
         let session_controller = Arc::new(SessionController::new(
             id,
-            session_type,
             local_name,
             destination,
             conn,
@@ -402,32 +394,6 @@ where
         let local_name = self.get_local_name_for_session(message.get_slim_header().get_dst())?;
 
         let new_session = match session_message_type {
-            // TODO: do we want to keep this option?
-            ProtoSessionMessageType::Msg => {
-                // if this is a point to point session create an anycast session otherwise drop the message
-                if message.get_session_type() == ProtoSessionType::PointToPoint {
-                    let conf = crate::session_controller::SessionConfig {
-                        max_retries: None,
-                        duration: None,
-                        mls_enabled: false,
-                        initiator: false,
-                        metadata: message.get_metadata_map(),
-                    };
-
-                    self.create_session(
-                        conf,
-                        ProtoSessionType::PointToPoint,
-                        local_name,
-                        message.get_source(),
-                        Some(message.get_session_header().session_id),
-                        Some(message.get_incoming_conn()),
-                    )
-                    .await?
-                } else {
-                    debug!("received a multicast message for an unknown session, drop message");
-                    return Ok(());
-                }
-            }
             ProtoSessionMessageType::JoinRequest => {
                 // Create a new session based on the message payload
                 let payload = message
@@ -439,6 +405,7 @@ where
                 match message.get_session_header().session_type() {
                     ProtoSessionType::PointToPoint => {
                         let mut conf = crate::session_controller::SessionConfig::default();
+                        conf.session_type = ProtoSessionType::PointToPoint;
 
                         match payload.timer_settings {
                             Some(s) => {
@@ -458,7 +425,6 @@ where
 
                         self.create_session(
                             conf,
-                            ProtoSessionType::PointToPoint,
                             local_name,
                             message.get_source(),
                             Some(message.get_session_header().session_id),
@@ -468,6 +434,7 @@ where
                     }
                     ProtoSessionType::Multicast => {
                         let mut conf = crate::session_controller::SessionConfig::default();
+                        conf.session_type = ProtoSessionType::Multicast;
                         let timer_settings = payload.timer_settings.ok_or(
                             SessionError::Processing("missing timer options".to_string()),
                         )?;
@@ -489,7 +456,6 @@ where
 
                         self.create_session(
                             conf,
-                            ProtoSessionType::PointToPoint,
                             local_name,
                             message.get_source(),
                             Some(message.get_session_header().session_id),
@@ -516,6 +482,7 @@ where
             | ProtoSessionMessageType::GroupUpdate
             | ProtoSessionMessageType::GroupWelcome
             | ProtoSessionMessageType::GroupAck
+            | ProtoSessionMessageType::Msg
             | ProtoSessionMessageType::MsgAck
             | ProtoSessionMessageType::RtxRequest
             | ProtoSessionMessageType::RtxReply => {

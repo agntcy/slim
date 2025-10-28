@@ -145,12 +145,10 @@ where
     pub async fn create_session(
         &self,
         session_config: SessionConfig,
-        session_type: ProtoSessionType,
         destination: Name,
-        id: Option<u32>,
     ) -> Result<SessionContext<P, V>, SessionError> {
         self.app
-            .create_session(session_config, session_type, destination, id)
+            .create_session(session_config, destination, None)
             .await
     }
 
@@ -464,10 +462,11 @@ mod tests {
             .expect("Failed to create adapter");
 
         // Create a session
-        let session_config = SessionConfig::default();
+        let session_config =
+            SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
-            .create_session(session_config, ProtoSessionType::PointToPoint, dst, None)
+            .create_session(session_config, dst)
             .await
             .expect("Failed to create session");
 
@@ -543,10 +542,10 @@ mod tests {
         .expect("Failed to create adapter");
 
         // Create a session
-        let config = SessionConfig::default();
+        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
-            .create_session(config, ProtoSessionType::PointToPoint, dst, None)
+            .create_session(config, dst)
             .await
             .expect("Failed to create session");
 

@@ -60,8 +60,8 @@ where
     /// group or remote endpoint name
     destination: Name,
 
-    /// session kind
-    session_type: ProtoSessionType,
+    /// session config
+    config: SessionConfig,
 
     /// controller (participant or moderator)
     controller: SessionControllerImpl<P, V>,
@@ -74,7 +74,6 @@ where
 {
     pub fn new(
         id: u32,
-        session_type: ProtoSessionType,
         source: Name,
         destination: Name,
         conn: Option<u64>,
@@ -85,10 +84,11 @@ where
         tx: SessionTransmitter,
         tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
     ) -> Self {
+        let session_config = config.clone();
+
         let controller = if config.initiator {
             SessionControllerImpl::SessionModerator(SessionModerator::new(
                 id,
-                session_type,
                 source.clone(),
                 destination.clone(),
                 conn,
@@ -102,7 +102,6 @@ where
         } else {
             SessionControllerImpl::SessionParticipant(SessionParticipant::new(
                 id,
-                session_type,
                 source.clone(),
                 destination.clone(),
                 conn,
@@ -119,7 +118,7 @@ where
             id,
             source,
             destination,
-            session_type,
+            config: session_config,
             controller,
         }
     }
@@ -138,7 +137,15 @@ where
     }
 
     pub fn session_type(&self) -> ProtoSessionType {
-        self.session_type
+        self.config.session_type
+    }
+
+    pub fn metadata(&self) -> HashMap<String, String> {
+        self.config.metadata.clone()
+    }
+
+    pub fn session_config(&self) -> SessionConfig {
+        self.config.clone()
     }
 
     pub fn is_initiator(&self) -> bool {
@@ -324,8 +331,11 @@ pub fn handle_channel_discovery_message(
     Message::new_publish_with_headers(slim_header, session_header, payload)
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct SessionConfig {
+    /// session type
+    pub session_type: ProtoSessionType,
+
     /// number of retries for each message/rtx
     pub max_retries: Option<u32>,
 
@@ -342,12 +352,22 @@ pub struct SessionConfig {
     pub metadata: HashMap<String, String>,
 }
 
+impl SessionConfig {
+    pub fn with_session_type(&self, session_type: ProtoSessionType) -> Self {
+        Self {
+            session_type,
+            max_retries: self.max_retries,
+            duration: self.duration,
+            mls_enabled: self.mls_enabled,
+            initiator: self.initiator,
+            metadata: self.metadata.clone(),
+        }
+    }
+}
+
 pub struct SessionControllerCommon {
     /// session id
     id: u32,
-
-    /// session type
-    session_type: ProtoSessionType,
 
     ///local name
     source: Name,
@@ -385,7 +405,6 @@ impl SessionControllerCommon {
 
     fn new(
         id: u32,
-        session_type: ProtoSessionType,
         source: Name,
         destination: Name,
         conn: Option<u64>,
@@ -435,7 +454,7 @@ impl SessionControllerCommon {
             session_timer_settings,
             id,
             source.clone(),
-            session_type,
+            config.session_type,
             send_acks,
             // send messages to slim/app
             tx.clone(),
@@ -443,12 +462,10 @@ impl SessionControllerCommon {
             Some(tx_controller.clone()),
         );
 
-        // TODO rename multicast in session
         let session = Session::new(sender, receiver);
 
         SessionControllerCommon {
             id,
-            session_type,
             source,
             destination,
             conn,
@@ -537,7 +554,7 @@ impl SessionControllerCommon {
         ));
 
         let session_header = Some(SessionHeader::new(
-            self.session_type.into(),
+            self.config.session_type.into(),
             message_type.into(),
             self.id,
             message_id,
@@ -575,7 +592,6 @@ where
 {
     pub(crate) fn new(
         id: u32,
-        session_type: ProtoSessionType,
         source: Name,
         destination: Name,
         conn: Option<u64>,
@@ -589,9 +605,8 @@ where
         // tx/rx controller used to receive messages from the session_layer
         let (tx_controller, rx_controller) = tokio::sync::mpsc::channel(128);
 
-        let processor = SessionModeratorProcessor::new(
+        let processor = SessionParticipantProcessor::new(
             id,
-            session_type,
             source,
             destination,
             conn,
@@ -653,7 +668,6 @@ where
 {
     pub fn new(
         id: u32,
-        session_type: ProtoSessionType,
         source: Name,
         destination: Name,
         conn: Option<u64>,
@@ -682,7 +696,6 @@ where
 
         let common = SessionControllerCommon::new(
             id,
-            session_type,
             source,
             destination,
             conn,
@@ -913,7 +926,7 @@ where
     async fn join(&self) -> Result<(), SessionError> {
         // we need to setup the network only in case of multicast session
 
-        if self.common.session_type == ProtoSessionType::PointToPoint {
+        if self.common.config.session_type == ProtoSessionType::PointToPoint {
             // simply return
             return Ok(());
         }
@@ -935,7 +948,7 @@ where
         self.common.delete_route(&self.common.destination).await;
 
         // we need to setup the network only in case of multicast session
-        if self.common.session_type == ProtoSessionType::PointToPoint {
+        if self.common.config.session_type == ProtoSessionType::PointToPoint {
             // simply return
             return Ok(());
         }
@@ -962,7 +975,6 @@ where
 {
     pub(crate) fn new(
         id: u32,
-        session_type: ProtoSessionType,
         source: Name,
         destination: Name,
         conn: Option<u64>,
@@ -978,7 +990,6 @@ where
 
         let processor = SessionModeratorProcessor::new(
             id,
-            session_type,
             source,
             destination,
             conn,
@@ -1069,7 +1080,6 @@ where
 {
     pub fn new(
         id: u32,
-        session_type: ProtoSessionType,
         source: Name,
         destination: Name,
         conn: Option<u64>,
@@ -1098,7 +1108,6 @@ where
 
         let common = SessionControllerCommon::new(
             id,
-            session_type,
             source,
             destination,
             conn,
