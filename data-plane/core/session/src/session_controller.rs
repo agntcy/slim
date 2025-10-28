@@ -877,9 +877,37 @@ where
             .as_command_payload()
             .as_group_update_payload()
             .participant;
-        for p in list {
-            self.group_list.insert(Name::from(&p));
+
+        // check if a participant was added or removed an notify the session
+        // about the new group state
+        if self.group_list.len() < list.len() {
+            // some one was added to the group
+            for p in list {
+            let participant_name = Name::from(&p);
+            if !self.group_list.contains(&participant_name) {
+                self.group_list.insert(participant_name.clone());
+                self.common.session.on_message(SessionMessage::AddEndpoint { endpoint: participant_name }).await?;
+            }
+            }
+        } else {
+            // some one was removed from the group
+            let mut new_set = HashSet::new();
+            for p in list {
+                new_set.insert(Name::from(&p));
+            }
+
+            // search the participants in group_list that are not in the new_set
+            for p in &self.group_list {
+                if !new_set.contains(&p) {
+                    // remove p
+                    self.common.session.on_message(SessionMessage::RemoveEndpoint { endpoint: p.clone() }).await?;
+                }
+            }
+
+            // use new_set as new group list
+            self.group_list = new_set;
         }
+
 
         // send an ack back to the moderator
         self.common
@@ -1363,6 +1391,9 @@ where
         self.group_list
             .insert(new_participant_name, new_participant_id);
 
+        // notify the local session that a new participant was added to the group
+        self.common.session.on_message(SessionMessage::AddEndpoint { endpoint: msg.get_source().clone() }).await?;
+
         // get mls data if MLS is enabled
         let (commit, commit_id, welcome, welcome_id) = if self.mls_state.is_some() {
             let (commit_payload, welcome_payload) =
@@ -1467,7 +1498,7 @@ where
             .as_command_payload()
             .as_leave_request_payload();
 
-        let leave_message = match payload.destination {
+        let (leave_message, original_dst) = match payload.destination {
             Some(dst_name) => {
                 // Handle case where destination is provided
                 let dst = Name::from(&dst_name);
@@ -1485,10 +1516,11 @@ where
                 msg.get_slim_header_mut().set_destination(&dst);
                 msg.set_payload(new_payload);
                 msg.set_message_id(rand::random::<u32>());
-                msg
+                (msg, Name::from(&dst_name))
             }
             None => {
                 // Handle case where no destination is provided, use message destination
+                let original_dst =  Name::from(msg.get_dst());
                 let dst = msg.get_dst();
                 let id = *self
                     .group_list
@@ -1499,9 +1531,13 @@ where
 
                 msg.get_slim_header_mut().set_destination(&dst.with_id(id));
                 msg.set_message_id(rand::random::<u32>());
-                msg
+                (msg, original_dst)
             }
         };
+
+        // remove the participant from the group list and notify the the local session
+        self.group_list.remove(&original_dst);
+        self.common.session.on_message(SessionMessage::RemoveEndpoint { endpoint: original_dst }).await?;
 
         // Before send the leave request we may need to send the Group update
         // with the new participant list and the new mls paylaod if needed
@@ -1607,11 +1643,6 @@ where
 
     async fn on_leave_reply(&mut self, msg: Message) -> Result<(), SessionError> {
         let msg_id = msg.get_id();
-
-        // remove the participant from the group list
-        let mut src = msg.get_source();
-        src.reset_id();
-        self.group_list.remove(&src);
 
         // notify the sender and see if we can pick another task
         self.common.sender.on_message(&msg).await?;

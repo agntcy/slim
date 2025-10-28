@@ -41,8 +41,14 @@ impl Session {
                 timeouts: _,
             } => self.on_timer_failure(message_id, message_type, name).await,
             SessionMessage::DeleteSession { session_id } => todo!(),
-            SessionMessage::AddEndpoint { endpoint } => todo!(),
-            SessionMessage::RemoveEndpoint { endpoint } => todo!(),
+            SessionMessage::AddEndpoint { endpoint } => {
+                self.sender.add_endpoint(endpoint);
+                Ok(())
+            }
+            SessionMessage::RemoveEndpoint { endpoint } => {
+                self.sender.remove_endpoint(&endpoint);
+                Ok(())
+            }
             SessionMessage::Drain { grace_period_ms } => todo!(),
         }
     }
