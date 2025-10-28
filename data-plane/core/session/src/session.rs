@@ -40,7 +40,7 @@ impl Session {
                 name,
                 timeouts: _,
             } => self.on_timer_failure(message_id, message_type, name).await,
-            SessionMessage::DeleteSession { session_id } => todo!(),
+            SessionMessage::DeleteSession { session_id: _ } => todo!(),
             SessionMessage::AddEndpoint { endpoint } => {
                 self.sender.add_endpoint(endpoint);
                 Ok(())
@@ -49,7 +49,7 @@ impl Session {
                 self.sender.remove_endpoint(&endpoint);
                 Ok(())
             }
-            SessionMessage::Drain { grace_period_ms } => todo!(),
+            SessionMessage::Drain { grace_period_ms: _ } => todo!(),
         }
     }
 

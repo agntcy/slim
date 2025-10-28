@@ -7,9 +7,7 @@
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::ProtoMessage as Message;
 
-use crate::Transmitter;
 use crate::context::SessionContext;
-use crate::transmitter::SessionTransmitter;
 
 /// Session context
 pub enum Notification<P, V>

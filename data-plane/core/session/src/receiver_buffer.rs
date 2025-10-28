@@ -64,6 +64,7 @@ impl ReceiverBuffer {
         rtx
     }
 
+    #[allow(dead_code)]
     pub fn message_already_received(&self, msg_id: usize) -> bool {
         if self.last_sent == usize::MAX {
             // no message received yet

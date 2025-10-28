@@ -72,6 +72,7 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: u32,
         source: Name,
@@ -403,6 +404,7 @@ pub struct SessionControllerCommon {
 impl SessionControllerCommon {
     const MAX_FANOUT: u32 = 256;
 
+    #[allow(clippy::too_many_arguments)]
     fn new(
         id: u32,
         source: Name,
@@ -508,7 +510,7 @@ impl SessionControllerCommon {
     async fn set_route(&self, name: &Name) -> Result<(), SessionError> {
         let route = Message::new_subscribe(
             &self.source,
-            &name,
+            name,
             None,
             Some(SlimHeaderFlags::default().with_recv_from(self.conn.unwrap())),
         );
@@ -519,7 +521,7 @@ impl SessionControllerCommon {
     async fn delete_route(&self, name: &Name) -> Result<(), SessionError> {
         let route = Message::new_unsubscribe(
             &self.source,
-            &name,
+            name,
             None,
             Some(SlimHeaderFlags::default().with_recv_from(self.conn.unwrap())),
         );
@@ -591,6 +593,7 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         id: u32,
         source: Name,
@@ -667,6 +670,7 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: u32,
         source: Name,
@@ -723,31 +727,36 @@ where
                         Some(message) => match message {
                             SessionMessage::OnMessage { message, direction } => {
                                 if self.common.is_command_message(message.get_session_message_type()) {
-                                    self.process_control_message(message).await;
-                                } else {
-                                    self.common.session.on_message(SessionMessage::OnMessage { message, direction }).await;
+                                    if let Err(e) = self.process_control_message(message).await {
+                                        error!("Error processing control message: {:?}", e);
+                                    }
+                                } else if let Err(e) = self.common.session.on_message(SessionMessage::OnMessage { message, direction }).await {
+                                    error!("Error drnding message to the session: {:?}", e);
                                 }
                             }
                             SessionMessage::TimerTimeout { message_id, message_type, name, timeouts } => {
                                 if self.common.is_command_message(message_type) {
                                     // check it needed
-                                    self.common.sender.on_timer_timeout(message_id).await;
-                                } else {
-                                    self.common.session.on_message(SessionMessage::TimerTimeout { message_id, message_type, name, timeouts }).await;
+                                    if let Err(e) = self.common.sender.on_timer_timeout(message_id).await {
+                                        error!("Error processing timeout for control message: {:?}", e);
+                                    }
+                                } else if let Err(e) = self.common.session.on_message(SessionMessage::TimerTimeout { message_id, message_type, name, timeouts }).await {
+                                    error!("Error processing timeout in the session: {:?}", e);
                                 }
                             }
                             SessionMessage::TimerFailure { message_id, message_type, name, timeouts } => {
                                 if self.common.is_command_message(message_type) {
                                     // check if needed
                                     self.common.sender.on_timer_failure(message_id).await;
-                                } else {
-                                    self.common.session.on_message(SessionMessage::TimerFailure { message_id, message_type, name, timeouts }).await;
+                                } else if let Err(e) = self.common.session.on_message(SessionMessage::TimerFailure { message_id, message_type, name, timeouts }).await {
+                                    error!("Error processing timer failure in the session: {:?}", e);
                                 }
                             }
-                            SessionMessage::DeleteSession { session_id } => todo!(),
-                            SessionMessage::AddEndpoint { endpoint } => todo!(),
-                            SessionMessage::RemoveEndpoint { endpoint } => todo!(),
-                            SessionMessage::Drain { grace_period_ms } => todo!(),
+                            SessionMessage::DeleteSession { session_id: _ } => todo!(),
+                            SessionMessage::Drain { grace_period_ms: _  } => todo!(),
+                            _ => {
+                                debug!("Unexpected message type");
+                            }
                         }
                         None => {
                             debug!("session controller close channel {}", self.common.id);
@@ -904,7 +913,7 @@ where
 
             // search the participants in group_list that are not in the new_set
             for p in &self.group_list {
-                if !new_set.contains(&p) {
+                if !new_set.contains(p) {
                     // remove p
                     self.common
                         .session
@@ -956,7 +965,8 @@ where
             .map_err(|e| SessionError::Processing(format!("failed to notify session layer: {}", e)))
     }
 
-    async fn on_mls_ack_or_nack(&mut self, msg: Message) -> Result<(), SessionError> {
+    #[allow(dead_code)]
+    async fn on_mls_ack_or_nack(&mut self, _msg: Message) -> Result<(), SessionError> {
         todo!()
     }
 
@@ -970,7 +980,7 @@ where
         }
 
         // set route and subscription for the group name
-        self.common.set_route(&self.common.destination).await;
+        self.common.set_route(&self.common.destination).await?;
         let sub = Message::new_subscribe(
             &self.common.source,
             &self.common.destination,
@@ -983,7 +993,7 @@ where
 
     async fn leave(&self) -> Result<(), SessionError> {
         // delete route to the remote endpoint
-        self.common.delete_route(&self.common.destination).await;
+        self.common.delete_route(&self.common.destination).await?;
 
         // we need to setup the network only in case of multicast session
         if self.common.config.session_type == ProtoSessionType::PointToPoint {
@@ -993,8 +1003,8 @@ where
 
         // set route for the moderator and unsubscribe for the group name
         self.common
-            .delete_route(&self.moderator_name.as_ref().unwrap())
-            .await;
+            .delete_route(self.moderator_name.as_ref().unwrap())
+            .await?;
         let sub = Message::new_unsubscribe(
             &self.common.source,
             &self.common.destination,
@@ -1011,6 +1021,7 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         id: u32,
         source: Name,
@@ -1116,6 +1127,7 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: u32,
         source: Name,
@@ -1176,16 +1188,20 @@ where
                         Some(message) => match message {
                             SessionMessage::OnMessage { message, direction } => {
                                 if self.common.is_command_message(message.get_session_message_type()) {
-                                    self.process_control_message(message).await;
-                                } else {
-                                    self.common.session.on_message(SessionMessage::OnMessage { message, direction }).await;
+                                    if let Err(e)= self.process_control_message(message).await {
+                                        error!("Error processeing command message: {}", e);
+                                    }
+                                } else if let Err(e) = self.common.session.on_message(SessionMessage::OnMessage { message, direction }).await {
+                                        error!("Error sending message to the session: {}", e);
                                 }
                             }
                             SessionMessage::TimerTimeout { message_id, message_type, name, timeouts } => {
                                 if self.common.is_command_message(message_type) {
-                                    self.common.sender.on_timer_timeout(message_id).await;
-                                } else {
-                                    self.common.session.on_message(SessionMessage::TimerTimeout { message_id, message_type, name, timeouts }).await;
+                                    if let Err(e)=  self.common.sender.on_timer_timeout(message_id).await {
+                                        error!("Error processeing timeout: {}", e);
+                                    }
+                                } else if let Err(e)=  self.common.session.on_message(SessionMessage::TimerTimeout { message_id, message_type, name, timeouts }).await {
+                                        error!("Error sending timeout to the session: {}", e);
                                 }
                             }
                             SessionMessage::TimerFailure { message_id, message_type, name, timeouts} => {
@@ -1194,35 +1210,36 @@ where
                                     // the current task failed:
                                     // 1. create the right error message
                                     let error_message = match self.current_task.as_ref().unwrap() {
-                                        ModeratorTask::AddParticipant(_) => {
+                                        ModeratorTask::Add(_) => {
                                             "failed to add a participant to the group"
                                         }
-                                        ModeratorTask::RemoveParticipant(_) => {
+                                        ModeratorTask::Remove(_) => {
                                             "failed to remove a participant from the group"
                                         }
-                                        ModeratorTask::UpdateParticipant(_) => {
+                                        ModeratorTask::Update(_) => {
                                             "failed to update state of the participant"
                                         }
                                     };
 
                                     // 2. notify the application
-                                    self.common.tx.send_to_app(Err(SessionError::ModeratorTask(error_message.to_string())))
-                                        .await
-                                        .map_err(|e| SessionError::Processing(format!("failed to notify application: {}", e)));
+                                    if let Err(e) = self.common.tx.send_to_app(Err(SessionError::ModeratorTask(error_message.to_string()))).await {
+                                        error!("failed to notify application: {}", e);
+                                    }
 
                                     // 3. delete current task and pick a new one
                                     self.current_task = None;
                                     if let Err(e) = self.pop_task().await {
                                         error!("Failed to pop next task: {:?}", e);
                                     }
-                                } else {
-                                    self.common.session.on_message(SessionMessage::TimerFailure { message_id, message_type, name, timeouts }).await;
+                                } else if let Err(e) = self.common.session.on_message(SessionMessage::TimerFailure { message_id, message_type, name, timeouts }).await {
+                                        error!("failed to sending timer failuer to the session: {}", e);
                                 }
                             }
-                            SessionMessage::DeleteSession { session_id } => todo!(),
-                            SessionMessage::AddEndpoint { endpoint } => todo!(),
-                            SessionMessage::RemoveEndpoint { endpoint } => todo!(),
-                            SessionMessage::Drain { grace_period_ms } => todo!(),
+                            SessionMessage::DeleteSession { session_id: _ } => todo!(),
+                            SessionMessage::Drain { grace_period_ms: _ } => todo!(),
+                            _ => {
+                                debug!("Unexpected message type");
+                            }
                         }
                         None => {
                             debug!("session controller close channel {}", self.common.id);
@@ -1299,7 +1316,7 @@ where
 
         // now the moderator is busy
         debug!("Create AddParticipantMls task");
-        self.current_task = Some(ModeratorTask::AddParticipant(AddParticipant::default()));
+        self.current_task = Some(ModeratorTask::Add(AddParticipant::default()));
 
         // check if there is a destination name in the payload. If yes recreate the message
         // with the right destination and send it out
@@ -1500,9 +1517,7 @@ where
         }
 
         // now the moderator is busy
-        self.current_task = Some(ModeratorTask::RemoveParticipant(
-            RemoveParticipant::default(),
-        ));
+        self.current_task = Some(ModeratorTask::Remove(RemoveParticipant::default()));
 
         // adjust the message according to the sender:
         // - if coming from the controller (destination in the payload) we need to modify source and destination
@@ -1535,7 +1550,7 @@ where
             }
             None => {
                 // Handle case where no destination is provided, use message destination
-                let original_dst = Name::from(msg.get_dst());
+                let original_dst = msg.get_dst();
                 let dst = msg.get_dst();
                 let id = *self
                     .group_list
@@ -1649,9 +1664,7 @@ where
         // try to pickup the first task
         match self.tasks_todo.pop_front() {
             Some(m) => {
-                self.current_task = Some(ModeratorTask::RemoveParticipant(
-                    RemoveParticipant::default(),
-                ));
+                self.current_task = Some(ModeratorTask::Remove(RemoveParticipant::default()));
                 self.on_leave_request(m).await
             }
             None => {
@@ -1700,7 +1713,7 @@ where
                 // if the task is not finished yet we may need to send a leave
                 // message that was postponed to send all group update first
                 if self.postponed_message.is_some()
-                    && matches!(self.current_task, Some(ModeratorTask::RemoveParticipant(_)))
+                    && matches!(self.current_task, Some(ModeratorTask::Remove(_)))
                 {
                     // send the leave message an progress
                     let leave_message = self.postponed_message.as_ref().unwrap();
@@ -1814,10 +1827,12 @@ where
         }
     }
 
+    #[allow(dead_code)]
     async fn ack_msl_proposal(&mut self, _msg: &Message) -> Result<(), SessionError> {
         todo!()
     }
 
+    #[allow(dead_code)]
     async fn on_mls_proposal(&mut self, _msg: Message) -> Result<(), SessionError> {
         todo!()
     }

@@ -312,9 +312,9 @@ where
                     SessionError::SlimTransmission(format!("error sending discovery reply: {}", e))
                 })
             }
-            _ => Err(SessionError::SlimTransmission(format!(
-                "unexpected message type",
-            ))),
+            _ => Err(SessionError::SlimTransmission(
+                "unexpected message type".to_string(),
+            )),
         }
     }
 
@@ -404,8 +404,8 @@ where
 
                 match message.get_session_header().session_type() {
                     ProtoSessionType::PointToPoint => {
-                        let mut conf = crate::session_controller::SessionConfig::default();
-                        conf.session_type = ProtoSessionType::PointToPoint;
+                        let mut conf = crate::session_controller::SessionConfig::default()
+                            .with_session_type(ProtoSessionType::PointToPoint);
 
                         match payload.timer_settings {
                             Some(s) => {
@@ -433,8 +433,8 @@ where
                         .await?
                     }
                     ProtoSessionType::Multicast => {
-                        let mut conf = crate::session_controller::SessionConfig::default();
-                        conf.session_type = ProtoSessionType::Multicast;
+                        let mut conf = crate::session_controller::SessionConfig::default()
+                            .with_session_type(ProtoSessionType::Multicast);
                         let timer_settings = payload.timer_settings.ok_or(
                             SessionError::Processing("missing timer options".to_string()),
                         )?;

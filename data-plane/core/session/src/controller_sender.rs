@@ -96,7 +96,7 @@ impl ControllerSender {
                     ));
                 }
                 let mut missing_replies = HashSet::new();
-                let mut name = Name::from(message.get_dst());
+                let mut name = message.get_dst();
                 name.reset_id();
                 missing_replies.insert(name);
                 self.on_send_message(message, missing_replies).await?;
@@ -175,10 +175,10 @@ impl ControllerSender {
         let mut delete = false;
         if let Some(pending) = self.pending_replies.get_mut(&id) {
             debug!("try to remove {} from pending acks", id);
-            let mut name = Name::from(message.get_source());
+            let mut name = message.get_source();
             name.reset_id();
             pending.missing_replies.remove(&name);
-            if pending.missing_replies.len() == 0 {
+            if pending.missing_replies.is_empty() {
                 debug!("all replies received, remove timer");
                 pending.timer.stop();
                 delete = true;

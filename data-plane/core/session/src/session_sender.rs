@@ -386,17 +386,6 @@ impl SessionSender {
         self.endpoints_list.remove(endpoint);
     }
 
-    pub fn start_drain(&mut self) -> SenderDrainStatus {
-        if self.pending_acks.is_empty() {
-            debug!("closing sender");
-            self.draining_state = SenderDrainStatus::Completed;
-        } else {
-            debug!("sender drain initiated");
-            self.draining_state = SenderDrainStatus::Initiated;
-        }
-        self.draining_state.clone()
-    }
-
     pub fn check_drain_completion(&self) -> bool {
         // Drain is complete if we're draining and no pending acks remain
         if self.draining_state == SenderDrainStatus::Completed

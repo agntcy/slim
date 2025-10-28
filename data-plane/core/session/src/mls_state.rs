@@ -8,7 +8,6 @@ use std::{
 };
 
 // Third-party crates
-use bincode::{Decode, Encode};
 use parking_lot::Mutex;
 use tracing::{debug, error, trace};
 
@@ -218,10 +217,6 @@ where
             }
         }
     }
-
-    pub(crate) fn is_mls_up(&self) -> Result<bool, SessionError> {
-        Ok(self.mls_up)
-    }
 }
 
 #[derive(Debug)]
@@ -313,6 +308,7 @@ where
         Ok(ret)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn process_proposal_message(
         &mut self,
         proposal: &ProposalMsg,
@@ -327,6 +323,7 @@ where
         Ok(commit)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn process_local_pending_proposal(&mut self) -> Result<CommitMsg, SessionError> {
         let commit = self
             .common
@@ -341,9 +338,5 @@ where
     pub(crate) fn get_next_mls_mgs_id(&mut self) -> u32 {
         self.next_msg_id += 1;
         self.next_msg_id
-    }
-
-    pub(crate) fn is_mls_up(&self) -> Result<bool, SessionError> {
-        self.common.is_mls_up()
     }
 }

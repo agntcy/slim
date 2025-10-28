@@ -328,17 +328,6 @@ impl SessionReceiver {
             .await
     }
 
-    pub fn start_drain(&mut self) -> ReceiverDrainStatus {
-        if self.pending_rtxs.is_empty() {
-            debug!("closing receiver");
-            self.draining_state = ReceiverDrainStatus::Completed;
-        } else {
-            debug!("receiver drain initiated");
-            self.draining_state = ReceiverDrainStatus::Initiated;
-        }
-        self.draining_state.clone()
-    }
-
     pub fn check_drain_completion(&self) -> bool {
         // Drain is complete if we're draining and no pending rtx remain
         if self.draining_state == ReceiverDrainStatus::Completed

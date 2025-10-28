@@ -22,6 +22,7 @@ pub trait TaskUpdate {
     fn leave_complete(&mut self, timer_id: u32) -> Result<(), SessionError>;
     fn welcome_start(&mut self, timer_id: u32) -> Result<(), SessionError>;
     fn commit_start(&mut self, timer_id: u32) -> Result<(), SessionError>;
+    #[allow(dead_code)]
     fn proposal_start(&mut self, timer_id: u32) -> Result<(), SessionError>;
     fn update_phase_completed(&mut self, timer_id: u32) -> Result<(), SessionError>;
     fn task_complete(&self) -> bool;
@@ -33,91 +34,90 @@ fn unsupported_phase() -> SessionError {
 
 #[derive(Debug)]
 pub enum ModeratorTask {
-    AddParticipant(AddParticipant),
-    RemoveParticipant(RemoveParticipant),
-    UpdateParticipant(UpdateParticipant),
+    Add(AddParticipant),
+    Remove(RemoveParticipant),
+    #[allow(dead_code)]
+    Update(UpdateParticipant),
 }
 
 impl TaskUpdate for ModeratorTask {
     fn discovery_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
         match self {
-            ModeratorTask::AddParticipant(task) => task.discovery_start(timer_id),
+            ModeratorTask::Add(task) => task.discovery_start(timer_id),
             _ => Err(unsupported_phase()),
         }
     }
 
     fn discovery_complete(&mut self, timer_id: u32) -> Result<(), SessionError> {
         match self {
-            ModeratorTask::AddParticipant(task) => task.discovery_complete(timer_id),
+            ModeratorTask::Add(task) => task.discovery_complete(timer_id),
             _ => Err(unsupported_phase()),
         }
     }
 
     fn join_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
         match self {
-            ModeratorTask::AddParticipant(task) => task.join_start(timer_id),
+            ModeratorTask::Add(task) => task.join_start(timer_id),
             _ => Err(unsupported_phase()),
         }
     }
 
     fn join_complete(&mut self, timer_id: u32) -> Result<(), SessionError> {
         match self {
-            ModeratorTask::AddParticipant(task) => task.join_complete(timer_id),
+            ModeratorTask::Add(task) => task.join_complete(timer_id),
             _ => Err(unsupported_phase()),
         }
     }
 
     fn leave_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
         match self {
-            ModeratorTask::RemoveParticipant(task) => task.leave_start(timer_id),
+            ModeratorTask::Remove(task) => task.leave_start(timer_id),
             _ => Err(unsupported_phase()),
         }
     }
 
     fn leave_complete(&mut self, timer_id: u32) -> Result<(), SessionError> {
         match self {
-            ModeratorTask::RemoveParticipant(task) => task.leave_complete(timer_id),
+            ModeratorTask::Remove(task) => task.leave_complete(timer_id),
             _ => Err(unsupported_phase()),
         }
     }
 
     fn welcome_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
         match self {
-            ModeratorTask::AddParticipant(task) => task.welcome_start(timer_id),
+            ModeratorTask::Add(task) => task.welcome_start(timer_id),
             _ => Err(unsupported_phase()),
         }
     }
 
     fn commit_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
         match self {
-            ModeratorTask::AddParticipant(task) => task.commit_start(timer_id),
-            ModeratorTask::RemoveParticipant(task) => task.commit_start(timer_id),
-            ModeratorTask::UpdateParticipant(task) => task.commit_start(timer_id),
-            _ => Err(unsupported_phase()),
+            ModeratorTask::Add(task) => task.commit_start(timer_id),
+            ModeratorTask::Remove(task) => task.commit_start(timer_id),
+            ModeratorTask::Update(task) => task.commit_start(timer_id),
         }
     }
 
     fn proposal_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
         match self {
-            ModeratorTask::UpdateParticipant(task) => task.proposal_start(timer_id),
+            ModeratorTask::Update(task) => task.proposal_start(timer_id),
             _ => Err(unsupported_phase()),
         }
     }
 
     fn update_phase_completed(&mut self, timer_id: u32) -> Result<(), SessionError> {
         match self {
-            ModeratorTask::AddParticipant(task) => task.update_phase_completed(timer_id),
-            ModeratorTask::RemoveParticipant(task) => task.update_phase_completed(timer_id),
-            ModeratorTask::UpdateParticipant(task) => task.update_phase_completed(timer_id),
-            _ => Err(unsupported_phase()),
+            ModeratorTask::Add(task) => task.update_phase_completed(timer_id),
+            ModeratorTask::Remove(task) => task.update_phase_completed(timer_id),
+            ModeratorTask::Update(task) => task.update_phase_completed(timer_id),
         }
     }
 
     fn task_complete(&self) -> bool {
         match self {
-            ModeratorTask::AddParticipant(task) => task.task_complete(),
-            ModeratorTask::RemoveParticipant(task) => task.task_complete(),
-            ModeratorTask::UpdateParticipant(task) => task.task_complete(),
+            ModeratorTask::Add(task) => task.task_complete(),
+            ModeratorTask::Remove(task) => task.task_complete(),
+            ModeratorTask::Update(task) => task.task_complete(),
         }
     }
 }
@@ -411,7 +411,7 @@ mod tests {
     #[test]
     #[traced_test]
     fn test_add_participant() {
-        let mut task = ModeratorTask::AddParticipant(AddParticipant::default());
+        let mut task = ModeratorTask::Add(AddParticipant::default());
         assert!(!task.task_complete());
 
         let timer_id = 10;
@@ -461,7 +461,7 @@ mod tests {
     #[test]
     #[traced_test]
     fn test_remove_participant() {
-        let mut task = ModeratorTask::RemoveParticipant(RemoveParticipant::default());
+        let mut task = ModeratorTask::Remove(RemoveParticipant::default());
         assert!(!task.task_complete());
 
         let timer_id = 10;
@@ -495,7 +495,7 @@ mod tests {
     #[test]
     #[traced_test]
     fn test_update_participant_mls() {
-        let mut task = ModeratorTask::UpdateParticipant(UpdateParticipant::default());
+        let mut task = ModeratorTask::Update(UpdateParticipant::default());
         assert!(!task.task_complete());
 
         let timer_id = 10;
