@@ -95,10 +95,7 @@ impl SessionSender {
         }
     }
 
-    pub async fn on_message(
-        &mut self,
-        message: Message,
-    ) -> Result<SenderDrainStatus, SessionError> {
+    pub async fn on_message(&mut self, message: Message) -> Result<(), SessionError> {
         if self.draining_state == SenderDrainStatus::Completed {
             return Err(SessionError::Processing(
                 "sender closed, drop message".to_string(),
@@ -110,8 +107,9 @@ impl SessionSender {
                 debug!("received message");
                 if self.draining_state == SenderDrainStatus::Initiated {
                     // draining period is started, do no accept any new message
-                    debug!("draining period started, do not accept new messages");
-                    return Ok(SenderDrainStatus::Initiated);
+                    return Err(SessionError::Processing(
+                        "drain started do no accept new messages".to_string(),
+                    ));
                 }
                 self.on_publish_message(message).await?;
             }
@@ -119,7 +117,7 @@ impl SessionSender {
                 debug!("received ack message");
                 if self.timer_factory.is_none() {
                     // drop the message
-                    return Ok(self.draining_state.clone());
+                    return Ok(());
                 }
                 self.on_ack_message(&message);
             }
@@ -127,7 +125,7 @@ impl SessionSender {
                 debug!("received rtx message");
                 if self.timer_factory.is_none() {
                     // drop the message
-                    return Ok(self.draining_state.clone());
+                    return Ok(());
                 }
                 // receiving an rtx request for a message we stop the
                 // corresponding ack timer. For this point on if the
@@ -144,11 +142,7 @@ impl SessionSender {
         }
 
         // return the right state
-        if self.check_drain_completion() {
-            return Ok(SenderDrainStatus::Completed);
-        }
-
-        Ok(self.draining_state.clone())
+        Ok(())
     }
 
     async fn on_publish_message(&mut self, mut message: Message) -> Result<(), SessionError> {

@@ -20,7 +20,7 @@ use slim_datapath::messages::Name;
 use crate::common::SessionMessage;
 use crate::controller_sender::ControllerSender;
 use crate::notification::Notification;
-use crate::session_controller::{SessionController, SessionModerator, SessionParticipant};
+use crate::session_controller::{self, SessionController, SessionModerator, SessionParticipant};
 use crate::session_receiver::SessionReceiver;
 use crate::session_sender::SessionSender;
 use crate::timer;
@@ -30,12 +30,8 @@ use crate::transmitter::{AppTransmitter, SessionTransmitter};
 // Local crate
 use super::context::SessionContext;
 use super::interceptor::{IdentityInterceptor, SessionInterceptor};
-use super::multicast::{self, MulticastConfiguration};
-use super::point_to_point::PointToPointConfiguration;
-use super::{
-    Id, MessageDirection, SESSION_RANGE, Session, SessionConfig, SessionConfigTrait, SessionType,
-    SlimChannelSender, Transmitter,
-};
+use super::multicast::{self};
+use super::{MessageDirection, SESSION_RANGE, SlimChannelSender, Transmitter};
 use super::{SessionError, session_controller::handle_channel_discovery_message};
 use crate::interceptor::SessionInterceptorProvider; // needed for add_interceptor
 
@@ -47,7 +43,7 @@ where
     T: Transmitter + Send + Sync + Clone + 'static,
 {
     /// Session pool
-    pool: Arc<AsyncRwLock<HashMap<Id, Arc<SessionController<P, V, T>>>>>,
+    pool: Arc<AsyncRwLock<HashMap<u32, Arc<SessionController<P, V, SessionTransmitter>>>>>,
 
     /// Default name of the local app
     app_id: u64,
@@ -66,14 +62,10 @@ where
 
     /// Tx channels
     tx_slim: SlimChannelSender,
-    tx_app: Sender<Result<Notification<P, V, T>, SessionError>>,
+    tx_app: Sender<Result<Notification<P, V>, SessionError>>,
 
     // Transmitter to bypass sessions
     transmitter: T,
-
-    /// Default configuration for the session
-    default_p2p_conf: SyncRwLock<PointToPointConfiguration>,
-    default_multicast_conf: SyncRwLock<MulticastConfiguration>,
 
     /// Storage path for app data
     storage_path: std::path::PathBuf,
@@ -96,13 +88,10 @@ where
         identity_verifier: V,
         conn_id: u64,
         tx_slim: SlimChannelSender,
-        tx_app: Sender<Result<Notification<P, V, T>, SessionError>>,
+        tx_app: Sender<Result<Notification<P, V>, SessionError>>,
         transmitter: T,
         storage_path: std::path::PathBuf,
     ) -> Self {
-        // Create default configurations
-        let default_p2p_conf = SyncRwLock::new(PointToPointConfiguration::default());
-        let default_multicast_conf = SyncRwLock::new(MulticastConfiguration::default());
         let (tx_session, rx_session) = tokio::sync::mpsc::channel(16);
 
         let sl = SessionLayer {
@@ -115,8 +104,6 @@ where
             tx_slim,
             tx_app,
             transmitter,
-            default_p2p_conf,
-            default_multicast_conf,
             storage_path,
             tx_session,
         };
@@ -130,7 +117,7 @@ where
         self.tx_slim.clone()
     }
 
-    pub fn tx_app(&self) -> Sender<Result<Notification<P, V, T>, SessionError>> {
+    pub fn tx_app(&self) -> Sender<Result<Notification<P, V>, SessionError>> {
         self.tx_app.clone()
     }
 
@@ -184,10 +171,13 @@ where
 
     pub async fn create_session(
         &self,
-        session_config: SessionConfig,
+        session_config: crate::session_controller::SessionConfig,
+        session_type: ProtoSessionType,
         local_name: Name,
-        id: Option<Id>,
-    ) -> Result<SessionContext<P, V, T>, SessionError> {
+        destination: Name,
+        id: Option<u32>,
+        conn: Option<u64>,
+    ) -> Result<SessionContext<P, V, SessionTransmitter>, SessionError> {
         // TODO(msardara): the session identifier should be a combination of the
         // session ID and the app ID, to prevent collisions.
 
@@ -231,99 +221,19 @@ where
 
         tx.add_interceptor(identity_interceptor);
 
-        let initiator = session_config.initiator();
-
-        // create timer settings for controller sender
-        let controller_timer_settings =
-            TimerSettings::constant(Duration::from_secs(1)).with_max_retries(10);
-
-        // tx/rx controller used to communincate with the controller
-        let (tx_controller, rx_controller) = tokio::sync::mpsc::channel(128);
-
-        // create timer settings for the session if needed
-        let session_timer_settings = if let Some(duration) = session_config.timer_duration() {
-            Some(TimerSettings {
-                duration,
-                max_duration: None,
-                max_retries: session_config.max_retries(),
-                timer_type: timer::TimerType::Constant,
-            })
-        } else {
-            None
-        };
-
-        // create the controller sender
-        let controller_sender = ControllerSender::new(
-            controller_timer_settings,
-            // used by the sender to send messages to slim/app
-            self.transmitter.clone(),
-            // used by the sender to send messages to the controller
-            tx_controller.clone(),
-        );
-
-        // create the session sender
-        let sender = SessionSender::new(
-            session_timer_settings.clone(),
+        let session_controller = Arc::new(SessionController::new(
             id,
-            // send messages to slim/app
-            tx.clone(),
-            // send signals to the controller
-            Some(tx_controller.clone()),
-        );
-        let send_acks = session_timer_settings.is_some();
-
-        // create a new session
-        let session = match session_config {
-            SessionConfig::PointToPoint(conf) => {
-                todo!();
-                // the session receiver requires the session type.
-                // create th receiver according to it
-            }
-            SessionConfig::Multicast(conf) => {
-                let receiver = SessionReceiver::new(
-                    session_timer_settings,
-                    id,
-                    local_name.clone(),
-                    ProtoSessionType::PointToPoint,
-                    send_acks,
-                    tx.clone(),
-                    Some(tx_controller.clone()),
-                );
-                Arc::new(Session::from_multicast(multicast::Multicast::new(
-                    id,
-                    conf,
-                    local_name,
-                    tx.clone(),
-                    self.identity_provider.clone(),
-                    self.identity_verifier.clone(),
-                    self.storage_path.clone(),
-                    sender,
-                    receiver,
-                    self.tx_session.clone(),
-                )))
-            }
-        };
-
-        // insert the session into the pool
-        let session_controller: Arc<SessionController<P, V, T>> = if initiator {
-            Arc::new(SessionController::SessionModerator(SessionModerator::new(
-                session.clone(),
-                controller_sender,
-                tx_controller.clone(),
-                rx_controller,
-                self.tx_session.clone(),
-            )))
-        } else {
-            Arc::new(SessionController::SessionParticipant(
-                SessionParticipant::new(
-                    session.clone(),
-                    controller_sender,
-                    tx_controller.clone(),
-                    rx_controller,
-                    self.tx_session.clone(),
-                ),
-            ))
-        };
+            session_type,
+            local_name,
+            destination,
+            conn,
+            session_config,
+            self.identity_provider.clone(),
+            self.identity_verifier.clone(),
+            self.storage_path.clone(),
+            tx,
+            self.tx_session.clone(),
+        ));
 
         let ret = pool.insert(id, session_controller.clone());
 
@@ -336,7 +246,7 @@ where
     }
 
     /// Remove a session from the pool
-    pub async fn remove_session(&self, id: Id) -> bool {
+    pub async fn remove_session(&self, id: u32) -> bool {
         // get the write lock
         let mut pool = self.pool.write().await;
         pool.remove(&id).is_some()
@@ -380,7 +290,7 @@ where
     pub async fn handle_message_from_app(
         &self,
         message: Message,
-        context: &SessionContext<P, V, T>,
+        context: &SessionContext<P, V, SessionTransmitter>,
     ) -> Result<(), SessionError> {
         context
             .session()
@@ -497,14 +407,23 @@ where
             ProtoSessionMessageType::Msg => {
                 // if this is a point to point session create an anycast session otherwise drop the message
                 if message.get_session_type() == ProtoSessionType::PointToPoint {
-                    let mut conf = self.default_p2p_conf.read().clone();
-                    conf.timeout = None;
-                    conf.max_retries = None;
-                    conf.mls_enabled = false;
-                    conf.peer_name = None;
-                    conf.initiator = false;
-                    self.create_session(SessionConfig::PointToPoint(conf), local_name, Some(id))
-                        .await?
+                    let conf = crate::session_controller::SessionConfig {
+                        max_retries: None,
+                        duration: None,
+                        mls_enabled: false,
+                        initiator: false,
+                        metadata: message.get_metadata_map(),
+                    };
+
+                    self.create_session(
+                        conf,
+                        ProtoSessionType::PointToPoint,
+                        local_name,
+                        message.get_source(),
+                        Some(message.get_session_header().session_id),
+                        Some(message.get_incoming_conn()),
+                    )
+                    .await?
                 } else {
                     debug!("received a multicast message for an unknown session, drop message");
                     return Ok(());
@@ -520,52 +439,64 @@ where
 
                 match message.get_session_header().session_type() {
                     ProtoSessionType::PointToPoint => {
-                        let mut conf = self.default_p2p_conf.read().clone();
-                        conf.initiator = false;
+                        let mut conf = crate::session_controller::SessionConfig::default();
 
                         match payload.timer_settings {
                             Some(s) => {
-                                conf.timeout =
+                                conf.duration =
                                     Some(std::time::Duration::from_millis(s.timeout() as u64));
                                 conf.max_retries = Some(s.max_retries())
                             }
                             None => {
-                                conf.timeout = None;
+                                conf.duration = None;
                                 conf.max_retries = None;
                             }
                         }
 
-                        conf.peer_name = Some(message.get_source());
                         conf.mls_enabled = payload.enable_mls;
-
+                        conf.initiator = false;
                         conf.metadata = message.get_metadata_map();
 
-                        self.create_session(SessionConfig::PointToPoint(conf), local_name, Some(id))
-                            .await?
+                        self.create_session(
+                            conf,
+                            ProtoSessionType::PointToPoint,
+                            local_name,
+                            message.get_source(),
+                            Some(message.get_session_header().session_id),
+                            Some(message.get_incoming_conn()),
+                        )
+                        .await?
                     }
                     ProtoSessionType::Multicast => {
-                        let mut conf = self.default_multicast_conf.read().clone();
+                        let mut conf = crate::session_controller::SessionConfig::default();
+                        let timer_settings = payload.timer_settings.ok_or(
+                            SessionError::Processing("missing timer options".to_string()),
+                        )?;
+
+                        conf.duration = Some(std::time::Duration::from_millis(
+                            timer_settings.timeout() as u64,
+                        ));
+                        conf.max_retries = timer_settings.max_retries;
                         conf.mls_enabled = payload.enable_mls;
-
-                        // the metadata of the first received message are copied in the metadata of the session
-                        // and then added to the messages sent by this session. so we need to erase the entries
-                        // the we want to keep local: IS_MODERATOR and SLIM_IDENTITY
-                        conf.initiator = message.remove_metadata("IS_MODERATOR").is_some();
-
                         conf.metadata = message.get_metadata_map();
 
-                        conf.channel_name =
-                            Name::from(&payload.channel.ok_or(SessionError::MissingChannelName)?);
+                        // if the packet comes from the controller this app may be a moderator and so we need to
+                        // tag it as session initiator
+                        // in addition the metadata of the first received message are copied in the metadata of the session
+                        // and then added to the messages sent by this session. so we need to erase the entries
+                        // the we want to keep local: IS_MODERATOR
+                        conf.initiator = message.remove_metadata("IS_MODERATOR").is_some();
+                        conf.metadata = message.get_metadata_map();
 
-                        let s = payload.timer_settings.ok_or(SessionError::Processing(
-                            "missing timer options".to_string(),
-                        ))?;
-
-                        conf.timeout = std::time::Duration::from_millis(s.timeout() as u64);
-                        conf.max_retries = s.max_retries();
-
-                        self.create_session(SessionConfig::Multicast(conf), local_name, Some(id))
-                            .await?
+                        self.create_session(
+                            conf,
+                            ProtoSessionType::PointToPoint,
+                            local_name,
+                            message.get_source(),
+                            Some(message.get_session_header().session_id),
+                            Some(message.get_incoming_conn()),
+                        )
+                        .await?
                     }
                     _ => {
                         warn!(
@@ -619,53 +550,6 @@ where
             .await
             .map_err(|e| SessionError::AppTransmission(format!("error sending new session: {}", e)))
     }
-
-    /// Set the configuration of a session
-    pub fn set_default_session_config(
-        &self,
-        session_config: &SessionConfig,
-    ) -> Result<(), SessionError> {
-        // If no session ID is provided, modify the default session
-        match session_config {
-            SessionConfig::PointToPoint(_) => self.default_p2p_conf.write().replace(session_config),
-            SessionConfig::Multicast(_) => {
-                self.default_multicast_conf.write().replace(session_config)
-            }
-        }
-    }
-
-    /// Get the session configuration
-    pub fn get_default_session_config(
-        &self,
-        session_type: SessionType,
-    ) -> Result<SessionConfig, SessionError> {
-        match session_type {
-            SessionType::PointToPoint => Ok(SessionConfig::PointToPoint(
-                self.default_p2p_conf.read().clone(),
-            )),
-            SessionType::Multicast => Ok(SessionConfig::Multicast(
-                self.default_multicast_conf.read().clone(),
-            )),
-        }
-    }
-
-    /// Add an interceptor to a session
-    /// TODO: do we need this??
-    /*#[allow(dead_code)]
-    pub async fn add_session_interceptor(
-        &self,
-        session_id: Id,
-        interceptor: Arc<dyn SessionInterceptor + Send + Sync>,
-    ) -> Result<(), SessionError> {
-        let mut pool = self.pool.write().await;
-
-        if let Some(session) = pool.get_mut(&session_id) {
-            session.tx_ref().add_interceptor(interceptor);
-            Ok(())
-        } else {
-            Err(SessionError::SessionNotFound(session_id))
-        }
-    }*/
 
     /// Check if the session pool is empty (for testing purposes)
     #[cfg(test)]

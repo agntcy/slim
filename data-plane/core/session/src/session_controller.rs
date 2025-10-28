@@ -363,21 +363,22 @@ pub fn handle_channel_discovery_message(
     Message::new_publish_with_headers(slim_header, session_header, payload)
 }
 
+#[derive(Default)]
 pub struct SessionConfig {
     /// number of retries for each message/rtx
-    max_retries: Option<u32>,
+    pub max_retries: Option<u32>,
 
     /// time between retries
-    duration: Option<std::time::Duration>,
+    pub duration: Option<std::time::Duration>,
 
     /// true is mls is enabled
-    mls_enabled: bool,
+    pub mls_enabled: bool,
 
     /// true is the local endpoint is initiator of the session
-    initiator: bool,
+    pub initiator: bool,
 
     /// metadata related to the sessions
-    metadata: HashMap<String, String>,
+    pub metadata: HashMap<String, String>,
 }
 
 pub struct SessionControllerCommon {
@@ -1762,7 +1763,7 @@ where
         };
 
         debug!("Process a new task from the todo list");
-        self.process_control_message(msg).await
+        Box::pin(self.process_control_message(msg)).await
     }
 
     async fn join(&mut self, in_conn: u64) -> Result<(), SessionError> {

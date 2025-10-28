@@ -122,10 +122,7 @@ impl SessionReceiver {
         }
     }
 
-    pub async fn on_message(
-        &mut self,
-        message: Message,
-    ) -> Result<ReceiverDrainStatus, SessionError> {
+    pub async fn on_message(&mut self, message: Message) -> Result<(), SessionError> {
         if self.draining_state == ReceiverDrainStatus::Completed {
             return Err(SessionError::Processing(
                 "receiver closed, drop message".to_string(),
@@ -137,8 +134,9 @@ impl SessionReceiver {
                 debug!("received message");
                 if self.draining_state == ReceiverDrainStatus::Initiated {
                     // draining period is started, do no accept any new message
-                    debug!("draining period started, do not accept new messages");
-                    return Ok(ReceiverDrainStatus::Initiated);
+                    return Err(SessionError::Processing(
+                        "drain started do no accept new messages".to_string(),
+                    ));
                 }
                 if self.send_acks {
                     self.send_ack(&message).await?;
@@ -154,13 +152,7 @@ impl SessionReceiver {
                 debug!("unexpected message type");
             }
         }
-
-        // return the right state
-        if self.check_drain_completion() {
-            return Ok(ReceiverDrainStatus::Completed);
-        }
-
-        Ok(self.draining_state.clone())
+        Ok(())
     }
 
     pub async fn on_publish_message(&mut self, message: Message) -> Result<(), SessionError> {
