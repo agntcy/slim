@@ -302,6 +302,9 @@ func (d *dbService) MarkRouteAsFailed(routeID string, msg string) error {
 func (d *dbService) GetRouteByID(routeID string) *Route {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
+	if _, exists := d.routes[routeID]; !exists {
+		return nil
+	}
 	route := d.routes[routeID]
 	return &route
 }
