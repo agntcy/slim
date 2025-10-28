@@ -433,6 +433,7 @@ impl SessionControllerCommon {
         // create the controller sender
         let controller_sender = ControllerSender::new(
             controller_timer_settings,
+            source.clone(),
             // send messages to slim/app
             tx.clone(),
             // send signal to the controller
@@ -883,11 +884,16 @@ where
         if self.group_list.len() < list.len() {
             // some one was added to the group
             for p in list {
-            let participant_name = Name::from(&p);
-            if !self.group_list.contains(&participant_name) {
-                self.group_list.insert(participant_name.clone());
-                self.common.session.on_message(SessionMessage::AddEndpoint { endpoint: participant_name }).await?;
-            }
+                let participant_name = Name::from(&p);
+                if !self.group_list.contains(&participant_name) {
+                    self.group_list.insert(participant_name.clone());
+                    self.common
+                        .session
+                        .on_message(SessionMessage::AddEndpoint {
+                            endpoint: participant_name,
+                        })
+                        .await?;
+                }
             }
         } else {
             // some one was removed from the group
@@ -900,14 +906,18 @@ where
             for p in &self.group_list {
                 if !new_set.contains(&p) {
                     // remove p
-                    self.common.session.on_message(SessionMessage::RemoveEndpoint { endpoint: p.clone() }).await?;
+                    self.common
+                        .session
+                        .on_message(SessionMessage::RemoveEndpoint {
+                            endpoint: p.clone(),
+                        })
+                        .await?;
                 }
             }
 
             // use new_set as new group list
             self.group_list = new_set;
         }
-
 
         // send an ack back to the moderator
         self.common
@@ -1392,7 +1402,12 @@ where
             .insert(new_participant_name, new_participant_id);
 
         // notify the local session that a new participant was added to the group
-        self.common.session.on_message(SessionMessage::AddEndpoint { endpoint: msg.get_source().clone() }).await?;
+        self.common
+            .session
+            .on_message(SessionMessage::AddEndpoint {
+                endpoint: msg.get_source().clone(),
+            })
+            .await?;
 
         // get mls data if MLS is enabled
         let (commit, commit_id, welcome, welcome_id) = if self.mls_state.is_some() {
@@ -1520,7 +1535,7 @@ where
             }
             None => {
                 // Handle case where no destination is provided, use message destination
-                let original_dst =  Name::from(msg.get_dst());
+                let original_dst = Name::from(msg.get_dst());
                 let dst = msg.get_dst();
                 let id = *self
                     .group_list
@@ -1537,7 +1552,12 @@ where
 
         // remove the participant from the group list and notify the the local session
         self.group_list.remove(&original_dst);
-        self.common.session.on_message(SessionMessage::RemoveEndpoint { endpoint: original_dst }).await?;
+        self.common
+            .session
+            .on_message(SessionMessage::RemoveEndpoint {
+                endpoint: original_dst,
+            })
+            .await?;
 
         // Before send the leave request we may need to send the Group update
         // with the new participant list and the new mls paylaod if needed

@@ -15,10 +15,6 @@ use slim_mls::mls::Mls;
 // Local crate
 use crate::{errors::SessionError, interceptor::SessionInterceptor};
 
-// Metadata Keys
-pub const METADATA_MLS_ENABLED: &str = "MLS_ENABLED";
-pub const METADATA_MLS_INIT_COMMIT_ID: &str = "MLS_INIT_COMMIT_ID";
-
 pub struct MlsInterceptor<P, V>
 where
     P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
