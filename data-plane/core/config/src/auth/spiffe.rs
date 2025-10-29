@@ -42,6 +42,8 @@ pub struct SpiffeConfig {
     /// `get_x509_bundle()` uses this instead of deriving from the current SVID.
     #[serde(default)]
     pub trust_domains: Vec<String>,
+    /// Whether to enable mutual TLS (mTLS) for SPIFFE connections
+    pub enable_mtls: bool,
 }
 
 fn default_audiences() -> Vec<String> {
@@ -55,6 +57,7 @@ impl Default for SpiffeConfig {
             target_spiffe_id: None,
             jwt_audiences: default_audiences(),
             trust_domains: Vec::new(),
+            enable_mtls: false,
         }
     }
 }

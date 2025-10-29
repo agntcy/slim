@@ -6,7 +6,7 @@ use rustls::RootCertStore;
 use rustls::crypto::CryptoProvider;
 use rustls::server::VerifierBuilderError;
 use rustls::sign::CertifiedKey;
-use rustls_native_certs;
+
 use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use schemars::JsonSchema;
@@ -16,6 +16,8 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
+
+use crate::auth::spiffe;
 
 #[derive(Debug)]
 pub(crate) struct WatcherCertResolver {
@@ -150,10 +152,10 @@ pub struct FileSources {
 pub struct SpireSources {
     /// Flattened SPIFFE configuration (socket_path, target_spiffe_id, jwt_audiences, trust_domain)
     #[serde(flatten)]
-    pub spiffe: crate::auth::spiffe::SpiffeConfig,
+    pub spiffe: spiffe::SpiffeConfig,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
+#[derive(Default, Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TlsSource {
     Pem {
@@ -167,15 +169,32 @@ pub enum TlsSource {
         key: Option<String>,
     },
     Spire {
-        config: crate::auth::spiffe::SpiffeConfig,
+        config: spiffe::SpiffeConfig,
     },
+    #[default]
+    None,
+}
+
+impl TlsSource {
+    /// Returns true if this variant is `TlsSource::None`
+    pub fn is_none(&self) -> bool {
+        matches!(self, TlsSource::None)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
+/// TLS component discriminant for unified presence checks
+pub enum TlsComponent {
+    Ca,
+    Cert,
+    Key,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
 pub struct Config {
     // Unified TLS source (PEM, File, or SPIFFE)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<TlsSource>,
+    #[serde(default)]
+    pub source: TlsSource,
 
     /// If true, also load system root CA certificates
     #[serde(default = "default_include_system_ca_certs_pool")]
@@ -192,6 +211,7 @@ pub struct Config {
 // Resolver backed by SPIRE Workload API providing dynamic SVID and bundle refresh.
 pub(crate) struct SpireCertResolver {
     provider: slim_auth::spiffe::SpiffeIdentityManager,
+    enable_mtls: bool,
     crypto_provider: Arc<CryptoProvider>,
 }
 
@@ -204,7 +224,7 @@ impl std::fmt::Debug for SpireCertResolver {
 
 impl SpireCertResolver {
     pub(crate) async fn new(
-        spiffe_cfg: crate::auth::spiffe::SpiffeConfig,
+        spiffe_cfg: spiffe::SpiffeConfig,
         crypto_provider: &Arc<CryptoProvider>,
     ) -> Result<Self, ConfigError> {
         // Build SpiffeIdentityManager internally from configuration
@@ -226,12 +246,13 @@ impl SpireCertResolver {
 
         Ok(Self {
             provider,
+            enable_mtls: spiffe_cfg.enable_mtls,
             crypto_provider: crypto_provider.clone(),
         })
     }
 
     pub(crate) fn has_certs(&self) -> bool {
-        self.provider.get_x509_svid().is_ok()
+        self.enable_mtls && self.provider.get_x509_svid().is_ok()
     }
 
     pub(crate) fn build_certified_key(&self) -> Result<(Arc<CertifiedKey>, usize), ConfigError> {
@@ -288,8 +309,6 @@ impl rustls::server::ResolvesServerCert for SpireCertResolver {
     }
 }
 
-// (Removed client-side ResolvesClientCert impl for SpireCertResolver to avoid trait conflict)
-
 /// Errors for Config
 #[derive(Error, Debug)]
 pub enum ConfigError {
@@ -319,7 +338,7 @@ pub enum ConfigError {
 impl Default for Config {
     fn default() -> Config {
         Config {
-            source: None,
+            source: TlsSource::default(),
             include_system_ca_certs_pool: default_include_system_ca_certs_pool(),
             tls_version: default_tls_version(),
             reload_interval: None,
@@ -340,21 +359,14 @@ fn default_tls_version() -> String {
 impl Config {
     pub(crate) fn with_ca_file(mut self, ca_file: &str) -> Config {
         match &mut self.source {
-            Some(TlsSource::File { ca, .. }) => *ca = Some(ca_file.to_string()),
-            Some(_) => {
+            TlsSource::File { ca, .. } => *ca = Some(ca_file.to_string()),
+            _ => {
                 // Replace existing source with File variant
-                self.source = Some(TlsSource::File {
+                self.source = TlsSource::File {
                     ca: Some(ca_file.to_string()),
                     cert: None,
                     key: None,
-                });
-            }
-            None => {
-                self.source = Some(TlsSource::File {
-                    ca: Some(ca_file.to_string()),
-                    cert: None,
-                    key: None,
-                });
+                };
             }
         }
         self
@@ -362,20 +374,13 @@ impl Config {
 
     pub(crate) fn with_ca_pem(mut self, ca_pem: &str) -> Config {
         match &mut self.source {
-            Some(TlsSource::Pem { ca, .. }) => *ca = Some(ca_pem.to_string()),
-            Some(_) => {
-                self.source = Some(TlsSource::Pem {
+            TlsSource::Pem { ca, .. } => *ca = Some(ca_pem.to_string()),
+            _ => {
+                self.source = TlsSource::Pem {
                     ca: Some(ca_pem.to_string()),
                     cert: None,
                     key: None,
-                });
-            }
-            None => {
-                self.source = Some(TlsSource::Pem {
-                    ca: Some(ca_pem.to_string()),
-                    cert: None,
-                    key: None,
-                });
+                };
             }
         }
         self
@@ -391,20 +396,13 @@ impl Config {
 
     pub(crate) fn with_cert_file(mut self, cert_file: &str) -> Config {
         match &mut self.source {
-            Some(TlsSource::File { cert, .. }) => *cert = Some(cert_file.to_string()),
-            Some(_) => {
-                self.source = Some(TlsSource::File {
+            TlsSource::File { cert, .. } => *cert = Some(cert_file.to_string()),
+            _ => {
+                self.source = TlsSource::File {
                     ca: None,
                     cert: Some(cert_file.to_string()),
                     key: None,
-                });
-            }
-            None => {
-                self.source = Some(TlsSource::File {
-                    ca: None,
-                    cert: Some(cert_file.to_string()),
-                    key: None,
-                });
+                };
             }
         }
         self
@@ -412,20 +410,13 @@ impl Config {
 
     pub(crate) fn with_cert_pem(mut self, cert_pem: &str) -> Config {
         match &mut self.source {
-            Some(TlsSource::Pem { cert, .. }) => *cert = Some(cert_pem.to_string()),
-            Some(_) => {
-                self.source = Some(TlsSource::Pem {
+            TlsSource::Pem { cert, .. } => *cert = Some(cert_pem.to_string()),
+            _ => {
+                self.source = TlsSource::Pem {
                     ca: None,
                     cert: Some(cert_pem.to_string()),
                     key: None,
-                });
-            }
-            None => {
-                self.source = Some(TlsSource::Pem {
-                    ca: None,
-                    cert: Some(cert_pem.to_string()),
-                    key: None,
-                });
+                };
             }
         }
         self
@@ -433,20 +424,13 @@ impl Config {
 
     pub(crate) fn with_key_file(mut self, key_file: &str) -> Config {
         match &mut self.source {
-            Some(TlsSource::File { key, .. }) => *key = Some(key_file.to_string()),
-            Some(_) => {
-                self.source = Some(TlsSource::File {
+            TlsSource::File { key, .. } => *key = Some(key_file.to_string()),
+            _ => {
+                self.source = TlsSource::File {
                     ca: None,
                     cert: None,
                     key: Some(key_file.to_string()),
-                });
-            }
-            None => {
-                self.source = Some(TlsSource::File {
-                    ca: None,
-                    cert: None,
-                    key: Some(key_file.to_string()),
-                });
+                };
             }
         }
         self
@@ -454,20 +438,13 @@ impl Config {
 
     pub(crate) fn with_key_pem(mut self, key_pem: &str) -> Config {
         match &mut self.source {
-            Some(TlsSource::Pem { key, .. }) => *key = Some(key_pem.to_string()),
-            Some(_) => {
-                self.source = Some(TlsSource::Pem {
+            TlsSource::Pem { key, .. } => *key = Some(key_pem.to_string()),
+            _ => {
+                self.source = TlsSource::Pem {
                     ca: None,
                     cert: None,
                     key: Some(key_pem.to_string()),
-                });
-            }
-            None => {
-                self.source = Some(TlsSource::Pem {
-                    ca: None,
-                    cert: None,
-                    key: Some(key_pem.to_string()),
-                });
+                };
             }
         }
         self
@@ -485,163 +462,81 @@ impl Config {
 
     /// Attach a SPIFFE configuration enabling SPIRE-based SVID and bundle resolution.
     /// This sets the `spire` field with a `SpireSources` wrapper.
-    pub(crate) fn with_spiffe(mut self, spiffe: crate::auth::spiffe::SpiffeConfig) -> Config {
-        self.source = Some(TlsSource::Spire { config: spiffe });
+    pub(crate) fn with_spiffe(mut self, spiffe: spiffe::SpiffeConfig) -> Config {
+        self.source = TlsSource::Spire { config: spiffe };
         self
     }
 
     /// Unified CA cert pool loader supporting SPIRE CA bundle retrieval.
+    /// Delegates to the standalone RootStoreBuilder for clarity.
     pub async fn load_ca_cert_pool(&self) -> Result<RootCertStore, ConfigError> {
-        // Initialize root store with system and custom certs
-        let mut root_store = RootCertStore::empty();
-        self.add_system_ca_certs(&mut root_store)?;
-        self.add_custom_ca_cert(&mut root_store)?;
+        use crate::tls::root_store_builder::RootStoreBuilder;
+        let builder = RootStoreBuilder::new();
 
-        // Integrate SPIRE bundles if configured
-        if let Some(TlsSource::Spire { config: spiffe_cfg }) = &self.source
-            && spiffe_cfg.socket_path.is_some()
-        {
-            add_spiffe_bundles(&mut root_store, spiffe_cfg).await?;
-        }
+        let builder = if self.include_system_ca_certs_pool {
+            builder.with_system_roots()
+        } else {
+            builder
+        };
 
-        Ok(root_store)
+        builder.add_source(&self.source).await?.finish()
     }
 
-    fn add_system_ca_certs(&self, root_store: &mut RootCertStore) -> Result<(), ConfigError> {
-        if !self.include_system_ca_certs_pool {
-            return Ok(());
+    /// Shared root store builder used by both server CA loading and (externally) client CA merging.
+    /// extra_file_ca / extra_pem_ca allow callers (e.g. server.rs) to layer additional client CA sources
+    /// without duplicating parsing logic. extra_spiffe lets callers supply a distinct SPIFFE bundle
+    /// configuration (e.g. client bundle separate from server SVID).
+    /// Extended root store builder that layers additional client CA sources (file / pem / spiffe)
+    /// on top of a base TlsSource. This now relies exclusively on RootStoreBuilder.
+    pub async fn build_root_store(
+        &self,
+        source: &TlsSource,
+        include_system: bool,
+        extra_file_ca: Option<&str>,
+        extra_pem_ca: Option<&str>,
+        extra_spiffe: Option<&spiffe::SpiffeConfig>,
+    ) -> Result<RootCertStore, ConfigError> {
+        use crate::tls::root_store_builder::RootStoreBuilder;
+        let mut builder = RootStoreBuilder::new()
+            .with_system_roots_if(include_system)
+            .add_source(source)
+            .await?;
+
+        if let Some(path) = extra_file_ca {
+            builder = builder.add_file(path)?;
         }
-
-        let native_certs =
-            rustls_native_certs::load_native_certs().expect("could not load platform certs");
-
-        for cert in native_certs {
-            root_store.add(cert).map_err(ConfigError::RootStore)?;
+        if let Some(pem) = extra_pem_ca {
+            builder = builder.add_pem(pem)?;
         }
-
-        Ok(())
+        if let Some(spiffe_cfg) = extra_spiffe {
+            builder = builder.add_spiffe(spiffe_cfg).await?;
+        }
+        builder.finish()
     }
 
-    fn add_custom_ca_cert(&self, root_store: &mut RootCertStore) -> Result<(), ConfigError> {
-        let ca_certs = self.load_ca_certificates()?;
-
-        for cert in ca_certs {
-            root_store.add(cert).map_err(ConfigError::RootStore)?;
-        }
-
-        Ok(())
-    }
-
-    fn load_ca_certificates(&self) -> Result<Vec<CertificateDer<'static>>, ConfigError> {
-        // Prefer hierarchical sources over legacy
-        if let Some(TlsSource::Spire { config: spiffe_cfg }) = &self.source
-            && let Some(socket_path) = &spiffe_cfg.socket_path
-        {
-            tracing::debug!(
-                "SPIRE config detected (socket_path={}); defer CA bundle to async loader",
-                socket_path
-            );
-            return Ok(Vec::new());
-        }
-        if let Some(TlsSource::File {
-            ca: Some(ca_path), ..
-        }) = &self.source
-        {
-            let cert_path = Path::new(ca_path);
-            let certs: Result<Vec<_>, _> = CertificateDer::pem_file_iter(cert_path)
-                .map_err(ConfigError::InvalidPem)?
-                .collect();
-            return certs.map_err(ConfigError::InvalidPem);
-        }
-        if let Some(TlsSource::Pem {
-            ca: Some(ca_pem), ..
-        }) = &self.source
-        {
-            let cert_bytes = ca_pem.as_bytes();
-            let certs: Result<Vec<_>, _> = CertificateDer::pem_slice_iter(cert_bytes).collect();
-            return certs.map_err(ConfigError::InvalidPem);
-        }
-        // No legacy CA fields; return empty if no hierarchical sources
-        Ok(Vec::new())
-    }
-
-    /// Returns true if the config has a CA cert
-    pub fn has_ca(&self) -> bool {
-        match &self.source {
-            Some(TlsSource::File { ca: Some(_), .. }) => true,
-            Some(TlsSource::Pem { ca: Some(_), .. }) => true,
-            Some(TlsSource::Spire { .. }) => false,
-            _ => false,
+    /// Unified presence check for CA / Cert / Key across File, Pem, and Spire sources.
+    pub fn has(&self, component: TlsComponent) -> bool {
+        match component {
+            TlsComponent::Ca => match &self.source {
+                TlsSource::File { ca: Some(_), .. }
+                | TlsSource::Pem { ca: Some(_), .. }
+                | TlsSource::Spire { .. } => true,
+                _ => false,
+            },
+            TlsComponent::Cert => match &self.source {
+                TlsSource::File { cert: Some(_), .. } | TlsSource::Pem { cert: Some(_), .. } => {
+                    true
+                }
+                TlsSource::Spire { .. } => true, // SPIFFE provides SVID leaf cert dynamically
+                _ => false,
+            },
+            TlsComponent::Key => match &self.source {
+                TlsSource::File { key: Some(_), .. } | TlsSource::Pem { key: Some(_), .. } => true,
+                TlsSource::Spire { .. } => true, // SPIFFE resolver can supply private key
+                _ => false,
+            },
         }
     }
-
-    /// Returns true if the config has a CA file
-    pub fn has_ca_file(&self) -> bool {
-        matches!(self.source, Some(TlsSource::File { ca: Some(_), .. }))
-    }
-
-    /// Returns true if the config has a CA PEM
-    pub fn has_ca_pem(&self) -> bool {
-        matches!(self.source, Some(TlsSource::Pem { ca: Some(_), .. }))
-    }
-
-    /// Returns true if the config has a cert file
-    pub fn has_cert_file(&self) -> bool {
-        matches!(self.source, Some(TlsSource::File { cert: Some(_), .. }))
-    }
-
-    /// Returns true if the config has a cert PEM
-    pub fn has_cert_pem(&self) -> bool {
-        matches!(self.source, Some(TlsSource::Pem { cert: Some(_), .. }))
-    }
-
-    /// Returns true if the config has a key file
-    pub fn has_key_file(&self) -> bool {
-        matches!(self.source, Some(TlsSource::File { key: Some(_), .. }))
-    }
-
-    /// Returns true if the config has a key PEM
-    pub fn has_key_pem(&self) -> bool {
-        matches!(self.source, Some(TlsSource::Pem { key: Some(_), .. }))
-    }
-}
-
-pub(crate) async fn add_spiffe_bundles(
-    root_store: &mut RootCertStore,
-    spiffe_cfg: &crate::auth::spiffe::SpiffeConfig,
-) -> Result<(), ConfigError> {
-    let spire_identity_manager = spiffe_cfg.create_provider().await.map_err(|e| {
-        ConfigError::InvalidFile(format!("failed to create SPIFFE provider: {}", e))
-    })?;
-
-    if !spiffe_cfg.trust_domains.is_empty() {
-        for domain in &spiffe_cfg.trust_domains {
-            let bundle = spire_identity_manager
-                .get_x509_bundle_for_trust_domain(domain)
-                .map_err(|e| {
-                    ConfigError::Spire(format!(
-                        "failed to get X.509 bundle for trust domain {}: {}",
-                        domain, e
-                    ))
-                })?;
-
-            for cert in bundle.authorities() {
-                let der_cert = CertificateDer::from(cert.as_ref().to_vec());
-                root_store.add(der_cert).map_err(ConfigError::RootStore)?;
-            }
-        }
-    }
-
-    let default_bundle = spire_identity_manager
-        .get_x509_bundle()
-        .map_err(|e| ConfigError::Spire(format!("failed to get default X.509 bundle: {}", e)))?;
-
-    for cert in default_bundle.authorities() {
-        let der_cert = CertificateDer::from(cert.as_ref().to_vec());
-        root_store.add(der_cert).map_err(ConfigError::RootStore)?;
-    }
-
-    Ok(())
 }
 
 // trait load_rustls_config
@@ -748,7 +643,7 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
     fn test_default() {
         let config = Config::default();
         // No TLS source configured by default
-        assert!(config.source.is_none());
+        assert!(matches!(config.source, TlsSource::None));
         assert_eq!(
             config.include_system_ca_certs_pool,
             default_include_system_ca_certs_pool()
@@ -783,52 +678,44 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
     }
 
     #[test]
-    fn test_has_ca() {
-        let config = Config::default();
-        assert!(!config.has_ca());
+    fn test_has_unified_ca() {
+        let base = Config::default();
+        assert!(!base.has(TlsComponent::Ca));
 
-        let config_with_file = config.clone().with_ca_file("/path/to/ca.crt");
-        assert!(config_with_file.has_ca());
+        let file_cfg = base.clone().with_ca_file("/path/to/ca.crt");
+        assert!(file_cfg.has(TlsComponent::Ca));
 
-        let config_with_pem = config.with_ca_pem("ca_pem_content");
-        assert!(config_with_pem.has_ca());
+        let pem_cfg = base.with_ca_pem("ca_pem_content");
+        assert!(pem_cfg.has(TlsComponent::Ca));
     }
 
     #[test]
-    fn test_has_ca_pem() {
-        let config = Config::default();
-        assert!(!config.has_ca_pem());
+    fn test_has_unified_cert() {
+        let base = Config::default();
+        assert!(!base.has(TlsComponent::Cert));
 
-        let config_with_pem = config.with_ca_pem("ca_pem_content");
-        assert!(config_with_pem.has_ca_pem());
+        let cert_file_cfg = base.clone().with_cert_file("/path/to/server.crt");
+        assert!(cert_file_cfg.has(TlsComponent::Cert));
+
+        let cert_pem_cfg = base.with_cert_pem("cert_pem_content");
+        assert!(cert_pem_cfg.has(TlsComponent::Cert));
     }
 
     #[test]
-    fn test_has_cert_pem() {
-        let config = Config::default();
-        assert!(!config.has_cert_pem());
+    fn test_has_unified_key() {
+        let base = Config::default();
+        assert!(!base.has(TlsComponent::Key));
 
-        let config_with_pem = config.with_cert_pem("cert_pem_content");
-        assert!(config_with_pem.has_cert_pem());
+        let key_file_cfg = base.clone().with_key_file("/path/to/server.key");
+        assert!(key_file_cfg.has(TlsComponent::Key));
+
+        let key_pem_cfg = base.with_key_pem("key_pem_content");
+        assert!(key_pem_cfg.has(TlsComponent::Key));
     }
 
-    #[test]
-    fn test_has_key_file() {
-        let config = Config::default();
-        assert!(!config.has_key_file());
+    // Removed granular has_key_file test (covered by unified key test)
 
-        let config_with_file = config.with_key_file("/path/to/key.key");
-        assert!(config_with_file.has_key_file());
-    }
-
-    #[test]
-    fn test_has_key_pem() {
-        let config = Config::default();
-        assert!(!config.has_key_pem());
-
-        let config_with_pem = config.with_key_pem("key_pem_content");
-        assert!(config_with_pem.has_key_pem());
-    }
+    // Removed granular has_key_pem test (covered by unified key test)
 
     #[tokio::test]
     async fn test_load_ca_cert_pool_no_certs() {
@@ -933,75 +820,77 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
         }
     }
 
-    #[test]
-    fn test_load_ca_certificates_no_ca() {
-        let config = Config::default();
-        let result = config.load_ca_certificates();
+    #[tokio::test]
+    async fn test_load_ca_certificates_no_ca() {
+        let config = Config::default().with_include_system_ca_certs_pool(false);
+        let result = config.load_ca_cert_pool().await;
         assert!(result.is_ok());
-        let certs = result.unwrap();
-        assert!(certs.is_empty());
+        let root_store = result.unwrap();
+        assert_eq!(root_store.len(), 0);
     }
 
-    #[test]
-    fn test_load_ca_certificates_from_pem() {
-        let config = Config::default().with_ca_pem(TEST_CA_CERT_PEM);
-        let result = config.load_ca_certificates();
+    #[tokio::test]
+    async fn test_load_ca_certificates_from_pem() {
+        let config = Config::default()
+            .with_include_system_ca_certs_pool(false)
+            .with_ca_pem(TEST_CA_CERT_PEM);
+        let result = config.load_ca_cert_pool().await;
         assert!(result.is_ok());
-        let certs = result.unwrap();
-        assert_eq!(certs.len(), 1);
+        let root_store = result.unwrap();
+        assert_eq!(root_store.len(), 1);
     }
 
-    #[test]
-    fn test_load_ca_certificates_from_file() {
+    #[tokio::test]
+    async fn test_load_ca_certificates_from_file() {
         let ca_file_path = create_temp_file_simple(TEST_CA_CERT_PEM, rand::random::<u32>());
-        let config = Config::default().with_ca_file(&ca_file_path);
-        let result = config.load_ca_certificates();
-        println!("res = {:?}", result);
+        let config = Config::default()
+            .with_include_system_ca_certs_pool(false)
+            .with_ca_file(&ca_file_path);
+        let result = config.load_ca_cert_pool().await;
         assert!(result.is_ok());
-        let certs = result.unwrap();
-        assert_eq!(certs.len(), 1);
-
-        // Clean up
+        let root_store = result.unwrap();
+        assert_eq!(root_store.len(), 1);
         let _ = fs::remove_file(ca_file_path);
     }
 
-    #[test]
-    fn test_load_ca_certificates_override_file_with_pem() {
+    #[tokio::test]
+    async fn test_load_ca_certificates_override_file_with_pem() {
         let ca_file_path = create_temp_file_simple(TEST_CA_CERT_PEM, rand::random::<u32>());
         let config = Config::default()
+            .with_include_system_ca_certs_pool(false)
             .with_ca_file(&ca_file_path)
             .with_ca_pem(TEST_CA_CERT_PEM);
 
-        let result = config.load_ca_certificates();
-        // Expect success after override
+        let result = config.load_ca_cert_pool().await;
         assert!(result.is_ok());
-        let certs = result.unwrap();
-        assert_eq!(certs.len(), 1);
-
+        let root_store = result.unwrap();
+        assert_eq!(root_store.len(), 1);
         let _ = fs::remove_file(ca_file_path);
     }
 
-    #[test]
-    fn test_load_ca_certificates_multiple_from_pem() {
+    #[tokio::test]
+    async fn test_load_ca_certificates_multiple_from_pem() {
         let multiple_certs = format!("{}\n{}", TEST_CA_CERT_PEM, TEST_CLIENT_CERT_PEM);
-        let config = Config::default().with_ca_pem(&multiple_certs);
-        let result = config.load_ca_certificates();
+        let config = Config::default()
+            .with_include_system_ca_certs_pool(false)
+            .with_ca_pem(&multiple_certs);
+        let result = config.load_ca_cert_pool().await;
         assert!(result.is_ok());
-        let certs = result.unwrap();
-        assert_eq!(certs.len(), 2); // Should load both certificates
+        let root_store = result.unwrap();
+        assert_eq!(root_store.len(), 2);
     }
 
-    #[test]
-    fn test_load_ca_certificates_multiple_from_file() {
+    #[tokio::test]
+    async fn test_load_ca_certificates_multiple_from_file() {
         let multiple_certs = format!("{}\n{}", TEST_CA_CERT_PEM, TEST_CLIENT_CERT_PEM);
         let ca_file_path = create_temp_file_simple(&multiple_certs, rand::random::<u32>());
-        let config = Config::default().with_ca_file(&ca_file_path);
-        let result = config.load_ca_certificates();
+        let config = Config::default()
+            .with_include_system_ca_certs_pool(false)
+            .with_ca_file(&ca_file_path);
+        let result = config.load_ca_cert_pool().await;
         assert!(result.is_ok());
-        let certs = result.unwrap();
-        assert_eq!(certs.len(), 2); // Should load both certificates
-
-        // Clean up
+        let root_store = result.unwrap();
+        assert_eq!(root_store.len(), 2);
         let _ = fs::remove_file(ca_file_path);
     }
 
@@ -1015,7 +904,7 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
         let result = config.load_ca_cert_pool().await;
         assert!(result.is_ok());
         let root_store = result.unwrap();
-        assert_eq!(root_store.len(), 2); // Should now load both certificates
+        assert_eq!(root_store.len(), 2);
     }
 
     #[test]
@@ -1063,37 +952,6 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
             }
             Err(e) => panic!("Unexpected error: {:?}", e),
         }
-    }
-
-    #[test]
-    fn test_add_system_ca_certs_disabled() {
-        let config = Config::default().with_include_system_ca_certs_pool(false);
-        let mut root_store = RootCertStore::empty();
-        let result = config.add_system_ca_certs(&mut root_store);
-        assert!(result.is_ok());
-        assert_eq!(root_store.len(), 0);
-    }
-
-    #[test]
-    fn test_add_custom_ca_cert_none() {
-        let config = Config::default();
-        let mut root_store = RootCertStore::empty();
-        let result = config.add_custom_ca_cert(&mut root_store);
-        assert!(result.is_ok());
-        assert_eq!(root_store.len(), 0);
-    }
-
-    #[test]
-    fn test_add_custom_ca_cert_with_pem() {
-        let config = Config::default().with_ca_pem(TEST_CA_CERT_PEM);
-        let mut root_store = RootCertStore::empty();
-        let result = config.add_custom_ca_cert(&mut root_store);
-        assert!(
-            result.is_ok(),
-            "Failed to add custom CA cert: {}",
-            result.unwrap_err()
-        );
-        assert_eq!(root_store.len(), 1);
     }
 
     #[test]

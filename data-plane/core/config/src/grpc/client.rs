@@ -221,7 +221,6 @@ pub struct ClientConfig {
 
     /// Auth configuration for outgoing RPCs.
     #[serde(default)]
-    // #[serde(with = "serde_yaml::with::singleton_map")]
     pub auth: AuthenticationConfig,
 
     /// Arbitrary user-provided metadata.
@@ -833,11 +832,11 @@ mod test {
         // Set the tls settings
         client.tls_setting = {
             let mut tls = TLSSetting::default();
-            tls.config.source = Some(TlsSource::File {
+            tls.config.source = TlsSource::File {
                 ca: Some(format!("{}/testdata/grpc/{}", test_path, "ca.crt")),
                 cert: None,
                 key: None,
-            });
+            };
             tls.insecure = false;
             tls
         };

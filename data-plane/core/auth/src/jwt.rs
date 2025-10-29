@@ -51,7 +51,7 @@ pub struct Key {
     #[schemars(skip)]
     pub format: KeyFormat,
 
-    /// Eencoded key or file path
+    /// Encoded key or file path
     #[schemars(skip)]
     #[serde(flatten, with = "serde_yaml::with::singleton_map")]
     pub key: KeyData,

@@ -153,6 +153,10 @@ impl ResolvesClientCert for SpireCertResolver {
         _acceptable_issuers: &[&[u8]],
         _sigschemes: &[rustls::SignatureScheme],
     ) -> Option<Arc<CertifiedKey>> {
+        if !self.has_certs() {
+            return None;
+        }
+
         match self.build_certified_key() {
             Ok((ck, _)) => Some(ck),
             Err(e) => {
@@ -282,8 +286,7 @@ impl TlsClientConfig {
         // If insecure (disable TLS) and no CA configured, return None early
         if self.insecure {
             match &self.config.source {
-                Some(TlsSource::File { ca: Some(_), .. })
-                | Some(TlsSource::Pem { ca: Some(_), .. }) => {
+                TlsSource::File { ca: Some(_), .. } | TlsSource::Pem { ca: Some(_), .. } => {
                     // CA provided; continue building TLS config
                 }
                 _ => {
@@ -308,7 +311,7 @@ impl TlsClientConfig {
 
         // Build client config including client auth (SPIFFE / file / pem)
         let client_config = match &self.config.source {
-            Some(TlsSource::Spire { config: spiffe_cfg }) => {
+            TlsSource::Spire { config: spiffe_cfg } => {
                 // Dynamic SPIFFE client cert resolver (no manual cert/key injection)
                 let spire_resolver =
                     SpireCertResolver::new(spiffe_cfg.clone(), config_builder.crypto_provider())
@@ -316,7 +319,7 @@ impl TlsClientConfig {
                         .map_err(|e| ConfigError::InvalidFile(e.to_string()))?;
                 config_builder.with_client_cert_resolver(Arc::new(spire_resolver))
             }
-            Some(TlsSource::File { cert, key, .. }) => {
+            TlsSource::File { cert, key, .. } => {
                 match (cert, key) {
                     (Some(cert_path), Some(key_path)) => {
                         let cert_resolver = WatcherCertResolver::new(
@@ -333,7 +336,7 @@ impl TlsClientConfig {
                     }
                 }
             }
-            Some(TlsSource::Pem { cert, key, .. }) => match (cert, key) {
+            TlsSource::Pem { cert, key, .. } => match (cert, key) {
                 (Some(cert_pem), Some(key_pem)) => {
                     let cert_resolver = StaticCertResolver::new(
                         key_pem,
@@ -347,7 +350,7 @@ impl TlsClientConfig {
                     return Err(MissingServerCertAndKey);
                 }
             },
-            None => {
+            TlsSource::None => {
                 // No source configured => no client auth; may still have system CA roots
                 config_builder.with_no_client_auth()
             }

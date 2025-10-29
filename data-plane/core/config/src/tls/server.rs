@@ -12,10 +12,13 @@ use rustls_pki_types::CertificateDer;
 use rustls_pki_types::pem::PemObject;
 use serde::{Deserialize, Serialize};
 
-use super::common::{Config, ConfigError, RustlsConfigLoader};
+use super::common::{Config, ConfigError, RustlsConfigLoader, TlsSource};
 use crate::{
     component::configuration::{Configuration, ConfigurationError},
-    tls::common::{self, SpireCertResolver, StaticCertResolver, WatcherCertResolver},
+    tls::{
+        RootStoreBuilder,
+        common::{self, SpireCertResolver, StaticCertResolver, WatcherCertResolver},
+    },
 };
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Clone)]
@@ -199,6 +202,9 @@ impl TlsServerConfig {
         }
     }
 
+    // Removed local build_client_root_store helper; client CA loading now reuses
+    // Config::build_root_store from common.rs for unified CA processing.
+
     /// Set key file
     pub fn with_key_file(self, key_file: &str) -> Self {
         TlsServerConfig {
@@ -259,51 +265,21 @@ impl TlsServerConfig {
 
         let config_builder = RustlsServerConfig::builder_with_protocol_versions(&[tls_version]);
 
+        // Root store builder
+        let mut root_store_builder = RootStoreBuilder::new();
+        if self.config.include_system_ca_certs_pool {
+            root_store_builder = root_store_builder.with_system_roots();
+        }
+        root_store_builder = root_store_builder.add_source(&self.config.source).await?;
+
         // Unified handling based on TlsSource enum
         let resolver: Arc<dyn ResolvesServerCert> = match &self.config.source {
             // SPIFFE server cert path (dynamic SVID)
-            Some(super::common::TlsSource::Spire { config: spiffe_cfg }) => {
+            TlsSource::Spire { config: spiffe_cfg } => {
                 let spire_resolver =
                     SpireCertResolver::new(spiffe_cfg.clone(), config_builder.crypto_provider())
                         .await
                         .map_err(|e| ConfigError::InvalidFile(e.to_string()))?;
-
-                // Build client CA root store (start with async CA bundle including SPIRE trust bundle)
-                let mut root_store = self.config.load_ca_cert_pool().await?;
-
-                // Merge client CA sources if provided (file/pem/spire)
-                if let Some(client_ca_variant) = &self.client_ca {
-                    match client_ca_variant {
-                        ClientCaSources::File { path } => {
-                            if let Ok(iter) = CertificateDer::pem_file_iter(Path::new(path)) {
-                                for cert in iter.flatten() {
-                                    let _ = root_store.add(cert);
-                                }
-                            }
-                        }
-                        ClientCaSources::Pem { data } => {
-                            for cert in CertificateDer::pem_slice_iter(data.as_bytes()).flatten() {
-                                let _ = root_store.add(cert);
-                            }
-                        }
-                        ClientCaSources::Spire {
-                            config: client_spiffe_cfg,
-                        } => {
-                            common::add_spiffe_bundles(&mut root_store, client_spiffe_cfg)
-                                .await
-                                .map_err(|e| {
-                                    ConfigError::Spire(format!(
-                                        "Failed to load SPIRE client CA bundle: {}",
-                                        e
-                                    ))
-                                })?;
-                        }
-                    }
-                }
-
-                let verifier = WebPkiClientVerifier::builder(root_store.into())
-                    .build()
-                    .map_err(ConfigError::VerifierBuilder)?;
 
                 let server_config = config_builder
                     .with_client_cert_verifier(verifier)
@@ -313,7 +289,7 @@ impl TlsServerConfig {
             }
 
             // Static file-based certificates
-            Some(super::common::TlsSource::File { cert, key, .. }) => match (cert, key) {
+            TlsSource::File { cert, key, .. } => match (cert, key) {
                 (Some(cert_path), Some(key_path)) => Arc::new(WatcherCertResolver::new(
                     key_path,
                     cert_path,
@@ -324,7 +300,7 @@ impl TlsServerConfig {
             },
 
             // Static PEM-based certificates
-            Some(super::common::TlsSource::Pem { cert, key, .. }) => match (cert, key) {
+            TlsSource::Pem { cert, key, .. } => match (cert, key) {
                 (Some(cert_pem), Some(key_pem)) => Arc::new(StaticCertResolver::new(
                     key_pem,
                     cert_pem,
@@ -335,53 +311,28 @@ impl TlsServerConfig {
             },
 
             // No source configured
-            None => return Err(MissingServerCertAndKey),
+            TlsSource::None => return Err(MissingServerCertAndKey),
         };
 
-        // Build optional client auth verifier (non-SPIFFE server cert path)
-        let client_ca_variant = self.client_ca.as_ref();
+        // Build optional client auth verifier (non-SPIFFE server cert path) using Config::build_root_store.
+        let (extra_file, extra_pem, extra_spiffe) = match &self.client_ca {
+            Some(ClientCaSources::File { path }) => (Some(path.as_str()), None, None),
+            Some(ClientCaSources::Pem { data }) => (None, Some(data.as_str()), None),
+            Some(ClientCaSources::Spire { config }) => (None, None, Some(config)),
+            None => (None, None, None),
+        };
 
-        // Collect client CA certificates based on variant (single source)
-        let maybe_root_store = match client_ca_variant {
-            Some(ClientCaSources::File { path }) => {
-                let mut rs = RootCertStore::empty();
-                let certs: Result<Vec<_>, _> = CertificateDer::pem_file_iter(Path::new(path))
-                    .map_err(ConfigError::InvalidPem)?
-                    .collect();
-                for cert in certs.map_err(ConfigError::InvalidPem)? {
-                    rs.add(cert).map_err(ConfigError::RootStore)?;
-                }
-                Some(rs)
-            }
-            Some(ClientCaSources::Pem { data }) => {
-                let mut rs = RootCertStore::empty();
-                let certs: Result<Vec<_>, _> =
-                    CertificateDer::pem_slice_iter(data.as_bytes()).collect();
-                for cert in certs.map_err(ConfigError::InvalidPem)? {
-                    rs.add(cert).map_err(ConfigError::RootStore)?;
-                }
-                Some(rs)
-            }
-            Some(ClientCaSources::Spire { config: spiffe_cfg }) => {
-                // Load SPIRE bundle for client auth
-                if let Ok(spire_resolver) =
-                    SpireCertResolver::new(spiffe_cfg.clone(), config_builder.crypto_provider())
-                        .await
-                {
-                    if let Ok(bundle) = spire_resolver.load_ca_bundle() {
-                        let mut rs = RootCertStore::empty();
-                        for cert in bundle {
-                            let _ = rs.add(cert);
-                        }
-                        Some(rs)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            }
-            None => None,
+        let maybe_root_store = if extra_file.is_none()
+            && extra_pem.is_none()
+            && extra_spiffe.is_none()
+        {
+            None
+        } else {
+            Some(
+                self.config
+                    .build_root_store(&TlsSource::None, false, extra_file, extra_pem, extra_spiffe)
+                    .await?,
+            )
         };
 
         let server_config = if let Some(root_store) = maybe_root_store {
@@ -414,4 +365,14 @@ impl Configuration for TlsServerConfig {
         // TODO(msardara): validate the configuration
         Ok(())
     }
+}
+
+// Async test helper (placeholder) to reduce repetition constructing server configs in tests.
+// Example usage (inside #[tokio::test]): let sc = build_test_server_config(cfg).await;
+#[cfg(test)]
+async fn build_test_server_config(cfg: TlsServerConfig) -> RustlsServerConfig {
+    cfg.load_rustls_server_config()
+        .await
+        .expect("failed to build server config")
+        .expect("insecure or missing server config")
 }

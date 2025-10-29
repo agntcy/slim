@@ -44,19 +44,16 @@ macro_rules! require_docker {
 fn test_config_with_socket(socket_path: &str) -> SpiffeConfig {
     SpiffeConfig {
         socket_path: Some(socket_path.to_string()),
-        target_spiffe_id: None,
         jwt_audiences: vec!["test".to_string()],
-        trust_domains: vec![],
+        ..Default::default()
     }
 }
 
 /// Creates a test SpiffeConfig with default test audiences
 fn test_config() -> SpiffeConfig {
     SpiffeConfig {
-        socket_path: None,
-        target_spiffe_id: None,
         jwt_audiences: vec!["test".to_string()],
-        trust_domains: vec![],
+        ..Default::default()
     }
 }
 
@@ -64,9 +61,8 @@ fn test_config() -> SpiffeConfig {
 fn test_config_with_socket_and_audiences(socket_path: &str) -> SpiffeConfig {
     SpiffeConfig {
         socket_path: Some(socket_path.to_string()),
-        target_spiffe_id: None,
         jwt_audiences: vec!["test-audience".to_string(), "another-audience".to_string()],
-        trust_domains: vec![],
+        ..Default::default()
     }
 }
 
@@ -315,7 +311,7 @@ async fn test_spiffe_provider_configurations() {
         socket_path: Some("unix:///custom/path".to_string()),
         target_spiffe_id: Some("spiffe://example.org/backend".to_string()),
         jwt_audiences: vec!["api".to_string(), "web".to_string()],
-        trust_domains: vec![],
+        ..Default::default()
     };
 
     let provider = build_manager_from(&custom_config);
@@ -359,9 +355,7 @@ async fn test_spiffe_verifier_config() {
     // Config with empty audiences
     let empty_cfg = SpiffeConfig {
         socket_path: Some("unix:///tmp/test".to_string()),
-        target_spiffe_id: None,
-        jwt_audiences: vec![],
-        trust_domains: vec![],
+        ..Default::default()
     };
     let verifier_empty_aud = build_manager_from(&empty_cfg);
     assert_manager_uninitialized(&verifier_empty_aud);

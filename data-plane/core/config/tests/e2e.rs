@@ -191,10 +191,10 @@ mod tests {
                 "x-custom-header".to_string(),
                 "custom-value".to_string(),
             )]))
+            .with_server_name("example1")
             .with_tls_setting(
                 TlsClientConfig::new()
                     .with_insecure(false)
-                    .with_insecure_skip_verify(true)
                     .with_tls_version("tls1.3")
                     .with_ca_file(&(TEST_DATA_PATH.to_string() + "/tls/ca-1.crt")),
             );
@@ -226,10 +226,10 @@ mod tests {
                 "x-custom-header".to_string(),
                 "custom-value".to_string(),
             )]))
+            .with_server_name("example1")
             .with_tls_setting(
                 TlsClientConfig::new()
                     .with_insecure(false)
-                    .with_insecure_skip_verify(true)
                     .with_tls_version("tls1.3")
                     .with_ca_file(&(TEST_DATA_PATH.to_string() + "/tls/ca-1.crt")),
             )
