@@ -32,7 +32,6 @@ use crate::auth::static_jwt::Config as BearerAuthenticationConfig;
 use crate::component::configuration::{Configuration, ConfigurationError};
 use crate::grpc::proxy::ProxyConfig;
 use crate::tls::{client::TlsClientConfig as TLSSetting, common::RustlsConfigLoader};
-
 /// Creates an HTTPS connector with optional SNI based on the origin
 fn https_connector<S>(
     s: S,
@@ -73,14 +72,34 @@ macro_rules! create_connector {
     };
 }
 
-/// Macro to create authenticated service layers for different auth types
-macro_rules! create_auth_service {
+/// Macro to create authenticated service layers for auth types that don't need initialization
+macro_rules! create_auth_service_no_init {
+    ($self:expr, $auth_config:expr, $header_map:expr, $channel:expr) => {{
+        let auth_layer = $auth_config
+            .get_client_layer()
+            .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;
+
+        $self.warn_insecure_auth();
+
+        Ok(tower::ServiceBuilder::new()
+            .layer(SetRequestHeaderLayer::new($header_map))
+            .layer(auth_layer)
+            .service($channel)
+            .boxed())
+    }};
+}
+
+/// Macro to create authenticated service layers for auth types that need initialization
+macro_rules! create_auth_service_with_init {
     ($self:expr, $auth_config:expr, $header_map:expr, $channel:expr) => {{
         let mut auth_layer = $auth_config
             .get_client_layer()
             .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;
 
-        auth_layer.initialize().await?;
+        // Initialize the auth layer
+        auth_layer.initialize().await.map_err(|e| {
+            ConfigError::AuthConfigError(format!("Failed to initialize auth layer: {}", e))
+        })?;
 
         $self.warn_insecure_auth();
 
@@ -427,7 +446,7 @@ impl ClientConfig {
             .await?;
 
         // Apply authentication and headers
-        self.apply_auth_and_headers(channel, header_map)
+        self.apply_auth_and_headers(channel, header_map).await
     }
 
     /// Validates that the endpoint is set and not empty
@@ -694,13 +713,13 @@ impl ClientConfig {
     > {
         match &self.auth {
             AuthenticationConfig::Basic(basic) => {
-                create_auth_service!(self, basic, header_map, channel)
+                create_auth_service_no_init!(self, basic, header_map, channel)
             }
             AuthenticationConfig::StaticJwt(jwt) => {
-                create_auth_service!(self, jwt, header_map, channel)
+                create_auth_service_with_init!(self, jwt, header_map, channel)
             }
             AuthenticationConfig::Jwt(jwt) => {
-                create_auth_service!(self, jwt, header_map, channel)
+                create_auth_service_with_init!(self, jwt, header_map, channel)
             }
             AuthenticationConfig::None => Ok(tower::ServiceBuilder::new()
                 .layer(SetRequestHeaderLayer::new(header_map))
