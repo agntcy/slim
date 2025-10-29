@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/agntcy/slim/compare/helm-slim-control-plane-v0.6.0...helm-slim-control-plane-v0.6.1) (2025-10-29)
+
+
+### Bug Fixes
+
+* add original MsgID to all response messages ([#891](https://github.com/agntcy/slim/issues/891)) ([f297d5b](https://github.com/agntcy/slim/commit/f297d5bf1062994eca94bd07ada915e11f1d32f9))
+
 ## [0.6.0](https://github.com/agntcy/slim/compare/helm-slim-control-plane-v0.1.4...helm-slim-control-plane-v0.6.0) (2025-10-10)
 
 
