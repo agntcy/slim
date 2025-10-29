@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1](https://github.com/agntcy/slim/compare/slim-mcp-proxy-v0.2.0...slim-mcp-proxy-v0.2.1) - 2025-10-29
+
+### Added
+
+- *(mls)* identity claims integration, strengthened validation, and PoP enforcement ([#885](https://github.com/agntcy/slim/pull/885))
+- async mls ([#877](https://github.com/agntcy/slim/pull/877))
+- expand SharedSecret Auth from simple secret:id to HMAC tokens ([#858](https://github.com/agntcy/slim/pull/858))
+- derive name ID part from identity token ([#851](https://github.com/agntcy/slim/pull/851))x
+- implementation of Spire for fetching the certificates/token directly from SPIFFE Workload API ([#646](https://github.com/agntcy/slim/pull/646))
+- implementation of Identity provider client credential flow ([#464](https://github.com/agntcy/slim/pull/464))
+- move session code in a new crate ([#828](https://github.com/agntcy/slim/pull/828))
+
+### Other
+
+- implement all control message payload in protobuf ([#862](https://github.com/agntcy/slim/pull/862))
+- *(data-plane)* update project dependencies ([#861](https://github.com/agntcy/slim/pull/861))
+- common rust infrastructure for language bindings ([#840](https://github.com/agntcy/slim/pull/840))
+- release ([#854](https://github.com/agntcy/slim/pull/854))
+
 ## [0.2.0](https://github.com/agntcy/slim/compare/slim-mcp-proxy-v0.1.7...slim-mcp-proxy-v0.2.0) - 2025-10-09
 
 ### Added
