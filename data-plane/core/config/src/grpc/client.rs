@@ -76,9 +76,11 @@ macro_rules! create_connector {
 /// Macro to create authenticated service layers for different auth types
 macro_rules! create_auth_service {
     ($self:expr, $auth_config:expr, $header_map:expr, $channel:expr) => {{
-        let auth_layer = $auth_config
+        let mut auth_layer = $auth_config
             .get_client_layer()
             .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;
+
+        auth_layer.initialize().await?;
 
         $self.warn_insecure_auth();
 
@@ -674,7 +676,7 @@ impl ClientConfig {
     }
 
     /// Applies authentication and headers to the channel
-    fn apply_auth_and_headers(
+    async fn apply_auth_and_headers(
         &self,
         channel: Channel,
         header_map: HeaderMap,
