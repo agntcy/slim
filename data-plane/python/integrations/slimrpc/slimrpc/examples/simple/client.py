@@ -52,7 +52,7 @@ async def amain() -> None:
         logger.info("Stream Stream completed")
 
     except asyncio.TimeoutError:
-        logger.error("timeout while waiting for response")
+        logger.exception("timeout while waiting for response")
 
     await asyncio.sleep(1)
 

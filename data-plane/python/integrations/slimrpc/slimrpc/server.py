@@ -119,7 +119,7 @@ class Server:
         self,
         session: slim_bindings.PySession,
     ) -> None:
-        logger.info(f"new session from {session.dst}")
+        logger.info(f"new session from {session.dst} to {session.src}")
 
         # Find the RPC handler for the session
         rpc_handler: RPCHandler | None = self._pyname_to_handler.get(session.src, None)
@@ -145,6 +145,7 @@ class Server:
                     rpc_handler,
                     session,
                 ):
+                    logger.info(f"sending response for session {session.id} with code {code}")
                     await session.publish(
                         rpc_handler.response_serializer(response),
                         metadata={"code": str(code)},
