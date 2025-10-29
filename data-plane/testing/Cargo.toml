@@ -26,10 +26,7 @@ agntcy-slim-service = { workspace = true }
 agntcy-slim-session = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
 clap = { workspace = true }
-indicatif = { workspace = true }
 parking_lot = { workspace = true }
-rand = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-tokio-util = { workspace = true }
 tracing = { workspace = true }

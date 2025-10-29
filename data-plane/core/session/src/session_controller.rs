@@ -389,7 +389,7 @@ pub struct SessionControllerCommon {
     /// directly sent to the slim/app
     tx: SessionTransmitter,
 
-    /// channel used to recevied messages from the session layer
+    /// channel used to received messages from the session layer
     /// and timeouts from timers
     rx_from_session_layer: tokio::sync::mpsc::Receiver<SessionMessage>,
 
@@ -483,20 +483,20 @@ impl SessionControllerCommon {
 
     /// internal and helper functions
     fn is_command_message(&self, message_type: ProtoSessionMessageType) -> bool {
-        match message_type {
+        matches!(
+            message_type,
             ProtoSessionMessageType::DiscoveryRequest
-            | ProtoSessionMessageType::DiscoveryReply
-            | ProtoSessionMessageType::JoinRequest
-            | ProtoSessionMessageType::JoinReply
-            | ProtoSessionMessageType::LeaveRequest
-            | ProtoSessionMessageType::LeaveReply
-            | ProtoSessionMessageType::GroupUpdate
-            | ProtoSessionMessageType::GroupWelcome
-            | ProtoSessionMessageType::GroupProposal
-            | ProtoSessionMessageType::GroupAck
-            | ProtoSessionMessageType::GroupNack => true,
-            _ => false,
-        }
+                | ProtoSessionMessageType::DiscoveryReply
+                | ProtoSessionMessageType::JoinRequest
+                | ProtoSessionMessageType::JoinReply
+                | ProtoSessionMessageType::LeaveRequest
+                | ProtoSessionMessageType::LeaveReply
+                | ProtoSessionMessageType::GroupUpdate
+                | ProtoSessionMessageType::GroupWelcome
+                | ProtoSessionMessageType::GroupProposal
+                | ProtoSessionMessageType::GroupAck
+                | ProtoSessionMessageType::GroupNack
+        )
     }
 
     async fn send_to_slim(&self, message: Message) -> Result<(), SessionError> {
@@ -1232,7 +1232,7 @@ where
                                         error!("Failed to pop next task: {:?}", e);
                                     }
                                 } else if let Err(e) = self.common.session.on_message(SessionMessage::TimerFailure { message_id, message_type, name, timeouts }).await {
-                                        error!("failed to sending timer failuer to the session: {}", e);
+                                        error!("failed to sending timer failure to the session: {}", e);
                                 }
                             }
                             SessionMessage::DeleteSession { session_id: _ } => todo!(),
@@ -1351,7 +1351,7 @@ where
         // start the current task
         let id = rand::random::<u32>();
         discovery.get_session_header_mut().set_message_id(id);
-        self.current_task.as_mut().unwrap().discovery_start(id);
+        self.current_task.as_mut().unwrap().discovery_start(id)?;
 
         // send the message
         self.common.send_with_timer(discovery).await
@@ -1431,7 +1431,7 @@ where
             let (commit_payload, welcome_payload) =
                 self.mls_state.as_mut().unwrap().add_participant(&msg)?;
 
-            // get the id of the committ, the welcome message has a random id
+            // get the id of the commit, the welcome message has a random id
             let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
             let welcome_id = rand::random::<u32>();
             (
@@ -1464,7 +1464,7 @@ where
                     update_payload,
                     true,
                 )
-                .await;
+                .await?;
             self.current_task
                 .as_mut()
                 .unwrap()
@@ -1496,7 +1496,7 @@ where
                 welcome_payload,
                 false,
             )
-            .await;
+            .await?;
 
         // evolve the current task state
         // welcome start
@@ -1575,7 +1575,7 @@ where
             .await?;
 
         // Before send the leave request we may need to send the Group update
-        // with the new participant list and the new mls paylaod if needed
+        // with the new participant list and the new mls payload if needed
         // Create participants list for commit message
         let mut participants_vec = vec![];
         for (n, id) in &self.group_list {
@@ -1622,12 +1622,12 @@ where
                 .update_phase_completed(0)?;
 
             // just send the leave message in this case
-            self.common.sender.on_message(&leave_message).await;
+            self.common.sender.on_message(&leave_message).await?;
 
             self.current_task
                 .as_mut()
                 .unwrap()
-                .leave_start(leave_message.get_id());
+                .leave_start(leave_message.get_id())?;
         }
         Ok(())
     }
@@ -1688,7 +1688,7 @@ where
 
     async fn on_group_ack(&mut self, msg: Message) -> Result<(), SessionError> {
         // notify the sender
-        self.common.sender.on_message(&msg);
+        self.common.sender.on_message(&msg).await?;
 
         // check if the timer is done
         let msg_id = msg.get_id();
@@ -1700,7 +1700,7 @@ where
                 .unwrap()
                 .update_phase_completed(msg_id)?;
 
-            // check if the task is complited.
+            // check if the task is finished.
             if self.current_task.as_mut().unwrap().task_complete() {
                 // task done. At this point if this was the first MLS
                 // action MLS is setup so we can set mls_up to true
@@ -1717,11 +1717,11 @@ where
                 {
                     // send the leave message an progress
                     let leave_message = self.postponed_message.as_ref().unwrap();
-                    self.common.sender.on_message(leave_message).await;
+                    self.common.sender.on_message(leave_message).await?;
                     self.current_task
                         .as_mut()
                         .unwrap()
-                        .leave_start(leave_message.get_id());
+                        .leave_start(leave_message.get_id())?;
                     // rest the postponed message
                     self.postponed_message = None;
                 }
@@ -1734,7 +1734,7 @@ where
         Ok(())
     }
 
-    /// task handlig functions
+    /// task handling functions
     async fn task_done(&mut self) -> Result<(), SessionError> {
         if !self.current_task.as_ref().unwrap().task_complete() {
             // the task is not completed so just return
@@ -1791,7 +1791,7 @@ where
         );
 
         self.common.send_to_slim(sub).await?;
-        self.common.set_route(&self.common.destination);
+        self.common.set_route(&self.common.destination).await?;
 
         // create mls group if needed
         if let Some(mls) = self.mls_state.as_mut() {
@@ -1811,7 +1811,9 @@ where
         debug!("Signal session layer to close the session, all tasks are done");
 
         // delete route for the channel
-        self.common.delete_route(&self.common.destination);
+        if let Err(e) = self.common.delete_route(&self.common.destination).await {
+            error!("error with removing route {}", e);
+        }
 
         // notify the session layer
         let res = self
@@ -1823,7 +1825,7 @@ where
             .await;
 
         if res.is_err() {
-            error!("an error occured while signaling session close");
+            error!("an error occurred while signaling session close");
         }
     }
 

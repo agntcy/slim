@@ -159,7 +159,7 @@ impl TimerFactory {
     }
 }
 
-/*#[cfg(test)]
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::time::Duration;
@@ -203,7 +203,7 @@ mod tests {
         let timer_id = 123;
         let name = test_name();
 
-        let _timer = factory.create_and_start_timer(timer_id, Some(name.clone()));
+        let _timer = factory.create_and_start_timer(timer_id, ProtoSessionMessageType::DiscoveryRequest, Some(name.clone()));
 
         // Assert - we should receive a timeout message
         let message = timeout(Duration::from_millis(200), rx.recv())
@@ -214,12 +214,14 @@ mod tests {
         match message {
             SessionMessage::TimerTimeout {
                 message_id,
+                message_type, 
+                name: received_name, 
                 timeouts,
-                name: received_name,
             } => {
                 assert_eq!(message_id, timer_id);
-                assert_eq!(timeouts, 1);
+                assert_eq!(message_type, ProtoSessionMessageType::DiscoveryRequest);
                 assert_eq!(received_name, Some(name));
+                assert_eq!(timeouts, 1);
             }
             _ => panic!("Expected TimerTimeout message"),
         }
@@ -241,7 +243,7 @@ mod tests {
 
         // Act
         let timer = factory.create_timer(timer_id);
-        factory.start_timer(&timer, Some(name.clone()));
+        factory.start_timer(&timer, ProtoSessionMessageType::DiscoveryRequest, Some(name.clone()));
 
         // Assert - we should receive multiple timeout messages
         let first_timeout = timeout(Duration::from_millis(100), rx.recv())
@@ -252,10 +254,12 @@ mod tests {
         match first_timeout {
             SessionMessage::TimerTimeout {
                 message_id,
-                timeouts,
+                message_type,
                 name: received_name,
+                timeouts,
             } => {
                 assert_eq!(message_id, timer_id);
+                assert_eq!(message_type, ProtoSessionMessageType::DiscoveryRequest);
                 assert_eq!(timeouts, 1);
                 assert_eq!(received_name, Some(name.clone()));
             }
@@ -270,10 +274,12 @@ mod tests {
         match second_timeout {
             SessionMessage::TimerTimeout {
                 message_id,
-                timeouts,
+                message_type,
                 name: received_name,
+                timeouts,
             } => {
                 assert_eq!(message_id, timer_id);
+                assert_eq!(message_type, ProtoSessionMessageType::DiscoveryRequest);
                 assert_eq!(timeouts, 2);
                 assert_eq!(received_name, Some(name.clone()));
             }
@@ -297,7 +303,7 @@ mod tests {
 
         // Act
         let timer = factory.create_timer(timer_id);
-        factory.start_timer(&timer, Some(name.clone()));
+        factory.start_timer(&timer, ProtoSessionMessageType::DiscoveryRequest, Some(name.clone()));
 
         // Assert - we should receive a timeout followed by a failure
         let timeout_message = timeout(Duration::from_millis(100), rx.recv())
@@ -308,10 +314,12 @@ mod tests {
         match timeout_message {
             SessionMessage::TimerTimeout {
                 message_id,
-                timeouts,
+                message_type,
                 name: received_name,
+                timeouts,
             } => {
                 assert_eq!(message_id, timer_id);
+                assert_eq!(message_type, ProtoSessionMessageType::DiscoveryRequest);
                 assert_eq!(timeouts, 1);
                 assert_eq!(received_name, Some(name.clone()));
             }
@@ -326,10 +334,12 @@ mod tests {
         match failure_message {
             SessionMessage::TimerFailure {
                 message_id,
-                timeouts,
+                message_type,
                 name: received_name,
+                timeouts,
             } => {
                 assert_eq!(message_id, timer_id);
+                assert_eq!(message_type, ProtoSessionMessageType::DiscoveryRequest);
                 assert_eq!(timeouts, 2);
                 assert_eq!(received_name, Some(name.clone()));
             }
@@ -353,7 +363,7 @@ mod tests {
 
         // Act
         let timer = factory.create_timer(timer_id);
-        factory.start_timer(&timer, Some(name.clone()));
+        factory.start_timer(&timer, ProtoSessionMessageType::DiscoveryRequest, Some(name.clone()));
 
         // Assert - we should receive timeouts with exponentially increasing intervals
         let first_timeout = timeout(Duration::from_millis(150), rx.recv())
@@ -364,10 +374,12 @@ mod tests {
         match first_timeout {
             SessionMessage::TimerTimeout {
                 message_id,
-                timeouts,
+                message_type,
                 name: received_name,
+                timeouts,
             } => {
                 assert_eq!(message_id, timer_id);
+                assert_eq!(message_type, ProtoSessionMessageType::DiscoveryRequest);
                 assert_eq!(timeouts, 1);
                 assert_eq!(received_name, Some(name.clone()));
             }
@@ -382,10 +394,12 @@ mod tests {
         match second_timeout {
             SessionMessage::TimerTimeout {
                 message_id,
-                timeouts,
+                message_type,
                 name: received_name,
+                timeouts,
             } => {
                 assert_eq!(message_id, timer_id);
+                assert_eq!(message_type, ProtoSessionMessageType::DiscoveryRequest);
                 assert_eq!(timeouts, 2);
                 assert_eq!(received_name, Some(name.clone()));
             }
@@ -429,8 +443,8 @@ mod tests {
         let name2 = Name::from_strings(["test", "org", "app2"]).with_id(2);
 
         // Act - create and start multiple timers
-        let timer1 = factory.create_and_start_timer(100, Some(name1.clone()));
-        let timer2 = factory.create_and_start_timer(200, Some(name2.clone()));
+        let timer1 = factory.create_and_start_timer(100, ProtoSessionMessageType::DiscoveryRequest, Some(name1.clone()));
+        let timer2 = factory.create_and_start_timer(200, ProtoSessionMessageType::DiscoveryRequest, Some(name2.clone()));
 
         // Assert - we should receive messages from both timers
         let mut received_ids = Vec::new();
@@ -444,6 +458,7 @@ mod tests {
             match message {
                 SessionMessage::TimerTimeout {
                     message_id,
+                    message_type: _,
                     timeouts,
                     name: _,
                 } => {
@@ -524,7 +539,7 @@ mod tests {
         let name = test_name();
 
         // Act
-        let _timer = factory.create_and_start_timer(timer_id, Some(name.clone()));
+        let _timer = factory.create_and_start_timer(timer_id, ProtoSessionMessageType::DiscoveryRequest, Some(name.clone()));
 
         // Assert
         let timeout_message = timeout(Duration::from_millis(100), rx.recv())
@@ -535,14 +550,16 @@ mod tests {
         match timeout_message {
             SessionMessage::TimerTimeout {
                 message_id,
+                message_type,
                 timeouts,
                 name: received_name,
             } => {
                 assert_eq!(message_id, timer_id);
+                assert_eq!(message_type, ProtoSessionMessageType::DiscoveryRequest);
                 assert_eq!(timeouts, 1);
                 assert_eq!(received_name, Some(name.clone()));
             }
             _ => panic!("Expected TimerTimeout message with convenience constructors"),
         }
     }
-}*/
+}
