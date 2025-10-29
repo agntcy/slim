@@ -12,7 +12,7 @@ use parking_lot::Mutex;
 use tracing::{debug, error, trace};
 
 use slim_auth::traits::{TokenProvider, Verifier};
-use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType};
+use slim_datapath::api::{MlsPayload, ProtoMessage as Message, ProtoSessionMessageType};
 
 // Local crate
 use crate::SessionError;
@@ -83,13 +83,16 @@ where
             .unwrap()
             .as_command_payload()
             .as_welcome_payload();
-        self.last_mls_msg_id = payload.msl_commit_id();
-        let welcome = payload.mls_welcome();
+        let mls_payload = payload.mls.ok_or_else(|| {
+            SessionError::WelcomeMessage("missing mls payload in welcome message".to_string())
+        })?;
+        self.last_mls_msg_id = mls_payload.commit_id;
+        let welcome = mls_payload.mls_content;
 
         self.group = self
             .mls
             .lock()
-            .process_welcome(welcome)
+            .process_welcome(&welcome)
             .map_err(|e| SessionError::WelcomeMessage(e.to_string()))?;
 
         self.mls_up = true;
@@ -122,8 +125,30 @@ where
                 ProtoSessionMessageType::GroupProposal => {
                     self.process_proposal_message(msg, local_name)?;
                 }
-                ProtoSessionMessageType::GroupUpdate => {
-                    self.process_commit_message(msg)?;
+                ProtoSessionMessageType::GroupAdd => {
+                    let payload = msg
+                        .get_payload()
+                        .unwrap()
+                        .as_command_payload()
+                        .as_group_add_payload();
+                    let mls_payload = payload.mls.ok_or_else(|| {
+                        SessionError::Processing("missing mls payload in add message".to_string())
+                    })?;
+                    self.process_commit_message(msg, mls_payload)?;
+                }
+                ProtoSessionMessageType::GroupRemove => {
+                    let payload = msg
+                        .get_payload()
+                        .unwrap()
+                        .as_command_payload()
+                        .as_group_add_payload();
+                    let mls_payload = payload.mls.ok_or_else(|| {
+                        SessionError::Processing(
+                            "missing mls payload in remove message".to_string(),
+                        )
+                    })?;
+
+                    self.process_commit_message(msg, mls_payload)?;
                 }
                 _ => {
                     error!("unknown control message type, drop it");
@@ -137,21 +162,17 @@ where
         Ok(true)
     }
 
-    fn process_commit_message(&mut self, commit: Message) -> Result<(), SessionError> {
-        trace!("processing stored commit {}", commit.get_id());
-
-        let payalod = commit
-            .get_payload()
-            .unwrap()
-            .as_command_payload()
-            .as_group_update_payload();
-        // get the payload
-        let commit = payalod.mls_commit();
+    fn process_commit_message(
+        &mut self,
+        _msg: Message,
+        mls_payload: MlsPayload,
+    ) -> Result<(), SessionError> {
+        trace!("processing stored commit {}", mls_payload.commit_id);
 
         // process the commit message
         self.mls
             .lock()
-            .process_commit(commit)
+            .process_commit(&mls_payload.mls_content)
             .map_err(|e| SessionError::CommitMessage(e.to_string()))
     }
 
@@ -196,19 +217,53 @@ where
             ));
         }
 
-        if msg.get_id() <= self.last_mls_msg_id {
+        let commit_id = match msg.get_session_header().session_message_type() {
+            ProtoSessionMessageType::GroupAdd => {
+                msg.get_payload()
+                    .unwrap()
+                    .as_command_payload()
+                    .as_group_add_payload()
+                    .mls
+                    .ok_or_else(|| {
+                        SessionError::MLSIdMessage(
+                            "missing mls paylaod".to_string(),
+                        )
+                    })?
+                    .commit_id
+            }
+            ProtoSessionMessageType::GroupRemove => {
+                msg.get_payload()
+                    .unwrap()
+                    .as_command_payload()
+                    .as_group_remove_payload()
+                    .mls
+                    .ok_or_else(|| {
+                        SessionError::MLSIdMessage(
+                            "missing mls paylaod".to_string(),
+                        )
+                    })?
+                    .commit_id
+            }
+            _ => {
+                return Err(SessionError::MLSIdMessage(
+                    "unexpected message type".to_string(),
+                ));
+            }
+        };
+
+        if commit_id <= self.last_mls_msg_id {
             debug!(
                 "Message with id {} already processed, drop it. last message id {}",
-                msg.get_id(),
+                commit_id,
                 self.last_mls_msg_id
             );
             return Ok(false);
         }
 
         // store commit in hash map
-        match self.stored_commits_proposals.entry(msg.get_id()) {
+        match self.stored_commits_proposals.entry(commit_id) {
             Entry::Occupied(_) => {
-                debug!("Message with id {} already exists, drop it", msg.get_id());
+                debug!("Message with id {} already exists, drop it", commit_id);
                 Ok(false)
             }
             Entry::Vacant(entry) => {

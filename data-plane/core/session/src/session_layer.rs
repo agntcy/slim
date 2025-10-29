@@ -479,7 +479,8 @@ where
             | ProtoSessionMessageType::JoinReply
             | ProtoSessionMessageType::LeaveRequest
             | ProtoSessionMessageType::LeaveReply
-            | ProtoSessionMessageType::GroupUpdate
+            | ProtoSessionMessageType::GroupAdd
+            | ProtoSessionMessageType::GroupRemove
             | ProtoSessionMessageType::GroupWelcome
             | ProtoSessionMessageType::GroupAck
             | ProtoSessionMessageType::Msg

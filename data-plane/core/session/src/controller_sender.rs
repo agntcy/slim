@@ -113,21 +113,37 @@ impl ControllerSender {
                 // to do to handle it
                 self.on_reply_message(message);
             }
-            slim_datapath::api::ProtoSessionMessageType::GroupUpdate => {
-                // the number of acks expected for this message is equal
-                // to the number of participants in the payload of the
-                // packet. Notice that the controller process one update
-                // after the other so it cannot happen that we send an
-                // update and we remove a participant from the group at
-                // the same time
+            slim_datapath::api::ProtoSessionMessageType::GroupAdd => {
+                // compute the list of participants that needs to send an ack
                 let payload = message
                     .get_payload()
                     .unwrap()
                     .as_command_payload()
-                    .as_group_update_payload();
+                    .as_group_add_payload();
+                let mut missing_replies = HashSet::new();
+                let mut new_participant = Name::from(payload.new_participant.as_ref().unwrap());
+                new_participant.reset_id();
+                for p in &payload.participants {
+                    // exclude the local name and the new participant
+                    let mut name = Name::from(p);
+                    name.reset_id();
+                    if name != self.local_name && name != new_participant {
+                        missing_replies.insert(name);
+                    }
+                }
+                self.on_send_message(message, missing_replies).await?;
+            }
+            slim_datapath::api::ProtoSessionMessageType::GroupRemove => {
+                // compute the list of participants that needs to send an ack
+                let payload = message
+                    .get_payload()
+                    .unwrap()
+                    .as_command_payload()
+                    .as_group_remove_payload();
 
                 let mut missing_replies = HashSet::new();
-                for p in &payload.participant {
+                for p in &payload.participants {
+                    // exclude only the local name
                     let mut name = Name::from(p);
                     name.reset_id();
                     if name != self.local_name {
@@ -152,6 +168,11 @@ impl ControllerSender {
         missing_replies: HashSet<Name>,
     ) -> Result<(), SessionError> {
         let id = message.get_id();
+
+        debug!(
+            "create a new timer for message {}, waiting response from {:?}",
+            id, missing_replies
+        );
         let pending = PendingReply {
             missing_replies,
             message: message.clone(),
@@ -172,6 +193,12 @@ impl ControllerSender {
 
     fn on_reply_message(&mut self, message: &Message) {
         let id = message.get_id();
+        debug!(
+            "receive reply for message {} from {}",
+            id,
+            message.get_source()
+        );
+
         let mut delete = false;
         if let Some(pending) = self.pending_replies.get_mut(&id) {
             debug!("try to remove {} from pending acks", id);
@@ -634,8 +661,7 @@ mod tests {
         let participant = Name::from_strings(["org", "ns", "participant"]);
         let payload = CommandPayload::new_group_welcome_payload(
             vec![participant.clone(), source.clone()],
-            None, // msl_commit_id
-            None, // mls_welcome
+            None,
         );
         let session_id = 1;
 
@@ -733,8 +759,8 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_on_group_update_message() {
-        // send a group update with 2 participants, wait for retransmission, then send 2 group acks
+    async fn test_on_group_add_message() {
+        // send a group add with 2 participants, wait for retransmission, then send 2 group acks
         let settings = TimerSettings::constant(Duration::from_millis(200)).with_max_retries(3);
 
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
@@ -748,10 +774,11 @@ mod tests {
 
         let mut sender = ControllerSender::new(settings, source.clone(), tx, tx_signal);
 
-        // Create a group update message with 2 participants
+        // Create a group add message with 2 participants
         let participant1 = Name::from_strings(["org", "ns", "participant1"]);
         let participant2 = Name::from_strings(["org", "ns", "participant2"]);
-        let payload = CommandPayload::new_group_update_payload(
+        let payload = CommandPayload::new_group_add_payload(
+            participant1.clone(),
             vec![participant1.clone(), participant2.clone(), source.clone()],
             None, // mls_commit
         );
@@ -762,7 +789,7 @@ mod tests {
 
         let session_header = Some(SessionHeader::new(
             ProtoSessionType::Multicast.into(),
-            ProtoSessionMessageType::GroupUpdate.into(),
+            ProtoSessionMessageType::GroupAdd.into(),
             session_id,
             1,
         ));
@@ -803,7 +830,7 @@ mod tests {
                 ..
             } => {
                 assert_eq!(message_id, 1);
-                assert_eq!(message_type, ProtoSessionMessageType::GroupUpdate);
+                assert_eq!(message_type, ProtoSessionMessageType::GroupAdd);
             }
             _ => panic!("Expected TimerTimeout message"),
         }
@@ -812,7 +839,7 @@ mod tests {
         sender
             .on_timer_timeout(1)
             .await
-            .expect("error re-sending the update");
+            .expect("error re-sending the add");
 
         // Wait for the message to be sent again to slim
         let received = timeout(Duration::from_millis(100), rx_slim.recv())
@@ -886,7 +913,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_on_group_update_duplicate_acks() {
-        // send a group update with 2 participants, receive duplicate acks from same participant
+        // send a group add with 2 participants, receive duplicate acks from same participant
         // verify timer doesn't stop until we get acks from BOTH different participants
         let settings = TimerSettings::constant(Duration::from_millis(200)).with_max_retries(3);
 
@@ -901,12 +928,13 @@ mod tests {
 
         let mut sender = ControllerSender::new(settings, source.clone(), tx, tx_signal);
 
-        // Create a group update message with 2 participants (plus source)
+        // Create a group add message with 2 participants (plus source)
         let participant1 = Name::from_strings(["org", "ns", "participant1"]);
         let participant2 = Name::from_strings(["org", "ns", "participant2"]);
-        let payload = CommandPayload::new_group_update_payload(
+        let payload = CommandPayload::new_group_add_payload(
+            participant1.clone(),
             vec![participant1.clone(), participant2.clone(), source.clone()],
-            None, // mls_commit
+            None, // mls
         );
 
         let session_id = 1;
@@ -915,7 +943,7 @@ mod tests {
 
         let session_header = Some(SessionHeader::new(
             ProtoSessionType::Multicast.into(),
-            ProtoSessionMessageType::GroupUpdate.into(),
+            ProtoSessionMessageType::GroupAdd.into(),
             session_id,
             1,
         ));
@@ -956,7 +984,7 @@ mod tests {
                 ..
             } => {
                 assert_eq!(message_id, 1);
-                assert_eq!(message_type, ProtoSessionMessageType::GroupUpdate);
+                assert_eq!(message_type, ProtoSessionMessageType::GroupAdd);
             }
             _ => panic!("Expected TimerTimeout message"),
         }
@@ -965,7 +993,7 @@ mod tests {
         sender
             .on_timer_timeout(1)
             .await
-            .expect("error re-sending the update");
+            .expect("error re-sending the add");
 
         // Wait for the message to be sent again to slim
         let received = timeout(Duration::from_millis(100), rx_slim.recv())
@@ -1033,7 +1061,7 @@ mod tests {
                 ..
             } => {
                 assert_eq!(message_id, 1);
-                assert_eq!(message_type, ProtoSessionMessageType::GroupUpdate);
+                assert_eq!(message_type, ProtoSessionMessageType::GroupAdd);
             }
             _ => panic!("Expected TimerTimeout message"),
         }

@@ -129,7 +129,7 @@ pub struct ApplicationPayload {
 pub struct CommandPayload {
     #[prost(
         oneof = "command_payload::CommandPayloadType",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11"
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12"
     )]
     pub command_payload_type: ::core::option::Option<
         command_payload::CommandPayloadType,
@@ -152,14 +152,16 @@ pub mod command_payload {
         #[prost(message, tag = "6")]
         LeaveReply(super::LeaveReplyPayload),
         #[prost(message, tag = "7")]
-        GroupUpdate(super::GroupUpdatePayload),
+        GroupAdd(super::GroupAddPayload),
         #[prost(message, tag = "8")]
-        GroupWelcome(super::GroupWelcomePayload),
+        GroupRemove(super::GroupRemovePayload),
         #[prost(message, tag = "9")]
-        GroupProposal(super::GroupProposalPayload),
+        GroupWelcome(super::GroupWelcomePayload),
         #[prost(message, tag = "10")]
-        GroupAck(super::GroupAckPayload),
+        GroupProposal(super::GroupProposalPayload),
         #[prost(message, tag = "11")]
+        GroupAck(super::GroupAckPayload),
+        #[prost(message, tag = "12")]
         GroupNack(super::GroupNackPayload),
     }
 }
@@ -220,32 +222,55 @@ pub struct LeaveRequestPayload {
 /// Leave Reply
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct LeaveReplyPayload {}
-/// Group Update
-/// sent every time there is a modification
-/// in the participant list
+/// MLS payaload to add to the group
+/// messages when mls is active
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct MlsPayload {
+    /// the commit id for add/rm participants
+    /// the last commit id sent by the moderator in case of welcome message
+    #[prost(uint32, tag = "1")]
+    pub commit_id: u32,
+    /// commit or welcome mls message
+    #[prost(bytes = "vec", tag = "2")]
+    pub mls_content: ::prost::alloc::vec::Vec<u8>,
+}
+/// Group Add Payload
+/// sent when a new participant is added
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GroupUpdatePayload {
-    /// current list of participants
-    #[prost(message, repeated, tag = "1")]
-    pub participant: ::prost::alloc::vec::Vec<Name>,
+pub struct GroupAddPayload {
+    /// new participant to add
+    #[prost(message, optional, tag = "1")]
+    pub new_participant: ::core::option::Option<Name>,
+    /// new list of participants
+    #[prost(message, repeated, tag = "2")]
+    pub participants: ::prost::alloc::vec::Vec<Name>,
     /// used only when MLS is enabled
-    #[prost(bytes = "vec", optional, tag = "2")]
-    pub mls_commit: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+    #[prost(message, optional, tag = "3")]
+    pub mls: ::core::option::Option<MlsPayload>,
+}
+/// Group Remove Payload
+/// sent when a participant is removed
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GroupRemovePayload {
+    /// new participant to add
+    #[prost(message, optional, tag = "1")]
+    pub removed_participant: ::core::option::Option<Name>,
+    /// new list of participants
+    #[prost(message, repeated, tag = "2")]
+    pub participants: ::prost::alloc::vec::Vec<Name>,
+    /// used only when MLS is enabled
+    #[prost(message, optional, tag = "3")]
+    pub mls: ::core::option::Option<MlsPayload>,
 }
 /// Group Welcome
 /// sent on group join
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GroupWelcomePayload {
     #[prost(message, repeated, tag = "1")]
-    pub participant: ::prost::alloc::vec::Vec<Name>,
+    pub participants: ::prost::alloc::vec::Vec<Name>,
     /// used only when MLS is enabled
-    /// id of the last MLS commit to keep
-    /// track of the order
-    #[prost(uint32, optional, tag = "2")]
-    pub msl_commit_id: ::core::option::Option<u32>,
-    /// MLS welcome message
-    #[prost(bytes = "vec", optional, tag = "3")]
-    pub mls_welcome: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+    #[prost(message, optional, tag = "2")]
+    pub mls: ::core::option::Option<MlsPayload>,
 }
 /// Group Proposal
 /// sent on mls key rotation
@@ -310,11 +335,12 @@ pub enum SessionMessageType {
     JoinReply = 8,
     LeaveRequest = 9,
     LeaveReply = 10,
-    GroupUpdate = 11,
-    GroupWelcome = 12,
-    GroupProposal = 13,
-    GroupAck = 14,
-    GroupNack = 15,
+    GroupAdd = 11,
+    GroupRemove = 12,
+    GroupWelcome = 13,
+    GroupProposal = 14,
+    GroupAck = 15,
+    GroupNack = 16,
 }
 impl SessionMessageType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -334,7 +360,8 @@ impl SessionMessageType {
             Self::JoinReply => "SESSION_MESSAGE_TYPE_JOIN_REPLY",
             Self::LeaveRequest => "SESSION_MESSAGE_TYPE_LEAVE_REQUEST",
             Self::LeaveReply => "SESSION_MESSAGE_TYPE_LEAVE_REPLY",
-            Self::GroupUpdate => "SESSION_MESSAGE_TYPE_GROUP_UPDATE",
+            Self::GroupAdd => "SESSION_MESSAGE_TYPE_GROUP_ADD",
+            Self::GroupRemove => "SESSION_MESSAGE_TYPE_GROUP_REMOVE",
             Self::GroupWelcome => "SESSION_MESSAGE_TYPE_GROUP_WELCOME",
             Self::GroupProposal => "SESSION_MESSAGE_TYPE_GROUP_PROPOSAL",
             Self::GroupAck => "SESSION_MESSAGE_TYPE_GROUP_ACK",
@@ -355,7 +382,8 @@ impl SessionMessageType {
             "SESSION_MESSAGE_TYPE_JOIN_REPLY" => Some(Self::JoinReply),
             "SESSION_MESSAGE_TYPE_LEAVE_REQUEST" => Some(Self::LeaveRequest),
             "SESSION_MESSAGE_TYPE_LEAVE_REPLY" => Some(Self::LeaveReply),
-            "SESSION_MESSAGE_TYPE_GROUP_UPDATE" => Some(Self::GroupUpdate),
+            "SESSION_MESSAGE_TYPE_GROUP_ADD" => Some(Self::GroupAdd),
+            "SESSION_MESSAGE_TYPE_GROUP_REMOVE" => Some(Self::GroupRemove),
             "SESSION_MESSAGE_TYPE_GROUP_WELCOME" => Some(Self::GroupWelcome),
             "SESSION_MESSAGE_TYPE_GROUP_PROPOSAL" => Some(Self::GroupProposal),
             "SESSION_MESSAGE_TYPE_GROUP_ACK" => Some(Self::GroupAck),

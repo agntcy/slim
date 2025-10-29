@@ -14,9 +14,9 @@ use crate::api::{
     SessionHeader, SlimHeader,
     proto::dataplane::v1::{
         ApplicationPayload, CommandPayload, DiscoveryReplyPayload, DiscoveryRequestPayload,
-        EncodedName, GroupAckPayload, GroupProposalPayload, GroupUpdatePayload,
+        EncodedName, GroupAckPayload, GroupAddPayload, GroupProposalPayload, GroupRemovePayload,
         GroupWelcomePayload, JoinReplyPayload, JoinRequestPayload, LeaveReplyPayload,
-        LeaveRequestPayload, SessionMessageType, StringName, TimerSettings,
+        LeaveRequestPayload, MlsPayload, SessionMessageType, StringName, TimerSettings,
         command_payload::CommandPayloadType, content::ContentType,
     },
 };
@@ -930,27 +930,48 @@ impl CommandPayload {
         }
     }
 
-    pub fn new_group_update_payload(participants: Vec<Name>, mls_commit: Option<Vec<u8>>) -> Self {
+    pub fn new_group_add_payload(
+        new_participant: Name,
+        participants: Vec<Name>,
+        mls: Option<MlsPayload>,
+    ) -> Self {
+        let proto_new_participant = Some(ProtoName::from(&new_participant));
         let proto_participants = participants.iter().map(ProtoName::from).collect();
-        let payload = GroupUpdatePayload {
-            participant: proto_participants,
-            mls_commit,
+
+        let payload = GroupAddPayload {
+            new_participant: proto_new_participant,
+            participants: proto_participants,
+            mls,
         };
         Self {
-            command_payload_type: Some(CommandPayloadType::GroupUpdate(payload)),
+            command_payload_type: Some(CommandPayloadType::GroupAdd(payload)),
         }
     }
 
-    pub fn new_group_welcome_payload(
+    pub fn new_group_remove_payload(
+        removed_participant: Name,
         participants: Vec<Name>,
-        msl_commit_id: Option<u32>,
-        mls_welcome: Option<Vec<u8>>,
+        mls: Option<MlsPayload>,
     ) -> Self {
+        let proto_removed_participant = Some(ProtoName::from(&removed_participant));
         let proto_participants = participants.iter().map(ProtoName::from).collect();
+
+        let payload = GroupRemovePayload {
+            removed_participant: proto_removed_participant,
+            participants: proto_participants,
+            mls,
+        };
+        Self {
+            command_payload_type: Some(CommandPayloadType::GroupRemove(payload)),
+        }
+    }
+
+    pub fn new_group_welcome_payload(participants: Vec<Name>, mls: Option<MlsPayload>) -> Self {
+        let proto_participants = participants.iter().map(ProtoName::from).collect();
+
         let payload = GroupWelcomePayload {
-            participant: proto_participants,
-            msl_commit_id,
-            mls_welcome,
+            participants: proto_participants,
+            mls,
         };
         Self {
             command_payload_type: Some(CommandPayloadType::GroupWelcome(payload)),
@@ -1031,10 +1052,17 @@ impl CommandPayload {
         }
     }
 
-    pub fn as_group_update_payload(&self) -> GroupUpdatePayload {
+    pub fn as_group_add_payload(&self) -> GroupAddPayload {
         match &self.command_payload_type {
-            Some(CommandPayloadType::GroupUpdate(payload)) => payload.clone(),
-            _ => panic!("CommandPayload is not a GroupUpdate"),
+            Some(CommandPayloadType::GroupAdd(payload)) => payload.clone(),
+            _ => panic!("CommandPayload is not a GroupAdd"),
+        }
+    }
+
+    pub fn as_group_remove_payload(&self) -> GroupRemovePayload {
+        match &self.command_payload_type {
+            Some(CommandPayloadType::GroupRemove(payload)) => payload.clone(),
+            _ => panic!("CommandPayload is not a GroupRemove"),
         }
     }
 
