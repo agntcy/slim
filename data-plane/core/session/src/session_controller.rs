@@ -31,8 +31,6 @@ use crate::{
     mls_state::{MlsModeratorState, MlsState},
     moderator_task::{AddParticipant, ModeratorTask, RemoveParticipant, TaskUpdate},
     session::Session,
-    session_receiver::SessionReceiver,
-    session_sender::SessionSender,
     timer_factory::TimerSettings,
     transmitter::SessionTransmitter,
 };
@@ -420,18 +418,6 @@ impl SessionControllerCommon {
         let controller_timer_settings =
             TimerSettings::constant(Duration::from_secs(1)).with_max_retries(10);
 
-        // timers settings for the application
-        let (session_timer_settings, send_acks) = if let Some(duration) = config.duration
-            && let Some(max_retries) = config.max_retries
-        {
-            (
-                Some(TimerSettings::constant(duration).with_max_retries(max_retries)),
-                true,
-            )
-        } else {
-            (None, false)
-        };
-
         // create the controller sender
         let controller_sender = ControllerSender::new(
             controller_timer_settings,
@@ -442,30 +428,14 @@ impl SessionControllerCommon {
             tx_controller.clone(),
         );
 
-        // create the session sender
-        let sender = SessionSender::new(
-            session_timer_settings.clone(),
+        // create the session
+        let session = Session::new(
             id,
-            // send messages to slim/app
+            config.clone(),
+            &source,
             tx.clone(),
-            // send signals to the controller
-            Some(tx_controller.clone()),
+            tx_controller.clone(),
         );
-
-        // create the session receiver
-        let receiver = SessionReceiver::new(
-            session_timer_settings,
-            id,
-            source.clone(),
-            config.session_type,
-            send_acks,
-            // send messages to slim/app
-            tx.clone(),
-            // send signals to the controller
-            Some(tx_controller.clone()),
-        );
-
-        let session = Session::new(sender, receiver);
 
         SessionControllerCommon {
             id,

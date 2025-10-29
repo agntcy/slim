@@ -3,6 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use slim_datapath::api::ProtoSessionType;
 use slim_datapath::{api::ProtoMessage as Message, messages::Name};
 use tokio::sync::mpsc::Sender;
 use tracing::debug;
@@ -56,8 +57,11 @@ pub struct SessionSender {
     /// message id, used if the session is sequential
     next_id: u32,
 
-    /// session id where to send the messages
+    /// session id to had in the message header
     session_id: u32,
+
+    /// session type to set in the message header
+    session_type: ProtoSessionType,
 
     /// send packets to slim or the app
     tx: SessionTransmitter,
@@ -71,6 +75,7 @@ impl SessionSender {
     pub fn new(
         timer_settings: Option<TimerSettings>,
         session_id: u32,
+        session_type: ProtoSessionType,
         tx: SessionTransmitter,
         tx_signals: Option<Sender<SessionMessage>>,
     ) -> Self {
@@ -90,6 +95,7 @@ impl SessionSender {
             endpoints_list: HashSet::new(),
             next_id: 0,
             session_id,
+            session_type,
             tx,
             draining_state: SenderDrainStatus::NotDraining,
         }
@@ -163,9 +169,10 @@ impl SessionSender {
         // Get a mutable reference to the message header
         let header = message.get_session_header_mut();
 
-        // Set the session id and message id
+        // Set the session id, message id and session type
         header.set_message_id(message_id);
         header.set_session_id(self.session_id);
+        header.set_session_type(self.session_type);
 
         if self.timer_factory.is_some() {
             debug!("reliable sender, set all timers");
@@ -419,7 +426,13 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let mut sender = SessionSender::new(Some(settings), 10, tx, Some(tx_signal));
+        let mut sender = SessionSender::new(
+            Some(settings),
+            10,
+            ProtoSessionType::PointToPoint,
+            tx,
+            Some(tx_signal),
+        );
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender.add_endpoint(remote.clone());
@@ -490,7 +503,13 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let mut sender = SessionSender::new(Some(settings), 10, tx, Some(tx_signal));
+        let mut sender = SessionSender::new(
+            Some(settings),
+            10,
+            ProtoSessionType::PointToPoint,
+            tx,
+            Some(tx_signal),
+        );
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender.add_endpoint(remote.clone());
@@ -634,7 +653,13 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let mut sender = SessionSender::new(Some(settings), 10, tx, Some(tx_signal));
+        let mut sender = SessionSender::new(
+            Some(settings),
+            10,
+            ProtoSessionType::PointToPoint,
+            tx,
+            Some(tx_signal),
+        );
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender.add_endpoint(remote.clone());
@@ -704,7 +729,13 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let mut sender = SessionSender::new(Some(settings), 10, tx, Some(tx_signal));
+        let mut sender = SessionSender::new(
+            Some(settings),
+            10,
+            ProtoSessionType::Multicast,
+            tx,
+            Some(tx_signal),
+        );
         let group = Name::from_strings(["org", "ns", "group"]);
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
@@ -803,7 +834,13 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let mut sender = SessionSender::new(Some(settings), 10, tx, Some(tx_signal));
+        let mut sender = SessionSender::new(
+            Some(settings),
+            10,
+            ProtoSessionType::Multicast,
+            tx,
+            Some(tx_signal),
+        );
         let group = Name::from_strings(["org", "ns", "group"]);
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
@@ -967,7 +1004,13 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let mut sender = SessionSender::new(Some(settings), 10, tx, Some(tx_signal));
+        let mut sender = SessionSender::new(
+            Some(settings),
+            10,
+            ProtoSessionType::Multicast,
+            tx,
+            Some(tx_signal),
+        );
         let group = Name::from_strings(["org", "ns", "group"]);
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
@@ -1058,7 +1101,13 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let mut sender = SessionSender::new(Some(settings), 10, tx, Some(tx_signal));
+        let mut sender = SessionSender::new(
+            Some(settings),
+            10,
+            ProtoSessionType::Multicast,
+            tx,
+            Some(tx_signal),
+        );
         let group = Name::from_strings(["org", "ns", "group"]);
         let remote1 = Name::from_strings(["org", "ns", "remote1"]);
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
@@ -1178,7 +1227,13 @@ mod tests {
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
-        let mut sender = SessionSender::new(Some(settings), 10, tx, Some(tx_signal));
+        let mut sender = SessionSender::new(
+            Some(settings),
+            10,
+            ProtoSessionType::PointToPoint,
+            tx,
+            Some(tx_signal),
+        );
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         sender.add_endpoint(remote.clone());
@@ -1315,7 +1370,13 @@ mod tests {
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
-        let mut sender = SessionSender::new(Some(settings), 10, tx, Some(tx_signal));
+        let mut sender = SessionSender::new(
+            Some(settings),
+            10,
+            ProtoSessionType::PointToPoint,
+            tx,
+            Some(tx_signal),
+        );
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
         // DO NOT add any endpoints - this is the key part of the test
