@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.6.1](https://github.com/agntcy/slim/compare/control-plane-v0.6.0...control-plane-v0.6.1) (2025-10-29)
+
+
+### Features
+
+* outline routes (list routes from the controller) ([#871](https://github.com/agntcy/slim/issues/871)) ([278ec7d](https://github.com/agntcy/slim/commit/278ec7da6f85140da3b43a723773423386ec07a5))
+
+
+### Bug Fixes
+
+* add original MsgID to all response messages ([#891](https://github.com/agntcy/slim/issues/891)) ([f297d5b](https://github.com/agntcy/slim/commit/f297d5bf1062994eca94bd07ada915e11f1d32f9))
+* Handle route connection faliures and node connection detail changes ([#833](https://github.com/agntcy/slim/issues/833)) ([8027c3b](https://github.com/agntcy/slim/commit/8027c3b0a11a7d3c2b57184d2313e18d5de6ba3b))
+
 ## [0.6.0](https://github.com/agntcy/slim/compare/control-plane-v0.1.1...control-plane-v0.6.0) (2025-10-09)
 
 
