@@ -768,6 +768,7 @@ where
     }
 
     async fn on_join_request(&mut self, msg: Message) -> Result<(), SessionError> {
+        debug!("received a join request");
         // set local state with the moderator params
         let source = msg.get_source();
         self.moderator_name = Some(source.clone());
@@ -796,39 +797,53 @@ where
 
         let content = CommandPayload::new_join_reply_payload(payload).as_content();
 
+        debug!("send join reply message");
         // reply to the request
-        self.common
-            .send_control_message(
-                &source,
-                ProtoSessionMessageType::JoinReply,
-                msg.get_id(),
-                content,
-                false,
-            )
-            .await
+        let reply = self.common.create_control_message(
+            &source,
+            ProtoSessionMessageType::JoinReply,
+            msg.get_id(),
+            content,
+            false,
+        );
+
+        self.common.send_to_slim(reply).await
     }
 
     async fn on_mls_welcome(&mut self, msg: Message) -> Result<(), SessionError> {
-        self.mls_state
-            .as_mut()
-            .ok_or(SessionError::NoMls)?
-            .process_welcome_message(&msg)?;
+        debug!("process welcome message");
 
-        debug!("Welcome message correctly processed, MLS state initialized");
+        if self.mls_state.is_some() {
+            self.mls_state
+                .as_mut()
+                .unwrap()
+                .process_welcome_message(&msg)?;
+        }
 
         // set route for the channel name
         self.join().await?;
 
+        // setup the local participant list
+        let list = msg
+            .get_payload()
+            .unwrap()
+            .as_command_payload()
+            .as_welcome_payload()
+            .participant;
+        for n in list {
+            self.group_list.insert(Name::from(&n));
+        }
+
         // send an ack back to the moderator
-        self.common
-            .send_control_message(
-                &msg.get_source(),
-                ProtoSessionMessageType::GroupAck,
-                msg.get_id(),
-                CommandPayload::new_group_ack_payload().as_content(),
-                false,
-            )
-            .await
+        let ack = self.common.create_control_message(
+            &msg.get_source(),
+            ProtoSessionMessageType::GroupAck,
+            msg.get_id(),
+            CommandPayload::new_group_ack_payload().as_content(),
+            false,
+        );
+
+        self.common.send_to_slim(ack).await
     }
 
     async fn on_group_update_message(&mut self, msg: Message) -> Result<(), SessionError> {
@@ -912,15 +927,15 @@ where
 
     async fn on_leave_request(&mut self, msg: Message) -> Result<(), SessionError> {
         // reply to the sender
-        self.common
-            .send_control_message(
-                &msg.get_source(),
-                ProtoSessionMessageType::LeaveReply,
-                msg.get_id(),
-                CommandPayload::new_leave_reply_payload().as_content(),
-                false,
-            )
-            .await?;
+        let reply = self.common.create_control_message(
+            &msg.get_source(),
+            ProtoSessionMessageType::LeaveReply,
+            msg.get_id(),
+            CommandPayload::new_leave_reply_payload().as_content(),
+            false,
+        );
+
+        self.common.send_to_slim(reply).await?;
 
         // leave the channel
         self.leave().await?;
@@ -1273,6 +1288,7 @@ where
 
     /// message processing functions
     async fn on_discovery_request(&mut self, mut msg: Message) -> Result<(), SessionError> {
+        debug!("received discovery request");
         // the channel discovery starts a new participant invite.
         // process the request only if not busy
         if self.current_task.is_some() {
@@ -1328,6 +1344,7 @@ where
     }
 
     async fn on_discovery_reply(&mut self, msg: Message) -> Result<(), SessionError> {
+        debug!("received discovery reply");
         // update sender status to stop timers
         self.common.sender.on_message(&msg).await?;
 
@@ -1423,6 +1440,7 @@ where
 
         // send the group update
         if participants_vec.len() > 2 {
+            debug!("participant len is > 2, send a group update");
             let update_payload =
                 CommandPayload::new_group_update_payload(participants_vec.clone(), commit)
                     .as_content();
@@ -1442,11 +1460,12 @@ where
         } else {
             // no commit message will be sent so update the task state to consider the commit as received
             // the timer id is not important here, it just need to be consistent
-            self.current_task.as_mut().unwrap().commit_start(0)?;
+            debug!("cancel the a group update task");
+            self.current_task.as_mut().unwrap().commit_start(12345)?;
             self.current_task
                 .as_mut()
                 .unwrap()
-                .update_phase_completed(0)?;
+                .update_phase_completed(12345)?;
         }
 
         // send welcome message
@@ -1585,11 +1604,11 @@ where
         } else {
             // no commit message will be sent so update the task state to consider the commit as received
             // the timer id is not important here, it just need to be consistent
-            self.current_task.as_mut().unwrap().commit_start(0)?;
+            self.current_task.as_mut().unwrap().commit_start(12345)?;
             self.current_task
                 .as_mut()
                 .unwrap()
-                .update_phase_completed(0)?;
+                .update_phase_completed(12345)?;
 
             // just send the leave message in this case
             self.common.sender.on_message(&leave_message).await?;
@@ -1674,11 +1693,9 @@ where
             if self.current_task.as_mut().unwrap().task_complete() {
                 // task done. At this point if this was the first MLS
                 // action MLS is setup so we can set mls_up to true
-                self.mls_state
-                    .as_mut()
-                    .ok_or(SessionError::NoMls)?
-                    .common
-                    .mls_up = true;
+                if self.mls_state.is_some() {
+                    self.mls_state.as_mut().unwrap().common.mls_up = true;
+                }
             } else {
                 // if the task is not finished yet we may need to send a leave
                 // message that was postponed to send all group update first
@@ -1753,14 +1770,19 @@ where
 
         self.common.conn = Some(in_conn);
 
-        let sub = Message::new_subscribe(
-            &self.common.source,
-            &self.common.destination,
-            None,
-            Some(SlimHeaderFlags::default().with_forward_to(self.common.conn.unwrap())),
-        );
+        // if this is a multicast session we need to subscribe for the channel name
+        if self.common.config.session_type == ProtoSessionType::Multicast {
+            let sub = Message::new_subscribe(
+                &self.common.source,
+                &self.common.destination,
+                None,
+                Some(SlimHeaderFlags::default().with_forward_to(self.common.conn.unwrap())),
+            );
 
-        self.common.send_to_slim(sub).await?;
+            self.common.send_to_slim(sub).await?;
+        }
+
+        // set the route for the remote name/channel
         self.common.set_route(&self.common.destination).await?;
 
         // create mls group if needed
@@ -1807,5 +1829,426 @@ where
     #[allow(dead_code)]
     async fn on_mls_proposal(&mut self, _msg: Message) -> Result<(), SessionError> {
         todo!()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::transmitter::SessionTransmitter;
+
+    use super::*;
+    use std::time::Duration;
+    use tokio::time::timeout;
+    use tracing_test::traced_test;
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_end_to_end_p2p() {
+        // Lightweight provider / verifier used to satisfy generic bounds of sessions
+        #[derive(Clone, Default)]
+        struct DummyProvider;
+        impl TokenProvider for DummyProvider {
+            fn get_token(&self) -> Result<String, slim_auth::errors::AuthError> {
+                Ok("t".into())
+            }
+            fn get_id(&self) -> Result<String, slim_auth::errors::AuthError> {
+                Ok("id".into())
+            }
+        }
+
+        #[derive(Clone, Default)]
+        struct DummyVerifier;
+        #[async_trait::async_trait]
+        impl Verifier for DummyVerifier {
+            async fn verify(
+                &self,
+                _t: impl Into<String> + Send,
+            ) -> Result<(), slim_auth::errors::AuthError> {
+                Ok(())
+            }
+            fn try_verify(
+                &self,
+                _t: impl Into<String>,
+            ) -> Result<(), slim_auth::errors::AuthError> {
+                Ok(())
+            }
+            async fn get_claims<Claims>(
+                &self,
+                _t: impl Into<String> + Send,
+            ) -> Result<Claims, slim_auth::errors::AuthError>
+            where
+                Claims: serde::de::DeserializeOwned + Send,
+            {
+                Err(slim_auth::errors::AuthError::TokenInvalid("na".into()))
+            }
+            fn try_get_claims<Claims>(
+                &self,
+                _t: impl Into<String>,
+            ) -> Result<Claims, slim_auth::errors::AuthError>
+            where
+                Claims: serde::de::DeserializeOwned + Send,
+            {
+                Err(slim_auth::errors::AuthError::TokenInvalid("na".into()))
+            }
+        }
+
+        let session_id = 10;
+        let moderator_name = Name::from_strings(["org", "ns", "moderator"]);
+        let participant_name = Name::from_strings(["org", "ns", "participant"]);
+        let storage_path = std::path::PathBuf::from("/tmp/test_invite");
+
+        // create a SessionModerator
+        let (tx_slim_moderator, mut rx_slim_moderator) = tokio::sync::mpsc::channel(10);
+        let (tx_app_moderator, _rx_app_moderator) = tokio::sync::mpsc::channel(10);
+        let (tx_session_layer_moderator, _rx_session_layer_moderator) =
+            tokio::sync::mpsc::channel(10);
+
+        let tx_moderator =
+            SessionTransmitter::new(tx_slim_moderator.clone(), tx_app_moderator.clone());
+
+        let moderator_config = SessionConfig {
+            session_type: slim_datapath::api::ProtoSessionType::PointToPoint,
+            max_retries: Some(5),
+            duration: Some(Duration::from_millis(200)),
+            mls_enabled: false,
+            initiator: true,
+            metadata: std::collections::HashMap::new(),
+        };
+
+        let moderator = SessionModerator::<DummyProvider, DummyVerifier>::new(
+            session_id,
+            moderator_name.clone(),
+            participant_name.clone(),
+            None,
+            moderator_config,
+            DummyProvider,
+            DummyVerifier,
+            storage_path.clone(),
+            tx_moderator.clone(),
+            tx_session_layer_moderator,
+        );
+
+        // create a SessionParticipant
+        let (tx_slim_participant, mut rx_slim_participant) = tokio::sync::mpsc::channel(10);
+        let (tx_app_participant, _rx_app_participant) = tokio::sync::mpsc::channel(10);
+        let (tx_session_layer_participant, _rx_session_layer_participant) =
+            tokio::sync::mpsc::channel(10);
+
+        let tx_participant =
+            SessionTransmitter::new(tx_slim_participant.clone(), tx_app_participant.clone());
+
+        let participant_config = SessionConfig {
+            session_type: slim_datapath::api::ProtoSessionType::PointToPoint,
+            max_retries: Some(5),
+            duration: Some(Duration::from_millis(200)),
+            mls_enabled: false,
+            initiator: false,
+            metadata: std::collections::HashMap::new(),
+        };
+
+        let participant = SessionParticipant::<DummyProvider, DummyVerifier>::new(
+            session_id,
+            participant_name.clone(),
+            moderator_name.clone(),
+            None,
+            participant_config,
+            DummyProvider,
+            DummyVerifier,
+            storage_path.clone(),
+            tx_participant.clone(),
+            tx_session_layer_participant,
+        );
+
+        // create a discovery request and send it on the moderator on message (direction south)
+        let slim_header = Some(SlimHeader::new(
+            &moderator_name,
+            &participant_name,
+            "",
+            None,
+        ));
+        let session_header = Some(SessionHeader::new(
+            slim_datapath::api::ProtoSessionType::PointToPoint.into(),
+            slim_datapath::api::ProtoSessionMessageType::DiscoveryRequest.into(),
+            session_id,
+            1, // this id will be changed by the session controller
+        ));
+        let payload = Some(CommandPayload::new_discovery_request_payload(None).as_content());
+        let discovery_request =
+            Message::new_publish_with_headers(slim_header, session_header, payload);
+
+        moderator
+            .on_message(discovery_request.clone(), MessageDirection::South)
+            .await
+            .expect("error sending discovery request");
+
+        // check that the request is received by slim on the moderator
+        let received_discovery_request =
+            timeout(Duration::from_millis(100), rx_slim_moderator.recv())
+                .await
+                .expect("timeout waiting for discovery request on moderator slim channel")
+                .expect("channel closed")
+                .expect("error in discovery request");
+
+        assert_eq!(
+            received_discovery_request.get_session_message_type(),
+            slim_datapath::api::ProtoSessionMessageType::DiscoveryRequest
+        );
+
+        let discovery_msg_id = received_discovery_request.get_id();
+
+        // create a discovery reply and call the on message on the moderator with the reply (direction north)
+        let slim_header = Some(SlimHeader::new(
+            &participant_name,
+            &moderator_name,
+            "",
+            Some(SlimHeaderFlags::default().with_forward_to(1)),
+        ));
+        let session_header = Some(SessionHeader::new(
+            slim_datapath::api::ProtoSessionType::PointToPoint.into(),
+            slim_datapath::api::ProtoSessionMessageType::DiscoveryReply.into(),
+            session_id,
+            discovery_msg_id,
+        ));
+        let payload = Some(CommandPayload::new_discovery_reply_payload().as_content());
+        let mut discovery_reply =
+            Message::new_publish_with_headers(slim_header, session_header, payload);
+        discovery_reply
+            .get_slim_header_mut()
+            .set_incoming_conn(Some(1));
+
+        moderator
+            .on_message(discovery_reply, MessageDirection::North)
+            .await
+            .expect("error processing discovery reply on moderator");
+
+        // check that we get a route for the remote endpoint on slim
+        let route = timeout(Duration::from_millis(100), rx_slim_moderator.recv())
+            .await
+            .expect("timeout waiting for route on moderator slim channel")
+            .expect("channel closed")
+            .expect("error in route");
+
+        // check that the route message type is a subscription, the destination name is remote and the flag recv_from is set to 1
+        assert!(route.is_subscribe(), "route should be a subscribe message");
+        assert_eq!(route.get_dst(), participant_name);
+        assert_eq!(route.get_slim_header().get_recv_from(), Some(1));
+
+        // check that a join request is received by slim
+        let join_request = timeout(Duration::from_millis(100), rx_slim_moderator.recv())
+            .await
+            .expect("timeout waiting for route on moderator slim channel")
+            .expect("channel closed")
+            .expect("error in route");
+
+        assert_eq!(
+            join_request.get_session_message_type(),
+            slim_datapath::api::ProtoSessionMessageType::JoinRequest
+        );
+        assert_eq!(join_request.get_dst(), participant_name);
+
+        // call the on message on the participant side with the join request (direction north)
+        let mut join_request_to_participant = join_request.clone();
+        join_request_to_participant
+            .get_slim_header_mut()
+            .set_incoming_conn(Some(1));
+
+        participant
+            .on_message(join_request_to_participant, MessageDirection::North)
+            .await
+            .expect("error processing join request on participant");
+
+        // check that a route for the moderator is generated
+        let route = timeout(Duration::from_millis(100), rx_slim_participant.recv())
+            .await
+            .expect("timeout waiting for route on moderator slim channel")
+            .expect("channel closed")
+            .expect("error in route");
+
+        assert!(route.is_subscribe(), "route should be a subscribe message");
+        assert_eq!(route.get_dst(), moderator_name);
+        assert_eq!(route.get_slim_header().get_recv_from(), Some(1));
+
+        // check that a join reply is received by slim on the participant
+        let join_reply = timeout(Duration::from_millis(100), rx_slim_participant.recv())
+            .await
+            .expect("timeout waiting for join reply on participant slim channel")
+            .expect("channel closed")
+            .expect("error in join reply");
+
+        assert_eq!(
+            join_reply.get_session_message_type(),
+            slim_datapath::api::ProtoSessionMessageType::JoinReply
+        );
+        assert_eq!(join_reply.get_dst(), moderator_name);
+
+        // call the on message on the moderator with the reply (direction north)
+        let mut join_reply_to_moderator = join_reply.clone();
+        join_reply_to_moderator
+            .get_slim_header_mut()
+            .set_incoming_conn(Some(1));
+
+        moderator
+            .on_message(join_reply_to_moderator, MessageDirection::North)
+            .await
+            .expect("error processing join reply on moderator");
+
+        // check that a welcome message is received by slim on the moderator
+        let welcome_message = timeout(Duration::from_millis(100), rx_slim_moderator.recv())
+            .await
+            .expect("timeout waiting for welcome message on moderator slim channel")
+            .expect("channel closed")
+            .expect("error in welcome message");
+
+        assert_eq!(
+            welcome_message.get_session_message_type(),
+            slim_datapath::api::ProtoSessionMessageType::GroupWelcome
+        );
+        assert_eq!(welcome_message.get_dst(), participant_name);
+
+        // call the on message on the participant side with the welcome message (direction north)
+        let mut welcome_to_participant = welcome_message.clone();
+        welcome_to_participant
+            .get_slim_header_mut()
+            .set_incoming_conn(Some(1));
+
+        participant
+            .on_message(welcome_to_participant, MessageDirection::North)
+            .await
+            .expect("error processing welcome message on participant");
+
+        // check that an ack group is received by slim on the participant
+        let ack_group = timeout(Duration::from_millis(100), rx_slim_participant.recv())
+            .await
+            .expect("timeout waiting for ack group on participant slim channel")
+            .expect("channel closed")
+            .expect("error in ack group");
+
+        assert_eq!(
+            ack_group.get_session_message_type(),
+            slim_datapath::api::ProtoSessionMessageType::GroupAck
+        );
+        assert_eq!(ack_group.get_dst(), moderator_name);
+
+        // call the on message on the moderator with the ack (direction north)
+        let mut ack_to_moderator = ack_group.clone();
+        ack_to_moderator
+            .get_slim_header_mut()
+            .set_incoming_conn(Some(1));
+
+        moderator
+            .on_message(ack_to_moderator, MessageDirection::North)
+            .await
+            .expect("error processing ack on moderator");
+
+        // no other message should be sent
+        let no_more_moderator = timeout(Duration::from_millis(100), rx_slim_moderator.recv()).await;
+        assert!(
+            no_more_moderator.is_err(),
+            "Expected no more messages on moderator slim channel"
+        );
+
+        let no_more_participant =
+            timeout(Duration::from_millis(100), rx_slim_participant.recv()).await;
+        assert!(
+            no_more_participant.is_err(),
+            "Expected no more messages on participant slim channel"
+        );
+
+        // create a leave request and send to moderator on message (direction south)
+        let slim_header = Some(SlimHeader::new(
+            &moderator_name,
+            &participant_name,
+            "",
+            None,
+        ));
+        let session_header = Some(SessionHeader::new(
+            slim_datapath::api::ProtoSessionType::PointToPoint.into(),
+            slim_datapath::api::ProtoSessionMessageType::LeaveRequest.into(),
+            session_id,
+            rand::random::<u32>(),
+        ));
+        let payload = Some(CommandPayload::new_leave_request_payload(None).as_content());
+        let leave_request = Message::new_publish_with_headers(slim_header, session_header, payload);
+
+        moderator
+            .on_message(leave_request.clone(), MessageDirection::South)
+            .await
+            .expect("error sending leave request");
+
+        // check that the request is received by slim on the moderator
+        let received_leave_request = timeout(Duration::from_millis(100), rx_slim_moderator.recv())
+            .await
+            .expect("timeout waiting for leave request on moderator slim channel")
+            .expect("channel closed")
+            .expect("error in leave request");
+
+        assert_eq!(
+            received_leave_request.get_session_message_type(),
+            slim_datapath::api::ProtoSessionMessageType::LeaveRequest
+        );
+        assert_eq!(received_leave_request.get_dst(), participant_name);
+
+        // send the request to the participant (direction north)
+        let mut leave_request_to_participant = received_leave_request.clone();
+        leave_request_to_participant
+            .get_slim_header_mut()
+            .set_incoming_conn(Some(1));
+
+        participant
+            .on_message(leave_request_to_participant, MessageDirection::North)
+            .await
+            .expect("error processing leave request on participant");
+
+        // get the leave reply on the participant slim
+        let leave_reply = timeout(Duration::from_millis(100), rx_slim_participant.recv())
+            .await
+            .expect("timeout waiting for leave reply on participant slim channel")
+            .expect("channel closed")
+            .expect("error in leave reply");
+
+        assert_eq!(
+            leave_reply.get_session_message_type(),
+            slim_datapath::api::ProtoSessionMessageType::LeaveReply
+        );
+        assert_eq!(leave_reply.get_dst(), moderator_name);
+
+        // get the delete route on the participant slim
+        let delete_route = timeout(Duration::from_millis(100), rx_slim_participant.recv())
+            .await
+            .expect("timeout waiting for delete route on participant slim channel")
+            .expect("channel closed")
+            .expect("error in delete route");
+
+        assert!(
+            delete_route.is_unsubscribe(),
+            "delete route should be an unsubscribe message"
+        );
+        assert_eq!(delete_route.get_dst(), moderator_name);
+
+        // send the leave reply to the moderator on message (direction north)
+        let mut leave_reply_to_moderator = leave_reply.clone();
+        leave_reply_to_moderator
+            .get_slim_header_mut()
+            .set_incoming_conn(Some(1));
+
+        moderator
+            .on_message(leave_reply_to_moderator, MessageDirection::North)
+            .await
+            .expect("error processing leave reply on moderator");
+
+        // check that no other messages are generated by the moderator
+        let no_more_moderator_final =
+            timeout(Duration::from_millis(100), rx_slim_moderator.recv()).await;
+        assert!(
+            no_more_moderator_final.is_err(),
+            "Expected no more messages on moderator slim channel after leave"
+        );
+
+        let no_more_participant_final =
+            timeout(Duration::from_millis(100), rx_slim_participant.recv()).await;
+        assert!(
+            no_more_participant_final.is_err(),
+            "Expected no more messages on participant slim channel after leave"
+        );
     }
 }
