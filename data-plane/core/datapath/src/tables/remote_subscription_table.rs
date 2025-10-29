@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::{HashMap, HashSet};
+use tracing::{Span, debug, error, info};
 
 use parking_lot::RwLock;
-use tracing::error;
 
 use crate::messages::Name;
 
@@ -76,6 +76,7 @@ impl RemoteSubscriptions {
     }
 
     pub fn remove_connection(&self, conn: u64) {
+        debug!("removing all subscriptions on connection: {}", conn);
         let mut map = self.table.write();
         map.remove(&conn);
     }

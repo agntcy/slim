@@ -315,9 +315,34 @@ impl ControlPlane {
                                         match msg.get_type() {
                                             slim_datapath::api::MessageType::Subscribe(_) => {
                                                 sub_vec.push(cmd);
+                                                let subs = msg.get_subscriptions();
+                                                for sub in subs {
+                                                    debug!("adding subscription to control plane: {:?}", sub);
+                                                    let converted_sub = v1::Subscription {
+                                                        component_0: sub.component_0.clone(),
+                                                        component_1: sub.component_1.clone(),
+                                                        component_2: sub.component_2.clone(),
+                                                        id: None, // or extract from sub if available
+                                                        connection_id: "n/a".to_string(),
+                                                    };
+                                                    sub_vec.push(converted_sub);
+                                                }
                                             },
                                             slim_datapath::api::MessageType::Unsubscribe(_) => {
                                                 unsub_vec.push(cmd);
+                                                let subs = msg.get_subscriptions();
+
+                                                for sub in subs {
+                                                    debug!("adding unsubscription to control plane: {:?}", sub);
+                                                    let converted_sub = v1::Subscription {
+                                                        component_0: sub.component_0.clone(),
+                                                        component_1: sub.component_1.clone(),
+                                                        component_2: sub.component_2.clone(),
+                                                        id: None, // or extract from sub if available
+                                                        connection_id: "n/a".to_string(),
+                                                    };
+                                                    sub_vec.push(converted_sub);
+                                                }
                                             }
                                             slim_datapath::api::MessageType::Publish(_) => {
                                                 // drop publication messages

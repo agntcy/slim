@@ -17,8 +17,10 @@ import (
 var _ = Describe("Routing", func() {
 
 	var (
+		serverASession *gexec.Session
 		clientASession *gexec.Session
 		clientBSession *gexec.Session
+		clientCSession *gexec.Session
 	)
 
 	BeforeEach(func() {
@@ -57,6 +59,9 @@ var _ = Describe("Routing", func() {
 		if clientBSession != nil {
 			clientBSession.Terminate().Wait(2 * time.Second)
 		}
+		if clientCSession != nil {
+			clientCSession.Terminate().Wait(2 * time.Second)
+		}
 		// terminate SLIM instances
 		if serverASession != nil {
 			serverASession.Terminate().Wait(30 * time.Second)
@@ -79,6 +84,16 @@ var _ = Describe("Routing", func() {
 					"--config", "./testdata/client-b-config.yaml",
 					"--local-name", "b",
 					"--remote-name", "a",
+				),
+				GinkgoWriter, GinkgoWriter,
+			)
+			Expect(err).NotTo(HaveOccurred())
+
+			clientCSession, err = gexec.Start(
+				exec.Command(sdkMockPath,
+					"--config", "./testdata/client-b-config.yaml",
+					"--local-name", "c",
+					"--remote-name", "c",
 				),
 				GinkgoWriter, GinkgoWriter,
 			)
@@ -152,6 +167,21 @@ var _ = Describe("Routing", func() {
 			connectionOutputB := string(connectionListOutB)
 			Expect(connectionOutputB).To(ContainSubstring(":46357"))
 
+			clientBSession.Terminate().Wait(2 * time.Second)
+			clientCSession.Terminate().Wait(2 * time.Second)
+			// fmt.Print("\n\n\nserverASession\n\n\n")
+			// fmt.Printf("%v", string(serverASession.Out.Contents()))
+			// fmt.Print("\n\n\nfdfdfdfd\n\n\n")
+
+			fmt.Print("\n\n\nserverBSession\n\n\n")
+			fmt.Printf("%v", string(serverBSession.Out.Contents()))
+			fmt.Print("\n\n\nfdfdfdfd\n\n\n")
+
+			fmt.Print("\n\n\ncontrolPlaneSession\n\n\n")
+			fmt.Printf("%v", string(controlPlaneSession.Out.Contents()))
+			fmt.Print("\n\n\nfdfdfdfd\n\n\n")
+
+			Eventually(serverBSession.Out, 15*time.Second).Should(gbytes.Say(`notify control plane about lost subscriptions`))
 		})
 
 	})

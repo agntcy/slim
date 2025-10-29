@@ -8,18 +8,21 @@ service DataPlaneService {
   rpc OpenChannel(stream Message) returns (stream Message) {}
 }
 
-message Subscribe {
-  SLIMHeader header = 1;
+message Subscription {
   string component_0 = 2;
   string component_1 = 3;
   string component_2 = 4;
 }
 
+message Subscribe {
+  SLIMHeader header = 1;
+  repeated Subscription subscriptions = 2;
+
+}
+
 message Unsubscribe {
   SLIMHeader header = 1;
-  string component_0 = 2;
-  string component_1 = 3;
-  string component_2 = 4;
+  repeated Subscription subscriptions = 2;
 }
 
 message Publish {

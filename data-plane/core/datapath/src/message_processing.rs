@@ -15,6 +15,7 @@ use tokio_stream::{Stream, StreamExt};
 use tokio_util::sync::CancellationToken;
 use tonic::codegen::{Body, StdError};
 use tonic::{Request, Response, Status};
+use tracing::field::debug;
 use tracing::{Span, debug, error, info};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -495,13 +496,20 @@ impl MessageProcessor {
             add, dst, conn
         );
 
-        if let Err(e) = self.forwarder().on_subscription_msg(
-            dst.clone(),
-            conn,
-            connection.is_local_connection(),
-            add,
-        ) {
-            return Err(DataPathError::SubscriptionError(e.to_string()));
+        for s in msg.get_subscriptions().iter() {
+            let name = Name::from_strings([
+                s.component_0.clone(),
+                s.component_1.clone(),
+                s.component_2.clone(),
+            ]);
+            if let Err(e) = self.forwarder().on_subscription_msg(
+                name,
+                conn,
+                connection.is_local_connection(),
+                add,
+            ) {
+                return Err(DataPathError::SubscriptionError(e.to_string()));
+            }
         }
 
         match forward {
@@ -794,26 +802,63 @@ impl MessageProcessor {
 
             if !connected {
                 // if remote and the connection is dropped notify the control plane
-                if !is_local && tx_cp.is_some() {
-                    // let conn = self
-                    //     .connection_table()
-                    //     .get(conn_index.try_into().unwrap())
-                    //     .unwrap();
-                    let subscriptions = self_clone
-                        .forwarder()
-                        .get_remote_subscriptions_on_connection(conn_index);
-                    for subscription in subscriptions {
-                        debug!(
-                            "notify control plane about lost subscription: {} {}",
-                            subscription.name(),
-                            subscription.source()
-                        );
 
-                        let msg = Message::new_unsubscribe(
-                            &subscription.source(),
-                            &subscription.name(),
+                if !is_local && tx_cp.is_some() {
+                    debug!("notify control plane about lost subscriptions");
+
+                    let local_subscriptions = self_clone
+                        .forwarder()
+                        .get_local_subscriptions_on_connection(conn_index, is_local);
+
+                    debug!(
+                        "lost local subscriptions: {:?}, len: {}",
+                        local_subscriptions,
+                        local_subscriptions.len()
+                    );
+                    if !local_subscriptions.is_empty() {
+                        let mut msg = Message::new_unsubscribe(
+                            &local_subscriptions[0],
+                            &local_subscriptions[0],
                             Some(SlimHeaderFlags::default().with_recv_from(conn_index)),
                         );
+                        let start = 1;
+                        for local_subscription in local_subscriptions.iter().skip(start) {
+                            debug!(
+                                "notify control plane about lost local subscription: {} {}",
+                                local_subscription, local_subscription
+                            );
+                            msg.add_subscription(local_subscription);
+                        }
+                        debug!("local subs to remove: {:?}", msg);
+                        let _ = tx_cp.as_ref().unwrap().send(Ok(msg)).await;
+                    }
+
+                    let remote_subscriptions = self_clone
+                        .forwarder()
+                        .get_remote_subscriptions_on_connection(conn_index);
+
+                    debug!(
+                        "lost remote subscriptions: {:?}, len: {}",
+                        remote_subscriptions,
+                        remote_subscriptions.len()
+                    );
+
+                    if !remote_subscriptions.is_empty() {
+                        let mut msg = Message::new_unsubscribe(
+                            &remote_subscriptions[0].source(),
+                            &remote_subscriptions[0].name(),
+                            Some(SlimHeaderFlags::default().with_recv_from(conn_index)),
+                        );
+                        let start = 1;
+                        for remote_subscription in remote_subscriptions.iter().skip(start) {
+                            debug!(
+                                "notify control plane about lost remote subscription: {} {}",
+                                remote_subscription.name(),
+                                remote_subscription.source()
+                            );
+                            msg.add_subscription(remote_subscription.name());
+                        }
+                        debug!("remote subs to remove: {:?}", msg,);
                         let _ = tx_cp.as_ref().unwrap().send(Ok(msg)).await;
                     }
                 }

@@ -11,7 +11,7 @@ use crate::api::{
     Content, MessageType, ProtoMessage, ProtoName, ProtoPublish, ProtoPublishType,
     ProtoSessionType, ProtoSubscribe, ProtoSubscribeType, ProtoUnsubscribe, ProtoUnsubscribeType,
     SessionHeader, SlimHeader,
-    proto::dataplane::v1::{OriginalName, SessionMessageType},
+    proto::dataplane::v1::{OriginalName, SessionMessageType, Subscription},
 };
 
 use thiserror::Error;
@@ -391,12 +391,15 @@ impl SessionHeader {
 impl ProtoSubscribe {
     pub fn new(source: &Name, dst: &Name, flags: Option<SlimHeaderFlags>) -> Self {
         let header = Some(SlimHeader::new(source, dst, flags));
-
-        ProtoSubscribe {
-            header,
+        let subscriptions = vec![Subscription {
             component_0: dst.components_strings().unwrap()[0].clone(),
             component_1: dst.components_strings().unwrap()[1].clone(),
             component_2: dst.components_strings().unwrap()[2].clone(),
+        }];
+
+        ProtoSubscribe {
+            header,
+            subscriptions,
         }
     }
 }
@@ -416,12 +419,14 @@ impl From<ProtoMessage> for ProtoSubscribe {
 impl ProtoUnsubscribe {
     pub fn new(source: &Name, dst: &Name, flags: Option<SlimHeaderFlags>) -> Self {
         let header = Some(SlimHeader::new(source, dst, flags));
-
-        ProtoUnsubscribe {
-            header,
+        let subscriptions = vec![Subscription {
             component_0: dst.components_strings().unwrap()[0].clone(),
             component_1: dst.components_strings().unwrap()[1].clone(),
             component_2: dst.components_strings().unwrap()[2].clone(),
+        }];
+        ProtoUnsubscribe {
+            header,
+            subscriptions,
         }
     }
 }
@@ -517,6 +522,37 @@ impl ProtoMessage {
         let subscribe = ProtoSubscribe::new(source, dst, flags);
 
         Self::new(HashMap::new(), ProtoSubscribeType(subscribe))
+    }
+
+    pub fn add_subscription(&mut self, dst: &Name) -> Self {
+        match &mut self.message_type {
+            Some(ProtoPublishType(_publish)) => {
+                panic!("cannot add subscription to publish message");
+            }
+            Some(ProtoSubscribeType(subscribe)) => {
+                let subscription = Subscription {
+                    component_0: dst.components_strings().unwrap()[0].clone(),
+                    component_1: dst.components_strings().unwrap()[1].clone(),
+                    component_2: dst.components_strings().unwrap()[2].clone(),
+                };
+                subscribe.subscriptions.push(subscription);
+                self.clone()
+            }
+
+            Some(ProtoUnsubscribeType(unsubscribe)) => {
+                let subscription = Subscription {
+                    component_0: dst.components_strings().unwrap()[0].clone(),
+                    component_1: dst.components_strings().unwrap()[1].clone(),
+                    component_2: dst.components_strings().unwrap()[2].clone(),
+                };
+                unsubscribe.subscriptions.push(subscription);
+                self.clone()
+            }
+            None => {
+                // this should never happen
+                panic!("message type is not set");
+            }
+        }
     }
 
     pub fn new_unsubscribe(source: &Name, dst: &Name, flags: Option<SlimHeaderFlags>) -> Self {
@@ -752,9 +788,9 @@ impl ProtoMessage {
                 let dst = self.get_slim_header().get_dst();
                 // complete name with the original strings
                 Name::from_strings([
-                    subscribe.component_0.clone(),
-                    subscribe.component_1.clone(),
-                    subscribe.component_2.clone(),
+                    subscribe.subscriptions[0].component_0.clone(),
+                    subscribe.subscriptions[0].component_1.clone(),
+                    subscribe.subscriptions[0].component_2.clone(),
                 ])
                 .with_id(dst.id())
             }
@@ -762,9 +798,9 @@ impl ProtoMessage {
                 let dst = self.get_slim_header().get_dst();
                 // complete name with the original strings
                 Name::from_strings([
-                    unsubscribe.component_0.clone(),
-                    unsubscribe.component_1.clone(),
-                    unsubscribe.component_2.clone(),
+                    unsubscribe.subscriptions[0].component_0.clone(),
+                    unsubscribe.subscriptions[0].component_1.clone(),
+                    unsubscribe.subscriptions[0].component_2.clone(),
                 ])
                 .with_id(dst.id())
             }
@@ -788,6 +824,15 @@ impl ProtoMessage {
             Some(ProtoSubscribeType(_)) => panic!("payload not found"),
             Some(ProtoUnsubscribeType(_)) => panic!("payload not found"),
             None => panic!("payload not found"),
+        }
+    }
+
+    pub fn get_subscriptions(&self) -> Vec<&Subscription> {
+        match &self.message_type {
+            Some(ProtoPublishType(_)) => panic!("subscriptions not found"),
+            Some(ProtoSubscribeType(s)) => s.subscriptions.iter().collect(),
+            Some(ProtoUnsubscribeType(u)) => u.subscriptions.iter().collect(),
+            None => panic!("subscriptions not found"),
         }
     }
 
@@ -1223,4 +1268,61 @@ mod tests {
         let invalid_service_type = SessionMessageType::try_from(total_service_types + 1);
         assert!(invalid_service_type.is_err());
     }
+}
+
+#[test]
+fn test_add_subscription_to_subscribe_message() {
+    let source = Name::from_strings(["org", "ns", "type"]).with_id(1);
+    let dst1 = Name::from_strings(["org", "ns", "app1"]).with_id(2);
+    let dst2 = Name::from_strings(["org", "ns", "app2"]).with_id(3);
+    let dst3 = Name::from_strings(["org", "ns", "app3"]).with_id(4);
+
+    // Create a new subscribe message
+    let mut sub_msg = ProtoMessage::new_subscribe(&source, &dst1, None);
+
+    // Verify initial state
+    assert!(sub_msg.is_subscribe());
+    assert!(!sub_msg.is_publish());
+    assert!(!sub_msg.is_unsubscribe());
+
+    // Extract the subscribe message to check initial subscriptions
+    match &sub_msg.message_type {
+        Some(ProtoSubscribeType(subscribe)) => {
+            assert_eq!(subscribe.subscriptions.len(), 1);
+            assert_eq!(subscribe.subscriptions[0].component_0, "org");
+            assert_eq!(subscribe.subscriptions[0].component_1, "ns");
+            assert_eq!(subscribe.subscriptions[0].component_2, "app1");
+        }
+        _ => panic!("Expected subscribe message type"),
+    }
+
+    // Add additional subscriptions
+    sub_msg.add_subscription(&dst2);
+    sub_msg.add_subscription(&dst3);
+
+    // Verify subscriptions were added
+    match &sub_msg.message_type {
+        Some(ProtoSubscribeType(subscribe)) => {
+            assert_eq!(subscribe.subscriptions.len(), 3);
+
+            // Check first subscription (original)
+            assert_eq!(subscribe.subscriptions[0].component_0, "org");
+            assert_eq!(subscribe.subscriptions[0].component_1, "ns");
+            assert_eq!(subscribe.subscriptions[0].component_2, "app1");
+
+            // Check second subscription (added)
+            assert_eq!(subscribe.subscriptions[1].component_0, "org");
+            assert_eq!(subscribe.subscriptions[1].component_1, "ns");
+            assert_eq!(subscribe.subscriptions[1].component_2, "app2");
+
+            // Check third subscription (added)
+            assert_eq!(subscribe.subscriptions[2].component_0, "org");
+            assert_eq!(subscribe.subscriptions[2].component_1, "ns");
+            assert_eq!(subscribe.subscriptions[2].component_2, "app3");
+        }
+        _ => panic!("Expected subscribe message type"),
+    }
+
+    // Verify the message is still valid
+    assert!(sub_msg.validate().is_ok());
 }

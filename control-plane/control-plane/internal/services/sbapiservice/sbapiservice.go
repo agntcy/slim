@@ -250,7 +250,7 @@ func (s *sbAPIService) handleNodeMessages(ctx context.Context,
 					ComponentID:  sub.Id,
 				})
 				if err != nil {
-					zlog.Error().Msgf("Error deleting route: %v", err)
+					zlog.Error().Msgf("Error deleting route: %v", err, sub)
 				}
 			}
 			continue
