@@ -45,6 +45,15 @@ tasks:
     vars:
       TARGET: '{{.TESTS | default ""}}'
 
+  python:bindings:test:coverage:
+    desc: "Test the Python bindings with coverage"
+    deps:
+      - python:bindings:build
+    cmds:
+      - uv run pytest --cov=slim_bindings --cov-report=lcov:coverage.lcov --cov-report=html --cov-report=term -s {{.TESTS}}
+    vars:
+      TARGET: '{{.TESTS | default ""}}'
+
   python:bindings:packaging:
     desc: "Generate the Python bindings for python versions 3.10, 3.11, 3.12, 3.13"
     vars:
