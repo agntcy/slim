@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/agntcy/slim/compare/slimrpc-v0.1.0...slimrpc-v0.1.1) (2025-10-29)
+
+
+### Features
+
+* **slimrpc:** Add option to use existing local app for server ([#775](https://github.com/agntcy/slim/issues/775)) ([5e91347](https://github.com/agntcy/slim/commit/5e9134716159d18e1d25d22b4d2eb4a51062ecd3))
+
 ## [0.1.0](https://github.com/agntcy/slim/compare/slimrpc-v0.0.1...slimrpc-v0.1.0) (2025-09-18)
 
 
