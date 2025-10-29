@@ -51,7 +51,8 @@ class TestService(TestServicer):
             received_strs.append(request.example_string)
 
         response = ExampleResponse(
-            example_integer=len(received_strs), example_string="Saw: " + ", ".join(received_strs)
+            example_integer=len(received_strs),
+            example_string="Saw: " + ", ".join(received_strs),
         )
         return response
 
@@ -68,6 +69,7 @@ class TestService(TestServicer):
                 example_integer=request.example_integer * 100,
                 example_string=f"Echo: {request.example_string}",
             )
+
 
 async def amain() -> None:
     server = await Server.from_slim_app_config(

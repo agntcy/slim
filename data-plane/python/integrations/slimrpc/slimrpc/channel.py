@@ -1,13 +1,13 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
+import asyncio
 import datetime
 import logging
 import sys
 import time
 from collections.abc import AsyncGenerator, AsyncIterable, Callable
 from typing import Any
-import asyncio
 
 if sys.version_info >= (3, 11):
     from asyncio import timeout_at as asyncio_timeout_at
@@ -126,8 +126,9 @@ class Channel:
         deadline: float,
     ) -> tuple[PyMessageContext, Any]:
         # Wait for the response
-        async with asyncio_timeout_at(_compute_loop_deadline_from_real_deadline(deadline)):
-            await asyncio.sleep(10)
+        async with asyncio_timeout_at(
+            _compute_loop_deadline_from_real_deadline(deadline)
+        ):
             msg_ctx, response_bytes = await session.get_message()
 
             code = msg_ctx.metadata.get("code")
@@ -169,7 +170,9 @@ class Channel:
                 logger.error(f"error receiving messages: {e}")
                 raise
 
-        async with asyncio_timeout_at(_compute_loop_deadline_from_real_deadline(deadline)):
+        async with asyncio_timeout_at(
+            _compute_loop_deadline_from_real_deadline(deadline)
+        ):
             async for response in generator():
                 yield response
 
@@ -203,7 +206,9 @@ class Channel:
 
                 # Wait for the responses
                 async for response in self._receive_stream(
-                    session, response_deserializer, deadline,
+                    session,
+                    response_deserializer,
+                    deadline,
                 ):
                     yield response
             finally:
@@ -241,7 +246,9 @@ class Channel:
 
                 # Wait for response
                 _, ret = await self._receive_unary(
-                    session, response_deserializer, deadline,
+                    session,
+                    response_deserializer,
+                    deadline,
                 )
 
                 return ret
@@ -280,7 +287,9 @@ class Channel:
 
                 # Wait for the responses
                 async for response in self._receive_stream(
-                    session, response_deserializer, deadline,
+                    session,
+                    response_deserializer,
+                    deadline,
                 ):
                     yield response
             finally:
@@ -318,7 +327,9 @@ class Channel:
 
                 # Wait for the response
                 _, ret = await self._receive_unary(
-                    session, response_deserializer, deadline,
+                    session,
+                    response_deserializer,
+                    deadline,
                 )
 
                 return ret
