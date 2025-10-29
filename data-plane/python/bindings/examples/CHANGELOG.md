@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/agntcy/slim/compare/slim-bindings-examples-v0.6.0...slim-bindings-examples-v0.6.1) (2025-10-29)
+
+
+### Features
+
+* expand SharedSecret Auth from simple secret:id to HMAC tokens ([#858](https://github.com/agntcy/slim/issues/858)) ([1d0c6e8](https://github.com/agntcy/slim/commit/1d0c6e8f694ee15ac437564fe6400b4d7bd4dde1))
+
 ## [0.6.0](https://github.com/agntcy/slim/compare/slim-bindings-examples-v0.1.1...slim-bindings-examples-v0.6.0) (2025-10-09)
 
 
