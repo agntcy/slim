@@ -934,6 +934,7 @@ impl ControllerService {
                                 message_id: uuid::Uuid::new_v4().to_string(),
                                 payload: Some(Payload::SubscriptionListResponse(
                                     SubscriptionListResponse {
+                                        original_message_id: msg.message_id.clone(),
                                         entries: chunk.to_vec(),
                                     },
                                 )),
@@ -967,6 +968,7 @@ impl ControllerService {
                                 message_id: uuid::Uuid::new_v4().to_string(),
                                 payload: Some(Payload::ConnectionListResponse(
                                     ConnectionListResponse {
+                                        original_message_id: msg.message_id.clone(),
                                         entries: chunk.to_vec(),
                                     },
                                 )),

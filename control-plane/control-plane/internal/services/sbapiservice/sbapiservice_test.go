@@ -26,7 +26,8 @@ func startSouthbound(t *testing.T, db db.DataAccess) (target string, cleanup fun
 
 	ctx := util.GetContextWithLogger(context.Background(), config.LogConfig{Level: "debug"})
 	cmdHandler := nodecontrol.DefaultNodeCommandHandler()
-	routeService := routes.NewRouteService(db, cmdHandler, config.ReconcilerConfig{Threads: 3, MaxRequeues: 1})
+	routeService := routes.NewRouteService(db, cmdHandler,
+		config.ReconcilerConfig{MaxNumOfParallelReconciles: 3, MaxRequeues: 1})
 	if err := routeService.Start(ctx); err != nil {
 		t.Fatalf("routeService.Start: %v", err)
 	}
