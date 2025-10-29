@@ -16,9 +16,9 @@ pub const SESSION_RANGE: std::ops::Range<u32> = 0..(u32::MAX - 1000);
 pub const SESSION_UNSPECIFIED: u32 = u32::MAX;
 
 /// Channel used in the path service -> app
-pub(crate) type AppChannelSender = tokio::sync::mpsc::Sender<Result<Message, SessionError>>;
+pub(crate) type AppChannelSender = tokio::sync::mpsc::UnboundedSender<Result<Message, SessionError>>;
 /// Channel used in the path app -> service
-pub type AppChannelReceiver = tokio::sync::mpsc::Receiver<Result<Message, SessionError>>;
+pub type AppChannelReceiver = tokio::sync::mpsc::UnboundedReceiver<Result<Message, SessionError>>;
 /// Channel used in the path service -> slim
 pub type SlimChannelSender = tokio::sync::mpsc::Sender<Result<Message, Status>>;
 

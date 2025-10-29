@@ -249,7 +249,7 @@ where
         storage_path: std::path::PathBuf,
         tx_session: tokio::sync::mpsc::Sender<Result<SessionLayerMessage, SessionError>>,
     ) -> Self {
-        let (tx, rx) = mpsc::channel(128);
+        let (tx, rx) = mpsc::channel(256);
 
         let common = Common::new(
             id,
@@ -687,11 +687,8 @@ async fn process_message_from_app<T>(
                 "error sending publication packet to slim on session {}",
                 session_id
             );
-            tx.send_to_app(Err(SessionError::Processing(
-                "error sending message to local slim instance".to_string(),
-            )))
-            .await
-            .expect("error notifying app");
+
+            // no need to notify app here, the session will take care of retransmissions
         }
 
         // set timer for this message
@@ -977,10 +974,13 @@ where
         message: Message,
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
-        self.tx
-            .send(Ok((message, direction)))
-            .await
-            .map_err(|e| SessionError::Processing(e.to_string()))
+        self.tx.try_send(Ok((message, direction))).map_err(|e| {
+            SessionError::QueueFullError(format!(
+                "session={}, error={}",
+                self.common.id(),
+                e.to_string()
+            ))
+        })
     }
 }
 

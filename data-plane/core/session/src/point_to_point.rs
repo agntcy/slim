@@ -209,26 +209,34 @@ where
 #[async_trait]
 impl timer::TimerObserver for AckTimerObserver {
     async fn on_timeout(&self, message_id: u32, timeouts: u32) {
-        self.tx
+        let res = self
+            .tx
             .send(InternalMessage::TimerTimeout {
                 message_id,
                 timeouts,
                 ack: true,
             })
-            .await
-            .expect("failed to send timer timeout");
+            .await;
+
+        if let Err(e) = res {
+            error!("AckTimerObserver: failed to send timer timeout: {}", e);
+        }
     }
 
     async fn on_failure(&self, message_id: u32, timeouts: u32) {
         // remove the state for the lost message
-        self.tx
+        let res = self
+            .tx
             .send(InternalMessage::TimerFailure {
                 message_id,
                 timeouts,
                 ack: true,
             })
-            .await
-            .expect("failed to send timer failure");
+            .await;
+
+        if let Err(e) = res {
+            error!("AckTimerObserver: failed to send timer failure: {}", e);
+        }
     }
 
     async fn on_stop(&self, message_id: u32) {
@@ -239,26 +247,34 @@ impl timer::TimerObserver for AckTimerObserver {
 #[async_trait]
 impl timer::TimerObserver for RtxTimerObserver {
     async fn on_timeout(&self, message_id: u32, timeouts: u32) {
-        self.tx
+        let res = self
+            .tx
             .send(InternalMessage::TimerTimeout {
                 message_id,
                 timeouts,
                 ack: false,
             })
-            .await
-            .expect("failed to send timer timeout");
+            .await;
+
+        if let Err(e) = res {
+            error!("RtxTimerObserver: failed to send timer timeout: {}", e);
+        }
     }
 
     async fn on_failure(&self, message_id: u32, timeouts: u32) {
         // remove the state for the lost message
-        self.tx
+        let res = self
+            .tx
             .send(InternalMessage::TimerFailure {
                 message_id,
                 timeouts,
                 ack: false,
             })
-            .await
-            .expect("failed to send timer failure");
+            .await;
+
+        if let Err(e) = res {
+            error!("RtxTimerObserver: failed to send timer failure: {}", e);
+        }
     }
 
     async fn on_stop(&self, message_id: u32) {
@@ -1085,7 +1101,7 @@ where
         identity_verifier: V,
         storage_path: std::path::PathBuf,
     ) -> Self {
-        let (tx, rx) = mpsc::channel(128);
+        let (tx, rx) = mpsc::channel(256);
 
         // Common session stuff
         let common = Common::new(
@@ -1297,8 +1313,7 @@ where
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
         self.tx
-            .send(InternalMessage::OnMessage { message, direction })
-            .await
+            .try_send(InternalMessage::OnMessage { message, direction })
             .map_err(|e| SessionError::SessionClosed(e.to_string()))
     }
 }
