@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.6.1](https://github.com/agntcy/slim/compare/slimctl-v0.6.0...slimctl-v0.6.1) (2025-10-29)
+
+
+### Features
+
+* add config subcommand to slimctl ([#818](https://github.com/agntcy/slim/issues/818)) ([562b550](https://github.com/agntcy/slim/commit/562b5504608cb37f6d6f6e9dede155cf92a83426))
+* outline routes (list routes from the controller) ([#871](https://github.com/agntcy/slim/issues/871)) ([278ec7d](https://github.com/agntcy/slim/commit/278ec7da6f85140da3b43a723773423386ec07a5))
+
+
+### Bug Fixes
+
+* Handle route connection faliures and node connection detail changes ([#833](https://github.com/agntcy/slim/issues/833)) ([8027c3b](https://github.com/agntcy/slim/commit/8027c3b0a11a7d3c2b57184d2313e18d5de6ba3b))
+
 ## [0.6.0](https://github.com/agntcy/slim/compare/slimctl-v0.2.2...slimctl-v0.6.0) (2025-10-09)
 
 
