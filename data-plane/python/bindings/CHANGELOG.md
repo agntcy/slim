@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.6.2](https://github.com/agntcy/slim/compare/slim-bindings-v0.6.1...slim-bindings-v0.6.2) (2025-10-29)
+
+
+### Features
+
+* expand SharedSecret Auth from simple secret:id to HMAC tokens ([#858](https://github.com/agntcy/slim/issues/858)) ([1d0c6e8](https://github.com/agntcy/slim/commit/1d0c6e8f694ee15ac437564fe6400b4d7bd4dde1))
+
+
+### Bug Fixes
+
+* **app.rs:** get app name from local property ([#859](https://github.com/agntcy/slim/issues/859)) ([5918912](https://github.com/agntcy/slim/commit/591891219ebea0605a22abdbb292c29aa486073c))
+* **service:** disconnect API ([#890](https://github.com/agntcy/slim/issues/890)) ([4308cc4](https://github.com/agntcy/slim/commit/4308cc4d1bcd4a97bb4d6461d9286cc3b2a21e00))
+
 ## [0.6.1](https://github.com/agntcy/slim/compare/slim-bindings-v0.6.0...slim-bindings-v0.6.1) (2025-10-17)
 
 
