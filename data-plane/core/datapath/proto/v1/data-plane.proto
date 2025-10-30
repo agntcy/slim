@@ -17,7 +17,6 @@ message Subscription {
 message Subscribe {
   SLIMHeader header = 1;
   repeated Subscription subscriptions = 2;
-
 }
 
 message Unsubscribe {

@@ -60,35 +60,10 @@ where
         }
     }
 
-    pub fn get_remote_subscriptions_on_connection(&self, conn_index: u64) -> Vec<SubscriptionInfo> {
-        // Get remote subscriptions that will be removed
-        debug!("getting remote subscriptions on connection: {}", conn_index);
-        let subscriptions = self
-            .remote_subscription_table
-            .get_subscriptions_on_connection(conn_index);
-        debug!("function subscriptions: {:?}", subscriptions);
-        debug!(
-            "remote table subscriptions count: {:?}",
-            self.remote_subscription_table
-        );
-        self.remote_subscription_table
-            .get_subscriptions_on_connection(conn_index)
-            .into_iter()
-            .collect()
-    }
-
-    pub fn get_local_subscriptions_on_connection(
-        &self,
-        conn_index: u64,
-        is_local: bool,
-    ) -> Vec<Name> {
+    pub fn get_local_subscriptions_on_connection(&self, conn_index: u64) -> Vec<Name> {
         debug!("getting local subscriptions on connection: {}", conn_index);
         self.subscription_table
-            .remove_connection(conn_index, is_local)
-            .unwrap_or_else(|e| {
-                error!("failed to remove connection {}: {}", conn_index, e);
-                vec![]
-            })
+            .get_local_subscriptions_on_connection(conn_index)
     }
 
     pub fn on_connection_drop(&self, conn_index: u64, is_local: bool) {

@@ -33,11 +33,9 @@ pub trait SubscriptionTable {
         is_local: bool,
     ) -> Result<(), SubscriptionTableError>;
 
-    fn remove_connection(
-        &self,
-        conn: u64,
-        is_local: bool,
-    ) -> Result<Vec<Name>, SubscriptionTableError>;
+    fn remove_connection(&self, conn: u64, is_local: bool) -> Result<(), SubscriptionTableError>;
+
+    fn get_local_subscriptions_on_connection(&self, conn_index: u64) -> Vec<Name>;
 
     fn match_one(&self, name: &Name, incoming_conn: u64) -> Result<u64, SubscriptionTableError>;
 

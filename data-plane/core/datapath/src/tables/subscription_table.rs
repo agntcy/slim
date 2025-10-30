@@ -589,36 +589,33 @@ impl SubscriptionTable for SubscriptionTableImpl {
         Ok(())
     }
 
-    fn remove_connection(
-        &self,
-        conn: u64,
-        is_local: bool,
-    ) -> Result<Vec<Name>, SubscriptionTableError> {
-        let removed_subscriptions = {
+    fn get_local_subscriptions_on_connection(&self, conn: u64) -> Vec<Name> {
+        let conn_map = self.connections.read();
+        let set = conn_map.get(&conn);
+        if set.is_none() {
+            return Vec::new();
+        }
+        set.unwrap().iter().cloned().collect()
+    }
+
+    fn remove_connection(&self, conn: u64, is_local: bool) -> Result<(), SubscriptionTableError> {
+        {
             let conn_map = self.connections.read();
             let set = conn_map.get(&conn);
             if set.is_none() {
                 return Err(SubscriptionTableError::ConnectionIdNotFound);
             }
-
-            // Collect all subscription names before removing them
-            let subscriptions_to_remove: Vec<Name> = set.unwrap().iter().cloned().collect();
-
-            for name in &subscriptions_to_remove {
+            for name in set.unwrap() {
                 let table = self.table.write();
                 debug!("remove subscription {} from connection {}", name, conn);
                 remove_subscription_from_sub_table(name, conn, is_local, table)?;
             }
-
-            subscriptions_to_remove
-        };
-
+        }
         {
             let mut conn_map = self.connections.write();
             conn_map.remove(&conn); // here the connection must exists.
         }
-
-        Ok(removed_subscriptions)
+        Ok(())
     }
 
     fn match_one(&self, name: &Name, incoming_conn: u64) -> Result<u64, SubscriptionTableError> {
@@ -769,10 +766,7 @@ mod tests {
         // return connection 3
         let out = t.match_one(&name2_2, 100).unwrap();
         assert_eq!(out, 3);
-
-        let removed_subs = t.remove_connection(2, false).unwrap();
-        assert_eq!(removed_subs.len(), 1);
-        assert!(removed_subs.contains(&name1_1));
+        assert_eq!(t.remove_connection(2, false), Ok(()));
 
         // returns one match on connection 1
         let out = t.match_all(&name1, 100).unwrap();

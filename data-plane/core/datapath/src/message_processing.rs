@@ -806,23 +806,23 @@ impl MessageProcessor {
                 if !is_local && tx_cp.is_some() {
                     debug!("notify control plane about lost subscriptions");
 
-                    let local_subscriptions = self_clone
+                    let subscriptions = self_clone
                         .forwarder()
-                        .get_local_subscriptions_on_connection(conn_index, is_local);
+                        .get_local_subscriptions_on_connection(conn_index);
 
                     debug!(
-                        "lost local subscriptions: {:?}, len: {}",
-                        local_subscriptions,
-                        local_subscriptions.len()
+                        "lost subscriptions: {:?}, len: {}",
+                        subscriptions,
+                        subscriptions.len()
                     );
-                    if !local_subscriptions.is_empty() {
+                    if !subscriptions.is_empty() {
                         let mut msg = Message::new_unsubscribe(
-                            &local_subscriptions[0],
-                            &local_subscriptions[0],
+                            &subscriptions[0],
+                            &subscriptions[0],
                             Some(SlimHeaderFlags::default().with_recv_from(conn_index)),
                         );
                         let start = 1;
-                        for local_subscription in local_subscriptions.iter().skip(start) {
+                        for local_subscription in subscriptions.iter().skip(start) {
                             debug!(
                                 "notify control plane about lost local subscription: {} {}",
                                 local_subscription, local_subscription
@@ -830,35 +830,6 @@ impl MessageProcessor {
                             msg.add_subscription(local_subscription);
                         }
                         debug!("local subs to remove: {:?}", msg);
-                        let _ = tx_cp.as_ref().unwrap().send(Ok(msg)).await;
-                    }
-
-                    let remote_subscriptions = self_clone
-                        .forwarder()
-                        .get_remote_subscriptions_on_connection(conn_index);
-
-                    debug!(
-                        "lost remote subscriptions: {:?}, len: {}",
-                        remote_subscriptions,
-                        remote_subscriptions.len()
-                    );
-
-                    if !remote_subscriptions.is_empty() {
-                        let mut msg = Message::new_unsubscribe(
-                            &remote_subscriptions[0].source(),
-                            &remote_subscriptions[0].name(),
-                            Some(SlimHeaderFlags::default().with_recv_from(conn_index)),
-                        );
-                        let start = 1;
-                        for remote_subscription in remote_subscriptions.iter().skip(start) {
-                            debug!(
-                                "notify control plane about lost remote subscription: {} {}",
-                                remote_subscription.name(),
-                                remote_subscription.source()
-                            );
-                            msg.add_subscription(remote_subscription.name());
-                        }
-                        debug!("remote subs to remove: {:?}", msg,);
                         let _ = tx_cp.as_ref().unwrap().send(Ok(msg)).await;
                     }
                 }
