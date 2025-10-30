@@ -410,8 +410,8 @@ where
                         match payload.timer_settings {
                             Some(s) => {
                                 conf.duration =
-                                    Some(std::time::Duration::from_millis(s.timeout() as u64));
-                                conf.max_retries = Some(s.max_retries())
+                                    Some(std::time::Duration::from_millis(s.timeout as u64));
+                                conf.max_retries = Some(s.max_retries)
                             }
                             None => {
                                 conf.duration = None;
@@ -440,9 +440,9 @@ where
                         )?;
 
                         conf.duration = Some(std::time::Duration::from_millis(
-                            timer_settings.timeout() as u64,
+                            timer_settings.timeout as u64,
                         ));
-                        conf.max_retries = timer_settings.max_retries;
+                        conf.max_retries = Some(timer_settings.max_retries);
                         conf.mls_enabled = payload.enable_mls;
                         conf.metadata = message.get_metadata_map();
 
@@ -454,10 +454,18 @@ where
                         conf.initiator = message.remove_metadata("IS_MODERATOR").is_some();
                         conf.metadata = message.get_metadata_map();
 
+                        let channel = if let Some(c) = payload.channel {
+                            Name::from(&c)
+                        } else {
+                            return Err(SessionError::Processing(
+                                "missing channel name".to_string(),
+                            ));
+                        };
+
                         self.create_session(
                             conf,
                             local_name,
-                            message.get_source(),
+                            channel,
                             Some(message.get_session_header().session_id),
                             Some(message.get_incoming_conn()),
                         )

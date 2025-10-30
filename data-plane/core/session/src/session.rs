@@ -37,8 +37,6 @@ impl Session {
             None
         };
 
-        let send_acks = timer_settings.is_some();
-
         let sender = SessionSender::new(
             timer_settings.clone(),
             session_id,
@@ -51,7 +49,6 @@ impl Session {
             session_id,
             local_name.clone(),
             session_config.session_type,
-            send_acks,
             tx.clone(),
             Some(tx_signals.clone()),
         );

@@ -874,8 +874,6 @@ impl CommandPayload {
     }
 
     pub fn new_join_request_payload(
-        require_acks: bool,
-        require_rtx: bool,
         enable_mls: bool,
         max_retries: Option<u32>,
         timer_duration: Option<Duration>,
@@ -887,16 +885,14 @@ impl CommandPayload {
             && let Some(m) = max_retries
         {
             Some(TimerSettings {
-                timeout: Some(t.as_millis() as u32),
-                max_retries: Some(m),
+                timeout: t.as_millis() as u32,
+                max_retries: m,
             })
         } else {
             None
         };
 
         let payload = JoinRequestPayload {
-            require_acks,
-            require_rtx,
             enable_mls,
             timer_settings,
             channel: proto_channel,

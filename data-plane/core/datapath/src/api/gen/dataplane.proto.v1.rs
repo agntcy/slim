@@ -179,30 +179,24 @@ pub struct DiscoveryReplyPayload {}
 /// Join Request
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct JoinRequestPayload {
-    /// specifies if acks are expected or not
-    #[prost(bool, tag = "1")]
-    pub require_acks: bool,
-    /// specifies if rtx are expected or not
-    #[prost(bool, tag = "2")]
-    pub require_rtx: bool,
     /// true if mls is enabled
-    #[prost(bool, tag = "3")]
+    #[prost(bool, tag = "1")]
     pub enable_mls: bool,
     /// settings for timers for rtx and acks
-    #[prost(message, optional, tag = "4")]
+    #[prost(message, optional, tag = "2")]
     pub timer_settings: ::core::option::Option<TimerSettings>,
     /// name where to send the messages
-    /// it can be a channel or the same as the moderator
-    #[prost(message, optional, tag = "5")]
+    /// it can be a channel or none
+    #[prost(message, optional, tag = "3")]
     pub channel: ::core::option::Option<Name>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct TimerSettings {
     /// timeout is intended in ms
-    #[prost(uint32, optional, tag = "1")]
-    pub timeout: ::core::option::Option<u32>,
-    #[prost(uint32, optional, tag = "2")]
-    pub max_retries: ::core::option::Option<u32>,
+    #[prost(uint32, tag = "1")]
+    pub timeout: u32,
+    #[prost(uint32, tag = "2")]
+    pub max_retries: u32,
 }
 /// Join Reply
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]

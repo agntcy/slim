@@ -77,9 +77,6 @@ pub struct SessionReceiver {
     /// session type
     session_type: ProtoSessionType,
 
-    /// if true send acks for each received message
-    send_acks: bool,
-
     /// send to slim/app
     tx: SessionTransmitter,
 
@@ -97,7 +94,6 @@ impl SessionReceiver {
         session_id: u32,
         local_name: Name,
         session_type: ProtoSessionType,
-        send_acks: bool,
         tx: SessionTransmitter,
         tx_signals: Option<Sender<SessionMessage>>,
     ) -> Self {
@@ -116,7 +112,6 @@ impl SessionReceiver {
             session_id,
             session_type,
             local_name,
-            send_acks,
             tx,
             draining_state: ReceiverDrainStatus::NotDraining,
         }
@@ -138,7 +133,7 @@ impl SessionReceiver {
                         "drain started do no accept new messages".to_string(),
                     ));
                 }
-                if self.send_acks {
+                if self.timer_factory.is_some() {
                     self.send_ack(&message).await?;
                 }
                 self.on_publish_message(message).await?;
@@ -175,11 +170,6 @@ impl SessionReceiver {
     }
 
     pub async fn send_ack(&mut self, message: &Message) -> Result<(), SessionError> {
-        if !self.send_acks {
-            // nothing to do
-            return Ok(());
-        }
-
         let ack = new_message_from_session_fields(
             &self.local_name,
             &message.get_source(),
@@ -368,7 +358,6 @@ mod tests {
             10,
             local_name.clone(),
             ProtoSessionType::PointToPoint,
-            true,
             tx,
             Some(tx_signal),
         );
@@ -483,7 +472,6 @@ mod tests {
             10,
             local_name.clone(),
             ProtoSessionType::PointToPoint,
-            true,
             tx,
             Some(tx_signal),
         );
@@ -713,7 +701,6 @@ mod tests {
             10,
             local_name.clone(),
             ProtoSessionType::PointToPoint,
-            true,
             tx,
             Some(tx_signal),
         );
@@ -875,7 +862,6 @@ mod tests {
             10,
             local_name.clone(),
             ProtoSessionType::PointToPoint,
-            true,
             tx,
             Some(tx_signal),
         );
@@ -1048,7 +1034,6 @@ mod tests {
             10,
             local_name.clone(),
             ProtoSessionType::PointToPoint,
-            true,
             tx,
             Some(tx_signal),
         );
@@ -1188,7 +1173,6 @@ mod tests {
             10,
             local_name.clone(),
             ProtoSessionType::PointToPoint,
-            true,
             tx,
             Some(tx_signal),
         );

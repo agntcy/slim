@@ -419,8 +419,6 @@ mod tests {
 
         // Create a join request message
         let payload = CommandPayload::new_join_request_payload(
-            false, // require_acks
-            false, // require_rtx
             false, // enable_mls
             None,  // max_retries
             None,  // timer_duration

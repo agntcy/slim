@@ -1385,13 +1385,17 @@ where
         // send a join message
         let msg_id = rand::random::<u32>();
 
+        let channel = if self.common.config.session_type == ProtoSessionType::Multicast {
+            Some(self.common.destination.clone())
+        } else {
+            None
+        };
+
         let payload = CommandPayload::new_join_request_payload(
-            true,
-            true,
             self.mls_state.is_some(),
             self.common.config.max_retries,
             self.common.config.duration,
-            Some(self.common.destination.clone()),
+            channel,
         )
         .as_content();
 

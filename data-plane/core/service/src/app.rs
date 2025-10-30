@@ -328,7 +328,8 @@ mod tests {
 
     use slim_auth::{shared_secret::SharedSecret, testutils::TEST_VALID_SECRET};
     use slim_datapath::api::{
-        ApplicationPayload, ProtoMessage, ProtoSessionMessageType, ProtoSessionType,
+        ApplicationPayload, CommandPayload, ProtoMessage, ProtoSessionMessageType,
+        ProtoSessionType, SessionHeader, SlimHeader,
     };
 
     #[allow(dead_code)]
@@ -475,12 +476,13 @@ mod tests {
     async fn test_handle_message_from_slim() {
         let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
-        let name = Name::from_strings(["org", "ns", "type"]).with_id(0);
+        let source = Name::from_strings(["org", "ns", "source"]).with_id(0);
+        let dest = Name::from_strings(["org", "ns", "dest"]).with_id(0);
 
         let identity = SharedSecret::new("a", TEST_VALID_SECRET);
 
         let app = App::new(
-            &name,
+            &dest,
             identity.clone(),
             identity.clone(),
             0,
@@ -489,22 +491,28 @@ mod tests {
             std::path::PathBuf::from("/tmp/test_storage"),
         );
 
-        let mut message = ProtoMessage::new_publish(
-            &name,
-            &Name::from_strings(["org", "ns", "type"]).with_id(0),
-            None,
-            None,
-            Some(ApplicationPayload::new("msg", vec![0x1, 0x2, 0x3, 0x4]).as_content()),
-        );
+        // send join_request message to create the session
+        let payload =
+            CommandPayload::new_join_request_payload(false, None, None, None).as_content();
 
-        // set the session id in the message
-        let header = message.get_session_header_mut();
-        header.session_id = 1;
-        header.set_session_type(ProtoSessionType::PointToPoint);
-        header.set_session_message_type(ProtoSessionMessageType::Msg);
+        let slim_header = Some(SlimHeader::new(
+            &source,
+            &dest,
+            "",
+            Some(SlimHeaderFlags::default().with_incoming_conn(0)),
+        ));
+        let session_header = Some(SessionHeader::new(
+            slim_datapath::api::ProtoSessionType::PointToPoint.into(),
+            slim_datapath::api::ProtoSessionMessageType::JoinRequest.into(),
+            1,
+            1, // this id will be changed by the session controller
+        ));
+
+        let mut join_request =
+            Message::new_publish_with_headers(slim_header, session_header, Some(payload));
 
         app.session_layer
-            .handle_message_from_slim(message.clone())
+            .handle_message_from_slim(join_request.clone())
             .await
             .expect_err("should fail as identity is not verified");
 
@@ -514,14 +522,14 @@ mod tests {
         // As there is no identity, we should not get any message in the app
         assert!(rx_app.try_recv().is_err());
 
-        // set the right identity
-        message
+        // Set the right identity
+        join_request
             .get_slim_header_mut()
             .set_identity(identity.get_token().unwrap());
 
         // Try again
         app.session_layer
-            .handle_message_from_slim(message.clone())
+            .handle_message_from_slim(join_request.clone())
             .await
             .unwrap();
 
@@ -537,6 +545,25 @@ mod tests {
             _ => panic!("unexpected notification"),
         };
         assert_eq!(session_ctx.session().upgrade().unwrap().id(), 1);
+
+        let mut message = ProtoMessage::new_publish(
+            &source,
+            &Name::from_strings(["org", "ns", "type"]).with_id(0),
+            Some(&identity.get_token().unwrap()),
+            Some(SlimHeaderFlags::default().with_incoming_conn(0)),
+            Some(ApplicationPayload::new("msg", vec![0x1, 0x2, 0x3, 0x4]).as_content()),
+        );
+
+        // set the session id in the message
+        let header = message.get_session_header_mut();
+        header.session_id = 1;
+        header.set_session_type(ProtoSessionType::PointToPoint);
+        header.set_session_message_type(ProtoSessionMessageType::Msg);
+
+        app.session_layer
+            .handle_message_from_slim(message.clone())
+            .await
+            .unwrap();
 
         // Receive message from the session
         let msg = session_ctx
@@ -700,8 +727,6 @@ mod tests {
         let mut sessions = Vec::new();
         for name in &subscription_names {
             // Create session with the subscription name as peer
-
-            println!("Creating session to peer: {}", name);
             let session_config =
                 SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
             let session_ctx = publisher_app
@@ -744,11 +769,8 @@ mod tests {
         for session_ctx in received_sessions {
             let session_arc = session_ctx.session_arc().unwrap();
 
-            println!("Verifying session ID: {}", session_arc.source());
-
             // Check that the source matches is in sub_names_set
             let src = session_arc.source();
-            println!("Session source: {}", src);
             assert!(sub_names_set.contains(src));
 
             // Verify it's a point-to-point session

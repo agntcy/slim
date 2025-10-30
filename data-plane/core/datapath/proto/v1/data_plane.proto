@@ -144,23 +144,19 @@ message DiscoveryReplyPayload {}
 
 // Join Request
 message JoinRequestPayload {
-  // specifies if acks are expected or not
-  bool require_acks = 1;
-  // specifies if rtx are expected or not
-  bool require_rtx = 2;
   // true if mls is enabled
-  bool enable_mls = 3;
+  bool enable_mls = 1;
   // settings for timers for rtx and acks
-  optional TimerSettings timer_settings = 4;
+  optional TimerSettings timer_settings = 2;
   // name where to send the messages
-  // it can be a channel or the same as the moderator
-  optional Name channel = 5;
+  // it can be a channel or none
+  optional Name channel = 3;
 }
 
 message TimerSettings {
   // timeout is intended in ms
-  optional uint32 timeout = 1;
-  optional uint32 max_retries = 2;
+  uint32 timeout = 1;
+  uint32 max_retries = 2;
 }
 
 // Join Reply
