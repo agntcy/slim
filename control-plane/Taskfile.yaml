@@ -140,6 +140,31 @@ tasks:
           --plugin={{.REPO_ROOT}}/.tools/protoc-gen-go-grpc \
           controller/v1/controller.proto controlplane/v1/controlplane.proto
 
+  control-plane:objectbox:generate:
+    desc: Generate ObjectBox model and binding code
+    deps:
+      - tools
+    dir: control-plane/internal/db/objectbox
+    cmds:
+      - |
+        # Install objectbox-gogen if not already installed
+        if ! command -v objectbox-gogen &> /dev/null; then
+          echo "Installing ObjectBox generator..."
+          go install github.com/objectbox/objectbox-go/cmd/objectbox-gogen@latest
+        fi
+        
+        # Generate ObjectBox model and bindings
+        echo "Generating ObjectBox code..."
+        objectbox-gogen -out . entities.go 
+        
+        # Verify generation was successful
+        if [ -f "objectbox-model.json" ]; then
+          echo "ObjectBox model generated successfully"
+        else
+          echo "Failed to generate ObjectBox model"
+          exit 1
+        fi
+
   control-plane:slimctl:build:
     desc: Build slimctl
     deps:

@@ -1,0 +1,174 @@
+{
+  "_note1": "KEEP THIS FILE! Check it into a version control system (VCS) like git.",
+  "_note2": "ObjectBox manages crucial IDs for your object model. See docs for details.",
+  "_note3": "If you have VCS merge conflicts, you must resolve them according to ObjectBox docs.",
+  "entities": [
+    {
+      "id": "1:2792651086841387748",
+      "lastPropertyId": "5:8394852351442290764",
+      "name": "NodeEntity",
+      "properties": [
+        {
+          "id": "1:1580336837220168436",
+          "name": "Id",
+          "type": 6,
+          "flags": 1
+        },
+        {
+          "id": "2:2385929680837930931",
+          "name": "NodeID",
+          "indexId": "1:5348801088592947243",
+          "type": 9,
+          "flags": 2080
+        },
+        {
+          "id": "3:5683598783254344800",
+          "name": "GroupName",
+          "type": 9
+        },
+        {
+          "id": "4:8492523172653333717",
+          "name": "ConnDetails",
+          "type": 9
+        },
+        {
+          "id": "5:8394852351442290764",
+          "name": "LastUpdated",
+          "type": 6
+        }
+      ]
+    },
+    {
+      "id": "2:8025942386521378814",
+      "lastPropertyId": "15:3237939283044381598",
+      "name": "RouteEntity",
+      "properties": [
+        {
+          "id": "1:566457905021413900",
+          "name": "Id",
+          "type": 6,
+          "flags": 1
+        },
+        {
+          "id": "2:5554414035527373395",
+          "name": "RouteID",
+          "indexId": "2:1113185701350775528",
+          "type": 9,
+          "flags": 2080
+        },
+        {
+          "id": "3:7748903037239364274",
+          "name": "SourceNodeID",
+          "indexId": "3:5899322149723026848",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "4:6626436553446245957",
+          "name": "DestNodeID",
+          "indexId": "4:1346941228755011668",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "5:355551745912170104",
+          "name": "DestEndpoint",
+          "indexId": "5:6261784079211242742",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "6:7370354698813327691",
+          "name": "ConnConfigData",
+          "type": 9
+        },
+        {
+          "id": "7:6894079634672535263",
+          "name": "Component0",
+          "type": 9
+        },
+        {
+          "id": "8:665150575351312567",
+          "name": "Component1",
+          "type": 9
+        },
+        {
+          "id": "9:3477097287044552605",
+          "name": "Component2",
+          "type": 9
+        },
+        {
+          "id": "10:1241360834894830306",
+          "name": "ComponentID",
+          "type": 6,
+          "flags": 8192
+        },
+        {
+          "id": "11:7476091948321448021",
+          "name": "HasComponentID",
+          "type": 1
+        },
+        {
+          "id": "12:4016151492872340074",
+          "name": "Status",
+          "type": 6
+        },
+        {
+          "id": "13:3886248145022450611",
+          "name": "StatusMsg",
+          "type": 9
+        },
+        {
+          "id": "14:8266734558067358534",
+          "name": "Deleted",
+          "type": 1
+        },
+        {
+          "id": "15:3237939283044381598",
+          "name": "LastUpdated",
+          "type": 6
+        }
+      ]
+    },
+    {
+      "id": "3:8991150634135627712",
+      "lastPropertyId": "4:4893088794221328790",
+      "name": "ChannelEntity",
+      "properties": [
+        {
+          "id": "1:3627667097600927234",
+          "name": "Id",
+          "type": 6,
+          "flags": 1
+        },
+        {
+          "id": "2:5076872574005507064",
+          "name": "ChannelID",
+          "indexId": "6:482193135239913214",
+          "type": 9,
+          "flags": 2080
+        },
+        {
+          "id": "3:413362110142970815",
+          "name": "Moderators",
+          "type": 9
+        },
+        {
+          "id": "4:4893088794221328790",
+          "name": "Participants",
+          "type": 9
+        }
+      ]
+    }
+  ],
+  "lastEntityId": "3:8991150634135627712",
+  "lastIndexId": "6:482193135239913214",
+  "lastRelationId": "",
+  "modelVersion": 5,
+  "modelVersionParserMinimum": 5,
+  "retiredEntityUids": [],
+  "retiredIndexUids": [],
+  "retiredPropertyUids": [],
+  "retiredRelationUids": [],
+  "version": 1
+}
