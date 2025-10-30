@@ -58,6 +58,11 @@ where
         }
     }
 
+    pub fn get_local_subscriptions_on_connection(&self, conn_index: u64) -> Vec<Name> {
+        self.subscription_table
+            .get_local_subscriptions_on_connection(conn_index)
+    }
+
     pub fn on_connection_drop(&self, conn_index: u64, is_local: bool) {
         self.connection_table.remove(conn_index as usize);
         let _ = self
