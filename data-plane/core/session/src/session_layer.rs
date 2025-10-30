@@ -13,7 +13,10 @@ use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, warn};
 
 use slim_auth::traits::{TokenProvider, Verifier};
-use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType};
+use slim_datapath::api::{
+    CommandPayload, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType,
+    SessionHeader, SlimHeader,
+};
 use slim_datapath::messages::Name;
 
 use crate::common::SessionMessage;
@@ -231,6 +234,31 @@ where
         // This should never happen, but just in case
         if ret.is_some() {
             panic!("session already exists: {}", ret.is_some());
+        }
+
+        // if the session is a p2p session and the session is created
+        // as initiator we need to invite the remote participant
+        if session_controller.is_initiator()
+            && session_controller.session_type() == ProtoSessionType::PointToPoint
+        {
+            // send a discovery request
+            let slim_header = Some(SlimHeader::new(
+                session_controller.source(),
+                session_controller.dst(),
+                "",
+                None,
+            ));
+            let session_header = Some(SessionHeader::new(
+                session_controller.session_type().into(),
+                ProtoSessionMessageType::DiscoveryRequest.into(),
+                session_controller.id(),
+                rand::random::<u32>(),
+            ));
+            let payload = Some(CommandPayload::new_discovery_request_payload(None).as_content());
+            let discovery = Message::new_publish_with_headers(slim_header, session_header, payload);
+            session_controller
+                .on_message(discovery, MessageDirection::South)
+                .await?;
         }
 
         Ok(SessionContext::new(session_controller, app_rx))
