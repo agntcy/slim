@@ -18,6 +18,7 @@ var _ = Describe("Routing", func() {
 	var (
 		clientASession *gexec.Session
 		clientBSession *gexec.Session
+		clientCSession *gexec.Session
 	)
 
 	BeforeEach(func() {
@@ -56,6 +57,9 @@ var _ = Describe("Routing", func() {
 		if clientBSession != nil {
 			clientBSession.Terminate().Wait(2 * time.Second)
 		}
+		if clientCSession != nil {
+			clientCSession.Terminate().Wait(2 * time.Second)
+		}
 		// terminate SLIM instances
 		if serverASession != nil {
 			serverASession.Terminate().Wait(30 * time.Second)
@@ -77,6 +81,16 @@ var _ = Describe("Routing", func() {
 				exec.Command(sdkMockPath,
 					"--config", "./testdata/client-b-config.yaml",
 					"--local-name", "b",
+					"--remote-name", "a",
+				),
+				GinkgoWriter, GinkgoWriter,
+			)
+			Expect(err).NotTo(HaveOccurred())
+
+			clientCSession, err = gexec.Start(
+				exec.Command(sdkMockPath,
+					"--config", "./testdata/client-b-config.yaml",
+					"--local-name", "c",
 					"--remote-name", "a",
 				),
 				GinkgoWriter, GinkgoWriter,
@@ -113,6 +127,7 @@ var _ = Describe("Routing", func() {
 
 			routeListOutputA := string(routeListOutA)
 			Expect(routeListOutputA).To(ContainSubstring("org/default/b"))
+			Expect(routeListOutputA).To(ContainSubstring("org/default/c"))
 
 			// test listing connections for node a
 			connectionListOutA, err := exec.Command(
@@ -150,8 +165,39 @@ var _ = Describe("Routing", func() {
 			connectionOutputB := string(connectionListOutB)
 			Expect(connectionOutputB).To(ContainSubstring(":46357"))
 
-		})
+			clientBSession.Terminate().Wait(2 * time.Second)
+			clientCSession.Terminate().Wait(2 * time.Second)
 
+			Eventually(serverBSession.Out, 15*time.Second).Should(gbytes.Say(`notify control plane about lost subscription`))
+
+			// test listing routes for node a
+			routeListOutA, err = exec.Command(
+				slimctlPath,
+				"route", "list",
+				"-s", "127.0.0.1:50051",
+				"-n", "slim/a",
+			).CombinedOutput()
+			Expect(err).NotTo(HaveOccurred(), "slimctl route list failed: %s", string(routeListOutA))
+
+			routeListOutputA = string(routeListOutA)
+			Expect(routeListOutputA).To(ContainSubstring("org/default/a"))
+			Expect(routeListOutputA).ToNot(ContainSubstring("org/default/b"))
+			Expect(routeListOutputA).ToNot(ContainSubstring("org/default/c"))
+
+			// test listing routes for node b
+			routeListOutB, err = exec.Command(
+				slimctlPath,
+				"route", "list",
+				"-s", "127.0.0.1:50051",
+				"-n", "slim/b",
+			).CombinedOutput()
+			Expect(err).NotTo(HaveOccurred(), "slimctl route list failed: %s", string(routeListOutB))
+
+			routeListOutputB = string(routeListOutB)
+			Expect(routeListOutputB).To(ContainSubstring("org/default/a"))
+			Expect(routeListOutputB).ToNot(ContainSubstring("org/default/b"))
+			Expect(routeListOutputB).ToNot(ContainSubstring("org/default/c"))
+		})
 	})
 
 })
