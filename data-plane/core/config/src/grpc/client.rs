@@ -764,7 +764,7 @@ fn parse_rate_limit(rate_limit: &str) -> Result<(u64, Duration), ConfigError> {
 mod test {
     #[allow(unused_imports)]
     use super::*;
-    use crate::tls::common::TlsSource;
+    use crate::tls::common::CaSource;
     use tracing::debug;
     use tracing_test::traced_test;
 
@@ -832,10 +832,9 @@ mod test {
         // Set the tls settings
         client.tls_setting = {
             let mut tls = TLSSetting::default();
-            tls.config.source = TlsSource::File {
-                ca: Some(format!("{}/testdata/grpc/{}", test_path, "ca.crt")),
-                cert: None,
-                key: None,
+            // Updated for new Config fields: set CA via ca_source and leave source as default (None)
+            tls.config.ca_source = CaSource::File {
+                path: format!("{}/testdata/grpc/{}", test_path, "ca.crt"),
             };
             tls.insecure = false;
             tls

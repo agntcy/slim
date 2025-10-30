@@ -36,10 +36,10 @@
 
 use std::path::Path;
 
-use rustls::RootCertStore;
-use rustls_pki_types::{pem::PemObject, CertificateDer};
-use crate::tls::common::{ConfigError, TlsSource};
 use crate::auth::spiffe;
+use crate::tls::common::{CaSource, ConfigError};
+use rustls::RootCertStore;
+use rustls_pki_types::{CertificateDer, pem::PemObject};
 
 /// Builder for constructing a RootCertStore from multiple certificate sources.
 pub struct RootStoreBuilder {
@@ -95,19 +95,20 @@ impl RootStoreBuilder {
     }
 
     /// Convenience method: add from a TlsSource (File / Pem / Spire / None).
-    pub async fn add_source(mut self, source: &TlsSource) -> Result<Self, ConfigError> {
+    pub async fn add_source(mut self, source: &CaSource) -> Result<Self, ConfigError> {
         match source {
-            TlsSource::File { ca: Some(path), .. } => {
+            CaSource::File { path, .. } => {
                 self = self.add_file(path)?;
             }
-            TlsSource::Pem { ca: Some(pem), .. } => {
-                self = self.add_pem(pem)?;
+            CaSource::Pem { data, .. } => {
+                self = self.add_pem(data)?;
             }
-            TlsSource::Spire { config } => {
+            CaSource::Spire { config, .. } => {
                 self = self.add_spiffe(config).await?;
             }
-            _ => {}
+            CaSource::None => { /* no-op */ }
         }
+
         Ok(self)
     }
 
@@ -137,9 +138,9 @@ impl RootStoreBuilder {
             }
         }
 
-        let default_bundle = spire_identity_manager
-            .get_x509_bundle()
-            .map_err(|e| ConfigError::Spire(format!("failed to get default X.509 bundle: {}", e)))?;
+        let default_bundle = spire_identity_manager.get_x509_bundle().map_err(|e| {
+            ConfigError::Spire(format!("failed to get default X.509 bundle: {}", e))
+        })?;
 
         for cert in default_bundle.authorities() {
             let der_cert = CertificateDer::from(cert.as_ref().to_vec());
@@ -156,7 +157,6 @@ impl RootStoreBuilder {
             for cert in native_certs.certs {
                 self.store.add(cert).map_err(ConfigError::RootStore)?;
             }
-
         }
         Ok(())
     }
@@ -171,13 +171,14 @@ impl RootStoreBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::Rng;
     use std::fs::{self, File};
     use std::io::Write;
-    use rand::Rng;
 
     // A single valid (truncated chain-safe) test certificate (Let’s Encrypt R3 root-derived).
     // This certificate should parse correctly; if parsing fails in future rustls versions,
     // tests asserting >0 length can be relaxed accordingly.
+    // spellchecker:off
     const TEST_CERT_PEM: &str = r#"-----BEGIN CERTIFICATE-----
 MIIFazCCA1OgAwIBAgISA1/3cxguPmyAnbcW2CYwiV2lMA0GCSqGSIb3DQEBCwUA
 MEoxCzAJBgNVBAYTAlVTMRYwFAYDVQQKEw1MZXQncyBFbmNyeXB0MSMwIQYDVQQD
@@ -198,6 +199,7 @@ AQAobHxPPHkSsZQeU6Dkv1X48xlWDi8Jzb9Uf8jbx6Ui0Ic9I6kfiwJtaTGB2KUh
 3N5l1DgweO2YpZJYG1ChcxrFAuo0xO+ogzAm8h1Hn0pV3hokW2N1DbStO2Qe6hw2
 I6hwIDAQAB
 -----END CERTIFICATE-----"#;
+    // spellchecker:on
 
     fn write_temp(contents: &str) -> String {
         let mut rng = rand::rng();
@@ -221,7 +223,7 @@ I6hwIDAQAB
             .expect("add pem")
             .finish()
             .expect("finish");
-        assert!(store.len() >= 1);
+        assert!(!store.is_empty());
     }
 
     #[test]
@@ -232,7 +234,7 @@ I6hwIDAQAB
             .expect("add file")
             .finish()
             .expect("finish");
-        assert!(store.len() >= 1);
+        assert!(!store.is_empty());
         let _ = fs::remove_file(path);
     }
 
@@ -240,39 +242,42 @@ I6hwIDAQAB
     fn test_add_pem_then_file_accumulates() {
         let path = write_temp(TEST_CERT_PEM);
         let store = RootStoreBuilder::new()
-            .add_pem(TEST_CERT_PEM).expect("add pem")
-            .add_file(&path).expect("add file")
-            .finish().expect("finish");
-        assert!(store.len() >= 1);
+            .add_pem(TEST_CERT_PEM)
+            .expect("add pem")
+            .add_file(&path)
+            .expect("add file")
+            .finish()
+            .expect("finish");
+        assert!(!store.is_empty());
         let _ = fs::remove_file(path);
     }
 
     #[tokio::test]
     async fn test_add_source_file_variant() {
         let path = write_temp(TEST_CERT_PEM);
-        let src = TlsSource::File {
-            ca: Some(path.clone()),
-            cert: None,
-            key: None,
-        };
+        let src = CaSource::File { path: path.clone() };
         let store = RootStoreBuilder::new()
-            .add_source(&src).await.expect("add source")
-            .finish().expect("finish");
-        assert!(store.len() >= 1);
+            .add_source(&src)
+            .await
+            .expect("add source")
+            .finish()
+            .expect("finish");
+        assert!(!store.is_empty());
         let _ = fs::remove_file(path);
     }
 
     #[tokio::test]
     async fn test_add_source_pem_variant() {
-        let src = TlsSource::Pem {
-            ca: Some(TEST_CERT_PEM.to_string()),
-            cert: None,
-            key: None,
+        let src = CaSource::Pem {
+            data: TEST_CERT_PEM.to_string(),
         };
         let store = RootStoreBuilder::new()
-            .add_source(&src).await.expect("add source")
-            .finish().expect("finish");
-        assert!(store.len() >= 1);
+            .add_source(&src)
+            .await
+            .expect("add source")
+            .finish()
+            .expect("finish");
+        assert!(!store.is_empty());
     }
 
     #[test]

@@ -123,32 +123,6 @@ impl StaticCertResolver {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
-pub struct PemSources {
-    /// PEM encoded CA bundle
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ca: Option<String>,
-    /// PEM encoded end-entity certificate
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cert: Option<String>,
-    /// PEM encoded private key
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub key: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
-pub struct FileSources {
-    /// Path to CA bundle
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ca: Option<String>,
-    /// Path to certificate
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cert: Option<String>,
-    /// Path to private key
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub key: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
 pub struct SpireSources {
     /// Flattened SPIFFE configuration (socket_path, target_spiffe_id, jwt_audiences, trust_domain)
     #[serde(flatten)]
@@ -159,14 +133,12 @@ pub struct SpireSources {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TlsSource {
     Pem {
-        ca: Option<String>,
-        cert: Option<String>,
-        key: Option<String>,
+        cert: String,
+        key: String,
     },
     File {
-        ca: Option<String>,
-        cert: Option<String>,
-        key: Option<String>,
+        cert: String,
+        key: String,
     },
     Spire {
         config: spiffe::SpiffeConfig,
@@ -180,6 +152,22 @@ impl TlsSource {
     pub fn is_none(&self) -> bool {
         matches!(self, TlsSource::None)
     }
+}
+
+#[derive(Default, Debug, Deserialize, Serialize, PartialEq, Clone, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum CaSource {
+    File {
+        path: String,
+    },
+    Pem {
+        data: String,
+    },
+    Spire {
+        config: spiffe::SpiffeConfig,
+    },
+    #[default]
+    None,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
@@ -196,6 +184,9 @@ pub struct Config {
     #[serde(default)]
     pub source: TlsSource,
 
+    #[serde(default)]
+    pub ca_source: CaSource,
+
     /// If true, also load system root CA certificates
     #[serde(default = "default_include_system_ca_certs_pool")]
     pub include_system_ca_certs_pool: bool,
@@ -211,7 +202,6 @@ pub struct Config {
 // Resolver backed by SPIRE Workload API providing dynamic SVID and bundle refresh.
 pub(crate) struct SpireCertResolver {
     provider: slim_auth::spiffe::SpiffeIdentityManager,
-    enable_mtls: bool,
     crypto_provider: Arc<CryptoProvider>,
 }
 
@@ -246,13 +236,12 @@ impl SpireCertResolver {
 
         Ok(Self {
             provider,
-            enable_mtls: spiffe_cfg.enable_mtls,
             crypto_provider: crypto_provider.clone(),
         })
     }
 
     pub(crate) fn has_certs(&self) -> bool {
-        self.enable_mtls && self.provider.get_x509_svid().is_ok()
+        self.provider.get_x509_svid().is_ok()
     }
 
     pub(crate) fn build_certified_key(&self) -> Result<(Arc<CertifiedKey>, usize), ConfigError> {
@@ -274,22 +263,6 @@ impl SpireCertResolver {
         // Build CertifiedKey from full chain
         let cert_key = to_certified_key(chain_der.clone(), key_der, &self.crypto_provider);
         Ok((Arc::new(cert_key), chain_der.len()))
-    }
-
-    pub(crate) fn load_ca_bundle(&self) -> Result<Vec<CertificateDer<'static>>, ConfigError> {
-        let svid = self
-            .provider
-            .get_x509_svid()
-            .map_err(|e| ConfigError::InvalidFile(e.to_string()))?;
-        let chain = svid.cert_chain();
-        if chain.len() <= 1 {
-            return Ok(Vec::new());
-        }
-        let mut der_chain = Vec::with_capacity(chain.len() - 1);
-        for c in chain.iter().skip(1) {
-            der_chain.push(CertificateDer::from(c.as_ref().to_vec()));
-        }
-        Ok(der_chain)
     }
 }
 
@@ -323,7 +296,7 @@ pub enum ConfigError {
     RootStore(rustls::Error),
     #[error("config builder error")]
     ConfigBuilder(rustls::Error),
-    #[error("missing server cert and key. cert_{{file, pem}} and key_{{file, pem}} must be set")]
+    #[error("missing server cert and key")]
     MissingServerCertAndKey,
     #[error("verifier builder error")]
     VerifierBuilder(VerifierBuilderError),
@@ -339,6 +312,7 @@ impl Default for Config {
     fn default() -> Config {
         Config {
             source: TlsSource::default(),
+            ca_source: CaSource::default(),
             include_system_ca_certs_pool: default_include_system_ca_certs_pool(),
             tls_version: default_tls_version(),
             reload_interval: None,
@@ -357,15 +331,13 @@ fn default_tls_version() -> String {
 }
 
 impl Config {
-    pub(crate) fn with_ca_file(mut self, ca_file: &str) -> Config {
-        match &mut self.source {
-            TlsSource::File { ca, .. } => *ca = Some(ca_file.to_string()),
+    pub(crate) fn with_ca_file(mut self, ca_path: &str) -> Config {
+        match &mut self.ca_source {
+            CaSource::File { path, .. } => *path = ca_path.to_string(),
             _ => {
                 // Replace existing source with File variant
-                self.source = TlsSource::File {
-                    ca: Some(ca_file.to_string()),
-                    cert: None,
-                    key: None,
+                self.ca_source = CaSource::File {
+                    path: ca_path.to_string(),
                 };
             }
         }
@@ -373,16 +345,19 @@ impl Config {
     }
 
     pub(crate) fn with_ca_pem(mut self, ca_pem: &str) -> Config {
-        match &mut self.source {
-            TlsSource::Pem { ca, .. } => *ca = Some(ca_pem.to_string()),
+        match &mut self.ca_source {
+            CaSource::Pem { data, .. } => *data = ca_pem.to_string(),
             _ => {
-                self.source = TlsSource::Pem {
-                    ca: Some(ca_pem.to_string()),
-                    cert: None,
-                    key: None,
+                self.ca_source = CaSource::Pem {
+                    data: ca_pem.to_string(),
                 };
             }
         }
+        self
+    }
+
+    pub(crate) fn with_ca_spiffe(mut self, spiffe: spiffe::SpiffeConfig) -> Config {
+        self.ca_source = CaSource::Spire { config: spiffe };
         self
     }
 
@@ -394,56 +369,32 @@ impl Config {
         self
     }
 
-    pub(crate) fn with_cert_file(mut self, cert_file: &str) -> Config {
+    pub(crate) fn with_cert_and_key_file(mut self, cert_path: &str, key_path: &str) -> Self {
         match &mut self.source {
-            TlsSource::File { cert, .. } => *cert = Some(cert_file.to_string()),
+            TlsSource::File { cert, key, .. } => {
+                *cert = cert_path.to_string();
+                *key = key_path.to_string();
+            }
             _ => {
                 self.source = TlsSource::File {
-                    ca: None,
-                    cert: Some(cert_file.to_string()),
-                    key: None,
+                    cert: cert_path.to_string(),
+                    key: key_path.to_string(),
                 };
             }
         }
         self
     }
 
-    pub(crate) fn with_cert_pem(mut self, cert_pem: &str) -> Config {
+    pub(crate) fn with_cert_and_key_pem(mut self, cert_pem: &str, key_pem: &str) -> Self {
         match &mut self.source {
-            TlsSource::Pem { cert, .. } => *cert = Some(cert_pem.to_string()),
+            TlsSource::Pem { cert, key, .. } => {
+                *cert = cert_pem.to_string();
+                *key = key_pem.to_string();
+            }
             _ => {
                 self.source = TlsSource::Pem {
-                    ca: None,
-                    cert: Some(cert_pem.to_string()),
-                    key: None,
-                };
-            }
-        }
-        self
-    }
-
-    pub(crate) fn with_key_file(mut self, key_file: &str) -> Config {
-        match &mut self.source {
-            TlsSource::File { key, .. } => *key = Some(key_file.to_string()),
-            _ => {
-                self.source = TlsSource::File {
-                    ca: None,
-                    cert: None,
-                    key: Some(key_file.to_string()),
-                };
-            }
-        }
-        self
-    }
-
-    pub(crate) fn with_key_pem(mut self, key_pem: &str) -> Config {
-        match &mut self.source {
-            TlsSource::Pem { key, .. } => *key = Some(key_pem.to_string()),
-            _ => {
-                self.source = TlsSource::Pem {
-                    ca: None,
-                    cert: None,
-                    key: Some(key_pem.to_string()),
+                    cert: cert_pem.to_string(),
+                    key: key_pem.to_string(),
                 };
             }
         }
@@ -469,7 +420,7 @@ impl Config {
 
     /// Unified CA cert pool loader supporting SPIRE CA bundle retrieval.
     /// Delegates to the standalone RootStoreBuilder for clarity.
-    pub async fn load_ca_cert_pool(&self) -> Result<RootCertStore, ConfigError> {
+    pub(crate) async fn load_ca_cert_pool(&self) -> Result<RootCertStore, ConfigError> {
         use crate::tls::root_store_builder::RootStoreBuilder;
         let builder = RootStoreBuilder::new();
 
@@ -479,61 +430,61 @@ impl Config {
             builder
         };
 
-        builder.add_source(&self.source).await?.finish()
+        builder.add_source(&self.ca_source).await?.finish()
     }
 
-    /// Shared root store builder used by both server CA loading and (externally) client CA merging.
-    /// extra_file_ca / extra_pem_ca allow callers (e.g. server.rs) to layer additional client CA sources
-    /// without duplicating parsing logic. extra_spiffe lets callers supply a distinct SPIFFE bundle
-    /// configuration (e.g. client bundle separate from server SVID).
-    /// Extended root store builder that layers additional client CA sources (file / pem / spiffe)
-    /// on top of a base TlsSource. This now relies exclusively on RootStoreBuilder.
-    pub async fn build_root_store(
-        &self,
-        source: &TlsSource,
-        include_system: bool,
-        extra_file_ca: Option<&str>,
-        extra_pem_ca: Option<&str>,
-        extra_spiffe: Option<&spiffe::SpiffeConfig>,
-    ) -> Result<RootCertStore, ConfigError> {
-        use crate::tls::root_store_builder::RootStoreBuilder;
-        let mut builder = RootStoreBuilder::new()
-            .with_system_roots_if(include_system)
-            .add_source(source)
-            .await?;
+    // /// Shared root store builder used by both server CA loading and (externally) client CA merging.
+    // /// extra_file_ca / extra_pem_ca allow callers (e.g. server.rs) to layer additional client CA sources
+    // /// without duplicating parsing logic. extra_spiffe lets callers supply a distinct SPIFFE bundle
+    // /// configuration (e.g. client bundle separate from server SVID).
+    // /// Extended root store builder that layers additional client CA sources (file / pem / spiffe)
+    // /// on top of a base TlsSource. This now relies exclusively on RootStoreBuilder.
+    // pub async fn build_root_store(
+    //     &self,
+    //     source: &TlsSource,
+    //     include_system: bool,
+    //     extra_file_ca: Option<&str>,
+    //     extra_pem_ca: Option<&str>,
+    //     extra_spiffe: Option<&spiffe::SpiffeConfig>,
+    // ) -> Result<RootCertStore, ConfigError> {
+    //     use crate::tls::root_store_builder::RootStoreBuilder;
+    //     let mut builder = RootStoreBuilder::new()
+    //         .with_system_roots_if(include_system)
+    //         .add_source(source)
+    //         .await?;
 
-        if let Some(path) = extra_file_ca {
-            builder = builder.add_file(path)?;
-        }
-        if let Some(pem) = extra_pem_ca {
-            builder = builder.add_pem(pem)?;
-        }
-        if let Some(spiffe_cfg) = extra_spiffe {
-            builder = builder.add_spiffe(spiffe_cfg).await?;
-        }
-        builder.finish()
-    }
+    //     if let Some(path) = extra_file_ca {
+    //         builder = builder.add_file(path)?;
+    //     }
+    //     if let Some(pem) = extra_pem_ca {
+    //         builder = builder.add_pem(pem)?;
+    //     }
+    //     if let Some(spiffe_cfg) = extra_spiffe {
+    //         builder = builder.add_spiffe(spiffe_cfg).await?;
+    //     }
+    //     builder.finish()
+    // }
 
     /// Unified presence check for CA / Cert / Key across File, Pem, and Spire sources.
     pub fn has(&self, component: TlsComponent) -> bool {
         match component {
-            TlsComponent::Ca => match &self.source {
-                TlsSource::File { ca: Some(_), .. }
-                | TlsSource::Pem { ca: Some(_), .. }
-                | TlsSource::Spire { .. } => true,
-                _ => false,
+            TlsComponent::Ca => match &self.ca_source {
+                CaSource::File { path } => !path.is_empty(),
+                CaSource::Pem { data } => !data.is_empty(),
+                CaSource::Spire { .. } => true,
+                CaSource::None => false,
             },
             TlsComponent::Cert => match &self.source {
-                TlsSource::File { cert: Some(_), .. } | TlsSource::Pem { cert: Some(_), .. } => {
-                    true
-                }
-                TlsSource::Spire { .. } => true, // SPIFFE provides SVID leaf cert dynamically
-                _ => false,
+                TlsSource::File { cert, .. } => !cert.is_empty(),
+                TlsSource::Pem { cert, .. } => !cert.is_empty(),
+                TlsSource::Spire { .. } => true,
+                TlsSource::None => false,
             },
             TlsComponent::Key => match &self.source {
-                TlsSource::File { key: Some(_), .. } | TlsSource::Pem { key: Some(_), .. } => true,
-                TlsSource::Spire { .. } => true, // SPIFFE resolver can supply private key
-                _ => false,
+                TlsSource::File { key, .. } => !key.is_empty(),
+                TlsSource::Pem { key, .. } => !key.is_empty(),
+                TlsSource::Spire { .. } => true,
+                TlsSource::None => false,
             },
         }
     }
@@ -690,29 +641,16 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
     }
 
     #[test]
-    fn test_has_unified_cert() {
+    fn test_has_unified_cert_and_key() {
         let base = Config::default();
         assert!(!base.has(TlsComponent::Cert));
 
-        let cert_file_cfg = base.clone().with_cert_file("/path/to/server.crt");
-        assert!(cert_file_cfg.has(TlsComponent::Cert));
+        let base = base.with_cert_and_key_file("/path/to/server.crt", "/path/to/key");
+        assert!(base.has(TlsComponent::Cert));
 
-        let cert_pem_cfg = base.with_cert_pem("cert_pem_content");
-        assert!(cert_pem_cfg.has(TlsComponent::Cert));
+        let base = base.with_cert_and_key_pem("cert_pem_content", "key_pem_content");
+        assert!(base.has(TlsComponent::Cert));
     }
-
-    #[test]
-    fn test_has_unified_key() {
-        let base = Config::default();
-        assert!(!base.has(TlsComponent::Key));
-
-        let key_file_cfg = base.clone().with_key_file("/path/to/server.key");
-        assert!(key_file_cfg.has(TlsComponent::Key));
-
-        let key_pem_cfg = base.with_key_pem("key_pem_content");
-        assert!(key_pem_cfg.has(TlsComponent::Key));
-    }
-
     // Removed granular has_key_file test (covered by unified key test)
 
     // Removed granular has_key_pem test (covered by unified key test)

@@ -541,7 +541,7 @@ plugins {{
     }
 
     /// Get the DNS name for the target service
-    pub fn server_name(&self) -> &str {
+    pub fn dns_name(&self) -> &str {
         &self.dns_name
     }
 

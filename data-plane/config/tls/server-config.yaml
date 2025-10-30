@@ -17,7 +17,9 @@ services:
       servers:
       - endpoint: "0.0.0.0:46357"
         tls:
-          cert_file: "./config/crypto/server-cert.pem"
-          key_file: "./config/crypto/server-key.pem"
+          source:
+            type: file
+            cert: ./config/crypto/server-cert.pem
+            key: ./config/crypto/server-key.pem
 
       clients: []

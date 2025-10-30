@@ -206,8 +206,7 @@ mod tests {
         let server_config = ServerConfig::with_endpoint("[::1]:50052").with_tls_settings(
             TlsServerConfig::new()
                 .with_insecure(false)
-                .with_cert_pem(&cert)
-                .with_key_pem(&key),
+                .with_cert_and_key_pem(&cert, &key),
         );
 
         // run grpc server and client
@@ -243,8 +242,7 @@ mod tests {
             .with_tls_settings(
                 TlsServerConfig::new()
                     .with_insecure(false)
-                    .with_cert_pem(&cert)
-                    .with_key_pem(&key),
+                    .with_cert_and_key_pem(&cert, &key),
             )
             .with_auth(auth_server_config);
 
@@ -804,6 +802,8 @@ mod tests {
         // Unified SPIFFE config (socket path + audiences)
         let spiffe_cfg = env.get_spiffe_config();
 
+        // TEST 1: SPIFFE TLS without client authentication
+
         // Server TLS config uses dynamic SPIFFE resolver (no cert/key files)
         let server_tls = TlsServerConfig::new()
             .with_spiffe(spiffe_cfg.clone())
@@ -814,17 +814,95 @@ mod tests {
 
         // Client TLS config uses dynamic SPIFFE client cert resolver (no cert/key injection)
         let client_tls = TlsClientConfig::new()
-            .with_spiffe(spiffe_cfg.clone())
+            .with_ca_spire(spiffe_cfg.clone())
             .with_tls_version("tls1.3");
 
         let client_config = ClientConfig::with_endpoint("https://[::1]:50071")
             .with_tls_setting(client_tls)
-            .with_server_name(env.server_name());
+            .with_server_name(env.dns_name());
 
         // Perform round‑trip; cleanup on failure
         if let Err(e) = setup_client_and_server(client_config, server_config).await {
             let _ = env.cleanup().await;
             return Err(e);
+        }
+
+        // TEST 2: SPIFFE mTLS with client authentication
+
+        // Server TLS config uses dynamic SPIFFE resolver (no cert/key files)
+        let server_tls = TlsServerConfig::new()
+            .with_spiffe(spiffe_cfg.clone())
+            .with_client_ca_spire(spiffe_cfg.clone())
+            .with_tls_version("tls1.3");
+
+        let server_config =
+            ServerConfig::with_endpoint("[::1]:50072").with_tls_settings(server_tls);
+
+        // Client TLS config uses dynamic SPIFFE client cert resolver (no cert/key injection)
+        let client_tls = TlsClientConfig::new()
+            .with_ca_spire(spiffe_cfg.clone())
+            .with_cert_and_key_spire(spiffe_cfg.clone())
+            .with_tls_version("tls1.3");
+
+        let client_config = ClientConfig::with_endpoint("https://[::1]:50072")
+            .with_tls_setting(client_tls)
+            .with_server_name(env.dns_name());
+
+        // Perform round‑trip; cleanup on failure
+        if let Err(e) = setup_client_and_server(client_config, server_config).await {
+            let _ = env.cleanup().await;
+            return Err(e);
+        }
+
+        // TEST 3: SPIFFE mTLS with different client_ca on server side (should fail)
+
+        // Server TLS config uses dynamic SPIFFE resolver (no cert/key files)
+        let server_tls = TlsServerConfig::new()
+            .with_spiffe(spiffe_cfg.clone())
+            .with_client_ca_file(&(TEST_DATA_PATH.to_string() + "/tls/ca-1.crt"))
+            .with_tls_version("tls1.3");
+
+        let server_config =
+            ServerConfig::with_endpoint("[::1]:50073").with_tls_settings(server_tls);
+
+        // Client TLS config uses dynamic SPIFFE client cert resolver (no cert/key injection)
+        let client_tls = TlsClientConfig::new()
+            .with_ca_spire(spiffe_cfg.clone())
+            .with_cert_and_key_spire(spiffe_cfg.clone())
+            .with_tls_version("tls1.3");
+
+        let client_config = ClientConfig::with_endpoint("https://[::1]:50073")
+            .with_tls_setting(client_tls)
+            .with_server_name(env.dns_name());
+
+        // Perform round‑trip; expect failure
+        if let Ok(_) = setup_client_and_server(client_config, server_config).await {
+            let _ = env.cleanup().await;
+            return Err("expected failure due to missing client CA on server side".into());
+        }
+
+        // TEST 4: SPIFFE TLS with no CA on client side (should fail)
+
+        // Server TLS config uses dynamic SPIFFE resolver (no cert/key files)
+        let server_tls = TlsServerConfig::new()
+            .with_spiffe(spiffe_cfg.clone())
+            .with_tls_version("tls1.3");
+
+        let server_config =
+            ServerConfig::with_endpoint("[::1]:50074").with_tls_settings(server_tls);
+
+        // Client TLS config uses dynamic SPIFFE client cert resolver (no cert/key injection)
+        let client_tls = TlsClientConfig::new()
+            .with_tls_version("tls1.3");
+
+        let client_config = ClientConfig::with_endpoint("https://[::1]:50074")
+            .with_tls_setting(client_tls)
+            .with_server_name(env.dns_name());
+
+        // Perform round‑trip; expect failure
+        if let Ok(_) = setup_client_and_server(client_config, server_config).await {
+            let _ = env.cleanup().await;
+            return Err("expected failure due to missing CA on client side".into());
         }
 
         // Cleanup (propagate error if cleanup itself fails)

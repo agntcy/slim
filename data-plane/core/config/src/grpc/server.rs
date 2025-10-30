@@ -542,12 +542,11 @@ mod tests {
         // drop it, as we have a server listening on the port now
         drop(ret.unwrap());
 
-        // Set insecure to false and configure certificate/key via TlsSource::File
+        // Set insecure to false and configure certificate/key via TlsSource::File (updated API)
         server_config.tls_setting.insecure = false;
         server_config.tls_setting.config.source = TlsSource::File {
-            ca: None,
-            cert: Some(format!("{}/server.crt", TEST_DATA_PATH)),
-            key: Some(format!("{}/server.key", TEST_DATA_PATH)),
+            cert: format!("{}/server.crt", TEST_DATA_PATH),
+            key: format!("{}/server.key", TEST_DATA_PATH),
         };
         let ret = server_config
             .to_server_future(&[GreeterServer::from_arc(empty_service.clone())])

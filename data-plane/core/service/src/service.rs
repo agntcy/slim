@@ -192,8 +192,8 @@ impl Service {
 
         // Run clients
         for client in self.config.clients().iter() {
-            info!("connecting client to {}", client.endpoint);
             _ = self.connect(client).await?;
+            info!("client connected to {}", client.endpoint);
         }
 
         // Controller service
