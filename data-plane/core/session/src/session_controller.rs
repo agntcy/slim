@@ -75,7 +75,6 @@ where
         id: u32,
         source: Name,
         destination: Name,
-        conn: Option<u64>,
         config: SessionConfig,
         identity_provider: P,
         identity_verifier: V,
@@ -90,7 +89,6 @@ where
                 id,
                 source.clone(),
                 destination.clone(),
-                conn,
                 config,
                 identity_provider,
                 identity_verifier,
@@ -103,7 +101,6 @@ where
                 id,
                 source.clone(),
                 destination.clone(),
-                conn,
                 config,
                 identity_provider,
                 identity_verifier,
@@ -375,9 +372,6 @@ pub struct SessionControllerCommon {
     /// in case of remote the name the id may be updated after the discovery phase
     destination: Name,
 
-    /// connection with the remote slim node where to send/recv messages
-    conn: Option<u64>,
-
     /// session configuration
     config: SessionConfig,
 
@@ -407,7 +401,6 @@ impl SessionControllerCommon {
         id: u32,
         source: Name,
         destination: Name,
-        conn: Option<u64>,
         config: SessionConfig,
         tx: SessionTransmitter,
         tx_controller: tokio::sync::mpsc::Sender<SessionMessage>,
@@ -441,7 +434,6 @@ impl SessionControllerCommon {
             id,
             source,
             destination,
-            conn,
             config,
             sender: controller_sender,
             tx,
@@ -478,23 +470,23 @@ impl SessionControllerCommon {
         self.sender.on_message(&message).await
     }
 
-    async fn set_route(&self, name: &Name) -> Result<(), SessionError> {
+    async fn set_route(&self, name: &Name, conn: u64) -> Result<(), SessionError> {
         let route = Message::new_subscribe(
             &self.source,
             name,
             None,
-            Some(SlimHeaderFlags::default().with_recv_from(self.conn.unwrap())),
+            Some(SlimHeaderFlags::default().with_recv_from(conn)),
         );
 
         self.send_to_slim(route).await
     }
 
-    async fn delete_route(&self, name: &Name) -> Result<(), SessionError> {
+    async fn delete_route(&self, name: &Name, conn: u64) -> Result<(), SessionError> {
         let route = Message::new_unsubscribe(
             &self.source,
             name,
             None,
-            Some(SlimHeaderFlags::default().with_recv_from(self.conn.unwrap())),
+            Some(SlimHeaderFlags::default().with_recv_from(conn)),
         );
 
         self.send_to_slim(route).await
@@ -569,7 +561,6 @@ where
         id: u32,
         source: Name,
         destination: Name,
-        conn: Option<u64>,
         config: SessionConfig,
         identity_provider: P,
         identity_verifier: V,
@@ -584,7 +575,6 @@ where
             id,
             source,
             destination,
-            conn,
             config,
             identity_provider,
             identity_verifier,
@@ -648,7 +638,6 @@ where
         id: u32,
         source: Name,
         destination: Name,
-        conn: Option<u64>,
         config: SessionConfig,
         identity_provider: P,
         identity_verifier: V,
@@ -676,7 +665,6 @@ where
             id,
             source,
             destination,
-            conn,
             config,
             tx,
             tx_controller,
@@ -775,14 +763,19 @@ where
     }
 
     async fn on_join_request(&mut self, msg: Message) -> Result<(), SessionError> {
-        debug!("received a join request");
+        debug!(
+            "received join request on {} with id {}",
+            self.common.source,
+            msg.get_id()
+        );
         // set local state with the moderator params
         let source = msg.get_source();
         self.moderator_name = Some(source.clone());
-        self.common.conn = Some(msg.get_incoming_conn());
 
         // set route in order to be able to send packets to the moderator
-        self.common.set_route(&source).await?;
+        self.common
+            .set_route(&source, msg.get_incoming_conn())
+            .await?;
 
         // send reply to the moderator
         let payload = if self.mls_state.is_some() {
@@ -791,10 +784,6 @@ where
             let key = self.mls_state.as_mut().unwrap().generate_key_package()?;
             Some(key)
         } else {
-            // without MLS we can set the state for the channel
-            // otherwise the endpoint needs to receive a
-            // welcome message first
-            self.join().await?;
             None
         };
 
@@ -814,7 +803,11 @@ where
     }
 
     async fn on_welcome(&mut self, msg: Message) -> Result<(), SessionError> {
-        debug!("process welcome message");
+        debug!(
+            "received welcome on {} with id {}",
+            self.common.source,
+            msg.get_id()
+        );
 
         if self.mls_state.is_some() {
             self.mls_state
@@ -824,7 +817,7 @@ where
         }
 
         // set route for the channel name
-        self.join().await?;
+        self.join(&msg).await?;
 
         // setup the local participant list
         let list = msg
@@ -864,6 +857,11 @@ where
         msg: Message,
         add: bool,
     ) -> Result<(), SessionError> {
+        debug!(
+            "received update on {} with id {}",
+            self.common.source,
+            msg.get_id()
+        );
         // process the control message
         if self.mls_state.is_some() {
             debug!("process mls control update");
@@ -943,7 +941,7 @@ where
         self.common.send_to_slim(reply).await?;
 
         // leave the channel
-        self.leave().await?;
+        self.leave(&msg).await?;
 
         // notify the session layer that the session can be removed
         self.common
@@ -961,7 +959,7 @@ where
     }
 
     /// helper functions
-    async fn join(&mut self) -> Result<(), SessionError> {
+    async fn join(&mut self, msg: &Message) -> Result<(), SessionError> {
         if self.subscribed {
             return Ok(());
         }
@@ -976,36 +974,43 @@ where
         }
 
         // set route and subscription for the group name
-        self.common.set_route(&self.common.destination).await?;
+        self.common
+            .set_route(&self.common.destination, msg.get_incoming_conn())
+            .await?;
         let sub = Message::new_subscribe(
             &self.common.source,
             &self.common.destination,
             None,
-            Some(SlimHeaderFlags::default().with_forward_to(self.common.conn.unwrap())),
+            Some(SlimHeaderFlags::default().with_forward_to(msg.get_incoming_conn())),
         );
 
         self.common.send_to_slim(sub).await
     }
 
-    async fn leave(&self) -> Result<(), SessionError> {
+    async fn leave(&self, msg: &Message) -> Result<(), SessionError> {
         // delete route to the remote endpoint
-        self.common.delete_route(&self.common.destination).await?;
+        self.common
+            .delete_route(&self.common.destination, msg.get_incoming_conn())
+            .await?;
 
-        // we need to setup the network only in case of multicast session
+        // we need to clean the network only in case of multicast session
         if self.common.config.session_type == ProtoSessionType::PointToPoint {
             // simply return
             return Ok(());
         }
 
-        // set route for the moderator and unsubscribe for the group name
+        // delete route for the moderator and unsubscribe for the group name
         self.common
-            .delete_route(self.moderator_name.as_ref().unwrap())
+            .delete_route(
+                self.moderator_name.as_ref().unwrap(),
+                msg.get_incoming_conn(),
+            )
             .await?;
         let sub = Message::new_unsubscribe(
             &self.common.source,
             &self.common.destination,
             None,
-            Some(SlimHeaderFlags::default().with_forward_to(self.common.conn.unwrap())),
+            Some(SlimHeaderFlags::default().with_forward_to(msg.get_incoming_conn())),
         );
 
         self.common.send_to_slim(sub).await
@@ -1022,7 +1027,6 @@ where
         id: u32,
         source: Name,
         destination: Name,
-        conn: Option<u64>,
         config: SessionConfig,
         identity_provider: P,
         identity_verifier: V,
@@ -1037,7 +1041,6 @@ where
             id,
             source,
             destination,
-            conn,
             config,
             identity_provider,
             identity_verifier,
@@ -1128,7 +1131,6 @@ where
         id: u32,
         source: Name,
         destination: Name,
-        conn: Option<u64>,
         config: SessionConfig,
         identity_provider: P,
         identity_verifier: V,
@@ -1156,7 +1158,6 @@ where
             id,
             source,
             destination,
-            conn,
             config,
             tx,
             tx_controller,
@@ -1334,12 +1335,11 @@ where
 
         let mut discovery = match payload.destination {
             Some(dst_name) => {
-                // set the connection id if not done yet
-                self.common.conn = Some(msg.get_incoming_conn());
-
                 // set the route to forward the messages correctly
+                // here we assume that the destination is reachable from the
+                // same connection from where we got the message from the controller
                 let dst = Name::from(&dst_name);
-                self.common.set_route(&dst).await?;
+                self.common.set_route(&dst, msg.get_incoming_conn()).await?;
 
                 // create a new empty payload and change the message destination
                 let p = CommandPayload::new_discovery_request_payload(None).as_content();
@@ -1359,12 +1359,21 @@ where
         discovery.get_session_header_mut().set_message_id(id);
         self.current_task.as_mut().unwrap().discovery_start(id)?;
 
+        debug!(
+            "send discovery request to {} with id {}",
+            discovery.get_dst(),
+            discovery.get_id()
+        );
         // send the message
         self.common.send_with_timer(discovery).await
     }
 
     async fn on_discovery_reply(&mut self, msg: Message) -> Result<(), SessionError> {
-        debug!("received discovery reply");
+        debug!(
+            "discovery reply coming from {} with id {}",
+            msg.get_source(),
+            msg.get_id()
+        );
         // update sender status to stop timers
         self.common.sender.on_message(&msg).await?;
 
@@ -1379,7 +1388,19 @@ where
         self.join(msg.get_source(), msg.get_incoming_conn()).await?;
 
         // set a route to the remote participant
-        self.common.set_route(&msg.get_source()).await?;
+        self.common
+            .set_route(&msg.get_source(), msg.get_incoming_conn())
+            .await?;
+
+        // if this is a multicast session we need to add a route for the channel
+        // on the connection from where we received the message. This has to be done
+        // all the times because the messages from the remote endpoints may come from
+        // different connections. In case the route exists already it will be just ignored
+        if self.common.config.session_type == ProtoSessionType::Multicast {
+            self.common
+                .set_route(&self.common.destination, msg.get_incoming_conn())
+                .await?;
+        }
 
         // an endpoint replied to the discovery message
         // send a join message
@@ -1399,6 +1420,11 @@ where
         )
         .as_content();
 
+        debug!(
+            "send join request to {} with id {}",
+            msg.get_slim_header().get_source(),
+            msg_id
+        );
         self.common
             .send_control_message(
                 &msg.get_slim_header().get_source(),
@@ -1415,7 +1441,11 @@ where
     }
 
     async fn on_join_reply(&mut self, msg: Message) -> Result<(), SessionError> {
-        debug!("process join reply");
+        debug!(
+            "join reply coming from {} with id {}",
+            msg.get_source(),
+            msg.get_id()
+        );
         // stop the timer for the join request
         self.common.sender.on_message(&msg).await?;
 
@@ -1481,6 +1511,7 @@ where
             )
             .as_content();
             let add_msg_id = rand::random::<u32>();
+            debug!("send add update to channel with id {}", add_msg_id);
             self.common
                 .send_control_message(
                     &self.common.destination.clone(),
@@ -1509,6 +1540,11 @@ where
         let welcome_msg_id = rand::random::<u32>();
         let welcome_payload =
             CommandPayload::new_group_welcome_payload(participants_vec, welcome).as_content();
+        debug!(
+            "send welcome message to {} with id {}",
+            msg.get_slim_header().get_source(),
+            welcome_msg_id
+        );
         self.common
             .send_control_message(
                 &msg.get_slim_header().get_source(),
@@ -1712,6 +1748,11 @@ where
         debug!("process leave reply");
         let msg_id = msg.get_id();
 
+        // delete the route to the source of the message
+        self.common
+            .delete_route(&msg.get_source(), msg.get_incoming_conn())
+            .await?;
+
         // notify the sender and see if we can pick another task
         self.common.sender.on_message(&msg).await?;
         if !self.common.sender.is_still_pending(msg_id) {
@@ -1722,7 +1763,11 @@ where
     }
 
     async fn on_group_ack(&mut self, msg: Message) -> Result<(), SessionError> {
-        debug!("process group ack");
+        debug!(
+            "got group ack from {} with id {}",
+            msg.get_source(),
+            msg.get_id()
+        );
         // notify the sender
         self.common.sender.on_message(&msg).await?;
 
@@ -1819,32 +1864,27 @@ where
         Box::pin(self.process_control_message(msg)).await
     }
 
-    async fn join(&mut self, remote: Name, in_conn: u64) -> Result<(), SessionError> {
+    async fn join(&mut self, remote: Name, conn: u64) -> Result<(), SessionError> {
         if self.subscribed {
             return Ok(());
         }
 
         self.subscribed = true;
 
-        self.common.conn = Some(in_conn);
-
-        // if this is a multicast session we need to subscribe for the channel name
-        // otherwise we update the destination name with the full name of the remote participant
-        if self.common.config.session_type == ProtoSessionType::Multicast {
-            // subscribe for the channel
+        // if this is a point to point connection set the remote name so that we
+        // can add also the right id to the message destination name
+        if self.common.config.session_type == ProtoSessionType::PointToPoint {
+            self.common.destination = remote;
+        } else {
+            // if this is a multicast session we need to subscribe for the channel name
             let sub = Message::new_subscribe(
                 &self.common.source,
                 &self.common.destination,
                 None,
-                Some(SlimHeaderFlags::default().with_forward_to(self.common.conn.unwrap())),
+                Some(SlimHeaderFlags::default().with_forward_to(conn)),
             );
 
             self.common.send_to_slim(sub).await?;
-
-            // set the route for the channel
-            self.common.set_route(&self.common.destination).await?;
-        } else {
-            self.common.destination = remote;
         }
 
         // create mls group if needed
@@ -1863,11 +1903,6 @@ where
     async fn send_close_signal(&mut self) {
         // TODO check if the senders/receivers are happy as well
         debug!("Signal session layer to close the session, all tasks are done");
-
-        // delete route for the channel
-        if let Err(e) = self.common.delete_route(&self.common.destination).await {
-            error!("error with removing route {}", e);
-        }
 
         // notify the session layer
         let res = self
@@ -1938,7 +1973,6 @@ mod tests {
             session_id,
             moderator_name.clone(),
             participant_name.clone(),
-            None,
             moderator_config,
             SharedSecret::new("moderator", SHARED_SECRET),
             SharedSecret::new("moderator", SHARED_SECRET),
@@ -1969,7 +2003,6 @@ mod tests {
             session_id,
             participant_name_id.clone(),
             moderator_name.clone(),
-            None,
             participant_config,
             SharedSecret::new("participant", SHARED_SECRET),
             SharedSecret::new("participant", SHARED_SECRET),
@@ -2234,6 +2267,7 @@ mod tests {
             app_msg_received.is_publish(),
             "message should be a publish message"
         );
+
         let content = app_msg_received
             .get_payload()
             .unwrap()
@@ -2365,9 +2399,23 @@ mod tests {
             .await
             .expect("error processing leave reply on moderator");
 
+        // expect a remove route for the participant name
+        let delete_route = timeout(Duration::from_millis(100), rx_slim_moderator.recv())
+            .await
+            .expect("timeout waiting for delete route on participant slim channel")
+            .expect("channel closed")
+            .expect("error in delete route");
+
+        assert!(
+            delete_route.is_unsubscribe(),
+            "delete route should be an unsubscribe message"
+        );
+        assert_eq!(delete_route.get_dst(), participant_name_id);
+
         // check that no other messages are generated by the moderator
         let no_more_moderator_final =
             timeout(Duration::from_millis(100), rx_slim_moderator.recv()).await;
+
         assert!(
             no_more_moderator_final.is_err(),
             "Expected no more messages on moderator slim channel after leave"

@@ -171,7 +171,6 @@ where
         local_name: Name,
         destination: Name,
         id: Option<u32>,
-        conn: Option<u64>,
     ) -> Result<SessionContext<P, V>, SessionError> {
         // TODO(msardara): the session identifier should be a combination of the
         // session ID and the app ID, to prevent collisions.
@@ -220,7 +219,6 @@ where
             id,
             local_name,
             destination,
-            conn,
             session_config,
             self.identity_provider.clone(),
             self.identity_verifier.clone(),
@@ -399,6 +397,8 @@ where
                 let local_name =
                     self.get_local_name_for_session(message.get_slim_header().get_dst())?;
 
+                println!("received discovery request on {}", local_name);
+
                 return self
                     .handle_message_from_slim_without_session(
                         &local_name,
@@ -456,7 +456,6 @@ where
                             local_name,
                             message.get_source(),
                             Some(message.get_session_header().session_id),
-                            Some(message.get_incoming_conn()),
                         )
                         .await?
                     }
@@ -495,7 +494,6 @@ where
                             local_name,
                             channel,
                             Some(message.get_session_header().session_id),
-                            Some(message.get_incoming_conn()),
                         )
                         .await?
                     }

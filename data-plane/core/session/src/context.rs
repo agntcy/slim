@@ -173,7 +173,6 @@ mod tests {
             id,
             source,
             destination,
-            None, // conn
             cfg,
             DummyProvider,
             DummyVerifier,

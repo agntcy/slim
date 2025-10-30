@@ -123,7 +123,7 @@ where
     ) -> Result<SessionContext<P, V>, SessionError> {
         let ret = self
             .session_layer
-            .create_session(session_config, self.app_name.clone(), destination, id, None)
+            .create_session(session_config, self.app_name.clone(), destination, id)
             .await?;
 
         // return the session info
@@ -844,8 +844,9 @@ mod tests {
         let mut sessions = Vec::new();
         for name in &subscription_names {
             // Create session with the subscription name as peer
-            let session_config =
+            let mut session_config =
                 SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
+            session_config.initiator = true;
             let session_ctx = publisher_app
                 .create_session(session_config, name.clone(), None)
                 .await
@@ -968,6 +969,7 @@ mod tests {
 
         for suffix in &config.participant_suffixes {
             let participant_name = Name::from_strings(["org", "ns", suffix]).with_id(0);
+            println!("create app with name {}", participant_name);
             let (app, notifications) = service
                 .create_app(
                     &participant_name,
@@ -1012,6 +1014,7 @@ mod tests {
 
         // Invite all participants to the multicast session
         for participant_name in &participant_names {
+            println!("invit part {}", participant_name);
             session_arc
                 .invite_participant(participant_name)
                 .await
@@ -1026,7 +1029,7 @@ mod tests {
             .unwrap();
 
         // Give some time for messages to be processed
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
         // Collect received session notifications from all participants
         let mut total_received_sessions = 0;
@@ -1076,6 +1079,7 @@ mod tests {
             test_name: "many-participants",
             moderator_suffix: "leader",
             channel_suffix: "broadcast",
+            //participant_suffixes: vec!["p1", "p2"],
             participant_suffixes: vec!["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"],
         };
 

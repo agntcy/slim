@@ -522,8 +522,9 @@ mod tests {
         // subscription is done automatically.
 
         // create a point to point session
-        let config = SessionConfig::default()
+        let mut config = SessionConfig::default()
             .with_session_type(slim_datapath::api::ProtoSessionType::PointToPoint);
+        config.initiator = true;
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let send_session = pub_app.create_session(config, dst, None).await.unwrap();
 
