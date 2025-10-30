@@ -3,6 +3,7 @@ package routes
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"sync"
 	"testing"
@@ -22,6 +23,7 @@ import (
 type CommandHandlerMock struct {
 	mu        sync.Mutex
 	sendCalls []sendCall
+	delay     int // milliseconds
 }
 
 type sendCall struct {
@@ -49,6 +51,9 @@ func (m *CommandHandlerMock) UpdateConnectionStatus(_ context.Context,
 }
 func (m *CommandHandlerMock) WaitForResponse(_ context.Context,
 	_ string, _ reflect.Type, messageID string) (*controllerapi.ControlMessage, error) {
+	if m.delay > 0 {
+		time.Sleep(time.Duration(m.delay) * time.Millisecond)
+	}
 	// Always return a successful ACK
 	return &controllerapi.ControlMessage{
 		Payload: &controllerapi.ControlMessage_Ack{
@@ -61,6 +66,9 @@ func (m *CommandHandlerMock) WaitForResponse(_ context.Context,
 }
 func (m *CommandHandlerMock) WaitForResponseWithTimeout(_ context.Context,
 	_ string, _ reflect.Type, messageID string, _ time.Duration) (*controllerapi.ControlMessage, error) {
+	if m.delay > 0 {
+		time.Sleep(time.Duration(m.delay) * time.Millisecond)
+	}
 	// Always return a successful ACK
 	return &controllerapi.ControlMessage{
 		Payload: &controllerapi.ControlMessage_Ack{
@@ -84,7 +92,8 @@ func (m *CommandHandlerMock) Reset() {
 
 func TestRouteService_AddRoutes(t *testing.T) {
 	rConfig := config.ReconcilerConfig{
-		Threads: 1,
+		MaxNumOfParallelReconciles: 10,
+		MaxRequeues:                0,
 	}
 
 	ctx := util.GetContextWithLogger(context.Background(), config.LogConfig{
@@ -192,7 +201,8 @@ func TestRouteService_AddAndThenDeleteRoutes(t *testing.T) {
 		Level: "debug",
 	})
 	rConfig := config.ReconcilerConfig{
-		Threads: 1,
+		MaxNumOfParallelReconciles: 10,
+		MaxRequeues:                0,
 	}
 	dbService := db.NewInMemoryDBService()
 	cmdHandler := &CommandHandlerMock{}
@@ -315,7 +325,8 @@ func TestRouteService_AddRoute_Validation(t *testing.T) {
 	dbService := db.NewInMemoryDBService()
 	cmdHandler := &CommandHandlerMock{}
 	rConfig := config.ReconcilerConfig{
-		Threads: 1,
+		MaxNumOfParallelReconciles: 10,
+		MaxRequeues:                0,
 	}
 	routeService := NewRouteService(dbService, cmdHandler, rConfig)
 
@@ -338,7 +349,8 @@ func TestRouteService_AddRoute_SameSourceAndDestValidation(t *testing.T) {
 	dbService := db.NewInMemoryDBService()
 	cmdHandler := &CommandHandlerMock{}
 	rConfig := config.ReconcilerConfig{
-		Threads: 1,
+		MaxNumOfParallelReconciles: 10,
+		MaxRequeues:                0,
 	}
 	routeService := NewRouteService(dbService, cmdHandler, rConfig)
 
@@ -360,7 +372,8 @@ func TestRouteService_DeleteRoute_Validation(t *testing.T) {
 	dbService := db.NewInMemoryDBService()
 	cmdHandler := &CommandHandlerMock{}
 	rConfig := config.ReconcilerConfig{
-		Threads: 1,
+		MaxNumOfParallelReconciles: 10,
+		MaxRequeues:                0,
 	}
 	routeService := NewRouteService(dbService, cmdHandler, rConfig)
 
@@ -535,4 +548,126 @@ func TestSelectConnection(t *testing.T) {
 			require.Equal(t, tt.expectedLocal, gotLocal, tt.description)
 		})
 	}
+}
+
+// getSendCallsForNode returns all sendCalls for a specific nodeID
+func getSendCallsForNode(cmdHandler *CommandHandlerMock, nodeID string) []sendCall {
+	cmdHandler.mu.Lock()
+	defer cmdHandler.mu.Unlock()
+
+	var calls []sendCall
+	for _, call := range cmdHandler.sendCalls {
+		if call.nodeID == nodeID {
+			calls = append(calls, call)
+		}
+	}
+
+	return calls
+}
+
+func TestRouteReconciler_SameNodeIDSerialProcessing(t *testing.T) {
+	ctx := util.GetContextWithLogger(context.Background(), config.LogConfig{
+		Level: "debug",
+	})
+	rConfig := config.ReconcilerConfig{
+		MaxNumOfParallelReconciles: 1000, // High limit to focus on same NodeID serialization
+		MaxRequeues:                0,
+	}
+	dbService := db.NewInMemoryDBService()
+	cmdHandler := &CommandHandlerMock{
+		delay: 3000, // 3000ms delay to simulate processing time
+	}
+
+	routeService := NewRouteService(dbService, cmdHandler, rConfig)
+	addNodes(ctx, t, dbService, routeService)
+
+	// Add multiple routes for the same node
+	route1 := Route{
+		SourceNodeID: "node1",
+		DestNodeID:   "node2",
+		Component0:   "org",
+		Component1:   "ns",
+		Component2:   "client_1",
+		ComponentID:  &wrapperspb.UInt64Value{Value: 1},
+	}
+	route2 := Route{
+		SourceNodeID: "node2",
+		DestNodeID:   "node1",
+		Component0:   "org",
+		Component1:   "ns",
+		Component2:   "client_2",
+		ComponentID:  &wrapperspb.UInt64Value{Value: 2},
+	}
+
+	require.NoError(t, routeService.Start(ctx))
+
+	_, err := routeService.AddRoute(ctx, route1)
+	require.NoError(t, err)
+	// Wait for processing to complete
+	time.Sleep(100 * time.Millisecond)
+	node1Calls := getSendCallsForNode(cmdHandler, "node1")
+	require.Equal(t, 1, len(node1Calls), "node1 should have received only one call")
+
+	_, err = routeService.AddRoute(ctx, route2)
+	require.NoError(t, err)
+	// Wait for processing to complete
+	time.Sleep(100 * time.Millisecond)
+	node2Calls := getSendCallsForNode(cmdHandler, "node2")
+	require.Equal(t, 1, len(node2Calls), "node2 should have received only one call")
+
+	// trigger reconciles for node1 while the first is still processing
+	var i uint64
+	for i = 3; i < 13; i++ {
+		_, err = routeService.AddRoute(ctx, Route{
+			SourceNodeID: "node1",
+			DestNodeID:   "node2",
+			Component0:   "org",
+			Component1:   "ns",
+			Component2:   fmt.Sprintf("client_%d", i),
+			ComponentID:  &wrapperspb.UInt64Value{Value: i},
+		})
+		require.NoError(t, err)
+	}
+
+	// Wait for processing to complete
+	time.Sleep(4 * time.Second)
+	node1Calls = getSendCallsForNode(cmdHandler, "node1")
+	require.Equal(t, 2, len(node1Calls), "node1 should have received only one more call")
+}
+
+func TestRouteReconciler_MaxNumOfParallelReconciles(t *testing.T) {
+	ctx := util.GetContextWithLogger(context.Background(), config.LogConfig{
+		Level: "debug",
+	})
+	rConfig := config.ReconcilerConfig{
+		MaxNumOfParallelReconciles: 1, // High limit to focus on same NodeID serialization
+		MaxRequeues:                0,
+	}
+	dbService := db.NewInMemoryDBService()
+	cmdHandler := &CommandHandlerMock{
+		delay: 3000, // 3000ms delay to simulate processing time
+	}
+
+	routeService := NewRouteService(dbService, cmdHandler, rConfig)
+	addNodes(ctx, t, dbService, routeService)
+
+	// Add multiple routes for the same node
+	route2 := Route{
+		SourceNodeID: "node2",
+		DestNodeID:   "node1",
+		Component0:   "org",
+		Component1:   "ns",
+		Component2:   "client_2",
+		ComponentID:  &wrapperspb.UInt64Value{Value: 2},
+	}
+
+	require.NoError(t, routeService.Start(ctx))
+
+	_, err := routeService.AddRoute(ctx, route2)
+	require.NoError(t, err)
+	// Wait for processing to complete
+	time.Sleep(5100 * time.Millisecond)
+	node2Calls := getSendCallsForNode(cmdHandler, "node2")
+	require.Equal(t, 1, len(node2Calls), "node2 should have received only one call")
+
 }

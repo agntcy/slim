@@ -118,7 +118,7 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 		host := getPeerHost(stream)
 		for _, detail := range regReq.RegisterNodeRequest.ConnectionDetails {
 			connDetails = append(connDetails, getConnDetails(host, detail))
-			zlog.Info().Msgf("Connection details: %v", connDetails)
+			zlog.Info().Str("nodeID", registeredNodeID).Msgf("Connection details: %v", connDetails)
 		}
 
 		_, connDetailsUpdated, err := s.dbService.SaveNode(db.Node{
@@ -143,6 +143,7 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 				},
 			},
 		}
+		//TODO: handle error
 		_ = stream.Send(ackMsg)
 
 		s.routeService.NodeRegistered(ctx, registeredNodeID, connDetailsUpdated)

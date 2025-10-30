@@ -124,7 +124,9 @@ pub struct Ack {
 pub struct SubscriptionListRequest {}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SubscriptionListResponse {
-    #[prost(message, repeated, tag = "1")]
+    #[prost(string, tag = "1")]
+    pub original_message_id: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "2")]
     pub entries: ::prost::alloc::vec::Vec<SubscriptionEntry>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -155,7 +157,9 @@ pub struct ConnectionEntry {
 pub struct ConnectionListRequest {}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ConnectionListResponse {
-    #[prost(message, repeated, tag = "1")]
+    #[prost(string, tag = "1")]
+    pub original_message_id: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "2")]
     pub entries: ::prost::alloc::vec::Vec<ConnectionEntry>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -185,9 +189,11 @@ pub struct RegisterNodeRequest {
     #[prost(string, optional, tag = "3")]
     pub group_name: ::core::option::Option<::prost::alloc::string::String>,
 }
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RegisterNodeResponse {
-    #[prost(bool, tag = "1")]
+    #[prost(string, tag = "1")]
+    pub original_message_id: ::prost::alloc::string::String,
+    #[prost(bool, tag = "2")]
     pub success: bool,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -195,9 +201,11 @@ pub struct DeregisterNodeRequest {
     #[prost(message, optional, tag = "1")]
     pub node: ::core::option::Option<Node>,
 }
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DeregisterNodeResponse {
-    #[prost(bool, tag = "1")]
+    #[prost(string, tag = "1")]
+    pub original_message_id: ::prost::alloc::string::String,
+    #[prost(bool, tag = "2")]
     pub success: bool,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -246,8 +254,10 @@ pub struct DeleteParticipantRequest {
 pub struct ListChannelsRequest {}
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ListChannelsResponse {
+    #[prost(string, tag = "1")]
+    pub original_message_id: ::prost::alloc::string::String,
     /// IDs of the channels available in the control plane
-    #[prost(string, repeated, tag = "1")]
+    #[prost(string, repeated, tag = "2")]
     pub channel_name: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -258,8 +268,10 @@ pub struct ListParticipantsRequest {
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ListParticipantsResponse {
+    #[prost(string, tag = "1")]
+    pub original_message_id: ::prost::alloc::string::String,
     /// list of participants in the channel
-    #[prost(string, repeated, tag = "1")]
+    #[prost(string, repeated, tag = "2")]
     pub participant_name: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]

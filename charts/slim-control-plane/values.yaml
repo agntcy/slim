@@ -39,7 +39,10 @@ config:
   logging:
     level: DEBUG
   reconciler:
-    threads: 3
+    # Max number of times a failed reconcile will be retried
+    maxRequeues: 15
+    # Max number of reconciles that can be run in parallel for different nodes
+    maxNumOfParallelReconciles: 1000
 
 spire:
   enabled: false

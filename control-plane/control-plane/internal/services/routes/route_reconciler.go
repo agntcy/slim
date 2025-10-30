@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"k8s.io/client-go/util/workqueue"
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
+	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
 )
@@ -21,52 +23,92 @@ type RouteReconcileRequest struct {
 // RouteReconciler handles node registration events by synchronizing
 // stored connections and subscriptions from the database to newly registered nodes
 type RouteReconciler struct {
+	reconcileConfig    config.ReconcilerConfig
+	threadName         string
 	dbService          db.DataAccess
 	nodeCommandHandler nodecontrol.NodeCommandHandler
+	runningReconciles  int
 	queue              workqueue.TypedRateLimitingInterface[RouteReconcileRequest]
-	threadName         string
-	maxRequeues        int
 }
 
 // NewRouteReconciler creates a new instance of RouteReconciler
 func NewRouteReconciler(
 	threadName string,
-	maxRequeues int,
+	reconcileConfig config.ReconcilerConfig,
 	queue workqueue.TypedRateLimitingInterface[RouteReconcileRequest],
 	dbService db.DataAccess,
 	nodeCommandHandler nodecontrol.NodeCommandHandler,
 ) *RouteReconciler {
 	return &RouteReconciler{
+		reconcileConfig:    reconcileConfig,
 		dbService:          dbService,
 		nodeCommandHandler: nodeCommandHandler,
 		queue:              queue,
 		threadName:         threadName,
-		maxRequeues:        maxRequeues,
 	}
 }
 
 func (s *RouteReconciler) Run(ctx context.Context) {
 	zlog := zerolog.Ctx(ctx).With().Str("thread_name", s.threadName).Logger()
 	zlog.Info().Msg("Starting Route Reconciler")
+
 	for {
 		req, shutdown := s.queue.Get()
+		zlog.Debug().Msgf("GOT REQ: %s", req)
 		if shutdown {
 			zlog.Info().Msg("Route Reconciler queue is shutting down")
 			return
 		}
-		func() {
-			defer s.queue.Done(req)
-			if err := s.handleRequest(ctx, req); err != nil {
-				zlog.Error().Err(err).Msg("Failed to process route reconciliation request")
-				// Optionally requeue the request for retry
-				if s.queue.NumRequeues(req) < s.maxRequeues {
-					s.queue.AddRateLimited(req)
-				} else {
-					zlog.Warn().Msgf("Max retries reached for request: %v, dropping from queue", req)
-					s.queue.Forget(req)
-				}
-			}
-		}()
+
+		// Check if we've reached the max parallel reconciles limit
+		if s.runningReconciles >= s.reconcileConfig.MaxNumOfParallelReconciles {
+			zlog.Debug().
+				Int("running_reconciles", s.runningReconciles).
+				Int("max_parallel", s.reconcileConfig.MaxNumOfParallelReconciles).
+				Str("node_id", req.NodeID).
+				Msg("Max parallel reconciles reached, re-queuing with delay")
+			s.queue.Done(req)
+			s.queue.AddAfter(req, 5*time.Second)
+			continue
+		}
+
+		s.runningReconciles++
+		zlog.Debug().
+			Str("node_id", req.NodeID).
+			Int("running_reconciles", s.runningReconciles).
+			Msg("Starting reconcile in goroutine")
+
+		// Start runReconcile in a separate goroutine
+		go s.runReconcile(ctx, req)
+	}
+}
+
+func (s *RouteReconciler) runReconcile(ctx context.Context, req RouteReconcileRequest) {
+	zlog := zerolog.Ctx(ctx).With().Str("thread_name", s.threadName).Logger()
+	defer func() {
+		s.queue.Done(req)
+		s.runningReconciles--
+		zlog.Debug().
+			Str("node_id", req.NodeID).
+			Msg("Reconcile completed")
+	}()
+
+	if err := s.handleRequest(ctx, req); err != nil {
+		zlog.Error().Err(err).Msg("Failed to process route reconciliation request")
+		// Optionally requeue the request for retry
+		if s.queue.NumRequeues(req) < s.reconcileConfig.MaxRequeues {
+			zlog.Debug().
+				Str("node_id", req.NodeID).
+				Int("requeue_count", s.queue.NumRequeues(req)).
+				Msg("Re-queuing failed request with rate limit")
+			s.queue.AddRateLimited(req)
+		} else {
+			zlog.Warn().
+				Str("node_id", req.NodeID).
+				Int("max_requeues", s.reconcileConfig.MaxRequeues).
+				Msgf("Max retries reached for request: %v, dropping from queue", req)
+			s.queue.Forget(req)
+		}
 	}
 }
 

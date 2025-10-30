@@ -112,9 +112,14 @@ package integration
 // 			).CombinedOutput()
 // 			Expect(err).NotTo(HaveOccurred(), "slimctl route list failed: %s", string(routeListOutA))
 
+<<<<<<< HEAD
 // 			routeListOutputA := string(routeListOutA)
 // 			fmt.Println("XXXXXX:" + routeListOutputA)
 // 			Expect(routeListOutputA).To(ContainSubstring("org/default/b"))
+=======
+			routeListOutputA := string(routeListOutA)
+			Expect(routeListOutputA).To(ContainSubstring("org/default/b"))
+>>>>>>> origin/main
 
 // 			// test listing connections for node a
 // 			connectionListOutA, err := exec.Command(
