@@ -224,11 +224,7 @@ where
                     .as_command_payload()
                     .as_group_add_payload()
                     .mls
-                    .ok_or_else(|| {
-                        SessionError::MLSIdMessage(
-                            "missing mls paylaod".to_string(),
-                        )
-                    })?
+                    .ok_or_else(|| SessionError::MLSIdMessage("missing mls payload".to_string()))?
                     .commit_id
             }
             ProtoSessionMessageType::GroupRemove => {
@@ -237,11 +233,7 @@ where
                     .as_command_payload()
                     .as_group_remove_payload()
                     .mls
-                    .ok_or_else(|| {
-                        SessionError::MLSIdMessage(
-                            "missing mls paylaod".to_string(),
-                        )
-                    })?
+                    .ok_or_else(|| SessionError::MLSIdMessage("missing mls payload".to_string()))?
                     .commit_id
             }
             _ => {
@@ -254,8 +246,7 @@ where
         if commit_id <= self.last_mls_msg_id {
             debug!(
                 "Message with id {} already processed, drop it. last message id {}",
-                commit_id,
-                self.last_mls_msg_id
+                commit_id, self.last_mls_msg_id
             );
             return Ok(false);
         }

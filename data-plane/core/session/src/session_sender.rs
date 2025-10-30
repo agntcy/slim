@@ -142,7 +142,6 @@ impl SessionSender {
                 self.on_rtx_message(message).await?;
             }
             _ => {
-                // TODO: Add missing message types (e.g. Channel messages)
                 debug!("unexpected message type");
             }
         }
@@ -356,13 +355,22 @@ impl SessionSender {
     }
 
     pub fn add_endpoint(&mut self, endpoint: Name) {
-        debug!("add endpoint {}", endpoint);
+        debug!(
+            "add endpoint {}, current list size {}",
+            endpoint,
+            self.endpoints_list.len()
+        );
         // add endpoint to the list
         self.endpoints_list.insert(endpoint);
+        debug!("new list size {}", self.endpoints_list.len());
     }
 
     pub fn remove_endpoint(&mut self, endpoint: &Name) {
-        debug!("remove endpoint {}", endpoint);
+        debug!(
+            "remove endpoint {}, current list size {}",
+            endpoint,
+            self.endpoints_list.len()
+        );
         // remove endpoint from the list and remove all the ack state
         // notice that no ack state may be associated to the endpoint
         // (e.g. endpoint added but no message sent)
@@ -391,6 +399,7 @@ impl SessionSender {
         debug!("remove endpoint name from everywhere");
         self.pending_acks_per_endpoint.remove(endpoint);
         self.endpoints_list.remove(endpoint);
+        debug!("new list size {}", self.endpoints_list.len());
     }
 
     pub fn check_drain_completion(&self) -> bool {
