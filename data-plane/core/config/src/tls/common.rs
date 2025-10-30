@@ -141,6 +141,7 @@ pub enum TlsSource {
         key: String,
     },
     Spire {
+        #[serde(flatten)]
         config: spiffe::SpiffeConfig,
     },
     #[default]
@@ -164,6 +165,7 @@ pub enum CaSource {
         data: String,
     },
     Spire {
+        #[serde(flatten)]
         config: spiffe::SpiffeConfig,
     },
     #[default]
@@ -232,7 +234,10 @@ impl SpireCertResolver {
         provider
             .initialize()
             .await
-            .map_err(|e| ConfigError::InvalidFile(e.to_string()))?;
+            .map_err(|e| ConfigError::InvalidSpireConfig {
+                details: e.to_string(),
+                config: spiffe_cfg.clone(),
+            })?;
 
         Ok(Self {
             provider,
@@ -249,7 +254,7 @@ impl SpireCertResolver {
         let svid = self
             .provider
             .get_x509_svid()
-            .map_err(|e| ConfigError::InvalidFile(e.to_string()))?;
+            .map_err(|e| ConfigError::SpireError(e.to_string()))?;
 
         let mut chain_der: Vec<CertificateDer<'static>> =
             Vec::with_capacity(svid.cert_chain().len());
@@ -291,6 +296,13 @@ pub enum ConfigError {
     InvalidPem(rustls_pki_types::pem::Error),
     #[error("error reading cert/key from file: {0}")]
     InvalidFile(String),
+    #[error("error in spire configuration: {details}, config={config:?}")]
+    InvalidSpireConfig {
+        details: String,
+        config: spiffe::SpiffeConfig,
+    },
+    #[error("error running spire: {0}")]
+    SpireError(String),
 
     #[error("root store error: {0}")]
     RootStore(rustls::Error),

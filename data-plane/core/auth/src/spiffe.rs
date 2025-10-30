@@ -69,7 +69,7 @@ use async_trait::async_trait;
 use futures::StreamExt; // for .next() on the JWT bundle stream
 use parking_lot::RwLock; // switched to parking_lot for sync RwLock
 use serde::de::DeserializeOwned;
-use serde_json;
+use serde_json::{self, Value};
 use spiffe::{
     BundleSource, JwtBundleSet, JwtSvid, SvidSource, TrustDomain, WorkloadApiClient, X509Bundle,
     X509Source, X509SourceBuilder, X509Svid,
@@ -126,7 +126,7 @@ impl CustomClaimsCodec {
     ///
     /// A string in the format: `slim-claims:<base64-encoded-json>`
     fn encode_audience(
-        custom_claims: &std::collections::HashMap<String, serde_json::Value>,
+        custom_claims: &std::collections::HashMap<String, Value>,
     ) -> Result<String, AuthError> {
         use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 
@@ -156,7 +156,7 @@ impl CustomClaimsCodec {
     /// - Multiple custom claim audiences are merged together
     fn decode_from_audiences(
         audiences: &[String],
-    ) -> (Vec<String>, serde_json::Map<String, serde_json::Value>) {
+    ) -> (Vec<String>, serde_json::Map<String, Value>) {
         use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 
         let mut filtered_audiences = Vec::new();
@@ -167,8 +167,8 @@ impl CustomClaimsCodec {
                 // Decode custom claims from audience
                 match BASE64.decode(claims_b64.as_bytes()) {
                     Ok(claims_bytes) => {
-                        match serde_json::from_slice::<serde_json::Value>(&claims_bytes) {
-                            Ok(serde_json::Value::Object(claims)) => {
+                        match serde_json::from_slice::<Value>(&claims_bytes) {
+                            Ok(Value::Object(claims)) => {
                                 custom_claims_map.extend(claims);
                                 tracing::debug!("Extracted custom claims from audience");
                             }
@@ -442,7 +442,7 @@ impl TokenProvider for SpiffeIdentityManager {
 
     async fn get_token_with_claims(
         &self,
-        custom_claims: std::collections::HashMap<String, serde_json::Value>,
+        custom_claims: std::collections::HashMap<String, Value>,
     ) -> Result<String, AuthError> {
         if custom_claims.is_empty() {
             return self.get_token();
@@ -644,12 +644,19 @@ impl JwtSource {
     ) {
         let mut backoff = cfg.min_retry_backoff;
         let initial_duration = Duration::from_secs(30);
-        let mut interval = tokio::time::interval(initial_duration);
+        let mut refresh_timer: std::pin::Pin<Box<tokio::time::Sleep>> = Box::pin(
+            tokio::time::sleep_until(tokio::time::Instant::now() + initial_duration),
+        );
+
+        tracing::info!(
+            "jwt_source: starting background refresh task - next refresh in {}s",
+            initial_duration.as_secs()
+        );
 
         loop {
             tokio::select! {
-                // Regular refresh interval
-                _ = interval.tick() => {
+                // Regular refresh (scheduled)
+                _ = &mut refresh_timer => {
                     match Self::handle_regular_refresh(
                         &mut client,
                         &audiences,
@@ -657,9 +664,14 @@ impl JwtSource {
                         &current,
                         &mut backoff,
                         &cfg,
-                        &mut interval,
+                        &mut refresh_timer,
                     ).await {
-                        Ok(()) => {},
+                        Ok(()) => {
+                            tracing::info!(
+                                "jwt_source: performed regular JWT SVID refresh - next refresh in {} s",
+                                refresh_timer.as_ref().deadline().duration_since(tokio::time::Instant::now()).as_secs()
+                            );
+                        },
                         Err(err) => {
                             tracing::warn!(error=%err, "jwt_source: regular refresh failed");
                         }
@@ -705,7 +717,7 @@ impl JwtSource {
         current: &Arc<RwLock<Option<JwtSvid>>>,
         backoff: &mut Duration,
         cfg: &JwtSourceConfigInternal,
-        interval: &mut tokio::time::Interval,
+        refresh_timer: &mut std::pin::Pin<Box<tokio::time::Sleep>>,
     ) -> Result<(), AuthError> {
         match fetch_once(client, audiences, target_spiffe_id).await {
             Ok(svid) => {
@@ -720,11 +732,14 @@ impl JwtSource {
 
                 // Calculate next refresh time based on token lifetime
                 let next_duration = calculate_refresh_interval(&svid);
-                *interval = tokio::time::interval(next_duration);
 
-                tracing::debug!(
+                let deadline = tokio::time::Instant::now() + next_duration;
+                refresh_timer.as_mut().reset(deadline);
+
+                tracing::info!(
                     next_duration_secs = next_duration.as_secs(),
-                    "jwt_source: next refresh in {} seconds",
+                    "jwt_source: next refresh scheduled at {:?} in {} seconds",
+                    deadline,
                     next_duration.as_secs()
                 );
 
@@ -734,7 +749,8 @@ impl JwtSource {
                 tracing::warn!(error=%err, "jwt_source: failed to fetch JWT SVID; backing off");
 
                 // Apply exponential backoff
-                *interval = tokio::time::interval(*backoff);
+                let deadline = tokio::time::Instant::now() + *backoff;
+                refresh_timer.as_mut().reset(deadline);
                 *backoff = (*backoff * 2).min(cfg.max_retry_backoff);
 
                 Err(err)
@@ -907,11 +923,20 @@ fn calculate_refresh_interval(svid: &JwtSvid) -> Duration {
     const TWO_THIRDS: f64 = 2.0 / 3.0;
     let default = Duration::from_secs(30);
 
-    let expiry_str = svid.expiry().to_string();
+    let mut validation = jsonwebtoken_aws_lc::Validation::default();
+    validation.insecure_disable_signature_validation();
+
+    let claims: serde_json::Map<String, Value> = jsonwebtoken_aws_lc::decode(
+        svid.token(),
+        jsonwebtoken_aws_lc::DecodingKey::from_secret(&[]),
+        validation,
+    )?;
+    tracing::error!("{}", expiry_str);
     if let Ok(epoch) = expiry_str.parse::<u64>()
         && let Ok(now_secs) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
         && epoch > now_secs.as_secs()
     {
+        tracing::error!("os");
         let total_lifetime = Duration::from_secs(epoch - now_secs.as_secs());
         let refresh_at = Duration::from_secs_f64(total_lifetime.as_secs_f64() * TWO_THIRDS);
 
@@ -975,7 +1000,7 @@ impl Verifier for SpiffeIdentityManager {
         {
             obj.insert(
                 "custom_claims".to_string(),
-                serde_json::Value::Object(custom_claims_map),
+                Value::Object(custom_claims_map),
             );
         }
 
