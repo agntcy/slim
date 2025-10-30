@@ -807,8 +807,8 @@ impl MessageProcessor {
             }
 
             if !connected {
-                // if connection is not local and controller exists, notify about lost subscriptions on the conenction
-                if !is_local && tx_cp.is_some() {
+                // if connection is not local and controller exists, notify about lost subscriptions on the connection
+                if let (false, Some(tx)) = (is_local, tx_cp) {
                     let subscriptions = self_clone
                         .forwarder()
                         .get_local_subscriptions_on_connection(conn_index);
@@ -825,7 +825,7 @@ impl MessageProcessor {
                                 None,
                                 Some(SlimHeaderFlags::default().with_recv_from(conn_index)),
                             );
-                            let _ = tx_cp.as_ref().unwrap().send(Ok(msg)).await;
+                            let _ = tx.send(Ok(msg)).await;
                         }
                     }
                 }
