@@ -1,0 +1,28 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+tracing:
+  log_level: debug
+  display_thread_names: true
+  display_thread_ids: true
+
+runtime:
+  n_cores: 0
+  thread_name: "slim-data-plane"
+  drain_timeout: 10s
+
+services:
+  slim/0:
+    dataplane:
+      clients:
+        - endpoint: "https://localhost:46357"
+          tls:
+            source:
+              type: file
+              cert: "./config/crypto/client-cert.pem"
+              key: "./config/crypto/client-key.pem"
+            ca_source:
+              type: file
+              path: "./config/crypto/server-ca-cert.pem"
+              trust_domains:
+                - "example.org"
