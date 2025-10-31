@@ -555,7 +555,10 @@ struct JwtSource {
 
 impl JwtSource {
     // Helper: sleep for duration or return true if cancelled first.
-    async fn backoff_with_cancel(duration: Duration, cancellation_token: &CancellationToken) -> bool {
+    async fn backoff_with_cancel(
+        duration: Duration,
+        cancellation_token: &CancellationToken,
+    ) -> bool {
         tokio::select! {
             _ = tokio::time::sleep(duration) => false,
             _ = cancellation_token.cancelled() => true,

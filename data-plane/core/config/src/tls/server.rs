@@ -237,7 +237,10 @@ impl TlsServerConfig {
             TlsSource::Spire { config: spire_cfg } => Arc::new(
                 SpireCertResolver::new(spire_cfg.clone(), config_builder.crypto_provider())
                     .await
-                    .map_err(|e| ConfigError::InvalidSpireConfig { details: e.to_string(), config: spire_cfg.clone() })?,
+                    .map_err(|e| ConfigError::InvalidSpireConfig {
+                        details: e.to_string(),
+                        config: spire_cfg.clone(),
+                    })?,
             ),
             // Static file-based certificates
             TlsSource::File { cert, key, .. } => Arc::new(WatcherCertResolver::new(

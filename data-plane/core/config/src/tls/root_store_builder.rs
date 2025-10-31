@@ -234,9 +234,7 @@ mod tests {
     #[tokio::test]
     async fn test_add_source_pem_variant() {
         let pem = fs::read_to_string(format!("{}/server-1.crt", TEST_PATH)).expect("read pem");
-        let src = CaSource::Pem {
-            data: pem,
-        };
+        let src = CaSource::Pem { data: pem };
         let store = RootStoreBuilder::new()
             .add_source(&src)
             .await

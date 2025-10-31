@@ -68,8 +68,7 @@ fn test_config_with_socket_and_audiences(socket_path: &str) -> SpireConfig {
 
 /// Helper to build a SpireIdentityManager from a SpireConfig
 fn build_manager_from(cfg: &SpireConfig) -> SpireIdentityManager {
-    let mut builder =
-        SpireIdentityManager::builder().with_jwt_audiences(cfg.jwt_audiences.clone());
+    let mut builder = SpireIdentityManager::builder().with_jwt_audiences(cfg.jwt_audiences.clone());
 
     if let Some(ref sp) = cfg.socket_path {
         builder = builder.with_socket_path(sp.clone());

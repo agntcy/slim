@@ -876,7 +876,10 @@ mod tests {
             .with_server_name(env.dns_name());
 
         // Perform round‑trip; expect failure
-        if let Ok(_) = setup_client_and_server(client_config, server_config).await {
+        if setup_client_and_server(client_config, server_config)
+            .await
+            .is_ok()
+        {
             let _ = env.cleanup().await;
             return Err("expected failure due to missing client CA on server side".into());
         }
@@ -892,15 +895,17 @@ mod tests {
             ServerConfig::with_endpoint("[::1]:50074").with_tls_settings(server_tls);
 
         // Client TLS config uses dynamic SPIFFE client cert resolver (no cert/key injection)
-        let client_tls = TlsClientConfig::new()
-            .with_tls_version("tls1.3");
+        let client_tls = TlsClientConfig::new().with_tls_version("tls1.3");
 
         let client_config = ClientConfig::with_endpoint("https://[::1]:50074")
             .with_tls_setting(client_tls)
             .with_server_name(env.dns_name());
 
         // Perform round‑trip; expect failure
-        if let Ok(_) = setup_client_and_server(client_config, server_config).await {
+        if setup_client_and_server(client_config, server_config)
+            .await
+            .is_ok()
+        {
             let _ = env.cleanup().await;
             return Err("expected failure due to missing CA on client side".into());
         }

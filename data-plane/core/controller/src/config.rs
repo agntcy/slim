@@ -657,9 +657,7 @@ mod tests {
             let auth: TokenVerifierAuthConfig = serde_json::from_str(json).unwrap();
 
             match auth {
-                TokenVerifierAuthConfig::SharedSecret{
-                    data: secret
-                } => {
+                TokenVerifierAuthConfig::SharedSecret { data: secret } => {
                     assert_eq!(secret, "test-secret");
                 }
                 _ => panic!("Expected SharedSecret variant"),
