@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Standard library imports
+use std::future::Future;
 use std::sync::Arc;
 
 // Third-party crates
@@ -20,45 +21,13 @@ use crate::{
     notification::Notification,
 };
 
-/// Macro to generate the common transmitter method body pattern
-macro_rules! transmit_with_interceptors {
-    (
-        $self:ident,
-        $message:ident,
-        $tx_field:ident,
-        $interceptor_method:ident,
-        $error_variant:ident
-    ) => {{
-        let tx = $self.$tx_field.clone();
-
-        // Interceptors
-        let interceptors = match &$message {
-            Ok(_) => $self.interceptors.read().clone(),
-            Err(_) => Vec::new(),
-        };
-
-        async move {
-            if let Ok(msg) = $message.as_mut() {
-                // Apply interceptors on the message
-                for interceptor in interceptors {
-                    interceptor.$interceptor_method(msg).await?;
-                }
-            }
-
-            tx.send($message)
-                .await
-                .map_err(|e| SessionError::$error_variant(e.to_string()))
-        }
-    }};
-}
-
 /// Transmitter used to intercept messages sent from sessions and apply interceptors on them
 #[derive(Clone)]
 pub struct SessionTransmitter {
-    /// SLIM tx
+    /// SLIM tx (bounded channel)
     pub(crate) slim_tx: SlimChannelSender,
 
-    /// App tx
+    /// App tx (unbounded channel)
     pub(crate) app_tx: AppChannelSender,
 
     // Interceptors to be called on message reception/send
@@ -90,28 +59,62 @@ impl Transmitter for SessionTransmitter {
         &self,
         mut message: Result<Message, SessionError>,
     ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static {
-        transmit_with_interceptors!(self, message, app_tx, on_msg_from_slim, AppTransmission)
+        let tx = self.app_tx.clone();
+
+        // Interceptors only run on successful messages
+        let interceptors = match &message {
+            Ok(_) => self.interceptors.read().clone(),
+            Err(_) => Vec::new(),
+        };
+
+        async move {
+            if let Ok(msg) = message.as_mut() {
+                for interceptor in interceptors {
+                    interceptor.on_msg_from_slim(msg).await?;
+                }
+            }
+
+            tx.send(message)
+                .map_err(|e| SessionError::AppTransmission(e.to_string()))
+        }
     }
 
     fn send_to_slim(
         &self,
         mut message: Result<Message, Status>,
     ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static {
-        transmit_with_interceptors!(self, message, slim_tx, on_msg_from_app, SlimTransmission)
+        let tx = self.slim_tx.clone();
+
+        // Interceptors only run on successful messages
+        let interceptors = match &message {
+            Ok(_) => self.interceptors.read().clone(),
+            Err(_) => Vec::new(),
+        };
+
+        async move {
+            if let Ok(msg) = message.as_mut() {
+                for interceptor in interceptors {
+                    interceptor.on_msg_from_app(msg).await?;
+                }
+            }
+
+            tx.try_send(message)
+                .map_err(|e| SessionError::SlimTransmission(e.to_string()))
+        }
     }
 }
 
-/// Transmitter used to intercept messages sent from sessions and apply interceptors on them
+/// Transmitter used to intercept messages sent from the application side and apply interceptors
 #[derive(Clone)]
 pub struct AppTransmitter<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    /// SLIM tx
+    /// SLIM tx (bounded channel)
     pub slim_tx: SlimChannelSender,
 
-    /// App tx
+    /// App tx (bounded channel here; notifications)
     pub app_tx: Sender<Result<Notification<P, V>, SessionError>>,
 
     // Interceptors to be called on message reception/send
@@ -143,7 +146,6 @@ where
     ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static {
         let tx = self.app_tx.clone();
 
-        // Interceptors
         let interceptors = match &message {
             Ok(_) => self.interceptors.read().clone(),
             Err(_) => Vec::new(),
@@ -151,7 +153,6 @@ where
 
         async move {
             if let Ok(msg) = message.as_mut() {
-                // Apply interceptors on the message
                 for interceptor in interceptors {
                     interceptor.on_msg_from_slim(msg).await?;
                 }
@@ -167,7 +168,24 @@ where
         &self,
         mut message: Result<Message, Status>,
     ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static {
-        transmit_with_interceptors!(self, message, slim_tx, on_msg_from_app, SlimTransmission)
+        let tx = self.slim_tx.clone();
+
+        // Interceptors only run on successful messages
+        let interceptors = match &message {
+            Ok(_) => self.interceptors.read().clone(),
+            Err(_) => Vec::new(),
+        };
+
+        async move {
+            if let Ok(msg) = message.as_mut() {
+                for interceptor in interceptors {
+                    interceptor.on_msg_from_app(msg).await?;
+                }
+            }
+
+            tx.try_send(message)
+                .map_err(|e| SessionError::SlimTransmission(e.to_string()))
+        }
     }
 }
 
@@ -242,41 +260,37 @@ mod tests {
     fn make_message() -> Message {
         let source = Name::from_strings(["a", "b", "c"]).with_id(0);
         let dst = Name::from_strings(["d", "e", "f"]).with_id(0);
-        // Signature: (&Name, &Name, Option<SlimHeaderFlags>, &str, Vec<u8>)
         Message::new_publish(&source, &dst, None, "application/octet-stream", Vec::new())
     }
 
     #[tokio::test]
     async fn session_transmitter_interceptor_application_send_to_slim() {
         let (slim_tx, mut slim_rx) = mpsc::channel::<Result<Message, Status>>(4);
-        let (app_tx, mut app_rx) = mpsc::channel::<Result<Message, SessionError>>(4);
+        let (app_tx, mut app_rx) = mpsc::unbounded_channel::<Result<Message, SessionError>>();
         let tx = SessionTransmitter::new(slim_tx, app_tx);
         let interceptor = Arc::new(RecordingInterceptor::default());
         tx.add_interceptor(interceptor.clone());
 
-        // send_to_slim treats the message as originating from the app -> on_msg_from_app invoked
         tx.send_to_slim(Ok(make_message())).await.unwrap();
         let sent = slim_rx.recv().await.unwrap().unwrap();
         assert_eq!(sent.get_metadata("APP").map(|s| s.as_str()), Some("1"));
         assert_eq!(*interceptor.app_calls.read(), 1);
         assert_eq!(*interceptor.slim_calls.read(), 0);
 
-        // send_to_app treats the message as coming from slim -> on_msg_from_slim invoked
         tx.send_to_app(Ok(make_message())).await.unwrap();
         let app_msg = app_rx.recv().await.unwrap().unwrap();
         assert_eq!(app_msg.get_metadata("SLIM").map(|s| s.as_str()), Some("1"));
-        assert_eq!(*interceptor.slim_calls.read(), 1); // first slim direction call
+        assert_eq!(*interceptor.slim_calls.read(), 1);
     }
 
     #[tokio::test]
     async fn session_transmitter_error_bypasses_interceptors() {
         let (slim_tx, mut slim_rx) = mpsc::channel::<Result<Message, Status>>(1);
-        let (app_tx, _app_rx) = mpsc::channel::<Result<Message, SessionError>>(1);
+        let (app_tx, _app_rx) = mpsc::unbounded_channel::<Result<Message, SessionError>>();
         let tx = SessionTransmitter::new(slim_tx, app_tx);
         let interceptor = Arc::new(RecordingInterceptor::default());
         tx.add_interceptor(interceptor.clone());
 
-        // Error result: interceptors should not run, calls remain 0
         tx.send_to_slim(Err(Status::failed_precondition("err")))
             .await
             .unwrap();
@@ -298,7 +312,6 @@ mod tests {
         let interceptor = Arc::new(RecordingInterceptor::default());
         tx.add_interceptor(interceptor.clone());
 
-        // AppTransmitter::send_to_app uses on_msg_from_slim (message inbound from slim)
         tx.send_to_app(Ok(make_message())).await.unwrap();
         if let Ok(Notification::NewMessage(msg)) = app_rx.recv().await.unwrap() {
             assert_eq!(msg.get_metadata("SLIM").map(|s| s.as_str()), Some("1"));
@@ -308,7 +321,6 @@ mod tests {
             panic!("expected NewMessage notification");
         }
 
-        // AppTransmitter::send_to_slim uses on_msg_from_app (message outbound to slim)
         tx.send_to_slim(Ok(make_message())).await.unwrap();
         let slim_msg = slim_rx.recv().await.unwrap().unwrap();
         assert_eq!(slim_msg.get_metadata("APP").map(|s| s.as_str()), Some("1"));

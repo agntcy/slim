@@ -174,7 +174,6 @@ mod tests {
             async move {
                 if let Some(tx) = tx {
                     tx.send(msg)
-                        .await
                         .map_err(|e| crate::SessionError::AppTransmission(e.to_string()))?;
                 }
                 Ok(())
@@ -216,7 +215,7 @@ mod tests {
     // Verifies that a newly created context can upgrade its Weak reference to a strong Arc
     // and exposes the expected session identity (id + type).
     async fn context_new_and_upgrade() {
-        let (tx_app, rx_app) = mpsc::channel(8);
+        let (tx_app, rx_app) = mpsc::unbounded_channel();
         let session = build_session_with_app_tx(1, tx_app);
         let ctx = SessionContext::new(session.clone(), rx_app);
         assert!(ctx.session_arc().is_some());
@@ -228,7 +227,7 @@ mod tests {
     // Validates spawn_receiver executes the provided closure on a background task and that
     // the Weak<Session> captured inside can still be upgraded while the original Arc exists.
     async fn context_spawn_receiver_runs_closure() {
-        let (tx_app, rx_app) = mpsc::channel(4);
+        let (tx_app, rx_app) = mpsc::unbounded_channel();
         let session = build_session_with_app_tx(3, tx_app);
         let ctx = SessionContext::new(session.clone(), rx_app);
         let flag = Arc::new(tokio::sync::Mutex::new(false));
@@ -246,7 +245,7 @@ mod tests {
     // After spawning the receiver, dropping the last strong Arc should allow the Weak to
     // observe session deallocation (upgrade returns None).
     async fn context_spawn_receiver_drops_session() {
-        let (tx_app, rx_app) = mpsc::channel(4);
+        let (tx_app, rx_app) = mpsc::unbounded_channel();
         let session = build_session_with_app_tx(4, tx_app);
         let ctx = SessionContext::new(session.clone(), rx_app);
         let weak = ctx.spawn_receiver(|_rx, s| async move {
@@ -265,7 +264,7 @@ mod tests {
     // Ensures the spawned receiver task (which only reads from rx) terminates once
     // the session (and implicitly, in real usage, the channel sender owned by it) is dropped.
     async fn context_spawn_receiver_task_finishes_on_session_drop() {
-        let (tx_app, rx_app) = mpsc::channel(4);
+        let (tx_app, rx_app) = mpsc::unbounded_channel();
         let session = build_session_with_app_tx(5, tx_app);
         let ctx = SessionContext::new(session.clone(), rx_app);
         let (done_tx, done_rx) = oneshot::channel();

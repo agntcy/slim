@@ -209,26 +209,34 @@ where
 #[async_trait]
 impl timer::TimerObserver for AckTimerObserver {
     async fn on_timeout(&self, message_id: u32, timeouts: u32) {
-        self.tx
+        let res = self
+            .tx
             .send(InternalMessage::TimerTimeout {
                 message_id,
                 timeouts,
                 ack: true,
             })
-            .await
-            .expect("failed to send timer timeout");
+            .await;
+
+        if let Err(e) = res {
+            error!("AckTimerObserver: failed to send timer timeout: {}", e);
+        }
     }
 
     async fn on_failure(&self, message_id: u32, timeouts: u32) {
         // remove the state for the lost message
-        self.tx
+        let res = self
+            .tx
             .send(InternalMessage::TimerFailure {
                 message_id,
                 timeouts,
                 ack: true,
             })
-            .await
-            .expect("failed to send timer failure");
+            .await;
+
+        if let Err(e) = res {
+            error!("AckTimerObserver: failed to send timer failure: {}", e);
+        }
     }
 
     async fn on_stop(&self, message_id: u32) {
@@ -239,26 +247,34 @@ impl timer::TimerObserver for AckTimerObserver {
 #[async_trait]
 impl timer::TimerObserver for RtxTimerObserver {
     async fn on_timeout(&self, message_id: u32, timeouts: u32) {
-        self.tx
+        let res = self
+            .tx
             .send(InternalMessage::TimerTimeout {
                 message_id,
                 timeouts,
                 ack: false,
             })
-            .await
-            .expect("failed to send timer timeout");
+            .await;
+
+        if let Err(e) = res {
+            error!("RtxTimerObserver: failed to send timer timeout: {}", e);
+        }
     }
 
     async fn on_failure(&self, message_id: u32, timeouts: u32) {
         // remove the state for the lost message
-        self.tx
+        let res = self
+            .tx
             .send(InternalMessage::TimerFailure {
                 message_id,
                 timeouts,
                 ack: false,
             })
-            .await
-            .expect("failed to send timer failure");
+            .await;
+
+        if let Err(e) = res {
+            error!("RtxTimerObserver: failed to send timer failure: {}", e);
+        }
     }
 
     async fn on_stop(&self, message_id: u32) {
@@ -1085,7 +1101,7 @@ where
         identity_verifier: V,
         storage_path: std::path::PathBuf,
     ) -> Self {
-        let (tx, rx) = mpsc::channel(128);
+        let (tx, rx) = mpsc::channel(256);
 
         // Common session stuff
         let common = Common::new(
@@ -1297,8 +1313,7 @@ where
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
         self.tx
-            .send(InternalMessage::OnMessage { message, direction })
-            .await
+            .try_send(InternalMessage::OnMessage { message, direction })
             .map_err(|e| SessionError::SessionClosed(e.to_string()))
     }
 }
@@ -1319,9 +1334,9 @@ mod tests {
     #[tokio::test]
     async fn test_point_to_point_create() {
         let (tx_slim, _) = tokio::sync::mpsc::channel(1);
-        let (tx_app, _) = tokio::sync::mpsc::channel(1);
+        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
 
-        let tx = SessionTransmitter::new(tx_app, tx_slim);
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
 
         let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
@@ -1346,9 +1361,9 @@ mod tests {
     #[tokio::test]
     async fn test_point_to_point_create_with_remote_dst() {
         let (tx_slim, _) = tokio::sync::mpsc::channel(1);
-        let (tx_app, _) = tokio::sync::mpsc::channel(1);
+        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
 
-        let tx = SessionTransmitter::new(tx_app, tx_slim);
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
 
         let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
         let remote = Name::from_strings(["cisco", "default", "remote"]).with_id(999);
@@ -1371,7 +1386,7 @@ mod tests {
     #[tokio::test]
     async fn test_point_to_point_on_message() {
         let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(1);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
+        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
 
         // SessionTransmitter::new expects (slim_tx, app_tx)
         let tx = SessionTransmitter::new(tx_slim, tx_app);
@@ -1418,7 +1433,7 @@ mod tests {
     #[tokio::test]
     async fn test_point_to_point_on_message_with_ack() {
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(1);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
+        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
@@ -1479,7 +1494,7 @@ mod tests {
     #[tokio::test]
     async fn test_point_to_point_timers_until_error() {
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(1);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
+        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
 
         // SessionTransmitter::new expects (slim_tx, app_tx)
         let tx = SessionTransmitter::new(tx_slim, tx_app);
@@ -1542,12 +1557,12 @@ mod tests {
     #[tokio::test]
     async fn test_point_to_point_timers_and_ack() {
         let (tx_slim_sender, mut rx_slim_sender) = tokio::sync::mpsc::channel(1);
-        let (tx_app_sender, _rx_app_sender) = tokio::sync::mpsc::channel(1);
+        let (tx_app_sender, _rx_app_sender) = tokio::sync::mpsc::unbounded_channel();
 
         let tx_sender = SessionTransmitter::new(tx_slim_sender, tx_app_sender);
 
         let (tx_slim_receiver, mut rx_slim_receiver) = tokio::sync::mpsc::channel(1);
-        let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
+        let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::unbounded_channel();
 
         let tx_receiver = SessionTransmitter::new(tx_slim_receiver, tx_app_receiver);
 
@@ -1663,9 +1678,9 @@ mod tests {
     #[traced_test]
     async fn test_session_delete() {
         let (tx_slim, _) = tokio::sync::mpsc::channel(1);
-        let (tx_app, _) = tokio::sync::mpsc::channel(1);
+        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
 
-        let tx = SessionTransmitter::new(tx_app, tx_slim);
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
 
         let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
@@ -1686,8 +1701,8 @@ mod tests {
     }
 
     async fn template_test_point_to_point_session(mls_enabled: bool) {
-        let (sender_tx_slim, mut sender_rx_slim) = tokio::sync::mpsc::channel(1);
-        let (sender_tx_app, _sender_rx_app) = tokio::sync::mpsc::channel(1);
+        let (sender_tx_slim, mut sender_rx_slim) = tokio::sync::mpsc::channel(16);
+        let (sender_tx_app, _sender_rx_app) = tokio::sync::mpsc::unbounded_channel();
 
         let sender_tx = SessionTransmitter {
             slim_tx: sender_tx_slim,
@@ -1695,8 +1710,8 @@ mod tests {
             interceptors: Arc::new(RwLock::new(Vec::new())),
         };
 
-        let (receiver_tx_slim, mut receiver_rx_slim) = tokio::sync::mpsc::channel(1);
-        let (receiver_tx_app, mut receiver_rx_app) = tokio::sync::mpsc::channel(1);
+        let (receiver_tx_slim, mut receiver_rx_slim) = tokio::sync::mpsc::channel(16);
+        let (receiver_tx_app, mut receiver_rx_app) = tokio::sync::mpsc::unbounded_channel();
 
         let receiver_tx = SessionTransmitter {
             slim_tx: receiver_tx_slim,
