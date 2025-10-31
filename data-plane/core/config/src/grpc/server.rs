@@ -10,6 +10,7 @@ use std::{net::SocketAddr, str::FromStr, time::Duration};
 use duration_string::DurationString;
 use futures::{FutureExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
+use schemars::JsonSchema;
 use tokio_util::sync::CancellationToken;
 use tonic::transport::server::TcpIncoming;
 use tracing::{debug, info};
@@ -23,31 +24,36 @@ use crate::component::configuration::{Configuration, ConfigurationError};
 use crate::metadata::MetadataMap;
 use crate::tls::{common::RustlsConfigLoader, server::TlsServerConfig as TLSSetting};
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
 pub struct KeepaliveServerParameters {
     /// max_connection_idle sets the time after which an idle connection is closed.
     #[serde(default = "default_max_connection_idle")]
+    #[schemars(with = "String")]
     max_connection_idle: DurationString,
 
     /// max_connection_age sets the maximum amount of time a connection may exist before it will be closed.
     #[serde(default = "default_max_connection_age")]
+    #[schemars(with = "String")]
     max_connection_age: DurationString,
 
     /// max_connection_age_grace is an additional time given after MaxConnectionAge before closing the connection.
     #[serde(default = "default_max_connection_age_grace")]
+    #[schemars(with = "String")]
     max_connection_age_grace: DurationString,
 
     /// Time sets the frequency of the keepalive ping.
     #[serde(default = "default_time")]
+    #[schemars(with = "String")]
     time: DurationString,
 
     /// Timeout sets the amount of time the server waits for a keepalive ping ack.
     #[serde(default = "default_timeout")]
+    #[schemars(with = "String")]
     timeout: DurationString,
 }
 
 /// Enum holding one configuration for the client.
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum AuthenticationConfig {
     /// Basic authentication configuration.
@@ -64,7 +70,7 @@ impl Default for AuthenticationConfig {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
 pub struct ServerConfig {
     /// Endpoint is the address to listen on.
     pub endpoint: String,

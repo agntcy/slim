@@ -10,6 +10,7 @@ use rustls::{
 };
 
 use serde::{Deserialize, Serialize};
+use schemars::JsonSchema;
 
 use super::common::{Config, ConfigError, RustlsConfigLoader, TlsSource};
 use crate::{
@@ -20,7 +21,7 @@ use crate::{
     },
 };
 
-#[derive(Debug, Deserialize, Serialize, PartialEq, Clone)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Clone, JsonSchema)]
 pub struct TlsServerConfig {
     /// The Config struct
     #[serde(flatten, default)]

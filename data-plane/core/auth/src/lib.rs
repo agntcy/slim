@@ -14,3 +14,4 @@ pub mod shared_secret;
 pub mod spire;
 pub mod traits;
 pub mod utils;
+pub mod metadata;

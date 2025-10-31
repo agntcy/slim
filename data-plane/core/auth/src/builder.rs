@@ -3,7 +3,6 @@
 
 //! Builder pattern implementation for auth components.
 
-use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,6 +14,7 @@ use parking_lot::RwLock;
 use crate::errors::AuthError;
 use crate::file_watcher::FileWatcher;
 use crate::jwt::{Key, KeyData, KeyFormat, SignerJwt, StaticTokenProvider, VerifierJwt};
+use crate::metadata::MetadataMap;
 use crate::resolver::KeyResolver;
 use crate::traits::StandardClaims;
 
@@ -80,7 +80,7 @@ pub struct JwtBuilder<S = state::Initial> {
     required_claims: Vec<String>,
 
     // Custom claims
-    custom_claims: HashMap<String, serde_json::Value>,
+    custom_claims: MetadataMap,
 
     // Token file
     token_file: Option<String>,
@@ -108,7 +108,7 @@ impl Default for JwtBuilder<state::Initial> {
             token_duration: Duration::from_secs(3600), // Default 1 hour
             auto_resolve_keys: false,
             required_claims: Vec::new(),
-            custom_claims: HashMap::new(),
+            custom_claims: MetadataMap::new(),
             token_file: None,
             _state: PhantomData,
         }
@@ -314,7 +314,7 @@ impl JwtBuilder<state::WithPrivateKey> {
     }
 
     /// Set custom claims
-    pub fn custom_claims(self, claims: HashMap<String, serde_json::Value>) -> Self {
+    pub fn custom_claims(self, claims: MetadataMap) -> Self {
         Self {
             custom_claims: claims,
             ..self

@@ -9,6 +9,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use slim_auth::builder::JwtBuilder;
 
+use crate::metadata::MetadataMap;
+
 use super::{AuthError, ClientAuthenticator, ServerAuthenticator};
 use slim_auth::jwt::{Key, SignerJwt, VerifierJwt};
 use slim_auth::jwt_middleware::{AddJwtLayer, ValidateJwtLayer};
@@ -28,8 +30,8 @@ pub struct Claims {
     subject: Option<String>,
 
     // Other claims
-    #[schemars(skip)]
-    custom_claims: Option<std::collections::HashMap<String, serde_yaml::Value>>,
+    #[serde(default)]
+    custom_claims: Option<MetadataMap>,
 }
 
 impl Claims {
@@ -38,7 +40,7 @@ impl Claims {
         audience: Option<Vec<String>>,
         issuer: Option<String>,
         subject: Option<String>,
-        custom_claims: Option<std::collections::HashMap<String, serde_yaml::Value>>,
+        custom_claims: Option<MetadataMap>,
     ) -> Self {
         Claims {
             audience,
@@ -71,7 +73,7 @@ impl Claims {
 
     pub fn with_custom_claims(
         self,
-        custom_claims: std::collections::HashMap<String, serde_yaml::Value>,
+        custom_claims: MetadataMap,
     ) -> Self {
         Claims {
             custom_claims: Some(custom_claims),
@@ -155,17 +157,11 @@ impl Config {
         &self.key
     }
 
-    fn custom_claims(&self) -> HashMap<String, serde_json::Value> {
-        let mut claims = std::collections::HashMap::<String, serde_json::Value>::new();
-        if let Some(custom_claims) = &self.claims().custom_claims {
-            // Convert yaml values to json values
-            claims = custom_claims
-                .iter()
-                .map(|(k, v)| (k.clone(), serde_json::to_value(v).unwrap()))
-                .collect();
-        }
-
-        claims
+    fn custom_claims(&self) -> MetadataMap {
+        self.claims
+            .custom_claims
+            .clone()
+            .unwrap_or_default()
     }
 
     /// Internal helper to build a base JwtBuilder with configured standard claims.

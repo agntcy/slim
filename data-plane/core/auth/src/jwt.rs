@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::errors::AuthError;
 use crate::file_watcher::FileWatcher;
+use crate::metadata::MetadataMap;
 use crate::resolver::KeyResolver;
 use crate::traits::{Signer, StandardClaims, TokenProvider, Verifier};
 
@@ -290,7 +291,7 @@ impl<S> Jwt<S> {
     /// Creates a StandardClaims object with custom claims merged in.
     pub fn create_claims_with_custom(
         &self,
-        custom_claims: std::collections::HashMap<String, serde_json::Value>,
+        custom_claims: MetadataMap,
     ) -> StandardClaims {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)

@@ -10,6 +10,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::errors::AuthError;
+use crate::metadata::MetadataMap;
 
 /// Standard JWT Claims structure that includes the registered claims
 /// as specified in RFC 7519.
@@ -44,7 +45,7 @@ pub struct StandardClaims {
 
     // Additional custom claims can be added by the user
     #[serde(flatten)]
-    pub custom_claims: HashMap<String, serde_json::Value>,
+    pub custom_claims: MetadataMap,
 }
 
 impl StandardClaims {
