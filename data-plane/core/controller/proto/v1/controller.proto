@@ -35,6 +35,8 @@ message ControlMessage {
     ListChannelsResponse list_channel_response = 17;
     ListParticipantsRequest list_participants_request = 18;
     ListParticipantsResponse list_participants_response = 19;
+
+    ConfigurationCommandAck config_command_ack = 20;
   }
 }
 
@@ -43,18 +45,37 @@ message Connection {
   string config_data = 2;
 }
 
+message ConnectionAck {
+  string connection_id = 1;
+  bool success = 2;
+  string errorMsg = 3;
+}
+
 message Subscription {
   string component_0 = 1;
   string component_1 = 2;
   string component_2 = 3;
   google.protobuf.UInt64Value id = 4;
   string connection_id = 5;
+  optional string node_id = 6;
+}
+
+message SubscriptionAck {
+  Subscription subscription = 1;
+  bool success = 2;
+  string errorMsg = 3;
 }
 
 message ConfigurationCommand {
   repeated Connection connections_to_create = 1;
   repeated Subscription subscriptions_to_set = 2;
   repeated Subscription subscriptions_to_delete = 3;
+}
+
+message ConfigurationCommandAck {
+  string original_message_id = 1;
+  repeated ConnectionAck connections_status = 2;
+  repeated SubscriptionAck subscriptions_status = 3;
 }
 
 message Ack {
@@ -66,7 +87,8 @@ message Ack {
 message SubscriptionListRequest {}
 
 message SubscriptionListResponse {
-  repeated SubscriptionEntry entries = 1;
+  string original_message_id = 1;
+  repeated SubscriptionEntry entries = 2;
 }
 
 message SubscriptionEntry {
@@ -92,7 +114,8 @@ message ConnectionEntry {
 message ConnectionListRequest {}
 
 message ConnectionListResponse {
-  repeated ConnectionEntry entries = 1;
+  string original_message_id = 1;
+  repeated ConnectionEntry entries = 2;
 }
 
 message Node {
@@ -114,7 +137,8 @@ message RegisterNodeRequest {
 }
 
 message RegisterNodeResponse {
-  bool success = 1;
+  string original_message_id = 1;
+  bool success = 2;
 }
 
 message DeregisterNodeRequest {
@@ -122,7 +146,8 @@ message DeregisterNodeRequest {
 }
 
 message DeregisterNodeResponse {
-  bool success = 1;
+  string original_message_id = 1;
+  bool success = 2;
 }
 
 message CreateChannelRequest {
@@ -166,8 +191,9 @@ message DeleteParticipantRequest {
 message ListChannelsRequest {}
 
 message ListChannelsResponse {
+  string original_message_id = 1;
   // IDs of the channels available in the control plane
-  repeated string channel_name = 1;
+  repeated string channel_name = 2;
 }
 
 message ListParticipantsRequest {
@@ -176,6 +202,7 @@ message ListParticipantsRequest {
 }
 
 message ListParticipantsResponse {
+  string original_message_id = 1;
   // list of participants in the channel
-  repeated string participant_name = 1;
+  repeated string participant_name = 2;
 }

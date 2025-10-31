@@ -86,8 +86,7 @@ impl PyName {
     }
 
     pub fn components_strings(&self) -> Vec<String> {
-        let default = ["".into(), "".into(), "".into()];
-        self.name.components_strings().unwrap_or(&default).to_vec()
+        self.name.components_strings().to_vec()
     }
 
     pub fn equal_without_id(&self, name: &PyName) -> bool {

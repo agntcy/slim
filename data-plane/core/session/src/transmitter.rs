@@ -198,7 +198,7 @@ mod tests {
     use slim_auth::errors::AuthError;
     use slim_auth::traits::{TokenProvider, Verifier};
     use slim_datapath::Status;
-    use slim_datapath::api::ProtoMessage as Message;
+    use slim_datapath::api::{ApplicationPayload, ProtoMessage as Message};
     use slim_datapath::messages::encoder::Name;
     use tokio::sync::mpsc;
 
@@ -207,6 +207,10 @@ mod tests {
     impl TokenProvider for DummyProvider {
         fn get_token(&self) -> Result<String, AuthError> {
             Ok("id-token".into())
+        }
+
+        fn get_id(&self) -> Result<String, AuthError> {
+            Ok("id".into())
         }
     }
 
@@ -260,7 +264,11 @@ mod tests {
     fn make_message() -> Message {
         let source = Name::from_strings(["a", "b", "c"]).with_id(0);
         let dst = Name::from_strings(["d", "e", "f"]).with_id(0);
-        Message::new_publish(&source, &dst, None, "application/octet-stream", Vec::new())
+
+        // Signature: (&Name, &Name, Option<SlimHeaderFlags>, &str, Vec<u8>)
+        let payload =
+            Some(ApplicationPayload::new("application/octet-stream", vec![]).as_content());
+        Message::new_publish(&source, &dst, None, None, payload)
     }
 
     #[tokio::test]

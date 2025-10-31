@@ -36,7 +36,8 @@ func TestWaitForResponseByType_ControlMessage_Ack_Failure(t *testing.T) {
 
 	// Wait for message from node1 specifically
 	start := time.Now()
-	_, err := ms.WaitForResponse(ctx, "node1", reflect.TypeOf(&controllerapi.ControlMessage_Ack{}), "notReceivedMessageID")
+	_, err := ms.WaitForResponseWithTimeout(ctx, "node1", reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
+		"notReceivedMessageID", 10*time.Second)
 	duration := time.Since(start)
 
 	if err == nil {
@@ -71,8 +72,8 @@ func TestWaitForResponseByType_ControlMessage_Ack_Success(t *testing.T) {
 	}()
 
 	// Wait for message from node1 specifically
-	foundMsg, err := ms.WaitForResponse(ctx, "node1",
-		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}), "originalMessageId")
+	foundMsg, err := ms.WaitForResponseWithTimeout(ctx, "node1",
+		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}), "originalMessageId", 10*time.Second)
 	if err != nil {
 		t.Fatalf("unexpected error waiting for node1 message: %v", err)
 	}
@@ -86,16 +87,20 @@ func TestWaitForResponseByType_MultipleNodes(t *testing.T) {
 	ctx := context.Background()
 	// Add messages to multiple nodes
 	msg1 := &controllerapi.ControlMessage{
-		MessageId: "node1-msg",
-		Payload: &controllerapi.ControlMessage_ConfigCommand{
-			ConfigCommand: &controllerapi.ConfigurationCommand{},
+		MessageId: "node1-msg-resp",
+		Payload: &controllerapi.ControlMessage_Ack{
+			Ack: &controllerapi.Ack{
+				OriginalMessageId: "node1-msg",
+			},
 		},
 	}
 
 	msg2 := &controllerapi.ControlMessage{
-		MessageId: "node2-msg",
-		Payload: &controllerapi.ControlMessage_ConfigCommand{
-			ConfigCommand: &controllerapi.ConfigurationCommand{},
+		MessageId: "node2-msg-resp",
+		Payload: &controllerapi.ControlMessage_Ack{
+			Ack: &controllerapi.Ack{
+				OriginalMessageId: "node2-msg",
+			},
 		},
 	}
 
@@ -112,22 +117,24 @@ func TestWaitForResponseByType_MultipleNodes(t *testing.T) {
 	}()
 
 	// Wait for message from node1 specifically
-	foundMsg, err := ms.WaitForResponse(ctx, "node1", reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}), "")
+	foundMsg, err := ms.WaitForResponse(ctx, "node1", reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
+		"node1-msg")
 	if err != nil {
 		t.Fatalf("unexpected error waiting for node1 message: %v", err)
 	}
 
-	if foundMsg.MessageId != "node1-msg" {
+	if foundMsg.MessageId != "node1-msg-resp" {
 		t.Errorf("expected node1-msg, got %s", foundMsg.MessageId)
 	}
 
 	// Wait for message from node2 specifically
-	foundMsg, err = ms.WaitForResponse(ctx, "node2", reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}), "")
+	foundMsg, err = ms.WaitForResponse(ctx, "node2", reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
+		"node2-msg")
 	if err != nil {
 		t.Fatalf("unexpected error waiting for node2 message: %v", err)
 	}
 
-	if foundMsg.MessageId != "node2-msg" {
+	if foundMsg.MessageId != "node2-msg-resp" {
 		t.Errorf("expected node2-msg, got %s", foundMsg.MessageId)
 	}
 }
@@ -135,7 +142,7 @@ func TestWaitForResponseByType_MultipleNodes(t *testing.T) {
 func TestWaitForResponseByType_EmptyNodeID(t *testing.T) {
 	ms := DefaultNodeCommandHandler()
 	ctx := context.Background()
-	_, err := ms.WaitForResponse(ctx, "", reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}), "")
+	_, err := ms.WaitForResponse(ctx, "", reflect.TypeOf(&controllerapi.ControlMessage_Ack{}), "")
 	if err == nil {
 		t.Fatal("expected error when nodeID is empty")
 	}
@@ -150,12 +157,63 @@ func TestWaitForResponseByType_NilMessageType(t *testing.T) {
 	}
 }
 
+func TestWaitForResponseWithTimeout_AllowableMessageTypes(t *testing.T) {
+	ctx := context.Background()
+	ms := DefaultNodeCommandHandler()
+	nodeID := "test-node"
+	origMessageID := "test-msg-id"
+	timeout := 1 * time.Second
+
+	allowableTypes := []reflect.Type{
+		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
+		reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommandAck{}),
+		reflect.TypeOf(&controllerapi.ControlMessage_SubscriptionListResponse{}),
+		reflect.TypeOf(&controllerapi.ControlMessage_ConnectionListResponse{}),
+	}
+
+	for _, msgType := range allowableTypes {
+		t.Run(msgType.String(), func(t *testing.T) {
+			_, err := ms.WaitForResponseWithTimeout(ctx, nodeID, msgType, origMessageID, timeout)
+			if err == nil || !contains(err.Error(), "timeout waiting for message") {
+				t.Errorf("expected timeout error for message type %s, got: %v", msgType, err)
+			}
+		})
+	}
+}
+
+func TestWaitForResponseWithTimeout_UnsupportedMessageType(t *testing.T) {
+	ctx := context.Background()
+	ms := DefaultNodeCommandHandler()
+	nodeID := "test-node"
+	origMessageID := "test-msg-id"
+	timeout := 1 * time.Second
+
+	unsupportedType := reflect.TypeOf(&controllerapi.ControlMessage_RegisterNodeRequest{})
+	_, err := ms.WaitForResponseWithTimeout(ctx, nodeID, unsupportedType, origMessageID, timeout)
+	if err == nil || !contains(err.Error(), "unsupported messageType") {
+		t.Errorf("expected unsupported messageType error, got: %v", err)
+	}
+}
+
+func TestWaitForResponseWithTimeout_EmptyOriginalMessageID(t *testing.T) {
+	ctx := context.Background()
+	ms := DefaultNodeCommandHandler()
+	nodeID := "test-node"
+	timeout := 1 * time.Second
+
+	_, err := ms.WaitForResponseWithTimeout(ctx, nodeID, reflect.TypeOf(&controllerapi.ControlMessage_Ack{}), "", timeout)
+	if err == nil || !contains(err.Error(), "originalMessageID cannot be empty") {
+		t.Errorf("expected originalMessageID cannot be empty error, got: %v", err)
+	}
+}
+
 func TestWaitForResponseByType_Timeout(t *testing.T) {
 	ms := DefaultNodeCommandHandler()
 	ctx := context.Background()
 	// This should timeout since no message will be received
 	start := time.Now()
-	_, err := ms.WaitForResponse(ctx, "node1", reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommand{}), "")
+	_, err := ms.WaitForResponseWithTimeout(ctx, "node1",
+		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}), "originalMessageID", 10*time.Second)
 	duration := time.Since(start)
 
 	if err == nil {

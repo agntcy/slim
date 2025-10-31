@@ -179,6 +179,7 @@ impl Configuration for Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use slim_auth::testutils::TEST_VALID_SECRET;
     use slim_config::auth::jwt::Config as JwtConfig;
     use slim_config::auth::static_jwt::Config as StaticJwtConfig;
     use slim_config::component::id::{ID, Kind};
@@ -401,9 +402,12 @@ mod tests {
     async fn test_config_into_service() {
         let server_config = create_test_server_config();
         let client_config = create_test_client_config();
+        let auth = TokenProviderAuthConfig::SharedSecret(TEST_VALID_SECRET.to_string());
+
         let config = Config::new()
             .with_servers(vec![server_config.clone()])
-            .with_clients(vec![client_config]);
+            .with_clients(vec![client_config])
+            .with_token_provider_auth(auth);
 
         let id = ID::new_with_name(Kind::new("slim").unwrap(), "test-instance").unwrap();
         let group_name = Some("test-group".to_string());

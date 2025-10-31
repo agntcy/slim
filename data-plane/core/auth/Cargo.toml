@@ -1,6 +1,6 @@
 [package]
 name = "agntcy-slim-auth"
-version = "0.3.1"
+version = "0.4.0"
 license = { workspace = true }
 edition = { workspace = true }
 description = "Authentication utilities for the Agntcy Slim framework"
@@ -14,16 +14,19 @@ aws-lc-rs = { workspace = true }
 base64 = { workspace = true }
 futures = { workspace = true }
 headers = { workspace = true }
+
 http = { workspace = true }
 jsonwebtoken-aws-lc = { workspace = true }
 notify = { workspace = true }
-oauth2 = { workspace = true }
+oauth2 = { workspace = true, features = ["reqwest"] }
 parking_lot = { workspace = true }
 pin-project = { workspace = true }
+rand = { workspace = true }
 reqwest = { workspace = true }
 rustls = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true }
+
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 thiserror = { workspace = true }
@@ -36,6 +39,14 @@ tracing = { workspace = true }
 url = { workspace = true }
 wiremock = { workspace = true }
 
+[target.'cfg(not(target_family = "windows"))'.dependencies]
+spiffe = { workspace = true }
+
 [dev-dependencies]
 agntcy-slim-config = { path = "../config" }
+bollard = "0.17"
+libc = "0.2.177"
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", "fs"] }
+tokio-test = { workspace = true }
 tracing-test = { workspace = true }
+uuid = { workspace = true }

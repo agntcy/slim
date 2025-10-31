@@ -37,21 +37,21 @@ resolver = "2"
 
 [workspace.dependencies]
 # Local dependencies
-agntcy-slim = { path = "core/slim", version = "0.6.0" }
-agntcy-slim-auth = { path = "core/auth", version = "0.3.1" }
-agntcy-slim-config = { path = "core/config", version = "0.4.0" }
-agntcy-slim-controller = { path = "core/controller", version = "0.4.0" }
-agntcy-slim-datapath = { path = "core/datapath", version = "0.10.0" }
-agntcy-slim-mls = { path = "core/mls", version = "0.1.2" }
-agntcy-slim-service = { path = "core/service", version = "0.7.0" }
+agntcy-slim = { path = "core/slim", version = "0.6.1" }
+agntcy-slim-auth = { path = "core/auth", version = "0.4.0" }
+agntcy-slim-config = { path = "core/config", version = "0.4.1" }
+agntcy-slim-controller = { path = "core/controller", version = "0.4.1" }
+agntcy-slim-datapath = { path = "core/datapath", version = "0.10.1" }
+agntcy-slim-mls = { path = "core/mls", version = "0.1.3" }
+agntcy-slim-service = { path = "core/service", version = "0.8.0" }
 agntcy-slim-session = { path = "core/session", version = "0.1.0" }
 agntcy-slim-signal = { path = "core/signal", version = "0.1.3" }
-agntcy-slim-tracing = { path = "core/tracing", version = "0.2.4" }
+agntcy-slim-tracing = { path = "core/tracing", version = "0.2.5" }
 
 anyhow = "1.0.98"
 
 async-trait = "0.1.88"
-aws-lc-rs = "1.13.1"
+aws-lc-rs = "1.13"
 base64 = "0.22"
 bincode = "2.0.1"
 bit-vec = "0.8"
@@ -59,11 +59,12 @@ bytes = "1.9.0"
 clap = { version = "4.5.23", features = ["derive", "env"] }
 
 criterion = { version = "0.5", features = ["html_reports"] }
-drain = { version = "0.1", features = ["retain"] }
+drain = { version = "0.2", features = ["retain"] }
 duration-string = { version = "0.5.3", features = ["serde"] }
 futures = "0.3.31"
 h2 = "0.4.7"
 headers = "0.4.1"
+hex = "0.4.3"
 http = "1.2.0"
 hyper-rustls = { version = "0.27", features = [
     "http2",
@@ -76,33 +77,33 @@ jemallocator = { version = "0.5" }
 jsonwebtoken-aws-lc = "9.3.0"
 
 lazy_static = "1.5.0"
-mls-rs = { version = "0.48.0" }
-mls-rs-core = { version = "0.23.0" }
-mls-rs-crypto-awslc = { version = "0.18.0" }
+mls-rs = { version = "0.50.1" }
+mls-rs-core = { version = "0.24.0" }
+mls-rs-crypto-awslc = { version = "0.19" }
 notify = "8.0.0"
-oauth2 = "4.4.2"
+oauth2 = "5"
 once_cell = "1.21.0"
-opentelemetry = { version = "0.29.0", features = ["trace", "metrics"] }
-opentelemetry-otlp = { version = "0.29.0", features = [
+opentelemetry = { version = "0.31.0", features = ["trace", "metrics"] }
+opentelemetry-otlp = { version = "0.31.0", features = [
     "metrics",
     "grpc-tonic",
 ] }
-opentelemetry-semantic-conventions = { version = "0.29.0", features = [
+opentelemetry-semantic-conventions = { version = "0.31.0", features = [
     "semconv_experimental",
 ] }
-opentelemetry-stdout = "0.29.0"
-opentelemetry_sdk = { version = "0.29.0", default-features = false, features = [
+opentelemetry-stdout = "0.31.0"
+opentelemetry_sdk = { version = "0.31.0", default-features = false, features = [
     "trace",
     "rt-tokio",
 ] }
 parking_lot = "0.12.3"
 pin-project = "1.1.10"
-prost = "0.13"
+prost = "0.14"
 
 protoc-bin-vendored = "3.1.0"
-pyo3 = "0.24.1"
-pyo3-async-runtimes = { version = "0.24", features = ["tokio-runtime"] }
-pyo3-stub-gen = "0.7.0"
+pyo3 = "0.26"
+pyo3-async-runtimes = { version = "0.26", features = ["tokio-runtime"] }
+pyo3-stub-gen = "0.14"
 rand = "0.9.0"
 regex = "1.11.1"
 
@@ -114,35 +115,38 @@ reqwest = { version = "0.12", features = [
     "system-proxy",
     "blocking"
 ], default-features = false }
-rustls = "0.23.19"
-rustls-native-certs = "0.8.1"
+rustls = { version = "0.23.31" }
+rustls-native-certs = "0.8"
 rustls-pki-types = "1.10.0"
 schemars = "1.0.3"
 serde = "1.0.217"
-serde-pyobject = "0.6.1"
+serde-pyobject = "0.7"
 serde_json = "1.0"
 serde_yaml = "0.9.34"
+spiffe = "0.6.7"
 thiserror = "2.0.9"
 tokio = "1.45"
 tokio-stream = "0.1"
+tokio-test = "0.4.4"
 tokio-util = "0.7.14"
-tonic = "0.13"
-tonic-build = { version = "0.13", features = ["prost"] }
-tonic-tls = { version = "0.3", default-features = false, features = ["rustls"] }
+tonic = "0.14"
+tonic-prost = "0.14"
+tonic-prost-build = "0.14"
+tonic-tls = { version = "0.6", default-features = false, features = ["rustls"] }
 tower = "0.5.2"
 tower-http = { version = "0.6", features = ["auth"] }
 tower-layer = "0.3.3"
 tower-service = "0.3.3"
 tracing = "0.1.41"
-tracing-opentelemetry = "0.30.0"
+tracing-opentelemetry = "0.32.0"
 tracing-subscriber = "0.3.19"
-tracing-test = { version = "0.2.5", features = ["no-env-filter"] }
+tracing-test = { version = "0.2.5" }
 twox-hash = "2.1.1"
 
 url = "2.5.0"
 uuid = { version = "1.15.1", features = ["v4"] }
 
-wiremock = "0.5"
+wiremock = "0.6"
 
 [workspace.package]
 license = "Apache-2.0"
