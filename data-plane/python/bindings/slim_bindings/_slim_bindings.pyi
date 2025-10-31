@@ -95,6 +95,82 @@ class PyName:
     def equal_without_id(self, name:PyName) -> builtins.bool: ...
     def __hash__(self) -> builtins.int: ...
 
+class PySessionConfiguration:
+    r"""
+    User-facing configuration for establishing and tuning sessions.
+    
+    Each variant maps to a core `SessionConfig` and defines the behavior of session-level
+    operations like message publishing, participant management, and message reception.
+    
+    Common fields:
+    * `timeout`: How long we wait for an ack before trying again.
+    * `max_retries`: Number of attempts to send a message. If we run out, an error is returned.
+    * `mls_enabled`: Turn on MLS for end‑to‑end crypto.
+    * `metadata`: One-shot string key/value tags sent at session start; the other side can read them for tracing, routing, auth, etc.
+    
+    Variant-specific notes:
+    * `PointToPoint`: Direct communication with a specific peer. Session operations target the peer directly.
+    * `Group`: Channel-based multicast communication. Session operations affect the entire group.
+    
+    # Examples
+    
+    ## Python: Create different session configs
+    ```python
+    from slim_bindings import PySessionConfiguration, PyName
+    
+    # PointToPoint session - direct peer communication
+    p2p_cfg = PySessionConfiguration.PointToPoint(
+        peer_name=PyName("org", "namespace", "service"), # target peer
+        timeout=datetime.timedelta(seconds=2), # wait 2 seconds for an ack
+        max_retries=5, # retry up to 5 times
+        mls_enabled=True, # enable MLS
+        metadata={"trace_id": "1234abcd"} # arbitrary (string -> string) key/value pairs to send at session establishment
+    )
+    
+    # Group session (channel-based)
+    channel = PyName("org", "namespace", "channel")
+    group_cfg = PySessionConfiguration.Group(
+        channel_name=channel, # group channel_name
+        max_retries=2, # retry up to 2 times
+        timeout=datetime.timedelta(seconds=2), # wait 2 seconds for an ack
+        mls_enabled=True, # enable MLS
+        metadata={"role": "publisher"} # arbitrary (string -> string) key/value pairs to send at session establishment
+    )
+    ```
+    
+    ## Python: Using a config when creating a session
+    ```python
+    slim = await Slim.new(local_name, provider, verifier)
+    session = await slim.create_session(p2p_cfg)
+    print("Session ID:", session.id)
+    print("Type:", session.session_type)
+    print("Metadata:", session.metadata)
+    ```
+    
+    ## Python: Updating configuration after creation
+    ```python
+    # Adjust retries & metadata dynamically
+    new_cfg = PySessionConfiguration.PointToPoint(
+        peer_name=PyName("org", "namespace", "service"),
+        timeout=None,
+        max_retries=10,
+        mls_enabled=True,
+        metadata={"trace_id": "1234abcd", "phase": "retrying"}
+    )
+    session.set_session_config(new_cfg)
+    ```
+    
+    ## Rust (internal conversion flow)
+    The enum transparently converts to and from `SessionConfig`:
+    ```
+    // Example conversion (pseudo-code):
+    // let core: SessionConfig = py_cfg.clone().into();
+    // let roundtrip: PySessionConfiguration = core.into();
+    // assert_eq!(py_cfg, roundtrip);
+    ```
+    """
+    ...
+
 class PySessionContext:
     r"""
     Python-exposed session context wrapper.
@@ -132,7 +208,6 @@ class PySessionContext:
     def dst(self) -> typing.Optional[PyName]: ...
     @property
     def session_config(self) -> PySessionConfiguration: ...
-    def set_session_config(self, config:PySessionConfiguration) -> None: ...
 
 class PyAlgorithm(Enum):
     r"""
@@ -367,89 +442,6 @@ class PyKeyFormat(Enum):
     Jwk = ...
     Jwks = ...
 
-class PySessionConfiguration(Enum):
-    r"""
-    User-facing configuration for establishing and tuning sessions.
-    
-    Each variant maps to a core `SessionConfig` and defines the behavior of session-level
-    operations like message publishing, participant management, and message reception.
-    
-    Common fields:
-    * `timeout`: How long we wait for an ack before trying again.
-    * `max_retries`: Number of attempts to send a message. If we run out, an error is returned.
-    * `mls_enabled`: Turn on MLS for end‑to‑end crypto.
-    * `metadata`: One-shot string key/value tags sent at session start; the other side can read them for tracing, routing, auth, etc.
-    
-    Variant-specific notes:
-    * `PointToPoint`: Direct communication with a specific peer. Session operations target the peer directly.
-    * `Group`: Channel-based multicast communication. Session operations affect the entire group.
-    
-    # Examples
-    
-    ## Python: Create different session configs
-    ```python
-    from slim_bindings import PySessionConfiguration, PyName
-    
-    # PointToPoint session - direct peer communication
-    p2p_cfg = PySessionConfiguration.PointToPoint(
-        peer_name=PyName("org", "namespace", "service"), # target peer
-        timeout=datetime.timedelta(seconds=2), # wait 2 seconds for an ack
-        max_retries=5, # retry up to 5 times
-        mls_enabled=True, # enable MLS
-        metadata={"trace_id": "1234abcd"} # arbitrary (string -> string) key/value pairs to send at session establishment
-    )
-    
-    # Group session (channel-based)
-    channel = PyName("org", "namespace", "channel")
-    group_cfg = PySessionConfiguration.Group(
-        channel_name=channel, # group channel_name
-        max_retries=2, # retry up to 2 times
-        timeout=datetime.timedelta(seconds=2), # wait 2 seconds for an ack
-        mls_enabled=True, # enable MLS
-        metadata={"role": "publisher"} # arbitrary (string -> string) key/value pairs to send at session establishment
-    )
-    ```
-    
-    ## Python: Using a config when creating a session
-    ```python
-    slim = await Slim.new(local_name, provider, verifier)
-    session = await slim.create_session(p2p_cfg)
-    print("Session ID:", session.id)
-    print("Type:", session.session_type)
-    print("Metadata:", session.metadata)
-    ```
-    
-    ## Python: Updating configuration after creation
-    ```python
-    # Adjust retries & metadata dynamically
-    new_cfg = PySessionConfiguration.PointToPoint(
-        peer_name=PyName("org", "namespace", "service"),
-        timeout=None,
-        max_retries=10,
-        mls_enabled=True,
-        metadata={"trace_id": "1234abcd", "phase": "retrying"}
-    )
-    session.set_session_config(new_cfg)
-    ```
-    
-    ## Rust (internal conversion flow)
-    The enum transparently converts to and from `SessionConfig`:
-    ```
-    // Example conversion (pseudo-code):
-    // let core: SessionConfig = py_cfg.clone().into();
-    // let roundtrip: PySessionConfiguration = core.into();
-    // assert_eq!(py_cfg, roundtrip);
-    ```
-    """
-    PointToPoint = ...
-    r"""
-    PointToPoint configuration with a fixed destination (peer_name).
-    """
-    Group = ...
-    r"""
-    Group configuration: one-to-many distribution through a channel_name.
-    """
-
 class PySessionType(Enum):
     r"""
     High-level session classification presented to Python.
@@ -467,7 +459,7 @@ def connect(svc:PyApp, config:dict) -> typing.Any: ...
 
 def create_pyapp(name:PyName, provider:PyIdentityProvider, verifier:PyIdentityVerifier, local_service:builtins.bool=False) -> typing.Any: ...
 
-def create_session(svc:PyApp, config:PySessionConfiguration) -> typing.Any: ...
+def create_session(svc:PyApp, destination:PyName, config:PySessionConfiguration) -> typing.Any: ...
 
 def delete_session(svc:PyApp, session_context:PySessionContext) -> typing.Any: ...
 
@@ -505,8 +497,6 @@ def remove(session_context:PySessionContext, name:PyName) -> typing.Any:
 def remove_route(svc:PyApp, name:PyName, conn:builtins.int) -> typing.Any: ...
 
 def run_server(svc:PyApp, config:dict) -> typing.Any: ...
-
-def set_default_session_config(svc:PyApp, config:PySessionConfiguration) -> None: ...
 
 def set_route(svc:PyApp, name:PyName, conn:builtins.int) -> typing.Any: ...
 

@@ -108,14 +108,12 @@ async def test_group(server, mls_enabled):  # noqa: C901
             print(f"{part_name} -> Creating new group sessions...")
             # create a group session. index 0 is the moderator of the session
             # and it will invite all the other participants to the session
-            session = await participant.create_session(
-                slim_bindings.PySessionConfiguration.Group(
-                    channel_name=chat_name,
-                    max_retries=5,
-                    timeout=datetime.timedelta(seconds=5),
-                    mls_enabled=mls_enabled,
-                )
+            session_config =  slim_bindings.PySessionConfiguration.Group(
+                max_retries=5,
+                timeout=datetime.timedelta(seconds=5),
+                mls_enabled=mls_enabled,
             )
+            session = await participant.create_session(chat_name, session_config)
 
             await asyncio.sleep(3)
 

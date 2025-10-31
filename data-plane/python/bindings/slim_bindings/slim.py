@@ -36,9 +36,6 @@ from slim_bindings._slim_bindings import (
     run_server as _run_server,
 )
 from slim_bindings._slim_bindings import (
-    set_default_session_config as _set_default_session_config,
-)
-from slim_bindings._slim_bindings import (
     set_route as _set_route,
 )
 from slim_bindings._slim_bindings import (
@@ -195,17 +192,19 @@ class Slim:
 
     async def create_session(
         self,
+        destination: PyName,
         session_config: PySessionConfiguration,
     ) -> PySession:
         """Create a new session and return its high-level PySession wrapper.
 
         Args:
+            destination (PyName): Target peer or channel name.
             session_config (PySessionConfiguration): Parameters controlling creation.
 
         Returns:
             PySession: Wrapper exposing high-level async operations for the session.
         """
-        ctx: PySessionContext = await _create_session(self._svc, session_config)
+        ctx: PySessionContext = await _create_session(self._svc, destination, session_config)
         return PySession(ctx)
 
     async def delete_session(self, session: PySession):
@@ -224,22 +223,6 @@ class Slim:
 
         # Remove the session from SLIM
         await _delete_session(self._svc, session._ctx)
-
-    async def set_default_session_config(
-        self,
-        session_config: PySessionConfiguration,
-    ):
-        """
-        Set/override the default session configuration used when a session is received.
-
-        Args:
-            session_config (PySessionConfiguration): Configuration object to persist.
-
-        Returns:
-            None
-        """
-
-        _set_default_session_config(self._svc, session_config)
 
     async def run_server(self, config: dict):
         """

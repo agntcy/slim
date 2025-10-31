@@ -32,7 +32,6 @@ from slim_bindings._slim_bindings import (
     listen_for_session,
     publish,
     run_server,
-    set_default_session_config,
     set_route,
     stop_server,
     subscribe,

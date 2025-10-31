@@ -367,6 +367,62 @@ pub struct PySessionConfiguration {
 // TODO(msardara): unify the configs as now they became identical
 #[pymethods]
 impl PySessionConfiguration {
+    /// Create a PointToPoint session configuration.
+    ///
+    /// Args:
+    ///     timeout: Optional timeout duration
+    ///     max_retries: Optional maximum retry attempts
+    ///     mls_enabled: Enable MLS encryption (default: false)
+    ///     metadata: Optional metadata dictionary
+    #[staticmethod]
+    #[pyo3(name = "PointToPoint", signature = (timeout=None, max_retries=None, mls_enabled=false, metadata=None))]
+    pub fn point_to_point(
+        timeout: Option<std::time::Duration>,
+        max_retries: Option<u32>,
+        mls_enabled: bool,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Self {
+        PySessionConfiguration {
+            session_type: ProtoSessionType::PointToPoint,
+            max_retries,
+            timeout,
+            mls_enabled,
+            initiator: true,
+            metadata: metadata.unwrap_or_default(),
+        }
+    }
+
+    /// Create a Group session configuration.
+    ///
+    /// Args:
+    ///     timeout: Optional timeout duration
+    ///     max_retries: Optional maximum retry attempts
+    ///     mls_enabled: Enable MLS encryption (default: false)
+    ///     metadata: Optional metadata dictionary
+    #[staticmethod]
+    #[pyo3(name = "Group", signature = (timeout=None, max_retries=None, mls_enabled=false, metadata=None))]
+    pub fn group(
+        timeout: Option<std::time::Duration>,
+        max_retries: Option<u32>,
+        mls_enabled: bool,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Self {
+        PySessionConfiguration {
+            session_type: ProtoSessionType::Multicast,
+            max_retries,
+            timeout,
+            mls_enabled,
+            initiator: true,
+            metadata: metadata.unwrap_or_default(),
+        }
+    }
+
+    /// Return the session type.
+    #[getter]
+    pub fn session_type(&self) -> PySessionType {
+        self.session_type.into()
+    }
+
     /// Return the metadata map (cloned).
     #[getter]
     pub fn metadata(&self) -> HashMap<String, String> {

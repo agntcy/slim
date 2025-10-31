@@ -27,10 +27,6 @@ from ._slim_bindings import (
 from ._slim_bindings import (
     remove as _remove,
 )
-from ._slim_bindings import (
-    set_default_session_config as _set_default_session_config,  # noqa:F401
-)
-
 
 class PySession:
     """High level Python wrapper around a `PySessionContext`.
