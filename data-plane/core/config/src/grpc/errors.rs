@@ -12,15 +12,15 @@ pub enum ConfigError {
     MissingServices,
     #[error("missing grpc endpoint")]
     MissingEndpoint,
-    #[error("error parsing grpc endpoint")]
+    #[error("error parsing grpc endpoint: {0}")]
     EndpointParseError(String),
-    #[error("tcp incoming error")]
+    #[error("tcp incoming error: {0}")]
     TcpIncomingError(String),
-    #[error("failed to parse uri")]
+    #[error("failed to parse uri: {0}]")]
     UriParseError(String),
-    #[error("failed to parse headers")]
+    #[error("failed to parse headers: {0}")]
     HeaderParseError(String),
-    #[error("failed to parse rate limit configuration")]
+    #[error("failed to parse rate limit configuration: {0}")]
     RateLimitParseError(String),
     #[error("tls setting error: {0}")]
     TLSSettingError(String),
@@ -28,7 +28,7 @@ pub enum ConfigError {
     AuthConfigError(String),
     #[error("resolution error")]
     ResolutionError,
-    #[error("invalid uri")]
+    #[error("invalid uri: {0}")]
     InvalidUri(String),
     #[error("unknown error")]
     Unknown,

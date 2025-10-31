@@ -31,7 +31,8 @@ openssl req                 \
     -new                    \
     -key ${SERVER_CA_KEY}   \
     -out ${SERVER_CA_CERT}  \
-    -config ${CA_CNF}
+    -config ${CA_CNF}       \
+    -days 3650
 
 # Server Key
 openssl ecparam     \
@@ -55,7 +56,8 @@ openssl x509                \
     -CAcreateserial         \
     -out ${SERVER_CERT}     \
     -extfile ${SERVER_CNF}  \
-    -extensions req_ext
+    -extensions req_ext     \
+    -days 3650
 
 # Client CA Key
 openssl ecparam             \
@@ -69,7 +71,8 @@ openssl req                 \
     -new                    \
     -key ${CLIENT_CA_KEY}   \
     -out ${CLIENT_CA_CERT}  \
-    -config ${CA_CNF}
+    -config ${CA_CNF}       \
+    -days 3650
 
 # Client Key
 openssl ecparam     \
@@ -93,4 +96,5 @@ openssl x509                \
     -CAcreateserial         \
     -out ${CLIENT_CERT}     \
     -extfile ${CLIENT_CNF}  \
-    -extensions req_ext
+    -extensions req_ext     \
+    -days 3650

@@ -1,8 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-#![cfg(target_os = "linux")]
-
 //! SPIRE test environment for integration tests
 //!
 //! This module provides a reusable test environment that manages SPIRE server and agent
@@ -20,7 +18,7 @@ use bollard::image::CreateImageOptions;
 use bollard::models::{HostConfig, PortBinding};
 use bollard::network::CreateNetworkOptions;
 use futures::StreamExt;
-use slim_auth::spiffe::SpiffeProviderConfig;
+use slim_config::auth::spire::SpireConfig;
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::fs;
@@ -56,6 +54,7 @@ pub struct SpireTestEnvironment {
     temp_dir: std::path::PathBuf,
     socket_path: std::path::PathBuf,
     server_port: Option<u16>,
+    dns_name: String,
 }
 
 impl SpireTestEnvironment {
@@ -81,6 +80,9 @@ impl SpireTestEnvironment {
         // Create unique agent name to avoid conflicts
         let agent_name = format!("spire-agent-{}", uuid::Uuid::new_v4());
 
+        // DNS name for workload registration
+        let dns_name = format!("testservice.{}", TRUST_DOMAIN);
+
         Ok(Self {
             docker,
             network_name,
@@ -91,6 +93,7 @@ impl SpireTestEnvironment {
             temp_dir,
             socket_path,
             server_port: None,
+            dns_name,
         })
     }
 
@@ -499,6 +502,8 @@ plugins {{
                 "spiffe://example.org/testservice",
                 "-selector",
                 &uid_selector,
+                "-dns",
+                &self.dns_name,
             ]),
             attach_stdout: Some(true),
             attach_stderr: Some(true),
@@ -535,12 +540,18 @@ plugins {{
         format!("unix://{}", self.socket_path.to_string_lossy())
     }
 
-    /// Get a ready-to-use SPIFFE provider config
-    pub fn get_spiffe_provider_config(&self) -> SpiffeProviderConfig {
-        SpiffeProviderConfig {
+    /// Get the DNS name for the target service
+    pub fn dns_name(&self) -> &str {
+        &self.dns_name
+    }
+
+    /// Get a ready-to-use unified SPIFFE config (from slim_config crate)
+    pub fn get_spiffe_config(&self) -> SpireConfig {
+        SpireConfig {
             socket_path: Some(self.socket_path()),
-            target_spiffe_id: None,
             jwt_audiences: vec!["test-audience".to_string()],
+            trust_domains: vec![TRUST_DOMAIN.to_string()],
+            ..Default::default()
         }
     }
 

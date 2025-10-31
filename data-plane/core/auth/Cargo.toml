@@ -28,7 +28,6 @@ schemars = { workspace = true }
 serde = { workspace = true }
 
 serde_json = { workspace = true }
-serde_yaml = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tokio-util = { workspace = true }
@@ -44,9 +43,8 @@ spiffe = { workspace = true }
 
 [dev-dependencies]
 agntcy-slim-config = { path = "../config" }
-bollard = "0.17"
-libc = "0.2.177"
+agntcy-slim-testing = { path = "../../testing" }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", "fs"] }
 tokio-test = { workspace = true }
 tracing-test = { workspace = true }
-uuid = { workspace = true }
+# uuid moved to optional dependency under [dependencies] for feature = "testutils"

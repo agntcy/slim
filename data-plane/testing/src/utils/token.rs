@@ -5,25 +5,8 @@
 /// Use this for simple cases where the actual value does not matter.
 pub const TEST_VALID_SECRET: &str = "test-shared-secret-value-0123456789abcdef";
 
-/// Convenience helper returning a pair (provider, verifier) `SharedSecret`
-/// instances initialized with the same valid secret for the given base id.
-/// This reduces duplication across tests that construct both roles.
-pub fn test_identity_pair(
-    base: &str,
-) -> (
-    crate::shared_secret::SharedSecret,
-    crate::shared_secret::SharedSecret,
-) {
-    let secret = format!("{base}-shared-secret-value-0123456789abcdef");
-    (
-        crate::shared_secret::SharedSecret::new(base, &secret),
-        crate::shared_secret::SharedSecret::new(base, &secret),
-    )
-}
-
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::utils::bytes_to_pem;
 use aws_lc_rs::encoding::AsDer;
 use aws_lc_rs::signature::KeyPair; // Import the KeyPair trait for public_key() method
 use aws_lc_rs::{rand, rsa, signature};
@@ -335,4 +318,27 @@ pub async fn setup_oidc_mock_server() -> (MockServer, String, String) {
     let access_token = "test-access-token-12345".to_string();
 
     (mock_server, issuer_url, access_token)
+}
+
+/// Convert arbitrary bytes into a PEM-formatted string with the provided header/footer.
+/// The body is wrapped at 64 character lines per RFC 7468 guidance.
+/// Header/footer should include the BEGIN/END lines with trailing/leading newlines as desired.
+fn bytes_to_pem(key_bytes: &[u8], header: &str, footer: &str) -> String {
+    // Use base64 with standard encoding (not URL safe)
+    let encoded = base64::engine::general_purpose::STANDARD.encode(key_bytes);
+
+    // Insert newlines every 64 characters as per PEM format
+    let mut pem_body = String::new();
+    for i in 0..(encoded.len().div_ceil(64)) {
+        let start = i * 64;
+        let end = std::cmp::min(start + 64, encoded.len());
+        if start < encoded.len() {
+            pem_body.push_str(&encoded[start..end]);
+            if end < encoded.len() {
+                pem_body.push('\n');
+            }
+        }
+    }
+
+    format!("{}{}{}", header, pem_body, footer)
 }

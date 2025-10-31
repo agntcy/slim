@@ -3,13 +3,12 @@
 
 //! Common traits for authentication mechanisms.
 
-use std::collections::HashMap;
-
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::errors::AuthError;
+use crate::metadata::MetadataMap;
 
 /// Standard JWT Claims structure that includes the registered claims
 /// as specified in RFC 7519.
@@ -44,7 +43,7 @@ pub struct StandardClaims {
 
     // Additional custom claims can be added by the user
     #[serde(flatten)]
-    pub custom_claims: HashMap<String, serde_json::Value>,
+    pub custom_claims: MetadataMap,
 }
 
 impl StandardClaims {
@@ -58,7 +57,7 @@ impl StandardClaims {
             iat: None,
             jti: None,
             nbf: None,
-            custom_claims: HashMap::new(),
+            custom_claims: MetadataMap::new(),
         }
     }
 }
@@ -111,10 +110,7 @@ pub trait TokenProvider {
     ///
     /// # Arguments
     /// * `custom_claims` - Additional custom claims to include in the token.
-    async fn get_token_with_claims(
-        &self,
-        custom_claims: HashMap<String, serde_json::Value>,
-    ) -> Result<String, AuthError> {
+    async fn get_token_with_claims(&self, custom_claims: MetadataMap) -> Result<String, AuthError> {
         // Default implementation ignores custom claims for backward compatibility
         let _ = custom_claims;
         self.get_token()

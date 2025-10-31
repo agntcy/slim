@@ -1,0 +1,30 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+tracing:
+  log_level: debug
+  display_thread_names: true
+  display_thread_ids: true
+
+runtime:
+  n_cores: 0
+  thread_name: "slim-data-plane"
+  drain_timeout: 10s
+
+services:
+  slim/0:
+    dataplane:
+      clients:
+        - endpoint: "https://localhost:46357"
+          # This overrides the server name when connecting to localhost
+          server_name: "myservice.example.org"
+          tls:
+            source:
+              type: spire
+              socket_path: unix://tmp/spire-agent/public/api.sock
+              target_spiffe_id: spiffe://example.org/myservice
+            ca_source:
+              type: spire
+              socket_path: unix://tmp/spire-agent/public/api.sock
+              trust_domains:
+                - example.org

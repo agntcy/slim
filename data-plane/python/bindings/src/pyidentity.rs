@@ -114,7 +114,7 @@ impl From<PyKeyData> for KeyData {
     fn from(value: PyKeyData) -> Self {
         match value {
             PyKeyData::File { path } => KeyData::File(path),
-            PyKeyData::Content { content } => KeyData::Str(content),
+            PyKeyData::Content { content } => KeyData::Data(content),
         }
     }
 }

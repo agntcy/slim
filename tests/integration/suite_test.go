@@ -4,6 +4,7 @@
 package integration
 
 import (
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -31,6 +32,23 @@ var (
 	controlPlaneSession *gexec.Session
 )
 
+func mustAbs(p string) string {
+	abs, err := filepath.Abs(p)
+	Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("failed to resolve absolute path for %s", p))
+	return abs
+}
+
+func setBinaryPaths(target string) {
+	dataPlaneTarget := filepath.Join("..", "..", "data-plane", "target", target, "debug")
+	slimPath = mustAbs(filepath.Join(dataPlaneTarget, "slim"))
+	sdkMockPath = mustAbs(filepath.Join(dataPlaneTarget, "sdk-mock"))
+	clientPath = mustAbs(filepath.Join(dataPlaneTarget, "client"))
+
+	distBin := filepath.Join("..", "..", ".dist", "bin")
+	slimctlPath = mustAbs(filepath.Join(distBin, "slimctl"))
+	controlPlanePath = mustAbs(filepath.Join(distBin, "control-plane"))
+}
+
 var _ = BeforeSuite(func() {
 	// determine build target
 	out, err := exec.Command("rustc", "-vV").Output()
@@ -45,11 +63,7 @@ var _ = BeforeSuite(func() {
 	Expect(target).NotTo(BeEmpty(), "failed to parse rustc host target")
 
 	// set binary paths
-	slimPath = filepath.Join("..", "..", "data-plane", "target", target, "debug", "slim")
-	sdkMockPath = filepath.Join("..", "..", "data-plane", "target", target, "debug", "sdk-mock")
-	clientPath = filepath.Join("..", "..", "data-plane", "target", target, "debug", "client")
-	slimctlPath = filepath.Join("..", "..", ".dist", "bin", "slimctl")
-	controlPlanePath = filepath.Join("..", "..", ".dist", "bin", "control-plane")
+	setBinaryPaths(target)
 })
 
 var _ = AfterSuite(func() {

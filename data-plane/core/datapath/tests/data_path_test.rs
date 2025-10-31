@@ -25,6 +25,7 @@ mod tests {
         let msg_processor = svc.clone();
         let ep_server = server_conf
             .to_server_future(&[DataPlaneServiceServer::from_arc(svc)])
+            .await
             .unwrap();
 
         // start server
@@ -40,7 +41,7 @@ mod tests {
         // connect client
         let mut client_config = ClientConfig::with_endpoint("http://127.0.0.1:50051");
         client_config.tls_setting.insecure = true;
-        let channel = client_config.to_channel().unwrap();
+        let channel = client_config.to_channel().await.unwrap();
 
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
@@ -160,6 +161,7 @@ mod tests {
 
         let ep_server = server_conf
             .to_server_future(&[DataPlaneServiceServer::from_arc(svc)])
+            .await
             .unwrap();
 
         tokio::spawn(async move {
@@ -173,7 +175,7 @@ mod tests {
         // create a client config we will attach to the connection
         let mut client_config = ClientConfig::with_endpoint("http://127.0.0.1:50052");
         client_config.tls_setting.insecure = true;
-        let channel = client_config.to_channel().unwrap();
+        let channel = client_config.to_channel().await.unwrap();
 
         // connect with client_config Some(...)
         let (_, conn_index) = msg_processor

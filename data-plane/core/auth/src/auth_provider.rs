@@ -70,6 +70,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::errors::AuthError;
 use crate::jwt::{SignerJwt, StaticTokenProvider, VerifierJwt};
+use crate::metadata::MetadataMap;
 use crate::shared_secret::SharedSecret;
 use crate::traits::{TokenProvider, Verifier};
 
@@ -200,10 +201,7 @@ impl TokenProvider for AuthProvider {
         }
     }
 
-    async fn get_token_with_claims(
-        &self,
-        custom_claims: std::collections::HashMap<String, serde_json::Value>,
-    ) -> Result<String, AuthError> {
+    async fn get_token_with_claims(&self, custom_claims: MetadataMap) -> Result<String, AuthError> {
         match self {
             AuthProvider::JwtSigner(signer) => signer.get_token_with_claims(custom_claims).await,
             AuthProvider::StaticToken(provider) => {

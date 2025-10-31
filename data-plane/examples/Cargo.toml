@@ -22,6 +22,7 @@ agntcy-slim-mls = { workspace = true }
 agntcy-slim-service = { workspace = true }
 agntcy-slim-session = { workspace = true }
 agntcy-slim-signal = { workspace = true }
+agntcy-slim-testing = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
 prost = { workspace = true }
