@@ -91,6 +91,7 @@ impl RootStoreBuilder {
     }
 
     /// Add SPIFFE / SPIRE bundle authorities (only if a socket path is configured).
+    #[cfg(not(target_family = "windows"))]
     pub async fn add_spiffe(mut self, cfg: &spire::SpireConfig) -> Result<Self, ConfigError> {
         Self::add_spiffe_bundles(&mut self.store, cfg).await?;
         Ok(self)
@@ -105,6 +106,7 @@ impl RootStoreBuilder {
             CaSource::Pem { data, .. } => {
                 self = self.add_pem(data)?;
             }
+            #[cfg(not(target_family = "windows"))]
             CaSource::Spire { config, .. } => {
                 self = self.add_spiffe(config).await?;
             }
@@ -114,6 +116,7 @@ impl RootStoreBuilder {
         Ok(self)
     }
 
+    #[cfg(not(target_family = "windows"))]
     async fn add_spiffe_bundles(
         root_store: &mut RootCertStore,
         spiffe_cfg: &spire::SpireConfig,
