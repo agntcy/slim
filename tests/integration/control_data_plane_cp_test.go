@@ -4,7 +4,6 @@
 package integration
 
 import (
-	"fmt"
 	"os/exec"
 	"time"
 
@@ -113,7 +112,6 @@ var _ = Describe("Routing", func() {
 			Expect(err).NotTo(HaveOccurred(), "slimctl route list failed: %s", string(routeListOutA))
 
 			routeListOutputA := string(routeListOutA)
-			fmt.Println("XXXXXX:" + routeListOutputA)
 			Expect(routeListOutputA).To(ContainSubstring("org/default/b"))
 
 			// test listing connections for node a
