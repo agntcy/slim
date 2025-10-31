@@ -360,7 +360,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let p = msg_payload_str.as_bytes().to_vec();
     let mut to_add = tot_participants - 1;
     let mut to_remove = 0;
-    for i in 0..max_packets {
+    for i in 1..max_packets {
         println!("moderator: send message {}", i);
 
         // set fanout > 1 to send the message in broadcast
@@ -393,7 +393,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    for i in 0..max_packets {
+    for i in 1..max_packets {
         let lock = recv_msgs.read();
         if lock[i] != (tot_participants - 1) {
             println!(

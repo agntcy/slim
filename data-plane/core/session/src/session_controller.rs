@@ -295,8 +295,7 @@ where
                     self.id(),
                     rand::random::<u32>(),
                 ));
-                let payload =
-                    Some(CommandPayload::new_discovery_request_payload(None).as_content());
+                let payload = Some(CommandPayload::new_leave_request_payload(None).as_content());
                 let msg = Message::new_publish_with_headers(slim_header, session_header, payload);
                 self.publish_message(msg).await
             }
@@ -1710,6 +1709,7 @@ where
             )
             .as_content();
             let msg_id = rand::random::<u32>();
+
             self.common
                 .send_control_message(
                     &self.common.destination.clone(),
@@ -1743,6 +1743,7 @@ where
                 .unwrap()
                 .leave_start(leave_message.get_id())?;
         }
+
         Ok(())
     }
 
@@ -1789,7 +1790,11 @@ where
     }
 
     async fn on_leave_reply(&mut self, msg: Message) -> Result<(), SessionError> {
-        debug!("process leave reply");
+        debug!(
+            "received leave reply from {} with id {}",
+            msg.get_source(),
+            msg.get_id()
+        );
         let msg_id = msg.get_id();
 
         // delete the route to the source of the message

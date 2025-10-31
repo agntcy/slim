@@ -310,7 +310,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|_| format!("Failed to subscribe for participant {}", name))?;
 
     let conf = SessionConfig {
-        session_type: slim_datapath::api::ProtoSessionType::Multicast,
+        session_type: slim_datapath::api::ProtoSessionType::PointToPoint,
         max_retries: Some(10),
         duration: Some(Duration::from_secs(1)),
         mls_enabled,

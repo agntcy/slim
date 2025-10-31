@@ -141,7 +141,7 @@ where
                         .get_payload()
                         .unwrap()
                         .as_command_payload()
-                        .as_group_add_payload();
+                        .as_group_remove_payload();
                     let mls_payload = payload.mls.ok_or_else(|| {
                         SessionError::Processing(
                             "missing mls payload in remove message".to_string(),

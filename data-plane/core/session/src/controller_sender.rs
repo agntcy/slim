@@ -148,6 +148,14 @@ impl ControllerSender {
                     }
                 }
 
+                // also the message that we are removing will get the update
+                // so we need to add it in the list of endpoint from where
+                // we expected to receive an ack
+                let to_remove = Name::from(payload.removed_participant.as_ref().unwrap());
+                if to_remove != self.local_name {
+                    missing_replies.insert(to_remove);
+                }
+
                 self.on_send_message(message, missing_replies).await?;
             }
             slim_datapath::api::ProtoSessionMessageType::GroupProposal => todo!(),
