@@ -36,10 +36,12 @@
 
 use std::path::Path;
 
-use crate::auth::spire;
 use crate::tls::common::{CaSource, ConfigError};
 use rustls::RootCertStore;
 use rustls_pki_types::{CertificateDer, pem::PemObject};
+
+#[cfg(not(target_family = "windows"))]
+use crate::auth::spire;
 
 /// Builder for constructing a RootCertStore from multiple certificate sources.
 pub struct RootStoreBuilder {

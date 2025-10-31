@@ -17,9 +17,12 @@ use crate::{
     component::configuration::{Configuration, ConfigurationError},
     tls::{
         RootStoreBuilder,
-        common::{CaSource, SpireCertResolver, StaticCertResolver, WatcherCertResolver},
+        common::{CaSource, StaticCertResolver, WatcherCertResolver},
     },
 };
+
+#[cfg(not(target_family = "windows"))]
+use crate::tls::common::SpireCertResolver;
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Clone, JsonSchema)]
 pub struct TlsServerConfig {
@@ -129,6 +132,7 @@ impl TlsServerConfig {
     }
 
     /// Set client CA from SPIRE
+    #[cfg(not(target_family = "windows"))]
     pub fn with_client_ca_spire(self, client_ca_spire: crate::auth::spire::SpireConfig) -> Self {
         TlsServerConfig {
             client_ca: CaSource::Spire {
@@ -205,6 +209,7 @@ impl TlsServerConfig {
     }
 
     /// Attach a SPIRE configuration (SPIRE Workload API) for dynamic SVID + bundle based TLS.
+    #[cfg(not(target_family = "windows"))]
     pub fn with_spire(self, spire: crate::auth::spire::SpireConfig) -> Self {
         TlsServerConfig {
             config: self.config.with_spire(spire),
@@ -235,6 +240,7 @@ impl TlsServerConfig {
         // Unified handling based on TlsSource enum
         let resolver: Arc<dyn ResolvesServerCert> = match &self.config.source {
             // SPIRE server path
+            #[cfg(not(target_family = "windows"))]
             TlsSource::Spire { config: spire_cfg } => Arc::new(
                 SpireCertResolver::new(spire_cfg.clone(), config_builder.crypto_provider())
                     .await

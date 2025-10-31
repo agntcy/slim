@@ -21,13 +21,12 @@ use tracing::warn;
 
 use super::common::{Config, ConfigError, RustlsConfigLoader, TlsSource};
 use crate::{
-    auth::spire,
     component::configuration::{Configuration, ConfigurationError},
-    tls::common::{SpireCertResolver, StaticCertResolver, TlsComponent, WatcherCertResolver},
+    tls::common::{StaticCertResolver, TlsComponent, WatcherCertResolver},
 };
 
-// Dynamic SPIRE Workload API client certificate resolver providing per-handshake SVID.
-// Removed local SpireClientCertResolver; using unified super::common::SpireCertResolver
+#[cfg(not(target_family = "windows"))]
+use crate::{auth::spire, tls::common::SpireCertResolver};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
 pub struct TlsClientConfig {
@@ -148,6 +147,7 @@ impl ResolvesClientCert for super::common::StaticCertResolver {
     }
 }
 
+#[cfg(not(target_family = "windows"))]
 impl ResolvesClientCert for SpireCertResolver {
     fn resolve(
         &self,
@@ -216,6 +216,7 @@ impl TlsClientConfig {
     }
 
     /// Set spire CA
+    #[cfg(not(target_family = "windows"))]
     pub fn with_ca_spire(self, config: spire::SpireConfig) -> Self {
         Self {
             config: self.config.with_ca_spire(config),
@@ -250,6 +251,7 @@ impl TlsClientConfig {
     }
 
     /// Set the cert spire (for client auth)
+    #[cfg(not(target_family = "windows"))]
     pub fn with_cert_and_key_spire(self, config: spire::SpireConfig) -> Self {
         TlsClientConfig {
             config: self.config.with_spire(config),
@@ -297,6 +299,7 @@ impl TlsClientConfig {
 
         // Build client config including client auth (spire / file / pem)
         let client_config = match &self.config.source {
+            #[cfg(not(target_family = "windows"))]
             TlsSource::Spire { config: spire_cfg } => {
                 // Dynamic spire client cert resolver (no manual cert/key injection)
                 let spire_resolver =

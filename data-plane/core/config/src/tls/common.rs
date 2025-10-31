@@ -17,6 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
 
+#[cfg(not(target_family = "windows"))]
 use crate::auth::spire;
 
 #[derive(Debug)]
@@ -123,6 +124,7 @@ impl StaticCertResolver {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
+#[cfg(not(target_family = "windows"))]
 pub struct SpireSources {
     /// Flattened spire configuration (socket_path, target_spiffe_id, jwt_audiences, trust_domain)
     #[serde(flatten)]
@@ -140,6 +142,7 @@ pub enum TlsSource {
         cert: String,
         key: String,
     },
+    #[cfg(not(target_family = "windows"))]
     Spire {
         #[serde(flatten)]
         config: spire::SpireConfig,
@@ -164,6 +167,7 @@ pub enum CaSource {
     Pem {
         data: String,
     },
+    #[cfg(not(target_family = "windows"))]
     Spire {
         #[serde(flatten)]
         config: spire::SpireConfig,
@@ -202,18 +206,21 @@ pub struct Config {
 }
 
 // Resolver backed by SPIRE Workload API providing dynamic SVID and bundle refresh.
+#[cfg(not(target_family = "windows"))]
 pub(crate) struct SpireCertResolver {
     provider: slim_auth::spire::SpireIdentityManager,
     crypto_provider: Arc<CryptoProvider>,
 }
 
 // Manual Debug impl (SpireIdentityManager does not implement Debug)
+#[cfg(not(target_family = "windows"))]
 impl std::fmt::Debug for SpireCertResolver {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "SpireCertResolver {{ provider: <opaque> }}")
     }
 }
 
+#[cfg(not(target_family = "windows"))]
 impl SpireCertResolver {
     pub(crate) async fn new(
         spire_cfg: spire::SpireConfig,
@@ -272,6 +279,7 @@ impl SpireCertResolver {
 }
 
 // Implement rustls server & client certificate resolver traits for SpireCertResolver
+#[cfg(not(target_family = "windows"))]
 impl rustls::server::ResolvesServerCert for SpireCertResolver {
     fn resolve(
         &self,
@@ -297,11 +305,13 @@ pub enum ConfigError {
     #[error("error reading cert/key from file: {0}")]
     InvalidFile(String),
     #[error("error in spire configuration: {details}, config={config:?}")]
+    #[cfg(not(target_family = "windows"))]
     InvalidSpireConfig {
         details: String,
         config: spire::SpireConfig,
     },
     #[error("error running spire: {0}")]
+    #[cfg(not(target_family = "windows"))]
     SpireError(String),
 
     #[error("root store error: {0}")]
@@ -316,6 +326,7 @@ pub enum ConfigError {
     Unknown,
 
     #[error("spire error: {0}")]
+    #[cfg(not(target_family = "windows"))]
     Spire(String),
 }
 
@@ -368,6 +379,7 @@ impl Config {
         self
     }
 
+    #[cfg(not(target_family = "windows"))]
     pub(crate) fn with_ca_spire(mut self, spire: spire::SpireConfig) -> Config {
         self.ca_source = CaSource::Spire { config: spire };
         self
@@ -425,6 +437,7 @@ impl Config {
 
     /// Attach a spire configuration enabling SPIRE-based SVID and bundle resolution.
     /// This sets the `spire` field with a `SpireSources` wrapper.
+    #[cfg(not(target_family = "windows"))]
     pub(crate) fn with_spire(mut self, spire: spire::SpireConfig) -> Config {
         self.source = TlsSource::Spire { config: spire };
         self
@@ -451,18 +464,21 @@ impl Config {
             TlsComponent::Ca => match &self.ca_source {
                 CaSource::File { path } => !path.is_empty(),
                 CaSource::Pem { data } => !data.is_empty(),
+                #[cfg(not(target_family = "windows"))]
                 CaSource::Spire { .. } => true,
                 CaSource::None => false,
             },
             TlsComponent::Cert => match &self.source {
                 TlsSource::File { cert, .. } => !cert.is_empty(),
                 TlsSource::Pem { cert, .. } => !cert.is_empty(),
+                #[cfg(not(target_family = "windows"))]
                 TlsSource::Spire { .. } => true,
                 TlsSource::None => false,
             },
             TlsComponent::Key => match &self.source {
                 TlsSource::File { key, .. } => !key.is_empty(),
                 TlsSource::Pem { key, .. } => !key.is_empty(),
+                #[cfg(not(target_family = "windows"))]
                 TlsSource::Spire { .. } => true,
                 TlsSource::None => false,
             },
