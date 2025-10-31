@@ -388,7 +388,8 @@ where
                                 }
                                 let (msg, direction) = result.unwrap();
 
-                                tracing::trace!("received message from SLIM {} {}", msg.get_session_message_type().as_str_name(), msg.get_id());
+                                tracing::trace!("received message {} {}", msg.get_session_message_type().as_str_name(), msg.get_id());
+
 
                                 // process the messages for the channel endpoint first
                                 match msg.get_session_header().session_message_type() {
@@ -975,11 +976,7 @@ where
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
         self.tx.try_send(Ok((message, direction))).map_err(|e| {
-            SessionError::QueueFullError(format!(
-                "session={}, error={}",
-                self.common.id(),
-                e.to_string()
-            ))
+            SessionError::QueueFullError(format!("session={}, error={}", self.common.id(), e))
         })
     }
 }
@@ -1060,7 +1057,7 @@ mod tests {
     #[traced_test]
     async fn test_multicast_create() {
         let (tx_slim, _) = tokio::sync::mpsc::channel(1);
-        let (tx_app, _) = tokio::sync::mpsc::channel(1);
+        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
 
         let tx = SessionTransmitter {
             slim_tx: tx_slim.clone(),
@@ -1132,7 +1129,7 @@ mod tests {
     #[traced_test]
     async fn test_multicast_sender_and_receiver() {
         let (tx_slim_sender, mut rx_slim_sender) = tokio::sync::mpsc::channel(1);
-        let (tx_app_sender, _rx_app_sender) = tokio::sync::mpsc::channel(1);
+        let (tx_app_sender, _rx_app_sender) = tokio::sync::mpsc::unbounded_channel();
 
         let tx_sender = SessionTransmitter {
             slim_tx: tx_slim_sender,
@@ -1141,7 +1138,7 @@ mod tests {
         };
 
         let (tx_slim_receiver, _rx_slim_receiver) = tokio::sync::mpsc::channel(1);
-        let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
+        let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::unbounded_channel();
 
         let tx_receiver = SessionTransmitter {
             slim_tx: tx_slim_receiver,
@@ -1234,7 +1231,7 @@ mod tests {
     #[traced_test]
     async fn test_multicast_rtx_timeouts() {
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(1);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
+        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
 
         let tx = SessionTransmitter {
             slim_tx: tx_slim,
@@ -1322,7 +1319,7 @@ mod tests {
     #[traced_test]
     async fn test_multicast_rtx_reception() {
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(8);
-        let (tx_app, _rx_app) = tokio::sync::mpsc::channel(8);
+        let (tx_app, _rx_app) = tokio::sync::mpsc::unbounded_channel();
 
         let tx = SessionTransmitter {
             slim_tx: tx_slim,
@@ -1425,8 +1422,8 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_multicast_e2e_with_losses() {
-        let (tx_slim_sender, mut rx_slim_sender) = tokio::sync::mpsc::channel(1);
-        let (tx_app_sender, _rx_app_sender) = tokio::sync::mpsc::channel(1);
+        let (tx_slim_sender, mut rx_slim_sender) = tokio::sync::mpsc::channel(3);
+        let (tx_app_sender, _rx_app_sender) = tokio::sync::mpsc::unbounded_channel();
 
         let tx_sender = SessionTransmitter {
             slim_tx: tx_slim_sender,
@@ -1434,8 +1431,8 @@ mod tests {
             interceptors: Arc::new(parking_lot::RwLock::new(vec![])),
         };
 
-        let (tx_slim_receiver, mut rx_slim_receiver) = tokio::sync::mpsc::channel(1);
-        let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(1);
+        let (tx_slim_receiver, mut rx_slim_receiver) = tokio::sync::mpsc::channel(3);
+        let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::unbounded_channel();
 
         let tx_receiver = SessionTransmitter {
             slim_tx: tx_slim_receiver,
@@ -1657,7 +1654,7 @@ mod tests {
     #[traced_test]
     async fn test_session_delete() {
         let (tx_slim, _) = tokio::sync::mpsc::channel(1);
-        let (tx_app, _) = tokio::sync::mpsc::channel(1);
+        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
 
         let tx = SessionTransmitter {
             slim_tx: tx_slim,
