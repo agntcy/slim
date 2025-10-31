@@ -354,14 +354,14 @@ impl SessionSender {
             .await
     }
 
-    pub fn add_endpoint(&mut self, endpoint: Name) {
+    pub fn add_endpoint(&mut self, endpoint: &Name) {
         debug!(
             "add endpoint {}, current list size {}",
             endpoint,
             self.endpoints_list.len()
         );
         // add endpoint to the list
-        self.endpoints_list.insert(endpoint);
+        self.endpoints_list.insert(endpoint.clone());
         debug!("new list size {}", self.endpoints_list.len());
     }
 
@@ -411,6 +411,16 @@ impl SessionSender {
         }
         false
     }
+
+    pub fn close(&mut self) {
+        for (_, mut p) in self.pending_acks.drain() {
+            p.timer.stop();
+        }
+
+        self.pending_acks.clear();
+        self.pending_acks_per_endpoint.clear();
+        self.draining_state = SenderDrainStatus::Completed;
+    }
 }
 
 #[cfg(test)]
@@ -444,7 +454,7 @@ mod tests {
         );
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
-        sender.add_endpoint(remote.clone());
+        sender.add_endpoint(&remote);
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
@@ -521,7 +531,7 @@ mod tests {
         );
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
-        sender.add_endpoint(remote.clone());
+        sender.add_endpoint(&remote);
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
@@ -671,7 +681,7 @@ mod tests {
         );
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
-        sender.add_endpoint(remote.clone());
+        sender.add_endpoint(&remote);
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
@@ -750,9 +760,9 @@ mod tests {
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
         let remote3 = Name::from_strings(["org", "ns", "remote3"]);
 
-        sender.add_endpoint(remote1.clone());
-        sender.add_endpoint(remote2.clone());
-        sender.add_endpoint(remote3.clone());
+        sender.add_endpoint(&remote1);
+        sender.add_endpoint(&remote2);
+        sender.add_endpoint(&remote3);
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
@@ -855,9 +865,9 @@ mod tests {
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
         let remote3 = Name::from_strings(["org", "ns", "remote3"]);
 
-        sender.add_endpoint(remote1.clone());
-        sender.add_endpoint(remote2.clone());
-        sender.add_endpoint(remote3.clone());
+        sender.add_endpoint(&remote1);
+        sender.add_endpoint(&remote2);
+        sender.add_endpoint(&remote3);
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
@@ -1025,9 +1035,9 @@ mod tests {
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
         let remote3 = Name::from_strings(["org", "ns", "remote3"]);
 
-        sender.add_endpoint(remote1.clone());
-        sender.add_endpoint(remote2.clone());
-        sender.add_endpoint(remote3.clone());
+        sender.add_endpoint(&remote1);
+        sender.add_endpoint(&remote2);
+        sender.add_endpoint(&remote3);
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
@@ -1122,9 +1132,9 @@ mod tests {
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
         let remote3 = Name::from_strings(["org", "ns", "remote3"]);
 
-        sender.add_endpoint(remote1.clone());
-        sender.add_endpoint(remote2.clone());
-        sender.add_endpoint(remote3.clone());
+        sender.add_endpoint(&remote1);
+        sender.add_endpoint(&remote2);
+        sender.add_endpoint(&remote3);
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
@@ -1245,7 +1255,7 @@ mod tests {
         );
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
-        sender.add_endpoint(remote.clone());
+        sender.add_endpoint(&remote);
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);

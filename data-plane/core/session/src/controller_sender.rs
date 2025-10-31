@@ -23,7 +23,6 @@ enum ControllerSenderDrainStatus {
     Completed,
 }
 
-#[allow(dead_code)]
 struct PendingReply {
     /// Missing replies
     /// Keep track of the names so that if we get  multiple acks from
@@ -37,7 +36,6 @@ struct PendingReply {
     timer: Timer,
 }
 
-#[allow(dead_code)]
 pub struct ControllerSender {
     /// timer factory to crate timers for acks
     timer_factory: TimerFactory,
@@ -55,7 +53,6 @@ pub struct ControllerSender {
     draining_state: ControllerSenderDrainStatus,
 }
 
-#[allow(dead_code)]
 impl ControllerSender {
     pub fn new(
         timer_settings: TimerSettings,
@@ -266,6 +263,15 @@ impl ControllerSender {
             return true;
         }
         false
+    }
+
+    pub fn close(&mut self) {
+        for (_, mut p) in self.pending_replies.drain() {
+            p.timer.stop();
+        }
+
+        self.pending_replies.clear();
+        self.draining_state = ControllerSenderDrainStatus::Completed;
     }
 }
 

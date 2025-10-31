@@ -327,6 +327,14 @@ impl SessionReceiver {
         }
         false
     }
+
+    pub fn close(&mut self) {
+        for (_, mut p) in self.pending_rtxs.drain() {
+            p.timer.stop();
+        }
+        self.pending_rtxs.clear();
+        self.draining_state = ReceiverDrainStatus::Completed;
+    }
 }
 
 #[cfg(test)]

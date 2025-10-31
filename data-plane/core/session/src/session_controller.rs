@@ -12,6 +12,7 @@ use std::{
 // Third-party crates
 use parking_lot::Mutex;
 use slim_mls::mls::Mls;
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
 
 use slim_auth::traits::{TokenProvider, Verifier};
@@ -63,6 +64,10 @@ where
 
     /// controller (participant or moderator)
     controller: SessionControllerImpl<P, V>,
+
+    /// use in drop implementation to close immediately
+    /// the session processor loop
+    cancellation_token: CancellationToken,
 }
 
 impl<P, V> SessionController<P, V>
@@ -83,6 +88,7 @@ where
         tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
     ) -> Self {
         let session_config = config.clone();
+        let cancellation_token = CancellationToken::new();
 
         let controller = if config.initiator {
             SessionControllerImpl::SessionModerator(SessionModerator::new(
@@ -95,6 +101,7 @@ where
                 storage_path,
                 tx,
                 tx_to_session_layer,
+                cancellation_token.clone(),
             ))
         } else {
             SessionControllerImpl::SessionParticipant(SessionParticipant::new(
@@ -107,6 +114,7 @@ where
                 storage_path,
                 tx,
                 tx_to_session_layer,
+                cancellation_token.clone(),
             ))
         };
 
@@ -116,6 +124,7 @@ where
             destination,
             config: session_config,
             controller,
+            cancellation_token,
         }
     }
 
@@ -296,6 +305,16 @@ where
     }
 }
 
+impl<P, V> Drop for SessionController<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    fn drop(&mut self) {
+        self.cancellation_token.cancel();
+    }
+}
+
 pub fn handle_channel_discovery_message(
     message: &Message,
     app_name: &Name,
@@ -397,8 +416,11 @@ pub struct SessionControllerCommon {
     tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
 
     /// the session itself
-    /// TODO rename it in session
     session: Session,
+
+    /// cancellation token to exit from the processor loop
+    /// in case of session drop
+    cancellation_token: CancellationToken,
 }
 
 impl SessionControllerCommon {
@@ -414,6 +436,7 @@ impl SessionControllerCommon {
         tx_controller: tokio::sync::mpsc::Sender<SessionMessage>,
         rx_controller: tokio::sync::mpsc::Receiver<SessionMessage>,
         tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
+        cancellation_token: CancellationToken,
     ) -> Self {
         // timers settings for the controller
         let controller_timer_settings =
@@ -448,6 +471,7 @@ impl SessionControllerCommon {
             rx_from_session_layer: rx_controller,
             tx_to_session_layer,
             session,
+            cancellation_token,
         }
     }
 
@@ -575,6 +599,7 @@ where
         storage_path: std::path::PathBuf,
         tx: SessionTransmitter,
         tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
+        cancellation_token: CancellationToken,
     ) -> Self {
         // tx/rx controller used to receive messages from the session_layer
         let (tx_controller, rx_controller) = tokio::sync::mpsc::channel(128);
@@ -591,6 +616,7 @@ where
             tx_controller.clone(),
             rx_controller,
             tx_to_session_layer,
+            cancellation_token,
         );
 
         // Start the processor loop
@@ -654,6 +680,7 @@ where
         tx_controller: tokio::sync::mpsc::Sender<SessionMessage>,
         rx_controller: tokio::sync::mpsc::Receiver<SessionMessage>,
         tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
+        cancellation_token: CancellationToken,
     ) -> Self {
         let mls_state = if config.mls_enabled {
             Some(
@@ -678,6 +705,7 @@ where
             tx_controller,
             rx_controller,
             tx_to_session_layer,
+            cancellation_token,
         );
 
         SessionParticipantProcessor {
@@ -722,8 +750,7 @@ where
                                     error!("Error processing timer failure in the session: {:?}", e);
                                 }
                             }
-                            SessionMessage::DeleteSession { session_id: _ } => todo!(),
-                            SessionMessage::Drain { grace_period_ms: _  } => todo!(),
+                            SessionMessage::StartDrain { grace_period_ms: _  } => todo!(),
                             _ => {
                                 debug!("Unexpected message type");
                             }
@@ -733,6 +760,12 @@ where
                             break;
                         }
                     }
+                }
+                _ = self.common.cancellation_token.cancelled() => {
+                    debug!("cancellation token signaled on participant session processor, close it");
+                    self.common.session.close();
+                    self.common.sender.close();
+                    break;
                 }
             }
         }
@@ -841,10 +874,7 @@ where
             if name != self.common.source {
                 // notify the local session that a new participant was added to the group
                 debug!("add endpoint to the session {}", msg.get_source());
-                self.common
-                    .session
-                    .on_message(SessionMessage::AddEndpoint { endpoint: name })
-                    .await?;
+                self.common.session.add_endpoint(&name);
             }
         }
 
@@ -901,10 +931,7 @@ where
 
                 // notify the local session that a new participant was added to the group
                 debug!("add endpoint to the session {}", msg.get_source());
-                self.common
-                    .session
-                    .on_message(SessionMessage::AddEndpoint { endpoint: name })
-                    .await?;
+                self.common.session.add_endpoint(&name);
             }
         } else {
             let p = msg
@@ -918,10 +945,7 @@ where
 
                 // notify the local session that a new participant was added to the group
                 debug!("add endpoint to the session {}", msg.get_source());
-                self.common
-                    .session
-                    .on_message(SessionMessage::RemoveEndpoint { endpoint: name })
-                    .await?;
+                self.common.session.remove_endpoint(&name);
             }
         }
 
@@ -1041,6 +1065,7 @@ where
         storage_path: std::path::PathBuf,
         tx: SessionTransmitter,
         tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
+        cancellation_token: CancellationToken,
     ) -> Self {
         // tx/rx controller used to receive messages from the session_layer
         let (tx_controller, rx_controller) = tokio::sync::mpsc::channel(128);
@@ -1057,6 +1082,7 @@ where
             tx_controller.clone(),
             rx_controller,
             tx_to_session_layer,
+            cancellation_token,
         );
 
         // Start the processor loop
@@ -1147,6 +1173,7 @@ where
         tx_controller: tokio::sync::mpsc::Sender<SessionMessage>,
         rx_controller: tokio::sync::mpsc::Receiver<SessionMessage>,
         tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
+        cancellation_token: CancellationToken,
     ) -> Self {
         let mls_state = if config.mls_enabled {
             Some(MlsModeratorState::new(
@@ -1171,6 +1198,7 @@ where
             tx_controller,
             rx_controller,
             tx_to_session_layer,
+            cancellation_token,
         );
 
         SessionModeratorProcessor {
@@ -1248,17 +1276,24 @@ where
                                         error!("failed to sending timer failure to the session: {}", e);
                                 }
                             }
-                            SessionMessage::DeleteSession { session_id: _ } => todo!(),
-                            SessionMessage::Drain { grace_period_ms: _ } => todo!(),
+                            SessionMessage::StartDrain { grace_period_ms: _ } => todo!(),
                             _ => {
                                 debug!("Unexpected message type");
                             }
                         }
+
                         None => {
                             debug!("session controller close channel {}", self.common.id);
                             break;
                         }
                     }
+
+                }
+                _ = self.common.cancellation_token.cancelled() => {
+                    debug!("cancellation token signaled on participant session processor, close it");
+                    self.common.session.close();
+                    self.common.sender.close();
+                    break;
                 }
             }
         }
@@ -1473,12 +1508,7 @@ where
 
         // notify the local session that a new participant was added to the group
         debug!("add endpoint to the session {}", msg.get_source());
-        self.common
-            .session
-            .on_message(SessionMessage::AddEndpoint {
-                endpoint: msg.get_source().clone(),
-            })
-            .await?;
+        self.common.session.add_endpoint(&msg.get_source());
 
         // get mls data if MLS is enabled
         let (commit, welcome) = if self.mls_state.is_some() {
@@ -1640,10 +1670,7 @@ where
 
         self.common
             .session
-            .on_message(SessionMessage::RemoveEndpoint {
-                endpoint: leave_message.get_dst(),
-            })
-            .await?;
+            .remove_endpoint(&leave_message.get_dst());
 
         // Before send the leave request we may need to send the Group update
         // with the new participant list and the new mls payload if needed
@@ -1958,6 +1985,7 @@ mod tests {
         let participant_name_id = Name::from_strings(["org", "ns", "participant"]).with_id(1);
         let storage_path_moderator = std::path::PathBuf::from("/tmp/test_invite_moderator");
         let storage_path_participant = std::path::PathBuf::from("/tmp/test_invite_participant");
+        let cancellation_token = CancellationToken::new();
 
         // create a SessionModerator
         let (tx_slim_moderator, mut rx_slim_moderator) = tokio::sync::mpsc::channel(10);
@@ -1987,6 +2015,7 @@ mod tests {
             storage_path_moderator.clone(),
             tx_moderator.clone(),
             tx_session_layer_moderator,
+            cancellation_token.clone(),
         );
 
         // create a SessionParticipant
@@ -2017,6 +2046,7 @@ mod tests {
             storage_path_participant.clone(),
             tx_participant.clone(),
             tx_session_layer_participant,
+            cancellation_token.clone(),
         );
 
         // create a discovery request and send it on the moderator on message (direction south)

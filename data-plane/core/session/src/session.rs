@@ -57,7 +57,6 @@ impl Session {
     }
 
     pub async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
-        println!("ON MESSAGE {:?}", message);
         match message {
             SessionMessage::OnMessage { message, direction } => {
                 self.on_application_message(message, direction).await
@@ -75,16 +74,21 @@ impl Session {
                 timeouts: _,
             } => self.on_timer_failure(message_id, message_type, name).await,
             SessionMessage::DeleteSession { session_id: _ } => todo!(),
-            SessionMessage::AddEndpoint { endpoint } => {
-                self.sender.add_endpoint(endpoint);
-                Ok(())
-            }
-            SessionMessage::RemoveEndpoint { endpoint } => {
-                self.sender.remove_endpoint(&endpoint);
-                Ok(())
-            }
-            SessionMessage::Drain { grace_period_ms: _ } => todo!(),
+            SessionMessage::StartDrain { grace_period_ms: _ } => todo!(),
         }
+    }
+
+    pub fn add_endpoint(&mut self, endpoint: &Name) {
+        self.sender.add_endpoint(endpoint);
+    }
+
+    pub fn remove_endpoint(&mut self, endpoint: &Name) {
+        self.sender.remove_endpoint(endpoint);
+    }
+
+    pub fn close(&mut self) {
+        self.sender.close();
+        self.receiver.close();
     }
 
     async fn on_application_message(
@@ -192,12 +196,7 @@ mod tests {
         );
 
         // Add the remote endpoint to the session sender
-        session
-            .on_message(SessionMessage::AddEndpoint {
-                endpoint: remote_name.clone(),
-            })
-            .await
-            .expect("error adding endpoint");
+        session.add_endpoint(&remote_name);
 
         // Create a test message from app to slim (south direction)
         let mut message = Message::new_publish(
@@ -542,12 +541,7 @@ mod tests {
         );
 
         // Add receiver as endpoint for sender
-        sender_session
-            .on_message(SessionMessage::AddEndpoint {
-                endpoint: receiver_name.clone(),
-            })
-            .await
-            .expect("error adding receiver endpoint");
+        sender_session.add_endpoint(&receiver_name);
 
         // Receiver session setup
         let (tx_slim_receiver, mut rx_slim_receiver) = tokio::sync::mpsc::channel(10);
@@ -575,12 +569,7 @@ mod tests {
         );
 
         // Add sender as endpoint for receiver
-        receiver_session
-            .on_message(SessionMessage::AddEndpoint {
-                endpoint: sender_name.clone(),
-            })
-            .await
-            .expect("error adding receiver endpoint");
+        receiver_session.add_endpoint(&sender_name);
 
         // Send message 1 from the application
         let mut message1 = Message::new_publish(

@@ -83,32 +83,31 @@ pub fn new_message_from_session_fields(
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum SessionMessage {
+    /// application message coming from the app or from slim
     OnMessage {
         message: Message,
         direction: MessageDirection,
     },
+    /// timeout signal for a message (ack,rtx or control messages)
+    /// that needs to be send again
     TimerTimeout {
         message_id: u32,
         message_type: ProtoSessionMessageType,
         name: Option<Name>,
         timeouts: u32,
     },
+    /// timer failure, signal to the owner of the packet that
+    /// the message will not be delivered
     TimerFailure {
         message_id: u32,
         message_type: ProtoSessionMessageType,
         name: Option<Name>,
         timeouts: u32,
     },
-    DeleteSession {
-        session_id: u32,
-    },
-    AddEndpoint {
-        endpoint: Name,
-    },
-    RemoveEndpoint {
-        endpoint: Name,
-    },
-    Drain {
-        grace_period_ms: u64,
-    },
+    /// message from session controller to session layer
+    /// to notify that the session can be removed safely
+    DeleteSession { session_id: u32 },
+    /// message from session layer to the session controller
+    /// to start to the close procedures of the session
+    StartDrain { grace_period_ms: u64 },
 }
