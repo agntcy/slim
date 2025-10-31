@@ -57,6 +57,7 @@ impl Session {
     }
 
     pub async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
+        println!("ON MESSAGE {:?}", message);
         match message {
             SessionMessage::OnMessage { message, direction } => {
                 self.on_application_message(message, direction).await

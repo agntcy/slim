@@ -222,7 +222,15 @@ where
 
         let payload = Some(ApplicationPayload::new(&ct, blob).as_content());
 
-        let mut msg = Message::new_publish(self.source(), name, None, Some(flags), payload);
+        let slim_header = Some(SlimHeader::new(self.source(), name, "", Some(flags)));
+        let session_header = Some(SessionHeader::new(
+            self.session_type().into(),
+            ProtoSessionMessageType::Msg.into(),
+            self.id(),
+            rand::random::<u32>(), // this will be changed by the session itself
+        ));
+
+        let mut msg = Message::new_publish_with_headers(slim_header, session_header, payload);
         if let Some(map) = metadata
             && !map.is_empty()
         {

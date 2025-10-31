@@ -397,8 +397,6 @@ where
                 let local_name =
                     self.get_local_name_for_session(message.get_slim_header().get_dst())?;
 
-                println!("received discovery request on {}", local_name);
-
                 return self
                     .handle_message_from_slim_without_session(
                         &local_name,

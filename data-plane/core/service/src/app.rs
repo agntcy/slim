@@ -969,7 +969,6 @@ mod tests {
 
         for suffix in &config.participant_suffixes {
             let participant_name = Name::from_strings(["org", "ns", suffix]).with_id(0);
-            println!("create app with name {}", participant_name);
             let (app, notifications) = service
                 .create_app(
                     &participant_name,
@@ -1014,7 +1013,6 @@ mod tests {
 
         // Invite all participants to the multicast session
         for participant_name in &participant_names {
-            println!("invit part {}", participant_name);
             session_arc
                 .invite_participant(participant_name)
                 .await

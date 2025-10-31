@@ -525,8 +525,12 @@ mod tests {
         let mut config = SessionConfig::default()
             .with_session_type(slim_datapath::api::ProtoSessionType::PointToPoint);
         config.initiator = true;
-        let dst = Name::from_strings(["org", "ns", "dst"]);
-        let send_session = pub_app.create_session(config, dst, None).await.unwrap();
+        let send_session = pub_app
+            .create_session(config, subscriber_name.clone(), None)
+            .await
+            .unwrap();
+
+        time::sleep(Duration::from_millis(100)).await;
 
         // publish a message
         let message_blob = "very complicated message".as_bytes().to_vec();
