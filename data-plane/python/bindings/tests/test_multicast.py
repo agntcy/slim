@@ -108,7 +108,7 @@ async def test_group(server, mls_enabled):  # noqa: C901
             print(f"{part_name} -> Creating new group sessions...")
             # create a group session. index 0 is the moderator of the session
             # and it will invite all the other participants to the session
-            session_config =  slim_bindings.PySessionConfiguration.Group(
+            session_config = slim_bindings.PySessionConfiguration.Group(
                 max_retries=5,
                 timeout=datetime.timedelta(seconds=5),
                 mls_enabled=mls_enabled,

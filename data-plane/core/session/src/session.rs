@@ -7,6 +7,7 @@ use slim_datapath::{
 };
 
 use tokio::sync::mpsc::Sender;
+use tracing::debug;
 
 use crate::{
     MessageDirection, common::SessionMessage, errors::SessionError,
@@ -15,6 +16,7 @@ use crate::{
 };
 
 pub(crate) struct Session {
+    local_name: Name,
     sender: SessionSender,
     receiver: SessionReceiver,
 }
@@ -53,12 +55,24 @@ impl Session {
             Some(tx_signals.clone()),
         );
 
-        Session { sender, receiver }
+        Session {
+            local_name: local_name.clone(),
+            sender,
+            receiver,
+        }
     }
 
     pub async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
         match message {
             SessionMessage::OnMessage { message, direction } => {
+                debug!(
+                    "received message {} type {:?} on {} from {} (direction {:?})",
+                    message.get_id(),
+                    message.get_session_message_type(),
+                    self.local_name,
+                    message.get_source(),
+                    direction
+                );
                 self.on_application_message(message, direction).await
             }
             SessionMessage::TimerTimeout {
@@ -79,10 +93,12 @@ impl Session {
     }
 
     pub fn add_endpoint(&mut self, endpoint: &Name) {
+        debug!("add participant {} on {}", endpoint, self.local_name);
         self.sender.add_endpoint(endpoint);
     }
 
     pub fn remove_endpoint(&mut self, endpoint: &Name) {
+        debug!("remove participant {} on {}", endpoint, self.local_name);
         self.sender.remove_endpoint(endpoint);
     }
 

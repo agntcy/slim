@@ -133,7 +133,7 @@ async def test_identity_verification(server, audience):
     )
 
     # Create PointToPoint session
-    session_config =  slim_bindings.PySessionConfiguration.PointToPoint(
+    session_config = slim_bindings.PySessionConfiguration.PointToPoint(
         max_retries=3,
         timeout=datetime.timedelta(seconds=1),
     )

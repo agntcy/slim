@@ -28,6 +28,7 @@ from ._slim_bindings import (
     remove as _remove,
 )
 
+
 class PySession:
     """High level Python wrapper around a `PySessionContext`.
 
@@ -87,18 +88,6 @@ class PySession:
     def dst(self) -> PyName | None:
         """Return the destination name"""
         return self._ctx.dst
-
-    def set_session_config(self, config: PySessionConfiguration) -> None:
-        """Replace the current session configuration.
-
-        Args:
-            config: A new `PySessionConfiguration` variant.
-
-        Raises:
-            RuntimeError (wrapped from Rust) if the configuration change
-            is invalid or the session is already closed.
-        """
-        self._ctx.set_session_config(config)
 
     async def publish(
         self,

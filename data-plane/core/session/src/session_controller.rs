@@ -567,10 +567,11 @@ impl SessionControllerCommon {
         message_type: ProtoSessionMessageType,
         message_id: u32,
         payload: Content,
-        metadata: Option<HashMap<String,String>>,
+        metadata: Option<HashMap<String, String>>,
         broadcast: bool,
     ) -> Result<(), SessionError> {
-        let mut msg = self.create_control_message(dst, message_type, message_id, payload, broadcast);
+        let mut msg =
+            self.create_control_message(dst, message_type, message_id, payload, broadcast);
         if let Some(m) = metadata {
             msg.set_metadata_map(m);
         }

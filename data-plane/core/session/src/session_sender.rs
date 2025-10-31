@@ -72,6 +72,8 @@ pub struct SessionSender {
 
 #[allow(dead_code)]
 impl SessionSender {
+    const MAX_FANOUT: u32 = 256;
+
     pub fn new(
         timer_settings: Option<TimerSettings>,
         session_id: u32,
@@ -165,13 +167,19 @@ impl SessionSender {
 
         debug!("send new message with id {}", message_id);
 
-        // Get a mutable reference to the message header
-        let header = message.get_session_header_mut();
-
         // Set the session id, message id and session type
-        header.set_message_id(message_id);
-        header.set_session_id(self.session_id);
-        header.set_session_type(self.session_type);
+        let session_header = message.get_session_header_mut();
+        session_header.set_message_id(message_id);
+        session_header.set_session_id(self.session_id);
+        session_header.set_session_type(self.session_type);
+
+        // set the fanout
+        let slim_header = message.get_slim_header_mut();
+        if self.session_type == ProtoSessionType::Multicast {
+            slim_header.set_fanout(Self::MAX_FANOUT);
+        } else {
+            slim_header.set_fanout(1);
+        }
 
         if self.timer_factory.is_some() {
             debug!("reliable sender, set all timers");
@@ -206,6 +214,7 @@ impl SessionSender {
         }
 
         debug!("send message");
+        println!("SEND MESSAGE {:?}", message);
         // send the message
         self.tx
             .send_to_slim(Ok(message))

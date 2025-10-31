@@ -128,7 +128,7 @@ async def test_sticky_session(server, mls_enabled):
         await asyncio.sleep(0.1)
 
     # create a new session
-    session_config =  slim_bindings.PySessionConfiguration.PointToPoint(
+    session_config = slim_bindings.PySessionConfiguration.PointToPoint(
         max_retries=5,
         timeout=datetime.timedelta(seconds=5),
         mls_enabled=mls_enabled,
