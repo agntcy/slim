@@ -21,6 +21,8 @@ pub enum SessionError {
     AppTransmission(String),
     #[error("error processing message: {0}")]
     Processing(String),
+    #[error("error sending message to session: {0}")]
+    QueueFullError(String),
     #[error("session id already used: {0}")]
     SessionIdAlreadyUsed(String),
     #[error("invalid session id: {0}")]

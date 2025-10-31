@@ -309,6 +309,11 @@ where
                                             .await;
 
                                         if let Err(e) = res {
+                                            // Ignore errors due to subscription not found
+                                            if let SessionError::SubscriptionNotFound(_) = e {
+                                                debug!("session not found, ignoring message");
+                                                continue;
+                                            }
                                             error!("error handling message: {}", e);
                                         }
                                     }
