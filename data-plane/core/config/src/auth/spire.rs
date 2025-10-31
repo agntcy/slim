@@ -3,10 +3,10 @@
 
 #![cfg(not(target_family = "windows"))]
 
-//! Unified SPIFFE authentication configuration for SLIM.
+//! Unified SPIRE authentication configuration for SLIM.
 //!
-//! This module exposes a single configuration struct `SpiffeConfig` that can be
-//! used to build a unified `SpiffeIdentityManager` for both providing and
+//! This module exposes a single configuration struct `SpireConfig` that can be
+//! used to build a unified `SpireIdentityManager` for both providing and
 //! verifying SPIFFE identities (X.509 & JWT SVIDs).
 //!
 //! Features:
@@ -17,18 +17,18 @@
 //!   SPIFFE ID is cleared automatically.
 //! - Optional `trust_domain` forces bundle retrieval for a specific trust domain.
 //!
-//! This configuration is local to the config crate. When constructing runtime SPIFFE
-//! components it is converted into the auth crate's `slim_auth::spiffe::SpiffeConfig`.
+//! This configuration is local to the config crate. When constructing runtime SPIRE
+//! components it is converted into the auth crate's `slim_auth::spire::SpireConfig`.
 
 use super::{AuthError, ClientAuthenticator, ServerAuthenticator};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use slim_auth::jwt_middleware::{AddJwtLayer, ValidateJwtLayer};
-use slim_auth::spiffe::SpiffeIdentityManager;
+use slim_auth::spire::SpireIdentityManager;
 
-/// SPIFFE authentication configuration
+/// SPIRE authentication configuration
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
-pub struct SpiffeConfig {
+pub struct SpireConfig {
     /// Path to the SPIFFE Workload API socket (None => use SPIFFE_ENDPOINT_SOCKET env var)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub socket_path: Option<String>,
@@ -48,7 +48,7 @@ fn default_audiences() -> Vec<String> {
     vec!["slim".to_string()]
 }
 
-impl Default for SpiffeConfig {
+impl Default for SpireConfig {
     fn default() -> Self {
         Self {
             socket_path: None,
@@ -61,7 +61,7 @@ impl Default for SpiffeConfig {
 
 // removed unused AuthSpiffeConfig import
 
-impl SpiffeConfig {
+impl SpireConfig {
     /// Create a new SPIFFE configuration
     pub fn new() -> Self {
         Self::default()
@@ -98,75 +98,70 @@ impl SpiffeConfig {
     }
     // Removed: direct conversion now superseded by builder pattern.
 
-    /// Create a SPIFFE provider from this configuration using the builder.
-    /// Returns an initialized SpiffeIdentityManager that will rotate X.509 & JWT SVIDs.
-    pub async fn create_provider(&self) -> Result<SpiffeIdentityManager, AuthError> {
+    /// Internal helper to build & initialize a spire identity manager.
+    /// If `include_target` is true and `target_spiffe_id` is set, the target is included.
+    async fn build_identity_manager(&self) -> Result<SpireIdentityManager, AuthError> {
         let mut builder =
-            SpiffeIdentityManager::builder().with_jwt_audiences(self.jwt_audiences.clone());
+            SpireIdentityManager::builder().with_jwt_audiences(self.jwt_audiences.clone());
 
         if let Some(ref socket) = self.socket_path {
             builder = builder.with_socket_path(socket.clone());
         }
+
         if let Some(ref target) = self.target_spiffe_id {
             builder = builder.with_target_spiffe_id(target.clone());
         }
 
-        let mut provider = builder.build();
-        provider
-            .initialize()
+        let mut mgr = builder.build();
+        mgr.initialize()
             .await
             .map_err(|e| AuthError::ConfigError(e.to_string()))?;
-        Ok(provider)
+        Ok(mgr)
     }
 
-    /// Create a SPIFFE verifier (identity manager used only for verification).
-    pub async fn create_jwt_verifier(&self) -> Result<SpiffeIdentityManager, AuthError> {
-        let mut builder =
-            SpiffeIdentityManager::builder().with_jwt_audiences(self.jwt_audiences.clone());
+    /// Create a spire provider from this configuration using the builder.
+    /// Returns an initialized SpireIdentityManager that will rotate X.509 & JWT SVIDs.
+    pub async fn create_provider(&self) -> Result<SpireIdentityManager, AuthError> {
+        self.build_identity_manager().await
+    }
 
-        if let Some(ref socket) = self.socket_path {
-            builder = builder.with_socket_path(socket.clone());
-        }
-
-        let mut verifier = builder.build();
-        verifier
-            .initialize()
-            .await
-            .map_err(|e| AuthError::ConfigError(e.to_string()))?;
-        Ok(verifier)
+    /// Create a spire verifier (identity manager used only for verification).
+    /// The target SPIFFE ID (if configured) is intentionally not set.
+    pub async fn create_jwt_verifier(&self) -> Result<SpireIdentityManager, AuthError> {
+        self.build_identity_manager().await
     }
 }
 
-impl ClientAuthenticator for SpiffeConfig {
-    type ClientLayer = AddJwtLayer<SpiffeIdentityManager>;
+impl ClientAuthenticator for SpireConfig {
+    type ClientLayer = AddJwtLayer<SpireIdentityManager>;
 
     fn get_client_layer(&self) -> Result<Self::ClientLayer, AuthError> {
         // Creation requires async context due to initialization
         Err(AuthError::ConfigError(
-            "SPIFFE client layer creation requires async context".to_string(),
+            "spire client layer creation requires async context".to_string(),
         ))
     }
 }
 
-impl<Response> ServerAuthenticator<Response> for SpiffeConfig
+impl<Response> ServerAuthenticator<Response> for SpireConfig
 where
     Response: Default + Send + Sync + 'static,
 {
-    type ServerLayer = ValidateJwtLayer<serde_json::Value, SpiffeIdentityManager>;
+    type ServerLayer = ValidateJwtLayer<serde_json::Value, SpireIdentityManager>;
 
     fn get_server_layer(&self) -> Result<Self::ServerLayer, AuthError> {
         Err(AuthError::ConfigError(
-            "SPIFFE server layer creation requires async context".to_string(),
+            "spire server layer creation requires async context".to_string(),
         ))
     }
 }
 
-/// Async helper functions for creating SPIFFE authentication layers
-impl SpiffeConfig {
+/// Async helper functions for creating spire authentication layers
+impl SpireConfig {
     /// Create a client authentication layer asynchronously
     pub async fn get_client_layer_async(
         &self,
-    ) -> Result<AddJwtLayer<SpiffeIdentityManager>, AuthError> {
+    ) -> Result<AddJwtLayer<SpireIdentityManager>, AuthError> {
         let provider = self.create_provider().await?;
         let duration = 3600; // 1 hour token duration
         Ok(AddJwtLayer::new(provider, duration))
@@ -175,7 +170,7 @@ impl SpiffeConfig {
     /// Create a server authentication layer asynchronously
     pub async fn get_server_layer_async<Response>(
         &self,
-    ) -> Result<ValidateJwtLayer<serde_json::Value, SpiffeIdentityManager>, AuthError>
+    ) -> Result<ValidateJwtLayer<serde_json::Value, SpireIdentityManager>, AuthError>
     where
         Response: Default + Send + Sync + 'static,
     {
@@ -191,7 +186,7 @@ mod tests {
 
     #[test]
     fn test_config_default() {
-        let config = SpiffeConfig::default();
+        let config = SpireConfig::default();
         assert!(config.socket_path.is_none());
         assert!(config.target_spiffe_id.is_none());
         assert_eq!(config.jwt_audiences, vec!["slim"]);
@@ -200,7 +195,7 @@ mod tests {
 
     #[test]
     fn test_config_builder() {
-        let config = SpiffeConfig::new()
+        let config = SpireConfig::new()
             .with_socket_path("unix:/tmp/spire-agent/public/api.sock")
             .with_target_spiffe_id("spiffe://example.org/slim")
             .with_jwt_audiences(vec!["audience1".to_string(), "audience2".to_string()])
@@ -220,13 +215,13 @@ mod tests {
 
     #[test]
     fn test_serialization_roundtrip() {
-        let config = SpiffeConfig::new()
+        let config = SpireConfig::new()
             .with_socket_path("unix:/tmp/spire-agent/public/api.sock")
             .with_jwt_audiences(vec!["test".to_string()])
             .with_trust_domain("example.org");
 
         let yaml = serde_yaml::to_string(&config).unwrap();
-        let deserialized: SpiffeConfig = serde_yaml::from_str(&yaml).unwrap();
+        let deserialized: SpireConfig = serde_yaml::from_str(&yaml).unwrap();
         assert_eq!(config, deserialized);
     }
 }

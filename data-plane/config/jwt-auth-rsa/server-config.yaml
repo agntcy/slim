@@ -22,15 +22,17 @@ services:
               cert: "./config/crypto/server-cert.pem"
               key: "./config/crypto/server-key.pem"
           auth:
-            jwt:
-              claims:
-                audience: "slim"
-                issuer: "slim"
-                subject: "slim"
-              duration: 1h
+            type: jwt
+            claims:
+              audiences: ["slim"]
+              issuer: "slim"
+              subject: "slim"
+            duration: 1h
+            key:
+              type: decoding
+              algorithm: "RS256"
+              format: pem
               key:
-                decoding:
-                  algorithm: "RS256"
-                  file: "./config/crypto/jwt/rsa-public.pem"
+                file: "./config/crypto/jwt/rsa-public.pem"
 
       clients: []

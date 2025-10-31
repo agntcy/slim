@@ -21,13 +21,16 @@ services:
               type: file
               path: "./config/crypto/server-ca-cert.pem"
           auth:
-            jwt:
-              claims:
-                audience: "slim"
-                issuer: "slim"
-                subject: "slim"
-              duration: 1h
+            type: jwt
+            claims:
+              audiences: ["slim"]
+              issuer: "slim"
+              subject: "slim"
+            duration: 1h
+            key:
+              type: encoding
+              algorithm: "HS256"
+              format: pem
               key:
-                encoding:
-                  algorithm: "HS256"
-                  pem: "secret2"
+               data: |
+                 "secret2"

@@ -36,7 +36,7 @@
 
 use std::path::Path;
 
-use crate::auth::spiffe;
+use crate::auth::spire;
 use crate::tls::common::{CaSource, ConfigError};
 use rustls::RootCertStore;
 use rustls_pki_types::{CertificateDer, pem::PemObject};
@@ -89,7 +89,7 @@ impl RootStoreBuilder {
     }
 
     /// Add SPIFFE / SPIRE bundle authorities (only if a socket path is configured).
-    pub async fn add_spiffe(mut self, cfg: &spiffe::SpiffeConfig) -> Result<Self, ConfigError> {
+    pub async fn add_spiffe(mut self, cfg: &spire::SpireConfig) -> Result<Self, ConfigError> {
         Self::add_spiffe_bundles(&mut self.store, cfg).await?;
         Ok(self)
     }
@@ -114,7 +114,7 @@ impl RootStoreBuilder {
 
     async fn add_spiffe_bundles(
         root_store: &mut RootCertStore,
-        spiffe_cfg: &spiffe::SpiffeConfig,
+        spiffe_cfg: &spire::SpireConfig,
     ) -> Result<(), ConfigError> {
         let spire_identity_manager = spiffe_cfg.create_provider().await.map_err(|e| {
             ConfigError::InvalidFile(format!("failed to create SPIFFE provider: {}", e))
@@ -171,44 +171,9 @@ impl RootStoreBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::Rng;
-    use std::fs::{self, File};
-    use std::io::Write;
+    use std::fs;
 
-    // A single valid (truncated chain-safe) test certificate (Let’s Encrypt R3 root-derived).
-    // This certificate should parse correctly; if parsing fails in future rustls versions,
-    // tests asserting >0 length can be relaxed accordingly.
-    // spellchecker:off
-    const TEST_CERT_PEM: &str = r#"-----BEGIN CERTIFICATE-----
-MIIFazCCA1OgAwIBAgISA1/3cxguPmyAnbcW2CYwiV2lMA0GCSqGSIb3DQEBCwUA
-MEoxCzAJBgNVBAYTAlVTMRYwFAYDVQQKEw1MZXQncyBFbmNyeXB0MSMwIQYDVQQD
-ExpMZXQncyBFbmNyeXB0IEF1dGhvcml0eSBYMzAeFw0yMzA4MjkxOTExMDBaFw0y
-MzExMjcxOTExMDBaMBYxFDASBgNVBAMTC2V4YW1wbGUuY29tMIIBIjANBgkqhkiG
-9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2HGhf0cPZXyMw4E8DqRLVQzAg/PvU+eR2qQ5
-RPP9Z0sQ9Sg0wWEJ2MCcHw2r9Z8N+MsaQwE1ssBt0qjVt5Q50E9Q1Py27KbR3wQe
-J5y7H3JzO8wG9+TZQ5A7gwr3n0kP5rX1S9x9z9X0oNk9p+4Y2xX9zGkQ50m+g3xn
-1QIDAQABo4ICFjCCAhIwDgYDVR0PAQH/BAQDAgWgMB0GA1UdJQQWMBQGCCsGAQUF
-BwMBBggrBgEFBQcDAjAMBgNVHRMBAf8EAjAAMB0GA1UdDgQWBBRNRy4pz50jdK5C
-l4Jr2n7+G2kZZjAfBgNVHSMEGDAWgBQULrMXt1hWy65QCUDmH6+dixTCxjBVBggr
-BgEFBQcBAQRJMEcwIQYIKwYBBQUHMAGGFWh0dHA6Ly9yMy5vLmxlbmNyLm9yZzAi
-BggrBgEFBQcwAoYWaHR0cDovL3IzLmkubGVuY3Iub3JnLzAnBgNVHREEIDAeggxl
-eGFtcGxlLmNvbYILd3d3LmV4LmNvbYIFZXguY29tMC4GA1UdHwQnMCUwI6AloCOG
-IWh0dHA6Ly9jcmwubGV0c2VuY3J5cHQub3JnL3gzLmNybDAwBgNVHSAEKTAnMAgG
-BmeBDAECATAIBgZngQwBAgIwCwYJYIZIAYb9bAIBMA0GCSqGSIb3DQEBCwUAA4IB
-AQAobHxPPHkSsZQeU6Dkv1X48xlWDi8Jzb9Uf8jbx6Ui0Ic9I6kfiwJtaTGB2KUh
-3N5l1DgweO2YpZJYG1ChcxrFAuo0xO+ogzAm8h1Hn0pV3hokW2N1DbStO2Qe6hw2
-I6hwIDAQAB
------END CERTIFICATE-----"#;
-    // spellchecker:on
-
-    fn write_temp(contents: &str) -> String {
-        let mut rng = rand::rng();
-        let suffix: u32 = rng.random();
-        let path = format!("/tmp/test-cert-{}.pem", suffix);
-        let mut f = File::create(&path).expect("create temp cert file");
-        f.write_all(contents.as_bytes()).expect("write cert");
-        path
-    }
+    const TEST_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/tls");
 
     #[test]
     fn test_empty_builder_no_system() {
@@ -218,8 +183,9 @@ I6hwIDAQAB
 
     #[test]
     fn test_add_pem_single() {
+        let pem = fs::read_to_string(format!("{}/server-1.crt", TEST_PATH)).expect("read pem");
         let store = RootStoreBuilder::new()
-            .add_pem(TEST_CERT_PEM)
+            .add_pem(&pem)
             .expect("add pem")
             .finish()
             .expect("finish");
@@ -228,33 +194,33 @@ I6hwIDAQAB
 
     #[test]
     fn test_add_file_single() {
-        let path = write_temp(TEST_CERT_PEM);
+        let path = format!("{}/server-1.crt", TEST_PATH);
         let store = RootStoreBuilder::new()
             .add_file(&path)
             .expect("add file")
             .finish()
             .expect("finish");
         assert!(!store.is_empty());
-        let _ = fs::remove_file(path);
     }
 
     #[test]
     fn test_add_pem_then_file_accumulates() {
-        let path = write_temp(TEST_CERT_PEM);
+        let pem = fs::read_to_string(format!("{}/server-1.crt", TEST_PATH)).expect("read pem");
+        let path = format!("{}/client-1.crt", TEST_PATH);
+
         let store = RootStoreBuilder::new()
-            .add_pem(TEST_CERT_PEM)
+            .add_pem(&pem)
             .expect("add pem")
             .add_file(&path)
             .expect("add file")
             .finish()
             .expect("finish");
         assert!(!store.is_empty());
-        let _ = fs::remove_file(path);
     }
 
     #[tokio::test]
     async fn test_add_source_file_variant() {
-        let path = write_temp(TEST_CERT_PEM);
+        let path = format!("{}/server-1.crt", TEST_PATH);
         let src = CaSource::File { path: path.clone() };
         let store = RootStoreBuilder::new()
             .add_source(&src)
@@ -263,13 +229,13 @@ I6hwIDAQAB
             .finish()
             .expect("finish");
         assert!(!store.is_empty());
-        let _ = fs::remove_file(path);
     }
 
     #[tokio::test]
     async fn test_add_source_pem_variant() {
+        let pem = fs::read_to_string(format!("{}/server-1.crt", TEST_PATH)).expect("read pem");
         let src = CaSource::Pem {
-            data: TEST_CERT_PEM.to_string(),
+            data: pem,
         };
         let store = RootStoreBuilder::new()
             .add_source(&src)

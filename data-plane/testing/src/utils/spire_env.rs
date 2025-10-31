@@ -18,7 +18,7 @@ use bollard::image::CreateImageOptions;
 use bollard::models::{HostConfig, PortBinding};
 use bollard::network::CreateNetworkOptions;
 use futures::StreamExt;
-use slim_config::auth::spiffe::SpiffeConfig;
+use slim_config::auth::spire::SpireConfig;
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::fs;
@@ -546,8 +546,8 @@ plugins {{
     }
 
     /// Get a ready-to-use unified SPIFFE config (from slim_config crate)
-    pub fn get_spiffe_config(&self) -> SpiffeConfig {
-        SpiffeConfig {
+    pub fn get_spiffe_config(&self) -> SpireConfig {
+        SpireConfig {
             socket_path: Some(self.socket_path()),
             jwt_audiences: vec!["test-audience".to_string()],
             trust_domains: vec![TRUST_DOMAIN.to_string()],

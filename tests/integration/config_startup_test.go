@@ -67,11 +67,6 @@ func resolveConfigCases() []configCase {
 			continue
 		}
 
-		// If the directory is not base, continue
-		if filepath.Base(d) != "tls" {
-			continue
-		}
-
 		serverCfg := filepath.Join(d, "server-config.yaml")
 		clientCfg := filepath.Join(d, "client-config.yaml")
 		if _, errS := os.Stat(serverCfg); errS != nil {
@@ -95,6 +90,9 @@ func resolveConfigCases() []configCase {
 var _ = Describe("SLIM server + client connection using configuration files", func() {
 
 	cases := resolveConfigCases()
+
+	// declare some environment variables needed by some configs
+	os.Setenv("PASSWORD", "password")
 
 	for _, c := range cases {
 		It(fmt.Sprintf("server and client start and connect (config dir: %s)", filepath.Dir(c.ServerPath)), func() {

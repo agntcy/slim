@@ -127,8 +127,8 @@ impl TlsServerConfig {
         }
     }
 
-    /// Set client CA from SPIFFE (SPIRE)
-    pub fn with_client_ca_spire(self, client_ca_spire: crate::auth::spiffe::SpiffeConfig) -> Self {
+    /// Set client CA from SPIRE
+    pub fn with_client_ca_spire(self, client_ca_spire: crate::auth::spire::SpireConfig) -> Self {
         TlsServerConfig {
             client_ca: CaSource::Spire {
                 config: client_ca_spire,
@@ -203,10 +203,10 @@ impl TlsServerConfig {
         }
     }
 
-    /// Attach a SPIFFE configuration (SPIRE Workload API) for dynamic SVID + bundle based TLS.
-    pub fn with_spiffe(self, spiffe: crate::auth::spiffe::SpiffeConfig) -> Self {
+    /// Attach a SPIRE configuration (SPIRE Workload API) for dynamic SVID + bundle based TLS.
+    pub fn with_spire(self, spire: crate::auth::spire::SpireConfig) -> Self {
         TlsServerConfig {
-            config: self.config.with_spiffe(spiffe),
+            config: self.config.with_spire(spire),
             ..self
         }
     }
@@ -233,11 +233,11 @@ impl TlsServerConfig {
 
         // Unified handling based on TlsSource enum
         let resolver: Arc<dyn ResolvesServerCert> = match &self.config.source {
-            // SPIFFE server cert path (dynamic SVID)
-            TlsSource::Spire { config: spiffe_cfg } => Arc::new(
-                SpireCertResolver::new(spiffe_cfg.clone(), config_builder.crypto_provider())
+            // SPIRE server path
+            TlsSource::Spire { config: spire_cfg } => Arc::new(
+                SpireCertResolver::new(spire_cfg.clone(), config_builder.crypto_provider())
                     .await
-                    .map_err(|e| ConfigError::InvalidSpireConfig { details: e.to_string(), config: spiffe_cfg.clone() })?,
+                    .map_err(|e| ConfigError::InvalidSpireConfig { details: e.to_string(), config: spire_cfg.clone() })?,
             ),
             // Static file-based certificates
             TlsSource::File { cert, key, .. } => Arc::new(WatcherCertResolver::new(

@@ -16,12 +16,15 @@ use slim_auth::jwt_middleware::{AddJwtLayer, ValidateJwtLayer};
 #[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct Claims {
     /// JWT audience
+    #[serde(alias = "aud", alias = "audiences")]
     audience: Option<Vec<String>>,
 
     /// JWT Issuer
+    #[serde(alias = "iss")]
     issuer: Option<String>,
 
     /// JWT Subject
+    #[serde(alias = "sub")]
     subject: Option<String>,
 
     // Other claims
@@ -92,12 +95,12 @@ impl Claims {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
+#[serde(rename_all = "lowercase", tag = "type")]
 pub enum JwtKey {
     Encoding(Key),
     Decoding(Key),
-    Autoresolve(bool),
+    Autoresolve,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
@@ -115,8 +118,6 @@ pub struct Config {
     /// Encoding key is used for signing JWTs (client-side).
     /// Decoding key is used for verifying JWTs (server-side).
     /// Autoresolve is used to automatically resolve the key based on the claims.
-    #[schemars(skip)]
-    #[serde(with = "serde_yaml::with::singleton_map")]
     key: JwtKey,
 }
 
@@ -209,7 +210,7 @@ impl Config {
                 .public_key(key)
                 .build()
                 .map_err(|e| AuthError::ConfigError(e.to_string())),
-            JwtKey::Autoresolve(true) => self
+            JwtKey::Autoresolve => self
                 .jwt_builder()
                 .auto_resolve_keys(true)
                 .build()
@@ -275,7 +276,7 @@ mod tests {
         let key = JwtKey::Encoding(Key {
             algorithm: Algorithm::HS256,
             format: KeyFormat::Pem,
-            key: KeyData::Str("test-key".to_string()),
+            key: KeyData::Data("test-key".to_string()),
         });
 
         let config = Config::new(claims.clone(), Duration::from_secs(3600), key);
@@ -296,13 +297,13 @@ mod tests {
         let encoding_key = JwtKey::Encoding(Key {
             algorithm: Algorithm::HS256,
             format: KeyFormat::Pem,
-            key: KeyData::Str("test-key".to_string()),
+            key: KeyData::Data("test-key".to_string()),
         });
 
         let decoding_key = JwtKey::Decoding(Key {
             algorithm: Algorithm::HS256,
             format: KeyFormat::Pem,
-            key: KeyData::Str("test-key".to_string()),
+            key: KeyData::Data("test-key".to_string()),
         });
 
         let client_config = Config::new(claims.clone(), Duration::from_secs(3600), encoding_key);
@@ -327,14 +328,14 @@ mod tests {
         // Use autoresolve to avoid specifying key details
         let json = r#"{
             "duration": "1h2m3s",
-            "key": { "autoresolve": true }
+            "key": { "type": "autoresolve" }
         }"#;
         let cfg: Config = serde_json::from_str(json).expect("valid duration should deserialize");
         assert_eq!(cfg.duration, Duration::from_secs(3600 + 120 + 3));
 
         let json = r#"{
             "duration": "750ms",
-            "key": { "autoresolve": true }
+            "key": { "type": "autoresolve" }
         }"#;
         let cfg: Config = serde_json::from_str(json).expect("millis duration should deserialize");
         assert_eq!(cfg.duration, Duration::from_millis(750));
@@ -343,9 +344,9 @@ mod tests {
     #[test]
     fn test_jwt_config_invalid_duration_deserialize() {
         let cases = [
-            r#"{ "duration": "abc", "key": { "autoresolve": true } }"#,
-            r#"{ "duration": "10x", "key": { "autoresolve": true } }"#,
-            r#"{ "duration": "-5s", "key": { "autoresolve": true } }"#,
+            r#"{ "duration": "abc", "key": { "type": "autoresolve" } }"#,
+            r#"{ "duration": "10x", "key": { "type": "autoresolve" } }"#,
+            r#"{ "duration": "-5s", "key": { "type": "autoresolve" } }"#,
         ];
         for js in cases {
             let res: Result<Config, _> = serde_json::from_str(js);
@@ -358,7 +359,7 @@ mod tests {
         let cfg = Config::new(
             Claims::default(),
             Duration::from_secs(125),
-            JwtKey::Autoresolve(true),
+            JwtKey::Autoresolve,
         );
         let ser = serde_json::to_string(&cfg).expect("serialize");
         let de: Config = serde_json::from_str(&ser).expect("deserialize");
@@ -373,7 +374,7 @@ mod tests {
             JwtKey::Encoding(Key {
                 algorithm: Algorithm::HS256,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("secret-signing-key".to_string()),
+                key: KeyData::Data("secret-signing-key".to_string()),
             }),
         );
         let signer = cfg.get_provider();
@@ -392,7 +393,7 @@ mod tests {
             JwtKey::Decoding(Key {
                 algorithm: Algorithm::HS256,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("verification-key".to_string()),
+                key: KeyData::Data("verification-key".to_string()),
             }),
         );
         let signer = cfg.get_provider();
@@ -410,7 +411,7 @@ mod tests {
             JwtKey::Decoding(Key {
                 algorithm: Algorithm::HS256,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("verification-key".to_string()),
+                key: KeyData::Data("verification-key".to_string()),
             }),
         );
         let verifier = cfg.get_verifier();
@@ -428,7 +429,7 @@ mod tests {
         let cfg = Config::new(
             Claims::default(),
             Duration::from_secs(60),
-            JwtKey::Autoresolve(true),
+            JwtKey::Autoresolve,
         );
         let verifier = cfg.get_verifier();
         assert!(
@@ -446,7 +447,7 @@ mod tests {
             JwtKey::Encoding(Key {
                 algorithm: Algorithm::HS256,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("secret-signing-key".to_string()),
+                key: KeyData::Data("secret-signing-key".to_string()),
             }),
         );
         let verifier = cfg.get_verifier();

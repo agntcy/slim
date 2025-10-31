@@ -21,10 +21,10 @@ use tracing::warn;
 
 use super::common::{Config, ConfigError, RustlsConfigLoader, TlsSource};
 use crate::{
-    auth::spiffe, component::configuration::{Configuration, ConfigurationError}, tls::common::{SpireCertResolver, StaticCertResolver, TlsComponent, WatcherCertResolver}
+    auth::spire, component::configuration::{Configuration, ConfigurationError}, tls::common::{SpireCertResolver, StaticCertResolver, TlsComponent, WatcherCertResolver}
 };
 
-// Dynamic SPIFFE (SPIRE Workload API) client certificate resolver providing per-handshake SVID.
+// Dynamic SPIRE Workload API client certificate resolver providing per-handshake SVID.
 // Removed local SpireClientCertResolver; using unified super::common::SpireCertResolver
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
@@ -214,9 +214,9 @@ impl TlsClientConfig {
     }
 
     /// Set spire CA
-    pub fn with_ca_spire(self, config: spiffe::SpiffeConfig) -> Self {
+    pub fn with_ca_spire(self, config: spire::SpireConfig) -> Self {
         Self {
-            config: self.config.with_ca_spiffe(config),
+            config: self.config.with_ca_spire(config),
             ..self
         }
     }
@@ -248,9 +248,9 @@ impl TlsClientConfig {
     }
 
     /// Set the cert spire (for client auth)
-    pub fn with_cert_and_key_spire(self, config: spiffe::SpiffeConfig) -> Self {
+    pub fn with_cert_and_key_spire(self, config: spire::SpireConfig) -> Self {
         TlsClientConfig {
-            config: self.config.with_spiffe(config),
+            config: self.config.with_spire(config),
             ..self
         }
     }
@@ -286,23 +286,23 @@ impl TlsClientConfig {
             _ => return Err(InvalidTlsVersion(self.config.tls_version.clone())),
         };
 
-        // Load CA root store (async if SPIFFE)
+        // Load CA root store
         let root_store = self.config.load_ca_cert_pool().await?;
 
         // Base builder
         let config_builder = RustlsClientConfig::builder_with_protocol_versions(&[tls_version])
             .with_root_certificates(root_store);
 
-        // Build client config including client auth (SPIFFE / file / pem)
+        // Build client config including client auth (spire / file / pem)
         let client_config = match &self.config.source {
-            TlsSource::Spire { config: spiffe_cfg } => {
-                // Dynamic SPIFFE client cert resolver (no manual cert/key injection)
+            TlsSource::Spire { config: spire_cfg } => {
+                // Dynamic spire client cert resolver (no manual cert/key injection)
                 let spire_resolver =
-                    SpireCertResolver::new(spiffe_cfg.clone(), config_builder.crypto_provider())
+                    SpireCertResolver::new(spire_cfg.clone(), config_builder.crypto_provider())
                         .await
                         .map_err(|e| ConfigError::InvalidSpireConfig{
                             details: format!("failed to create spire cert resolver: {}", e),
-                            config: spiffe_cfg.clone(),
+                            config: spire_cfg.clone(),
                         })?;
                 config_builder.with_client_cert_resolver(Arc::new(spire_resolver))
             }
@@ -330,7 +330,6 @@ impl TlsClientConfig {
 #[async_trait::async_trait]
 impl RustlsConfigLoader<RustlsClientConfig> for TlsClientConfig {
     async fn load_rustls_config(&self) -> Result<Option<RustlsClientConfig>, ConfigError> {
-        // Delegate all logic (SPIFFE + legacy) to consolidated function
         let Some(mut client_config) = self.load_rustls_client_config().await? else {
             return Ok(None);
         };

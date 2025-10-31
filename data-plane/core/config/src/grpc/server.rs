@@ -48,7 +48,7 @@ pub struct KeepaliveServerParameters {
 
 /// Enum holding one configuration for the client.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub enum AuthenticationConfig {
     /// Basic authentication configuration.
     Basic(BasicAuthenticationConfig),
@@ -100,7 +100,6 @@ pub struct ServerConfig {
 
     /// Auth for this receiver.
     #[serde(default)]
-    #[serde(with = "serde_yaml::with::singleton_map")]
     pub auth: AuthenticationConfig,
 
     /// Arbitrary user-provided metadata.

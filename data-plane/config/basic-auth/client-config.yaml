@@ -21,6 +21,6 @@ services:
               type: file
               path: "./config/crypto/server-ca-cert.pem"
           auth:
-            basic:
-              username: username
-              password: ${env:PASSWORD}
+            type: basic
+            username: username
+            password: ${env:PASSWORD}

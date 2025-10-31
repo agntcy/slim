@@ -91,7 +91,7 @@ pub struct JwtBuilder<S = state::Initial> {
 
 fn resolve_key(key: &Key) -> String {
     match &key.key {
-        KeyData::Str(key) => key.clone(),
+        KeyData::Data(key) => key.clone(),
         KeyData::File(path) => std::fs::read_to_string(path).expect("error reading key file"),
     }
 }
@@ -583,7 +583,7 @@ mod tests {
             .private_key(&Key {
                 algorithm: Algorithm::HS512,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("test-key".to_string()),
+                key: KeyData::Data("test-key".to_string()),
             })
             .build()
             .unwrap();
@@ -635,7 +635,7 @@ mod tests {
             .private_key(&Key {
                 algorithm: Algorithm::HS512,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("test-key".to_string()),
+                key: KeyData::Data("test-key".to_string()),
             })
             .build()
             .unwrap();
@@ -647,7 +647,7 @@ mod tests {
             .public_key(&Key {
                 algorithm: Algorithm::HS512,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("test-key".to_string()),
+                key: KeyData::Data("test-key".to_string()),
             })
             .build()
             .unwrap();
@@ -679,7 +679,7 @@ mod tests {
             .private_key(&Key {
                 algorithm: Algorithm::HS512,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("test-key".to_string()),
+                key: KeyData::Data("test-key".to_string()),
             })
             .build()
             .unwrap();
@@ -691,7 +691,7 @@ mod tests {
             .public_key(&Key {
                 algorithm: Algorithm::HS512,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("test-key".to_string()),
+                key: KeyData::Data("test-key".to_string()),
             })
             .build()
             .unwrap();

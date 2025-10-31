@@ -3,15 +3,15 @@
 
 #![cfg(not(target_family = "windows"))]
 
-//! SPIFFE integration for SLIM authentication
+//! SPIRE integration for SLIM authentication
 //!
-//! Unified SPIFFE interface: the `SpiffeIdentityManager` encapsulates both
+//! Unified spire interface: the `SpireIdentityManager` encapsulates both
 //! credential acquisition (X.509 & JWT SVIDs) and verification (JWT validation
 //! plus access to X.509 trust bundles) using a single configuration struct
-//! `SpiffeConfig`.
+//! `SpireConfig`.
 //!
 //! Features:
-//! - Single struct for providing and verifying identities (`SpiffeIdentityManager`)
+//! - Single struct for providing and verifying identities (`SpireIdentityManager`)
 //! - Automatic rotation of X.509 SVIDs and JWT SVIDs via background sources
 //! - Access to private key & certificate PEM for mTLS
 //! - Access to JWT tokens (optionally with custom claims encoded in audiences)
@@ -20,15 +20,15 @@
 //! - Trust domain bundle retrieval (`get_x509_bundle`)
 //!
 //! Primary types:
-//! - `SpiffeConfig`: configuration (socket path, target SPIFFE ID for JWT requests, audiences)
-//! - `SpiffeIdentityManager`: unified provider + verifier
+//! - `SpireConfig`: configuration (socket path, target SPIFFE ID for JWT requests, audiences)
+//! - `SpireIdentityManager`: unified provider + verifier
 //!
 //! Basic usage:
 //! ```rust,no_run
-//! use slim_auth::spiffe::{SpiffeIdentityManager, SpiffeConfig};
+//! use slim_auth::spire::{SpireIdentityManager, SpireConfig};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let mut mgr = SpiffeIdentityManager::new(SpiffeConfig {
+//! let mut mgr = SpireIdentityManager::new(SpireConfig {
 //!     socket_path: None,              // Use SPIFFE_ENDPOINT_SOCKET env var
 //!     target_spiffe_id: None,         // Optional: specify a target for JWT SVID
 //!     jwt_audiences: vec!["my-app".into()],
@@ -65,7 +65,9 @@
 use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use futures::StreamExt; // for .next() on the JWT bundle stream
+use futures::StreamExt;
+use jsonwebtoken_aws_lc::TokenData;
+// for .next() on the JWT bundle stream
 use parking_lot::RwLock; // switched to parking_lot for sync RwLock
 use serde::de::DeserializeOwned;
 use serde_json::{self, Value};
@@ -167,18 +169,16 @@ impl CustomClaimsCodec {
             if let Some(claims_b64) = aud.strip_prefix(Self::CLAIMS_PREFIX) {
                 // Decode custom claims from audience
                 match BASE64.decode(claims_b64.as_bytes()) {
-                    Ok(claims_bytes) => {
-                        match serde_json::from_slice::<Value>(&claims_bytes) {
-                            Ok(Value::Object(claims)) => {
-                                custom_claims_map.extend(claims);
-                                tracing::debug!("Extracted custom claims from audience");
-                            }
-                            _ => {
-                                tracing::warn!("Failed to parse custom claims as object");
-                                filtered_audiences.push(aud.clone());
-                            }
+                    Ok(claims_bytes) => match serde_json::from_slice::<Value>(&claims_bytes) {
+                        Ok(Value::Object(claims)) => {
+                            custom_claims_map.extend(claims);
+                            tracing::debug!("Extracted custom claims from audience");
                         }
-                    }
+                        _ => {
+                            tracing::warn!("Failed to parse custom claims as object");
+                            filtered_audiences.push(aud.clone());
+                        }
+                    },
                     Err(e) => {
                         tracing::warn!("Failed to decode custom claims base64: {}", e);
                         filtered_audiences.push(aud.clone());
@@ -209,13 +209,13 @@ async fn create_workload_client(
 }
 
 /// Builder for constructing a SpiffeIdentityManager
-pub struct SpiffeIdentityManagerBuilder {
+pub struct SpireIdentityManagerBuilder {
     socket_path: Option<String>,
     target_spiffe_id: Option<String>,
     jwt_audiences: Vec<String>,
 }
 
-impl Default for SpiffeIdentityManagerBuilder {
+impl Default for SpireIdentityManagerBuilder {
     fn default() -> Self {
         Self {
             socket_path: None,
@@ -225,7 +225,7 @@ impl Default for SpiffeIdentityManagerBuilder {
     }
 }
 
-impl SpiffeIdentityManagerBuilder {
+impl SpireIdentityManagerBuilder {
     pub fn new() -> Self {
         Self::default()
     }
@@ -245,8 +245,8 @@ impl SpiffeIdentityManagerBuilder {
         self
     }
 
-    pub fn build(self) -> SpiffeIdentityManager {
-        SpiffeIdentityManager {
+    pub fn build(self) -> SpireIdentityManager {
+        SpireIdentityManager {
             socket_path: self.socket_path,
             target_spiffe_id: self.target_spiffe_id,
             jwt_audiences: self.jwt_audiences,
@@ -259,7 +259,7 @@ impl SpiffeIdentityManagerBuilder {
 
 /// SPIFFE certificate and JWT provider that automatically rotates credentials
 #[derive(Clone)]
-pub struct SpiffeIdentityManager {
+pub struct SpireIdentityManager {
     socket_path: Option<String>,
     target_spiffe_id: Option<String>,
     jwt_audiences: Vec<String>,
@@ -268,15 +268,15 @@ pub struct SpiffeIdentityManager {
     jwt_source: Option<Arc<JwtSource>>,
 }
 
-impl SpiffeIdentityManager {
-    /// Convenience: start building a new SpiffeIdentityManager
-    pub fn builder() -> SpiffeIdentityManagerBuilder {
-        SpiffeIdentityManagerBuilder::new()
+impl SpireIdentityManager {
+    /// Convenience: start building a new SpireIdentityManager
+    pub fn builder() -> SpireIdentityManagerBuilder {
+        SpireIdentityManagerBuilder::new()
     }
 
-    /// Initialize the SPIFFE identity manager (sources for X.509 & JWT)
+    /// Initialize the spire identity manager (sources for X.509 & JWT)
     pub async fn initialize(&mut self) -> Result<(), AuthError> {
-        info!("Initializing SPIFFE identity manager");
+        info!("Initializing spire identity manager");
 
         // Create WorkloadApiClient
         let client = create_workload_client(self.socket_path.as_ref()).await?;
@@ -307,7 +307,7 @@ impl SpiffeIdentityManager {
 
         self.jwt_source = Some(jwt_source);
 
-        info!("SPIFFE provider initialized successfully");
+        info!("spire provider initialized successfully");
 
         self.client = Some(client);
 
@@ -435,7 +435,7 @@ impl SpiffeIdentityManager {
 }
 
 #[async_trait]
-impl TokenProvider for SpiffeIdentityManager {
+impl TokenProvider for SpireIdentityManager {
     fn get_token(&self) -> Result<String, AuthError> {
         let jwt_svid = self.get_jwt_svid()?;
         Ok(jwt_svid.token().to_string())
@@ -554,6 +554,14 @@ struct JwtSource {
 }
 
 impl JwtSource {
+    // Helper: sleep for duration or return true if cancelled first.
+    async fn backoff_with_cancel(duration: Duration, cancellation_token: &CancellationToken) -> bool {
+        tokio::select! {
+            _ = tokio::time::sleep(duration) => false,
+            _ = cancellation_token.cancelled() => true,
+        }
+    }
+
     pub async fn new(
         audiences: Vec<String>,
         target_spiffe_id: Option<String>,
@@ -567,7 +575,6 @@ impl JwtSource {
         let audiences_clone = audiences.clone();
         let target_clone = target_spiffe_id.clone();
         let cancellation_token = CancellationToken::new();
-        let token_clone = cancellation_token.clone();
 
         // Get an initial JWT SVID
         let mut workload_client = Self::initialize_client(client.clone()).await;
@@ -592,6 +599,7 @@ impl JwtSource {
         let (custom_request_tx, custom_request_rx) = mpsc::channel(16);
 
         // Spawn background task for JWT SVID refresh
+        let token_clone = cancellation_token.clone();
         tokio::spawn(async move {
             Self::background_refresh_task(
                 workload_client,
@@ -618,9 +626,9 @@ impl JwtSource {
 
         // Spawn background task for JWT bundle streaming
         let bundles_for_task = bundles.clone();
-        let token_for_bundles = CancellationToken::new();
+        let token_clone = cancellation_token.clone();
         tokio::spawn(async move {
-            Self::stream_jwt_bundles(bundle_client, bundles_for_task, token_for_bundles).await;
+            Self::stream_jwt_bundles(bundle_client, bundles_for_task, token_clone).await;
         });
 
         Ok(Arc::new(Self {
@@ -649,11 +657,6 @@ impl JwtSource {
             tokio::time::sleep_until(tokio::time::Instant::now() + initial_duration),
         );
 
-        tracing::info!(
-            "jwt_source: starting background refresh task - next refresh in {}s",
-            initial_duration.as_secs()
-        );
-
         loop {
             tokio::select! {
                 // Regular refresh (scheduled)
@@ -668,7 +671,7 @@ impl JwtSource {
                         &mut refresh_timer,
                     ).await {
                         Ok(()) => {
-                            tracing::info!(
+                            tracing::debug!(
                                 "jwt_source: performed regular JWT SVID refresh - next refresh in {} s",
                                 refresh_timer.as_ref().deadline().duration_since(tokio::time::Instant::now()).as_secs()
                             );
@@ -732,12 +735,12 @@ impl JwtSource {
                 *backoff = cfg.min_retry_backoff;
 
                 // Calculate next refresh time based on token lifetime
-                let next_duration = calculate_refresh_interval(&svid);
+                let next_duration = calculate_refresh_interval(&svid)?;
 
                 let deadline = tokio::time::Instant::now() + next_duration;
                 refresh_timer.as_mut().reset(deadline);
 
-                tracing::info!(
+                tracing::debug!(
                     next_duration_secs = next_duration.as_secs(),
                     "jwt_source: next refresh scheduled at {:?} in {} seconds",
                     deadline,
@@ -839,44 +842,42 @@ impl JwtSource {
     ) {
         loop {
             match client.stream_jwt_bundles().await {
-                Ok(mut stream) => loop {
-                    tokio::select! {
-                        result = stream.next() => {
-                            match result {
-                                Some(Ok(bundle_set)) => {
-                                    *bundles.write() = Some(bundle_set);
-                                    tracing::trace!("jwt_source: updated JWT bundle cache");
-                                }
-                                Some(Err(e)) => {
-                                    tracing::warn!(error=%e, "jwt_source: bundle stream error, restarting in 1s");
-                                    tokio::select! {
-                                        _ = tokio::time::sleep(Duration::from_secs(1)) => {}
-                                        _ = cancellation_token.cancelled() => {
+                Ok(mut stream) => {
+                    // Stream consumption loop with a single outer select that always
+                    // listens for cancellation alongside stream progress.
+                    loop {
+                        tokio::select! {
+                            _ = cancellation_token.cancelled() => {
+                                tracing::debug!("jwt_source: bundle streaming cancelled");
+                                return;
+                            }
+                            item = stream.next() => {
+                                match item {
+                                    Some(Ok(bundle_set)) => {
+                                        *bundles.write() = Some(bundle_set);
+                                        tracing::trace!("jwt_source: updated JWT bundle cache");
+                                    }
+                                    Some(Err(e)) => {
+                                        tracing::warn!(error=%e, "jwt_source: bundle stream error, restarting in 1s");
+                                        if Self::backoff_with_cancel(Duration::from_secs(1), &cancellation_token).await {
                                             tracing::debug!("jwt_source: bundle streaming cancelled");
                                             return;
                                         }
+                                        break;
                                     }
-                                    break;
-                                }
-                                None => {
-                                    tracing::debug!("jwt_source: bundle stream ended, restarting in 1s");
-                                    tokio::select! {
-                                        _ = tokio::time::sleep(Duration::from_secs(1)) => {}
-                                        _ = cancellation_token.cancelled() => {
+                                    None => {
+                                        tracing::debug!("jwt_source: bundle stream ended, restarting in 1s");
+                                        if Self::backoff_with_cancel(Duration::from_secs(1), &cancellation_token).await {
                                             tracing::debug!("jwt_source: bundle streaming cancelled");
                                             return;
                                         }
+                                        break;
                                     }
-                                    break;
                                 }
                             }
                         }
-                        _ = cancellation_token.cancelled() => {
-                            tracing::debug!("jwt_source: bundle streaming cancelled");
-                            return;
-                        }
                     }
-                },
+                }
                 Err(e) => {
                     tracing::warn!(error=%e, "jwt_source: failed to start bundle stream, retrying in 5s");
                     tokio::select! {
@@ -919,38 +920,72 @@ async fn fetch_once(
         .map_err(|e| AuthError::ConfigError(format!("Failed to fetch JWT SVID: {}", e)))
 }
 
+// Decode JWT expiry (seconds since epoch) without verifying signature and audience.
+// Extracted as a standalone helper for reuse and unit testing.
+fn decode_jwt_expiry_unverified(token: &str) -> Result<u64, AuthError> {
+    let mut validation = jsonwebtoken_aws_lc::Validation::default();
+    validation.insecure_disable_signature_validation();
+    validation.validate_aud = false;
+
+    let key = jsonwebtoken_aws_lc::DecodingKey::from_secret(&[]);
+    let claims: TokenData<serde_json::Value> =
+        jsonwebtoken_aws_lc::decode(token, &key, &validation).map_err(|e| {
+            AuthError::TokenInvalid(format!("failed to extract claims from SVID: {}", e))
+        })?;
+
+    let exp_val = claims
+        .claims
+        .get("exp")
+        .ok_or_else(|| AuthError::TokenInvalid("JWT SVID missing 'exp' claim".to_string()))?;
+
+    if let Some(num) = exp_val.as_u64() {
+        Ok(num)
+    } else {
+        exp_val.to_string().parse::<u64>().map_err(|_| {
+            AuthError::TokenInvalid("JWT SVID 'exp' claim not a valid u64".to_string())
+        })
+    }
+}
+
 // Calculate refresh interval as 2/3 of the token's lifetime
-fn calculate_refresh_interval(svid: &JwtSvid) -> Duration {
+trait JwtLike {
+    fn token(&self) -> &str;
+}
+
+impl JwtLike for JwtSvid {
+    fn token(&self) -> &str {
+        self.token()
+    }
+}
+
+fn calculate_refresh_interval<T: JwtLike>(jwt: &T) -> Result<Duration, AuthError> {
     const TWO_THIRDS: f64 = 2.0 / 3.0;
     let default = Duration::from_secs(30);
 
-    let mut validation = jsonwebtoken_aws_lc::Validation::default();
-    validation.insecure_disable_signature_validation();
+    let expiry = match decode_jwt_expiry_unverified(jwt.token()) {
+        Ok(e) => e,
+        Err(_) => {
+            return Ok(default);
+        }
+    };
 
-    let claims: serde_json::Map<String, Value> = jsonwebtoken_aws_lc::decode(
-        svid.token(),
-        jsonwebtoken_aws_lc::DecodingKey::from_secret(&[]),
-        validation,
-    )?;
-    tracing::error!("{}", expiry_str);
-    if let Ok(epoch) = expiry_str.parse::<u64>()
-        && let Ok(now_secs) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-        && epoch > now_secs.as_secs()
+    if let Ok(now) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+        && expiry > now.as_secs()
     {
-        tracing::error!("os");
-        let total_lifetime = Duration::from_secs(epoch - now_secs.as_secs());
-        let refresh_at = Duration::from_secs_f64(total_lifetime.as_secs_f64() * TWO_THIRDS);
+        let total_lifetime = Duration::from_secs(expiry - now.as_secs());
+        let refresh_in = Duration::from_secs_f64(total_lifetime.as_secs_f64() * TWO_THIRDS);
 
         // Use a minimum of 100ms to handle very short-lived tokens (like 1-4 seconds)
         // but still respect the 2/3 lifetime principle
         let min_refresh = Duration::from_millis(100);
-        return refresh_at.max(min_refresh);
+        return Ok(refresh_in.max(min_refresh));
     }
-    default
+
+    Ok(default)
 }
 
 #[async_trait]
-impl Verifier for SpiffeIdentityManager {
+impl Verifier for SpireIdentityManager {
     async fn verify(&self, token: impl Into<String> + Send) -> Result<(), AuthError> {
         self.try_verify(token)
     }
@@ -1012,5 +1047,186 @@ impl Verifier for SpiffeIdentityManager {
 
 #[cfg(test)]
 mod tests {
-    // tested in integration tests
+    use super::calculate_refresh_interval;
+    use super::decode_jwt_expiry_unverified;
+    use serde_json::json;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    // Helper to build a JWT with a specific exp claim (numeric or string) using jsonwebtoken_aws_lc.
+    fn build_token_with_exp(exp_value: serde_json::Value) -> String {
+        use jsonwebtoken_aws_lc::{EncodingKey, Header};
+        use serde_json::Value;
+        let mut payload_map = serde_json::Map::new();
+        if exp_value != Value::Null {
+            payload_map.insert("exp".to_string(), exp_value);
+        }
+        let payload = Value::Object(payload_map);
+        jsonwebtoken_aws_lc::encode(&Header::default(), &payload, &EncodingKey::from_secret(&[]))
+            .expect("token encoding should succeed")
+    }
+
+    #[test]
+    fn test_decode_expiry_numeric() {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let token = build_token_with_exp(json!(now + 60));
+        let exp = decode_jwt_expiry_unverified(&token).expect("should decode numeric exp");
+        assert_eq!(exp, now + 60);
+    }
+
+    #[test]
+    fn test_decode_expiry_string() {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let token = build_token_with_exp(json!((now + 120)));
+        let exp = decode_jwt_expiry_unverified(&token).expect("should decode string exp");
+        assert_eq!(exp, now + 120);
+    }
+
+    #[test]
+    fn test_decode_expiry_missing() {
+        let token = build_token_with_exp(serde_json::Value::Null); // omit exp
+        assert!(
+            decode_jwt_expiry_unverified(&token).is_err(),
+            "missing exp should error"
+        );
+    }
+
+    #[test]
+    fn test_decode_expiry_invalid() {
+        let token = build_token_with_exp(json!("not-a-number"));
+        assert!(
+            decode_jwt_expiry_unverified(&token).is_err(),
+            "invalid exp should error"
+        );
+    }
+
+    #[test]
+    fn test_calculate_refresh_interval_basic() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        // token with 90s lifetime
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let token = build_token_with_exp(json!(now + 90));
+        struct DummyJwt(String);
+        impl super::JwtLike for DummyJwt {
+            fn token(&self) -> &str {
+                &self.0
+            }
+        }
+        let dummy = DummyJwt(token);
+        let dur = calculate_refresh_interval(&dummy).expect("interval");
+        // Expect roughly 60s (2/3 of 90s) allowing small timing variance
+        assert!(
+            dur >= Duration::from_secs(58) && dur <= Duration::from_secs(61),
+            "expected ~60s, got {:?}",
+            dur
+        );
+    }
+
+    #[test]
+    fn test_calculate_refresh_interval_expired_defaults() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let token = build_token_with_exp(json!(now - 10));
+        struct DummyJwt(String);
+        impl super::JwtLike for DummyJwt {
+            fn token(&self) -> &str {
+                &self.0
+            }
+        }
+        let dummy = DummyJwt(token);
+        let dur = calculate_refresh_interval(&dummy).expect("interval");
+        assert_eq!(
+            dur,
+            Duration::from_secs(30),
+            "expired token should use default 30s"
+        );
+    }
+
+    // Helper to build a token that JwtSvid::parse_insecure will accept (supported alg, kid, typ)
+    fn build_svid_like_token(exp: u64, aud: Vec<String>, sub: &str) -> String {
+        use base64::Engine;
+        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        use serde_json::json;
+
+        let header = json!({"alg":"RS256","typ":"JWT","kid":"kid1"});
+        let claims = json!({
+            "sub": sub,
+            "aud": aud,
+            "exp": exp,
+        });
+
+        let header_b64 = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&header).unwrap());
+        let claims_b64 = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).unwrap());
+        // Empty signature part is fine because we disable signature validation for parse_insecure
+        format!("{}.{}.", header_b64, claims_b64)
+    }
+
+    #[test]
+    fn test_calculate_refresh_interval_real_jwtsvid() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        // Create a token with 90s lifetime
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let lifetime = 90u64;
+        let token = build_svid_like_token(
+            now + lifetime,
+            vec!["audA".to_string(), "audB".to_string()],
+            "spiffe://example.org/service",
+        );
+
+        // Parse insecurely into a real JwtSvid
+        let svid = token
+            .parse::<spiffe::JwtSvid>()
+            .expect("JwtSvid::parse_insecure should succeed for crafted token");
+
+        let dur = calculate_refresh_interval(&svid).expect("interval");
+        // Expect roughly 60s (2/3 of 90s), allow a little drift due to test timing.
+        assert!(
+            dur >= Duration::from_secs(58) && dur <= Duration::from_secs(61),
+            "expected ~60s refresh interval, got {:?}",
+            dur
+        );
+    }
+
+    #[test]
+    fn test_calculate_refresh_interval_real_jwtsvid_expired() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        // Expired 10s ago
+        let token = build_svid_like_token(
+            now - 10,
+            vec!["aud".to_string()],
+            "spiffe://example.org/service",
+        );
+
+        // Parse insecurely into a real JwtSvid
+        let svid = token
+            .parse::<spiffe::JwtSvid>()
+            .expect("JwtSvid::parse_insecure should succeed for crafted token");
+
+        let dur = calculate_refresh_interval(&svid).expect("interval");
+        assert_eq!(
+            dur,
+            Duration::from_secs(30),
+            "expired token should return default 30s interval"
+        );
+    }
 }

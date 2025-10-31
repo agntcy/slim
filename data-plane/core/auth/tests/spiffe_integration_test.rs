@@ -10,9 +10,9 @@
 
 #![cfg(target_os = "linux")]
 
-use slim_auth::spiffe::SpiffeIdentityManager;
+use slim_auth::spire::SpireIdentityManager;
 use slim_auth::traits::{TokenProvider, Verifier};
-use slim_config::auth::spiffe::SpiffeConfig;
+use slim_config::auth::spire::SpireConfig;
 use slim_testing::utils::spire_env::SpireTestEnvironment;
 use std::collections::HashMap;
 
@@ -41,8 +41,8 @@ macro_rules! require_docker {
 // Helper functions to reduce test repetition
 
 /// Creates a test SpiffeConfig with a socket path
-fn test_config_with_socket(socket_path: &str) -> SpiffeConfig {
-    SpiffeConfig {
+fn test_config_with_socket(socket_path: &str) -> SpireConfig {
+    SpireConfig {
         socket_path: Some(socket_path.to_string()),
         jwt_audiences: vec!["test".to_string()],
         ..Default::default()
@@ -50,26 +50,26 @@ fn test_config_with_socket(socket_path: &str) -> SpiffeConfig {
 }
 
 /// Creates a test SpiffeConfig with default test audiences
-fn test_config() -> SpiffeConfig {
-    SpiffeConfig {
+fn test_config() -> SpireConfig {
+    SpireConfig {
         jwt_audiences: vec!["test".to_string()],
         ..Default::default()
     }
 }
 
 /// Creates a test SpiffeConfig with a socket path and multiple audiences
-fn test_config_with_socket_and_audiences(socket_path: &str) -> SpiffeConfig {
-    SpiffeConfig {
+fn test_config_with_socket_and_audiences(socket_path: &str) -> SpireConfig {
+    SpireConfig {
         socket_path: Some(socket_path.to_string()),
         jwt_audiences: vec!["test-audience".to_string(), "another-audience".to_string()],
         ..Default::default()
     }
 }
 
-/// Helper to build a SpiffeIdentityManager from a SpiffeConfig
-fn build_manager_from(cfg: &SpiffeConfig) -> SpiffeIdentityManager {
+/// Helper to build a SpireIdentityManager from a SpireConfig
+fn build_manager_from(cfg: &SpireConfig) -> SpireIdentityManager {
     let mut builder =
-        SpiffeIdentityManager::builder().with_jwt_audiences(cfg.jwt_audiences.clone());
+        SpireIdentityManager::builder().with_jwt_audiences(cfg.jwt_audiences.clone());
 
     if let Some(ref sp) = cfg.socket_path {
         builder = builder.with_socket_path(sp.clone());
@@ -82,7 +82,7 @@ fn build_manager_from(cfg: &SpiffeConfig) -> SpiffeIdentityManager {
 }
 
 /// Asserts that a provider is in uninitialized state
-fn assert_manager_uninitialized(manager: &SpiffeIdentityManager) {
+fn assert_manager_uninitialized(manager: &SpireIdentityManager) {
     let token_result = manager.get_token();
     assert!(token_result.is_err(), "Should fail before initialization");
     let err = format!("{}", token_result.unwrap_err());
@@ -95,7 +95,7 @@ fn assert_manager_uninitialized(manager: &SpiffeIdentityManager) {
 }
 
 /// Asserts that a verifier is in uninitialized state
-async fn assert_verifier_uninitialized(verifier: &SpiffeIdentityManager) {
+async fn assert_verifier_uninitialized(verifier: &SpireIdentityManager) {
     let token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature";
     let verify_result = verifier.verify(token).await;
     assert!(verify_result.is_err(), "Should fail without initialization");
@@ -300,14 +300,14 @@ async fn test_spiffe_provider_configurations() {
     tracing::info!("Testing various SPIFFE identity manager configurations");
 
     // Test default configuration
-    let default_config = SpiffeConfig::default();
+    let default_config = SpireConfig::default();
     assert_eq!(default_config.jwt_audiences, vec!["slim".to_string()]);
     assert!(default_config.socket_path.is_none());
     assert!(default_config.target_spiffe_id.is_none());
     tracing::info!("Default configuration is correct");
 
     // Test custom configuration
-    let custom_config = SpiffeConfig {
+    let custom_config = SpireConfig {
         socket_path: Some("unix:///custom/path".to_string()),
         target_spiffe_id: Some("spiffe://example.org/backend".to_string()),
         jwt_audiences: vec!["api".to_string(), "web".to_string()],
@@ -353,7 +353,7 @@ async fn test_spiffe_verifier_config() {
     assert_manager_uninitialized(&verifier_no_socket);
 
     // Config with empty audiences
-    let empty_cfg = SpiffeConfig {
+    let empty_cfg = SpireConfig {
         socket_path: Some("unix:///tmp/test".to_string()),
         ..Default::default()
     };

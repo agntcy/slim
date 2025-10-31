@@ -23,7 +23,8 @@ use crate::file_watcher::FileWatcher;
 use crate::resolver::KeyResolver;
 use crate::traits::{Signer, StandardClaims, TokenProvider, Verifier};
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
+#[serde(rename_all = "lowercase")]
 pub enum KeyFormat {
     Pem,
     Jwk,
@@ -31,11 +32,11 @@ pub enum KeyFormat {
 }
 
 /// Enum representing key data types
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum KeyData {
     /// String with encoded key(s)
-    Str(String),
+    Data(String),
     /// File path to the key(s)
     File(String),
 }
@@ -48,12 +49,9 @@ pub struct Key {
     pub algorithm: Algorithm,
 
     /// Key format - PEM, JWK or JWKS
-    #[schemars(skip)]
     pub format: KeyFormat,
 
     /// Encoded key or file path
-    #[schemars(skip)]
-    #[serde(flatten, with = "serde_yaml::with::singleton_map")]
     pub key: KeyData,
 }
 
@@ -839,7 +837,7 @@ mod tests {
             .private_key(&Key {
                 algorithm: Algorithm::HS512,
                 format: KeyFormat::Pem,
-                key: KeyData::Str(String::from(first_key)),
+                key: KeyData::Data(String::from(first_key)),
             })
             .build()
             .unwrap();
@@ -868,7 +866,7 @@ mod tests {
             .private_key(&Key {
                 algorithm: Algorithm::HS512,
                 format: KeyFormat::Pem,
-                key: KeyData::Str(String::from(second_key)),
+                key: KeyData::Data(String::from(second_key)),
             })
             .build()
             .unwrap();
@@ -894,7 +892,7 @@ mod tests {
             .private_key(&Key {
                 algorithm: Algorithm::HS512,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("secret-key".to_string()),
+                key: KeyData::Data("secret-key".to_string()),
             })
             .build()
             .unwrap();
@@ -906,7 +904,7 @@ mod tests {
             .public_key(&Key {
                 algorithm: Algorithm::HS512,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("secret-key".to_string()),
+                key: KeyData::Data("secret-key".to_string()),
             })
             .build()
             .unwrap();
@@ -937,7 +935,7 @@ mod tests {
             .public_key(&Key {
                 algorithm: Algorithm::HS512,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("wrong-secret-key".to_string()),
+                key: KeyData::Data("wrong-secret-key".to_string()),
             })
             .build()
             .unwrap();
@@ -958,7 +956,7 @@ mod tests {
             .private_key(&Key {
                 algorithm: Algorithm::HS512,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("secret-key".to_string()),
+                key: KeyData::Data("secret-key".to_string()),
             })
             .build()
             .unwrap();
@@ -970,7 +968,7 @@ mod tests {
             .public_key(&Key {
                 algorithm: Algorithm::HS512,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("secret-key".to_string()),
+                key: KeyData::Data("secret-key".to_string()),
             })
             .build()
             .unwrap();
@@ -1020,7 +1018,7 @@ mod tests {
             .private_key(&Key {
                 algorithm,
                 format: KeyFormat::Pem,
-                key: KeyData::Str(test_key),
+                key: KeyData::Data(test_key),
             })
             .build()
             .unwrap();
@@ -1099,7 +1097,7 @@ mod tests {
             .private_key(&Key {
                 algorithm: Algorithm::HS512,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("secret-key".to_string()),
+                key: KeyData::Data("secret-key".to_string()),
             })
             .build()
             .unwrap();
@@ -1111,7 +1109,7 @@ mod tests {
             .public_key(&Key {
                 algorithm: Algorithm::HS512,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("secret-key".to_string()),
+                key: KeyData::Data("secret-key".to_string()),
             })
             .build()
             .unwrap();
@@ -1164,7 +1162,7 @@ mod tests {
             .private_key(&Key {
                 algorithm: Algorithm::HS256,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("secret".to_string()),
+                key: KeyData::Data("secret".to_string()),
             })
             .build()
             .unwrap();
@@ -1182,7 +1180,7 @@ mod tests {
             .private_key(&Key {
                 algorithm: Algorithm::HS256,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("secret".to_string()),
+                key: KeyData::Data("secret".to_string()),
             })
             .build()
             .unwrap();

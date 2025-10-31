@@ -16,13 +16,15 @@ services:
     dataplane:
       clients:
         - endpoint: "https://localhost:46357"
+          # This overrides the server name when connecting to localhost
+          server_name: "myservice.example.org"
           tls:
             source:
-              type: file
-              cert: "./config/crypto/client-cert.pem"
-              key: "./config/crypto/client-key.pem"
+              type: spire
+              socket_path: unix://tmp/spire-agent/public/api.sock
+              target_spiffe_id: spiffe://example.org/myservice
             ca_source:
-              type: file
-              path: "./config/crypto/server-ca-cert.pem"
+              type: spire
+              socket_path: unix://tmp/spire-agent/public/api.sock
               trust_domains:
-                - "example.org"
+                - example.org

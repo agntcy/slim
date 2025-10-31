@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
 
-use crate::auth::spiffe;
+use crate::auth::spire;
 
 #[derive(Debug)]
 pub(crate) struct WatcherCertResolver {
@@ -124,9 +124,9 @@ impl StaticCertResolver {
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
 pub struct SpireSources {
-    /// Flattened SPIFFE configuration (socket_path, target_spiffe_id, jwt_audiences, trust_domain)
+    /// Flattened spire configuration (socket_path, target_spiffe_id, jwt_audiences, trust_domain)
     #[serde(flatten)]
-    pub spiffe: spiffe::SpiffeConfig,
+    pub spire: spire::SpireConfig,
 }
 
 #[derive(Default, Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
@@ -142,7 +142,7 @@ pub enum TlsSource {
     },
     Spire {
         #[serde(flatten)]
-        config: spiffe::SpiffeConfig,
+        config: spire::SpireConfig,
     },
     #[default]
     None,
@@ -166,7 +166,7 @@ pub enum CaSource {
     },
     Spire {
         #[serde(flatten)]
-        config: spiffe::SpiffeConfig,
+        config: spire::SpireConfig,
     },
     #[default]
     None,
@@ -182,7 +182,7 @@ pub enum TlsComponent {
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
 pub struct Config {
-    // Unified TLS source (PEM, File, or SPIFFE)
+    // Unified TLS source (PEM, File, or SPIRE)
     #[serde(default)]
     pub source: TlsSource,
 
@@ -203,11 +203,11 @@ pub struct Config {
 
 // Resolver backed by SPIRE Workload API providing dynamic SVID and bundle refresh.
 pub(crate) struct SpireCertResolver {
-    provider: slim_auth::spiffe::SpiffeIdentityManager,
+    provider: slim_auth::spire::SpireIdentityManager,
     crypto_provider: Arc<CryptoProvider>,
 }
 
-// Manual Debug impl (SpiffeIdentityManager does not implement Debug)
+// Manual Debug impl (SpireIdentityManager does not implement Debug)
 impl std::fmt::Debug for SpireCertResolver {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "SpireCertResolver {{ provider: <opaque> }}")
@@ -216,17 +216,17 @@ impl std::fmt::Debug for SpireCertResolver {
 
 impl SpireCertResolver {
     pub(crate) async fn new(
-        spiffe_cfg: spiffe::SpiffeConfig,
+        spire_cfg: spire::SpireConfig,
         crypto_provider: &Arc<CryptoProvider>,
     ) -> Result<Self, ConfigError> {
-        // Build SpiffeIdentityManager internally from configuration
-        let mut builder = slim_auth::spiffe::SpiffeIdentityManager::builder()
-            .with_jwt_audiences(spiffe_cfg.jwt_audiences.clone());
+        // Build SpireIdentityManager internally from configuration
+        let mut builder = slim_auth::spire::SpireIdentityManager::builder()
+            .with_jwt_audiences(spire_cfg.jwt_audiences.clone());
 
-        if let Some(ref socket) = spiffe_cfg.socket_path {
+        if let Some(ref socket) = spire_cfg.socket_path {
             builder = builder.with_socket_path(socket.clone());
         }
-        if let Some(ref id) = spiffe_cfg.target_spiffe_id {
+        if let Some(ref id) = spire_cfg.target_spiffe_id {
             builder = builder.with_target_spiffe_id(id.clone());
         }
 
@@ -236,7 +236,7 @@ impl SpireCertResolver {
             .await
             .map_err(|e| ConfigError::InvalidSpireConfig {
                 details: e.to_string(),
-                config: spiffe_cfg.clone(),
+                config: spire_cfg.clone(),
             })?;
 
         Ok(Self {
@@ -299,7 +299,7 @@ pub enum ConfigError {
     #[error("error in spire configuration: {details}, config={config:?}")]
     InvalidSpireConfig {
         details: String,
-        config: spiffe::SpiffeConfig,
+        config: spire::SpireConfig,
     },
     #[error("error running spire: {0}")]
     SpireError(String),
@@ -368,8 +368,8 @@ impl Config {
         self
     }
 
-    pub(crate) fn with_ca_spiffe(mut self, spiffe: spiffe::SpiffeConfig) -> Config {
-        self.ca_source = CaSource::Spire { config: spiffe };
+    pub(crate) fn with_ca_spire(mut self, spire: spire::SpireConfig) -> Config {
+        self.ca_source = CaSource::Spire { config: spire };
         self
     }
 
@@ -423,10 +423,10 @@ impl Config {
         self
     }
 
-    /// Attach a SPIFFE configuration enabling SPIRE-based SVID and bundle resolution.
+    /// Attach a spire configuration enabling SPIRE-based SVID and bundle resolution.
     /// This sets the `spire` field with a `SpireSources` wrapper.
-    pub(crate) fn with_spiffe(mut self, spiffe: spiffe::SpiffeConfig) -> Config {
-        self.source = TlsSource::Spire { config: spiffe };
+    pub(crate) fn with_spire(mut self, spire: spire::SpireConfig) -> Config {
+        self.source = TlsSource::Spire { config: spire };
         self
     }
 
@@ -444,38 +444,6 @@ impl Config {
 
         builder.add_source(&self.ca_source).await?.finish()
     }
-
-    // /// Shared root store builder used by both server CA loading and (externally) client CA merging.
-    // /// extra_file_ca / extra_pem_ca allow callers (e.g. server.rs) to layer additional client CA sources
-    // /// without duplicating parsing logic. extra_spiffe lets callers supply a distinct SPIFFE bundle
-    // /// configuration (e.g. client bundle separate from server SVID).
-    // /// Extended root store builder that layers additional client CA sources (file / pem / spiffe)
-    // /// on top of a base TlsSource. This now relies exclusively on RootStoreBuilder.
-    // pub async fn build_root_store(
-    //     &self,
-    //     source: &TlsSource,
-    //     include_system: bool,
-    //     extra_file_ca: Option<&str>,
-    //     extra_pem_ca: Option<&str>,
-    //     extra_spiffe: Option<&spiffe::SpiffeConfig>,
-    // ) -> Result<RootCertStore, ConfigError> {
-    //     use crate::tls::root_store_builder::RootStoreBuilder;
-    //     let mut builder = RootStoreBuilder::new()
-    //         .with_system_roots_if(include_system)
-    //         .add_source(source)
-    //         .await?;
-
-    //     if let Some(path) = extra_file_ca {
-    //         builder = builder.add_file(path)?;
-    //     }
-    //     if let Some(pem) = extra_pem_ca {
-    //         builder = builder.add_pem(pem)?;
-    //     }
-    //     if let Some(spiffe_cfg) = extra_spiffe {
-    //         builder = builder.add_spiffe(spiffe_cfg).await?;
-    //     }
-    //     builder.finish()
-    // }
 
     /// Unified presence check for CA / Cert / Key across File, Pem, and Spire sources.
     pub fn has(&self, component: TlsComponent) -> bool {
