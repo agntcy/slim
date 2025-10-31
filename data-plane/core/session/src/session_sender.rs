@@ -391,6 +391,7 @@ impl SessionSender {
 
         // check if we need to flush the producer buffer
         if self.to_flush && self.endpoints_list.len() == 1 {
+            self.to_flush = false;
             let messages: Vec<_> = self.buffer.iter().cloned().collect();
             for p in messages {
                 let _ = self.set_timer_and_send(p).await;
@@ -1466,7 +1467,7 @@ mod tests {
         // send message without adding any endpoints, this should fail
         let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
 
-        let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
         let (tx_app, _) = tokio::sync::mpsc::channel(10);
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
@@ -1496,11 +1497,38 @@ mod tests {
         // Set session message type to Msg for reliable sender
         message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
 
-        // Send the message using on_message function - this should fail
+        // Send the message using on_message function - this should succeed but buffer the message
         let result = sender.on_message(message.clone()).await;
 
-        // The on_message call should succeed (it just queues the message), but the internal processing should fail
-        // We need to check that no message was actually sent to rx_slim
-        assert!(result.is_err(), "the message send should fail");
+        // result should be ok
+        assert!(result.is_ok(), "Expected Ok result, got: {:?}", result);
+
+        // no message should arrive at rx_slim (message is buffered)
+        let res = timeout(Duration::from_millis(100), rx_slim.recv()).await;
+        assert!(
+            res.is_err(),
+            "Expected timeout (no message), but got: {:?}",
+            res
+        );
+
+        // add the remote participant
+        sender
+            .add_endpoint(&remote)
+            .await
+            .expect("error adding participant");
+
+        // a message should arrive to rx_slim (buffered message is flushed)
+        let received = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for message")
+            .expect("channel closed")
+            .expect("error message");
+
+        // Verify the message was received with correct properties
+        assert_eq!(
+            received.get_session_message_type(),
+            slim_datapath::api::ProtoSessionMessageType::Msg
+        );
+        assert_eq!(received.get_id(), 1);
     }
 }
