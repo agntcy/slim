@@ -10,11 +10,11 @@
 
 #![cfg(target_os = "linux")]
 
+use slim_auth::metadata::MetadataMap;
 use slim_auth::spire::SpireIdentityManager;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_config::auth::spire::SpireConfig;
 use slim_testing::utils::spire_env::SpireTestEnvironment;
-use std::collections::HashMap;
 
 /// Helper to check if Docker is available
 async fn is_docker_available() -> bool {
@@ -201,10 +201,11 @@ async fn test_spiffe_provider_initialization() {
         }
 
         // Test JWT token retrieval with custom claims
-        let custom_claims = HashMap::from([(
-            "pubkey".to_string(),
-            serde_json::Value::String("abcdef".to_string()),
-        )]);
+        let custom_claims = {
+            let mut claims = MetadataMap::new();
+            claims.insert("pubkey", "abcdef");
+            claims
+        };
         match provider.get_token_with_claims(custom_claims).await {
             Ok(token_with_claims) => {
                 tracing::info!("Got JWT token with custom claims");

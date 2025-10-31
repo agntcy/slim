@@ -9,8 +9,8 @@ use std::{net::SocketAddr, str::FromStr, time::Duration};
 
 use duration_string::DurationString;
 use futures::{FutureExt, TryStreamExt};
-use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 use tonic::transport::server::TcpIncoming;
 use tracing::{debug, info};
@@ -19,9 +19,9 @@ use super::errors::ConfigError;
 use crate::auth::ServerAuthenticator;
 use crate::auth::basic::Config as BasicAuthenticationConfig;
 use crate::auth::jwt::Config as JwtAuthenticationConfig;
+use slim_auth::metadata::MetadataMap;
 
 use crate::component::configuration::{Configuration, ConfigurationError};
-use crate::metadata::MetadataMap;
 use crate::tls::{common::RustlsConfigLoader, server::TlsServerConfig as TLSSetting};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]

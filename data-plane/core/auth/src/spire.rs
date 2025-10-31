@@ -82,6 +82,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info}; // for sync access in TokenProvider impl
 
 use crate::errors::AuthError;
+use crate::metadata::MetadataMap;
 use crate::traits::{TokenProvider, Verifier};
 use crate::utils::bytes_to_pem;
 
@@ -130,9 +131,7 @@ impl CustomClaimsCodec {
     /// # Returns
     ///
     /// A string in the format: `slim-claims:<base64-encoded-json>`
-    fn encode_audience(
-        custom_claims: &std::collections::HashMap<String, Value>,
-    ) -> Result<String, AuthError> {
+    fn encode_audience(custom_claims: &MetadataMap) -> Result<String, AuthError> {
         let claims_json = serde_json::to_string(custom_claims).map_err(|e| {
             AuthError::ConfigError(format!("Failed to serialize custom claims: {}", e))
         })?;
@@ -441,10 +440,7 @@ impl TokenProvider for SpireIdentityManager {
         Ok(jwt_svid.token().to_string())
     }
 
-    async fn get_token_with_claims(
-        &self,
-        custom_claims: std::collections::HashMap<String, Value>,
-    ) -> Result<String, AuthError> {
+    async fn get_token_with_claims(&self, custom_claims: MetadataMap) -> Result<String, AuthError> {
         if custom_claims.is_empty() {
             return self.get_token();
         }

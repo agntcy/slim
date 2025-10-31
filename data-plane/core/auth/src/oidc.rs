@@ -3,6 +3,7 @@
 
 use crate::errors::AuthError;
 use crate::jwt::extract_sub_claim_unsafe;
+use crate::metadata::MetadataMap;
 use crate::resolver::JwksCache;
 use crate::traits::{TokenProvider, Verifier};
 use async_trait::async_trait;
@@ -384,7 +385,7 @@ impl TokenProvider for OidcTokenProvider {
 
     async fn get_token_with_claims(
         &self,
-        _custom_claims: std::collections::HashMap<String, serde_json::Value>,
+        _custom_claims: MetadataMap,
     ) -> Result<String, AuthError> {
         // This provider does not support custom claims in the token
         Err(AuthError::UnsupportedOperation(

@@ -20,6 +20,8 @@ use tonic::codegen::{Body, Bytes, StdError};
 use tonic::transport::{Channel, Uri};
 use tracing::warn;
 
+use slim_auth::metadata::MetadataMap;
+
 use super::compression::CompressionType;
 use super::errors::ConfigError;
 use super::headers_middleware::SetRequestHeaderLayer;
@@ -29,7 +31,6 @@ use crate::auth::jwt::Config as JwtAuthenticationConfig;
 use crate::auth::static_jwt::Config as BearerAuthenticationConfig;
 use crate::component::configuration::{Configuration, ConfigurationError};
 use crate::grpc::proxy::ProxyConfig;
-use crate::metadata::MetadataMap;
 use crate::tls::{client::TlsClientConfig as TLSSetting, common::RustlsConfigLoader};
 
 /// Creates an HTTPS connector with optional SNI based on the origin

@@ -239,7 +239,7 @@ where
         // also here the endpoint may not exists anymore
         if let Some(set) = self.pending_acks_per_endpoint.get_mut(&source) {
             debug!(
-                "remove message id {} from pendings acks for {}",
+                "remove message id {} from pending acks for {}",
                 message_id, source
             );
             // here we do not remove the name even if the set is empty

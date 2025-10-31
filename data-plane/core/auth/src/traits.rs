@@ -3,8 +3,6 @@
 
 //! Common traits for authentication mechanisms.
 
-use std::collections::HashMap;
-
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -59,7 +57,7 @@ impl StandardClaims {
             iat: None,
             jti: None,
             nbf: None,
-            custom_claims: HashMap::new(),
+            custom_claims: MetadataMap::new(),
         }
     }
 }
@@ -112,10 +110,7 @@ pub trait TokenProvider {
     ///
     /// # Arguments
     /// * `custom_claims` - Additional custom claims to include in the token.
-    async fn get_token_with_claims(
-        &self,
-        custom_claims: HashMap<String, serde_json::Value>,
-    ) -> Result<String, AuthError> {
+    async fn get_token_with_claims(&self, custom_claims: MetadataMap) -> Result<String, AuthError> {
         // Default implementation ignores custom claims for backward compatibility
         let _ = custom_claims;
         self.get_token()

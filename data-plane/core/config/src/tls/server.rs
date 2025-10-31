@@ -9,8 +9,8 @@ use rustls::{
     version::{TLS12, TLS13},
 };
 
-use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 use super::common::{Config, ConfigError, RustlsConfigLoader, TlsSource};
 use crate::{

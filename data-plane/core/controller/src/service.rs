@@ -6,9 +6,9 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
+use slim_auth::metadata::MetadataValue;
 use slim_config::component::id::ID;
 use slim_config::grpc::server::ServerConfig;
-use slim_config::metadata::MetadataValue;
 use tokio::sync::mpsc;
 use tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
 use tokio_util::sync::CancellationToken;

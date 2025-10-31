@@ -289,10 +289,7 @@ impl<S> Jwt<S> {
     }
 
     /// Creates a StandardClaims object with custom claims merged in.
-    pub fn create_claims_with_custom(
-        &self,
-        custom_claims: MetadataMap,
-    ) -> StandardClaims {
+    pub fn create_claims_with_custom(&self, custom_claims: MetadataMap) -> StandardClaims {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or(Duration::from_secs(0))
@@ -334,7 +331,7 @@ impl<S> Jwt<S> {
 
     fn sign_internal_claims_with_custom(
         &self,
-        custom_claims: std::collections::HashMap<String, serde_json::Value>,
+        custom_claims: MetadataMap,
     ) -> Result<String, AuthError> {
         let claims = self.create_claims_with_custom(custom_claims);
         self.sign_claims(&claims)
@@ -569,10 +566,7 @@ impl TokenProvider for SignerJwt {
         self.sign_internal_claims()
     }
 
-    async fn get_token_with_claims(
-        &self,
-        custom_claims: std::collections::HashMap<String, serde_json::Value>,
-    ) -> Result<String, AuthError> {
+    async fn get_token_with_claims(&self, custom_claims: MetadataMap) -> Result<String, AuthError> {
         if custom_claims.is_empty() {
             self.sign_internal_claims()
         } else {
@@ -604,7 +598,7 @@ impl TokenProvider for StaticTokenProvider {
 
     async fn get_token_with_claims(
         &self,
-        _custom_claims: std::collections::HashMap<String, serde_json::Value>,
+        _custom_claims: MetadataMap,
     ) -> Result<String, AuthError> {
         // This provider does not support custom claims in the token
         Err(AuthError::UnsupportedOperation(
@@ -666,7 +660,6 @@ pub(crate) fn extract_sub_claim_unsafe(token: &str) -> Result<String, AuthError>
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use std::fs::{File, OpenOptions};
     use std::io::{Seek, SeekFrom, Write};
     use std::{env, fs, vec};
@@ -974,17 +967,11 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut custom_claims = HashMap::new();
-        custom_claims.insert(
-            "role".to_string(),
-            serde_json::Value::String("admin".to_string()),
-        );
+        let mut custom_claims = MetadataMap::new();
+        custom_claims.insert("role".to_string(), "admin".to_string());
         custom_claims.insert(
             "permissions".to_string(),
-            serde_json::Value::Array(vec![
-                serde_json::Value::String("read".to_string()),
-                serde_json::Value::String("write".to_string()),
-            ]),
+            vec!["read".to_string(), "write".to_string()],
         );
 
         let mut claims = signer.create_claims();
@@ -993,13 +980,29 @@ mod tests {
 
         let verified_claims: StandardClaims = verifier.get_claims(token).await.unwrap();
 
-        assert_eq!(verified_claims.custom_claims.get("role").unwrap(), "admin");
+        let role: String = verified_claims
+            .custom_claims
+            .get("role")
+            .unwrap()
+            .try_into()
+            .unwrap();
+        assert_eq!(&role, "admin");
+
+        let permissions: Vec<String> = verified_claims
+            .custom_claims
+            .get("permissions")
+            .unwrap()
+            .as_list()
+            .unwrap()
+            .iter()
+            .map(|v| v.try_into().unwrap())
+            .collect();
         assert_eq!(
-            verified_claims.custom_claims.get("permissions").unwrap(),
-            &serde_json::Value::Array(vec![
+            permissions,
+            vec![
                 serde_json::Value::String("read".to_string()),
                 serde_json::Value::String("write".to_string())
-            ])
+            ]
         );
     }
 
@@ -1135,11 +1138,8 @@ mod tests {
         assert_eq!(first_result.exp, second_result.exp);
 
         // Now create a different token
-        let mut custom_claims = std::collections::HashMap::new();
-        custom_claims.insert(
-            "role".to_string(),
-            serde_json::Value::String("admin".to_string()),
-        );
+        let mut custom_claims = MetadataMap::new();
+        custom_claims.insert("role", "admin");
 
         let mut claims2 = signer.create_claims();
         claims2.custom_claims = custom_claims;

@@ -1,7 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
 use std::time::Duration;
 
 use duration_string::DurationString;
@@ -9,11 +8,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use slim_auth::builder::JwtBuilder;
 
-use crate::metadata::MetadataMap;
-
 use super::{AuthError, ClientAuthenticator, ServerAuthenticator};
 use slim_auth::jwt::{Key, SignerJwt, VerifierJwt};
 use slim_auth::jwt_middleware::{AddJwtLayer, ValidateJwtLayer};
+use slim_auth::metadata::MetadataMap;
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct Claims {
@@ -71,10 +69,7 @@ impl Claims {
         }
     }
 
-    pub fn with_custom_claims(
-        self,
-        custom_claims: MetadataMap,
-    ) -> Self {
+    pub fn with_custom_claims(self, custom_claims: MetadataMap) -> Self {
         Claims {
             custom_claims: Some(custom_claims),
             ..self
@@ -158,10 +153,7 @@ impl Config {
     }
 
     fn custom_claims(&self) -> MetadataMap {
-        self.claims
-            .custom_claims
-            .clone()
-            .unwrap_or_default()
+        self.claims.custom_claims.clone().unwrap_or_default()
     }
 
     /// Internal helper to build a base JwtBuilder with configured standard claims.
@@ -237,7 +229,7 @@ where
     Response: Default + Send + 'static,
 {
     // Associated types
-    type ServerLayer = ValidateJwtLayer<HashMap<String, serde_json::Value>, VerifierJwt>;
+    type ServerLayer = ValidateJwtLayer<MetadataMap, VerifierJwt>;
 
     fn get_server_layer(&self) -> Result<Self::ServerLayer, AuthError> {
         let verifier = self.get_verifier()?;
