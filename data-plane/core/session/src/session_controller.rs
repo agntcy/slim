@@ -878,7 +878,7 @@ where
             if name != self.common.source {
                 // notify the local session that a new participant was added to the group
                 debug!("add endpoint to the session {}", msg.get_source());
-                self.common.session.add_endpoint(&name);
+                self.common.session.add_endpoint(&name).await?;
             }
         }
 
@@ -935,7 +935,7 @@ where
 
                 // notify the local session that a new participant was added to the group
                 debug!("add endpoint to the session {}", msg.get_source());
-                self.common.session.add_endpoint(&name);
+                self.common.session.add_endpoint(&name).await?;
             }
         } else {
             let p = msg
@@ -1513,7 +1513,7 @@ where
 
         // notify the local session that a new participant was added to the group
         debug!("add endpoint to the session {}", msg.get_source());
-        self.common.session.add_endpoint(&msg.get_source());
+        self.common.session.add_endpoint(&msg.get_source()).await?;
 
         // get mls data if MLS is enabled
         let (commit, welcome) = if self.mls_state.is_some() {
@@ -1835,13 +1835,7 @@ where
                 .update_phase_completed(msg_id)?;
 
             // check if the task is finished.
-            if self.current_task.as_mut().unwrap().task_complete() {
-                // task done. At this point if this was the first MLS
-                // action MLS is setup so we can set mls_up to true
-                if self.mls_state.is_some() {
-                    self.mls_state.as_mut().unwrap().common.mls_up = true;
-                }
-            } else {
+            if !self.current_task.as_mut().unwrap().task_complete() {
                 // if the task is not finished yet we may need to send a leave
                 // message that was postponed to send all group update first
                 if self.postponed_message.is_some()

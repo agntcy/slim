@@ -66,6 +66,10 @@ pub struct SessionSender {
     /// send packets to slim or the app
     tx: SessionTransmitter,
 
+    /// set to true if the sender is receiving packets
+    /// to send but no one is connected to the session yet
+    to_flush: bool,
+
     /// drain state - when true, no new messages from app are accepted
     draining_state: SenderDrainStatus,
 }
@@ -99,6 +103,7 @@ impl SessionSender {
             session_id,
             session_type,
             tx,
+            to_flush: false,
             draining_state: SenderDrainStatus::NotDraining,
         }
     }
@@ -153,19 +158,17 @@ impl SessionSender {
     }
 
     async fn on_publish_message(&mut self, mut message: Message) -> Result<(), SessionError> {
-        if self.endpoints_list.is_empty() {
-            return Err(SessionError::Processing(
-                "endpoint list is empty, cannot create timers".to_string(),
-            ));
-        }
+        //if self.endpoints_list.is_empty() {
+        //    return Err(SessionError::Processing(
+        //        "endpoint list is empty, cannot create timers".to_string(),
+        //    ));
+        //}
 
         // compute message id
         // by increasing next_id before assign it to message_id
         // we always skip message 0 (used as drain timer id)
         self.next_id += 1;
         let message_id = self.next_id;
-
-        debug!("send new message with id {}", message_id);
 
         // Set the session id, message id and session type
         let session_header = message.get_session_header_mut();
@@ -181,12 +184,26 @@ impl SessionSender {
             slim_header.set_fanout(1);
         }
 
+        // add the message to the producer buffer.
+        self.buffer.push(message.clone());
+
+        if self.endpoints_list.is_empty() {
+            debug!(
+                "there is no remote endopoint connected to the session, store the packet and send it later"
+            );
+            self.to_flush = true;
+            return Ok(());
+        }
+
+        self.set_timer_and_send(message).await
+    }
+
+    async fn set_timer_and_send(&mut self, message: Message) -> Result<(), SessionError> {
+        let message_id = message.get_id();
+        debug!("send new message with id {}", message_id);
+
         if self.timer_factory.is_some() {
             debug!("reliable sender, set all timers");
-            // add the message to the producer buffer. this is used to re-send
-            // messages when acks are missing and to handle retrasmissions
-            self.buffer.push(message.clone());
-
             // create a timer for the new packet and update the state
             let gt = GroupTimer {
                 missing_timers: self.endpoints_list.clone(),
@@ -362,7 +379,7 @@ impl SessionSender {
             .await
     }
 
-    pub fn add_endpoint(&mut self, endpoint: &Name) {
+    pub async fn add_endpoint(&mut self, endpoint: &Name) -> Result<(), SessionError> {
         debug!(
             "add endpoint {}, current list size {}",
             endpoint,
@@ -371,6 +388,16 @@ impl SessionSender {
         // add endpoint to the list
         self.endpoints_list.insert(endpoint.clone());
         debug!("new list size {}", self.endpoints_list.len());
+
+        // check if we need to flush the producer buffer
+        if self.to_flush && self.endpoints_list.len() == 1 {
+            let messages: Vec<_> = self.buffer.iter().cloned().collect();
+            for p in messages {
+                let _ = self.set_timer_and_send(p).await;
+            }
+        }
+
+        Ok(())
     }
 
     pub fn remove_endpoint(&mut self, endpoint: &Name) {
@@ -462,7 +489,10 @@ mod tests {
         );
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
-        sender.add_endpoint(&remote);
+        sender
+            .add_endpoint(&remote)
+            .await
+            .expect("error adding participant");
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
@@ -539,7 +569,10 @@ mod tests {
         );
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
-        sender.add_endpoint(&remote);
+        sender
+            .add_endpoint(&remote)
+            .await
+            .expect("error adding participant");
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
@@ -689,7 +722,10 @@ mod tests {
         );
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
-        sender.add_endpoint(&remote);
+        sender
+            .add_endpoint(&remote)
+            .await
+            .expect("error adding participant");
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
@@ -768,9 +804,18 @@ mod tests {
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
         let remote3 = Name::from_strings(["org", "ns", "remote3"]);
 
-        sender.add_endpoint(&remote1);
-        sender.add_endpoint(&remote2);
-        sender.add_endpoint(&remote3);
+        sender
+            .add_endpoint(&remote1)
+            .await
+            .expect("error adding participant");
+        sender
+            .add_endpoint(&remote2)
+            .await
+            .expect("error adding participant");
+        sender
+            .add_endpoint(&remote3)
+            .await
+            .expect("error adding participant");
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
@@ -873,9 +918,18 @@ mod tests {
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
         let remote3 = Name::from_strings(["org", "ns", "remote3"]);
 
-        sender.add_endpoint(&remote1);
-        sender.add_endpoint(&remote2);
-        sender.add_endpoint(&remote3);
+        sender
+            .add_endpoint(&remote1)
+            .await
+            .expect("error adding participant");
+        sender
+            .add_endpoint(&remote2)
+            .await
+            .expect("error adding participant");
+        sender
+            .add_endpoint(&remote3)
+            .await
+            .expect("error adding participant");
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
@@ -1043,9 +1097,18 @@ mod tests {
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
         let remote3 = Name::from_strings(["org", "ns", "remote3"]);
 
-        sender.add_endpoint(&remote1);
-        sender.add_endpoint(&remote2);
-        sender.add_endpoint(&remote3);
+        sender
+            .add_endpoint(&remote1)
+            .await
+            .expect("error adding participant");
+        sender
+            .add_endpoint(&remote2)
+            .await
+            .expect("error adding participant");
+        sender
+            .add_endpoint(&remote3)
+            .await
+            .expect("error adding participant");
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
@@ -1140,9 +1203,18 @@ mod tests {
         let remote2 = Name::from_strings(["org", "ns", "remote2"]);
         let remote3 = Name::from_strings(["org", "ns", "remote3"]);
 
-        sender.add_endpoint(&remote1);
-        sender.add_endpoint(&remote2);
-        sender.add_endpoint(&remote3);
+        sender
+            .add_endpoint(&remote1)
+            .await
+            .expect("error adding participant");
+        sender
+            .add_endpoint(&remote2)
+            .await
+            .expect("error adding participant");
+        sender
+            .add_endpoint(&remote3)
+            .await
+            .expect("error adding participant");
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
@@ -1263,7 +1335,10 @@ mod tests {
         );
         let remote = Name::from_strings(["org", "ns", "remote"]);
 
-        sender.add_endpoint(&remote);
+        sender
+            .add_endpoint(&remote)
+            .await
+            .expect("error adding participant");
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);

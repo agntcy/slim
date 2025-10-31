@@ -92,9 +92,9 @@ impl Session {
         }
     }
 
-    pub fn add_endpoint(&mut self, endpoint: &Name) {
+    pub async fn add_endpoint(&mut self, endpoint: &Name) -> Result<(), SessionError> {
         debug!("add participant {} on {}", endpoint, self.local_name);
-        self.sender.add_endpoint(endpoint);
+        self.sender.add_endpoint(endpoint).await
     }
 
     pub fn remove_endpoint(&mut self, endpoint: &Name) {
@@ -212,7 +212,10 @@ mod tests {
         );
 
         // Add the remote endpoint to the session sender
-        session.add_endpoint(&remote_name);
+        session
+            .add_endpoint(&remote_name)
+            .await
+            .expect("error adding participant");
 
         // Create a test message from app to slim (south direction)
         let mut message = Message::new_publish(
@@ -557,7 +560,10 @@ mod tests {
         );
 
         // Add receiver as endpoint for sender
-        sender_session.add_endpoint(&receiver_name);
+        sender_session
+            .add_endpoint(&receiver_name)
+            .await
+            .expect("error adding participant");
 
         // Receiver session setup
         let (tx_slim_receiver, mut rx_slim_receiver) = tokio::sync::mpsc::channel(10);
@@ -585,7 +591,10 @@ mod tests {
         );
 
         // Add sender as endpoint for receiver
-        receiver_session.add_endpoint(&sender_name);
+        receiver_session
+            .add_endpoint(&sender_name)
+            .await
+            .expect("error adding participant");
 
         // Send message 1 from the application
         let mut message1 = Message::new_publish(

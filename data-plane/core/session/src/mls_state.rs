@@ -38,11 +38,6 @@ where
 
     /// map of stored commits and proposals
     pub(crate) stored_commits_proposals: BTreeMap<u32, Message>,
-
-    /// track if MLS is UP. For moderator this is true as soon as at least one participant
-    /// has sent back an ack after the welcome message, while for participant
-    /// this is true as soon as the welcome message is received and correctly processed
-    pub(crate) mls_up: bool,
 }
 
 impl<P, V> MlsState<P, V>
@@ -60,7 +55,6 @@ where
             group: vec![],
             last_mls_msg_id: 0,
             stored_commits_proposals: BTreeMap::new(),
-            mls_up: false,
         })
     }
 
@@ -94,8 +88,6 @@ where
             .lock()
             .process_welcome(&welcome)
             .map_err(|e| SessionError::WelcomeMessage(e.to_string()))?;
-
-        self.mls_up = true;
 
         Ok(())
     }
