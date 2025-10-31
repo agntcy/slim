@@ -610,16 +610,12 @@ async fn process_message_from_app<T>(
     producer.next_id += 1;
 
     if send_msg && tx.send_to_slim(Ok(msg)).await.is_err() {
-            error!(
-                "error sending publication packet to slim on session {}",
-                session_id
-            );
+        error!(
+            "error sending publication packet to slim on session {}",
+            session_id
+        );
 
-            // no need to notify app here, the session will take care of retransmissions
-        }
-
-        // set timer for this message
-        producer.timer.reset(producer.timer_observer.clone());
+        // no need to notify app here, the session will take care of retransmissions
     }
 }
 
