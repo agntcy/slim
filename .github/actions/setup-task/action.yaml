@@ -1,0 +1,180 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+---
+
+name: Setup Task with Cache
+description: Setup Task (go-task/task) with GitHub Actions caching to prevent rate limiting
+inputs:
+  version:
+    description: 'Task version to install (e.g., "3.39.2", "latest")'
+    required: false
+    default: 'latest'
+  cache-enabled:
+    description: 'Enable caching of the Task binary'
+    required: false
+    default: 'true'
+  github-token:
+    description: 'GitHub token for API requests'
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  cache-hit:
+    description: 'Whether the Task binary was retrieved from cache'
+    value: ${{ steps.cache.outputs.cache-hit }}
+  version:
+    description: 'The actual version of Task that was installed'
+    value: ${{ steps.get-version.outputs.version }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Determine Task version
+      id: get-version
+      shell: bash
+      run: |
+        if [[ "${{ inputs.version }}" == "latest" ]]; then
+          echo "Fetching latest Task version..."
+          VERSION=$(curl -s https://api.github.com/repos/go-task/task/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
+          if [[ -z "$VERSION" ]]; then
+            echo "Failed to fetch latest version, using fallback"
+            VERSION="v3.39.2"
+          fi
+        else
+          VERSION="${{ inputs.version }}"
+          # Ensure version starts with 'v'
+          if [[ ! "$VERSION" =~ ^v ]]; then
+            VERSION="v$VERSION"
+          fi
+        fi
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Using Task version: $VERSION"
+
+    - name: Determine platform
+      id: platform
+      shell: bash
+      run: |
+        OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+        ARCH=$(uname -m)
+        
+        # Normalize architecture names to match Task releases
+        case $ARCH in
+          x86_64)
+            ARCH="amd64"
+            ;;
+          aarch64|arm64)
+            ARCH="arm64"
+            ;;
+          armv7l)
+            ARCH="arm"
+            ;;
+        esac
+        
+        # Normalize OS names
+        case $OS in
+          darwin)
+            OS="darwin"
+            ;;
+          linux)
+            OS="linux"
+            ;;
+          mingw*|msys*|cygwin*)
+            OS="windows"
+            ;;
+        esac
+        
+        echo "os=$OS" >> $GITHUB_OUTPUT
+        echo "arch=$ARCH" >> $GITHUB_OUTPUT
+        echo "Platform: $OS-$ARCH"
+
+    - name: Setup cache for Task binary
+      id: cache
+      if: inputs.cache-enabled == 'true'
+      uses: actions/cache@v4
+      with:
+        path: ~/.local/bin/task
+        key: task-${{ steps.get-version.outputs.version }}-${{ steps.platform.outputs.os }}-${{ steps.platform.outputs.arch }}
+        restore-keys: |
+          task-${{ steps.get-version.outputs.version }}-${{ steps.platform.outputs.os }}-
+          task-${{ steps.get-version.outputs.version }}-
+
+    - name: Download and install Task
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        VERSION: ${{ steps.get-version.outputs.version }}
+        OS: ${{ steps.platform.outputs.os }}
+        ARCH: ${{ steps.platform.outputs.arch }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: |
+        echo "Task not found in cache, downloading..."
+        
+        # Create local bin directory
+        mkdir -p ~/.local/bin
+        
+        # Determine file extension
+        EXT=""
+        if [[ "$OS" == "windows" ]]; then
+          EXT=".exe"
+        fi
+        
+        # Construct download URL
+        FILENAME="task_${OS}_${ARCH}${EXT}"
+        if [[ "$OS" == "windows" ]]; then
+          FILENAME="task_${OS}_${ARCH}.exe"
+        fi
+        
+        DOWNLOAD_URL="https://github.com/go-task/task/releases/download/${VERSION}/${FILENAME}"
+        
+        echo "Downloading from: $DOWNLOAD_URL"
+        
+        # Download with retry logic to handle rate limiting
+        for i in {1..3}; do
+          if curl -L --fail --silent --show-error \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/octet-stream" \
+            -o ~/.local/bin/task \
+            "$DOWNLOAD_URL"; then
+            echo "Download successful on attempt $i"
+            break
+          else
+            echo "Download failed on attempt $i"
+            if [[ $i -eq 3 ]]; then
+              echo "All download attempts failed"
+              exit 1
+            fi
+            echo "Retrying in $((i * 2)) seconds..."
+            sleep $((i * 2))
+          fi
+        done
+        
+        # Make executable
+        chmod +x ~/.local/bin/task
+        
+        echo "Task installed successfully"
+
+    - name: Verify installation
+      shell: bash
+      run: |
+        # Add to PATH if not already there
+        if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+        fi
+        
+        # Verify installation
+        if ~/.local/bin/task --version; then
+          echo "Task installation verified"
+        else
+          echo "Task installation verification failed"
+          exit 1
+        fi
+
+    - name: Cache status
+      shell: bash
+      run: |
+        if [[ "${{ steps.cache.outputs.cache-hit }}" == "true" ]]; then
+          echo "✓ Task binary retrieved from cache"
+        else
+          echo "✓ Task binary downloaded and cached for future runs"
+        fi
