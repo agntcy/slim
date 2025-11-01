@@ -113,19 +113,17 @@ runs:
         # Create local bin directory
         mkdir -p ~/.local/bin
         
-        # Determine file extension
-        EXT=""
+        # Determine archive format and construct download URL
         if [[ "$OS" == "windows" ]]; then
-          EXT=".exe"
+          ARCHIVE_EXT=".zip"
+          BINARY_NAME="task.exe"
+        else
+          ARCHIVE_EXT=".tar.gz"
+          BINARY_NAME="task"
         fi
         
-        # Construct download URL
-        FILENAME="task_${OS}_${ARCH}${EXT}"
-        if [[ "$OS" == "windows" ]]; then
-          FILENAME="task_${OS}_${ARCH}.exe"
-        fi
-        
-        DOWNLOAD_URL="https://github.com/go-task/task/releases/download/${VERSION}/${FILENAME}"
+        ARCHIVE_NAME="task_${OS}_${ARCH}${ARCHIVE_EXT}"
+        DOWNLOAD_URL="https://github.com/go-task/task/releases/download/${VERSION}/${ARCHIVE_NAME}"
         
         echo "Downloading from: $DOWNLOAD_URL"
         
@@ -134,7 +132,7 @@ runs:
           if curl -L --fail --silent --show-error \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/octet-stream" \
-            -o ~/.local/bin/task \
+            -o "/tmp/${ARCHIVE_NAME}" \
             "$DOWNLOAD_URL"; then
             echo "Download successful on attempt $i"
             break
@@ -149,8 +147,36 @@ runs:
           fi
         done
         
-        # Make executable
+        # Extract the binary from the archive
+        cd /tmp
+        if [[ "$OS" == "windows" ]]; then
+          if ! unzip -q "${ARCHIVE_NAME}"; then
+            echo "Failed to extract Windows archive"
+            exit 1
+          fi
+        else
+          if ! tar -xzf "${ARCHIVE_NAME}"; then
+            echo "Failed to extract tar.gz archive"
+            exit 1
+          fi
+        fi
+        
+        # Verify the binary exists in the extracted content
+        if [[ ! -f "${BINARY_NAME}" ]]; then
+          echo "Binary ${BINARY_NAME} not found in extracted archive"
+          echo "Contents of extracted archive:"
+          ls -la
+          exit 1
+        fi
+        
+        # Move binary to the local bin directory
+        mv "${BINARY_NAME}" ~/.local/bin/task
+        
+        # Make executable (needed for all platforms)
         chmod +x ~/.local/bin/task
+        
+        # Clean up
+        rm -f "/tmp/${ARCHIVE_NAME}"
         
         echo "Task installed successfully"
 

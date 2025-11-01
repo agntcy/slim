@@ -15,7 +15,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        version: ['latest', '3.39.2']
+        version: ['latest', '3.45.4']
     
     runs-on: ${{ matrix.os }}
     
@@ -69,7 +69,7 @@ jobs:
         id: first-run
         uses: ./.github/actions/setup-task
         with:
-          version: '3.39.2'
+          version: '3.45.4'
           cache-enabled: 'true'
       
       - name: Remove from PATH
@@ -82,7 +82,7 @@ jobs:
         id: second-run
         uses: ./.github/actions/setup-task
         with:
-          version: '3.39.2'
+          version: '3.45.4'
           cache-enabled: 'true'
       
       - name: Verify cache was used
