@@ -772,7 +772,7 @@ mod tests {
             .private_key(&Key {
                 algorithm: Algorithm::HS256,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("secret-key".into()),
+                key: KeyData::Data("secret-key".into()),
             })
             .build()?;
         let token = Arc::new(RwLock::new("header.payload.sig".to_string()));

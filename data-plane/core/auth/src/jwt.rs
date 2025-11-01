@@ -1305,16 +1305,15 @@ mod tests {
             .private_key(&Key {
                 algorithm: Algorithm::HS256,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("secret-key".into()),
+                key: KeyData::Data("secret-key".into()),
             })
             .build()?;
         let mut signer: SignerJwt = jwt;
         signer.initialize().await?; // no-op
-        
         // Verify the signer is properly configured
         assert!(signer.encoding_key.is_some());
         assert!(signer.decoding_key.is_none());
-        
+
         // Produce a token explicitly to verify signer works after initialize.
         let claims = signer.create_claims();
         assert_eq!(claims.iss.as_ref().unwrap(), "test-issuer");
@@ -1323,11 +1322,9 @@ mod tests {
         assert!(claims.exp > 0);
         assert!(claims.iat.is_some());
         assert!(claims.nbf.is_some());
-        
         let token = signer.sign(&claims)?;
         assert!(!token.is_empty());
         assert_eq!(token.split('.').count(), 3); // JWT should have 3 parts
-        
         Ok(())
     }
 }
