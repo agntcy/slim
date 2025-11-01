@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use async_trait::async_trait;
 use mls_rs::{
     ExtensionList, IdentityProvider,
     identity::{CredentialType, SigningIdentity},
@@ -96,7 +97,7 @@ where
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl<V> IdentityProvider for SlimIdentityProvider<V>
 where
     V: Verifier + Send + Sync + Clone + 'static,

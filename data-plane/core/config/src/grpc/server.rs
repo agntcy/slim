@@ -375,10 +375,18 @@ impl ServerConfig {
                 Ok(router.serve_with_incoming(incoming).boxed())
             }
             AuthenticationConfig::Jwt(jwt) => {
-                let auth_layer = <JwtAuthenticationConfig as ServerAuthenticator<
+                // Build the authentication layer and perform its async initialization
+                // before adding it to the server stack. This ensures any dynamic key
+                // resolution or background tasks are ready prior to handling requests.
+                let mut auth_layer = <JwtAuthenticationConfig as ServerAuthenticator<
                     http::Response<tonic::body::Body>,
                 >>::get_server_layer(jwt)
                 .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;
+
+                auth_layer
+                    .initialize()
+                    .await
+                    .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;
 
                 let mut builder = builder.layer(auth_layer);
 

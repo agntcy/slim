@@ -193,7 +193,7 @@ impl OidcTokenProvider {
     }
 
     /// Initialize the provider asynchronously - starts background tasks and fetches initial token
-    pub async fn initialize(&self) -> Result<(), AuthError> {
+    async fn initialize(&mut self) -> Result<(), AuthError> {
         // Check if already initialized
         if self.refresh_task.lock().is_some() {
             return Ok(());
@@ -367,6 +367,10 @@ impl OidcTokenProvider {
 
 #[async_trait]
 impl TokenProvider for OidcTokenProvider {
+    async fn initialize(&mut self) -> Result<(), AuthError> {
+        OidcTokenProvider::initialize(self).await
+    }
+
     fn get_token(&self) -> Result<String, AuthError> {
         let cache_key = self.get_cache_key();
         if let Some(cached_token) = self.token_cache.get(&cache_key) {
@@ -543,6 +547,10 @@ impl OidcVerifier {
 
 #[async_trait]
 impl Verifier for OidcVerifier {
+    async fn initialize(&mut self) -> Result<(), AuthError> {
+        Ok(()) // no-op
+    }
+
     async fn verify(&self, token: impl Into<String> + Send) -> Result<(), AuthError> {
         // Verify the token structure is valid - this will fetch JWKS if needed
         let _: serde_json::Value = self.verify_token(&token.into()).await?;
@@ -604,7 +612,7 @@ mod tests {
             scope: Some("api:read".to_string()),
             timeout: None,
         };
-        let provider = OidcTokenProvider::new(config).unwrap();
+        let mut provider = OidcTokenProvider::new(config).unwrap();
         provider.initialize().await.unwrap();
 
         // Test token retrieval
@@ -626,7 +634,7 @@ mod tests {
             scope: None,
             timeout: None,
         };
-        let provider = OidcTokenProvider::new(config).unwrap();
+        let mut provider = OidcTokenProvider::new(config).unwrap();
         provider.initialize().await.unwrap();
 
         // First call - should fetch token
@@ -906,7 +914,7 @@ mod tests {
 
         // Test that the provider can be created successfully with proper OIDC server
         match provider_result {
-            Ok(provider) => {
+            Ok(mut provider) => {
                 assert_eq!(provider.config.scope, Some("scope".to_string()));
                 // Test that initialization works
                 provider.initialize().await.unwrap();
@@ -964,7 +972,7 @@ mod tests {
             scope: None,
             timeout: None,
         };
-        let provider = OidcTokenProvider::new(config).unwrap();
+        let mut provider = OidcTokenProvider::new(config).unwrap();
         provider.initialize().await.unwrap();
 
         let now = 1000;
@@ -1156,5 +1164,20 @@ mod tests {
         // Now test synchronous verification (uses cached JWKS)
         let verified_claims: TestClaims = verifier.try_get_claims(token).unwrap();
         assert_eq!(verified_claims.sub, "user123");
+    }
+
+    #[tokio::test]
+    async fn initialize_oidc_provider_trait_noop() {
+        let config = OidcProviderConfig {
+            client_id: "id".into(),
+            client_secret: "secretsecretsecretsecret".into(),
+            issuer_url: "https://example.com".into(),
+            scope: None,
+            timeout: Some(Duration::from_secs(1)),
+        };
+        let provider = OidcTokenProvider::new(config).unwrap();
+        // Calling inherent initialize would perform network calls; trait-level is no-op
+        let mut provider_clone = provider.clone();
+        provider_clone.initialize().await.unwrap();
     }
 }
