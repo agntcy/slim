@@ -9,7 +9,7 @@ inputs:
   py-install:
     description: 'Install Python'
     required: false
-    default: false
+    default: 'false'
   py-version:
     description: 'Python version to install'
     required: false
@@ -17,7 +17,7 @@ inputs:
   poetry-install:
     description: 'Install poetry'
     required: false
-    default: false
+    default: 'false'
   poetry-version:
     description: 'Poetry version to use'
     required: false
@@ -25,7 +25,7 @@ inputs:
   uv-install:
     description: 'Install uv'
     required: false
-    default: true
+    default: 'true'
 
 runs:
   using: "composite"
@@ -38,8 +38,10 @@ runs:
         python-version: ${{ inputs.py-version }}
 
     - name: Setup Taskfile
-      shell: bash
-      run: sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b ~/.local/bin
+      uses: ./.github/actions/setup-task
+      with:
+        version: latest
+        cache-enabled: true
 
     - name: Load cached Poetry Binary
       if: ${{ inputs.poetry-install == 'true' }}

@@ -19,10 +19,9 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
 
-      - name: Install just and task
+      - name: Install just
         run: |
           sudo snap install just --classic || true
-          curl -sSL https://taskfile.dev/install.sh | sh
 
       - name: Install cargo-llvm-cov
         run: cargo install cargo-llvm-cov
