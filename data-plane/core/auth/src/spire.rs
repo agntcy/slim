@@ -434,7 +434,7 @@ impl SpireIdentityManager {
 }
 
 #[async_trait]
-impl TokenProvider for SpiffeIdentityManager {
+impl TokenProvider for SpireIdentityManager {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         self.initialize().await
     }
@@ -988,7 +988,7 @@ fn calculate_refresh_interval<T: JwtLike>(jwt: &T) -> Result<Duration, AuthError
 }
 
 #[async_trait]
-impl Verifier for SpiffeIdentityManager {
+impl Verifier for SpireIdentityManager {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         self.initialize().await
     }
