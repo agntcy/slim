@@ -2,8 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-
-version: '3'
+version: "3"
 
 silent: true
 set: [pipefail]
@@ -17,16 +16,16 @@ vars:
     sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
   CURRENT_TARGET:
     sh: 'rustc -vV | sed -n "s|host: ||p"'
-  TARGET: '{{.TARGET | default .CURRENT_TARGET}}'
+  TARGET: "{{.TARGET | default .CURRENT_TARGET}}"
   TARGET_ARGS:
-    sh: "[[ -z \"{{.TARGET}}\" ]] && echo '' || echo '--target {{.TARGET}}'"
+    sh: '[[ -z "{{.TARGET}}" ]] && echo '''' || echo ''--target {{.TARGET}}'''
   TARGET_ARCH:
     sh: "echo {{.TARGET}} | cut -d'-' -f1"
 
-  TOOLCHAIN: ''
+  TOOLCHAIN: ""
   OSTYPE:
     sh: bash -c 'echo $OSTYPE'
-  LLVM_VERSION: '{{ .LLVM_VERSION | default "14" }}'
+  LLVM_VERSION: '{{ .LLVM_VERSION | default "19" }}'
   CLANG:
     sh: "[[ {{.OSTYPE}} == darwin* ]] && xcrun --sdk macosx --find clang || echo 'clang-{{.LLVM_VERSION}}'"
   STRIP:
@@ -45,15 +44,12 @@ env:
   CC_aarch64_unknown_linux_gnu: "{{.CLANG}}"
   CFLAGS_aarch64_unknown_linux_gnu: "-fuse-ld={{.LINKER}}"
   STRIP_aarch64_unknown_linux_gnu: "{{.STRIP}}"
-  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: "aarch64-linux-gnu-gcc"
-  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS: "--codegen linker=aarch64-linux-gnu-gcc"
 
   # linux/amd64 + gnu
   AR_x86_64_unknown_linux_gnu: "{{.AR}}"
   CC_x86_64_unknown_linux_gnu: "{{.CLANG}}"
   CFLAGS_x86_64_unknown_linux_gnu: "-fuse-ld={{.LINKER}}"
   STRIP_x86_64_unknown_linux_gnu: "{{.STRIP}}"
-  CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: "x86_64-linux-gnu-gcc"
 
 tasks:
   print-vars:
@@ -212,7 +208,7 @@ tasks:
     cmds:
       - task: toolchain:build
         vars:
-          ARGS: "{{ .BUILD_ARGS | default \"--all-targets --locked --all-features\" }}"
+          ARGS: '{{ .BUILD_ARGS | default "--all-targets --locked --all-features" }}'
 
   vuln:
     desc: "Check for vulnerabilities"
@@ -374,7 +370,7 @@ tasks:
         vars:
           COMPONENTS: "cargo-llvm-cov"
     cmds:
-      - cargo llvm-cov {{.ARGS}}
+      - cargo llvm-cov --lcov --output-path lcov.info {{.ARGS}}
     vars:
       ARGS: '{{ .ARGS | default "" }}'
 

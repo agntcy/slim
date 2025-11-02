@@ -1,18 +1,28 @@
+# [![Data-plane CI](https://github.com/agntcy/slim/actions/workflows/data-plane.yaml/badge.svg)](https://github.com/agntcy/slim/actions/workflows/data-plane.yaml)
+[![Control-plane
+CI](https://github.com/agntcy/slim/actions/workflows/control-plane.yaml/badge.svg)](https://github.com/agntcy/slim/actions/workflows/control-plane.yaml)
+[![codecov](https://codecov.io/gh/agntcy/slim/branch/main/graph/badge.svg)](https://codecov.io/gh/agntcy/slim)
+[![Coverage](https://img.shields.io/badge/Coverage-passing-brightgreen)](https://codecov.io/gh/agntcy/slim)
+
 # SLIM
 
-SLIM (Secure Low-Latency Interactive Messaging) facilitates communication between AI agents.
-It supports various communication patterns such as request-response,
-publish-subscribe, fire-and-forget, and streaming. Built on the gRPC framework,
-SLIM ensures secure and scalable interactions among agents.
+SLIM (Secure Low-Latency Interactive Messaging) facilitates communication
+between AI agents. It supports various communication patterns such as unicast,
+anycast and multicast groups. Built on the gRPC framework, SLIM ensures secure
+secure and scalable interactions among agents.
 
 
 ## Features
 
-- **Request-Response**: Supports synchronous communication between agents.
-- **Publish-Subscribe**: Allows agents to publish messages to topics and subscribe to receive messages from topics.
-- **Fire-and-Forget**: Enables agents to send messages without waiting for a response.
-- **Streaming**: Supports both unidirectional and bidirectional streaming.
-- **Security**: Employs authentication, authorization, and end-to-end encryption to protect data privacy and integrity.
+- **Security**: Employs authentication, authorization, and end-to-end encryption
+  with [MLS](https://datatracker.ietf.org/doc/rfc9420/) to protect data privacy
+  and integrity.
+- **Scalability**: Designed to handle a large number of concurrent connections
+  and messages, making it suitable for high-load scenarios.
+- **Flexibility**: Supports various communication patterns, including unicast,
+  anycast, and multicast, to accommodate different use cases.
+- **Performance**: Optimized for low-latency communication, ensuring quick
+  message delivery and responsiveness.
 
 ## Source tree
 
@@ -85,7 +95,7 @@ docker pull ghcr.io/agntcy/slim:latest
 helm pull ghcr.io/agntcy/slim/helm/slim:latest
 ```
 
-### [Pypi packages](./data-plane/python-bindings)
+### [Pypi packages](./data-plane/python/bindings)
 
 ```bash
 pip install slim-bindings

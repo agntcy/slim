@@ -6,6 +6,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -15,10 +16,15 @@ import (
 	"github.com/agntcy/slim/control-plane/common/options"
 	grpcapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
+	commonUtil "github.com/agntcy/slim/control-plane/common/util"
 	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/util"
 )
 
-const nodeIDFlag = "node-id"
+const (
+	nodeIDFlag       = "node-id"
+	targetNodeIDFlag = "target-node-id"
+	originNodeIDFlag = "origin-node-id"
+)
 
 func NewRouteCmd(opts *options.CommonOptions) *cobra.Command {
 	cmd := &cobra.Command{
@@ -27,38 +33,31 @@ func NewRouteCmd(opts *options.CommonOptions) *cobra.Command {
 		Long:  `Manage SLIM routes`,
 	}
 
-	cmd.PersistentFlags().StringP(nodeIDFlag, "n", "", "ID of the node to manage routes for")
-
-	err := cmd.MarkPersistentFlagRequired(nodeIDFlag)
-	if err != nil {
-		fmt.Printf("Error marking persistent flag required: %v\n", err)
-	}
-
-	cmd.AddCommand(newListCmd(opts))
-	cmd.AddCommand(newAddCmd(opts))
-	cmd.AddCommand(newDelCmd(opts))
+	cmd.AddCommand(markNodeIDRequired(newListSubscriptionsCmd(opts)))
+	cmd.AddCommand(markNodeIDRequired(newAddCmd(opts)))
+	cmd.AddCommand(markNodeIDRequired(newDelCmd(opts)))
+	cmd.AddCommand(newOutlineRoutesCmd(opts))
 
 	return cmd
 }
 
-func newListCmd(opts *options.CommonOptions) *cobra.Command {
+func newListSubscriptionsCmd(opts *options.CommonOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List routes",
-		Long:  `List routes`,
+		Short: "List subscriptions",
+		Long:  `List subscriptions for a SLIM instance`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			nodeID, _ := cmd.Flags().GetString(nodeIDFlag)
 			fmt.Printf("Listing routes for node ID: %s\n", nodeID)
-
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpCLient, err := cpApi.GetClient(opts)
+			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
 
-			subscriptionListResponse, err := cpCLient.ListSubscriptions(ctx, &controlplaneApi.Node{
+			subscriptionListResponse, err := cpClient.ListSubscriptions(ctx, &controlplaneApi.Node{
 				Id: nodeID,
 			})
 			if err != nil {
@@ -91,7 +90,7 @@ func newListCmd(opts *options.CommonOptions) *cobra.Command {
 
 func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "add <organization/namespace/agentname/agentid> via <config_file>",
+		Use:   "add <organization/namespace/agentname/agentid> via <slim-node-id or path_to_config_file>",
 		Short: "Add a route to a SLIM instance",
 		Long:  `Add a route to a SLIM instance`,
 		Args:  cobra.ExactArgs(3),
@@ -110,56 +109,57 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 				)
 			}
 
-			organization, namespace, agentType, agentID, err := util.ParseRoute(routeID)
+			organization, namespace, agentType, agentID, err := commonUtil.ParseRoute(routeID)
 			if err != nil {
 				return err
 			}
 
-			conn, err := util.ParseConfigFile(configFile)
-			if err != nil {
-				return err
+			destNodeID := ""
+			var connection *grpcapi.Connection
+			// check if config file exists
+			if _, err = os.Stat(configFile); err != nil {
+				destNodeID = configFile
+			} else {
+				connection, err = util.ParseConfigFile(configFile)
+				if err != nil {
+					return err
+				}
 			}
 
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpClient, err := cpApi.GetClient(opts)
+			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
 
-			createConnectionResponse, err := cpClient.CreateConnection(ctx, &controlplaneApi.CreateConnectionRequest{
-				NodeId:     nodeID,
-				Connection: conn,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to create connection: %w", err)
-			}
-			connectionID := createConnectionResponse.ConnectionId
-			if !createConnectionResponse.Success {
-				return fmt.Errorf("failed to create connection")
-			}
-			fmt.Printf("Connection created successfully with ID: %v\n", connectionID)
-
 			subscription := &grpcapi.Subscription{
-				Component_0:  organization,
-				Component_1:  namespace,
-				Component_2:  agentType,
-				ConnectionId: connectionID,
-				Id:           wrapperspb.UInt64(agentID),
+				Component_0: organization,
+				Component_1: namespace,
+				Component_2: agentType,
+				Id:          wrapperspb.UInt64(agentID),
 			}
 
-			createSubscriptionResponse, err := cpClient.CreateSubscription(ctx, &controlplaneApi.CreateSubscriptionRequest{
+			addRouteRequest := controlplaneApi.AddRouteRequest{
 				NodeId:       nodeID,
 				Subscription: subscription,
-			})
+			}
+			if connection != nil {
+				subscription.ConnectionId = connection.ConnectionId
+				addRouteRequest.Connection = connection
+			} else {
+				addRouteRequest.DestNodeId = destNodeID
+			}
+
+			addRouteResponse, err := cpClient.AddRoute(ctx, &addRouteRequest)
 			if err != nil {
-				return fmt.Errorf("failed to create subscription: %w", err)
+				return fmt.Errorf("failed to create route: %w", err)
 			}
-			if !createSubscriptionResponse.Success {
-				return fmt.Errorf("failed to create subscription")
+			if !addRouteResponse.Success {
+				return fmt.Errorf("failed to create route")
 			}
-			fmt.Printf("Subscrption created successfully with ID: %v\n", createSubscriptionResponse.SubscriptionId)
+			fmt.Printf("Route created successfully with ID: %v\n", addRouteResponse.RouteId)
 
 			return nil
 		},
@@ -169,7 +169,7 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 
 func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "del <organization/namespace/agentname/agentid> via <http|https://host:port>",
+		Use:   "del <organization/namespace/agentname/agentid> via <slim-node-id or http|https://host:port>",
 		Short: "Delete a route from a SLIM instance",
 		Long:  `Delete a route from a SLIM instance`,
 		Args:  cobra.ExactArgs(3),
@@ -188,39 +188,43 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 				)
 			}
 
-			organization, namespace, agentType, agentID, err := util.ParseRoute(routeID)
+			organization, namespace, agentType, agentID, err := commonUtil.ParseRoute(routeID)
 			if err != nil {
 				return err
 			}
 
-			_, connID, err := util.ParseEndpoint(endpoint)
-			if err != nil {
-				return fmt.Errorf("invalid endpoint format '%s': %w", endpoint, err)
-			}
-
 			subscription := &grpcapi.Subscription{
-				Component_0:  organization,
-				Component_1:  namespace,
-				Component_2:  agentType,
-				ConnectionId: connID,
-				Id:           wrapperspb.UInt64(agentID),
+				Component_0: organization,
+				Component_1: namespace,
+				Component_2: agentType,
+				Id:          wrapperspb.UInt64(agentID),
 			}
 
-			subscriptionID := cpApi.GetSubscriptionID(subscription)
+			deleteRouteRequest := &controlplaneApi.DeleteRouteRequest{
+				NodeId:       nodeID,
+				Subscription: subscription,
+			}
+
+			// determine if endpoint is a node ID or a connection ID
+			if util.IsEndpoint(endpoint) {
+				_, connID, err2 := util.ParseEndpoint(endpoint)
+				if err2 != nil {
+					return fmt.Errorf("invalid endpoint format '%s': %w", endpoint, err)
+				}
+				subscription.ConnectionId = connID
+			} else {
+				deleteRouteRequest.DestNodeId = endpoint
+			}
 
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 
-			cpCLient, err := cpApi.GetClient(opts)
+			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
 			if err != nil {
 				return fmt.Errorf("failed to get control plane client: %w", err)
 			}
 
-			returnedMessage, err := cpCLient.DeleteSubscription(ctx,
-				&controlplaneApi.DeleteSubscriptionRequest{
-					NodeId:         nodeID,
-					SubscriptionId: subscriptionID,
-				})
+			returnedMessage, err := cpClient.DeleteRoute(ctx, deleteRouteRequest)
 			if err != nil {
 				return fmt.Errorf("failed to delete route: %w", err)
 			}
@@ -233,5 +237,55 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 			return nil
 		},
 	}
+	return cmd
+}
+
+func newOutlineRoutesCmd(opts *options.CommonOptions) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "outline",
+		Short: "List routes from the controller",
+		Long:  `List routes from the controller eventually filtered by origin node ID and/or target node ID`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			srcNodeID, _ := cmd.Flags().GetString(originNodeIDFlag)
+			destNodeID, _ := cmd.Flags().GetString(targetNodeIDFlag)
+			fmt.Printf("Outline routes (origin:[%s] target:[%s]) \n", srcNodeID, destNodeID)
+
+			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
+			defer cancel()
+
+			cpClient, ctx, err := cpApi.GetClient(ctx, opts)
+			if err != nil {
+				return fmt.Errorf("failed to get control plane client: %w", err)
+			}
+
+			outlineRoutesResponse, err := cpClient.ListRoutes(ctx, &controlplaneApi.RouteListRequest{
+				SrcNodeId:  srcNodeID,
+				DestNodeId: destNodeID,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to outline routes: %w", err)
+			}
+
+			fmt.Printf("number of routes #: %v\n\n", len(outlineRoutesResponse.GetRoutes()))
+			for _, routeID := range outlineRoutesResponse.GetRoutes() {
+				fmt.Printf("%s\n", routeID)
+			}
+
+			return nil
+		},
+	}
+	cmd.PersistentFlags().StringP(originNodeIDFlag, "o", "", "ID of the route origin (node)")
+	cmd.PersistentFlags().StringP(targetNodeIDFlag, "t", "", "ID of the route target (node)")
+	return cmd
+}
+
+// markNodeIDRequired marks the node-id flag as required for the given cobra command.
+func markNodeIDRequired(cmd *cobra.Command) *cobra.Command {
+	cmd.PersistentFlags().StringP(nodeIDFlag, "n", "", "ID of the node to manage routes for")
+	err := cmd.MarkPersistentFlagRequired(nodeIDFlag)
+	if err != nil {
+		fmt.Printf("Error marking node-id flag as required: %v\n", err)
+	}
+
 	return cmd
 }

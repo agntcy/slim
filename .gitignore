@@ -97,6 +97,9 @@ dmypy.json
 # VS Code
 .vscode/
 
+# Ropeproject
+.ropeproject
+
 # MacOS
 .DS_Store
 
@@ -115,6 +118,7 @@ dmypy.json
 
 # coverage
 *-coverage.out
+coverage.out
 
 # pyd files
 .pyd

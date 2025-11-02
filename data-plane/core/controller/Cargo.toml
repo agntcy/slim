@@ -1,14 +1,15 @@
 [package]
 name = "agntcy-slim-controller"
+version = "0.4.1"
 edition = { workspace = true }
 license = { workspace = true }
-version = "0.2.0"
 description = "Controller service and control API to configure the SLIM data plane through the control plane."
 
 [lib]
 name = "slim_controller"
 
 [dependencies]
+agntcy-slim-auth = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-signal = { workspace = true }
@@ -17,19 +18,22 @@ drain = { workspace = true }
 h2 = { workspace = true }
 parking_lot = { workspace = true }
 prost = { workspace = true }
+rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+serde_yaml = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 tonic = { workspace = true }
+tonic-prost = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 
 [build-dependencies]
 protoc-bin-vendored = { workspace = true }
-tonic-build = { workspace = true, features = ["prost"] }
+tonic-prost-build = { workspace = true }
 
 [dev-dependencies]
 tracing-test = { workspace = true }

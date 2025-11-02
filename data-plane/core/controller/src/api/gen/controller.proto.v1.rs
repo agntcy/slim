@@ -36,31 +36,40 @@ pub mod control_message {
         #[prost(message, tag = "12")]
         CreateChannelRequest(super::CreateChannelRequest),
         #[prost(message, tag = "13")]
-        CreateChannelResponse(super::CreateChannelResponse),
-        #[prost(message, tag = "14")]
         DeleteChannelRequest(super::DeleteChannelRequest),
-        #[prost(message, tag = "15")]
+        #[prost(message, tag = "14")]
         AddParticipantRequest(super::AddParticipantRequest),
-        #[prost(message, tag = "16")]
+        #[prost(message, tag = "15")]
         DeleteParticipantRequest(super::DeleteParticipantRequest),
-        #[prost(message, tag = "17")]
+        #[prost(message, tag = "16")]
         ListChannelRequest(super::ListChannelsRequest),
-        #[prost(message, tag = "18")]
+        #[prost(message, tag = "17")]
         ListChannelResponse(super::ListChannelsResponse),
-        #[prost(message, tag = "19")]
+        #[prost(message, tag = "18")]
         ListParticipantsRequest(super::ListParticipantsRequest),
-        #[prost(message, tag = "20")]
+        #[prost(message, tag = "19")]
         ListParticipantsResponse(super::ListParticipantsResponse),
+        #[prost(message, tag = "20")]
+        ConfigCommandAck(super::ConfigurationCommandAck),
     }
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Connection {
     #[prost(string, tag = "1")]
     pub connection_id: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub config_data: ::prost::alloc::string::String,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ConnectionAck {
+    #[prost(string, tag = "1")]
+    pub connection_id: ::prost::alloc::string::String,
+    #[prost(bool, tag = "2")]
+    pub success: bool,
+    #[prost(string, tag = "3")]
+    pub error_msg: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Subscription {
     #[prost(string, tag = "1")]
     pub component_0: ::prost::alloc::string::String,
@@ -72,6 +81,17 @@ pub struct Subscription {
     pub id: ::core::option::Option<u64>,
     #[prost(string, tag = "5")]
     pub connection_id: ::prost::alloc::string::String,
+    #[prost(string, optional, tag = "6")]
+    pub node_id: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SubscriptionAck {
+    #[prost(message, optional, tag = "1")]
+    pub subscription: ::core::option::Option<Subscription>,
+    #[prost(bool, tag = "2")]
+    pub success: bool,
+    #[prost(string, tag = "3")]
+    pub error_msg: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ConfigurationCommand {
@@ -83,6 +103,15 @@ pub struct ConfigurationCommand {
     pub subscriptions_to_delete: ::prost::alloc::vec::Vec<Subscription>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ConfigurationCommandAck {
+    #[prost(string, tag = "1")]
+    pub original_message_id: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "2")]
+    pub connections_status: ::prost::alloc::vec::Vec<ConnectionAck>,
+    #[prost(message, repeated, tag = "3")]
+    pub subscriptions_status: ::prost::alloc::vec::Vec<SubscriptionAck>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Ack {
     #[prost(string, tag = "1")]
     pub original_message_id: ::prost::alloc::string::String,
@@ -91,11 +120,13 @@ pub struct Ack {
     #[prost(string, repeated, tag = "3")]
     pub messages: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SubscriptionListRequest {}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SubscriptionListResponse {
-    #[prost(message, repeated, tag = "1")]
+    #[prost(string, tag = "1")]
+    pub original_message_id: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "2")]
     pub entries: ::prost::alloc::vec::Vec<SubscriptionEntry>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -113,7 +144,7 @@ pub struct SubscriptionEntry {
     #[prost(message, repeated, tag = "6")]
     pub remote_connections: ::prost::alloc::vec::Vec<ConnectionEntry>,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ConnectionEntry {
     #[prost(uint64, tag = "1")]
     pub id: u64,
@@ -122,93 +153,126 @@ pub struct ConnectionEntry {
     #[prost(string, tag = "3")]
     pub config_data: ::prost::alloc::string::String,
 }
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ConnectionListRequest {}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ConnectionListResponse {
-    #[prost(message, repeated, tag = "1")]
+    #[prost(string, tag = "1")]
+    pub original_message_id: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "2")]
     pub entries: ::prost::alloc::vec::Vec<ConnectionEntry>,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Node {
     #[prost(string, tag = "1")]
     pub id: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ConnectionDetails {
+    #[prost(string, tag = "1")]
+    pub endpoint: ::prost::alloc::string::String,
+    #[prost(bool, tag = "2")]
+    pub mtls_required: bool,
+    #[prost(string, optional, tag = "3")]
+    pub local_endpoint: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag = "4")]
+    pub external_endpoint: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag = "5")]
+    pub group_name: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RegisterNodeRequest {
     #[prost(string, tag = "1")]
     pub node_id: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "2")]
+    pub connection_details: ::prost::alloc::vec::Vec<ConnectionDetails>,
+    #[prost(string, optional, tag = "3")]
+    pub group_name: ::core::option::Option<::prost::alloc::string::String>,
 }
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RegisterNodeResponse {
-    #[prost(bool, tag = "1")]
+    #[prost(string, tag = "1")]
+    pub original_message_id: ::prost::alloc::string::String,
+    #[prost(bool, tag = "2")]
     pub success: bool,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DeregisterNodeRequest {
     #[prost(message, optional, tag = "1")]
     pub node: ::core::option::Option<Node>,
 }
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DeregisterNodeResponse {
-    #[prost(bool, tag = "1")]
+    #[prost(string, tag = "1")]
+    pub original_message_id: ::prost::alloc::string::String,
+    #[prost(bool, tag = "2")]
     pub success: bool,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct CreateChannelRequest {
-    /// list of moderators for the channel (e.g. spiffe SVID)
+    /// list of moderators for the channel
     #[prost(string, repeated, tag = "1")]
     pub moderators: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// The channel name in the form organization/namespace/channel_name
+    #[prost(string, tag = "2")]
+    pub channel_name: ::prost::alloc::string::String,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct CreateChannelResponse {
-    /// ID of the channel, to which clients will subscribe (e.g. spiffe SVID)
-    #[prost(string, tag = "1")]
-    pub channel_id: ::prost::alloc::string::String,
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DeleteChannelRequest {
-    /// ID of the channel
+    /// The channel name in the form organization/namespace/channel_name
     #[prost(string, tag = "1")]
-    pub channel_id: ::prost::alloc::string::String,
+    pub channel_name: ::prost::alloc::string::String,
+    /// list of moderators for the channel
+    #[prost(string, repeated, tag = "2")]
+    pub moderators: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct AddParticipantRequest {
-    /// ID of the channel
+    /// The channel name in the form organization/namespace/channel_name
     #[prost(string, tag = "1")]
-    pub channel_id: ::prost::alloc::string::String,
-    /// ID of participant (e.g. spiffe SVID)
+    pub channel_name: ::prost::alloc::string::String,
+    /// Name of the participant
     #[prost(string, tag = "2")]
-    pub participant_id: ::prost::alloc::string::String,
+    pub participant_name: ::prost::alloc::string::String,
+    /// list of moderators for the channel
+    #[prost(string, repeated, tag = "3")]
+    pub moderators: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DeleteParticipantRequest {
-    /// ID of the channel
+    /// The channel name in the form organization/namespace/channel_name
     #[prost(string, tag = "1")]
-    pub channel_id: ::prost::alloc::string::String,
-    /// ID of participant (e.g. spiffe SVID)
+    pub channel_name: ::prost::alloc::string::String,
+    /// ID of participant
     #[prost(string, tag = "2")]
-    pub participant_id: ::prost::alloc::string::String,
+    pub participant_name: ::prost::alloc::string::String,
+    /// list of moderators for the channel
+    #[prost(string, repeated, tag = "3")]
+    pub moderators: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ListChannelsRequest {}
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ListChannelsResponse {
-    /// IDs of the channels available in the control plane
-    #[prost(string, repeated, tag = "1")]
-    pub channel_id: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ListParticipantsRequest {
-    /// ID of the channel
     #[prost(string, tag = "1")]
-    pub channel_id: ::prost::alloc::string::String,
+    pub original_message_id: ::prost::alloc::string::String,
+    /// IDs of the channels available in the control plane
+    #[prost(string, repeated, tag = "2")]
+    pub channel_name: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ListParticipantsRequest {
+    /// name of the channel
+    #[prost(string, tag = "1")]
+    pub channel_name: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ListParticipantsResponse {
+    #[prost(string, tag = "1")]
+    pub original_message_id: ::prost::alloc::string::String,
     /// list of participants in the channel
-    #[prost(string, repeated, tag = "1")]
-    pub participant_id: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, repeated, tag = "2")]
+    pub participant_name: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -342,7 +406,7 @@ pub mod controller_service_client {
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
-            let codec = tonic::codec::ProstCodec::default();
+            let codec = tonic_prost::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/controller.proto.v1.ControllerService/OpenControlChannel",
             );
@@ -498,7 +562,7 @@ pub mod controller_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = OpenControlChannelSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,

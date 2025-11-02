@@ -1,0 +1,56 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+slim:
+  # Deploy as DaemonSet instead of StatefulSet
+  daemonset: false
+  # This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
+  replicaCount: 1
+
+  # This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
+  image:
+    repository: ghcr.io/agntcy/slim
+    # This sets the pull policy for images.
+    pullPolicy: IfNotPresent
+    # Overrides the image tag whose default is the chart appVersion.
+    tag: ""
+
+  # This is for overriding the default config below
+  overrideConfig:
+
+  config:
+    tracing:
+      log_level: debug
+      display_thread_names: true
+      display_thread_ids: true
+
+    runtime:
+      n_cores: 0
+      thread_name: "slim-data-plane"
+      drain_timeout: 10s
+
+    services:
+      slim/0:
+        nodeId: ${env:SLIM_SVC_ID}
+        dataplane:
+          servers:
+            - endpoint: "0.0.0.0:{{ .Values.slim.service.data.port }}"
+              tls:
+                insecure: true
+
+          clients: []
+        controller:
+          servers:
+            - endpoint: "0.0.0.0:{{ .Values.slim.service.control.port }}"
+              tls:
+                insecure: true
+
+  # This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
+  service:
+    # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
+    type: ClusterIP
+    headless: false
+    data:
+      port: 46357
+    control:
+      port: 46358

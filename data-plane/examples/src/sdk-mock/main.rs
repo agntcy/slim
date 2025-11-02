@@ -7,13 +7,94 @@ use tracing::info;
 
 use slim::config;
 use slim_auth::shared_secret::SharedSecret;
+use slim_auth::testutils::TEST_VALID_SECRET;
 use slim_datapath::messages::Name;
-use slim_service::{
-    FireAndForgetConfiguration,
-    session::{self, SessionConfig},
-};
+use slim_session::{self, PointToPointConfiguration, SessionConfig};
 
 mod args;
+
+// Function to handle session messages using spawn_receiver
+fn spawn_session_receiver(
+    session_ctx: slim_session::context::SessionContext<SharedSecret, SharedSecret>,
+    local_name: String,
+    route: Name,
+) -> std::sync::Arc<slim_session::Session<SharedSecret, SharedSecret>> {
+    session_ctx
+        .spawn_receiver(|mut rx, weak| async move {
+            info!("Session handler task started");
+
+            // Local deque for queuing reply messages
+            let mut reply_queue = std::collections::VecDeque::<String>::new();
+
+            // Timer for periodic message sending (every second)
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
+
+            loop {
+                tokio::select! {
+                    // Handle incoming messages
+                    msg_result = rx.recv() => {
+                        match msg_result {
+                            Some(Ok(message)) => match &message.message_type {
+                                Some(slim_datapath::api::MessageType::Publish(msg)) => {
+                                    let payload = msg.get_payload();
+                                    match std::str::from_utf8(&payload.as_application_payload().blob) {
+                                        Ok(text) => {
+                                            info!("received message: {}", text);
+                                        }
+                                        Err(_) => {
+                                            info!(
+                                                "received encrypted message: {} bytes",
+                                                payload.as_application_payload().blob.len()
+                                            );
+                                        }
+                                    }
+
+                                    // Queue reply message instead of sending immediately
+                                    let reply = format!("hello from the {}", local_name);
+                                    info!("Queueing reply message: {}", reply);
+                                    reply_queue.push_back(reply);
+                                }
+                                _ => {
+                                    info!("received non-publish message");
+                                }
+                            },
+                            Some(Err(e)) => {
+                                info!("received message error: {:?}", e);
+                                break;
+                            }
+                            None => {
+                                info!("Message channel closed");
+                                break;
+                            }
+                        }
+                    }
+
+                    // Periodic timer - send queued messages
+                    _ = interval.tick() => {
+                        if let Some(reply) = reply_queue.pop_front() {
+                            info!("Sending periodic reply: {}", reply);
+
+                            if let Some(session_arc) = weak.upgrade() {
+                                let reply_bytes = reply.into_bytes();
+                                if let Err(e) = session_arc
+                                    .publish(&route, reply_bytes, None, None)
+                                    .await
+                                {
+                                    info!("error sending periodic reply: {}", e);
+                                }
+                            } else {
+                                info!("session already dropped; cannot send reply");
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            info!("Session handler task ended");
+        })
+        .upgrade()
+        .unwrap()
+}
 
 #[tokio::main]
 async fn main() {
@@ -51,8 +132,8 @@ async fn main() {
     let (app, mut rx) = svc
         .create_app(
             &name,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
         )
         .await
         .expect("failed to create app");
@@ -96,18 +177,17 @@ async fn main() {
             None
         } else {
             // Server: create group and wait for client key package
-            let identity_provider = SharedSecret::new("server", "group");
-            let identity_verifier = SharedSecret::new("server", "group");
+            let identity_provider = SharedSecret::new("server", TEST_VALID_SECRET);
+            let identity_verifier = SharedSecret::new("server", TEST_VALID_SECRET);
             let mut server_mls = slim_mls::mls::Mls::new(
-                name.clone(),
                 identity_provider,
                 identity_verifier,
                 std::path::PathBuf::from("/tmp/server_mls"),
             );
-            server_mls.initialize().unwrap();
+            server_mls.initialize().await.unwrap();
 
             // Create group
-            let group_id = server_mls.create_group().unwrap();
+            let group_id = server_mls.create_group().await.unwrap();
             info!("Server created MLS group");
 
             // Wait for client key package
@@ -130,7 +210,7 @@ async fn main() {
             };
 
             // Add client to group and generate welcome message
-            let ret = server_mls.add_member(&key_package).unwrap();
+            let ret = server_mls.add_member(&key_package).await.unwrap();
 
             // Save welcome message for client
             std::fs::write(&welcome_path, &ret.welcome_message).unwrap();
@@ -143,37 +223,34 @@ async fn main() {
         None
     };
 
+    // Local array of created sessions
+    let mut sessions = vec![];
+
     // check what to do with the message
     if let Some(msg) = message {
-        // create a fire and forget session
-        let res = app
+        // create a p2p session
+        let session_ctx = app
             .create_session(
-                SessionConfig::FireAndForget(FireAndForgetConfiguration::default()),
+                SessionConfig::PointToPoint(PointToPointConfiguration::default()),
                 None,
             )
-            .await;
-        if res.is_err() {
-            panic!("error creating fire and forget session");
-        }
-
-        // get the session
-        let session = res.unwrap();
+            .await
+            .expect("error creating p2p session");
 
         // Client MLS setup, only if mls_group_id is provided
         if let Some(group_identifier) = mls_group_id {
             // Client: generate key package and wait for welcome message
-            let identity_provider = SharedSecret::new("client", "group");
-            let identity_verifier = SharedSecret::new("client", "group");
+            let identity_provider = SharedSecret::new("client", TEST_VALID_SECRET);
+            let identity_verifier = SharedSecret::new("client", TEST_VALID_SECRET);
             let mut client_mls = slim_mls::mls::Mls::new(
-                name.clone(),
                 identity_provider,
                 identity_verifier,
                 std::path::PathBuf::from("/tmp/client_mls"),
             );
-            client_mls.initialize().unwrap();
+            client_mls.initialize().await.unwrap();
 
             // Generate and save key package for server to use
-            let key_package = client_mls.generate_key_package().unwrap();
+            let key_package = client_mls.generate_key_package().await.unwrap();
             let key_package_path = format!("/tmp/mls_key_package_{}", group_identifier);
             std::fs::write(&key_package_path, &key_package).unwrap();
             info!("Client saved key package to: {}", key_package_path);
@@ -196,65 +273,66 @@ async fn main() {
             };
 
             // Join the group
-            let _group_id = client_mls.process_welcome(&welcome_message).unwrap();
+            let _group_id = client_mls.process_welcome(&welcome_message).await.unwrap();
             info!("Client successfully joined group");
         }
 
-        // publish message
-        app.publish(session, &route, msg.into(), None, None)
+        // Get the session and spawn receiver for handling responses
+        let session = spawn_session_receiver(session_ctx, local_name.to_string(), route.clone());
+        // let session = session_ctx.session_arc().unwrap();
+
+        info!("Sending message to {}", route);
+
+        // publish message using session context
+        session
+            .publish(&route, msg.into(), None, None)
             .await
             .unwrap();
+
+        sessions.push(session);
     }
 
-    // wait for messages
-    let mut messages = std::collections::VecDeque::<(String, session::Info)>::new();
+    // wait for messages and handle sessions
     loop {
         tokio::select! {
             _ = slim_signal::shutdown() => {
                 info!("Received shutdown signal");
                 break;
             }
-            _ = tokio::time::sleep(tokio::time::Duration::from_secs(1)) => {
-                // send a message back
-                let msg = messages.pop_front();
-                if let Some(msg) = msg {
-                    app.publish(msg.1, &route, msg.0.into(), None, None)
-                        .await
-                        .unwrap();
-                }
-           }
             next = rx.recv() => {
                 if next.is_none() {
                     break;
                 }
 
-                let session_msg = next.unwrap().expect("error");
+                let notification = next.unwrap().unwrap();
+                match notification {
+                    slim_session::notification::Notification::NewSession(session) => {
+                        info!("New session created");
 
-                match &session_msg.message.message_type.unwrap() {
-                    slim_datapath::api::ProtoPublishType(msg) => {
-                        let payload = msg.get_payload();
-                        match std::str::from_utf8(&payload.blob) {
-                            Ok(text) => {
-                                info!("received message: {}", text);
-                            }
-                            Err(_) => {
-                                info!("received encrypted message: {} bytes", payload.blob.len());
-                            }
-                        }
+                        // Use the extracted spawn_session_receiver function
+                        let session = spawn_session_receiver(
+                            session,
+                            local_name.to_string(),
+                            route.clone(),
+                        );
+
+                        // Save the session
+                        sessions.push(session);
                     }
-                    t => {
-                        info!("received wrong message: {:?}", t);
-                        break;
+                    _ => {
+                        info!("Unexpected notification type");
                     }
                 }
-
-                let msg = format!("hello from the {}", local_name);
-                messages.push_back((msg, session_msg.info));
             }
         }
     }
 
     info!("sdk-mock shutting down");
+
+    // Delete all the sessions
+    for session in sessions {
+        app.delete_session(&session).await.unwrap();
+    }
 
     // consume the service and get the drain signal
     let signal = svc.signal();

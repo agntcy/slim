@@ -1,0 +1,24 @@
+graph TB
+    subgraph "Kubernetes Cluster"
+        subgraph "slim namespace"
+            CONTROLLER[SLIM Controller]
+            SLIM1[SLIM Node 0 - StatefulSet]
+            SLIM2[SLIM Node 1 - StatefulSet]
+            SLIM3[SLIM Node 2 - StatefulSet]
+            SVC[SLIM Service - ClusterIP]
+            SVC --> SLIM1
+            SVC --> SLIM2
+            SVC --> SLIM3
+            CONTROLLER --- SLIM1
+            CONTROLLER --- SLIM2
+            CONTROLLER --- SLIM3
+        end
+
+        subgraph "default namespace"
+            BOB[Bob Sender]
+            ALICE[Alice Receiver]
+        end
+    end
+
+    BOB --> SVC
+    ALICE --> SVC

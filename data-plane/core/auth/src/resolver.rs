@@ -11,33 +11,16 @@ use jsonwebtoken_aws_lc::{
 };
 use parking_lot::RwLock;
 use reqwest::{Client as ReqwestClient, StatusCode};
-use serde::{Deserialize, Serialize};
 use url::Url;
 
 use crate::errors::AuthError;
 
-/// JWK with an additional property for the algorithm (alg) field.
-#[derive(Debug, Serialize, Deserialize)]
-struct ExtendedJwk {
-    #[serde(flatten)]
-    jwk: Jwk,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    alg: Option<String>,
-}
-
-/// JSON Web Key Set with extended JWKs.
-#[derive(Debug, Serialize, Deserialize)]
-struct ExtendedJwkSet {
-    keys: Vec<ExtendedJwk>,
-}
-
 /// Cache entry for a JWKS.
-#[derive(Clone)]
-struct JwksCache {
-    jwks: JwkSet,
-    fetched_at: Instant,
-    ttl: Duration,
+#[derive(Clone, Debug)]
+pub struct JwksCache {
+    pub jwks: JwkSet,
+    pub fetched_at: Instant,
+    pub ttl: Duration,
 }
 
 /// This struct provides methods to resolve JWT decoding keys from various sources.
@@ -60,6 +43,7 @@ struct JwksCache {
 ///     .key_resolver(resolver)
 ///     .build()?;
 /// ```
+#[derive(Debug)]
 pub struct KeyResolver {
     client: ReqwestClient,
     jwks_cache: RwLock<HashMap<String, JwksCache>>,
@@ -193,21 +177,21 @@ impl KeyResolver {
         if let Some(kid) = &token_header.kid {
             // Look for a key with a matching ID
             for key in &jwks.keys {
-                if let Some(id) = &key.common.key_id {
-                    if id == kid {
-                        return self.jwk_to_decoding_key(key);
-                    }
+                if let Some(id) = &key.common.key_id
+                    && id == kid
+                {
+                    return self.jwk_to_decoding_key(key);
                 }
             }
         } else {
             // If no key ID is specified, use the first suitable key
             for key in &jwks.keys {
-                if let Some(alg) = &key.common.key_algorithm {
-                    if let Ok(algorithm) = self.key_alg_to_algorithm(alg) {
-                        // Check if the algorithm matches the token's algorithm
-                        if algorithm == token_header.alg {
-                            return self.jwk_to_decoding_key(key);
-                        }
+                if let Some(alg) = &key.common.key_algorithm
+                    && let Ok(algorithm) = self.key_alg_to_algorithm(alg)
+                {
+                    // Check if the algorithm matches the token's algorithm
+                    if algorithm == token_header.alg {
+                        return self.jwk_to_decoding_key(key);
                     }
                 }
             }
@@ -300,14 +284,12 @@ impl KeyResolver {
         let openid_config_response = self.client.get(openid_config_url.to_string()).send().await;
 
         // If we successfully got the OpenID configuration, extract the jwks_uri
-        if let Ok(response) = openid_config_response {
-            if response.status() == StatusCode::OK {
-                if let Ok(config) = response.json::<serde_json::Value>().await {
-                    if let Some(jwks_uri) = config.get("jwks_uri").and_then(|v| v.as_str()) {
-                        return Ok(jwks_uri.to_string());
-                    }
-                }
-            }
+        if let Ok(response) = openid_config_response
+            && response.status() == StatusCode::OK
+            && let Ok(config) = response.json::<serde_json::Value>().await
+            && let Some(jwks_uri) = config.get("jwks_uri").and_then(|v| v.as_str())
+        {
+            return Ok(jwks_uri.to_string());
         }
 
         // Fallback to standard well-known JWKS location

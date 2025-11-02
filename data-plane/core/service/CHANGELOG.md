@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0](https://github.com/agntcy/slim/compare/slim-service-v0.7.0...slim-service-v0.8.0) - 2025-10-17
+
+### Added
+
+- move session code in a new crate ([#828](https://github.com/agntcy/slim/pull/828))
+
+### Fixed
+
+- *(session)* correctly handle multiple subscriptions ([#838](https://github.com/agntcy/slim/pull/838))
+
+## [0.7.0](https://github.com/agntcy/slim/compare/slim-service-v0.6.0...slim-service-v0.7.0) - 2025-10-09
+
+### Added
+
+- *(python/examples)* allow each participant to publish ([#778](https://github.com/agntcy/slim/pull/778))
+- implement control plane group management ([#554](https://github.com/agntcy/slim/pull/554))
+- remove bearer auth in favour of static jwt ([#774](https://github.com/agntcy/slim/pull/774))
+- *(python/bindings)* improve publish function ([#749](https://github.com/agntcy/slim/pull/749))
+- *(session)* introduce session metadata ([#744](https://github.com/agntcy/slim/pull/744))
+- *(pysession)* expose session type, src and dst names ([#737](https://github.com/agntcy/slim/pull/737))
+- *(multicast)* remove moderator parameter from configuration ([#739](https://github.com/agntcy/slim/pull/739))
+- improve point to point session with sender/receiver buffer ([#735](https://github.com/agntcy/slim/pull/735))
+- [**breaking**] refactor session receive() API ([#731](https://github.com/agntcy/slim/pull/731))
+- handle updates from SLIM nodes ([#708](https://github.com/agntcy/slim/pull/708))
+- add string name on pub messages ([#693](https://github.com/agntcy/slim/pull/693))
+
+### Fixed
+
+- avoid panic sending errors to the local application ([#814](https://github.com/agntcy/slim/pull/814))
+- *(python-bindings)* remove destination_name property ([#751](https://github.com/agntcy/slim/pull/751))
+
+### Other
+
+- *(python/bindings)* remove anycast session and rename unicast and multicast ([#795](https://github.com/agntcy/slim/pull/795))
+- upgrade to rust toolchain 1.90.0 ([#730](https://github.com/agntcy/slim/pull/730))
+- rename sessions in python bindings ([#698](https://github.com/agntcy/slim/pull/698))
+- *(service)* session files in separate module ([#695](https://github.com/agntcy/slim/pull/695))
+- rename session types in rust code ([#679](https://github.com/agntcy/slim/pull/679))
+
+## [0.6.0](https://github.com/agntcy/slim/compare/slim-service-v0.5.0...slim-service-v0.6.0) - 2025-09-17
+
+### Added
+
+- notify controller with new subscriptions ([#611](https://github.com/agntcy/slim/pull/611))
+- Introduce SRPC + Native A2A integration  ([#550](https://github.com/agntcy/slim/pull/550))
+- replace pubsub with dataplane in the node-config ([#591](https://github.com/agntcy/slim/pull/591))
+- make MLS identity provider backend agnostic ([#552](https://github.com/agntcy/slim/pull/552))
+
+### Fixed
+
+- fix ff session ([#538](https://github.com/agntcy/slim/pull/538))
+
+### Other
+
+- SLIM node ID should be unique in a deployment ([#630](https://github.com/agntcy/slim/pull/630))
+
 ## [0.5.0](https://github.com/agntcy/slim/compare/slim-service-v0.4.2...slim-service-v0.5.0) - 2025-07-31
 
 ### Added

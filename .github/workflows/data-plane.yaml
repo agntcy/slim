@@ -8,13 +8,13 @@ on:
   push:
     paths:
       - 'data-plane/**'
-      - '!data-plane/integrations/mcp/**'
+      - '!data-plane/integrations/mcp-proxy/**'
     branches:
       - main
   pull_request:
     paths:
       - 'data-plane/**'
-      - '!data-plane/integrations/mcp/**'
+      - '!data-plane/integrations/mcp-proxy/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -35,5 +35,20 @@ jobs:
     name: Build SLIM docker image
     uses: ./.github/workflows/reusable-docker-build-push.yaml
     with:
-      bake-targets: slim,mcp-proxy
+      bake-targets: slim
+      image-tag: ${{ github.sha }}
+
+  mcp-proxy-docker-build:
+    name: Build SLIM MCP Proxy docker image
+    uses: ./.github/workflows/reusable-docker-build-push.yaml
+    with:
+      bake-targets: mcp-proxy
+      image-tag: ${{ github.sha }}
+
+  data-plane-bindings-examples-docker-build:
+    name: Build Python examples docker image
+    if:
+    uses: ./.github/workflows/reusable-docker-build-push.yaml
+    with:
+      bake-targets: bindings-examples
       image-tag: ${{ github.sha }}

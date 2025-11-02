@@ -1,5 +1,7 @@
-# Copyright AGNTCY Contributors (https://github.com/agntcy)
-# SPDX-License-Identifier: Apache-2.0
+{{/*
+Copyright AGNTCY Contributors (https://github.com/agntcy)
+SPDX-License-Identifier: Apache-2.0
+*/}}
 
 apiVersion: v1
 kind: Service
@@ -9,6 +11,9 @@ metadata:
     {{- include "slim.labels" . | nindent 4 }}
 spec:
   type: {{ .Values.slim.service.type }}
+  {{- if eq .Values.slim.service.headless true }}
+  clusterIP: None
+  {{- end }}
   ports:
     - port: {{ .Values.slim.service.data.port }}
       targetPort: data-plane
@@ -20,3 +25,27 @@ spec:
       name: controller
   selector:
     {{- include "slim.selectorLabels" . | nindent 4 }}
+{{- if eq .Values.slim.daemonset true }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "slim.fullname" . }}-local
+  labels:
+    {{- include "slim.labels" . | nindent 4 }}
+    local: "true"
+spec:
+  type: ClusterIP
+  internalTrafficPolicy: Local
+  ports:
+    - port: {{ .Values.slim.service.data.port }}
+      targetPort: data-plane
+      protocol: TCP
+      name: data-plane
+    - port: {{ .Values.slim.service.control.port }}
+      targetPort: controller
+      protocol: TCP
+      name: controller
+  selector:
+    {{- include "slim.selectorLabels" . | nindent 4 }}
+{{- end }}    

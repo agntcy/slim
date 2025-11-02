@@ -233,7 +233,7 @@ fn main() {
 
                 publications_list.push(p);
             } else {
-                let name = s.0.clone().with_id(0);
+                let name = s.0.clone().with_id(Name::NULL_COMPONENT);
                 let mut p = Publication {
                     publication: name,
                     subscribers: HashSet::new(),
@@ -270,17 +270,13 @@ fn main() {
     let bar = ProgressBar::new(max_subscriptions as u64);
     for s in subscription_list.iter() {
         for p in s.1.subscription.iter() {
+            let components = s.0.components_strings();
             // format: SUB index subscriber org ns type id
-            let s = format!(
+            let str = format!(
                 "SUB {} {} {} {} {} {}\n",
-                i,
-                p.subscriber,
-                s.0.components()[0],
-                s.0.components()[1],
-                s.0.components()[2],
-                p.app_id
+                i, p.subscriber, components[0], components[1], components[2], p.app_id
             );
-            let res = file.write_all(s.as_bytes());
+            let res = file.write_all(str.as_bytes());
             if res.is_err() {
                 panic!("error writing to the file");
             }
@@ -299,13 +295,14 @@ fn main() {
             sub_str.push(' ');
             sub_str.push_str(&a.to_string());
         }
+        let components = m.publication.components_strings();
         // format: PUB index org ns type id #subscribers subscriber_1, subscriber_2, ...
         let s = format!(
             "PUB {} {} {} {} {} {}{}\n", //do not add the space between m.subscribers.len() and sub_str
             i,
-            m.publication.components()[0],
-            m.publication.components()[1],
-            m.publication.components()[2],
+            components[0],
+            components[1],
+            components[2],
             m.publication.id(),
             m.subscribers.len(),
             sub_str

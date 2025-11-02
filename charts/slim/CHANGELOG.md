@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.6.0](https://github.com/agntcy/slim/compare/helm-slim-v0.2.0...helm-slim-v0.6.0) (2025-10-10)
+
+
+### Features
+
+* upgrade helm chart to latest SLIM image ([#823](https://github.com/agntcy/slim/issues/823)) ([4e1dd41](https://github.com/agntcy/slim/commit/4e1dd41fab4f991d2ad906ef6ca178895d1d9bb7))
+
+
+### Bug Fixes
+
+* add group id to node id ([#746](https://github.com/agntcy/slim/issues/746)) ([06c42b3](https://github.com/agntcy/slim/commit/06c42b3f3846da331554ac72ec6d77e61876d78d))
+
+## [0.2.0](https://github.com/agntcy/slim/compare/helm-slim-v0.1.9...helm-slim-v0.2.0) (2025-09-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* feat: SLIM node ID should be unique in a deployment ([#630](https://github.com/agntcy/slim/pull/630)) ([b63ffc1](https://github.com/agntcy/slim/commit/b63ffc16b97ddb7115f6639c9d0301df8d65c1b9))
+
+### Features
+
+* **charts/slim:** upgrade image to SLIM 0.5.0 ([#714](https://github.com/agntcy/slim/issues/714)) ([35529c4](https://github.com/agntcy/slim/commit/35529c43ec12915d9e98a0f8770d14c7d19cebd6))
+
+
+### Bug Fixes
+
+* **helm:** incorrect port reference in ingress ([#597](https://github.com/agntcy/slim/issues/597)) ([245aeea](https://github.com/agntcy/slim/commit/245aeea2843a71e20ad550ca2900fcbaed986b0a))
+* **helm:** use template comments for copyright headers ([#595](https://github.com/agntcy/slim/issues/595)) ([c8b39de](https://github.com/agntcy/slim/commit/c8b39de1ec41261c57d54691a4be3b72556d659c))
+
 ## [0.1.9](https://github.com/agntcy/slim/compare/helm-slim-v0.1.8...helm-slim-v0.1.9) (2025-07-31)
 
 

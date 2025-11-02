@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.6.1](https://github.com/agntcy/slim/compare/slim-testutils-v0.6.0...slim-testutils-v0.6.1) (2025-10-17)
+
+
+### Features
+
+* move session code in a new crate ([#828](https://github.com/agntcy/slim/issues/828)) ([6d0cf90](https://github.com/agntcy/slim/commit/6d0cf90a67cdfd62039fee857cf103a52a0380b1))
+
+## [0.6.0](https://github.com/agntcy/slim/compare/slim-testutils-v0.2.2...slim-testutils-v0.6.0) (2025-10-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* session layer APIs updated.
+
+### Features
+
+* implement control plane group management ([#554](https://github.com/agntcy/slim/issues/554)) ([d0065a0](https://github.com/agntcy/slim/commit/d0065a0e1955dbc7e7fd2bfabd5fdca210459a0b))
+* improve point to point session with sender/receiver buffer ([#735](https://github.com/agntcy/slim/issues/735)) ([e6f65bb](https://github.com/agntcy/slim/commit/e6f65bb9d6584994538027dd4db45429d74821ea))
+* **multicast:** remove moderator parameter from configuration ([#739](https://github.com/agntcy/slim/issues/739)) ([464d523](https://github.com/agntcy/slim/commit/464d523205a6f972e633eddd842c007929bb7974))
+* **python/bindings:** improve publish function ([#749](https://github.com/agntcy/slim/issues/749)) ([85fd2ca](https://github.com/agntcy/slim/commit/85fd2ca2e24794998203fd25b51964eabc10c04e))
+* refactor session receive() API ([#731](https://github.com/agntcy/slim/issues/731)) ([787d111](https://github.com/agntcy/slim/commit/787d111d030de5768385b72ea7a794ced85d6652))
+* remove bearer auth in favour of static jwt ([#774](https://github.com/agntcy/slim/issues/774)) ([e08cb51](https://github.com/agntcy/slim/commit/e08cb51ecd20ca6dc1e5ef3f3c0c197e5f926e97))
+* **session:** introduce session metadata ([#744](https://github.com/agntcy/slim/issues/744)) ([14528ee](https://github.com/agntcy/slim/commit/14528eec79e31e0729b3f305a8da5bc38ab0ac51))
+
+## [0.2.2](https://github.com/agntcy/slim/compare/slim-testutils-v0.2.1...slim-testutils-v0.2.2) (2025-09-18)
+
+
+### Features
+
+* add testing for fire and forget session ([#540](https://github.com/agntcy/slim/issues/540)) ([51adc94](https://github.com/agntcy/slim/commit/51adc94b408798aa63f5d2a00621a71d56d71575))
+* replace pubsub with dataplane in the node-config ([#591](https://github.com/agntcy/slim/issues/591)) ([88be6ee](https://github.com/agntcy/slim/commit/88be6eebef9e34e26f482812ab91d76c3186ba44))
+
+
+### Bug Fixes
+
+* fix ff session ([#538](https://github.com/agntcy/slim/issues/538)) ([e0d1f65](https://github.com/agntcy/slim/commit/e0d1f65b23556e1e8f045523daa9b93ff4d8635d))
+
 ## [0.2.1](https://github.com/agntcy/slim/compare/slim-testutils-v0.2.0...slim-testutils-v0.2.1) (2025-07-31)
 
 

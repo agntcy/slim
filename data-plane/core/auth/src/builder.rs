@@ -561,7 +561,7 @@ mod tests {
     use std::time::SystemTime;
     use std::time::UNIX_EPOCH;
 
-    use crate::testutils::initialize_crypto_provider;
+    use slim_config::tls::provider::initialize_crypto_provider;
 
     fn create_file(file_path: &str, content: &str) -> std::io::Result<()> {
         let mut file = File::create(file_path)?;

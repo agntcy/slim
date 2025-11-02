@@ -11,10 +11,10 @@ use crate::opaque::OpaqueString;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct Config {
-    /// The target the client will connect to.
+    /// The username the client will use to authenticate.
     username: String,
 
-    /// Origin for the client.
+    /// The password for the username.
     password: OpaqueString,
 }
 

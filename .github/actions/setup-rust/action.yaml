@@ -19,6 +19,7 @@ runs:
       with:
         cache: false
         components: rustc, clippy, rustfmt
+        rustflags: ""
 
     - name: Setup Taskfile
       shell: bash
@@ -29,9 +30,10 @@ runs:
       shell: bash
       run: |
         sudo apt-get update
+        curl -L https://apt.llvm.org/llvm.sh -o /tmp/llvm.sh
+        chmod +x /tmp/llvm.sh
+        sudo /tmp/llvm.sh 19
         sudo apt-get install -y \
-          clang-14 \
-          llvm-14 \
           pkg-config \
           make \
           gcc-aarch64-linux-gnu \

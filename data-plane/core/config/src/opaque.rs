@@ -120,7 +120,7 @@ mod tests {
         assert_eq!(opaque.trim(), "password");
         assert_eq!(opaque.trim_start(), "password");
         assert_eq!(opaque.trim_end(), "password");
-        assert_eq!(opaque.trim_matches(|c: char| c == 'd'), "passwor");
+        assert_eq!(opaque.trim_matches(|c: char| c == 'd'), "passwor"); // spellchecker:disable-line
     }
 
     #[test]

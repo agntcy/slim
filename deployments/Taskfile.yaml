@@ -1,0 +1,139 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+version: "3"
+
+# Taskfile for deployment automation
+#
+# This Taskfile defines a set of tasks to support various deployment patterns.
+# It helps automate and standardize deployment workflows, making it easier to
+# manage, test, and release application updates across different environments.
+#
+
+vars:
+  SPIRE_NAMESPACE: '{{ .SPIRE_NAMESPACE | default "spire" }}'
+  SLIM_NAMESPACE: '{{ .SLIM_NAMESPACE | default "slim" }}'
+  SLIM_IMAGE_TAG: '{{ .SLIM_IMAGE_TAG | default "0.6.0" }}'
+  SLIM_CONTROLLER_IMAGE_TAG: '{{ .SLIM_CONTROLLER_IMAGE_TAG | default "0.6.0" }}'
+
+
+# Suppress task name and command output by default
+silent: true
+
+  
+tasks:
+  default:
+    desc: Check prerequisites and display available tasks
+    cmds:
+    - task: slim:check:prerequisites
+    - task: strategy:name
+    - task --list
+
+  cluster:up:
+    desc: Start a local Kubernetes cluster using Kind
+    cmd: kind create cluster --name slim-cluster --wait 60s || true # --config slim-cluster.yaml
+
+  cluster:down:
+    desc: Delete the local Kubernetes cluster
+    cmd: kind delete cluster --name slim-cluster
+
+  cluster:use-context:
+    desc: Set the current kubectl context to kind-slim-cluster
+    deps:
+      - cluster:up
+    cmd: kubectl config use-context kind-slim-cluster
+
+  cluster:port-forward:controller:setup:
+    desc: Set up port forwarding to the Slim Controller service
+    cmds:
+      - kubectl port-forward svc/slim-control -n {{ .SLIM_NAMESPACE }} 50051:50051 &
+      - sleep 1
+
+  cluster:port-forward:controller:teardown:
+    desc: Tear down port forwarding to the Slim Controller service
+    cmds:
+      - kill -9 $(ps aux | grep port-forward | grep slim-control | awk '{print $2}') || true          
+
+  spire:deploy:
+    desc: Deploy SPIRE server
+    cmds:
+      - |
+        helm upgrade --install  \
+        spire-crds \
+        spire-crds \
+        --repo https://spiffe.github.io/helm-charts-hardened/ \
+        --namespace {{ .SPIRE_NAMESPACE }} \
+        --create-namespace \
+        --wait \
+        --wait-for-jobs \
+        --timeout "15m"
+      - |
+        helm upgrade --install  \
+        spire \
+        spire \
+        --repo https://spiffe.github.io/helm-charts-hardened/ \
+        --set global.spire.trustDomain="example.local" \
+        --set global.spire.clusterName="slim-cluster" \
+        --namespace {{ .SPIRE_NAMESPACE }} \
+        --create-namespace \
+        --wait \
+        --wait-for-jobs \
+        --timeout "15m"
+
+  slimctl:download:
+    desc: Download slimctl executable for current OS and architecture
+    cmds:
+      - |
+        set -e        
+        SLIMCTL_ARCH=$(arch)
+        SLIMCTL_OS=$(echo $(uname -s) | tr '[:upper:]' '[:lower:]')        
+        # Map x86_64 to amd64 for Linux
+        if [[ "$SLIMCTL_ARCH" == "x86_64" && "$SLIMCTL_OS" == "linux" ]]; then
+          SLIMCTL_ARCH="amd64"
+        fi      
+        echo "Detected OS: $SLIMCTL_OS, Architecture: $SLIMCTL_ARCH"
+        SLIMCTL_URL="https://github.com/agntcy/slim/releases/download/slimctl-{{.SLIMCTL_VERSION}}/slimctl-$SLIMCTL_OS-$SLIMCTL_ARCH"
+        echo "Downloading slimctl from $SLIMCTL_URL"
+        TARGET_DIR=$(dirname {{ .SLIMCTL_PATH }})
+        mkdir -p $TARGET_DIR
+        curl -L -o {{ .SLIMCTL_PATH }} $SLIMCTL_URL
+        chmod +x {{ .SLIMCTL_PATH }}
+        echo "slimctl downloaded to {{ .SLIMCTL_PATH }}"        
+
+  spire:delete:
+    desc: Remove SPIRE server
+    cmds:
+      - helm delete spire -n {{ .SPIRE_NAMESPACE }}
+      - helm delete spire-crds -n {{ .SPIRE_NAMESPACE }}          
+
+  slim:check:prerequisites:
+    desc: Check availability of docker, kubectl, and kind on the host
+
+    cmds:
+      - |
+        echo "Checking prerequisites..."
+        echo ""
+      - |
+        task --version >/dev/null 2>&1 && echo "task: available" || echo "task: not found"
+      - |
+        docker >/dev/null 2>&1 && echo "docker: available" || echo "docker: not found"
+      - |
+        kubectl >/dev/null 2>&1 && echo "kubectl: available" || echo "kubectl: not found"
+      - |
+        kind >/dev/null 2>&1 && echo "kind: available" || echo "kind: not found"
+    
+  strategy:name:
+    desc: Display the name of the deployment strategy
+    requires:
+      vars:
+        - name: STRATEGY
+          enum: 
+            - naive
+            - statefulset
+            - daemonset
+            - multi-cluster
+    cmds:
+      - |
+        echo ""
+        echo "Selected deployment strategy: '{{.STRATEGY}}'"
+        echo ""

@@ -6,9 +6,10 @@ use std::{pin::Pin, sync::Arc};
 
 use opentelemetry::propagation::{Extractor, Injector};
 use opentelemetry::trace::TraceContextExt;
+use parking_lot::RwLock;
 use slim_config::grpc::client::ClientConfig;
 use slim_tracing::utils::INSTANCE_ID;
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self, Sender};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::{Stream, StreamExt};
 use tokio_util::sync::CancellationToken;
@@ -20,8 +21,9 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 use crate::api::ProtoPublishType as PublishType;
 use crate::api::ProtoSubscribeType as SubscribeType;
 use crate::api::ProtoUnsubscribeType as UnsubscribeType;
-use crate::api::proto::pubsub::v1::pub_sub_service_client::PubSubServiceClient;
-use crate::api::proto::pubsub::v1::{Message, pub_sub_service_server::PubSubService};
+use crate::api::proto::dataplane::v1::Message;
+use crate::api::proto::dataplane::v1::data_plane_service_client::DataPlaneServiceClient;
+use crate::api::proto::dataplane::v1::data_plane_service_server::DataPlaneService;
 use crate::connection::{Channel, Connection, Type as ConnectionType};
 use crate::errors::DataPathError;
 use crate::forwarder::Forwarder;
@@ -105,6 +107,7 @@ fn create_span(function: &str, out_conn: u64, msg: &Message) -> Span {
 struct MessageProcessorInternal {
     forwarder: Forwarder<Connection>,
     drain_channel: drain::Watch,
+    tx_control_plane: RwLock<Option<Sender<Result<Message, Status>>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -119,6 +122,7 @@ impl MessageProcessor {
         let forwarder = MessageProcessorInternal {
             forwarder,
             drain_channel: watch,
+            tx_control_plane: RwLock::new(None),
         };
 
         (
@@ -134,10 +138,21 @@ impl MessageProcessor {
         let forwarder = MessageProcessorInternal {
             forwarder,
             drain_channel: watch,
+            tx_control_plane: RwLock::new(None),
         };
         Self {
             internal: Arc::new(forwarder),
         }
+    }
+
+    fn set_tx_control_plane(&self, tx: Sender<Result<Message, Status>>) {
+        let mut tx_guard = self.internal.tx_control_plane.write();
+        *tx_guard = Some(tx);
+    }
+
+    fn get_tx_control_plane(&self) -> Option<Sender<Result<Message, Status>>> {
+        let tx_guard = self.internal.tx_control_plane.read();
+        tx_guard.clone()
     }
 
     fn forwarder(&self) -> &Forwarder<Connection> {
@@ -163,7 +178,7 @@ impl MessageProcessor {
         C::ResponseBody: Body<Data = bytes::Bytes> + std::marker::Send + 'static,
         <C::ResponseBody as Body>::Error: Into<StdError> + std::marker::Send,
     {
-        let mut client: PubSubServiceClient<C> = PubSubServiceClient::new(channel);
+        let mut client: DataPlaneServiceClient<C> = DataPlaneServiceClient::new(channel);
         let mut i = 0;
         while i < max_retry {
             let (tx, rx) = mpsc::channel(128);
@@ -210,6 +225,7 @@ impl MessageProcessor {
                         client_config,
                         cancellation_token,
                         false,
+                        false,
                     );
                     return Ok((ret, conn_index));
                 }
@@ -246,34 +262,41 @@ impl MessageProcessor {
             .await
     }
 
-    pub fn disconnect(&self, conn: u64) -> Result<(), DataPathError> {
-        match self.forwarder().get_connection(conn) {
+    pub fn disconnect(&self, conn: u64) -> Result<ClientConfig, DataPathError> {
+        let connection = match self.forwarder().get_connection(conn) {
+            Some(c) => c,
             None => {
                 error!("error handling disconnect: connection unknown");
                 return Err(DataPathError::DisconnectionError(
                     "connection not found".to_string(),
                 ));
             }
-            Some(c) => {
-                match c.cancellation_token() {
-                    None => {
-                        error!("error handling disconnect: missing cancellation token");
-                    }
-                    Some(t) => {
-                        // here token cancel will stop the receiving loop on
-                        // conn and this will cause the delition of the state
-                        // for this connection
-                        t.cancel();
-                    }
-                }
-            }
-        }
+        };
 
-        Ok(())
+        let token = match connection.cancellation_token() {
+            Some(t) => t,
+            None => {
+                error!("error handling disconnect: missing cancellation token");
+                return Err(DataPathError::DisconnectionError(
+                    "missing cancellation token".to_string(),
+                ));
+            }
+        };
+
+        // Cancel receiving loop; this triggers deletion of connection state.
+        token.cancel();
+
+        connection
+            .config_data()
+            .cloned()
+            .ok_or(DataPathError::DisconnectionError(
+                "missing client config data".to_string(),
+            ))
     }
 
     pub fn register_local_connection(
         &self,
+        from_control_plane: bool,
     ) -> (
         u64,
         tokio::sync::mpsc::Sender<Result<Message, Status>>,
@@ -286,6 +309,12 @@ impl MessageProcessor {
 
         // create a pair tx, rx to be able to receive messages and insert it into the connection table
         let (tx2, rx2) = mpsc::channel(128);
+
+        // if the call is coming from the control plane set the tx channel
+        // we assume to talk to a single control plane so set the channel only once
+        if from_control_plane && self.get_tx_control_plane().is_none() {
+            self.set_tx_control_plane(tx2.clone());
+        }
 
         // create a connection
         let cancellation_token = CancellationToken::new();
@@ -309,6 +338,7 @@ impl MessageProcessor {
             None,
             cancellation_token,
             true,
+            from_control_plane,
         );
 
         // return the conn_id and  handles to be used to send and receive messages
@@ -326,8 +356,11 @@ impl MessageProcessor {
                 let parent_context = extract_parent_context(&msg);
                 let span = create_span("send_message", out_conn, &msg);
 
-                if let Some(ctx) = parent_context {
-                    span.set_parent(ctx);
+                if let Some(ctx) = parent_context
+                    && let Err(e) = span.set_parent(ctx)
+                {
+                    // log the error but don't fail the message sending
+                    error!("error setting parent context: {:?}", e);
                 }
                 let _guard = span.enter();
                 inject_current_context(&mut msg);
@@ -487,14 +520,15 @@ impl MessageProcessor {
             Some(out_conn) => {
                 debug!("forward subscription (add = {}) to {}", add, out_conn);
 
-                // get source name
+                // get source name and identity
                 let source = msg.get_source();
+                let identity = msg.get_identity();
 
                 // send message
                 match self.send_msg(msg, out_conn).await {
                     Ok(_) => {
                         self.forwarder()
-                            .on_forwarded_subscription(source, dst, out_conn, add);
+                            .on_forwarded_subscription(source, dst, identity, out_conn, add);
                         Ok(())
                     }
                     Err(e) => Err(DataPathError::UnsubscriptionError(e.to_string())),
@@ -558,8 +592,11 @@ impl MessageProcessor {
 
             let span = create_span("process_local", conn_index, &msg);
 
-            if let Some(ctx) = parent_context {
-                span.set_parent(ctx);
+            if let Some(ctx) = parent_context
+                && let Err(e) = span.set_parent(ctx)
+            {
+                // log the error but don't fail the message processing
+                error!("error setting parent context: {:?}", e);
             }
             let _guard = span.enter();
 
@@ -652,6 +689,7 @@ impl MessageProcessor {
                                     let sub_msg = Message::new_subscribe(
                                         r.source(),
                                         r.name(),
+                                        Some(r.source_identity()),
                                         None,
                                     );
                                     if self.send_msg(sub_msg, conn_index).await.is_err() {
@@ -679,11 +717,13 @@ impl MessageProcessor {
         client_config: Option<ClientConfig>,
         cancellation_token: CancellationToken,
         is_local: bool,
+        from_control_plane: bool,
     ) -> tokio::task::JoinHandle<()> {
         // Clone self to be able to move it into the spawned task
         let self_clone = self.clone();
         let token_clone = cancellation_token.clone();
         let client_conf_clone = client_config.clone();
+        let tx_cp: Option<Sender<Result<Message, Status>>> = self.get_tx_control_plane();
 
         tokio::spawn(async move {
             let mut try_to_reconnect = true;
@@ -694,6 +734,22 @@ impl MessageProcessor {
                             Some(result) => {
                                 match result {
                                     Ok(msg) => {
+                                        // check if we need to send the message to the control plane
+                                        // we send the message if
+                                        // 1. the message is coming from remote
+                                        // 2. it is not coming from the control plane itself
+                                        // 3. the control plane exists
+                                        if !is_local && !from_control_plane && tx_cp.is_some(){
+                                            match msg.get_type() {
+                                                PublishType(_) => {/* do nothing */}
+                                                _ => {
+                                                    // send subscriptions and unsupcriptions
+                                                    // to the control plane
+                                                    let _ = tx_cp.as_ref().unwrap().send(Ok(msg.clone())).await;
+                                                }
+                                            }
+                                        }
+
                                         if let Err(e) = self_clone.handle_new_message(conn_index, is_local, msg).await {
                                             error!(%conn_index, %e, "error processing incoming message");
                                             // If the message is coming from a local app, notify it
@@ -770,10 +826,10 @@ impl MessageProcessor {
 
             // h2::Error do not expose std::io::Error with `source()`
             // https://github.com/hyperium/h2/pull/462
-            if let Some(h2_err) = err.downcast_ref::<h2::Error>() {
-                if let Some(io_err) = h2_err.get_io() {
-                    return Some(io_err);
-                }
+            if let Some(h2_err) = err.downcast_ref::<h2::Error>()
+                && let Some(io_err) = h2_err.get_io()
+            {
+                return Some(io_err);
             }
 
             err = err.source()?;
@@ -790,7 +846,7 @@ impl MessageProcessor {
 }
 
 #[tonic::async_trait]
-impl PubSubService for MessageProcessor {
+impl DataPlaneService for MessageProcessor {
     type OpenChannelStream = Pin<Box<dyn Stream<Item = Result<Message, Status>> + Send + 'static>>;
 
     async fn open_channel(
@@ -821,7 +877,14 @@ impl PubSubService for MessageProcessor {
             .on_connection_established(connection, None)
             .unwrap();
 
-        self.process_stream(stream, conn_index, None, CancellationToken::new(), false);
+        self.process_stream(
+            stream,
+            conn_index,
+            None,
+            CancellationToken::new(),
+            false,
+            false,
+        );
 
         let out_stream = ReceiverStream::new(rx);
         Ok(Response::new(

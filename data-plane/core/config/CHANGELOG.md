@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1](https://github.com/agntcy/slim/compare/slim-config-v0.4.0...slim-config-v0.4.1) - 2025-10-17
+
+### Added
+
+- implementation of Identity provider client credential flow ([#464](https://github.com/agntcy/slim/pull/464))
+
+## [0.4.0](https://github.com/agntcy/slim/compare/slim-config-v0.3.0...slim-config-v0.4.0) - 2025-10-09
+
+### Added
+
+- implement control plane group management ([#554](https://github.com/agntcy/slim/pull/554))
+- remove bearer auth in favour of static jwt ([#774](https://github.com/agntcy/slim/pull/774))
+
+### Fixed
+
+- load all certificates for dataplane from ca ([#772](https://github.com/agntcy/slim/pull/772))
+
+## [0.3.0](https://github.com/agntcy/slim/compare/slim-config-v0.2.0...slim-config-v0.3.0) - 2025-09-17
+
+### Added
+
+- add metadata map to clients and servers ([#684](https://github.com/agntcy/slim/pull/684))
+- *(grpc-client)* add support for HTTPS proxy ([#614](https://github.com/agntcy/slim/pull/614))
+- notify controller with new subscriptions ([#611](https://github.com/agntcy/slim/pull/611))
+- *(grpc)* add support for HTTP proxy ([#610](https://github.com/agntcy/slim/pull/610))
+
+### Fixed
+
+- *(python-bindings)* default crypto provider initialization for Reqwest crate ([#706](https://github.com/agntcy/slim/pull/706))
+- use duration-string in place of duration-str ([#683](https://github.com/agntcy/slim/pull/683))
+- *(tls)* enable loading of system ca certs by default ([#605](https://github.com/agntcy/slim/pull/605))
+
+### Other
+
+- SLIM node ID should be unique in a deployment ([#630](https://github.com/agntcy/slim/pull/630))
+
 ## [0.2.0](https://github.com/agntcy/slim/compare/slim-config-v0.1.8...slim-config-v0.2.0) - 2025-07-31
 
 ### Added

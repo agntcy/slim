@@ -1,28 +1,37 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Once;
+/// Centralized valid shared secret for tests (>=32 chars).
+/// Use this for simple cases where the actual value does not matter.
+pub const TEST_VALID_SECRET: &str = "test-shared-secret-value-0123456789abcdef";
 
+/// Convenience helper returning a pair (provider, verifier) `SharedSecret`
+/// instances initialized with the same valid secret for the given base id.
+/// This reduces duplication across tests that construct both roles.
+pub fn test_identity_pair(
+    base: &str,
+) -> (
+    crate::shared_secret::SharedSecret,
+    crate::shared_secret::SharedSecret,
+) {
+    let secret = format!("{base}-shared-secret-value-0123456789abcdef");
+    (
+        crate::shared_secret::SharedSecret::new(base, &secret),
+        crate::shared_secret::SharedSecret::new(base, &secret),
+    )
+}
+
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::utils::bytes_to_pem;
 use aws_lc_rs::encoding::AsDer;
 use aws_lc_rs::signature::KeyPair; // Import the KeyPair trait for public_key() method
 use aws_lc_rs::{rand, rsa, signature};
-use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use jsonwebtoken_aws_lc::Algorithm;
 use serde_json::json;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
-
-static RUSTLS: Once = Once::new();
-
-pub fn initialize_crypto_provider() {
-    RUSTLS.call_once(|| {
-        // Set aws-lc as default crypto provider
-        rustls::crypto::aws_lc_rs::default_provider()
-            .install_default()
-            .unwrap();
-    });
-}
 
 pub async fn setup_test_jwt_resolver(algorithm: Algorithm) -> (String, MockServer, String) {
     // Set up the mock server for JWKS
@@ -192,7 +201,16 @@ pub async fn setup_test_jwt_resolver(algorithm: Algorithm) -> (String, MockServe
         .and(path("/.well-known/openid-configuration"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "issuer": mock_server.uri(),
-            "jwks_uri": jwks_uri
+            "authorization_endpoint": format!("{}/auth", mock_server.uri()),
+            "token_endpoint": format!("{}/oauth2/token", mock_server.uri()),
+            "jwks_uri": jwks_uri,
+            "response_types_supported": ["code"],
+            "subject_types_supported": ["public"],
+            "id_token_signing_alg_values_supported": ["RS256"],
+            "scopes_supported": ["openid", "profile", "email"],
+            "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
+            "claims_supported": ["sub", "iss", "aud", "exp", "iat"],
+            "grant_types_supported": ["authorization_code", "client_credentials"]
         })))
         .mount(&mock_server)
         .await;
@@ -209,23 +227,112 @@ pub async fn setup_test_jwt_resolver(algorithm: Algorithm) -> (String, MockServe
     (test_key, mock_server, alg_str.to_string())
 }
 
-/// Helper function to convert key bytes to PEM format
-fn bytes_to_pem(key_bytes: &[u8], header: &str, footer: &str) -> String {
-    // Use base64 with standard encoding (not URL safe)
-    let encoded = base64::engine::general_purpose::STANDARD.encode(key_bytes);
+/// Test claims structure for JWT testing
+#[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct TestClaims {
+    pub sub: String,
+    pub iss: String,
+    pub aud: String,
+    pub exp: u64,
+    pub iat: u64,
+}
 
-    // Insert newlines every 64 characters as per PEM format
-    let mut pem_body = String::new();
-    for i in 0..(encoded.len().div_ceil(64)) {
-        let start = i * 64;
-        let end = std::cmp::min(start + 64, encoded.len());
-        if start < encoded.len() {
-            pem_body.push_str(&encoded[start..end]);
-            if end < encoded.len() {
-                pem_body.push('\n');
-            }
+impl TestClaims {
+    /// Create new test claims with proper timestamps
+    pub fn new(sub: impl Into<String>, iss: impl Into<String>, aud: impl Into<String>) -> Self {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        Self {
+            sub: sub.into(),
+            iss: iss.into(),
+            aud: aud.into(),
+            exp: now + 3600, // Expires in 1 hour
+            iat: now,
         }
     }
+}
 
-    format!("{}{}{}", header, pem_body, footer)
+/// Generate a syntactically valid unsigned JWT for tests where signature verification is not needed.
+/// The token will have HS256 header and include standard fields (iss,aud,sub,exp,iat,nbf).
+/// This is useful for tests that exercise synchronous paths like `try_verify` where
+/// we only need to parse claims and detect missing cached keys.
+pub fn generate_test_token(issuer: &str, audience: &str, subject: &str) -> String {
+    let header_json = r#"{"alg":"HS256","typ":"JWT"}"#;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or(std::time::Duration::from_secs(0))
+        .as_secs();
+    let claims_json = format!(
+        "{{\"iss\":\"{}\",\"aud\":[\"{}\"],\"sub\":\"{}\",\"exp\":{},\"iat\":{},\"nbf\":{}}}",
+        issuer,
+        audience,
+        subject,
+        now + 300,
+        now,
+        now
+    );
+    format!(
+        "{}.{}.sig",
+        URL_SAFE_NO_PAD.encode(header_json.as_bytes()),
+        URL_SAFE_NO_PAD.encode(claims_json.as_bytes())
+    )
+}
+
+/// Setup a mock OIDC server for testing both token provider and verifier
+pub async fn setup_oidc_mock_server() -> (MockServer, String, String) {
+    let mock_server = MockServer::start().await;
+    let issuer_url = mock_server.uri();
+
+    // Mock OIDC discovery endpoint
+    Mock::given(method("GET"))
+        .and(path("/.well-known/openid-configuration"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "issuer": issuer_url,
+            "authorization_endpoint": format!("{}/auth", issuer_url),
+            "token_endpoint": format!("{}/oauth2/token", issuer_url),
+            "jwks_uri": format!("{}/oauth2/jwks.json", issuer_url),
+            "userinfo_endpoint": format!("{}/userinfo", issuer_url),
+            "response_types_supported": ["code"],
+            "subject_types_supported": ["public"],
+            "id_token_signing_alg_values_supported": ["RS256"],
+            "scopes_supported": ["openid", "profile", "email"],
+            "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
+            "claims_supported": ["sub", "iss", "aud", "exp", "iat"],
+            "grant_types_supported": ["authorization_code", "client_credentials"]
+        })))
+        .mount(&mock_server)
+        .await;
+
+    // Mock token endpoint for client credentials
+    Mock::given(method("POST"))
+        .and(path("/oauth2/token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "access_token": "test-access-token-12345",
+            "token_type": "Bearer",
+            "expires_in": 3600
+        })))
+        .mount(&mock_server)
+        .await;
+
+    // Mock JWKS endpoint (needed for token verification)
+    Mock::given(method("GET"))
+        .and(path("/oauth2/jwks.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "keys": [{
+                "kty": "RSA",
+                "kid": "test-key-1",
+                "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbIS_4q3eFD1LTXfhHQjEZzXpk2zb7fF_xxGLmNr8zXczK8TGLLcgPYEEYnNJhJRs5vJ3dNb02f1_Q-sNHd8qXe5s7eXs2E4RbQJvQ",
+                "e": "AQAB",
+                "alg": "RS256"
+            }]
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let access_token = "test-access-token-12345".to_string();
+
+    (mock_server, issuer_url, access_token)
 }

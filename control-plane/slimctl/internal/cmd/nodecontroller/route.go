@@ -15,6 +15,7 @@ import (
 	"github.com/agntcy/slim/control-plane/common/controller"
 	"github.com/agntcy/slim/control-plane/common/options"
 	grpcapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
+	commonUtil "github.com/agntcy/slim/control-plane/common/util"
 	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/util"
 )
 
@@ -110,7 +111,7 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 				)
 			}
 
-			organization, namespace, agentType, agentID, err := util.ParseRoute(routeID)
+			organization, namespace, agentType, agentID, err := commonUtil.ParseRoute(routeID)
 			if err != nil {
 				return err
 			}
@@ -160,22 +161,26 @@ func newAddCmd(opts *options.CommonOptions) *cobra.Command {
 				return fmt.Errorf("error receiving ack via stream: %w", err)
 			}
 
-			a := ack.GetAck()
+			a := ack.GetConfigCommandAck()
 			if a == nil {
 				return fmt.Errorf("unexpected response type received (not an ACK): %v", ack)
 			}
 
-			fmt.Printf(
-				"ACK received for %s: success=%t\n",
-				a.OriginalMessageId,
-				a.Success,
-			)
-			if len(a.Messages) > 0 {
-				for i, ackMsg := range a.Messages {
-					fmt.Printf("    [%d] %s\n", i+1, ackMsg)
+			fmt.Printf("ACK received for %s", a.OriginalMessageId)
+			for _, cs := range a.ConnectionsStatus {
+				if cs.Success {
+					fmt.Printf("connection successfully applied: %s", cs.ConnectionId)
+				} else {
+					fmt.Printf("failed to create connection %s: %s", cs.ConnectionId, cs.ErrorMsg)
 				}
 			}
-
+			for _, ss := range a.SubscriptionsStatus {
+				if ss.Success {
+					fmt.Printf("subscription successfully applied: %v", ss.Subscription)
+				} else {
+					fmt.Printf("failed to set subscription %v: %s", ss.Subscription, ss.ErrorMsg)
+				}
+			}
 			return nil
 		},
 	}
@@ -200,7 +205,7 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 				)
 			}
 
-			organization, namespace, agentType, agentID, err := util.ParseRoute(routeID)
+			organization, namespace, agentType, agentID, err := commonUtil.ParseRoute(routeID)
 			if err != nil {
 				return err
 			}
@@ -250,19 +255,17 @@ func newDelCmd(opts *options.CommonOptions) *cobra.Command {
 				return fmt.Errorf("error receiving ack via stream: %w", err)
 			}
 
-			a := ack.GetAck()
+			a := ack.GetConfigCommandAck()
 			if a == nil {
 				return fmt.Errorf("unexpected response type received (not an ACK): %v", ack)
 			}
+			fmt.Printf("ACK received for %s", a.OriginalMessageId)
 
-			fmt.Printf(
-				"ACK received for %s: success=%t\n",
-				a.OriginalMessageId,
-				a.Success,
-			)
-			if len(a.Messages) > 0 {
-				for i, ackMsg := range a.Messages {
-					fmt.Printf("    [%d] %s\n", i+1, ackMsg)
+			for _, ss := range a.SubscriptionsStatus {
+				if ss.Success {
+					fmt.Printf("subscription successfully deleted: %v", ss.Subscription)
+				} else {
+					fmt.Printf("failed to delete subscription %v: %s", ss.Subscription, ss.ErrorMsg)
 				}
 			}
 

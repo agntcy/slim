@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1](https://github.com/agntcy/slim/compare/slim-v0.6.0...slim-v0.6.1) - 2025-10-17
+
+### Other
+
+- update Cargo.lock dependencies
+
+## [0.6.0](https://github.com/agntcy/slim/compare/slim-v0.5.0...slim-v0.6.0) - 2025-10-09
+
+### Other
+
+- updated the following local packages: agntcy-slim-config, agntcy-slim-tracing, agntcy-slim-service
+
+## [0.5.0](https://github.com/agntcy/slim/compare/slim-v0.4.0...slim-v0.5.0) - 2025-09-17
+
+### Fixed
+
+- use duration-string in place of duration-str ([#683](https://github.com/agntcy/slim/pull/683))
+
 ## [0.4.0](https://github.com/agntcy/slim/compare/slim-v0.3.15...slim-v0.4.0) - 2025-07-31
 
 ### Other

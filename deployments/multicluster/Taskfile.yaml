@@ -1,0 +1,289 @@
+
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+version: "3"
+
+# This Taskfile includes specific tasks for the naive deployment strategy.
+
+includes:
+  templates: 
+    taskfile: ../Taskfile.yaml
+    internal: true
+
+  apps: 
+    taskfile: ../client_apps/Taskfile.yaml
+    dir: ../client_apps
+    internal: true
+
+vars:
+
+  STRATEGY: "multi-cluster"
+
+  CLUSTER_ADMIN_TRUST_DOMAIN: '{{ .CLUSTER_ADMIN_TRUST_DOMAIN | default "admin.example" }}'
+  CLUSTER_A_TRUST_DOMAIN: '{{ .CLUSTER_A_TRUST_DOMAIN | default "cluster-a.example" }}'
+  CLUSTER_B_TRUST_DOMAIN: '{{ .CLUSTER_B_TRUST_DOMAIN | default "cluster-b.example" }}'
+  
+#  Suppress task name and command output by default
+silent: true
+
+tasks:
+  default:
+    cmds:
+      - task: templates:default
+
+  multi-cluster:up:
+    desc: Start a local Kubernetes cluster using Kind
+    cmds: 
+      # Start cloud provider for LoadBalancer support
+      - task: multi-cluster:lb:up
+
+      - kind create cluster --name {{ .CLUSTER_ADMIN_TRUST_DOMAIN }}
+      - kind create cluster --name {{ .CLUSTER_A_TRUST_DOMAIN }}
+      - kind create cluster --name {{ .CLUSTER_B_TRUST_DOMAIN }}
+
+  multi-cluster:down:
+    desc: Delete the local Kubernetes cluster
+    cmds: 
+      - kind delete cluster --name {{ .CLUSTER_ADMIN_TRUST_DOMAIN }}    
+      - kind delete cluster --name {{ .CLUSTER_A_TRUST_DOMAIN }}
+      - kind delete cluster --name {{ .CLUSTER_B_TRUST_DOMAIN }}
+      - rm -f ./*.spiffe
+      - rm -f ./*.example.yaml
+
+  spire:server:deploy:
+    internal: true
+    desc: Deploy SPIRE server
+    vars:
+      TRUST_DOMAIN: '{{ .TRUST_DOMAIN | default "" }}'
+      SERVICE_TYPE: '{{ .SERVICE_TYPE | default "LoadBalancer" }}'
+      BUNDLE_PATH: '{{ .BUNDLE_PATH | default "spire-bundle.spiffe" }}'    
+    cmds:
+      - |
+        helm upgrade --install  \
+        spire-crds \
+        spire-crds \
+        --repo https://spiffe.github.io/helm-charts-hardened/ \
+        --namespace {{ .SPIRE_NAMESPACE }} \
+        --create-namespace \
+        --wait \
+        --wait-for-jobs \
+        --timeout "15m"
+      - |
+        helm upgrade --install spire spire \
+        --repo https://spiffe.github.io/helm-charts-hardened/ \
+        --set global.spire.trustDomain="{{ .TRUST_DOMAIN }}" \
+        --set global.ca.subject.country="US" \
+        --set global.ca.subject.organization="SLIM Example Org" \
+        --set global.ca.subject.commonName="{{ .TRUST_DOMAIN }}" \
+        --set spire-server.service.type="{{ .SERVICE_TYPE }}" \
+        --set spire-server.federation.enabled="true" \
+        --namespace {{ .SPIRE_NAMESPACE }} \
+        --create-namespace \
+        --wait \
+        --wait-for-jobs \
+        --timeout "15m"
+      - |
+        kubectl get configmap -n {{ .SPIRE_NAMESPACE }} spire-bundle -o json | jq '.data."bundle.spiffe"' -r > {{ .BUNDLE_PATH }}      
+
+  spire:deploy:
+    desc: Set up federation between SPIRE servers
+    cmds:
+      - kubectl config use-context kind-{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}    
+      - task: spire:server:deploy
+        vars:
+          TRUST_DOMAIN: '{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}'
+          BUNDLE_PATH: ./{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}.spiffe
+          SPIRE_NAMESPACE: '{{ .SPIRE_NAMESPACE }}'
+      - task slim:wait-for-lb LB_HOSTNAME=spire.{{ .CLUSTER_ADMIN_TRUST_DOMAIN }} SVC_NAME=spire-server NAMESPACE='{{ .SPIRE_NAMESPACE }}'
+
+      - kubectl config use-context kind-{{ .CLUSTER_A_TRUST_DOMAIN }}    
+      - task: spire:server:deploy
+        vars:
+          TRUST_DOMAIN: '{{ .CLUSTER_A_TRUST_DOMAIN }}'
+          BUNDLE_PATH: ./{{ .CLUSTER_A_TRUST_DOMAIN }}.spiffe
+          SPIRE_NAMESPACE: '{{ .SPIRE_NAMESPACE }}'
+      - task slim:wait-for-lb LB_HOSTNAME=spire.{{ .CLUSTER_A_TRUST_DOMAIN }} SVC_NAME=spire-server NAMESPACE='{{ .SPIRE_NAMESPACE }}'
+
+      - kubectl config use-context kind-{{ .CLUSTER_B_TRUST_DOMAIN }}
+      - task: spire:server:deploy
+        vars:
+          TRUST_DOMAIN: '{{ .CLUSTER_B_TRUST_DOMAIN }}'
+          BUNDLE_PATH: ./{{ .CLUSTER_B_TRUST_DOMAIN }}.spiffe
+      - task slim:wait-for-lb LB_HOSTNAME=spire.{{ .CLUSTER_B_TRUST_DOMAIN }} SVC_NAME=spire-server NAMESPACE='{{ .SPIRE_NAMESPACE }}'
+
+  spire:federation:gen-resource:
+    internal: true
+    desc: Generate federation resource for a target trust domain
+    vars:
+      TARGET_DOMAIN: '{{ .TARGET_DOMAIN }}'
+    cmds:
+      - |
+        cat > {{ .TARGET_DOMAIN }}.yaml << EOF
+              apiVersion: spire.spiffe.io/v1alpha1
+              kind: ClusterFederatedTrustDomain
+              metadata:
+                name: {{ .TARGET_DOMAIN }}
+              spec:
+                className: spire-spire
+                trustDomain: spiffe://{{ .TARGET_DOMAIN }}
+                bundleEndpointURL: https://spire.{{ .TARGET_DOMAIN }}:8443
+                bundleEndpointProfile:
+                  type: https_spiffe
+                  endpointSPIFFEID: spiffe://{{ .TARGET_DOMAIN }}/spire/server
+                trustDomainBundle: |-
+                  $(cat ./{{ .TARGET_DOMAIN }}.spiffe)
+        EOF
+
+  spire:federation:deploy:
+    desc: Set up federation between clusters      
+    cmds:
+      - task: spire:federation:gen-resource
+        vars:
+          TARGET_DOMAIN: '{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}'
+      - task: spire:federation:gen-resource
+        vars:
+          TARGET_DOMAIN: '{{ .CLUSTER_A_TRUST_DOMAIN }}'
+      - task: spire:federation:gen-resource
+        vars:
+          TARGET_DOMAIN: '{{ .CLUSTER_B_TRUST_DOMAIN }}'
+
+      - kubectl config use-context kind-{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}
+      - echo "Creating federation config on {{ .CLUSTER_ADMIN_TRUST_DOMAIN }} for {{ .CLUSTER_A_TRUST_DOMAIN }} ..."
+      - kubectl apply -f ./{{ .CLUSTER_A_TRUST_DOMAIN }}.yaml -n {{ .SPIRE_NAMESPACE }}
+
+      - kubectl config use-context kind-{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}
+      - echo "Creating federation config on {{ .CLUSTER_ADMIN_TRUST_DOMAIN }} for {{ .CLUSTER_B_TRUST_DOMAIN }} ..."
+      - kubectl apply -f ./{{ .CLUSTER_B_TRUST_DOMAIN }}.yaml -n {{ .SPIRE_NAMESPACE }}
+
+      - kubectl config use-context kind-{{ .CLUSTER_A_TRUST_DOMAIN }}
+      - echo "Creating federation config on {{ .CLUSTER_A_TRUST_DOMAIN }} for {{ .CLUSTER_ADMIN_TRUST_DOMAIN }} ..."
+      - kubectl apply -f ./{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}.yaml -n {{ .SPIRE_NAMESPACE }}
+
+      - kubectl config use-context kind-{{ .CLUSTER_A_TRUST_DOMAIN }}
+      - echo "Creating federation config on {{ .CLUSTER_A_TRUST_DOMAIN }} for {{ .CLUSTER_B_TRUST_DOMAIN }} ..."
+      - kubectl apply -f ./{{ .CLUSTER_B_TRUST_DOMAIN }}.yaml -n {{ .SPIRE_NAMESPACE }}
+ 
+      - kubectl config use-context kind-{{ .CLUSTER_B_TRUST_DOMAIN }}
+      - echo "Creating federation config on {{ .CLUSTER_B_TRUST_DOMAIN }} for {{ .CLUSTER_ADMIN_TRUST_DOMAIN }} ..."
+      - kubectl apply -f ./{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}.yaml -n {{ .SPIRE_NAMESPACE }}
+
+      - kubectl config use-context kind-{{ .CLUSTER_B_TRUST_DOMAIN }}
+      - echo "Creating federation config on {{ .CLUSTER_B_TRUST_DOMAIN }} for {{ .CLUSTER_A_TRUST_DOMAIN }} ..."
+      - kubectl apply -f ./{{ .CLUSTER_A_TRUST_DOMAIN }}.yaml -n {{ .SPIRE_NAMESPACE }}
+
+  slim:controller:deploy:
+    desc: Deploy Slim Controller
+    cmds:
+      - kubectl config use-context kind-{{ .CLUSTER_ADMIN_TRUST_DOMAIN }}
+      - |
+        helm upgrade --install slim-control ../../charts/slim-control-plane \
+          --namespace slim \
+          --create-namespace \
+          --set image.tag="{{ .SLIM_CONTROLLER_IMAGE_TAG }}" \
+          --values controller-values.yaml   
+
+      - task slim:wait-for-lb LB_HOSTNAME=slim-control.{{ .CLUSTER_ADMIN_TRUST_DOMAIN }} SVC_NAME=slim-control   
+
+  slim:deploy:
+    desc: Deploy Slim using the StatefulSet deployment strategy
+
+    requires:
+      vars: [SLIM_IMAGE_TAG]
+
+    deps: 
+      # - templates:cluster:use-context
+
+    cmds:
+      # Deploy SLIM to cluster-a
+      - kubectl config use-context kind-{{ .CLUSTER_A_TRUST_DOMAIN }}
+      - |
+        helm upgrade --install slim ../../charts/slim \
+          --namespace slim \
+          --create-namespace \
+          --set slim.image.tag="{{ .SLIM_IMAGE_TAG }}" \
+          --values cluster-a-values.yaml
+
+      - task slim:wait-for-lb LB_HOSTNAME=slim.{{ .CLUSTER_A_TRUST_DOMAIN }}         
+      # Deploy SLIM to cluster-b
+      - kubectl config use-context kind-{{ .CLUSTER_B_TRUST_DOMAIN }}
+      - |
+        helm upgrade --install slim ../../charts/slim \
+          --namespace slim \
+          --create-namespace \
+          --set slim.image.tag="{{ .SLIM_IMAGE_TAG }}" \
+          --values cluster-b-values.yaml
+
+      - task slim:wait-for-lb LB_HOSTNAME=slim.{{ .CLUSTER_B_TRUST_DOMAIN }}     
+
+  slim:wait-for-lb:
+    desc: Wait for LoadBalancer IP to be available (with timeout)
+    vars:
+      TIMEOUT: '{{.TIMEOUT | default "300"}}'  # 5 minutes default timeout
+      LB_HOSTNAME: '{{.LB_HOSTNAME | default "example.local"}}'
+      SVC_NAME: '{{.SVC_NAME | default "slim"}}'
+      NAMESPACE: '{{.NAMESPACE | default "slim"}}'
+    cmds:
+      - |
+        echo "Waiting for LoadBalancer IP to be assigned (timeout: {{.TIMEOUT}}s)..."
+
+        COUNTER=0
+        while [ $COUNTER -lt {{.TIMEOUT}} ]; do
+          LB_IP=$(kubectl get service -n {{.NAMESPACE}} {{.SVC_NAME}} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+          if [ -n "$LB_IP" ] && [ "$LB_IP" != "<pending>" ] && [ "$LB_IP" != "null" ]; then
+            echo "LoadBalancer IP assigned: $LB_IP"
+            echo -e "\e[32mAdd to your /etc/hosts: $LB_IP    {{.LB_HOSTNAME}}\e[0m"            
+            exit 0
+          fi
+          echo "LoadBalancer IP not yet available, waiting... ($COUNTER/{{.TIMEOUT}})"
+          sleep 5
+          COUNTER=$((COUNTER + 5))
+        done
+        echo "Timeout waiting for LoadBalancer IP after {{.TIMEOUT}} seconds"
+        exit 1
+
+  multi-cluster:lb:up:
+    desc: Start cloud provider for LoadBalancer support
+    status:
+    # Only start the processes if they are not running
+      - ps aux | grep '[c]loud-provider-kind' >/dev/null;
+
+    cmds:
+      - |
+        echo "Starting Kind cloud provider for LoadBalancer support..."
+        bash -c "go run sigs.k8s.io/cloud-provider-kind@latest >/dev/null 2>&1 &"
+
+  multi-cluster:lb:down:
+    desc: Stop cloud provider for LoadBalancer support
+    status:
+    # Only kill the processes if they are running
+      - test -z $(ps aux | grep '[c]loud-provider-kind') >/dev/null;
+
+    cmds:
+      - |
+        echo "Stopping Kind cloud provider for LoadBalancer support..."
+        kill -9 $(ps aux | grep [c]loud-provider-kind | awk '{print $2}')
+  
+  test.sender:deploy:
+    desc: Deploy sender application with SPIRE
+    vars:
+      TEMPLATE: '{{ .TEMPLATE | default "./with_spire/sender.yaml" }}'  
+      NAMESPACE: '{{ .NAMESPACE | default "default" }}'
+    cmds:
+      - task: apps:k8s:apply
+        vars:
+          TEMPLATE: '{{ .TEMPLATE }}'
+          NAMESPACE: '{{ .NAMESPACE }}'
+
+  test.receiver:deploy:
+    desc: Deploy receiver application with SPIRE
+    vars:
+      TEMPLATE: '{{ .TEMPLATE | default "./with_spire/receiver.yaml" }}'  
+      NAMESPACE: '{{ .NAMESPACE | default "default" }}'
+    cmds:
+      - task: apps:k8s:apply
+        vars:
+          TEMPLATE: '{{ .TEMPLATE }}'
+          NAMESPACE: '{{ .NAMESPACE }}'
+  
+

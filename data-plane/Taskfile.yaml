@@ -19,18 +19,18 @@ vars:
   CARGO_COMPONENTS: "cargo-sort cargo-audit cargo-llvm-cov cargo-machete@0.7.0 cargo-deny@0.17.0 typos-cli"
 
 tasks:
-  data-plane:python-bindings:lint:
+  data-plane:python:lint:
     desc: "Python linter"
     internal: true
-    dir: ./python-bindings
+    dir: ./python/bindings
     cmds:
-      - task python-bindings:lint
+      - task python:bindings:lint
 
   data-plane:lint:
     desc: "Run the linter"
     cmds:
       - task: data-plane:lintall
-      - task: data-plane:python-bindings:lint
+      - task: data-plane:python:lint
 
   data-plane:build:strip:
     desc: "Build the project and strip the debug symbols"
@@ -65,20 +65,20 @@ tasks:
     cmds:
       - docker compose -f ./config/telemetry/docker-compose.yml up
 
-  data-plane:bindings:python:
-    desc: "Generate the Python bindings"
-    dir: ./python-bindings
+  data-plane:python:packaging:
+    desc: "Generate python packages"
+    dir: ./python
     cmds:
-      - task python-bindings:packaging PROFILE={{.PROFILE}} TARGET={{.TARGET}}
+      - task python:bindings:packaging PROFILE={{.PROFILE}} TARGET={{.TARGET}}
     vars:
       PROFILE: '{{.PROFILE | default "debug"}}'
       TARGET: '{{.TARGET | default ""}}'
 
   data-plane:bindings:test:
     desc: "Test the Python bindings"
-    dir: ./python-bindings
+    dir: ./python/bindings
     cmds:
-      - task python-bindings:test TESTS={{.TESTS}}
+      - task python:bindings:test TESTS={{.TESTS}}
     vars:
       TESTS: '{{.TESTS | default ""}}'
 

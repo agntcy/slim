@@ -1,13 +1,18 @@
 package nodecontrol
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 )
+
+const DefaultResponseTimeout = 90
 
 type defaultNodeCommandHandler struct {
 	// Maps node IDs and streams map[nodeID]controllerapi.ControllerService_OpenControlChannelServer
@@ -20,9 +25,8 @@ type defaultNodeCommandHandler struct {
 	nodeResponseMsgMap sync.Map
 }
 
-// WaitForResponse implements NodeCommandHandler.
-func (m *defaultNodeCommandHandler) WaitForResponse(
-	nodeID string, messageType reflect.Type,
+func (m *defaultNodeCommandHandler) WaitForResponseWithTimeout(
+	ctx context.Context, nodeID string, messageType reflect.Type, originalMessageID string, timeout time.Duration,
 ) (*controllerapi.ControlMessage, error) {
 	if nodeID == "" {
 		return nil, fmt.Errorf("nodeID cannot be empty")
@@ -30,27 +34,51 @@ func (m *defaultNodeCommandHandler) WaitForResponse(
 	if messageType == nil {
 		return nil, fmt.Errorf("messageType cannot be nil")
 	}
+	if originalMessageID == "" {
+		return nil, fmt.Errorf("originalMessageID cannot be empty")
+	}
+	switch messageType {
+	case reflect.TypeOf(&controllerapi.ControlMessage_Ack{}):
+	case reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommandAck{}):
+	case reflect.TypeOf(&controllerapi.ControlMessage_SubscriptionListResponse{}):
+	case reflect.TypeOf(&controllerapi.ControlMessage_ConnectionListResponse{}):
+	default:
+		return nil, fmt.Errorf("unsupported messageType: %s", messageType.String())
+	}
+	zlog := zerolog.Ctx(ctx)
 
 	// create a channel to receive *controllerapi.ControlMessage messages.
-	// save the channel in m.nodeResponseMsgMap with key = nodeID + messageType.
-	key := nodeID + ":" + messageType.String()
+	// save the channel in m.nodeResponseMsgMap with key = nodeID + messageType + originalMessageID.
+	key := nodeID + ":" + messageType.String() + ":" + originalMessageID
 	ch := make(chan *controllerapi.ControlMessage, 1)
 	m.nodeResponseMsgMap.Store(key, ch)
 	defer m.nodeResponseMsgMap.Delete(key)
 
-	fmt.Println("Waiting for message of type:", messageType)
+	zlog.Debug().Msgf("Waiting for message of type: %s ID: %s", messageType, originalMessageID)
 
 	// wait on that channel with timeout
-	select {
-	case msg := <-ch:
-		return msg, nil
-	case <-time.After(10 * time.Second):
-		return nil, fmt.Errorf("timeout waiting for message of type %v", messageType)
+	for {
+		select {
+		case msg := <-ch:
+			return msg, nil
+		case <-time.After(timeout):
+			return nil, fmt.Errorf("timeout waiting for message of type %v", messageType)
+		}
 	}
 }
 
+// WaitForResponse implements NodeCommandHandler.
+func (m *defaultNodeCommandHandler) WaitForResponse(
+	ctx context.Context, nodeID string, messageType reflect.Type, originalMessageID string,
+) (*controllerapi.ControlMessage, error) {
+	return m.WaitForResponseWithTimeout(ctx, nodeID, messageType, originalMessageID, DefaultResponseTimeout*time.Second)
+}
+
 // ResponseReceived implements NodeCommandHandler.
-func (m *defaultNodeCommandHandler) ResponseReceived(nodeID string, command *controllerapi.ControlMessage) {
+func (m *defaultNodeCommandHandler) ResponseReceived(ctx context.Context, nodeID string,
+	command *controllerapi.ControlMessage) {
+
+	zlog := zerolog.Ctx(ctx)
 	if nodeID == "" {
 		return
 	}
@@ -58,14 +86,35 @@ func (m *defaultNodeCommandHandler) ResponseReceived(nodeID string, command *con
 		return
 	}
 	if command.MessageId == "" {
+		zlog.Warn().Msgf("Response message received with empty MessageId")
+		return
+	}
+
+	originalMessageID := ""
+	// get original message ID from the command
+	switch reflect.TypeOf(command.GetPayload()) {
+	case reflect.TypeOf(&controllerapi.ControlMessage_Ack{}):
+		originalMessageID = command.GetAck().GetOriginalMessageId()
+	case reflect.TypeOf(&controllerapi.ControlMessage_ConfigCommandAck{}):
+		originalMessageID = command.GetConfigCommandAck().GetOriginalMessageId()
+	case reflect.TypeOf(&controllerapi.ControlMessage_SubscriptionListResponse{}):
+		originalMessageID = command.GetSubscriptionListResponse().GetOriginalMessageId()
+	case reflect.TypeOf(&controllerapi.ControlMessage_ConnectionListResponse{}):
+		originalMessageID = command.GetConnectionListResponse().GetOriginalMessageId()
+	default:
+		zlog.Warn().Msgf("Unsupported response message type received: %s", reflect.TypeOf(command.GetPayload()))
+	}
+	if originalMessageID == "" {
+		zlog.Warn().Msgf("Response message received with empty OriginalMessageId")
 		return
 	}
 
 	// Get the channel for the specific nodeID and message type
-	key := nodeID + ":" + reflect.TypeOf(command.GetPayload()).String()
+	key := nodeID + ":" + reflect.TypeOf(command.GetPayload()).String() + ":" + originalMessageID
 	ch, ok := m.nodeResponseMsgMap.Load(key)
 	if !ok {
-		fmt.Printf("No channel found for node %s and message type %s\n", nodeID, reflect.TypeOf(command.GetPayload()))
+		zlog.Warn().Msgf("No channel found for node %s and message type %s ID: %s\n", nodeID,
+			reflect.TypeOf(command.GetPayload()), originalMessageID)
 		return
 	}
 
@@ -73,7 +122,7 @@ func (m *defaultNodeCommandHandler) ResponseReceived(nodeID string, command *con
 	select {
 	case ch.(chan *controllerapi.ControlMessage) <- command:
 	default:
-		fmt.Printf(
+		zlog.Debug().Msgf(
 			"Channel for node %s and message type %s is full, dropping message\n",
 			nodeID,
 			reflect.TypeOf(command.GetPayload()),
@@ -82,7 +131,7 @@ func (m *defaultNodeCommandHandler) ResponseReceived(nodeID string, command *con
 }
 
 // GetConnectionStatus implements NodeCommandHandler.
-func (m *defaultNodeCommandHandler) GetConnectionStatus(nodeID string) (NodeStatus, error) {
+func (m *defaultNodeCommandHandler) GetConnectionStatus(_ context.Context, nodeID string) (NodeStatus, error) {
 	status, ok := m.nodeConnectionStatusMap.Load(nodeID)
 	if !ok {
 		return NodeStatusUnknown, fmt.Errorf("no connection status found for node %s", nodeID)
@@ -91,34 +140,36 @@ func (m *defaultNodeCommandHandler) GetConnectionStatus(nodeID string) (NodeStat
 }
 
 // UpdateConnectionStatus implements NodeCommandHandler.
-func (m *defaultNodeCommandHandler) UpdateConnectionStatus(nodeID string, status NodeStatus) {
+func (m *defaultNodeCommandHandler) UpdateConnectionStatus(_ context.Context,
+	nodeID string, status NodeStatus) {
 	m.nodeConnectionStatusMap.Store(nodeID, status)
 }
 
 // AddStream implements NodeCommandHandler.
 func (m *defaultNodeCommandHandler) AddStream(
-	nodeID string, stream controllerapi.ControllerService_OpenControlChannelServer,
+	ctx context.Context, nodeID string, stream controllerapi.ControllerService_OpenControlChannelServer,
 ) {
 	m.nodeStreamMap.Store(nodeID, stream)
 
 	// Update status to connected
-	m.UpdateConnectionStatus(nodeID, NodeStatusConnected)
+	m.UpdateConnectionStatus(ctx, nodeID, NodeStatusConnected)
 }
 
 // RemoveStream implements NodeCommandHandler.
-func (m *defaultNodeCommandHandler) RemoveStream(nodeID string) error {
+func (m *defaultNodeCommandHandler) RemoveStream(ctx context.Context, nodeID string) error {
 	if _, ok := m.nodeStreamMap.LoadAndDelete(nodeID); !ok {
 		return fmt.Errorf("no stream found for node %s", nodeID)
 	}
 
 	// Update status to not connected
-	m.UpdateConnectionStatus(nodeID, NodeStatusNotConnected)
+	m.UpdateConnectionStatus(ctx, nodeID, NodeStatusNotConnected)
 
 	return nil
 }
 
 // SendMessage implements NodeCommandHandler.
-func (m *defaultNodeCommandHandler) SendMessage(nodeID string, controlMessage *controllerapi.ControlMessage) error {
+func (m *defaultNodeCommandHandler) SendMessage(ctx context.Context,
+	nodeID string, controlMessage *controllerapi.ControlMessage) error {
 	// check if nodeID is empty
 	if nodeID == "" {
 		return fmt.Errorf("nodeID cannot be empty")
@@ -132,7 +183,7 @@ func (m *defaultNodeCommandHandler) SendMessage(nodeID string, controlMessage *c
 	defer nodeMutex.Unlock()
 
 	// check status of the node
-	status, err := m.GetConnectionStatus(nodeID)
+	status, err := m.GetConnectionStatus(ctx, nodeID)
 	if err != nil {
 		return fmt.Errorf("failed to get connection status for node %s: %w", nodeID, err)
 	}

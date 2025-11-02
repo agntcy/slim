@@ -2,7 +2,7 @@
 name = "agntcy-slim-service"
 edition = { workspace = true }
 license = { workspace = true }
-version = "0.5.0"
+version = "0.8.0"
 description = "Main service and public API to interact with SLIM data plane."
 
 [lib]
@@ -14,18 +14,17 @@ agntcy-slim-config = { workspace = true }
 agntcy-slim-controller = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-mls = { workspace = true }
-async-trait = { workspace = true }
-bincode = { workspace = true }
+agntcy-slim-session = { workspace = true }
+
 dirs = "5.0"
 drain = { workspace = true }
 parking_lot = { workspace = true }
-rand = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
-tonic = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
+tokio-test = { workspace = true }
 tracing-test = { workspace = true }

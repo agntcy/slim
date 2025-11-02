@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.6.0](https://github.com/agntcy/slim/compare/slimctl-v0.2.2...slimctl-v0.6.0) (2025-10-09)
+
+
+### Features
+
+* add basic auth to slimctl ([#763](https://github.com/agntcy/slim/issues/763)) ([b064d0d](https://github.com/agntcy/slim/commit/b064d0d1fce57c219f18e210770765f348c45fdd))
+* handle updates from SLIM nodes ([#708](https://github.com/agntcy/slim/issues/708)) ([ccc5183](https://github.com/agntcy/slim/commit/ccc518386d0ece16237647511118e7d032e033c6))
+* implement control plane group management ([#554](https://github.com/agntcy/slim/issues/554)) ([d0065a0](https://github.com/agntcy/slim/commit/d0065a0e1955dbc7e7fd2bfabd5fdca210459a0b))
+
+## [0.2.2](https://github.com/agntcy/slim/compare/slimctl-v0.2.1...slimctl-v0.2.2) (2025-09-18)
+
+### Fixes
+
+* fixed the slimctl version crash ([#585](https://github.com/agntcy/slim/issues/585)) ([e4ba8e6](https://github.com/agntcy/slim/commit/e4ba8e6c44265bf8705d847069ed75fa87329564))
+
+### Features
+
+* add channel and participant commands ([#534](https://github.com/agntcy/slim/issues/534)) ([ecbca90](https://github.com/agntcy/slim/commit/ecbca9074548a51f26e889a2e1adecb1a67a2029))
+
 ## [0.2.1](https://github.com/agntcy/slim/compare/slimctl-v0.2.0...slimctl-v0.2.1) (2025-07-31)
 
 

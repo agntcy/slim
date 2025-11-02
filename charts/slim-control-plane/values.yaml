@@ -26,14 +26,30 @@ config:
   northbound:
     httpHost: 0.0.0.0
     httpPort: "{{ .Values.service.north.port }}"
-    logging:
-      level: DEBUG
 
   southbound:
     httpHost: 0.0.0.0
     httpPort: "{{ .Values.service.south.port }}"
-    logging:
-      level: DEBUG
+  # Uncomment below to enable MTLS by Spire
+  #     tls:
+  #       useSpiffe: true
+  #     spire:
+  #       socketPath: "unix:///run/spire/agent-sockets/api.sock"
+
+  logging:
+    level: DEBUG
+  reconciler:
+    # Max number of times a failed reconcile will be retried
+    maxRequeues: 15
+    # Max number of reconciles that can be run in parallel for different nodes
+    maxNumOfParallelReconciles: 1000
+
+spire:
+  enabled: false
+  # Slim Controller SVIDs will be federated with these trust domains
+  trustedDomains: []
+    # - cluster-a.example.org
+    # - cluster-b.example.org
 
 env:
   - name: NB_API_HTTP_HOST
@@ -60,10 +76,12 @@ podAnnotations: {}
 # For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
 podLabels: {}
 
-podSecurityContext: {}
+podSecurityContext:
+  {}
   # fsGroup: 2000
 
-securityContext: {}
+securityContext:
+  {}
   # capabilities:
   #   drop:
   #   - ALL
@@ -84,7 +102,8 @@ service:
 ingress:
   enabled: false
   className: ""
-  annotations: {}
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
     # kubernetes.io/ingress.class: nginx
     # kubernetes.io/tls-acme: "true"
   hosts:
@@ -96,8 +115,13 @@ ingress:
   #  - secretName: chart-example-tls
   #    hosts:
   #      - chart-example.local
+  basicAuth:
+    enabled: false
+    existingBasicAuthSecret: ""
+    realm: ""
 
-resources: {}
+resources:
+  {}
   # We usually recommend not to specify default resources and to leave this as a conscious
   # choice for the user. This also increases chances charts run on environments with little
   # resources, such as Minikube. If you do want to specify resources, uncomment the following

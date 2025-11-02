@@ -1,0 +1,75 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+[project]
+name = "slim-mcp"
+description = "Model Context Protocol with SLIM as transport"
+readme = "README.md"
+version = "0.1.7"
+requires-python = ">=3.10, <4.0"
+license = "Apache-2.0"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+
+    # Indicate who your project is intended for
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries",
+
+    # Specify the Python versions you support here.
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+dependencies = ["slim-bindings>=0.5.0", "mcp==1.6.0", "anyio>=4.5"]
+
+# [tool.uv.sources]
+# slim-bindings = { path = "../../bindings" }
+
+[dependency-groups]
+testing = ["pytest>=8.3.4", "pytest-asyncio>=0.25.3"]
+linting = ["ruff>=0.12", "mypy>=1.17.1"]
+examples = [
+    "click>=8.1.8",
+    "llama-index>=0.12.29",
+    "llama-index-llms-azure-openai>=0.3.2",
+    "llama-index-llms-ollama>=0.5.4",
+    "llama-index-llms-openai-like>=0.3.4",
+    "llama-index-tools-mcp>=0.1.2",
+]
+
+[tool.uv]
+default-groups = ["testing", "linting", "examples"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+testpaths = "tests"
+
+[tool.ruff]
+extend-exclude = []
+
+[tool.ruff.lint]
+mccabe = { max-complexity = 13 }
+isort = { known-first-party = ["slim_mcp", "tests"] }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["slim_mcp"]
+
+[project.scripts]
+mcp-server-time = "slim_mcp.examples.mcp_server_time:main"
+llamaindex-time-agent = "slim_mcp.examples.llamaindex_time_agent:main"
+
+[[tool.mypy.overrides]]
+module = ["slim_bindings.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["llama_index.*"]
+follow_untyped_imports = true

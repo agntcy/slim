@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 tracing:
-  log_level: debug
+  log_level: info
   display_thread_names: true
   display_thread_ids: true
 
@@ -13,7 +13,7 @@ runtime:
 
 services:
   slim/a:
-    pubsub:
+    dataplane:
       servers:
         - endpoint: "0.0.0.0:46357"
           tls:
@@ -25,4 +25,5 @@ services:
         - endpoint: "http://127.0.0.1:50052"
           tls:
             insecure: true
-
+      token_provider:
+        shared_secret: "group-abcdef-12345678901234567890"

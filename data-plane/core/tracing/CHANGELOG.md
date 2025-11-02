@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.5](https://github.com/agntcy/slim/compare/slim-tracing-v0.2.4...slim-tracing-v0.2.5) - 2025-10-17
+
+### Other
+
+- updated the following local packages: agntcy-slim-config
+
+## [0.2.4](https://github.com/agntcy/slim/compare/slim-tracing-v0.2.3...slim-tracing-v0.2.4) - 2025-10-09
+
+### Other
+
+- upgrade to rust toolchain 1.90.0 ([#730](https://github.com/agntcy/slim/pull/730))
+
+## [0.2.3](https://github.com/agntcy/slim/compare/slim-tracing-v0.2.2...slim-tracing-v0.2.3) - 2025-09-17
+
+### Other
+
+- updated the following local packages: agntcy-slim-config
+
 ## [0.2.2](https://github.com/agntcy/slim/compare/slim-tracing-v0.2.1...slim-tracing-v0.2.2) - 2025-07-31
 
 ### Other
