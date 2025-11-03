@@ -26,8 +26,14 @@ jobs:
       - name: Install cargo-llvm-cov
         run: cargo install cargo-llvm-cov
 
-      - name: Generate data plane coverage report
-        run: task data-plane:test:coverage
+      - name: Setup UV
+        id: setup-uv
+        uses: ./.github/actions/setup-python
+        with:
+          uv-install: true
+
+      - name: Generate data plane coverage report (Rust + Python)
+        run: task data-plane:coverage-full
 
       - name: Generate control-plane coverage reports
         run: task control-plane:coverage
@@ -36,8 +42,8 @@ jobs:
       - name: Upload combined coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
-          files: data-plane/lcov.info,control-plane/*-coverage.out
-          flags: rust,go
+          files: data-plane/lcov.info,data-plane/python/bindings/coverage.lcov,control-plane/*-coverage.out
+          flags: rust,python,go
           name: combined-coverage
           fail_ci_if_error: true
         env:
