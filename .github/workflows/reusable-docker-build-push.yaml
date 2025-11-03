@@ -69,6 +69,7 @@ jobs:
             type=raw,value=latest,enable=${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags') }}
 
       - name: Build cache
+        id: cache
         if: ${{ inputs.cache-source != '' }}
         uses: actions/cache@v4
         with:
@@ -79,7 +80,12 @@ jobs:
         if: ${{ inputs.cache-source != '' }}
         uses: reproducible-containers/buildkit-cache-dance@v3
         with:
-          cache-map: ${{ inputs.cache-source }}
+          cache-map: |
+            {
+              "data-plane/target": "/app/data-plane/target"
+            }
+
+          skip-extraction: ${{ steps.cache.outputs.cache-hit }}
 
       - name: Build and push
         uses: docker/bake-action@a4d7f0b5b91c14a296d792d4ec53a9db17f02e67 # v5.5.0
