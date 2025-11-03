@@ -44,4 +44,5 @@ jobs:
     with:
       bake-targets: slim
       image-tag: ${{ github.sha }}
-      cache-map: data-plane/target
+      cache-map: |
+        { "/tmp/target-cache": "/app/data-plane/target", "/tmp/cargo-cache": "/root/.cargo" }
