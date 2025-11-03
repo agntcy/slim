@@ -93,7 +93,7 @@ jobs:
         with:
           path: |
             ${{ steps.prepare-cache.outputs.cache-host-paths }}
-          key: buildx-${{ runner.os }}-${{ runner.arch }}-${{ inputs.bake-targets }}---${{ hashFiles(inputs.cache-lock) }}
+          key: buildx-${{ runner.os }}-${{ runner.arch }}-${{ inputs.bake-targets }}----${{ hashFiles(inputs.cache-lock) }}
 
       - name: Inject go-build-cache
         if: ${{ inputs.cache-map != '' && inputs.cache-lock != '' }}
