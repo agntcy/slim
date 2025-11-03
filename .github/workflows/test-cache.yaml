@@ -34,6 +34,7 @@ jobs:
     with:
       bake-targets: slim
       image-tag: ${{ github.sha }}
+      cache-source: data-plane/target
 
   warm-build:
     name: Warm build (reuse cache)
@@ -42,3 +43,4 @@ jobs:
     with:
       bake-targets: slim
       image-tag: ${{ github.sha }}
+      cache-source: data-plane/target
