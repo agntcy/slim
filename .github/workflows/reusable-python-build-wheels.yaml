@@ -61,6 +61,8 @@ jobs:
           uv-install: true
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
+        with:
+          workspace: ./data-plane
       - name: Build wheels
         run: |
           task python:bindings:packaging PROFILE=release

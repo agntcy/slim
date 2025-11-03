@@ -70,6 +70,8 @@ jobs:
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
+        with:
+          workspace: ./data-plane
 
       - name: Install dependencies
         run: |
@@ -91,6 +93,8 @@ jobs:
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
+        with:
+          workspace: ${{ inputs.working-directory }}
 
       - name: Setup Python
         uses: ./.github/actions/setup-python
@@ -122,6 +126,8 @@ jobs:
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
+        with:
+          workspace: ${{ inputs.working-directory }}
 
       - name: Run `vuln`
         run: |
@@ -144,6 +150,8 @@ jobs:
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
+        with:
+          workspace: ${{ inputs.working-directory }}
 
       - name: Run `coverage`
         run: |
@@ -166,6 +174,8 @@ jobs:
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
+        with:
+          workspace: ${{ inputs.working-directory }}
 
       - name: Setup Python
         uses: ./.github/actions/setup-python
@@ -225,6 +235,8 @@ jobs:
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
+        with:
+          workspace: ${{ inputs.working-directory }}
 
       - name: Build
         run: |
