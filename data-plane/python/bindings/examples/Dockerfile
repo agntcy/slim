@@ -33,7 +33,7 @@ RUN DEBIAN_FRONTEND=noninteractive \
     curl -1sLf 'https://dl.cloudsmith.io/public/task/task/setup.deb.sh' | bash && \
     chmod +x /tmp/llvm.sh && \
     /tmp/llvm.sh 19 && \
-    apt-get install -y go-task
+    apt-get install -y task
 
 # Install rust toolchain
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y

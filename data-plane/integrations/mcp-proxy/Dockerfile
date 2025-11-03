@@ -24,7 +24,7 @@ RUN DEBIAN_FRONTEND=noninteractive \
     curl -1sLf 'https://dl.cloudsmith.io/public/task/task/setup.deb.sh' | bash && \
     chmod +x /tmp/llvm.sh && \
     /tmp/llvm.sh 19 && \
-    apt-get install -y go-task
+    apt-get install -y task
 
 # Copy source code
 COPY . /app
