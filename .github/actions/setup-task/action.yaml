@@ -84,8 +84,12 @@ runs:
             ;;
         esac
 
+        # Determine Windows architecture naming
+        [[ $OS == "windows" ]] && BINARY_NAME="task.exe" || BINARY_NAME="task"
+
         echo "os=$OS" >> $GITHUB_OUTPUT
         echo "arch=$ARCH" >> $GITHUB_OUTPUT
+        echo "binary_name=$BINARY_NAME" >> $GITHUB_OUTPUT
         echo "Platform: $OS-$ARCH"
 
     - name: Setup cache for Task binary
@@ -93,7 +97,8 @@ runs:
       if: inputs.cache-enabled == 'true'
       uses: actions/cache@v4
       with:
-        path: ~/.local/bin/task
+        # If windows, we need to cache task.exe
+        path: ${{ runner.os == 'Windows' && '~/.local/bin/task.exe' || '~/.local/bin/task' }}
         key: task-${{ steps.get-version.outputs.version }}-${{ steps.platform.outputs.os }}-${{ steps.platform.outputs.arch }}
 
     - name: Download and install Task
@@ -112,7 +117,7 @@ runs:
       shell: bash
       run: |
         # Verify installation
-        if ~/.local/bin/task --version; then
+        if ~/.local/bin/${{ steps.platform.outputs.binary_name }} --version; then
           echo "Task installation verified"
         else
           echo "Task installation verification failed"
