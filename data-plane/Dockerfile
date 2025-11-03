@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Build container
-FROM --platform=${BUILDPLATFORM} rust:1.87-slim-bookworm AS rust
+FROM --platform=${BUILDPLATFORM} rust:1.90-slim-bookworm AS rust
 
 SHELL ["/bin/bash", "-c"]
 
