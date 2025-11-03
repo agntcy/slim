@@ -11,9 +11,6 @@
 # Notes:
 #  - The reusable workflow already configures Buildx with cache-from/to using the GHA backend.
 #  - Each job runs on a fresh runner VM; remote cache (type=gha) enables reuse between jobs.
-#  - We cannot directly parse layer cache hit markers (e.g., "CACHED") from the reusable workflow step,
-#    because its internal docker/bake invocation streams directly to the job log. For a deeper analysis
-#    you'd extend the reusable workflow to emit structured cache metrics.
 #  - A shorter warm build compared to the cold build strongly suggests effective caching.
 #
 # Invocation:
@@ -61,10 +58,8 @@ jobs:
       - name: Build (cold) via reusable workflow
         uses: ./.github/workflows/reusable-docker-build-push.yaml
         with:
-          bake-targets: ${{ inputs.bake-targets }}
-          bake-file: ${{ inputs.bake-file }}
-          image-tag: ${{ inputs.image-tag }}
-          image-repo: ${{ inputs.image-repo }}
+          bake-targets: slim
+          image-tag: ${{ github.sha }}
 
       - name: Record end timestamp
         id: end
@@ -99,10 +94,8 @@ jobs:
       - name: Build (warm) via reusable workflow
         uses: ./.github/workflows/reusable-docker-build-push.yaml
         with:
-          bake-targets: ${{ inputs.bake-targets }}
-          bake-file: ${{ inputs.bake-file }}
-          image-tag: ${{ inputs.image-tag }}
-          image-repo: ${{ inputs.image-repo }}
+          bake-targets: slim
+          image-tag: ${{ github.sha }}
 
       - name: Record end timestamp
         id: end
