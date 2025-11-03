@@ -95,9 +95,6 @@ runs:
       with:
         path: ~/.local/bin/task
         key: task-${{ steps.get-version.outputs.version }}-${{ steps.platform.outputs.os }}-${{ steps.platform.outputs.arch }}
-        restore-keys: |
-          task-${{ steps.get-version.outputs.version }}-${{ steps.platform.outputs.os }}-
-          task-${{ steps.get-version.outputs.version }}-
 
     - name: Download and install Task
       if: steps.cache.outputs.cache-hit != 'true'
