@@ -1777,6 +1777,10 @@ where
         // clear all pending tasks
         self.tasks_todo.clear();
 
+        // Remove the local name from the participants list
+        let mut local = self.common.source.clone();
+        local.reset_id();
+        self.group_list.remove(&local);
         // Collect the participants first to avoid borrowing conflicts
         let participants: Vec<Name> = self.group_list.keys().cloned().collect();
 
@@ -1796,10 +1800,7 @@ where
 
         // try to pickup the first task
         match self.tasks_todo.pop_front() {
-            Some(m) => {
-                self.current_task = Some(ModeratorTask::Remove(RemoveParticipant::default()));
-                self.on_leave_request(m).await
-            }
+            Some(m) => self.on_leave_request(m).await,
             None => {
                 self.send_close_signal().await;
                 Ok(())
@@ -1954,8 +1955,9 @@ where
         }
 
         // add ourself to the participants
-        let local_name = self.common.source.clone();
+        let mut local_name = self.common.source.clone();
         let id = local_name.id();
+        local_name.reset_id();
         self.group_list.insert(local_name, id);
 
         Ok(())

@@ -1,6 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashMap;
+
 use clap::Parser;
 use tokio::time;
 use tracing::info;
@@ -132,8 +134,8 @@ async fn main() {
     let (app, mut rx) = svc
         .create_app(
             &name,
-            SharedSecret::new("a", TEST_VALID_SECRET),
-            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new(local_name, TEST_VALID_SECRET),
+            SharedSecret::new(local_name, TEST_VALID_SECRET),
         )
         .await
         .expect("failed to create app");
@@ -157,122 +159,23 @@ async fn main() {
     // wait for the connection to be established
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-    // MLS setup, only if mls_group_id is provided
-    if let Some(group_identifier) = mls_group_id {
-        info!("MLS enabled with group identifier: {}", group_identifier);
-
-        //TODO(zkacsand): temporary file based key package exchange, until the session API is ready to support it
-        // Clean up previous run files
-        let key_package_path = format!("/tmp/mls_key_package_{}", group_identifier);
-        let welcome_path = format!("/tmp/mls_welcome_{}", group_identifier);
-        let _ = std::fs::remove_file(&key_package_path);
-        let _ = std::fs::remove_file(&welcome_path);
-
-        // Clean up MLS identity directories
-        let identity_path = format!("/tmp/mls_identities_{}", local_name);
-        let _ = std::fs::remove_dir_all(&identity_path);
-
-        if message.is_some() {
-            // Client: will join group after server creates it
-            None
-        } else {
-            // Server: create group and wait for client key package
-            let identity_provider = SharedSecret::new("server", TEST_VALID_SECRET);
-            let identity_verifier = SharedSecret::new("server", TEST_VALID_SECRET);
-            let mut server_mls = slim_mls::mls::Mls::new(
-                identity_provider,
-                identity_verifier,
-                std::path::PathBuf::from("/tmp/server_mls"),
-            );
-            server_mls.initialize().await.unwrap();
-
-            // Create group
-            let group_id = server_mls.create_group().await.unwrap();
-            info!("Server created MLS group");
-
-            // Wait for client key package
-            info!(
-                "Server waiting for client key package at: {}",
-                key_package_path
-            );
-            let mut attempts = 0;
-            let key_package = loop {
-                if std::path::Path::new(&key_package_path).exists() {
-                    let key_package_bytes = std::fs::read(&key_package_path).unwrap();
-                    info!("Server found client key package");
-                    break key_package_bytes;
-                }
-                if attempts > 100 {
-                    panic!("Timeout waiting for client key package");
-                }
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                attempts += 1;
-            };
-
-            // Add client to group and generate welcome message
-            let ret = server_mls.add_member(&key_package).await.unwrap();
-
-            // Save welcome message for client
-            std::fs::write(&welcome_path, &ret.welcome_message).unwrap();
-            info!("Server saved welcome message to: {}", welcome_path);
-
-            Some((server_mls, group_id))
-        }
-    } else {
-        info!("MLS disabled - no group identifier provided");
-        None
-    };
-
     // Local array of created sessions
     let mut sessions = vec![];
 
     // check what to do with the message
     if let Some(msg) = message {
-        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
+        let config = SessionConfig {
+            session_type: ProtoSessionType::PointToPoint,
+            max_retries: None,
+            duration: None,
+            mls_enabled: mls_group_id.is_some(),
+            initiator: true,
+            metadata: HashMap::new(),
+        };
         let session_ctx = app
             .create_session(config, remote_app_name.clone(), None)
             .await
             .expect("error creating p2p session");
-
-        // Client MLS setup, only if mls_group_id is provided
-        if let Some(group_identifier) = mls_group_id {
-            // Client: generate key package and wait for welcome message
-            let identity_provider = SharedSecret::new("client", TEST_VALID_SECRET);
-            let identity_verifier = SharedSecret::new("client", TEST_VALID_SECRET);
-            let mut client_mls = slim_mls::mls::Mls::new(
-                identity_provider,
-                identity_verifier,
-                std::path::PathBuf::from("/tmp/client_mls"),
-            );
-            client_mls.initialize().await.unwrap();
-
-            // Generate and save key package for server to use
-            let key_package = client_mls.generate_key_package().await.unwrap();
-            let key_package_path = format!("/tmp/mls_key_package_{}", group_identifier);
-            std::fs::write(&key_package_path, &key_package).unwrap();
-            info!("Client saved key package to: {}", key_package_path);
-
-            // Wait for welcome message from server
-            let welcome_path = format!("/tmp/mls_welcome_{}", group_identifier);
-            info!("Client waiting for welcome message at: {}", welcome_path);
-            let mut attempts = 0;
-            let welcome_message = loop {
-                if std::path::Path::new(&welcome_path).exists() {
-                    let welcome_bytes = std::fs::read(&welcome_path).unwrap();
-                    info!("Client found welcome message");
-                    break welcome_bytes;
-                }
-                if attempts > 100 {
-                    panic!("Timeout waiting for welcome message");
-                }
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                attempts += 1;
-            };
-
-            // Join the group
-            let _group_id = client_mls.process_welcome(&welcome_message).await.unwrap();
-            info!("Client successfully joined group");
-        }
 
         // Get the session and spawn receiver for handling responses
         let session =
