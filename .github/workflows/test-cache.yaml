@@ -29,127 +29,16 @@ on:
 
 jobs:
   cold-build:
-    name: Cold build (populate cache)
-    runs-on: ubuntu-latest
-    outputs:
-      duration-seconds: ${{ steps.duration.outputs.seconds }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Record start timestamp
-        id: start
-        run: echo "ts=$(date +%s)" >> "$GITHUB_OUTPUT"
-
-      - name: Build (cold) via reusable workflow
-        uses: ./.github/workflows/reusable-docker-build-push.yaml
-        with:
-          bake-targets: slim
-          image-tag: ${{ github.sha }}
-
-      - name: Record end timestamp
-        id: end
-        run: echo "ts=$(date +%s)" >> "$GITHUB_OUTPUT"
-
-      - name: Compute duration
-        id: duration
-        run: |
-          start=${{ steps.start.outputs.ts }}
-          end=${{ steps.end.outputs.ts }}
-          echo "seconds=$(( end - start ))" >> "$GITHUB_OUTPUT"
-
-      - name: Summary (cold)
-        run: |
-          echo "### Cold Build" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- Targets: ${{ inputs.bake-targets }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Duration (s): ${{ steps.duration.outputs.seconds }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+    name: Cold build (no cache)
+    uses: ./.github/workflows/reusable-docker-build-push.yaml
+    with:
+      bake-targets: slim
+      image-tag: ${{ github.sha }}
 
   warm-build:
     name: Warm build (reuse cache)
     needs: cold-build
-    runs-on: ubuntu-latest
-    outputs:
-      duration-seconds: ${{ steps.duration.outputs.seconds }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Record start timestamp
-        id: start
-        run: echo "ts=$(date +%s)" >> "$GITHUB_OUTPUT"
-
-      - name: Build (warm) via reusable workflow
-        uses: ./.github/workflows/reusable-docker-build-push.yaml
-        with:
-          bake-targets: slim
-          image-tag: ${{ github.sha }}
-
-      - name: Record end timestamp
-        id: end
-        run: echo "ts=$(date +%s)" >> "$GITHUB_OUTPUT"
-
-      - name: Compute duration
-        id: duration
-        run: |
-          start=${{ steps.start.outputs.ts }}
-          end=${{ steps.end.outputs.ts }}
-          echo "seconds=$(( end - start ))" >> "$GITHUB_OUTPUT"
-
-      - name: Summary (warm)
-        run: |
-          echo "### Warm Build" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- Targets: ${{ inputs.bake-targets }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Duration (s): ${{ steps.duration.outputs.seconds }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-  analyze:
-    name: Analyze cache effectiveness
-    needs:
-      - cold-build
-      - warm-build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Evaluate durations
-        id: eval
-        run: |
-          cold=${{ needs.cold-build.outputs.duration-seconds }}
-          warm=${{ needs.warm-build.outputs.duration-seconds }}
-          improvement=$(( cold - warm ))
-          echo "cold=${cold}" >> "$GITHUB_OUTPUT"
-          echo "warm=${warm}" >> "$GITHUB_OUTPUT"
-          echo "improvement=${improvement}" >> "$GITHUB_OUTPUT"
-          if [ "$warm" -ge "$cold" ]; then
-            echo "cache-effective=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "cache-effective=true" >> "$GITHUB_OUTPUT"
-
-      - name: Summary (analysis)
-        run: |
-          cold=${{ steps.eval.outputs.cold }}
-          warm=${{ steps.eval.outputs.warm }}
-          improvement=${{ steps.eval.outputs.improvement }}
-          effective=${{ steps.eval.outputs.cache-effective }}
-          echo "## Buildx Cache Effectiveness" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric | Cold | Warm | Diff (Cold-Warm) |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|------|------|------------------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Duration (s) | ${cold} | ${warm} | ${improvement} |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          if [ "${effective}" = "true" ]; then
-            echo "Result: Warm build is faster; remote cache appears effective." >> $GITHUB_STEP_SUMMARY
-          else
-            echo "Result: Warm build not faster; investigate cache configuration or layer invalidation." >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "Possible causes:" >> $GITHUB_STEP_SUMMARY
-            echo "- Source changes between jobs (should not happen within one run)." >> $GITHUB_STEP_SUMMARY
-            echo "- Non-deterministic steps (e.g., timestamps, downloaded dependencies without pinning)." >> $GITHUB_STEP_SUMMARY
-            echo "- Cache scope collisions with other runs (rare; consider adding a scope if customizing bake args)." >> $GITHUB_STEP_SUMMARY
-
-      - name: Enforce effectiveness
-        if: steps.eval.outputs.cache-effective == 'false'
-        run: |
-          echo "Cache not effective; failing as per policy."
-          exit 1
+    uses: ./.github/workflows/reusable-docker-build-push.yaml
+    with:
+      bake-targets: slim
+      image-tag: ${{ github.sha }}
