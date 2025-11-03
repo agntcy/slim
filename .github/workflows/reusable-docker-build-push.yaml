@@ -25,7 +25,7 @@ on:
         type: string
         description: "Image repo to use."
         default: "ghcr.io/agntcy/slim"
-      cache-map:
+      cache-source:
         required: false
         type: string
         description: "Cache folder to use."
@@ -73,33 +73,20 @@ jobs:
             type=raw,value=${{ inputs.image-tag }}
             type=raw,value=latest,enable=${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags') }}
 
-      - name: Prepare cache source
-        if: ${{ inputs.cache-map != '' }}
-        id: prepare-cache
-        run: |
-          {
-            echo "cache-host-paths<<EOF"
-            echo '${{ inputs.cache-map }}' | jq -r 'keys[]'
-            echo "EOF"
-            echo "cache-container-paths<<EOF"
-            echo '${{ inputs.cache-map }}' | jq -r '.[]'
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
       - name: Restore/Save cache
         id: cache
         if: ${{ inputs.cache-map != '' && inputs.cache-lock != '' }}
         uses: actions/cache@v4
         with:
-          path: cache-target
-          key: buildx-${{ runner.os }}-${{ runner.arch }}-${{ inputs.bake-targets }}-sa---${{ hashFiles(inputs.cache-lock) }}
+          path: ${{ inputs.cache-source }}
+          key: buildx-${{ runner.os }}-${{ runner.arch }}-${{ inputs.bake-targets }}-sa-s--${{ hashFiles(inputs.cache-lock) }}
 
       - name: Inject go-build-cache
         if: ${{ inputs.cache-map != '' && inputs.cache-lock != '' }}
         uses: reproducible-containers/buildkit-cache-dance@v2.1.4
         with:
-          cache-source: cache-target
-          cache-target: /app/data-plane/target
+          cache-source: ${{ inputs.cache-source }}
+          cache-target: ${{ inputs.cache-target }}
           skip-extraction: ${{ steps.cache.outputs.cache-hit }}
           builder: ${{ steps.setup-buildx.outputs.name }}
 
@@ -117,8 +104,3 @@ jobs:
             *.cache-to=type=gha,mode=max
         env:
           IMAGE_REPO: ${{ inputs.image-repo }}
-
-      - name: Check cache save
-        if: ${{ inputs.cache-map != '' && inputs.cache-lock != '' }}
-        run: |
-          ls -la /tmp
