@@ -20,12 +20,11 @@ RUN DEBIAN_FRONTEND=noninteractive \
         software-properties-common \
         gnupg \
         pkg-config && \
-    curl -OL https://apt.llvm.org/llvm.sh && \
-    chmod +x llvm.sh && \
-    ./llvm.sh 19
-
-# Install taskfile
-RUN sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
+    curl -L -o /tmp/llvm.sh https://apt.llvm.org/llvm.sh && \
+    curl -1sLf 'https://dl.cloudsmith.io/public/task/task/setup.deb.sh' | bash && \
+    chmod +x /tmp/llvm.sh && \
+    /tmp/llvm.sh 19 && \
+    apt-get install -y go-task
 
 # Copy source code
 COPY . /app
