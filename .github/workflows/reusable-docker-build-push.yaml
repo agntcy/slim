@@ -80,14 +80,14 @@ jobs:
 
       - name: Restore/Save cache
         id: cache
-        if: ${{ inputs.cache-map != '' && inputs.cache-lock != '' }}
+        if: ${{ inputs.cache-source != '' && inputs.cache-target != '' && inputs.cache-lock != '' }}
         uses: actions/cache@v4
         with:
           path: ${{ inputs.cache-source }}
           key: buildx-${{ runner.os }}-${{ runner.arch }}-${{ inputs.bake-targets }}-sa-s--${{ hashFiles(inputs.cache-lock) }}
 
       - name: Inject go-build-cache
-        if: ${{ inputs.cache-map != '' && inputs.cache-lock != '' }}
+        if: ${{ inputs.cache-source != '' && inputs.cache-target != '' && inputs.cache-lock != '' }}
         uses: reproducible-containers/buildkit-cache-dance@v2.1.4
         with:
           cache-source: ${{ inputs.cache-source }}
