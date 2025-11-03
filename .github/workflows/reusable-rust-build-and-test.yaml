@@ -236,7 +236,7 @@ jobs:
         uses: ./.github/actions/setup-python
         with:
           py-install: true
-          py-version: 3.13
+          py-version: 3.x
           uv-install: true
           poetry-install: false
 
