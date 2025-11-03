@@ -34,11 +34,11 @@ runs:
       id: get-version
       shell: bash
       run: |
-        if [[ "${{ inputs.version }}" == "latest" ]]; then
-          echo "Fetching latest Task version..."
-          VERSION=$(curl -s https://api.github.com/repos/go-task/task/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
+        if [ "${{ inputs.version }}" == "latest" ]; then
+          echo "Fetching latest Task version (authenticated request)..."
+          VERSION=$(curl -s -H "Authorization: Bearer ${{ inputs.github-token }}" -H "Accept: application/vnd.github+json" https://api.github.com/repos/go-task/task/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
           if [[ -z "$VERSION" ]]; then
-            echo "Failed to fetch latest version, using fallback"
+            echo "Failed to fetch latest version via authenticated request, using fallback"
             VERSION="v3.39.2"
           fi
         else
