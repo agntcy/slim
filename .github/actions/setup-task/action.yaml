@@ -92,13 +92,19 @@ runs:
         echo "binary_name=$BINARY_NAME" >> $GITHUB_OUTPUT
         echo "Platform: $OS-$ARCH"
 
+    - name: Setup GitHub PATH
+      shell: bash
+      run: |
+        echo "Adding ~/.local/bin to PATH"
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+
     - name: Setup cache for Task binary
       id: cache
       if: inputs.cache-enabled == 'true'
       uses: actions/cache@v4
       with:
         # If windows, we need to cache task.exe
-        path: ${{ runner.os == 'Windows' && '~/.local/bin/task.exe' || '~/.local/bin/task' }}
+        path: ~/.local/bin/${{ steps.platform.outputs.binary_name }}
         key: task-${{ steps.get-version.outputs.version }}-${{ steps.platform.outputs.os }}-${{ steps.platform.outputs.arch }}
 
     - name: Download and install Task
@@ -117,7 +123,7 @@ runs:
       shell: bash
       run: |
         # Verify installation
-        if ~/.local/bin/${{ steps.platform.outputs.binary_name }} --version; then
+        if task --version; then
           echo "Task installation verified"
         else
           echo "Task installation verification failed"
