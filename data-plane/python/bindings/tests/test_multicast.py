@@ -95,7 +95,7 @@ async def test_group(server, mls_enabled):  # noqa: C901
         # Use unique namespace per test to avoid collisions
         name = slim_bindings.PyName("org", f"test_{test_id}", part_name)
 
-        participant = await create_slim(name, "secret", server.local_service)
+        participant = await create_slim(name, local_service=server.local_service)
 
         if server.endpoint is not None:
             # Connect to SLIM server
@@ -214,6 +214,7 @@ async def test_group(server, mls_enabled):  # noqa: C901
                 # If we received as many messages as the number of participants, we can exit
                 if local_count >= (participants_count - 1):
                     print(f"{part_name} -> Received all messages, exiting...")
+                    await asyncio.sleep(0.2)
                     await participant.delete_session(recv_session)
                     break
 

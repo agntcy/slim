@@ -270,7 +270,7 @@ fn main() {
     let bar = ProgressBar::new(max_subscriptions as u64);
     for s in subscription_list.iter() {
         for p in s.1.subscription.iter() {
-            let components = s.0.components_strings().unwrap();
+            let components = s.0.components_strings();
             // format: SUB index subscriber org ns type id
             let str = format!(
                 "SUB {} {} {} {} {} {}\n",
@@ -295,7 +295,7 @@ fn main() {
             sub_str.push(' ');
             sub_str.push_str(&a.to_string());
         }
-        let components = m.publication.components_strings().unwrap();
+        let components = m.publication.components_strings();
         // format: PUB index org ns type id #subscribers subscriber_1, subscriber_2, ...
         let s = format!(
             "PUB {} {} {} {} {} {}{}\n", //do not add the space between m.subscribers.len() and sub_str

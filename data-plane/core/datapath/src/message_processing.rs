@@ -262,30 +262,36 @@ impl MessageProcessor {
             .await
     }
 
-    pub fn disconnect(&self, conn: u64) -> Result<(), DataPathError> {
-        match self.forwarder().get_connection(conn) {
+    pub fn disconnect(&self, conn: u64) -> Result<ClientConfig, DataPathError> {
+        let connection = match self.forwarder().get_connection(conn) {
+            Some(c) => c,
             None => {
                 error!("error handling disconnect: connection unknown");
                 return Err(DataPathError::DisconnectionError(
                     "connection not found".to_string(),
                 ));
             }
-            Some(c) => {
-                match c.cancellation_token() {
-                    None => {
-                        error!("error handling disconnect: missing cancellation token");
-                    }
-                    Some(t) => {
-                        // here token cancel will stop the receiving loop on
-                        // conn and this will cause the delition of the state
-                        // for this connection
-                        t.cancel();
-                    }
-                }
-            }
-        }
+        };
 
-        Ok(())
+        let token = match connection.cancellation_token() {
+            Some(t) => t,
+            None => {
+                error!("error handling disconnect: missing cancellation token");
+                return Err(DataPathError::DisconnectionError(
+                    "missing cancellation token".to_string(),
+                ));
+            }
+        };
+
+        // Cancel receiving loop; this triggers deletion of connection state.
+        token.cancel();
+
+        connection
+            .config_data()
+            .cloned()
+            .ok_or(DataPathError::DisconnectionError(
+                "missing client config data".to_string(),
+            ))
     }
 
     pub fn register_local_connection(
@@ -350,8 +356,11 @@ impl MessageProcessor {
                 let parent_context = extract_parent_context(&msg);
                 let span = create_span("send_message", out_conn, &msg);
 
-                if let Some(ctx) = parent_context {
-                    span.set_parent(ctx);
+                if let Some(ctx) = parent_context
+                    && let Err(e) = span.set_parent(ctx)
+                {
+                    // log the error but don't fail the message sending
+                    error!("error setting parent context: {:?}", e);
                 }
                 let _guard = span.enter();
                 inject_current_context(&mut msg);
@@ -511,14 +520,15 @@ impl MessageProcessor {
             Some(out_conn) => {
                 debug!("forward subscription (add = {}) to {}", add, out_conn);
 
-                // get source name
+                // get source name and identity
                 let source = msg.get_source();
+                let identity = msg.get_identity();
 
                 // send message
                 match self.send_msg(msg, out_conn).await {
                     Ok(_) => {
                         self.forwarder()
-                            .on_forwarded_subscription(source, dst, out_conn, add);
+                            .on_forwarded_subscription(source, dst, identity, out_conn, add);
                         Ok(())
                     }
                     Err(e) => Err(DataPathError::UnsubscriptionError(e.to_string())),
@@ -582,8 +592,11 @@ impl MessageProcessor {
 
             let span = create_span("process_local", conn_index, &msg);
 
-            if let Some(ctx) = parent_context {
-                span.set_parent(ctx);
+            if let Some(ctx) = parent_context
+                && let Err(e) = span.set_parent(ctx)
+            {
+                // log the error but don't fail the message processing
+                error!("error setting parent context: {:?}", e);
             }
             let _guard = span.enter();
 
@@ -676,6 +689,7 @@ impl MessageProcessor {
                                     let sub_msg = Message::new_subscribe(
                                         r.source(),
                                         r.name(),
+                                        Some(r.source_identity()),
                                         None,
                                     );
                                     if self.send_msg(sub_msg, conn_index).await.is_err() {

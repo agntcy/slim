@@ -10,9 +10,9 @@ build-backend = "maturin"
 
 [project]
 name = "slim-bindings"
-version = "0.6.1"
+version = "0.6.2"
 description = "SLIM Rust bindings for Python"
-requires-python = ">=3.9, <4.0"
+requires-python = ">=3.10, <4.0"
 readme = "README.md"
 license = "Apache-2.0"
 classifiers = [
@@ -23,7 +23,6 @@ classifiers = [
     "Topic :: Software Development :: Libraries",
 
     # Specify the Python versions you support here.
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",

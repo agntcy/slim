@@ -2,8 +2,15 @@
 # ruff: noqa: E501, F401
 
 import builtins
+import datetime
 import typing
-from enum import Enum, auto
+from enum import Enum
+
+class PyApp:
+    @property
+    def id(self) -> builtins.int: ...
+    @property
+    def name(self) -> PyName: ...
 
 class PyKey:
     r"""
@@ -14,10 +21,27 @@ class PyKey:
     * format: `PyKeyFormat` describing encoding
     * key: `PyKeyData` where the actual bytes originate
     """
-    algorithm: PyAlgorithm
-    format: PyKeyFormat
-    key: PyKeyData
-    def __new__(cls,algorithm:PyAlgorithm, format:PyKeyFormat, key:PyKeyData): ...
+    @property
+    def algorithm(self) -> PyAlgorithm: ...
+    @algorithm.setter
+    def algorithm(self, value: PyAlgorithm) -> None: ...
+    @property
+    def format(self) -> PyKeyFormat: ...
+    @format.setter
+    def format(self, value: PyKeyFormat) -> None: ...
+    @property
+    def key(self) -> PyKeyData: ...
+    @key.setter
+    def key(self, value: PyKeyData) -> None: ...
+    def __new__(cls, algorithm:PyAlgorithm, format:PyKeyFormat, key:PyKeyData) -> PyKey:
+        r"""
+        Construct a new `PyKey`.
+        
+        Args:
+          algorithm: Algorithm used for signing / verification.
+          format: Representation format (PEM/JWK/JWKS).
+          key: Source (file vs inline content).
+        """
 
 class PyMessageContext:
     r"""
@@ -25,6 +49,9 @@ class PyMessageContext:
     
     Provides routing and descriptive metadata needed for replying,
     auditing, and instrumentation.
+    
+    This type implements `From<MessageContext>` and `Into<MessageContext>`
+    for seamless conversion with the common core message context type.
     
     Fields:
     * `source_name`: Fully-qualified sender identity.
@@ -34,50 +61,48 @@ class PyMessageContext:
     * `metadata`: Arbitrary key/value pairs supplied by the sender (e.g. tracing IDs).
     * `input_connection`: Numeric identifier of the inbound connection carrying the message.
     """
-    source_name: PyName
-    destination_name: PyName
-    payload_type: builtins.str
-    metadata: builtins.dict[builtins.str, builtins.str]
-    input_connection: builtins.int
-    def __new__(cls,): ...
+    @property
+    def source_name(self) -> PyName: ...
+    @property
+    def destination_name(self) -> PyName: ...
+    @property
+    def payload_type(self) -> builtins.str: ...
+    @property
+    def metadata(self) -> builtins.dict[builtins.str, builtins.str]: ...
+    @property
+    def input_connection(self) -> builtins.int: ...
+    @property
+    def identity(self) -> builtins.str: ...
+    def __new__(cls) -> PyMessageContext:
+        r"""
+        Prevent direct construction from Python. `PyMessageContext` instances
+        are created internally when messages are received from the service.
+        """
 
 class PyName:
     r"""
     name class
     """
-    id: builtins.int
-    def __new__(cls,component0:builtins.str, component1:builtins.str, component2:builtins.str, id:typing.Optional[builtins.int]=None): ...
-    def set_id(self, id:builtins.int) -> None:
-        ...
-
-    def components(self) -> builtins.list[builtins.int]:
-        ...
-
-    def components_strings(self) -> builtins.list[builtins.str]:
-        ...
-
-    def equal_without_id(self, name:PyName) -> builtins.bool:
-        ...
-
-    def __hash__(self) -> builtins.int:
-        ...
-
-
-class PyService:
-    id: builtins.int
-    name: PyName
+    @property
+    def id(self) -> builtins.int: ...
+    @id.setter
+    def id(self, value: builtins.int) -> None: ...
+    def __eq__(self, other:builtins.object) -> builtins.bool: ...
+    def __str__(self) -> builtins.str: ...
+    def __new__(cls, component0:builtins.str, component1:builtins.str, component2:builtins.str, id:typing.Optional[builtins.int]=None) -> PyName: ...
+    def components(self) -> builtins.list[builtins.int]: ...
+    def components_strings(self) -> builtins.list[builtins.str]: ...
+    def equal_without_id(self, name:PyName) -> builtins.bool: ...
+    def __hash__(self) -> builtins.int: ...
 
 class PySessionContext:
     r"""
     Python-exposed session context wrapper.
     
-    A thin, cloneable handle around the underlying Rust session state. All
-    getters perform a safe upgrade of the weak internal session reference,
-    returning a Python exception if the session has already been closed.
-    The internal message receiver is intentionally not exposed at this level.
-    
-    Higher-level Python code (see `session.py`) provides ergonomic async
-    operations on top of this context.
+    A thin, cloneable handle around the underlying Rust session state that provides
+    both session metadata access and session-specific operations. All getters perform
+    a safe upgrade of the weak internal session reference, returning a Python exception
+    if the session has already been closed.
     
     Properties (getters exposed to Python):
     - id -> int: Unique numeric identifier of the session. Raises a Python
@@ -95,15 +120,19 @@ class PySessionContext:
     - session_config -> PySessionConfiguration: Current effective configuration
       converted to the Python-facing enum variant.
     """
-    id: builtins.int
-    metadata: builtins.dict[builtins.str, builtins.str]
-    session_type: PySessionType
-    src: PyName
-    dst: typing.Optional[PyName]
-    session_config: PySessionConfiguration
-    def set_session_config(self, config:PySessionConfiguration) -> None:
-        ...
-
+    @property
+    def id(self) -> builtins.int: ...
+    @property
+    def metadata(self) -> builtins.dict[builtins.str, builtins.str]: ...
+    @property
+    def session_type(self) -> PySessionType: ...
+    @property
+    def src(self) -> PyName: ...
+    @property
+    def dst(self) -> typing.Optional[PyName]: ...
+    @property
+    def session_config(self) -> PySessionConfiguration: ...
+    def set_session_config(self, config:PySessionConfiguration) -> None: ...
 
 class PyAlgorithm(Enum):
     r"""
@@ -112,18 +141,18 @@ class PyAlgorithm(Enum):
     Maps 1:1 to `slim_auth::jwt::Algorithm`.
     Provides stable integer values for stub generation / introspection.
     """
-    HS256 = auto()
-    HS384 = auto()
-    HS512 = auto()
-    RS256 = auto()
-    RS384 = auto()
-    RS512 = auto()
-    PS256 = auto()
-    PS384 = auto()
-    PS512 = auto()
-    ES256 = auto()
-    ES384 = auto()
-    EdDSA = auto()
+    HS256 = ...
+    HS384 = ...
+    HS512 = ...
+    RS256 = ...
+    RS384 = ...
+    RS512 = ...
+    PS256 = ...
+    PS384 = ...
+    PS512 = ...
+    ES256 = ...
+    ES384 = ...
+    EdDSA = ...
 
 class PyIdentityProvider(Enum):
     r"""
@@ -209,9 +238,9 @@ class PyIdentityProvider(Enum):
     # Verifier would normally use the corresponding public key (PyIdentityVerifier.Jwt).
     ```
     """
-    StaticJwt = auto()
-    Jwt = auto()
-    SharedSecret = auto()
+    StaticJwt = ...
+    Jwt = ...
+    SharedSecret = ...
 
 class PyIdentityVerifier(Enum):
     r"""
@@ -314,8 +343,8 @@ class PyIdentityVerifier(Enum):
     )
     ```
     """
-    Jwt = auto()
-    SharedSecret = auto()
+    Jwt = ...
+    SharedSecret = ...
 
 class PyKeyData(Enum):
     r"""
@@ -325,8 +354,8 @@ class PyKeyData(Enum):
     containing the encoded key. The interpretation depends on the
     accompanying `PyKeyFormat`.
     """
-    File = auto()
-    Content = auto()
+    File = ...
+    Content = ...
 
 class PyKeyFormat(Enum):
     r"""
@@ -334,24 +363,26 @@ class PyKeyFormat(Enum):
     
     Used during parsing / loading of provided key material.
     """
-    Pem = auto()
-    Jwk = auto()
-    Jwks = auto()
+    Pem = ...
+    Jwk = ...
+    Jwks = ...
 
 class PySessionConfiguration(Enum):
     r"""
     User-facing configuration for establishing and tuning sessions.
     
-    Each variant maps to a core `SessionConfig`.
-    Common fields (casual rundown):
+    Each variant maps to a core `SessionConfig` and defines the behavior of session-level
+    operations like message publishing, participant management, and message reception.
+    
+    Common fields:
     * `timeout`: How long we wait for an ack before trying again.
     * `max_retries`: Number of attempts to send a message. If we run out, an error is returned.
     * `mls_enabled`: Turn on MLS for end‑to‑end crypto.
     * `metadata`: One-shot string key/value tags sent at session start; the other side can read them for tracing, routing, auth, etc.
     
     Variant-specific notes:
-    * `PointToPoint`: PointToPoint will target a specific peer for all messages.
-    * `Group`: Uses a named channel and distributes to multiple subscribers.
+    * `PointToPoint`: Direct communication with a specific peer. Session operations target the peer directly.
+    * `Group`: Channel-based multicast communication. Session operations affect the entire group.
     
     # Examples
     
@@ -359,8 +390,7 @@ class PySessionConfiguration(Enum):
     ```python
     from slim_bindings import PySessionConfiguration, PyName
     
-    # PointToPoint session. Wait up to 2 seconds for an ack for each message, retry up to 5 times,
-    # enable MLS, and attach some metadata.
+    # PointToPoint session - direct peer communication
     p2p_cfg = PySessionConfiguration.PointToPoint(
         peer_name=PyName("org", "namespace", "service"), # target peer
         timeout=datetime.timedelta(seconds=2), # wait 2 seconds for an ack
@@ -403,74 +433,86 @@ class PySessionConfiguration(Enum):
     ```
     
     ## Rust (internal conversion flow)
-    The enum transparently converts to and from `session::SessionConfig`:
-    ```rust
-    let core: session::SessionConfig = py_cfg.clone().into();
-    let roundtrip: PySessionConfiguration = core.into();
-    assert_eq!(py_cfg, roundtrip);
+    The enum transparently converts to and from `SessionConfig`:
+    ```
+    // Example conversion (pseudo-code):
+    // let core: SessionConfig = py_cfg.clone().into();
+    // let roundtrip: PySessionConfiguration = core.into();
+    // assert_eq!(py_cfg, roundtrip);
     ```
     """
-    PointToPoint = auto()
-    Group = auto()
+    PointToPoint = ...
+    r"""
+    PointToPoint configuration with a fixed destination (peer_name).
+    """
+    Group = ...
+    r"""
+    Group configuration: one-to-many distribution through a channel_name.
+    """
 
 class PySessionType(Enum):
     r"""
     High-level session classification presented to Python.
     """
-    PointToPoint = auto()
-    Group = auto()
+    PointToPoint = ...
+    r"""
+    Point-to-point with a single, explicit destination name.
+    """
+    Group = ...
+    r"""
+    Many-to-many distribution via a group channel_name.
+    """
 
-def connect(svc:PyService, config:dict) -> typing.Any:
-    ...
+def connect(svc:PyApp, config:dict) -> typing.Any: ...
 
-def create_pyservice(name:PyName, provider:PyIdentityProvider, verifier:PyIdentityVerifier, local_service:builtins.bool=False) -> typing.Any:
-    ...
+def create_pyapp(name:PyName, provider:PyIdentityProvider, verifier:PyIdentityVerifier, local_service:builtins.bool=False) -> typing.Any: ...
 
-def create_session(svc:PyService, config:PySessionConfiguration) -> typing.Any:
-    ...
+def create_session(svc:PyApp, config:PySessionConfiguration) -> typing.Any: ...
 
-def delete_session(svc:PyService, session_context:PySessionContext) -> typing.Any:
-    ...
+def delete_session(svc:PyApp, session_context:PySessionContext) -> typing.Any: ...
 
-def disconnect(svc:PyService, conn:builtins.int) -> typing.Any:
-    ...
+def disconnect(svc:PyApp, conn:builtins.int) -> typing.Any: ...
 
-def get_message(svc:PyService, session_context:PySessionContext) -> typing.Any:
-    ...
+def get_message(session_context:PySessionContext, timeout:typing.Optional[datetime.timedelta]=None) -> typing.Any:
+    r"""
+    Get a message from the specified session.
+    """
 
-def init_tracing(config:dict) -> typing.Any:
-    ...
+def init_tracing(config:dict) -> typing.Any: ...
 
-def invite(svc:PyService, session_context:PySessionContext, name:PyName) -> typing.Any:
-    ...
+def invite(session_context:PySessionContext, name:PyName) -> typing.Any:
+    r"""
+    Invite a participant to the specified session (group only).
+    """
 
-def listen_for_session(svc:PyService) -> typing.Any:
-    ...
+def listen_for_session(svc:PyApp, timeout:typing.Optional[datetime.timedelta]=None) -> typing.Any: ...
 
-def publish(svc:PyService, session_context:PySessionContext, fanout:builtins.int, blob:typing.Sequence[builtins.int], message_ctx:typing.Optional[PyMessageContext]=None, name:typing.Optional[PyName]=None, payload_type:typing.Optional[builtins.str]=None, metadata:typing.Optional[typing.Mapping[builtins.str, builtins.str]]=None) -> typing.Any:
-    ...
+def publish(session_context:PySessionContext, fanout:builtins.int, blob:typing.Sequence[builtins.int], message_ctx:typing.Optional[PyMessageContext]=None, name:typing.Optional[PyName]=None, payload_type:typing.Optional[builtins.str]=None, metadata:typing.Optional[typing.Mapping[builtins.str, builtins.str]]=None) -> typing.Any:
+    r"""
+    Publish a message through the specified session.
+    """
 
-def remove(svc:PyService, session_context:PySessionContext, name:PyName) -> typing.Any:
-    ...
+def publish_to(session_context:PySessionContext, message_ctx:PyMessageContext, blob:typing.Sequence[builtins.int], payload_type:typing.Optional[builtins.str]=None, metadata:typing.Optional[typing.Mapping[builtins.str, builtins.str]]=None) -> typing.Any:
+    r"""
+    Publish a message as a reply to a received message through the specified session.
+    """
 
-def remove_route(svc:PyService, name:PyName, conn:builtins.int) -> typing.Any:
-    ...
+def remove(session_context:PySessionContext, name:PyName) -> typing.Any:
+    r"""
+    Remove a participant from the specified session (group only).
+    """
 
-def run_server(svc:PyService, config:dict) -> typing.Any:
-    ...
+def remove_route(svc:PyApp, name:PyName, conn:builtins.int) -> typing.Any: ...
 
-def set_default_session_config(svc:PyService, config:PySessionConfiguration) -> None:
-    ...
+def run_server(svc:PyApp, config:dict) -> typing.Any: ...
 
-def set_route(svc:PyService, name:PyName, conn:builtins.int) -> typing.Any:
-    ...
+def set_default_session_config(svc:PyApp, config:PySessionConfiguration) -> None: ...
 
-def stop_server(svc:PyService, endpoint:builtins.str) -> typing.Any:
-    ...
+def set_route(svc:PyApp, name:PyName, conn:builtins.int) -> typing.Any: ...
 
-def subscribe(svc:PyService, name:PyName, conn:typing.Optional[builtins.int]=None) -> typing.Any:
-    ...
+def stop_server(svc:PyApp, endpoint:builtins.str) -> typing.Any: ...
 
-def unsubscribe(svc:PyService, name:PyName, conn:typing.Optional[builtins.int]=None) -> typing.Any:
-    ...
+def subscribe(svc:PyApp, name:PyName, conn:typing.Optional[builtins.int]=None) -> typing.Any: ...
+
+def unsubscribe(svc:PyApp, name:PyName, conn:typing.Optional[builtins.int]=None) -> typing.Any: ...
 

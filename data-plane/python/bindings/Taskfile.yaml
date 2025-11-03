@@ -55,7 +55,7 @@ tasks:
       TARGET: '{{.TESTS | default ""}}'
 
   python:bindings:packaging:
-    desc: "Generate the Python bindings for python versions 3.9, 3.10, 3.11, 3.12 and 3.13"
+    desc: "Generate the Python bindings for python versions 3.10, 3.11, 3.12, 3.13"
     vars:
       PROFILE: '{{.PROFILE | default "debug"}}'
       RELEASE:
@@ -64,7 +64,7 @@ tasks:
     cmds:
       - for:
           matrix:
-            PYTHON: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+            PYTHON: ["3.10", "3.11", "3.12", "3.13"]
         cmd: |
           uv python install {{.ITEM.PYTHON}}
       - task: rust:toolchain:run-command
@@ -85,7 +85,7 @@ tasks:
             # maturin will try to add it to the wheel, and it will fail
             rm -f slim_bindings/*.pyd
 
-            PYTHONS=(3.9 3.10 3.11 3.12 3.13)
+            PYTHONS=(3.10 3.11 3.12 3.13)
             uv run                            \
               ${UV_ARGS[@]}                   \
               maturin build {{.RELEASE}}      \

@@ -14,7 +14,7 @@ use slim_datapath::Status;
 use slim_datapath::api::MessageType;
 use slim_datapath::api::ProtoMessage as Message;
 use slim_datapath::messages::Name;
-use slim_datapath::messages::utils::{SLIM_IDENTITY, SlimHeaderFlags};
+use slim_datapath::messages::utils::SlimHeaderFlags;
 
 // Local crate
 use crate::ServiceError;
@@ -158,6 +158,14 @@ where
         self.session_layer.get_default_session_config(session_type)
     }
 
+    /// Get the app name
+    ///
+    /// Returns a reference to the name that was provided when the App was created.
+    /// This name is used for session management and message routing.
+    pub fn app_name(&self) -> &Name {
+        &self.app_name
+    }
+
     /// Send a message to the session layer
     async fn send_message_without_context(&self, mut msg: Message) -> Result<(), ServiceError> {
         // these messages are not associated to a session yet
@@ -168,7 +176,7 @@ where
             .map_err(ServiceError::SessionError)?;
 
         // Add the identity to the message metadata
-        msg.insert_metadata(SLIM_IDENTITY.to_string(), identity);
+        msg.get_slim_header_mut().set_identity(identity);
 
         self.session_layer
             .tx_slim()
@@ -192,7 +200,8 @@ where
         } else {
             Some(SlimHeaderFlags::default())
         };
-        let msg = Message::new_subscribe(&self.app_name, &name, header);
+
+        let msg = Message::new_subscribe(&self.app_name, &name, None, header);
 
         // Subscribe
         self.send_message_without_context(msg).await?;
@@ -212,7 +221,8 @@ where
         } else {
             Some(SlimHeaderFlags::default())
         };
-        let msg = Message::new_subscribe(&self.app_name, name, header);
+
+        let msg = Message::new_subscribe(&self.app_name, name, None, header);
 
         // Unsubscribe
         self.send_message_without_context(msg).await?;
@@ -231,6 +241,7 @@ where
         let msg = Message::new_subscribe(
             &self.app_name,
             name,
+            None,
             Some(SlimHeaderFlags::default().with_recv_from(conn)),
         );
         self.send_message_without_context(msg).await
@@ -243,8 +254,10 @@ where
         let msg = Message::new_unsubscribe(
             &self.app_name,
             name,
+            None,
             Some(SlimHeaderFlags::default().with_recv_from(conn)),
         );
+
         self.send_message_without_context(msg).await
     }
 
@@ -258,7 +271,7 @@ where
             debug!("starting message processing loop for {}", app_name);
 
             // subscribe for local name running this loop
-            let subscribe_msg = Message::new_subscribe(&app_name, &app_name, None);
+            let subscribe_msg = Message::new_subscribe(&app_name, &app_name, None, None);
             let tx = session_layer.tx_slim();
             tx.send(Ok(subscribe_msg))
                 .await
@@ -327,10 +340,9 @@ mod tests {
     use super::*;
     use slim_session::point_to_point::PointToPointConfiguration;
 
-    use slim_auth::shared_secret::SharedSecret;
-    use slim_datapath::{
-        api::{ProtoMessage, ProtoSessionMessageType, ProtoSessionType},
-        messages::{Name, utils::SLIM_IDENTITY},
+    use slim_auth::{shared_secret::SharedSecret, testutils::TEST_VALID_SECRET};
+    use slim_datapath::api::{
+        ApplicationPayload, ProtoMessage, ProtoSessionMessageType, ProtoSessionType,
     };
 
     #[allow(dead_code)]
@@ -341,8 +353,8 @@ mod tests {
 
         App::new(
             &name,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
             0,
             tx_slim,
             tx_app,
@@ -358,8 +370,8 @@ mod tests {
 
         let app = App::new(
             &name,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
             0,
             tx_slim.clone(),
             tx_app.clone(),
@@ -386,8 +398,8 @@ mod tests {
 
         let session_layer = App::new(
             &name,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
             0,
             tx_slim.clone(),
             tx_app.clone(),
@@ -411,8 +423,8 @@ mod tests {
 
         let session_layer = App::new(
             &name,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
             0,
             tx_slim.clone(),
             tx_app.clone(),
@@ -441,8 +453,8 @@ mod tests {
 
         let app = App::new(
             &name,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
             0,
             tx_slim.clone(),
             tx_app.clone(),
@@ -484,7 +496,7 @@ mod tests {
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
         let name = Name::from_strings(["org", "ns", "type"]).with_id(0);
 
-        let identity = SharedSecret::new("a", "group");
+        let identity = SharedSecret::new("a", TEST_VALID_SECRET);
 
         let app = App::new(
             &name,
@@ -500,15 +512,15 @@ mod tests {
             &name,
             &Name::from_strings(["org", "ns", "type"]).with_id(0),
             None,
-            "msg",
-            vec![0x1, 0x2, 0x3, 0x4],
+            None,
+            Some(ApplicationPayload::new("msg", vec![0x1, 0x2, 0x3, 0x4]).as_content()),
         );
 
         // set the session id in the message
         let header = message.get_session_header_mut();
         header.session_id = 1;
-        header.set_session_type(ProtoSessionType::SessionPointToPoint);
-        header.set_session_message_type(ProtoSessionMessageType::P2PMsg);
+        header.set_session_type(ProtoSessionType::PointToPoint);
+        header.set_session_message_type(ProtoSessionMessageType::Msg);
 
         app.session_layer
             .handle_message_from_slim(message.clone())
@@ -521,8 +533,10 @@ mod tests {
         // As there is no identity, we should not get any message in the app
         assert!(rx_app.try_recv().is_err());
 
-        // Add identity to message
-        message.insert_metadata(SLIM_IDENTITY.to_string(), identity.get_token().unwrap());
+        // set the right identity
+        message
+            .get_slim_header_mut()
+            .set_identity(identity.get_token().unwrap());
 
         // Try again
         app.session_layer
@@ -560,7 +574,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
         let name = Name::from_strings(["org", "ns", "type"]).with_id(0);
 
-        let identity = SharedSecret::new("a", "group");
+        let identity = SharedSecret::new("a", TEST_VALID_SECRET);
 
         let app = App::new(
             &name,
@@ -586,15 +600,15 @@ mod tests {
             &source,
             &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
             None,
-            "msg",
-            vec![0x1, 0x2, 0x3, 0x4],
+            None,
+            Some(ApplicationPayload::new("msg", vec![0x1, 0x2, 0x3, 0x4]).as_content()),
         );
 
         // set the session id in the message
         let header = message.get_session_header_mut();
         header.session_id = 1;
-        header.set_session_type(ProtoSessionType::SessionPointToPoint);
-        header.set_session_message_type(ProtoSessionMessageType::P2PMsg);
+        header.set_session_type(ProtoSessionType::PointToPoint);
+        header.set_session_message_type(ProtoSessionMessageType::Msg);
 
         let res = app
             .session_layer
@@ -610,8 +624,7 @@ mod tests {
             .expect("no message received")
             .expect("error");
 
-        // Add identity to message
-        message.insert_metadata(SLIM_IDENTITY.to_string(), identity.get_token().unwrap());
+        msg.get_slim_header_mut().set_identity("".to_string());
 
         msg.set_message_id(0);
         assert_eq!(msg, message);
@@ -663,8 +676,8 @@ mod tests {
         let (subscriber_app, mut subscriber_notifications) = service
             .create_app(
                 &subscriber_name,
-                SharedSecret::new("a", "group"),
-                SharedSecret::new("a", "group"),
+                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET),
             )
             .await
             .unwrap();
@@ -672,8 +685,8 @@ mod tests {
         let (publisher_app, _publisher_notifications) = service
             .create_app(
                 &publisher_name,
-                SharedSecret::new("a", "group"),
-                SharedSecret::new("a", "group"),
+                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET),
             )
             .await
             .unwrap();
@@ -825,8 +838,8 @@ mod tests {
         let (moderator_app, mut _moderator_notifications) = service
             .create_app(
                 &moderator_name,
-                SharedSecret::new("a", "group"),
-                SharedSecret::new("a", "group"),
+                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET),
             )
             .await
             .unwrap();
@@ -841,8 +854,8 @@ mod tests {
             let (app, notifications) = service
                 .create_app(
                     &participant_name,
-                    SharedSecret::new("a", "group"),
-                    SharedSecret::new("a", "group"),
+                    SharedSecret::new("a", TEST_VALID_SECRET),
+                    SharedSecret::new("a", TEST_VALID_SECRET),
                 )
                 .await
                 .unwrap();

@@ -32,16 +32,15 @@
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pyclass_enum, gen_stub_pymethods};
 
+use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::builder::JwtBuilder;
 use slim_auth::jwt::Key;
 use slim_auth::jwt::KeyFormat;
-use slim_auth::jwt::SignerJwt;
+
 use slim_auth::jwt::StaticTokenProvider;
-use slim_auth::jwt::VerifierJwt;
+
 use slim_auth::jwt::{Algorithm, KeyData};
 use slim_auth::shared_secret::SharedSecret;
-use slim_auth::traits::TokenProvider;
-use slim_auth::traits::Verifier;
 
 /// JWT / signature algorithms exposed to Python.
 ///
@@ -191,13 +190,11 @@ impl From<PyKey> for Key {
     }
 }
 
-/// Internal enum for token provisioning strategies.
-#[derive(Clone)]
-pub(crate) enum IdentityProvider {
-    StaticJwt(StaticTokenProvider),
-    SharedSecret(SharedSecret),
-    SignerJwt(SignerJwt),
-}
+/// Internal type alias for token provisioning strategies.
+///
+/// This reuses the core `AuthProvider` enum from `slim_auth::auth_provider`
+/// to avoid duplication and ensure consistency across the system.
+pub(crate) type IdentityProvider = AuthProvider;
 
 /// Python-facing identity provider definitions.
 ///
@@ -304,7 +301,7 @@ pub(crate) enum PyIdentityProvider {
 impl From<PyIdentityProvider> for IdentityProvider {
     fn from(value: PyIdentityProvider) -> Self {
         match value {
-            PyIdentityProvider::StaticJwt { path } => IdentityProvider::StaticJwt(
+            PyIdentityProvider::StaticJwt { path } => AuthProvider::StaticToken(
                 StaticTokenProvider::from(JwtBuilder::new().token_file(path).build().unwrap()),
             ),
             PyIdentityProvider::Jwt {
@@ -316,48 +313,37 @@ impl From<PyIdentityProvider> for IdentityProvider {
             } => {
                 let mut builder = JwtBuilder::new();
 
-                if let Some(issuer) = issuer {
-                    builder = builder.issuer(issuer);
+                if let Some(iss) = issuer {
+                    builder = builder.issuer(iss);
                 }
-                if let Some(audience) = audience {
-                    builder = builder.audience(&audience);
+                if let Some(aud) = audience {
+                    builder = builder.audience(&aud);
                 }
-                if let Some(subject) = subject {
-                    builder = builder.subject(subject);
+                if let Some(sub) = subject {
+                    builder = builder.subject(sub);
                 }
 
-                IdentityProvider::SignerJwt(
-                    builder
-                        .private_key(&private_key.into())
-                        .token_duration(duration)
-                        .build()
-                        .expect("Failed to build SignerJwt"),
-                )
+                let signer = builder
+                    .private_key(&private_key.into())
+                    .token_duration(duration)
+                    .build()
+                    .expect("Failed to build SignerJwt");
+
+                AuthProvider::JwtSigner(signer)
             }
             PyIdentityProvider::SharedSecret {
                 identity,
                 shared_secret,
-            } => IdentityProvider::SharedSecret(SharedSecret::new(&identity, &shared_secret)),
+            } => AuthProvider::SharedSecret(SharedSecret::new(&identity, &shared_secret)),
         }
     }
 }
 
-impl TokenProvider for IdentityProvider {
-    fn get_token(&self) -> Result<String, slim_auth::errors::AuthError> {
-        match self {
-            IdentityProvider::StaticJwt(provider) => provider.get_token(),
-            IdentityProvider::SharedSecret(secret) => secret.get_token(),
-            IdentityProvider::SignerJwt(signer) => signer.get_token(),
-        }
-    }
-}
-
-/// Internal enum for verification strategies.
-#[derive(Clone)]
-pub(crate) enum IdentityVerifier {
-    Jwt(Box<VerifierJwt>),
-    SharedSecret(SharedSecret),
-}
+/// Internal type alias for token verification strategies.
+///
+/// This reuses the core `AuthVerifier` enum from `slim_auth::auth_provider`
+/// to avoid duplication and ensure consistency across the system.
+pub(crate) type IdentityVerifier = AuthVerifier;
 
 /// Python-facing identity verifier definitions.
 ///
@@ -526,58 +512,12 @@ impl From<PyIdentityVerifier> for IdentityVerifier {
                     (_, _) => panic!("Public key must be provided for JWT verifier"),
                 };
 
-                IdentityVerifier::Jwt(Box::new(ret))
+                AuthVerifier::JwtVerifier(ret)
             }
             PyIdentityVerifier::SharedSecret {
                 identity,
                 shared_secret,
-            } => IdentityVerifier::SharedSecret(SharedSecret::new(&identity, &shared_secret)),
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl Verifier for IdentityVerifier {
-    async fn verify(
-        &self,
-        token: impl Into<String> + Send,
-    ) -> Result<(), slim_auth::errors::AuthError> {
-        match self {
-            IdentityVerifier::Jwt(verifier) => verifier.verify(token).await,
-            IdentityVerifier::SharedSecret(secret) => secret.verify(token).await,
-        }
-    }
-
-    fn try_verify(&self, token: impl Into<String>) -> Result<(), slim_auth::errors::AuthError> {
-        match self {
-            IdentityVerifier::Jwt(verifier) => verifier.try_verify(token),
-            IdentityVerifier::SharedSecret(secret) => secret.try_verify(token),
-        }
-    }
-
-    async fn get_claims<Claims>(
-        &self,
-        token: impl Into<String> + Send,
-    ) -> Result<Claims, slim_auth::errors::AuthError>
-    where
-        Claims: serde::de::DeserializeOwned + Send,
-    {
-        match self {
-            IdentityVerifier::Jwt(verifier) => verifier.get_claims(token).await,
-            IdentityVerifier::SharedSecret(secret) => secret.get_claims(token).await,
-        }
-    }
-
-    fn try_get_claims<Claims>(
-        &self,
-        token: impl Into<String>,
-    ) -> Result<Claims, slim_auth::errors::AuthError>
-    where
-        Claims: serde::de::DeserializeOwned + Send,
-    {
-        match self {
-            IdentityVerifier::Jwt(verifier) => verifier.try_get_claims(token),
-            IdentityVerifier::SharedSecret(secret) => secret.try_get_claims(token),
+            } => AuthVerifier::SharedSecret(SharedSecret::new(&identity, &shared_secret)),
         }
     }
 }

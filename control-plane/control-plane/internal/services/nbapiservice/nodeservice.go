@@ -9,12 +9,21 @@ import (
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
 )
 
-type NodeService struct {
-	dbService  db.DataAccess
-	cmdHandler nodecontrol.NodeCommandHandler
+type NodeServiceDataAccess interface {
+	ListNodes() []db.Node
+	GetNode(id string) (*db.Node, error)
 }
 
-func NewNodeService(dbService db.DataAccess, cmdHandler nodecontrol.NodeCommandHandler) NodeManager {
+type NodeServiceNodeCommandHandler interface {
+	GetConnectionStatus(ctx context.Context, nodeID string) (nodecontrol.NodeStatus, error)
+}
+
+type NodeService struct {
+	dbService  NodeServiceDataAccess
+	cmdHandler NodeServiceNodeCommandHandler
+}
+
+func NewNodeService(dbService NodeServiceDataAccess, cmdHandler NodeServiceNodeCommandHandler) NodeManager {
 	return &NodeService{
 		dbService:  dbService,
 		cmdHandler: cmdHandler,
