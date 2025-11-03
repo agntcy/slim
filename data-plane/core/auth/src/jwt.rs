@@ -46,7 +46,7 @@ pub enum KeyData {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct Key {
     /// Algorithm used for signing the JWT
-    #[schemars(skip)]
+    #[schemars(with = "AlgorithmRepr")]
     pub algorithm: Algorithm,
 
     /// Key format - PEM, JWK or JWKS
@@ -54,6 +54,24 @@ pub struct Key {
 
     /// Encoded key or file path
     pub key: KeyData,
+}
+
+/// Local enum used only for JSON Schema generation of the `algorithm` field.
+/// Remote schema representation of jsonwebtoken_aws_lc::Algorithm
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
+pub enum AlgorithmRepr {
+    HS256,
+    HS384,
+    HS512,
+    ES256,
+    ES384,
+    RS256,
+    RS384,
+    RS512,
+    PS256,
+    PS384,
+    PS512,
+    EdDSA,
 }
 
 fn key_alg_to_algorithm(key: &KeyAlgorithm) -> Result<Algorithm, AuthError> {
