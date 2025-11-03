@@ -35,10 +35,7 @@ jobs:
       bake-targets: slim
       image-tag: ${{ github.sha }}
       cache-map: |
-        {
-          "target-cache": "/app/data-plane/target",
-          "cargo-cache": "/root/.cargo"
-        }
+        { "/tmp/target-cache": "/app/data-plane/target", "/tmp/cargo-cache": "/root/.cargo" }
 
   warm-build:
     name: Warm build (reuse cache)
