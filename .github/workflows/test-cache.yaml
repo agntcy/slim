@@ -1,0 +1,173 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+#
+# Workflow: Test Buildx GitHub Actions cache effectiveness using the reusable build workflow.
+#
+# Strategy:
+#  - Perform a "cold" build via the reusable workflow (first population of the remote cache).
+#  - Perform a "warm" build via the reusable workflow (same targets, expecting cache hits).
+#  - Measure elapsed time for each build and present a summary.
+#
+# Notes:
+#  - The reusable workflow already configures Buildx with cache-from/to using the GHA backend.
+#  - Each job runs on a fresh runner VM; remote cache (type=gha) enables reuse between jobs.
+#  - We cannot directly parse layer cache hit markers (e.g., "CACHED") from the reusable workflow step,
+#    because its internal docker/bake invocation streams directly to the job log. For a deeper analysis
+#    you'd extend the reusable workflow to emit structured cache metrics.
+#  - A shorter warm build compared to the cold build strongly suggests effective caching.
+#
+# Invocation:
+#  - Dispatch manually and optionally change bake targets or image tag.
+#  - image-tag kept constant across cold/warm builds to maximize identical build graph.
+#
+# Possible Extensions:
+#  - Add a matrix of targets to compare cache influence across different Dockerfiles.
+#  - Fail the workflow if warm duration is not sufficiently lower than cold duration.
+#  - Enhance reusable workflow to output cache statistics for richer analysis.
+#
+name: Test Buildx Cache (Reusable)
+
+on:
+  workflow_dispatch:
+    inputs:
+      bake-targets:
+        description: "Space/comma separated bake targets (e.g. slim or slim,control-plane)"
+        required: true
+        default: "slim"
+      image-tag:
+        description: "Image tag to use for both builds"
+        required: true
+        default: "cache-test"
+      bake-file:
+        description: "Bake definition file"
+        required: true
+        default: "docker-bake.hcl"
+      image-repo:
+        description: "Image repo (leave default unless pushing)"
+        required: true
+        default: "ghcr.io/agntcy/slim"
+
+jobs:
+  cold-build:
+    name: Cold build (populate cache)
+    runs-on: ubuntu-latest
+    outputs:
+      duration-seconds: ${{ steps.duration.outputs.seconds }}
+    steps:
+      - name: Record start timestamp
+        id: start
+        run: echo "ts=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Build (cold) via reusable workflow
+        uses: ./.github/workflows/reusable-docker-build-push.yaml
+        with:
+          bake-targets: ${{ inputs.bake-targets }}
+          bake-file: ${{ inputs.bake-file }}
+          image-tag: ${{ inputs.image-tag }}
+          image-repo: ${{ inputs.image-repo }}
+
+      - name: Record end timestamp
+        id: end
+        run: echo "ts=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Compute duration
+        id: duration
+        run: |
+          start=${{ steps.start.outputs.ts }}
+          end=${{ steps.end.outputs.ts }}
+          echo "seconds=$(( end - start ))" >> "$GITHUB_OUTPUT"
+
+      - name: Summary (cold)
+        run: |
+          echo "### Cold Build" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Targets: ${{ inputs.bake-targets }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Duration (s): ${{ steps.duration.outputs.seconds }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+  warm-build:
+    name: Warm build (reuse cache)
+    needs: cold-build
+    runs-on: ubuntu-latest
+    outputs:
+      duration-seconds: ${{ steps.duration.outputs.seconds }}
+    steps:
+      - name: Record start timestamp
+        id: start
+        run: echo "ts=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Build (warm) via reusable workflow
+        uses: ./.github/workflows/reusable-docker-build-push.yaml
+        with:
+          bake-targets: ${{ inputs.bake-targets }}
+          bake-file: ${{ inputs.bake-file }}
+          image-tag: ${{ inputs.image-tag }}
+          image-repo: ${{ inputs.image-repo }}
+
+      - name: Record end timestamp
+        id: end
+        run: echo "ts=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Compute duration
+        id: duration
+        run: |
+          start=${{ steps.start.outputs.ts }}
+          end=${{ steps.end.outputs.ts }}
+          echo "seconds=$(( end - start ))" >> "$GITHUB_OUTPUT"
+
+      - name: Summary (warm)
+        run: |
+          echo "### Warm Build" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Targets: ${{ inputs.bake-targets }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Duration (s): ${{ steps.duration.outputs.seconds }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+  analyze:
+    name: Analyze cache effectiveness
+    needs:
+      - cold-build
+      - warm-build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate durations
+        id: eval
+        run: |
+          cold=${{ needs.cold-build.outputs.duration-seconds }}
+          warm=${{ needs.warm-build.outputs.duration-seconds }}
+          improvement=$(( cold - warm ))
+          echo "cold=${cold}" >> "$GITHUB_OUTPUT"
+          echo "warm=${warm}" >> "$GITHUB_OUTPUT"
+          echo "improvement=${improvement}" >> "$GITHUB_OUTPUT"
+          if [ "$warm" -ge "$cold" ]; then
+            echo "cache-effective=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "cache-effective=true" >> "$GITHUB_OUTPUT"
+
+      - name: Summary (analysis)
+        run: |
+          cold=${{ steps.eval.outputs.cold }}
+          warm=${{ steps.eval.outputs.warm }}
+          improvement=${{ steps.eval.outputs.improvement }}
+          effective=${{ steps.eval.outputs.cache-effective }}
+          echo "## Buildx Cache Effectiveness" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Cold | Warm | Diff (Cold-Warm) |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|------|------|------------------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Duration (s) | ${cold} | ${warm} | ${improvement} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${effective}" = "true" ]; then
+            echo "Result: Warm build is faster; remote cache appears effective." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Result: Warm build not faster; investigate cache configuration or layer invalidation." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Possible causes:" >> $GITHUB_STEP_SUMMARY
+            echo "- Source changes between jobs (should not happen within one run)." >> $GITHUB_STEP_SUMMARY
+            echo "- Non-deterministic steps (e.g., timestamps, downloaded dependencies without pinning)." >> $GITHUB_STEP_SUMMARY
+            echo "- Cache scope collisions with other runs (rare; consider adding a scope if customizing bake args)." >> $GITHUB_STEP_SUMMARY
+
+      - name: Enforce effectiveness
+        if: steps.eval.outputs.cache-effective == 'false'
+        run: |
+          echo "Cache not effective; failing as per policy."
+          exit 1
