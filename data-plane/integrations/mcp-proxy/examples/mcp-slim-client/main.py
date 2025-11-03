@@ -86,7 +86,7 @@ async def main():
                 return
             logger.info(f"Successfully used resource: {resource}")
 
-            # Unubscribe for a resource
+            # Unsubscribe for a resource
             await mcp_session.unsubscribe_resource(AnyUrl("file:///greeting.txt"))
 
             time.sleep(1)
