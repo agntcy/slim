@@ -91,15 +91,15 @@ jobs:
         if: ${{ inputs.cache-map != '' && inputs.cache-lock != '' }}
         uses: actions/cache@v4
         with:
-          path: |
-            ${{ steps.prepare-cache.outputs.cache-host-paths }}
-          key: buildx-${{ runner.os }}-${{ runner.arch }}-${{ inputs.bake-targets }}-s---${{ hashFiles(inputs.cache-lock) }}
+          path: cache-target
+          key: buildx-${{ runner.os }}-${{ runner.arch }}-${{ inputs.bake-targets }}-ss---${{ hashFiles(inputs.cache-lock) }}
 
       - name: Inject go-build-cache
         if: ${{ inputs.cache-map != '' && inputs.cache-lock != '' }}
-        uses: reproducible-containers/buildkit-cache-dance@v3
+        uses: reproducible-containers/buildkit-cache-dance@v2.1.s
         with:
-          cache-map: ${{ inputs.cache-map }}
+          cache-source: cache-target
+          cache-target: /app/data-plane/target
           skip-extraction: ${{ steps.cache.outputs.cache-hit }}
           builder: ${{ steps.setup-buildx.outputs.name }}
 
