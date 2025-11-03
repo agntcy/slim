@@ -8,7 +8,7 @@ SHELL ["/bin/bash", "-c"]
 
 ARG TARGETARCH
 
-RUN --mount=type=cache,target=/app/data-plane/integrations/mcp-proxy/target <<EOF
+RUN --mount=type=cache,id=target-$TARGETARCH,sharing=locked,target=/app/data-plane/integrations/mcp-proxy/target <<EOF
 case ${TARGETARCH} in
     "amd64")
         PACKAGES="gcc-x86-64-linux-gnu g++-x86-64-linux-gnu"
