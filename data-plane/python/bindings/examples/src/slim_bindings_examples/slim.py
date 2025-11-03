@@ -65,7 +65,7 @@ async def run_server(address: str, enable_opentelemetry: bool):
     # use stronger identity mechanisms (e.g. JWT + proper key management).
     provider, verifier = shared_secret_identity(
         identity="slim",
-        secret="secret",  # Not used
+        secret="jasfhuejasdfhays3wtkrktasdhfsadu2rtkdhsfgeht",  # Must be > 32 bytes
     )
 
     # Create Slim instance with a fixed PyName. Organization/namespace/app are illustrative.

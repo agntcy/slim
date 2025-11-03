@@ -197,15 +197,17 @@ async def run_client(
         format_message_print(
             f"Creating new group session (moderator)... {split_id(local)}"
         )
+        config = slim_bindings.PySessionConfiguration.Group(
+            max_retries=5,  # Max per-message resend attempts upon missing ack before reporting a delivery failure.
+            timeout=datetime.timedelta(
+                seconds=5
+            ),  # Ack / delivery wait window; after this duration a retry is triggered (until max_retries).
+            mls_enabled=enable_mls,  # Enable Messaging Layer Security for end-to-end encrypted & authenticated group communication.
+        )
+            
         created_session = await local_app.create_session(
-            slim_bindings.PySessionConfiguration.Group(  # type: ignore  # Build group session configuration
-                channel_name=chat_channel,  # Logical group channel (PyName) all participants join; acts as group/topic identifier.
-                max_retries=5,  # Max per-message resend attempts upon missing ack before reporting a delivery failure.
-                timeout=datetime.timedelta(
-                    seconds=5
-                ),  # Ack / delivery wait window; after this duration a retry is triggered (until max_retries).
-                mls_enabled=enable_mls,  # Enable Messaging Layer Security for end-to-end encrypted & authenticated group communication.
-            )
+            chat_channel,  # Logical group channel (PyName) all participants join; acts as group/topic identifier.
+            config, #session configuration
         )
 
         # Small delay so underlying routing / session creation stabilizes.
