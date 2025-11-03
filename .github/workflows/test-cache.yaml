@@ -32,7 +32,7 @@ jobs:
     name: Cold build (no cache)
     uses: ./.github/workflows/reusable-docker-build-push.yaml
     with:
-      bake-targets: slim
+      bake-targets: test-cache
       image-tag: ${{ github.sha }}
       cache-map: |
         { "/tmp/target-cache": "/app/data-plane/target", "/tmp/cargo-cache": "/root/.cargo" }
@@ -43,7 +43,7 @@ jobs:
     needs: cold-build
     uses: ./.github/workflows/reusable-docker-build-push.yaml
     with:
-      bake-targets: slim
+      bake-targets: test-cache
       image-tag: ${{ github.sha }}
       cache-map: |
         { "/tmp/target-cache": "/app/data-plane/target", "/tmp/cargo-cache": "/root/.cargo" }

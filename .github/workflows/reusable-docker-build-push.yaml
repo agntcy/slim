@@ -86,9 +86,9 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Save/restore cache
+      - name: Restore/Save cache
         id: cache
-        if: ${{ inputs.cache-map != '' }}
+        if: ${{ inputs.cache-map != '' && inputs.cache-lock != '' }}
         uses: actions/cache@v4
         with:
           path: |
@@ -96,7 +96,7 @@ jobs:
           key: buildx-${{ runner.os }}-${{ runner.arch }}-${{ inputs.bake-targets }}--${{ hashFiles(inputs.cache-lock) }}
 
       - name: Inject go-build-cache
-        if: ${{ inputs.cache-map != '' }}
+        if: ${{ inputs.cache-map != '' && inputs.cache-lock != '' }}
         uses: reproducible-containers/buildkit-cache-dance@v3
         with:
           cache-map: ${{ inputs.cache-map }}
@@ -116,3 +116,8 @@ jobs:
             *.cache-to=type=gha,mode=max
         env:
           IMAGE_REPO: ${{ inputs.image-repo }}
+
+      - name: Check cache save
+        if: ${{ inputs.cache-map != '' && inputs.cache-lock != '' }}
+        run: |
+          ls -la /tmp/target-cache

@@ -153,3 +153,15 @@ target "bindings-examples" {
   ]
   tags = get_tag(target.docker-metadata-action.tags, "${target.bindings-examples.name}")
 }
+
+target "test-cache" {
+  contexts = {
+    src = "."
+  }
+  dockerfile = "Dockerfile"
+  inherits = [
+    "_common",
+    "docker-metadata-action",
+  ]
+  tags = get_tag(target.docker-metadata-action.tags, "${target.bindings-examples.name}")
+}
