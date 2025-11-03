@@ -17,33 +17,7 @@ ENV UV_LINK_MODE=copy \
     UV_PROJECT_ENVIRONMENT=/app
 
 # Install dependencies required for building rust and Python bindings
-RUN DEBIAN_FRONTEND=noninteractive \
-    apt-get update && \
-    apt-get install --no-install-recommends -y \
-        curl \
-        file \
-        make \
-        unzip \
-        git \
-        lsb-release \
-        software-properties-common \
-        gnupg \
-        pkg-config && \
-    curl -L -o /tmp/llvm.sh https://apt.llvm.org/llvm.sh && \
-    curl -1sLf 'https://dl.cloudsmith.io/public/task/task/setup.deb.sh' | bash && \
-    chmod +x /tmp/llvm.sh && \
-    /tmp/llvm.sh 19 && \
-    apt-get install -y task
-
-# Install rust toolchain
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-
-# Copy code into builder
-COPY . /src
-WORKDIR /src/data-plane/python
-
-# Setup cross-compilation toolchain and Rust targets
-RUN <<EOF
+RUN --mount=type=cache,target=/app/data-plane/target <<EOF
 case ${TARGETARCH} in
     "amd64")
         PACKAGES="gcc-x86-64-linux-gnu g++-x86-64-linux-gnu"
@@ -59,10 +33,31 @@ case ${TARGETARCH} in
         ;;
 esac
 
-apt-get update && apt-get install -y ${PACKAGES}
-rustup target add ${RUSTARCH}
-cargo fetch --target ${RUSTARCH}
+DEBIAN_FRONTEND=noninteractive \
+    apt-get update && \
+    apt-get install --no-install-recommends -y \
+        curl \
+        file \
+        make \
+        unzip \
+        git \
+        lsb-release \
+        software-properties-common \
+        gnupg \
+        pkg-config \
+        ${PACKAGES}
+
+curl -L -o /tmp/llvm.sh https://apt.llvm.org/llvm.sh
+chmod +x /tmp/llvm.sh
+/tmp/llvm.sh 19
+
+curl -1sLf 'https://dl.cloudsmith.io/public/task/task/setup.deb.sh' | bash
+apt-get install -y task
 EOF
+
+# Copy code into builder
+COPY . /src
+WORKDIR /src/data-plane/python
 
 # Build the Python bindings with cross-compilation
 RUN <<EOF
@@ -78,6 +73,8 @@ case ${TARGETARCH} in
         exit 1
         ;;
 esac
+
+cargo fetch --target ${RUSTARCH}
 
 uv python install cpython-3.13.3-linux-${RUSTARCH}
 export PYO3_CROSS_INCLUDE_DIR=~/.local/share/uv/python/cpython-3.13.3-linux-${RUSTARCH}-gnu/include
