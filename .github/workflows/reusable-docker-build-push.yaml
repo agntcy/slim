@@ -72,8 +72,8 @@ jobs:
         if: ${{ inputs.cache-map != '' }}
         id: prepare-cache
         run: |
-          echo "cache-host-paths=$(echo '${{ inputs.cache-map }}' | jq -r 'keys[]')" >> $GITHUB_OUTPUT
-          echo "cache-container-paths=$(echo '${{ inputs.cache-map }}' | jq -r '.[keys[]]')" >> $GITHUB_OUTPUT
+          echo "cache-host-paths='$(echo '${{ inputs.cache-map }}' | jq -r 'keys[]')'" >> ${GITHUB_OUTPUT}
+          echo "cache-container-paths='$(echo '${{ inputs.cache-map }}' | jq -r '.[keys[]]')'" >> ${GITHUB_OUTPUT}
 
       - name: Build cache
         id: cache
