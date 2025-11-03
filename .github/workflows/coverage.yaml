@@ -26,8 +26,11 @@ jobs:
       - name: Install cargo-llvm-cov
         run: cargo install cargo-llvm-cov
 
-      - name: Setup uv (Python package manager)
-        uses: astral-sh/setup-uv@v3
+      - name: Setup UV
+        id: setup-uv
+        uses: ./.github/actions/setup-python
+        with:
+          uv-install: true
 
       - name: Generate data plane coverage report (Rust + Python)
         run: task data-plane:coverage-full
