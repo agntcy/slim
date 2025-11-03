@@ -24,6 +24,11 @@ use crate::api::{
 use thiserror::Error;
 use tracing::error;
 
+// constant strings used in messages metadata
+pub const IS_MODERATOR: &str = "IS_MODERATOR";
+pub const DELETE_GROUP: &str = "DELETE_GROUP";
+pub const TRUE_VAL: &str = "TRUE";
+
 #[derive(Error, Debug, PartialEq)]
 pub enum MessageError {
     #[error("SLIM header not found")]

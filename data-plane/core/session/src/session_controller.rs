@@ -20,7 +20,7 @@ use slim_datapath::{
         ApplicationPayload, CommandPayload, Content, MlsPayload, ProtoMessage as Message,
         ProtoSessionMessageType, ProtoSessionType, SessionHeader, SlimHeader,
     },
-    messages::{Name, utils::SlimHeaderFlags},
+    messages::{Name, utils::DELETE_GROUP, utils::SlimHeaderFlags},
 };
 
 // Local crate
@@ -1331,7 +1331,7 @@ where
             ProtoSessionMessageType::LeaveRequest => {
                 // if the metadata contains the key "DELETE_GROUP" remove all the participants
                 // and close the session when all task are completed
-                if message.contains_metadata("DELETE_GROUP") {
+                if message.contains_metadata(DELETE_GROUP) {
                     return self.delete_all(message).await;
                 }
 

@@ -34,7 +34,7 @@ use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType, SessionHeade
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::Name;
 use slim_datapath::messages::encoder::calculate_hash;
-use slim_datapath::messages::utils::SlimHeaderFlags;
+use slim_datapath::messages::utils::{DELETE_GROUP, IS_MODERATOR, SlimHeaderFlags, TRUE_VAL};
 use slim_datapath::tables::SubscriptionTable;
 
 type TxChannel = mpsc::Sender<Result<ControlMessage, Status>>;
@@ -568,7 +568,7 @@ fn new_channel_message(
         auth_provider,
     );
 
-    msg.insert_metadata("IS_MODERATOR".to_string(), "true".to_string());
+    msg.insert_metadata(IS_MODERATOR.to_string(), TRUE_VAL.to_string());
     msg
 }
 
@@ -592,7 +592,7 @@ fn delete_channel_message(
         auth_provider,
     );
 
-    msg.insert_metadata("DELETE_GROUP".to_string(), "true".to_string());
+    msg.insert_metadata(DELETE_GROUP.to_string(), TRUE_VAL.to_string());
     msg
 }
 

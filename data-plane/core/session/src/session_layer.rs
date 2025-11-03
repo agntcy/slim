@@ -8,6 +8,7 @@ use std::sync::Arc;
 // Third-party crates
 use parking_lot::RwLock as SyncRwLock;
 use rand::Rng;
+use slim_datapath::messages::utils::IS_MODERATOR;
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, warn};
@@ -478,8 +479,8 @@ where
                         // tag it as session initiator
                         // in addition the metadata of the first received message are copied in the metadata of the session
                         // and then added to the messages sent by this session. so we need to erase the entries
-                        // the we want to keep local: IS_MODERATOR
-                        conf.initiator = message.remove_metadata("IS_MODERATOR").is_some();
+                        // that we want to keep local: IS_MODERATOR
+                        conf.initiator = message.remove_metadata(IS_MODERATOR).is_some();
                         conf.metadata = message.get_metadata_map();
 
                         let channel = if let Some(c) = payload.channel {
