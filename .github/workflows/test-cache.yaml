@@ -24,8 +24,8 @@ on:
         default: "ghcr.io/agntcy/slim"
   pull_request:
     paths:
-      - '.github/workflows/reusable-docker-build-push.yaml'
-      - '.github/workflows/test-buildx-cache-reusable.yaml'
+      - ".github/workflows/reusable-docker-build-push.yaml"
+      - ".github/workflows/test-buildx-cache-reusable.yaml"
 
 jobs:
   cold-build:
@@ -34,7 +34,11 @@ jobs:
     with:
       bake-targets: slim
       image-tag: ${{ github.sha }}
-      cache-source: data-plane/target
+      cache-map: |
+        {
+          "target-cache": "/app/data-plane/target",
+          "cargo-cache": "/root/.cargo"
+        }
 
   warm-build:
     name: Warm build (reuse cache)
@@ -43,4 +47,4 @@ jobs:
     with:
       bake-targets: slim
       image-tag: ${{ github.sha }}
-      cache-source: data-plane/target
+      cache-map: data-plane/target

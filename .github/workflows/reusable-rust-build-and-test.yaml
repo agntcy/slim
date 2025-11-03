@@ -71,19 +71,6 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
 
-      - name: Get components hash
-        id: get_hash
-        run: |
-          COMPONENTS_HASH=$(task ${{ inputs.task-prefix }}:tools:hash)
-          echo "components_hash=$COMPONENTS_HASH" >> $GITHUB_OUTPUT
-
-      - name: Setup Rust Caching
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: ${{ inputs.working-directory }}
-          cache-on-failure: false
-          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{ steps.get_hash.outputs.components_hash }}
-
       - name: Install dependencies
         run: |
           task ${{ inputs.task-prefix }}:fetch
@@ -104,19 +91,6 @@ jobs:
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
-
-      - name: Get components hash
-        id: get_hash
-        run: |
-          COMPONENTS_HASH=$(task ${{ inputs.task-prefix }}:tools:hash)
-          echo "components_hash=$COMPONENTS_HASH" >> $GITHUB_OUTPUT
-
-      - name: Setup Rust Caching
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: ${{ inputs.working-directory }}
-          cache-on-failure: false
-          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{ steps.get_hash.outputs.components_hash }}
 
       - name: Setup Python
         uses: ./.github/actions/setup-python
@@ -149,19 +123,6 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
 
-      - name: Get components hash
-        id: get_hash
-        run: |
-          COMPONENTS_HASH=$(task ${{ inputs.task-prefix }}:tools:hash)
-          echo "components_hash=$COMPONENTS_HASH" >> $GITHUB_OUTPUT
-
-      - name: Setup Rust Caching
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: ${{ inputs.working-directory }}
-          cache-on-failure: false
-          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{ steps.get_hash.outputs.components_hash }}
-
       - name: Run `vuln`
         run: |
           task ${{ inputs.task-prefix }}:vuln
@@ -184,19 +145,6 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
 
-      - name: Get components hash
-        id: get_hash
-        run: |
-          COMPONENTS_HASH=$(task ${{ inputs.task-prefix }}:tools:hash)
-          echo "components_hash=$COMPONENTS_HASH" >> $GITHUB_OUTPUT
-
-      - name: Setup Rust Caching
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: ${{ inputs.working-directory }}
-          cache-on-failure: false
-          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{ steps.get_hash.outputs.components_hash }}
-
       - name: Run `coverage`
         run: |
           task ${{ inputs.task-prefix }}:test:coverage
@@ -218,19 +166,6 @@ jobs:
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
-
-      - name: Get components hash
-        id: get_hash
-        run: |
-          COMPONENTS_HASH=$(task ${{ inputs.task-prefix }}:tools:hash)
-          echo "components_hash=$COMPONENTS_HASH" >> $GITHUB_OUTPUT
-
-      - name: Setup Rust Caching
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: ${{ inputs.working-directory }}
-          cache-on-failure: false
-          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{ steps.get_hash.outputs.components_hash }}
 
       - name: Setup Python
         uses: ./.github/actions/setup-python
@@ -290,19 +225,6 @@ jobs:
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
-
-      - name: Get components hash
-        id: get_hash
-        run: |
-          COMPONENTS_HASH=$(task ${{ inputs.task-prefix }}:tools:hash)
-          echo "components_hash=$COMPONENTS_HASH" >> $GITHUB_OUTPUT
-
-      - name: Setup Rust Caching
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: ${{ inputs.working-directory }}
-          cache-on-failure: false
-          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{ steps.get_hash.outputs.components_hash }}
 
       - name: Build
         run: |

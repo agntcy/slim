@@ -25,7 +25,7 @@ on:
         type: string
         description: "Image repo to use."
         default: "ghcr.io/agntcy/slim"
-      cache-source:
+      cache-map:
         required: false
         type: string
         description: "Cache folder to use."
@@ -68,23 +68,27 @@ jobs:
             type=raw,value=${{ inputs.image-tag }}
             type=raw,value=latest,enable=${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags') }}
 
+      - name: Prepare cache source
+        if: ${{ inputs.cache-map != '' }}
+        id: prepare-cache
+        run: |
+          echo "cache-host-paths=$(echo '${{ inputs.cache-map }}' | jq -r 'keys[]')" >> $GITHUB_OUTPUT
+          echo "cache-container-paths=$(echo '${{ inputs.cache-map }}' | jq -r '.[keys[]]')" >> $GITHUB_OUTPUT
+
       - name: Build cache
         id: cache
         if: ${{ inputs.cache-source != '' }}
         uses: actions/cache@v4
         with:
-          path: ${{ inputs.cache-source }}
+          path: |
+            ${{ steps.prepare-cache.outputs.cache-host-paths }}
           key: buildx-${{ runner.os }}-${{ runner.arch }}-${{ inputs.bake-targets }}
 
       - name: Inject go-build-cache
         if: ${{ inputs.cache-source != '' }}
         uses: reproducible-containers/buildkit-cache-dance@v3
         with:
-          cache-map: |
-            {
-              "data-plane/target": "/app/data-plane/target"
-            }
-
+          cache-map: ${{ inputs.cache-map }}
           skip-extraction: ${{ steps.cache.outputs.cache-hit }}
 
       - name: Build and push
