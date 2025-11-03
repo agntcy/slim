@@ -63,7 +63,6 @@ case ${TARGETARCH} in
 esac
 
 # Fetch rust packages
-
 task -v data-plane:fetch TARGET=${RUSTARCH}
 
 # Build application
