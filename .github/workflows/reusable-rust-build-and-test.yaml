@@ -71,7 +71,7 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
         with:
-          workspace: ./data-plane
+          workspace: ${{ inputs.working-directory }}
 
       - name: Install dependencies
         run: |
