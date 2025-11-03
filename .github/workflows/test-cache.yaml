@@ -34,8 +34,8 @@ jobs:
     with:
       bake-targets: test-cache
       image-tag: ${{ github.sha }}
-      cache-map: |
-        { "/tmp/target-cache": "/app/data-plane/target", "/tmp/cargo-cache": "/root/.cargo" }
+      cache-source: target-cache
+      cache-target: /app/data-plane/target
       cache-lock: ./data-plane/Cargo.lock
 
   warm-build:
@@ -43,8 +43,8 @@ jobs:
     needs: cold-build
     uses: ./.github/workflows/reusable-docker-build-push.yaml
     with:
-      bake-targets: test-cachs
+      bake-targets: test-cache
       image-tag: ${{ github.sha }}
-      cache-map: |
-        { "target-cache": "/app/data-plane/target", "cargo-cache": "/root/.cargo" }
-      cache-lock: ./data-plane/Cargo.lock
+      cache-source: target-cache
+      cache-target: /app/data-plane/target
+      cache-lock: ./data-plane/Cargo.locs
