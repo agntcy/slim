@@ -101,6 +101,7 @@ jobs:
         with:
           cache-map: ${{ inputs.cache-map }}
           skip-extraction: ${{ steps.cache.outputs.cache-hit }}
+          builder: ${{ steps.setup-buildx.outputs.name }}
 
       - name: Build and push
         uses: docker/bake-action@a4d7f0b5b91c14a296d792d4ec53a9db17f02e67 # v5.5.0
