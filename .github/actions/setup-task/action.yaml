@@ -106,16 +106,11 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github-token }}
       run: |
         echo "Task not found in cache, downloading..."
-        sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d ${{ steps.get-version.outputs.version }} -b ~/.local/bin
+        sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -b ~/.local/bin -d ${{ steps.get-version.outputs.version }}
 
     - name: Verify installation
       shell: bash
       run: |
-        # Add to PATH if not already there
-        if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-        fi
-
         # Verify installation
         if ~/.local/bin/task --version; then
           echo "Task installation verified"
