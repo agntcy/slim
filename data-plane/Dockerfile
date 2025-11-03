@@ -25,7 +25,7 @@ RUN DEBIAN_FRONTEND=noninteractive \
     /tmp/llvm.sh 19
 
 # Install taskfile
-RUN sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
+RUN curl -1sLf 'https://dl.cloudsmith.io/public/task/task/setup.deb.sh' | bash
 
 # Copy source code
 COPY . /app
