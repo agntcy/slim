@@ -15,7 +15,6 @@ use slim_auth::shared_secret::SharedSecret;
 use slim_auth::testutils::TEST_VALID_SECRET;
 use slim_datapath::messages::Name;
 use slim_session::{
-    PointToPointConfiguration, SessionConfig,
     context::SessionContext,
     notification::Notification,
     timer::{Timer, TimerObserver, TimerType},
@@ -84,11 +83,8 @@ where
     ctx.spawn_receiver(move |mut rx, weak| async move {
         info!("Session handler task started (session id={})", session_id_val);
 
-        let remote_name = weak.upgrade().as_ref().unwrap().dst();
-        if remote_name.is_none() {
-            error!("session has no destination name, closing");
-            return;
-        }
+        let binding = weak.upgrade();
+        let remote_name = binding.as_ref().unwrap().dst();
 
         let mut incoming_conn_id: Option<u64> = None;
 
@@ -180,10 +176,10 @@ where
                             break;
                         }
                         Some(msg) => {
-                            if let (Some(remote), Some(conn)) = (remote_name.as_ref(), incoming_conn_id) {
+                            if let Some(conn) = incoming_conn_id {
                                 if let Some(session_arc) = weak.upgrade() {
                                     let vec = serde_json::to_vec(&msg).unwrap();
-                                    if let Err(e) = session_arc.publish_to(remote, conn, vec, None, None).await { error!("error sending MCP->client message: {}", e); }
+                                    if let Err(e) = session_arc.publish_to(remote_name, conn, vec, None, None).await { error!("error sending MCP->client message: {}", e); }
                                 } else { debug!("session dropped before sending MCP message"); break; }
                             } else {
                                 debug!("dropping MCP message: remote not initialized yet");
@@ -201,13 +197,13 @@ where
                                 let _ = sink.close().await;
                                 break;
                             }
-                            if let (Some(remote), Some(conn)) = (remote_name.as_ref(), incoming_conn_id) && let Some(session_arc) = weak.upgrade() {
+                            if let Some(conn) = incoming_conn_id && let Some(session_arc) = weak.upgrade() {
                                 let ping_req = PingRequest { method: PingRequestMethod };
                                 let index = rand::random::<u32>();
                                 pending_pings.insert(index);
                                 let req = ServerJsonRpcMessage::Request(JsonRpcRequest { jsonrpc: rmcp::model::JsonRpcVersion2_0, id: Number(index), request: rmcp::model::ServerRequest::PingRequest(ping_req) });
                                 let vec = serde_json::to_vec(&req).unwrap();
-                                if let Err(e) = session_arc.publish_to(remote, conn, vec, None, None).await { error!("error sending ping: {}", e); }
+                                if let Err(e) = session_arc.publish_to(remote_name, conn, vec, None, None).await { error!("error sending ping: {}", e); }
                             }
                         }
                     }
@@ -261,16 +257,6 @@ impl Proxy {
             Err(e) => {
                 panic!("an error accoured while adding a subscription {}", e);
             }
-        }
-
-        let res = app
-            .create_session(
-                SessionConfig::PointToPoint(PointToPointConfiguration::default()),
-                None,
-            )
-            .await;
-        if res.is_err() {
-            panic!("error creating p2p session");
         }
 
         info!("waiting for incoming messages");
