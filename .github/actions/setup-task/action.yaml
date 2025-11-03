@@ -57,7 +57,7 @@ runs:
       run: |
         OS=$(uname -s | tr '[:upper:]' '[:lower:]')
         ARCH=$(uname -m)
-        
+
         # Normalize architecture names to match Task releases
         case $ARCH in
           x86_64)
@@ -70,7 +70,7 @@ runs:
             ARCH="arm"
             ;;
         esac
-        
+
         # Normalize OS names
         case $OS in
           darwin)
@@ -83,7 +83,7 @@ runs:
             OS="windows"
             ;;
         esac
-        
+
         echo "os=$OS" >> $GITHUB_OUTPUT
         echo "arch=$ARCH" >> $GITHUB_OUTPUT
         echo "Platform: $OS-$ARCH"
@@ -109,76 +109,7 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github-token }}
       run: |
         echo "Task not found in cache, downloading..."
-        
-        # Create local bin directory
-        mkdir -p ~/.local/bin
-        
-        # Determine archive format and construct download URL
-        if [[ "$OS" == "windows" ]]; then
-          ARCHIVE_EXT=".zip"
-          BINARY_NAME="task.exe"
-        else
-          ARCHIVE_EXT=".tar.gz"
-          BINARY_NAME="task"
-        fi
-        
-        ARCHIVE_NAME="task_${OS}_${ARCH}${ARCHIVE_EXT}"
-        DOWNLOAD_URL="https://github.com/go-task/task/releases/download/${VERSION}/${ARCHIVE_NAME}"
-        
-        echo "Downloading from: $DOWNLOAD_URL"
-        
-        # Download with retry logic to handle rate limiting
-        for i in {1..3}; do
-          if curl -L --fail --silent --show-error \
-            -H "Authorization: Bearer $GITHUB_TOKEN" \
-            -H "Accept: application/octet-stream" \
-            -o "/tmp/${ARCHIVE_NAME}" \
-            "$DOWNLOAD_URL"; then
-            echo "Download successful on attempt $i"
-            break
-          else
-            echo "Download failed on attempt $i"
-            if [[ $i -eq 3 ]]; then
-              echo "All download attempts failed"
-              exit 1
-            fi
-            echo "Retrying in $((i * 2)) seconds..."
-            sleep $((i * 2))
-          fi
-        done
-        
-        # Extract the binary from the archive
-        cd /tmp
-        if [[ "$OS" == "windows" ]]; then
-          if ! unzip -q "${ARCHIVE_NAME}"; then
-            echo "Failed to extract Windows archive"
-            exit 1
-          fi
-        else
-          if ! tar -xzf "${ARCHIVE_NAME}"; then
-            echo "Failed to extract tar.gz archive"
-            exit 1
-          fi
-        fi
-        
-        # Verify the binary exists in the extracted content
-        if [[ ! -f "${BINARY_NAME}" ]]; then
-          echo "Binary ${BINARY_NAME} not found in extracted archive"
-          echo "Contents of extracted archive:"
-          ls -la
-          exit 1
-        fi
-        
-        # Move binary to the local bin directory
-        mv "${BINARY_NAME}" ~/.local/bin/task
-        
-        # Make executable (needed for all platforms)
-        chmod +x ~/.local/bin/task
-        
-        # Clean up
-        rm -f "/tmp/${ARCHIVE_NAME}"
-        
-        echo "Task installed successfully"
+        sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b ~/.local/bin
 
     - name: Verify installation
       shell: bash
@@ -187,7 +118,7 @@ runs:
         if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
           echo "$HOME/.local/bin" >> $GITHUB_PATH
         fi
-        
+
         # Verify installation
         if ~/.local/bin/task --version; then
           echo "Task installation verified"
