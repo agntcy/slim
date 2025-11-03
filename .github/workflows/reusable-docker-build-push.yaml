@@ -30,6 +30,11 @@ on:
         type: string
         description: "Cache folder to use."
         default: ""
+      cache-target:
+        required: false
+        type: string
+        description: "Cache folder to use."
+        default: ""
       cache-lock:
         required: false
         type: string
