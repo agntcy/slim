@@ -2018,7 +2018,7 @@ mod tests {
 
         // create a SessionModerator
         let (tx_slim_moderator, mut rx_slim_moderator) = tokio::sync::mpsc::channel(10);
-        let (tx_app_moderator, _rx_app_moderator) = tokio::sync::mpsc::channel(10);
+        let (tx_app_moderator, _rx_app_moderator) = tokio::sync::mpsc::unbounded_channel();
         let (tx_session_layer_moderator, _rx_session_layer_moderator) =
             tokio::sync::mpsc::channel(10);
 
@@ -2050,7 +2050,7 @@ mod tests {
 
         // create a SessionParticipant
         let (tx_slim_participant, mut rx_slim_participant) = tokio::sync::mpsc::channel(10);
-        let (tx_app_participant, mut rx_app_participant) = tokio::sync::mpsc::channel(10);
+        let (tx_app_participant, mut rx_app_participant) = tokio::sync::mpsc::unbounded_channel();
         let (tx_session_layer_participant, _rx_session_layer_participant) =
             tokio::sync::mpsc::channel(10);
 

@@ -294,6 +294,11 @@ where
                                             .await;
 
                                         if let Err(e) = res {
+                                            // Ignore errors due to subscription not found
+                                            if let SessionError::SubscriptionNotFound(_) = e {
+                                                debug!("session not found, ignoring message");
+                                                continue;
+                                            }
                                             error!("error handling message: {}", e);
                                         }
                                     }
@@ -578,8 +583,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_message_from_app() {
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(1);
-        let (tx_app, _) = tokio::sync::mpsc::channel(1);
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, _) = tokio::sync::mpsc::channel(10);
         let dst = Name::from_strings(["cisco", "default", "remote"]).with_id(0);
         let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 

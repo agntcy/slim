@@ -184,7 +184,7 @@ mod tests {
     #[traced_test]
     async fn test_send_message() {
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, _rx_app) = tokio::sync::mpsc::channel(10);
+        let (tx_app, _rx_app) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim.clone(), tx_app.clone());
@@ -322,7 +322,7 @@ mod tests {
     async fn test_receive_message() {
         // Create the session
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(10);
+        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim.clone(), tx_app.clone());
@@ -534,7 +534,7 @@ mod tests {
 
         // Sender session setup
         let (tx_slim_sender, mut rx_slim_sender) = tokio::sync::mpsc::channel(10);
-        let (tx_app_sender, _rx_app_sender) = tokio::sync::mpsc::channel(10);
+        let (tx_app_sender, _rx_app_sender) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal_sender, mut rx_signal_sender) = tokio::sync::mpsc::channel(10);
 
         let tx_sender = SessionTransmitter::new(tx_slim_sender.clone(), tx_app_sender.clone());
@@ -567,7 +567,7 @@ mod tests {
 
         // Receiver session setup
         let (tx_slim_receiver, mut rx_slim_receiver) = tokio::sync::mpsc::channel(10);
-        let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::channel(10);
+        let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal_receiver, _rx_signal_receiver) = tokio::sync::mpsc::channel(10);
 
         let tx_receiver =

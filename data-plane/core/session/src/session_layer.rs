@@ -205,7 +205,7 @@ where
         };
 
         // Create a new transmitter with identity interceptors
-        let (app_tx, app_rx) = tokio::sync::mpsc::channel(128);
+        let (app_tx, app_rx) = tokio::sync::mpsc::unbounded_channel();
         let tx = SessionTransmitter::new(self.tx_slim.clone(), app_tx);
 
         let identity_interceptor = Arc::new(IdentityInterceptor::new(
