@@ -73,7 +73,7 @@ jobs:
           push: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags') }}
           provenance: false
           set: |
-            "*.cache-from=type=gha"
-            "*.cache-to=type=gha,mode=max"
+            *.cache-from=type=gha
+            *.cache-to=type=gha,mode=max
         env:
           IMAGE_REPO: ${{ inputs.image-repo }}
