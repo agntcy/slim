@@ -120,4 +120,4 @@ jobs:
       - name: Check cache save
         if: ${{ inputs.cache-map != '' && inputs.cache-lock != '' }}
         run: |
-          ls -la /tmp/target-cache
+          ls -la /tmp
