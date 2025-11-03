@@ -101,7 +101,7 @@ async def run_client(
         # Establish routing so outbound publishes know the remote destination.
         await local_app.set_route(remote_name)
 
-        config = slim_bindings.PySessionConfiguration.PointToPoint(
+        config = slim_bindings.PySessionConfiguration.PointToPoint(  # type: ignore
             max_retries=5,
             timeout=datetime.timedelta(seconds=5),
             mls_enabled=enable_mls,
