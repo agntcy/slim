@@ -20,9 +20,9 @@ RUN DEBIAN_FRONTEND=noninteractive \
         software-properties-common \
         gnupg \
         pkg-config && \
-    curl -OL https://apt.llvm.org/llvm.sh && \
-    chmod +x llvm.sh && \
-    ./llvm.sh 19
+    curl -L -o /tmp/llvm.sh https://apt.llvm.org/llvm.sh && \
+    chmod +x /tmp/llvm.sh && \
+    /tmp/llvm.sh 19
 
 # Install taskfile
 RUN sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
