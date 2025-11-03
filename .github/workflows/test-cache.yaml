@@ -32,19 +32,13 @@ jobs:
     name: Cold build (no cache)
     uses: ./.github/workflows/reusable-docker-build-push.yaml
     with:
-      bake-targets: test-cache
+      bake-targets: slim
       image-tag: ${{ github.sha }}
-      cache-source: target-cache
-      cache-target: /app/data-plane/target
-      cache-lock: ./data-plane/Cargo.lock
 
   warm-build:
     name: Warm build (reuse cache)
     needs: cold-build
     uses: ./.github/workflows/reusable-docker-build-push.yaml
     with:
-      bake-targets: test-cache
+      bake-targets: slim
       image-tag: ${{ github.sha }}
-      cache-source: target-cache
-      cache-target: /app/data-plane/target
-      cache-lock: ./data-plane/Cargo.locs
