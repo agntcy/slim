@@ -12,13 +12,42 @@ import (
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
-	db "github.com/agntcy/slim/control-plane/control-plane/internal/db"
+	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
 )
 
 // mockDB implements the data access interface for testing.
 type mockDB struct {
 	saveChannelErr error
+}
+
+func (m *mockDB) FilterRoutesBySourceAndDestination(_ string, _ string) []db.Route {
+	panic("unimplemented")
+}
+
+// AddRoute implements db.DataAccess.
+func (m *mockDB) AddRoute(_ db.Route) string {
+	panic("unimplemented")
+}
+
+// DeleteRoute implements db.DataAccess.
+func (m *mockDB) DeleteRoute(_ string) error {
+	panic("unimplemented")
+}
+
+// GetRouteByID implements db.DataAccess.
+func (m *mockDB) GetRouteByID(_ string) *db.Route {
+	panic("unimplemented")
+}
+
+// GetRoutesForNodeID implements db.DataAccess.
+func (m *mockDB) GetRoutesForNodeID(_ string) []db.Route {
+	panic("unimplemented")
+}
+
+// MarkRouteAsDeleted implements db.DataAccess.
+func (m *mockDB) MarkRouteAsDeleted(_ string) error {
+	panic("unimplemented")
 }
 
 // Channel operations

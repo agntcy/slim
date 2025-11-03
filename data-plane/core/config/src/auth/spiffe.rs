@@ -4,6 +4,11 @@
 #![cfg(not(target_family = "windows"))]
 
 //! SPIFFE authentication configuration for SLIM
+//!
+//! This module provides configuration for SPIFFE-based authentication using both
+//! X.509 SVIDs and JWT SVIDs. The provider can fetch X.509 certificates and JWT tokens,
+//! while the verifier can validate both X.509 certificates and JWT tokens using
+//! automatically rotated bundles from the SPIFFE Workload API.
 
 use super::{AuthError, ClientAuthenticator, ServerAuthenticator};
 use schemars::JsonSchema;
@@ -108,6 +113,12 @@ impl Config {
     }
 
     /// Create a SPIFFE provider from this configuration
+    ///
+    /// The provider can fetch:
+    /// - X.509 SVIDs (certificates and private keys) for mTLS
+    /// - JWT SVIDs (tokens) for bearer authentication
+    ///
+    /// Both types of credentials are automatically rotated by the provider.
     pub async fn create_provider(&self) -> Result<SpiffeProvider, AuthError> {
         let auth_config = self.to_auth_config();
         let mut provider = SpiffeProvider::new(auth_config);
@@ -115,13 +126,42 @@ impl Config {
         Ok(provider)
     }
 
-    /// Create a SPIFFE JWT verifier from this configuration
+    /// Create a SPIFFE verifier from this configuration
+    ///
+    /// The verifier can validate:
+    /// - JWT tokens using automatically rotated JWT bundles
+    /// - X.509 certificates using automatically rotated X.509 bundles
+    ///
+    /// The verifier maintains background tasks that continuously update the trust bundles
+    /// from the SPIFFE Workload API, ensuring that certificate and token validation
+    /// always uses the latest trust anchors.
+    ///
+    /// # Usage
+    ///
+    /// ```rust,no_run
+    /// # use slim_config::auth::spiffe::Config;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let config = Config::new()
+    ///     .with_jwt_audiences(vec!["my-service".to_string()]);
+    ///
+    /// let verifier = config.create_jwt_verifier().await?;
+    ///
+    /// // Get X.509 bundle (CA certificates) for certificate verification
+    /// let x509_bundle = verifier.get_x509_bundle()?;
+    ///
+    /// // Or get the X509Source directly for more control over bundle access
+    /// let x509_source = verifier.get_x509_source()?;
+    ///
+    /// // JWT verification happens automatically when using ValidateJwtLayer
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn create_jwt_verifier(&self) -> Result<SpiffeJwtVerifier, AuthError> {
         let config = SpiffeVerifierConfig {
             socket_path: self.socket_path.clone(),
             jwt_audiences: self.jwt_audiences.clone(),
         };
-        let verifier = SpiffeJwtVerifier::new(config);
+        let mut verifier = SpiffeJwtVerifier::new(config);
         let _ = verifier.initialize().await;
         Ok(verifier)
     }

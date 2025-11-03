@@ -183,7 +183,7 @@ message MlsPayload {
   uint32 commit_id = 1;
   // commit or welcome mls message
   bytes mls_content = 2;
-} 
+}
 
 // Group Add Payload
 // sent when a new participant is added

@@ -44,5 +44,9 @@ spiffe = { workspace = true }
 
 [dev-dependencies]
 agntcy-slim-config = { path = "../config" }
+bollard = "0.17"
+libc = "0.2.177"
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", "fs"] }
 tokio-test = { workspace = true }
 tracing-test = { workspace = true }
+uuid = { workspace = true }

@@ -1,15 +1,18 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::errors::SlimIdentityError;
 use mls_rs::{
     ExtensionList, IdentityProvider,
     identity::{CredentialType, SigningIdentity},
     time::MlsTime,
 };
 use mls_rs_core::identity::MemberValidationContext;
-use slim_auth::{errors::AuthError, traits::Verifier};
 use tracing::debug;
+
+use slim_auth::{errors::AuthError, traits::Verifier};
+
+use crate::errors::SlimIdentityError;
+use crate::identity_claims::IdentityClaims;
 
 #[derive(Clone)]
 pub struct SlimIdentityProvider<V>
@@ -26,99 +29,134 @@ where
     pub fn new(identity_verifier: V) -> Self {
         Self { identity_verifier }
     }
+
+    async fn resolve_slim_identity(
+        &self,
+        signing_id: &SigningIdentity,
+    ) -> Result<IdentityClaims, SlimIdentityError> {
+        let basic_cred = signing_id
+            .credential
+            .as_basic()
+            .ok_or(SlimIdentityError::NotBasicCredential)?;
+
+        let credential_data =
+            std::str::from_utf8(&basic_cred.identifier).map_err(SlimIdentityError::InvalidUtf8)?;
+
+        // Verify token and extract claims
+        let claims: serde_json::Value = match self.identity_verifier.try_get_claims(credential_data)
+        {
+            Ok(claims) => claims,
+            Err(AuthError::WouldBlockOn) => {
+                // Fallback to async verification
+                self.identity_verifier
+                    .get_claims(credential_data)
+                    .await
+                    .map_err(|e| {
+                        SlimIdentityError::VerificationFailed(format!(
+                            "could not get claims from token: {}",
+                            e
+                        ))
+                    })?
+            }
+            Err(e) => {
+                return Err(SlimIdentityError::VerificationFailed(format!(
+                    "could not get claims from token: {}",
+                    e
+                )));
+            }
+        };
+
+        // Extract identity claims using the abstraction
+        let identity_claims = IdentityClaims::from_json(&claims)?;
+
+        debug!(
+            "Extracted public key from claims: {}",
+            identity_claims.public_key
+        );
+        debug!("Extracted subject from claims: {}", identity_claims.subject);
+
+        Ok(identity_claims)
+    }
+
+    fn verify_public_key_match(
+        expected: &str,
+        found: &str,
+        subject: &str,
+    ) -> Result<(), SlimIdentityError> {
+        if found != expected {
+            tracing::error!(
+                expected = %expected, found = %found, subject = %subject, "Public key mismatch",
+            );
+            return Err(SlimIdentityError::PublicKeyMismatch {
+                expected: expected.to_string(),
+                found: found.to_string(),
+            });
+        }
+        Ok(())
+    }
 }
 
-fn resolve_slim_identity(signing_id: &SigningIdentity) -> Result<String, SlimIdentityError> {
-    let basic_cred = signing_id
-        .credential
-        .as_basic()
-        .ok_or(SlimIdentityError::NotBasicCredential)?;
-
-    let credential_data =
-        std::str::from_utf8(&basic_cred.identifier).map_err(SlimIdentityError::InvalidUtf8)?;
-
-    Ok(credential_data.to_string())
-}
-
+#[async_trait::async_trait]
 impl<V> IdentityProvider for SlimIdentityProvider<V>
 where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     type Error = SlimIdentityError;
 
-    fn validate_member(
+    async fn validate_member(
         &self,
         signing_identity: &SigningIdentity,
         _timestamp: Option<MlsTime>,
         _context: MemberValidationContext<'_>,
     ) -> Result<(), Self::Error> {
         debug!("Validating MLS group member identity");
-        let identity = resolve_slim_identity(signing_identity)?;
-        match self.identity_verifier.try_verify(&identity) {
-            Ok(()) => {}
-            Err(e) => {
-                if matches!(e, AuthError::WouldBlockOn) {
-                    // Fallback to async verification
-                    let async_res = tokio::runtime::Handle::current()
-                        .block_on(self.identity_verifier.verify(&identity));
-                    async_res
-                        .map_err(|ae| SlimIdentityError::VerificationFailed(ae.to_string()))?;
-                } else {
-                    return Err(SlimIdentityError::VerificationFailed(e.to_string()));
-                }
-            }
-        }
+        let identity_claims = self.resolve_slim_identity(signing_identity).await?;
+
+        // make sure the public key matches the signing identity's public key
+        let signing_pubkey =
+            IdentityClaims::encode_public_key(signing_identity.signature_key.as_ref());
+
+        Self::verify_public_key_match(
+            &signing_pubkey,
+            &identity_claims.public_key,
+            &identity_claims.subject,
+        )?;
 
         Ok(())
     }
 
-    fn validate_external_sender(
+    async fn validate_external_sender(
         &self,
-        signing_identity: &SigningIdentity,
+        _signing_identity: &SigningIdentity,
         _timestamp: Option<MlsTime>,
         _extensions: Option<&ExtensionList>,
     ) -> Result<(), Self::Error> {
-        debug!("Validating external sender identity");
-        let identity = resolve_slim_identity(signing_identity)?;
-        match self.identity_verifier.try_verify(&identity) {
-            Ok(()) => {}
-            Err(e) => {
-                if matches!(e, AuthError::WouldBlockOn) {
-                    // Fallback to async verification for external sender
-                    let async_res = tokio::runtime::Handle::current()
-                        .block_on(self.identity_verifier.verify(&identity));
-                    async_res
-                        .map_err(|ae| SlimIdentityError::ExternalSenderFailed(ae.to_string()))?;
-                } else {
-                    return Err(SlimIdentityError::ExternalSenderFailed(e.to_string()));
-                }
-            }
-        }
-
-        Ok(())
+        tracing::error!("Validating external senders is not supported in SlimIdentityProvider");
+        Err(SlimIdentityError::ExternalCommitNotSupported)
     }
 
-    fn identity(
+    async fn identity(
         &self,
         signing_identity: &SigningIdentity,
         _extensions: &ExtensionList,
     ) -> Result<Vec<u8>, Self::Error> {
-        let identity = resolve_slim_identity(signing_identity)?;
-        Ok(identity.into_bytes())
+        let identity_claims = self.resolve_slim_identity(signing_identity).await?;
+
+        Ok(identity_claims.subject.into_bytes())
     }
 
-    fn valid_successor(
+    async fn valid_successor(
         &self,
         predecessor: &SigningIdentity,
         successor: &SigningIdentity,
         _extensions: &ExtensionList,
     ) -> Result<bool, Self::Error> {
         debug!("Validating identity succession");
-        let pred_identity = resolve_slim_identity(predecessor)?;
-        let succ_identity = resolve_slim_identity(successor)?;
+        let pred_claims = self.resolve_slim_identity(predecessor).await?;
+        let succ_claims = self.resolve_slim_identity(successor).await?;
 
-        //TODO(zkacsand): we need to verify this with the verifier
-        let is_valid = pred_identity == succ_identity;
+        // Successor is valid if both identities have the same subject
+        let is_valid = pred_claims.subject == succ_claims.subject;
         debug!("Identity succession validation result: {}", is_valid);
         Ok(is_valid)
     }

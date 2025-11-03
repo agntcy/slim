@@ -10,7 +10,6 @@ use std::{
 };
 
 // Third-party crates
-use parking_lot::Mutex;
 use slim_mls::mls::Mls;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
@@ -76,7 +75,7 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub async fn new(
         id: u32,
         source: Name,
         destination: Name,
@@ -91,31 +90,37 @@ where
         let cancellation_token = CancellationToken::new();
 
         let controller = if config.initiator {
-            SessionControllerImpl::SessionModerator(SessionModerator::new(
-                id,
-                source.clone(),
-                destination.clone(),
-                config,
-                identity_provider,
-                identity_verifier,
-                storage_path,
-                tx,
-                tx_to_session_layer,
-                cancellation_token.clone(),
-            ))
+            SessionControllerImpl::SessionModerator(
+                SessionModerator::new(
+                    id,
+                    source.clone(),
+                    destination.clone(),
+                    config,
+                    identity_provider,
+                    identity_verifier,
+                    storage_path,
+                    tx,
+                    tx_to_session_layer,
+                    cancellation_token.clone(),
+                )
+                .await,
+            )
         } else {
-            SessionControllerImpl::SessionParticipant(SessionParticipant::new(
-                id,
-                source.clone(),
-                destination.clone(),
-                config,
-                identity_provider,
-                identity_verifier,
-                storage_path,
-                tx,
-                tx_to_session_layer,
-                cancellation_token.clone(),
-            ))
+            SessionControllerImpl::SessionParticipant(
+                SessionParticipant::new(
+                    id,
+                    source.clone(),
+                    destination.clone(),
+                    config,
+                    identity_provider,
+                    identity_verifier,
+                    storage_path,
+                    tx,
+                    tx_to_session_layer,
+                    cancellation_token.clone(),
+                )
+                .await,
+            )
         };
 
         SessionController {
@@ -593,7 +598,7 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new(
+    pub(crate) async fn new(
         id: u32,
         source: Name,
         destination: Name,
@@ -621,7 +626,8 @@ where
             rx_controller,
             tx_to_session_layer,
             cancellation_token,
-        );
+        )
+        .await;
 
         // Start the processor loop
         tokio::spawn(processor.process_loop());
@@ -672,7 +678,7 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub async fn new(
         id: u32,
         source: Name,
         destination: Name,
@@ -688,12 +694,12 @@ where
     ) -> Self {
         let mls_state = if config.mls_enabled {
             Some(
-                MlsState::new(Arc::new(Mutex::new(Mls::new(
-                    source.clone(),
+                MlsState::new(Arc::new(tokio::sync::Mutex::new(Mls::new(
                     identity_provider,
                     identity_verifier,
                     storage_path,
                 ))))
+                .await
                 .expect("failed to create MLS state"),
             )
         } else {
@@ -826,7 +832,12 @@ where
         let payload = if self.mls_state.is_some() {
             debug!("mls enabled, create the package key");
             // if mls we need to provide the key package
-            let key = self.mls_state.as_mut().unwrap().generate_key_package()?;
+            let key = self
+                .mls_state
+                .as_mut()
+                .unwrap()
+                .generate_key_package()
+                .await?;
             Some(key)
         } else {
             None
@@ -858,7 +869,8 @@ where
             self.mls_state
                 .as_mut()
                 .unwrap()
-                .process_welcome_message(&msg)?;
+                .process_welcome_message(&msg)
+                .await?;
         }
 
         // set route for the channel name
@@ -911,7 +923,8 @@ where
                 .mls_state
                 .as_mut()
                 .unwrap()
-                .process_control_message(msg.clone(), &self.common.source)?;
+                .process_control_message(msg.clone(), &self.common.source)
+                .await?;
 
             if !ret {
                 // message already processed, drop it
@@ -1059,7 +1072,7 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new(
+    pub(crate) async fn new(
         id: u32,
         source: Name,
         destination: Name,
@@ -1087,7 +1100,8 @@ where
             rx_controller,
             tx_to_session_layer,
             cancellation_token,
-        );
+        )
+        .await;
 
         // Start the processor loop
         tokio::spawn(processor.process_loop());
@@ -1165,7 +1179,7 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub async fn new(
         id: u32,
         source: Name,
         destination: Name,
@@ -1180,15 +1194,15 @@ where
         cancellation_token: CancellationToken,
     ) -> Self {
         let mls_state = if config.mls_enabled {
-            Some(MlsModeratorState::new(
-                MlsState::new(Arc::new(Mutex::new(Mls::new(
-                    source.clone(),
-                    identity_provider.clone(),
-                    identity_verifier.clone(),
-                    storage_path,
-                ))))
-                .expect("failed to create MLS state"),
-            ))
+            let mls_state = MlsState::new(Arc::new(tokio::sync::Mutex::new(Mls::new(
+                identity_provider.clone(),
+                identity_verifier.clone(),
+                storage_path,
+            ))))
+            .await
+            .expect("failed to create MLS state");
+
+            Some(MlsModeratorState::new(mls_state))
         } else {
             None
         };
@@ -1517,8 +1531,12 @@ where
 
         // get mls data if MLS is enabled
         let (commit, welcome) = if self.mls_state.is_some() {
-            let (commit_payload, welcome_payload) =
-                self.mls_state.as_mut().unwrap().add_participant(&msg)?;
+            let (commit_payload, welcome_payload) = self
+                .mls_state
+                .as_mut()
+                .unwrap()
+                .add_participant(&msg)
+                .await?;
 
             // get the id of the commit, the welcome message has a random id
             let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
@@ -1692,7 +1710,7 @@ where
             // in this case we need to send first the group update and later the leave message
             let mls_payload = match self.mls_state.as_mut() {
                 Some(state) => {
-                    let mls_content = state.remove_participant(&leave_message)?;
+                    let mls_content = state.remove_participant(&leave_message).await?;
                     let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
                     Some(MlsPayload {
                         commit_id,
@@ -1932,7 +1950,7 @@ where
 
         // create mls group if needed
         if let Some(mls) = self.mls_state.as_mut() {
-            mls.init_moderator()?;
+            mls.init_moderator().await?;
         }
 
         // add ourself to the participants
@@ -1978,6 +1996,7 @@ mod tests {
 
     use super::*;
     use slim_auth::shared_secret::SharedSecret;
+
     use std::time::Duration;
     use tokio::time::timeout;
     use tracing_test::traced_test;
@@ -2024,7 +2043,8 @@ mod tests {
             tx_moderator.clone(),
             tx_session_layer_moderator,
             cancellation_token.clone(),
-        );
+        )
+        .await;
 
         // create a SessionParticipant
         let (tx_slim_participant, mut rx_slim_participant) = tokio::sync::mpsc::channel(10);
@@ -2055,7 +2075,8 @@ mod tests {
             tx_participant.clone(),
             tx_session_layer_participant,
             cancellation_token.clone(),
-        );
+        )
+        .await;
 
         // create a discovery request and send it on the moderator on message (direction south)
         let slim_header = Some(SlimHeader::new(

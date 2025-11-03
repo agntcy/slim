@@ -24,12 +24,12 @@ import (
 const AllNodesID = "*"
 
 type RouteService struct {
-	mu                sync.RWMutex
-	queue             workqueue.TypedRateLimitingInterface[RouteReconcileRequest]
-	dbService         db.DataAccess
-	cmdHandler        nodecontrol.NodeCommandHandler
-	reconcilerConfig  config.ReconcilerConfig
-	reconcilerThreads []*RouteReconciler
+	mu               sync.RWMutex
+	queue            workqueue.TypedRateLimitingInterface[RouteReconcileRequest]
+	dbService        db.DataAccess
+	cmdHandler       nodecontrol.NodeCommandHandler
+	reconcilerConfig config.ReconcilerConfig
+	reconcilerThread *RouteReconciler
 }
 
 type Route struct {
@@ -49,7 +49,11 @@ func NewRouteService(dbService db.DataAccess, cmdHandler nodecontrol.NodeCommand
 	reconcilerConfig config.ReconcilerConfig) *RouteService {
 	rateLimiter := workqueue.NewTypedItemExponentialFailureRateLimiter[RouteReconcileRequest](
 		5*time.Millisecond, 1000*time.Second)
-	queue := workqueue.NewTypedRateLimitingQueue[RouteReconcileRequest](rateLimiter)
+	queueConfig := workqueue.TypedRateLimitingQueueConfig[RouteReconcileRequest]{
+		Name:          "RouteReconcileQueue",
+		DelayingQueue: workqueue.NewTypedDelayingQueue[RouteReconcileRequest](),
+	}
+	queue := workqueue.NewTypedRateLimitingQueueWithConfig[RouteReconcileRequest](rateLimiter, queueConfig)
 	return &RouteService{
 		queue:            queue,
 		dbService:        dbService,
@@ -59,18 +63,12 @@ func NewRouteService(dbService db.DataAccess, cmdHandler nodecontrol.NodeCommand
 }
 
 func (s *RouteService) Start(ctx context.Context) error {
-	// start route reconcilers
-	zlog := zerolog.Ctx(ctx)
-	zlog.Info().Msg("Starting route reconcilers")
-	s.reconcilerThreads = make([]*RouteReconciler, s.reconcilerConfig.Threads)
-	for i := 0; i < s.reconcilerConfig.Threads; i++ {
-		reconciler := NewRouteReconciler(fmt.Sprintf("reconciler-%v", i),
-			s.reconcilerConfig.MaxRequeues, s.queue, s.dbService, s.cmdHandler)
-		s.reconcilerThreads[i] = reconciler
-		go func(r *RouteReconciler) {
-			r.Run(ctx)
-		}(reconciler)
-	}
+	reconciler := NewRouteReconciler("reconciler",
+		s.reconcilerConfig, s.queue, s.dbService, s.cmdHandler)
+	go func(r *RouteReconciler) {
+		r.Run(ctx)
+	}(reconciler)
+	s.reconcilerThread = reconciler
 	return nil
 }
 
@@ -518,4 +516,19 @@ func generateConfigData(detail db.ConnectionDetails, localConnection bool) (stri
 
 func stringPtr(s string) *string {
 	return &s
+}
+
+func (s *RouteService) ListRoutes(_ context.Context,
+	request *controlplaneApi.RouteListRequest) (*controlplaneApi.RouteListResponse, error) {
+
+	allRoutes := s.dbService.FilterRoutesBySourceAndDestination(request.GetSrcNodeId(), request.GetDestNodeId())
+	routIDs := make([]string, 0, len(allRoutes))
+	for _, r := range allRoutes {
+		routIDs = append(routIDs, r.GetID())
+	}
+
+	return &controlplaneApi.RouteListResponse{
+		Routes: routIDs,
+	}, nil
+
 }

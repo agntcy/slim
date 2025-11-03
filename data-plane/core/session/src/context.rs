@@ -140,7 +140,7 @@ mod tests {
         Name::from_strings(parts).with_id(0)
     }
 
-    fn build_session_controller_with_app_tx(
+    async fn build_session_controller_with_app_tx(
         id: u32,
         app_tx: AppChannelSender,
     ) -> Arc<SessionController<DummyProvider, DummyVerifier>> {
@@ -169,17 +169,20 @@ mod tests {
             mpsc::channel(32);
 
         // Create a SessionController
-        Arc::new(SessionController::new(
-            id,
-            source,
-            destination,
-            cfg,
-            DummyProvider,
-            DummyVerifier,
-            std::env::temp_dir(),
-            session_tx,
-            tx_session,
-        ))
+        Arc::new(
+            SessionController::new(
+                id,
+                source,
+                destination,
+                cfg,
+                DummyProvider,
+                DummyVerifier,
+                std::env::temp_dir(),
+                session_tx,
+                tx_session,
+            )
+            .await,
+        )
     }
 
     #[tokio::test]
@@ -187,7 +190,7 @@ mod tests {
     // and exposes the expected session identity (id + type).
     async fn context_new_and_upgrade() {
         let (tx_app, rx_app) = mpsc::channel(8);
-        let session_controller = build_session_controller_with_app_tx(1, tx_app);
+        let session_controller = build_session_controller_with_app_tx(1, tx_app).await;
         let ctx = SessionContext::new(session_controller.clone(), rx_app);
         assert!(ctx.session_arc().is_some());
     }
@@ -197,7 +200,7 @@ mod tests {
     // the Weak<Session> captured inside can still be upgraded while the original Arc exists.
     async fn context_spawn_receiver_runs_closure() {
         let (tx_app, rx_app) = mpsc::channel(4);
-        let session_controller = build_session_controller_with_app_tx(3, tx_app);
+        let session_controller = build_session_controller_with_app_tx(3, tx_app).await;
         let ctx = SessionContext::new(session_controller.clone(), rx_app);
         let flag = Arc::new(tokio::sync::Mutex::new(false));
         let flag_clone = flag.clone();
@@ -215,7 +218,7 @@ mod tests {
     // observe session deallocation (upgrade returns None).
     async fn context_spawn_receiver_drops_session() {
         let (tx_app, rx_app) = mpsc::channel(4);
-        let session_controller = build_session_controller_with_app_tx(4, tx_app);
+        let session_controller = build_session_controller_with_app_tx(4, tx_app).await;
         let ctx = SessionContext::new(session_controller.clone(), rx_app);
         let weak = ctx.spawn_receiver(|_rx, s| async move {
             let _ = s;
@@ -234,7 +237,7 @@ mod tests {
     // the channel is explicitly closed (e.g., by dropping the sender).
     async fn context_spawn_receiver_task_finishes_on_session_drop() {
         let (tx_app, rx_app) = mpsc::channel(4);
-        let session_controller = build_session_controller_with_app_tx(5, tx_app.clone());
+        let session_controller = build_session_controller_with_app_tx(5, tx_app.clone()).await;
         let ctx = SessionContext::new(session_controller.clone(), rx_app);
         let (done_tx, done_rx) = oneshot::channel();
         let weak = ctx.spawn_receiver(move |mut rx, _s| async move {

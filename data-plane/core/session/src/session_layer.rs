@@ -215,17 +215,20 @@ where
 
         tx.add_interceptor(identity_interceptor);
 
-        let session_controller = Arc::new(SessionController::new(
-            id,
-            local_name,
-            destination,
-            session_config,
-            self.identity_provider.clone(),
-            self.identity_verifier.clone(),
-            self.storage_path.clone(),
-            tx,
-            self.tx_session.clone(),
-        ));
+        let session_controller = Arc::new(
+            SessionController::new(
+                id,
+                local_name,
+                destination,
+                session_config,
+                self.identity_provider.clone(),
+                self.identity_verifier.clone(),
+                self.storage_path.clone(),
+                tx,
+                self.tx_session.clone(),
+            )
+            .await,
+        );
 
         let ret = pool.insert(id, session_controller.clone());
 
