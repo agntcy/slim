@@ -43,8 +43,8 @@ jobs:
     needs: cold-build
     uses: ./.github/workflows/reusable-docker-build-push.yaml
     with:
-      bake-targets: test-cache
+      bake-targets: test-cachs
       image-tag: ${{ github.sha }}
       cache-map: |
-        { "/tmp/target-cache": "/app/data-plane/target", "/tmp/cargo-cache": "/root/.cargo" }
+        { "target-cache": "/app/data-plane/target", "cargo-cache": "/root/.cargo" }
       cache-lock: ./data-plane/Cargo.lock
