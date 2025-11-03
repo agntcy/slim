@@ -109,7 +109,7 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github-token }}
       run: |
         echo "Task not found in cache, downloading..."
-        sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b ~/.local/bin
+        sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d v${{ inputs.version }} -b ~/.local/bin
 
     - name: Verify installation
       shell: bash
