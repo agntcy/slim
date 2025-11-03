@@ -69,16 +69,17 @@ jobs:
             type=raw,value=latest,enable=${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags') }}
 
       - name: Build cache
-        if: ${{ inputs.cache != '' }}
+        if: ${{ inputs.cache-source != '' }}
         uses: actions/cache@v4
         with:
           path: ${{ inputs.cache-source }}
           key: buildx-${{ runner.os }}-${{ runner.arch }}-${{ inputs.bake-targets }}
 
       - name: Inject go-build-cache
+        if: ${{ inputs.cache-source != '' }}
         uses: reproducible-containers/buildkit-cache-dance@v3
         with:
-          cache-source: ${{ inputs.cache-source }}
+          cache-map: ${{ inputs.cache-source }}
 
       - name: Build and push
         uses: docker/bake-action@a4d7f0b5b91c14a296d792d4ec53a9db17f02e67 # v5.5.0
