@@ -1910,7 +1910,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_full_join_and_leave() {
-        let (tx_app, _) = tokio::sync::mpsc::channel(1);
+        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (moderator_tx, mut moderator_rx) = tokio::sync::mpsc::channel(50);
         let (participant_tx, mut participant_rx) = tokio::sync::mpsc::channel(50);
 
