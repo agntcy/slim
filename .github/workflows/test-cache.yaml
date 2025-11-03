@@ -1,27 +1,6 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
-#
-# Workflow: Test Buildx GitHub Actions cache effectiveness using the reusable build workflow.
-#
-# Strategy:
-#  - Perform a "cold" build via the reusable workflow (first population of the remote cache).
-#  - Perform a "warm" build via the reusable workflow (same targets, expecting cache hits).
-#  - Measure elapsed time for each build and present a summary.
-#
-# Notes:
-#  - The reusable workflow already configures Buildx with cache-from/to using the GHA backend.
-#  - Each job runs on a fresh runner VM; remote cache (type=gha) enables reuse between jobs.
-#  - A shorter warm build compared to the cold build strongly suggests effective caching.
-#
-# Invocation:
-#  - Dispatch manually and optionally change bake targets or image tag.
-#  - image-tag kept constant across cold/warm builds to maximize identical build graph.
-#
-# Possible Extensions:
-#  - Add a matrix of targets to compare cache influence across different Dockerfiles.
-#  - Fail the workflow if warm duration is not sufficiently lower than cold duration.
-#  - Enhance reusable workflow to output cache statistics for richer analysis.
-#
+
 name: Test Buildx Cache (Reusable)
 
 on:
@@ -43,6 +22,10 @@ on:
         description: "Image repo (leave default unless pushing)"
         required: true
         default: "ghcr.io/agntcy/slim"
+  pull_request:
+    paths:
+      - '.github/workflows/reusable-docker-build-push.yaml'
+      - '.github/workflows/test-buildx-cache-reusable.yaml'
 
 jobs:
   cold-build:
