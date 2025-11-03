@@ -36,6 +36,7 @@ jobs:
       image-tag: ${{ github.sha }}
       cache-map: |
         { "/tmp/target-cache": "/app/data-plane/target", "/tmp/cargo-cache": "/root/.cargo" }
+      cache-lock: ./data-plane/Cargo.lock
 
   warm-build:
     name: Warm build (reuse cache)
@@ -46,3 +47,4 @@ jobs:
       image-tag: ${{ github.sha }}
       cache-map: |
         { "/tmp/target-cache": "/app/data-plane/target", "/tmp/cargo-cache": "/root/.cargo" }
+      cache-lock: ./data-plane/Cargo.lock

@@ -30,6 +30,11 @@ on:
         type: string
         description: "Cache folder to use."
         default: ""
+      cache-lock:
+        required: false
+        type: string
+        description: "Cache lock type."
+        default: ""
     secrets:
       github-token:
         description: "github token"
@@ -81,14 +86,14 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Build cache
+      - name: Save/restore cache
         id: cache
         if: ${{ inputs.cache-map != '' }}
         uses: actions/cache@v4
         with:
           path: |
             ${{ steps.prepare-cache.outputs.cache-host-paths }}
-          key: buildx-${{ runner.os }}-${{ runner.arch }}-${{ inputs.bake-targets }}
+          key: buildx-${{ runner.os }}-${{ runner.arch }}-${{ inputs.bake-targets }}-${{ hashFiles(inputs.cache-lock) }}
 
       - name: Inject go-build-cache
         if: ${{ inputs.cache-map != '' }}
