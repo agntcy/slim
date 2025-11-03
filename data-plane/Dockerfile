@@ -48,7 +48,7 @@ EOF
 COPY . /app
 WORKDIR /app/data-plane
 
-RUN --mount=type=cache,target=/app/data-plane/target <<EOF
+RUN --mount=type=cache,id=target-$TARGETARCH,sharing=locked,target=/app/data-plane/target <<EOF
 case ${TARGETARCH} in
     "amd64")
         RUSTARCH=x86_64-unknown-linux-gnu
