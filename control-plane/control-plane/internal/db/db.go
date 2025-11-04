@@ -16,7 +16,7 @@ type DataAccess interface {
 	SaveNode(node Node) (string, bool, error)
 	DeleteNode(id string) error
 
-	AddRoute(route Route) string
+	AddRoute(route Route) (Route, error)
 	GetRoutesForNodeID(nodeID string) []Route
 	GetRoutesForDestinationNodeID(nodeID string) []Route
 	GetRoutesForDestinationNodeIDAndName(nodeID string, Component0 string, Component1 string,
@@ -97,7 +97,7 @@ type Route struct {
 	LastUpdated    time.Time
 }
 
-func (r Route) GetKey() string {
+func (r Route) String() string {
 	return fmt.Sprintf("%s:%s/%s/%s/%v->%s[%s]", r.SourceNodeID,
 		r.Component0, r.Component1, r.Component2, r.ComponentID, r.DestNodeID, r.DestEndpoint)
 }

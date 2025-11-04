@@ -236,16 +236,20 @@ func (d *dbService) DeleteNode(id string) error {
 	return nil
 }
 
-func (d *dbService) AddRoute(route Route) string {
-	//routeID := route.GetKey()
+func (d *dbService) AddRoute(route Route) (Route, error) {
+	//routeID := route.toString()
 	routeID := uuid.New().String()
-	// Add route to the map
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if _, exists := d.routes[routeID]; exists {
+		return Route{}, fmt.Errorf("route %s already exists", routeID)
+	}
+
+	// Add route to the map
 	route.ID = routeID
 	route.LastUpdated = time.Now()
 	d.routes[routeID] = route
-	return routeID
+	return route, nil
 }
 
 func (d *dbService) DeleteRoute(routeID string) error {

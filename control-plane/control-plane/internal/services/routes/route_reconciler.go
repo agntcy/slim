@@ -236,24 +236,24 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 					if err := s.dbService.DeleteRoute(route.ID); err != nil {
 						zlog.Error().
 							Err(err).
-							Str("route_key", route.GetKey()).
+							Str("route_key", route.String()).
 							Msg("Failed to delete route from database")
-						return fmt.Errorf("failed to delete route %s: %w", route.GetKey(), err)
+						return fmt.Errorf("failed to delete route %s: %w", route.String(), err)
 					}
 					zlog.Info().
-						Str("route_key", route.GetKey()).
+						Str("route_key", route.String()).
 						Msg("Successfully deleted route")
 				} else {
 					// Route was for creation/update, mark as applied
 					if err := s.dbService.MarkRouteAsApplied(route.ID); err != nil {
 						zlog.Error().
 							Err(err).
-							Str("route_key", route.GetKey()).
+							Str("route_key", route.String()).
 							Msg("Failed to mark route as applied")
-						return fmt.Errorf("failed to mark route %s as applied: %w", route.GetKey(), err)
+						return fmt.Errorf("failed to mark route %s as applied: %w", route.String(), err)
 					}
 					zlog.Debug().
-						Str("route_key", route.GetKey()).
+						Str("route_key", route.String()).
 						Msg("Successfully marked route as applied")
 				}
 			} else {
@@ -268,13 +268,13 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 				if err := s.dbService.MarkRouteAsFailed(route.ID, failedMsg); err != nil {
 					zlog.Error().
 						Err(err).
-						Str("route_key", route.GetKey()).
+						Str("route_key", route.String()).
 						Str("error_msg", failedMsg).
 						Msg("Failed to mark route as failed")
-					return fmt.Errorf("failed to mark route %s as failed: %w", route.GetKey(), err)
+					return fmt.Errorf("failed to mark route %s as failed: %w", route, err)
 				}
 				zlog.Info().
-					Str("route_key", route.GetKey()).
+					Str("route_key", route.String()).
 					Str("error_msg", failedMsg).
 					Msg("Marked route as failed")
 			}

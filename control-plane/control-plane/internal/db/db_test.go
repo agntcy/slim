@@ -70,7 +70,8 @@ func testRouteOperations(t *testing.T, da DataAccess) {
 		LastUpdated:  time.Now(),
 	}
 
-	routeID1 := da.AddRoute(route1)
+	routeID1, err := da.AddRoute(route1)
+	require.NoError(t, err, "AddRoute should not return error")
 	require.NotEmpty(t, routeID1, "AddRoute should return non-empty route ID")
 
 	route2 := Route{
@@ -84,12 +85,13 @@ func testRouteOperations(t *testing.T, da DataAccess) {
 		LastUpdated:  time.Now(),
 	}
 
-	routeID2 := da.AddRoute(route2)
+	routeID2, err := da.AddRoute(route2)
+	require.NoError(t, err, "AddRoute should not return error")
 	require.NotEmpty(t, routeID2, "AddRoute should return non-empty route ID")
 	require.NotEqual(t, routeID1, routeID2, "Route IDs should be unique")
 
 	// Test GetRouteByID
-	retrievedRoute := da.GetRouteByID(routeID1)
+	retrievedRoute := da.GetRouteByID(routeID1.ID)
 	require.NotNil(t, retrievedRoute, "GetRouteByID should return the route")
 	assert.Equal(t, route1.SourceNodeID, retrievedRoute.SourceNodeID)
 	assert.Equal(t, route1.DestNodeID, retrievedRoute.DestNodeID)
@@ -115,7 +117,7 @@ func testRouteOperations(t *testing.T, da DataAccess) {
 	// Test FilterRoutesBySourceAndDestination
 	filteredRoutes := da.FilterRoutesBySourceAndDestination("node1", "node2")
 	assert.Len(t, filteredRoutes, 1, "Should find 1 route from node1 to node2")
-	assert.Equal(t, routeID1, filteredRoutes[0].ID)
+	assert.Equal(t, routeID1, filteredRoutes[0])
 
 	filteredRoutes = da.FilterRoutesBySourceAndDestination("node1", "node3")
 	assert.Len(t, filteredRoutes, 1, "Should find 1 route from node1 to node3")
@@ -124,10 +126,10 @@ func testRouteOperations(t *testing.T, da DataAccess) {
 	assert.Len(t, filteredRoutes, 0, "Should find 0 routes from node2 to node3")
 
 	// Test MarkRouteAsApplied
-	err := da.MarkRouteAsApplied(routeID1)
+	err = da.MarkRouteAsApplied(routeID1.ID)
 	assert.NoError(t, err, "MarkRouteAsApplied should not return error")
 
-	updatedRoute := da.GetRouteByID(routeID1)
+	updatedRoute := da.GetRouteByID(routeID1.ID)
 	require.NotNil(t, updatedRoute)
 	assert.Equal(t, RouteStatusApplied, updatedRoute.Status, "Route status should be Applied")
 
@@ -137,10 +139,10 @@ func testRouteOperations(t *testing.T, da DataAccess) {
 
 	// Test MarkRouteAsFailed
 	failureMsg := "Connection timeout"
-	err = da.MarkRouteAsFailed(routeID2, failureMsg)
+	err = da.MarkRouteAsFailed(routeID2.ID, failureMsg)
 	assert.NoError(t, err, "MarkRouteAsFailed should not return error")
 
-	failedRoute := da.GetRouteByID(routeID2)
+	failedRoute := da.GetRouteByID(routeID2.ID)
 	require.NotNil(t, failedRoute)
 	assert.Equal(t, RouteStatusFailed, failedRoute.Status, "Route status should be Failed")
 	assert.Equal(t, failureMsg, failedRoute.StatusMsg, "Status message should be set")
@@ -150,10 +152,10 @@ func testRouteOperations(t *testing.T, da DataAccess) {
 	assert.Error(t, err, "MarkRouteAsFailed should return error for non-existent route")
 
 	// Test MarkRouteAsDeleted
-	err = da.MarkRouteAsDeleted(routeID1)
+	err = da.MarkRouteAsDeleted(routeID1.ID)
 	assert.NoError(t, err, "MarkRouteAsDeleted should not return error")
 
-	deletedRoute := da.GetRouteByID(routeID1)
+	deletedRoute := da.GetRouteByID(routeID1.ID)
 	require.NotNil(t, deletedRoute)
 	assert.True(t, deletedRoute.Deleted, "Route should be marked as deleted")
 
@@ -162,10 +164,10 @@ func testRouteOperations(t *testing.T, da DataAccess) {
 	assert.Error(t, err, "MarkRouteAsDeleted should return error for non-existent route")
 
 	// Test DeleteRoute
-	err = da.DeleteRoute(routeID2)
+	err = da.DeleteRoute(routeID2.ID)
 	assert.NoError(t, err, "DeleteRoute should not return error")
 
-	deletedRoute = da.GetRouteByID(routeID2)
+	deletedRoute = da.GetRouteByID(routeID2.ID)
 	assert.Nil(t, deletedRoute, "Route should be completely removed")
 
 	// Test DeleteRoute with non-existent ID
@@ -184,10 +186,11 @@ func testRouteOperations(t *testing.T, da DataAccess) {
 		LastUpdated:  time.Now(),
 	}
 
-	routeID3 := da.AddRoute(routeWithNilComponentID)
+	routeID3, err := da.AddRoute(routeWithNilComponentID)
+	require.NoError(t, err, "AddRoute should handle nil ComponentID")
 	require.NotEmpty(t, routeID3, "AddRoute should handle nil ComponentID")
 
-	retrievedNilRoute := da.GetRouteByID(routeID3)
+	retrievedNilRoute := da.GetRouteByID(routeID3.ID)
 	require.NotNil(t, retrievedNilRoute)
 	assert.Nil(t, retrievedNilRoute.ComponentID, "ComponentID should remain nil")
 
@@ -204,10 +207,11 @@ func testRouteOperations(t *testing.T, da DataAccess) {
 		LastUpdated:    time.Now(),
 	}
 
-	routeID4 := da.AddRoute(routeWithEndpoint)
+	routeID4, err := da.AddRoute(routeWithEndpoint)
+	require.NoError(t, err, "AddRoute should handle DestEndpoint")
 	require.NotEmpty(t, routeID4, "AddRoute should handle DestEndpoint")
 
-	retrievedEndpointRoute := da.GetRouteByID(routeID4)
+	retrievedEndpointRoute := da.GetRouteByID(routeID4.ID)
 	require.NotNil(t, retrievedEndpointRoute)
 	assert.Equal(t, "external.service.com:8080", retrievedEndpointRoute.DestEndpoint)
 	assert.Empty(t, retrievedEndpointRoute.DestNodeID, "DestNodeID should be empty when DestEndpoint is used")
@@ -449,15 +453,16 @@ func testConcurrentOperations(t *testing.T, da DataAccess) {
 					LastUpdated:  time.Now(),
 				}
 
-				routeID := da.AddRoute(route)
-				assert.NotEmpty(t, routeID)
+				route, err := da.AddRoute(route)
+				assert.NoError(t, err)
+				assert.NotEmpty(t, route.ID)
 
 				// Randomly update or delete some routes
 				if j%3 == 0 {
-					err := da.MarkRouteAsApplied(routeID)
+					err := da.MarkRouteAsApplied(route.ID)
 					assert.NoError(t, err)
 				} else if j%5 == 0 {
-					err := da.DeleteRoute(routeID)
+					err := da.DeleteRoute(route.ID)
 					assert.NoError(t, err)
 				}
 			}
@@ -502,7 +507,10 @@ func BenchmarkDataAccess_AddRoute(b *testing.B) {
 
 			for i := 0; i < b.N; i++ {
 				route.DestNodeID = fmt.Sprintf("benchmark-dest-%d", i)
-				_ = da.AddRoute(route)
+				_, err := da.AddRoute(route)
+				if err != nil {
+					b.Fatalf("AddRoute failed: %v", err)
+				}
 			}
 		})
 	}
@@ -529,7 +537,10 @@ func BenchmarkDataAccess_GetRoutesForNodeID(b *testing.B) {
 					Status:       RouteStatusFailed,
 					LastUpdated:  time.Now(),
 				}
-				da.AddRoute(route)
+				_, err := da.AddRoute(route)
+				if err != nil {
+					b.Fatalf("Setup AddRoute failed: %v", err)
+				}
 			}
 
 			b.ResetTimer()
