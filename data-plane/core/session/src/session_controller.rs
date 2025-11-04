@@ -391,6 +391,34 @@ impl SessionConfig {
         }
     }
 }
+impl SessionConfig {
+    pub fn from_join_request(
+        session_type: ProtoSessionType,
+        payload: &CommandPayload,
+        metadata: HashMap<String, String>,
+        initiator: bool,
+    ) -> Result<Self, SessionError> {
+        let join = payload.as_join_request_payload()
+            .map_err(|e| SessionError::Processing(format!("failed to get join request payload: {}", e)))?;
+        let (duration, max_retries) = if let Some(ts) = &join.timer_settings {
+            (
+                Some(std::time::Duration::from_millis(ts.timeout as u64)),
+                Some(ts.max_retries),
+            )
+        } else {
+            (None, None)
+        };
+
+        Ok(SessionConfig {
+            session_type,
+            max_retries,
+            duration,
+            mls_enabled: join.enable_mls,
+            initiator,
+            metadata,
+        })
+    }
+}
 
 pub struct SessionControllerCommon {
     /// session id
@@ -880,8 +908,8 @@ where
         let list = msg
             .get_payload()
             .unwrap()
-            .as_command_payload()
-            .as_welcome_payload()
+            .as_command_payload()?
+            .as_welcome_payload()?
             .participants;
         for n in list {
             let name = Name::from(&n);
@@ -940,8 +968,8 @@ where
             let p = msg
                 .get_payload()
                 .unwrap()
-                .as_command_payload()
-                .as_group_add_payload();
+                .as_command_payload()?
+                .as_group_add_payload()?;
             if let Some(ref new_participant) = p.new_participant {
                 let name = Name::from(new_participant);
                 self.group_list.insert(name.clone());
@@ -954,8 +982,8 @@ where
             let p = msg
                 .get_payload()
                 .unwrap()
-                .as_command_payload()
-                .as_group_remove_payload();
+                .as_command_payload()?
+                .as_group_remove_payload()?;
             if let Some(ref removed_participant) = p.removed_participant {
                 let name = Name::from(removed_participant);
                 self.group_list.remove(&name);
@@ -1341,8 +1369,9 @@ where
                     .get_payload()
                     .unwrap()
                     .as_command_payload()
-                    .as_leave_request_payload()
-                    .destination
+                    .ok()
+                    .and_then(|p| p.as_leave_request_payload().ok())
+                    .and_then(|p| p.destination)
                     && Name::from(&n) == self.common.source
                 {
                     return self.delete_all(message).await;
@@ -1391,8 +1420,8 @@ where
         let payload = msg
             .get_payload()
             .unwrap()
-            .as_command_payload()
-            .as_discovery_request_payload();
+            .as_command_payload()?
+            .as_discovery_request_payload()?;
 
         let mut discovery = match payload.destination {
             Some(dst_name) => {
@@ -1645,8 +1674,8 @@ where
         let payload = msg
             .get_payload()
             .unwrap()
-            .as_command_payload()
-            .as_leave_request_payload();
+            .as_command_payload()?
+            .as_leave_request_payload()?;
 
         let (leave_message, dst_without_id) = match payload.destination {
             Some(dst_name) => {
@@ -2341,6 +2370,7 @@ mod tests {
             .get_payload()
             .unwrap()
             .as_application_payload()
+            .unwrap()
             .blob
             .clone();
         assert_eq!(content, app_data);

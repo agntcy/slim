@@ -246,7 +246,7 @@ async fn main() {
                             if let Some(slim_datapath::api::ProtoPublishType(publish)) =
                                 msg.message_type.as_ref()
                             {
-                                let p = &publish.get_payload().as_application_payload().blob;
+                                let p = &publish.get_payload().as_application_payload().unwrap().blob;
                                 if let Ok(payload) = String::from_utf8(p.to_vec()) {
                                     info!("received message: {}", payload);
                                 }
@@ -315,7 +315,7 @@ async fn main() {
                                             let payload = if let Some(slim_datapath::api::ProtoPublishType(publish)) =
                                                 msg.message_type.as_ref()
                                             {
-                                                let blob = &publish.get_payload().as_application_payload().blob;
+                                                let blob = &publish.get_payload().as_application_payload().unwrap().blob;
                                                 match String::from_utf8(blob.to_vec()) {
                                                     Ok(p) => p,
                                                     Err(e) => {

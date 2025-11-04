@@ -64,7 +64,7 @@ where
             _ => {}
         }
 
-        let payload = &msg.get_payload().unwrap().as_application_payload().blob;
+        let payload = &msg.get_payload().unwrap().as_application_payload()?.blob;
 
         let mut mls_guard = self.mls.lock().await;
 
@@ -111,7 +111,7 @@ where
             _ => {}
         }
 
-        let payload = &msg.get_payload().unwrap().as_application_payload().blob;
+        let payload = &msg.get_payload().unwrap().as_application_payload()?.blob;
 
         let decrypted_payload = {
             let mut mls_guard = self.mls.lock().await;
@@ -215,6 +215,7 @@ mod tests {
                 .get_payload()
                 .unwrap()
                 .as_application_payload()
+                .unwrap()
                 .blob,
             original_payload
         );
@@ -226,7 +227,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            bob_msg.get_payload().unwrap().as_application_payload().blob,
+            bob_msg.get_payload().unwrap().as_application_payload().unwrap().blob,
             original_payload
         );
     }

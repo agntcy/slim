@@ -175,7 +175,7 @@ async fn run_participant_task(name: Name) -> Result<(), String> {
                                                 if let Some(slim_datapath::api::ProtoPublishType(publish)) = msg.message_type.as_ref() {
                                                     let publisher = msg.get_slim_header().get_source();
                                                     let msg_id = msg.get_id();
-                                                    let blob = &publish.get_payload().as_application_payload().blob;
+                                                    let blob = &publish.get_payload().as_application_payload().unwrap().blob;
                                                     if let Ok(val) = String::from_utf8(blob.to_vec()) {
                                                         if publisher == session_moderator_clone {
                                                             if val != *"hello there" { continue; }
@@ -331,11 +331,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if let Some(slim_datapath::api::ProtoPublishType(publish)) =
                             msg.message_type.as_ref()
                         {
-                            let p = &publish.get_payload().as_application_payload().blob;
-                            let _ = String::from_utf8(p.to_vec())
+                            let blob = &publish.get_payload().as_application_payload().unwrap().blob;
+                            let _ = String::from_utf8(blob.to_vec())
                                 .expect("error while parsing received message");
-                            if p.len() >= 4 {
-                                let bytes_array: [u8; 4] = p[0..4].try_into().unwrap();
+                            if blob.len() >= 4 {
+                                let bytes_array: [u8; 4] = blob[0..4].try_into().unwrap();
                                 let id = u32::from_ne_bytes(bytes_array) as usize;
                                 println!("recv msg {} from {}", id, msg.get_source());
                                 let mut lock = recv_msgs_clone.write();

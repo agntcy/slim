@@ -378,41 +378,14 @@ where
             (id, session_type, session_message_type)
         };
 
+        // special handling for discovery request messages
         if session_message_type == ProtoSessionMessageType::DiscoveryRequest {
-            // received a discovery message
-            if let Some(controller) = self.pool.read().await.get(&id)
-                && controller.is_initiator()
-                && message
-                    .get_payload()
-                    .unwrap()
-                    .as_command_payload()
-                    .as_discovery_request_payload()
-                    .destination
-                    .is_some()
-            {
-                // if the message is for a session that already exists and the session
-                // is the initiator of the session and the message contains a name in the payload
-                // this message is coming from the controller that wants to add new participant to the session
-                return controller
-                    .on_message(message, MessageDirection::North)
-                    .await;
-            } else {
-                // in this case we handle the message without creating a new local session
-                let local_name =
-                    self.get_local_name_for_session(message.get_slim_header().get_dst())?;
-
-                return self
-                    .handle_message_from_slim_without_session(
-                        &local_name,
-                        &message,
-                        session_type,
-                        session_message_type,
-                        id,
-                    )
-                    .await;
-            }
+            return self
+                .handle_discovery_request(message, id, session_type, session_message_type)
+                .await;
         }
 
+        // check if we have a session for the given session ID
         if let Some(controller) = self.pool.read().await.get(&id) {
             // pass the message to the session
             return controller
@@ -428,30 +401,20 @@ where
                 // Create a new session based on the message payload
                 let payload = message
                     .get_payload()
-                    .unwrap()
-                    .as_command_payload()
-                    .as_join_request_payload();
+                    .ok_or(SessionError::Processing(
+                        "missing join request payload".to_string(),
+                    ))?
+                    .as_command_payload()?
+                    .as_join_request_payload()?;
 
                 match message.get_session_header().session_type() {
                     ProtoSessionType::PointToPoint => {
-                        let mut conf = crate::session_controller::SessionConfig::default()
-                            .with_session_type(ProtoSessionType::PointToPoint);
-
-                        match payload.timer_settings {
-                            Some(s) => {
-                                conf.duration =
-                                    Some(std::time::Duration::from_millis(s.timeout as u64));
-                                conf.max_retries = Some(s.max_retries)
-                            }
-                            None => {
-                                conf.duration = None;
-                                conf.max_retries = None;
-                            }
-                        }
-
-                        conf.mls_enabled = payload.enable_mls;
-                        conf.initiator = false;
-                        conf.metadata = message.get_metadata_map();
+                        let conf = crate::session_controller::SessionConfig::from_join_request(
+                            ProtoSessionType::PointToPoint,
+                            message.get_payload().unwrap().as_command_payload()?,
+                            message.get_metadata_map(),
+                            false,
+                        )?;
 
                         self.create_session(
                             conf,
@@ -462,26 +425,22 @@ where
                         .await?
                     }
                     ProtoSessionType::Multicast => {
-                        let mut conf = crate::session_controller::SessionConfig::default()
-                            .with_session_type(ProtoSessionType::Multicast);
-                        let timer_settings = payload.timer_settings.ok_or(
-                            SessionError::Processing("missing timer options".to_string()),
+                        // Multicast sessions require timer settings; reject if missing.
+                        if payload.timer_settings.is_none() {
+                            return Err(SessionError::Processing(
+                                "missing timer options".to_string(),
+                            ));
+                        }
+
+                        // Determine initiator (moderator) before building metadata snapshot.
+                        let initiator = message.remove_metadata(IS_MODERATOR).is_some();
+
+                        let conf = crate::session_controller::SessionConfig::from_join_request(
+                            ProtoSessionType::Multicast,
+                            message.get_payload().unwrap().as_command_payload()?,
+                            message.get_metadata_map(),
+                            initiator,
                         )?;
-
-                        conf.duration = Some(std::time::Duration::from_millis(
-                            timer_settings.timeout as u64,
-                        ));
-                        conf.max_retries = Some(timer_settings.max_retries);
-                        conf.mls_enabled = payload.enable_mls;
-                        conf.metadata = message.get_metadata_map();
-
-                        // if the packet comes from the controller this app may be a moderator and so we need to
-                        // tag it as session initiator
-                        // in addition the metadata of the first received message are copied in the metadata of the session
-                        // and then added to the messages sent by this session. so we need to erase the entries
-                        // that we want to keep local: IS_MODERATOR
-                        conf.initiator = message.remove_metadata(IS_MODERATOR).is_some();
-                        conf.metadata = message.get_metadata_map();
 
                         let channel = if let Some(c) = payload.channel {
                             Name::from(&c)
@@ -552,6 +511,47 @@ where
             .send(Ok(Notification::NewSession(new_session)))
             .await
             .map_err(|e| SessionError::AppTransmission(format!("error sending new session: {}", e)))
+    }
+
+    /// Handle a discovery request message.
+    async fn handle_discovery_request(
+        &self,
+        message: Message,
+        id: u32,
+        session_type: ProtoSessionType,
+        session_message_type: ProtoSessionMessageType,
+    ) -> Result<(), SessionError> {
+        // received a discovery message
+        if let Some(controller) = self.pool.read().await.get(&id)
+            && controller.is_initiator()
+            && message
+                .get_payload()
+                .unwrap()
+                .as_command_payload()
+                .ok()
+                .and_then(|p| p.as_discovery_request_payload().ok())
+                .and_then(|p| p.destination)
+                .is_some()
+        {
+            // Existing session where we are the initiator and payload includes a destination name:
+            // controller is requesting to add a new participant to this session.
+            controller
+                .on_message(message, MessageDirection::North)
+                .await
+        } else {
+            // Handle the discovery request without creating a local session.
+            let local_name =
+                self.get_local_name_for_session(message.get_slim_header().get_dst())?;
+
+            self.handle_message_from_slim_without_session(
+                &local_name,
+                &message,
+                session_type,
+                session_message_type,
+                id,
+            )
+            .await
+        }
     }
 
     /// Check if the session pool is empty (for testing purposes)

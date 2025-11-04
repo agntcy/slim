@@ -652,7 +652,7 @@ mod tests {
 
         // make sure message is correct
         assert_eq!(
-            publ.get_payload().as_application_payload().blob,
+            publ.get_payload().as_application_payload().unwrap().blob,
             message_blob
         );
 

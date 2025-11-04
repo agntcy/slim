@@ -43,6 +43,14 @@ pub enum MessageError {
     MessageTypeNotFound,
     #[error("incoming connection not found")]
     IncomingConnectionNotFound,
+    #[error("content type is not set")]
+    ContentTypeNotSet,
+    #[error("content is not an application payload")]
+    NotApplicationPayload,
+    #[error("content is not a command payload")]
+    NotCommandPayload,
+    #[error("invalid command payload type: expected {expected}, got {got}")]
+    InvalidCommandPayloadType { expected: String, got: String },
 }
 
 /// ProtoName from Name
@@ -828,19 +836,19 @@ impl ProtoMessage {
 }
 
 impl Content {
-    pub fn as_application_payload(&self) -> &ApplicationPayload {
+    pub fn as_application_payload(&self) -> Result<&ApplicationPayload, MessageError> {
         match &self.content_type {
-            Some(ContentType::AppPayload(app_payload)) => app_payload,
-            Some(ContentType::CommandPayload(_)) => panic!("Content is not an application payload"),
-            None => panic!("Content type is not set"),
+            Some(ContentType::AppPayload(app_payload)) => Ok(app_payload),
+            Some(ContentType::CommandPayload(_)) => Err(MessageError::NotApplicationPayload),
+            None => Err(MessageError::ContentTypeNotSet),
         }
     }
 
-    pub fn as_command_payload(&self) -> &CommandPayload {
+    pub fn as_command_payload(&self) -> Result<&CommandPayload, MessageError> {
         match &self.content_type {
-            Some(ContentType::AppPayload(_)) => panic!("Content is not a command payload"),
-            Some(ContentType::CommandPayload(comm_payload)) => comm_payload,
-            None => panic!("Content type is not set"),
+            Some(ContentType::AppPayload(_)) => Err(MessageError::NotCommandPayload),
+            Some(ContentType::CommandPayload(comm_payload)) => Ok(comm_payload),
+            None => Err(MessageError::ContentTypeNotSet),
         }
     }
 }
@@ -1011,87 +1019,171 @@ impl CommandPayload {
     }
 
     // Getter methods for all CommandPayloadType variants
-    pub fn as_discovery_request_payload(&self) -> DiscoveryRequestPayload {
+    pub fn as_discovery_request_payload(&self) -> Result<DiscoveryRequestPayload, MessageError> {
         match &self.command_payload_type {
-            Some(CommandPayloadType::DiscoveryRequest(payload)) => payload.clone(),
-            _ => panic!("CommandPayload is not a DiscoveryRequest"),
+            Some(CommandPayloadType::DiscoveryRequest(payload)) => Ok(payload.clone()),
+            Some(other) => Err(MessageError::InvalidCommandPayloadType {
+                expected: "DiscoveryRequest".to_string(),
+                got: format!("{:?}", other),
+            }),
+            None => Err(MessageError::InvalidCommandPayloadType {
+                expected: "DiscoveryRequest".to_string(),
+                got: "None".to_string(),
+            }),
         }
     }
 
-    pub fn as_discovery_reply_payload(&self) -> DiscoveryReplyPayload {
+    pub fn as_discovery_reply_payload(&self) -> Result<DiscoveryReplyPayload, MessageError> {
         match &self.command_payload_type {
-            Some(CommandPayloadType::DiscoveryReply(payload)) => *payload,
-            _ => panic!("CommandPayload is not a DiscoveryReply"),
+            Some(CommandPayloadType::DiscoveryReply(payload)) => Ok(*payload),
+            Some(other) => Err(MessageError::InvalidCommandPayloadType {
+                expected: "DiscoveryReply".to_string(),
+                got: format!("{:?}", other),
+            }),
+            None => Err(MessageError::InvalidCommandPayloadType {
+                expected: "DiscoveryReply".to_string(),
+                got: "None".to_string(),
+            }),
         }
     }
 
-    pub fn as_join_request_payload(&self) -> JoinRequestPayload {
+    pub fn as_join_request_payload(&self) -> Result<JoinRequestPayload, MessageError> {
         match &self.command_payload_type {
-            Some(CommandPayloadType::JoinRequest(payload)) => payload.clone(),
-            _ => panic!("CommandPayload is not a JoinRequest"),
+            Some(CommandPayloadType::JoinRequest(payload)) => Ok(payload.clone()),
+            Some(other) => Err(MessageError::InvalidCommandPayloadType {
+                expected: "JoinRequest".to_string(),
+                got: format!("{:?}", other),
+            }),
+            None => Err(MessageError::InvalidCommandPayloadType {
+                expected: "JoinRequest".to_string(),
+                got: "None".to_string(),
+            }),
         }
     }
 
-    pub fn as_join_reply_payload(&self) -> JoinReplyPayload {
+    pub fn as_join_reply_payload(&self) -> Result<JoinReplyPayload, MessageError> {
         match &self.command_payload_type {
-            Some(CommandPayloadType::JoinReply(payload)) => payload.clone(),
-            _ => panic!("CommandPayload is not a JoinReply"),
+            Some(CommandPayloadType::JoinReply(payload)) => Ok(payload.clone()),
+            Some(other) => Err(MessageError::InvalidCommandPayloadType {
+                expected: "JoinReply".to_string(),
+                got: format!("{:?}", other),
+            }),
+            None => Err(MessageError::InvalidCommandPayloadType {
+                expected: "JoinReply".to_string(),
+                got: "None".to_string(),
+            }),
         }
     }
 
-    pub fn as_leave_request_payload(&self) -> LeaveRequestPayload {
+    pub fn as_leave_request_payload(&self) -> Result<LeaveRequestPayload, MessageError> {
         match &self.command_payload_type {
-            Some(CommandPayloadType::LeaveRequest(payload)) => payload.clone(),
-            _ => panic!("CommandPayload is not a LeaveRequest"),
+            Some(CommandPayloadType::LeaveRequest(payload)) => Ok(payload.clone()),
+            Some(other) => Err(MessageError::InvalidCommandPayloadType {
+                expected: "LeaveRequest".to_string(),
+                got: format!("{:?}", other),
+            }),
+            None => Err(MessageError::InvalidCommandPayloadType {
+                expected: "LeaveRequest".to_string(),
+                got: "None".to_string(),
+            }),
         }
     }
 
-    pub fn as_leave_reply_payload(&self) -> LeaveReplyPayload {
+    pub fn as_leave_reply_payload(&self) -> Result<LeaveReplyPayload, MessageError> {
         match &self.command_payload_type {
-            Some(CommandPayloadType::LeaveReply(payload)) => *payload,
-            _ => panic!("CommandPayload is not a LeaveReply"),
+            Some(CommandPayloadType::LeaveReply(payload)) => Ok(*payload),
+            Some(other) => Err(MessageError::InvalidCommandPayloadType {
+                expected: "LeaveReply".to_string(),
+                got: format!("{:?}", other),
+            }),
+            None => Err(MessageError::InvalidCommandPayloadType {
+                expected: "LeaveReply".to_string(),
+                got: "None".to_string(),
+            }),
         }
     }
 
-    pub fn as_group_add_payload(&self) -> GroupAddPayload {
+    pub fn as_group_add_payload(&self) -> Result<GroupAddPayload, MessageError> {
         match &self.command_payload_type {
-            Some(CommandPayloadType::GroupAdd(payload)) => payload.clone(),
-            _ => panic!("CommandPayload is not a GroupAdd"),
+            Some(CommandPayloadType::GroupAdd(payload)) => Ok(payload.clone()),
+            Some(other) => Err(MessageError::InvalidCommandPayloadType {
+                expected: "GroupAdd".to_string(),
+                got: format!("{:?}", other),
+            }),
+            None => Err(MessageError::InvalidCommandPayloadType {
+                expected: "GroupAdd".to_string(),
+                got: "None".to_string(),
+            }),
         }
     }
 
-    pub fn as_group_remove_payload(&self) -> GroupRemovePayload {
+    pub fn as_group_remove_payload(&self) -> Result<GroupRemovePayload, MessageError> {
         match &self.command_payload_type {
-            Some(CommandPayloadType::GroupRemove(payload)) => payload.clone(),
-            _ => panic!("CommandPayload is not a GroupRemove"),
+            Some(CommandPayloadType::GroupRemove(payload)) => Ok(payload.clone()),
+            Some(other) => Err(MessageError::InvalidCommandPayloadType {
+                expected: "GroupRemove".to_string(),
+                got: format!("{:?}", other),
+            }),
+            None => Err(MessageError::InvalidCommandPayloadType {
+                expected: "GroupRemove".to_string(),
+                got: "None".to_string(),
+            }),
         }
     }
 
-    pub fn as_welcome_payload(&self) -> GroupWelcomePayload {
+    pub fn as_welcome_payload(&self) -> Result<GroupWelcomePayload, MessageError> {
         match &self.command_payload_type {
-            Some(CommandPayloadType::GroupWelcome(payload)) => payload.clone(),
-            _ => panic!("CommandPayload is not a GroupWelcome"),
+            Some(CommandPayloadType::GroupWelcome(payload)) => Ok(payload.clone()),
+            Some(other) => Err(MessageError::InvalidCommandPayloadType {
+                expected: "GroupWelcome".to_string(),
+                got: format!("{:?}", other),
+            }),
+            None => Err(MessageError::InvalidCommandPayloadType {
+                expected: "GroupWelcome".to_string(),
+                got: "None".to_string(),
+            }),
         }
     }
 
-    pub fn as_group_proposal_payload(&self) -> GroupProposalPayload {
+    pub fn as_group_proposal_payload(&self) -> Result<GroupProposalPayload, MessageError> {
         match &self.command_payload_type {
-            Some(CommandPayloadType::GroupProposal(payload)) => payload.clone(),
-            _ => panic!("CommandPayload is not a GroupProposal"),
+            Some(CommandPayloadType::GroupProposal(payload)) => Ok(payload.clone()),
+            Some(other) => Err(MessageError::InvalidCommandPayloadType {
+                expected: "GroupProposal".to_string(),
+                got: format!("{:?}", other),
+            }),
+            None => Err(MessageError::InvalidCommandPayloadType {
+                expected: "GroupProposal".to_string(),
+                got: "None".to_string(),
+            }),
         }
     }
 
-    pub fn as_group_ack_payload(&self) -> GroupAckPayload {
+    pub fn as_group_ack_payload(&self) -> Result<GroupAckPayload, MessageError> {
         match &self.command_payload_type {
-            Some(CommandPayloadType::GroupAck(payload)) => *payload,
-            _ => panic!("CommandPayload is not a GroupAck"),
+            Some(CommandPayloadType::GroupAck(payload)) => Ok(*payload),
+            Some(other) => Err(MessageError::InvalidCommandPayloadType {
+                expected: "GroupAck".to_string(),
+                got: format!("{:?}", other),
+            }),
+            None => Err(MessageError::InvalidCommandPayloadType {
+                expected: "GroupAck".to_string(),
+                got: "None".to_string(),
+            }),
         }
     }
 
-    pub fn as_group_nack_payload(&self) -> GroupNackPayload {
+    pub fn as_group_nack_payload(&self) -> Result<GroupNackPayload, MessageError> {
         match &self.command_payload_type {
-            Some(CommandPayloadType::GroupNack(payload)) => *payload,
-            _ => panic!("CommandPayload is not a GroupNack"),
+            Some(CommandPayloadType::GroupNack(payload)) => Ok(*payload),
+            Some(other) => Err(MessageError::InvalidCommandPayloadType {
+                expected: "GroupNack".to_string(),
+                got: format!("{:?}", other),
+            }),
+            None => Err(MessageError::InvalidCommandPayloadType {
+                expected: "GroupNack".to_string(),
+                got: "None".to_string(),
+            }),
         }
     }
 }

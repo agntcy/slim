@@ -6,6 +6,7 @@ use thiserror::Error;
 
 // Local crate
 use slim_datapath::api::ProtoMessage as Message;
+use slim_datapath::messages::utils::MessageError;
 
 #[derive(Error, Debug, PartialEq)]
 pub enum SessionError {
@@ -101,4 +102,10 @@ pub enum SessionError {
     // Moderator Tasks errors
     #[error("error updating a task: {0}")]
     ModeratorTask(String),
+}
+
+impl From<MessageError> for SessionError {
+    fn from(err: MessageError) -> Self {
+        SessionError::Processing(err.to_string())
+    }
 }

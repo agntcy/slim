@@ -82,8 +82,8 @@ where
         let payload = msg
             .get_payload()
             .unwrap()
-            .as_command_payload()
-            .as_welcome_payload();
+            .as_command_payload()?
+            .as_welcome_payload()?;
         let mls_payload = payload.mls.ok_or_else(|| {
             SessionError::WelcomeMessage("missing mls payload in welcome message".to_string())
         })?;
@@ -130,8 +130,8 @@ where
                     let payload = msg
                         .get_payload()
                         .unwrap()
-                        .as_command_payload()
-                        .as_group_add_payload();
+                        .as_command_payload()?
+                        .as_group_add_payload()?;
                     let mls_payload = payload.mls.ok_or_else(|| {
                         SessionError::Processing("missing mls payload in add message".to_string())
                     })?;
@@ -141,8 +141,8 @@ where
                     let payload = msg
                         .get_payload()
                         .unwrap()
-                        .as_command_payload()
-                        .as_group_remove_payload();
+                        .as_command_payload()?
+                        .as_group_remove_payload()?;
                     let mls_payload = payload.mls.ok_or_else(|| {
                         SessionError::Processing(
                             "missing mls payload in remove message".to_string(),
@@ -189,8 +189,8 @@ where
         let payload = proposal
             .get_payload()
             .unwrap()
-            .as_command_payload()
-            .as_group_proposal_payload();
+            .as_command_payload()?
+            .as_group_proposal_payload()?;
 
         let original_source = Name::from(payload.source.as_ref().ok_or_else(|| {
             SessionError::Processing("missing source in proposal payload".to_string())
@@ -226,8 +226,8 @@ where
             ProtoSessionMessageType::GroupAdd => {
                 msg.get_payload()
                     .unwrap()
-                    .as_command_payload()
-                    .as_group_add_payload()
+                    .as_command_payload()?
+                    .as_group_add_payload()?
                     .mls
                     .ok_or_else(|| SessionError::MLSIdMessage("missing mls payload".to_string()))?
                     .commit_id
@@ -235,8 +235,8 @@ where
             ProtoSessionMessageType::GroupRemove => {
                 msg.get_payload()
                     .unwrap()
-                    .as_command_payload()
-                    .as_group_remove_payload()
+                    .as_command_payload()?
+                    .as_group_remove_payload()?
                     .mls
                     .ok_or_else(|| SessionError::MLSIdMessage("missing mls payload".to_string()))?
                     .commit_id
@@ -318,8 +318,8 @@ where
         let payload = msg
             .get_payload()
             .unwrap()
-            .as_command_payload()
-            .as_join_reply_payload();
+            .as_command_payload()?
+            .as_join_reply_payload()?;
 
         match self
             .common

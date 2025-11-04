@@ -50,7 +50,7 @@ fn spawn_session_receiver(
                                 info!("CLIENT: message from {:?}, id: {}", publisher, msg_id);
 
                                 if let Some(c) = msg.get_payload() {
-                                    let blob = &c.as_application_payload().blob;
+                                    let blob = &c.as_application_payload().unwrap().blob;
                                     info!("CLIENT: message has payload of {} bytes", blob.len());
 
                                     match String::from_utf8(blob.to_vec()) {

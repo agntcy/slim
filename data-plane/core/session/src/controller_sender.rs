@@ -115,8 +115,8 @@ impl ControllerSender {
                 let payload = message
                     .get_payload()
                     .unwrap()
-                    .as_command_payload()
-                    .as_group_add_payload();
+                    .as_command_payload()?
+                    .as_group_add_payload()?;
                 let mut missing_replies = HashSet::new();
                 let mut new_participant = Name::from(payload.new_participant.as_ref().unwrap());
                 new_participant.reset_id();
@@ -135,8 +135,8 @@ impl ControllerSender {
                 let payload = message
                     .get_payload()
                     .unwrap()
-                    .as_command_payload()
-                    .as_group_remove_payload();
+                    .as_command_payload()?
+                    .as_group_remove_payload()?;
 
                 let mut missing_replies = HashSet::new();
                 for p in &payload.participants {

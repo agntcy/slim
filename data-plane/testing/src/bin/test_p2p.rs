@@ -199,7 +199,7 @@ async fn run_client_task(name: Name) -> Result<(), String> {
                                                 if let Some(slim_datapath::api::ProtoPublishType(publish)) = msg.message_type.as_ref() {
                                                     let publisher = msg.get_slim_header().get_source();
                                                     let conn = msg.get_slim_header().recv_from.unwrap_or(conn_id);
-                                                    let blob = &publish.get_payload().as_application_payload().blob;
+                                                    let blob = &publish.get_payload().as_application_payload().unwrap().blob;
                                                     match String::from_utf8(blob.to_vec()) {
                                                         Ok(val) => {
                                                             if val != *"hello there" { continue; }
@@ -352,7 +352,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             msg.message_type.as_ref()
                         {
                             let sender = msg.get_source();
-                            let p = &publish.get_payload().as_application_payload().blob;
+                            let p = &publish.get_payload().as_application_payload().unwrap().blob;
                             let val = String::from_utf8(p.to_vec())
                                 .expect("error while parsing received message");
                             if val != *"hello there" {
