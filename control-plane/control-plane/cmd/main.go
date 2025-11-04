@@ -33,14 +33,17 @@ func main() {
 	ctx := util.GetContextWithLogger(context.Background(), config.LogConfig)
 	zlog := zerolog.Ctx(ctx)
 
-	dbService := db.NewInMemoryDBService()
+	dbService, err := db.NewSQLiteDBService(config.Database.FilePath)
+	if err != nil {
+		zlog.Fatal().Msgf("failed to initialize database service: %v", err)
+	}
 	cmdHandler := nodecontrol.DefaultNodeCommandHandler()
 	nodeService := nbapiservice.NewNodeService(dbService, cmdHandler)
 
 	groupService := groupservice.NewGroupService(dbService, cmdHandler)
 
 	routeService := routes.NewRouteService(dbService, cmdHandler, config.Reconciler)
-	err := routeService.Start(ctx)
+	err = routeService.Start(ctx)
 	if err != nil {
 		zlog.Fatal().Msgf("failed to start route service: %v", err)
 	}

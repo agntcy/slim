@@ -13,4 +13,7 @@ reconciler:
 logging:
   level: DEBUG
 
+database:
+  filePath: controlplane.db
+
 

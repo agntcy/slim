@@ -3,6 +3,7 @@ package db
 
 import (
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -30,16 +31,29 @@ func getDataAccessImplementations() []DataAccessImplementation {
 				// InMemory doesn't need cleanup
 			},
 		},
-		// Add other implementations here as they become available
-		// {
-		//     Name: "PostgreSQLDBService",
-		//     Factory: func() DataAccess {
-		//         return NewPostgreSQLDBService(testConnectionString)
-		//     },
-		//     Cleanup: func(da DataAccess) {
-		//         // Clean up database connections, test data, etc.
-		//     },
-		// },
+		{
+			Name: "SQLiteDBService",
+			Factory: func() DataAccess {
+				// Create a temporary database file for testing
+				tempDB := fmt.Sprintf("test_db_%d.sqlite", time.Now().UnixNano())
+				db, err := NewSQLiteDBService(tempDB)
+				if err != nil {
+					panic(fmt.Sprintf("Failed to create SQLite test database: %v", err))
+				}
+				return db
+			},
+			Cleanup: func(da DataAccess) {
+				// Clean up the temporary database file
+				if sqliteDB, ok := da.(*SQLiteDBService); ok {
+					// Close the database connection
+					if sqlDB, err := sqliteDB.db.DB(); err == nil {
+						sqlDB.Close()
+					}
+					// Remove the temporary file (you might need to add a method to get the file path)
+					os.Remove(sqliteDB.dbPath) // Uncomment and implement if needed
+				}
+			},
+		},
 	}
 }
 
@@ -117,7 +131,7 @@ func testRouteOperations(t *testing.T, da DataAccess) {
 	// Test FilterRoutesBySourceAndDestination
 	filteredRoutes := da.FilterRoutesBySourceAndDestination("node1", "node2")
 	assert.Len(t, filteredRoutes, 1, "Should find 1 route from node1 to node2")
-	assert.Equal(t, routeID1, filteredRoutes[0])
+	assert.Equal(t, routeID1.ID, filteredRoutes[0].ID)
 
 	filteredRoutes = da.FilterRoutesBySourceAndDestination("node1", "node3")
 	assert.Len(t, filteredRoutes, 1, "Should find 1 route from node1 to node3")
