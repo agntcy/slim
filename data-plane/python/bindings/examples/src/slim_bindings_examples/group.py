@@ -88,6 +88,10 @@ async def receive_loop(
             )
         except asyncio.CancelledError:
             # Graceful shutdown path (ctrl-c or program exit).
+            if created_session:
+                # Give some time to remove all the participants
+                print("closing the application")
+                await asyncio.sleep(1)
             break
         except Exception as e:
             # Non-cancellation error; surface and exit the loop.
