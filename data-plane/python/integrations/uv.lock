@@ -2985,7 +2985,7 @@ requires-dist = [
     { name = "async-timeout", specifier = ">=5.0.1" },
     { name = "googleapis-common-protos", specifier = ">=1.70.0" },
     { name = "grpcio", specifier = ">=1.74.0" },
-    { name = "slim-bindings", specifier = ">=0.6.0" },
+    { name = "slim-bindings", specifier = ">=0.6.3" },
 ]
 
 [package.metadata.requires-dev]
