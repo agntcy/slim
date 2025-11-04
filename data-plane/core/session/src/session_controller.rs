@@ -1767,6 +1767,7 @@ where
 
     async fn delete_all(&mut self, _msg: Message) -> Result<(), SessionError> {
         debug!("receive a close channel message, send signals to all participants");
+
         // create tasks to remove each participant from the group
         // even if mls is enable we just send the leave message
         // in any case the group will be deleted so there is no need to

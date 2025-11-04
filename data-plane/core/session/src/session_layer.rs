@@ -8,7 +8,7 @@ use std::sync::Arc;
 // Third-party crates
 use parking_lot::RwLock as SyncRwLock;
 use rand::Rng;
-use slim_datapath::messages::utils::IS_MODERATOR;
+use slim_datapath::messages::utils::{DELETE_GROUP, IS_MODERATOR, TRUE_VAL};
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, warn};
@@ -270,7 +270,43 @@ where
     pub async fn remove_session(&self, id: u32) -> bool {
         // get the write lock
         let mut pool = self.pool.write().await;
-        pool.remove(&id).is_some()
+        match pool.get(&id) {
+            Some(session) => {
+                if session.is_initiator() {
+                    // create a leave message to send to all the participants of the session
+                    // here the destination is not really important as the message will be
+                    // replicated for each participant in the group
+                    let slim_header =
+                        Some(SlimHeader::new(session.source(), session.dst(), "", None));
+                    let session_header = Some(SessionHeader::new(
+                        session.session_type().into(),
+                        ProtoSessionMessageType::LeaveRequest.into(),
+                        session.id(),
+                        rand::random::<u32>(),
+                    ));
+                    let payload =
+                        Some(CommandPayload::new_leave_request_payload(None).as_content());
+                    let mut msg =
+                        Message::new_publish_with_headers(slim_header, session_header, payload);
+                    msg.insert_metadata(DELETE_GROUP.to_string(), TRUE_VAL.to_string());
+                    // send the message to the session controller and return
+                    // the sesssion itself will be cancelled in the isten_from_sessions loop
+                    // when the session closing process is terminated
+                    if let Err(e) = session.on_message(msg, MessageDirection::South).await {
+                        error!("error while closing the session {}", e);
+                        return false;
+                    }
+                } else {
+                    // this is not th session initiator, so simply close the session
+                    pool.remove(&id);
+                }
+                true
+            }
+            None => {
+                error!("error while closing session: id not found");
+                false
+            }
+        }
     }
 
     pub fn listen_from_sessions(
