@@ -190,7 +190,7 @@ mod tests {
     use slim_config::component::ComponentBuilder;
     use slim_datapath::api::ProtoSessionType;
     use slim_datapath::messages::Name;
-    use slim_session::session_controller::SessionConfig;
+    use slim_session::SessionConfig;
 
     use crate::bindings::adapter::BindingsAdapter;
     use crate::service::Service;

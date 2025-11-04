@@ -366,7 +366,7 @@ mod tests {
     #[test]
     fn test_server_layer_creation() {
         // Initialize crypto provider for HTTPS requests
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        crate::tls::provider::initialize_crypto_provider();
 
         let config = Config::verifier("https://auth.example.com", "test-audience");
 

@@ -10,9 +10,9 @@ use tokio::sync::mpsc::Sender;
 use tracing::debug;
 
 use crate::{
-    MessageDirection, common::SessionMessage, errors::SessionError,
-    session_controller::SessionConfig, session_receiver::SessionReceiver,
-    session_sender::SessionSender, transmitter::SessionTransmitter,
+    MessageDirection, common::SessionMessage, errors::SessionError, session_config::SessionConfig,
+    session_receiver::SessionReceiver, session_sender::SessionSender,
+    transmitter::SessionTransmitter,
 };
 
 pub(crate) struct Session {

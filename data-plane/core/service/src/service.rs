@@ -450,7 +450,7 @@ mod tests {
     use slim_config::tls::server::TlsServerConfig;
     use slim_datapath::api::MessageType;
     use slim_datapath::messages::Name;
-    use slim_session::session_controller::SessionConfig;
+    use slim_session::SessionConfig;
     use std::time::Duration;
     use tokio::time;
     use tracing_test::traced_test;

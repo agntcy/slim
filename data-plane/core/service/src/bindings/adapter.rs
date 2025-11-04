@@ -7,8 +7,8 @@ use tokio::sync::{RwLock, mpsc};
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::messages::Name;
 use slim_session::context::SessionContext;
-use slim_session::session_controller::{SessionConfig, SessionController};
 use slim_session::{Notification, SessionError};
+use slim_session::{SessionConfig, session_controller::SessionController};
 
 use crate::app::App;
 use crate::bindings::builder::AppAdapterBuilder;

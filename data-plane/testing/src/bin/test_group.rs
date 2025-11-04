@@ -18,7 +18,7 @@ use slim_config::tls::server::TlsServerConfig;
 use slim_datapath::messages::Name;
 use slim_service::{ServiceConfiguration, SlimHeaderFlags};
 use slim_session::Notification;
-use slim_session::session_controller::SessionConfig;
+use slim_session::SessionConfig;
 use slim_tracing::TracingConfiguration;
 
 const DEFAULT_DATAPLANE_PORT: u16 = 46357;
@@ -331,7 +331,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if let Some(slim_datapath::api::ProtoPublishType(publish)) =
                             msg.message_type.as_ref()
                         {
-                            let blob = &publish.get_payload().as_application_payload().unwrap().blob;
+                            let blob =
+                                &publish.get_payload().as_application_payload().unwrap().blob;
                             let _ = String::from_utf8(blob.to_vec())
                                 .expect("error while parsing received message");
                             if blob.len() >= 4 {

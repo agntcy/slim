@@ -22,7 +22,8 @@ use slim_datapath::messages::Name;
 
 use crate::common::SessionMessage;
 use crate::notification::Notification;
-use crate::session_controller::{SessionConfig, SessionController};
+use crate::session_config::SessionConfig;
+use crate::session_controller::SessionController;
 use crate::transmitter::{AppTransmitter, SessionTransmitter};
 
 // Local crate
@@ -228,7 +229,7 @@ where
                 tx,
                 self.tx_session.clone(),
             )
-            .await,
+            .await?,
         );
 
         let ret = pool.insert(id, session_controller.clone());
@@ -409,7 +410,7 @@ where
 
                 match message.get_session_header().session_type() {
                     ProtoSessionType::PointToPoint => {
-                        let conf = crate::session_controller::SessionConfig::from_join_request(
+                        let conf = crate::SessionConfig::from_join_request(
                             ProtoSessionType::PointToPoint,
                             message.get_payload().unwrap().as_command_payload()?,
                             message.get_metadata_map(),
@@ -435,7 +436,7 @@ where
                         // Determine initiator (moderator) before building metadata snapshot.
                         let initiator = message.remove_metadata(IS_MODERATOR).is_some();
 
-                        let conf = crate::session_controller::SessionConfig::from_join_request(
+                        let conf = crate::SessionConfig::from_join_request(
                             ProtoSessionType::Multicast,
                             message.get_payload().unwrap().as_command_payload()?,
                             message.get_metadata_map(),

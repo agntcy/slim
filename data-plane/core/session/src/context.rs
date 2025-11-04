@@ -86,7 +86,8 @@ mod tests {
     use super::*;
     use crate::SessionError;
     use crate::common::AppChannelSender;
-    use crate::session_controller::{SessionConfig, SessionController};
+    use crate::session_config::SessionConfig;
+    use crate::session_controller::SessionController;
     use crate::transmitter::SessionTransmitter;
     use async_trait::async_trait;
     use slim_auth::errors::AuthError;
@@ -181,7 +182,8 @@ mod tests {
                 session_tx,
                 tx_session,
             )
-            .await,
+            .await
+            .expect("Failed to create SessionController"),
         )
     }
 

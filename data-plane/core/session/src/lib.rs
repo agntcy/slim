@@ -13,8 +13,12 @@ pub mod notification;
 pub mod producer_buffer;
 pub mod receiver_buffer;
 pub mod session;
+pub mod session_config;
 pub mod session_controller;
+mod session_controller_builder;
 mod session_layer;
+mod session_moderator;
+mod session_participant;
 pub mod session_receiver;
 pub mod session_sender;
 pub mod timer;
@@ -32,7 +36,7 @@ pub use errors::SessionError;
 pub use interceptor::SessionInterceptorProvider;
 
 // Session Config
-//pub use config::SessionConfig;
+pub use session_config::SessionConfig;
 
 // Common Session Types - internal use
 pub use common::{MessageDirection, SESSION_RANGE, SlimChannelSender};

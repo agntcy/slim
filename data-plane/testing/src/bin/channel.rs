@@ -9,7 +9,7 @@ use tracing::{error, info};
 
 use slim_auth::shared_secret::SharedSecret;
 use slim_datapath::messages::{Name, utils::SlimHeaderFlags};
-use slim_session::{Notification, session_controller::SessionConfig};
+use slim_session::{Notification, SessionConfig};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -246,7 +246,8 @@ async fn main() {
                             if let Some(slim_datapath::api::ProtoPublishType(publish)) =
                                 msg.message_type.as_ref()
                             {
-                                let p = &publish.get_payload().as_application_payload().unwrap().blob;
+                                let p =
+                                    &publish.get_payload().as_application_payload().unwrap().blob;
                                 if let Ok(payload) = String::from_utf8(p.to_vec()) {
                                     info!("received message: {}", payload);
                                 }

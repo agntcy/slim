@@ -16,7 +16,7 @@ use slim_auth::traits::Verifier;
 use slim_datapath::messages::encoder::Name;
 use slim_service::bindings::BindingsAdapter;
 use slim_service::{ServiceError, ServiceRef};
-use slim_session::{SessionError, session_controller::SessionConfig};
+use slim_session::{SessionConfig, SessionError};
 
 use crate::pyidentity::IdentityProvider;
 use crate::pyidentity::IdentityVerifier;

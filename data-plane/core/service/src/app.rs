@@ -15,7 +15,7 @@ use slim_datapath::api::MessageType;
 use slim_datapath::api::ProtoMessage as Message;
 use slim_datapath::messages::Name;
 use slim_datapath::messages::utils::SlimHeaderFlags;
-use slim_session::session_controller::{SessionConfig, SessionController};
+use slim_session::{SessionConfig, session_controller::SessionController};
 
 // Local crate
 use crate::ServiceError;

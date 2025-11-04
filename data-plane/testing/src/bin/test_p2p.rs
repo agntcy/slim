@@ -19,7 +19,7 @@ use slim_config::tls::server::TlsServerConfig;
 use slim_datapath::messages::Name;
 use slim_service::ServiceConfiguration;
 use slim_session::Notification;
-use slim_session::session_controller::SessionConfig;
+use slim_session::SessionConfig;
 use slim_tracing::TracingConfiguration;
 
 const DEFAULT_DATAPLANE_PORT: u16 = 46357;

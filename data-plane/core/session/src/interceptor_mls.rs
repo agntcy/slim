@@ -227,7 +227,12 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            bob_msg.get_payload().unwrap().as_application_payload().unwrap().blob,
+            bob_msg
+                .get_payload()
+                .unwrap()
+                .as_application_payload()
+                .unwrap()
+                .blob,
             original_payload
         );
     }
