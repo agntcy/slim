@@ -37,6 +37,7 @@ jobs:
     with:
       bake-targets: slim
       image-tag: ${{ github.sha }}
+      cache-source: data-plane/target
 
   mcp-proxy-docker-build:
     name: Build SLIM MCP Proxy docker image

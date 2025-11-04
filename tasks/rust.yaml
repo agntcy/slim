@@ -175,6 +175,7 @@ tasks:
     cmds:
       - task: fmt:check
       - task: clippy
+      - task: vuln
       - task: sort:check
       - task: unused:check
       - task: licenses
