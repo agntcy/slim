@@ -111,6 +111,24 @@
     "endpoint"
   ],
   "$defs": {
+    "AlgorithmRepr": {
+      "description": "Local enum used only for JSON Schema generation of the `algorithm` field.\nRemote schema representation of jsonwebtoken_aws_lc::Algorithm",
+      "type": "string",
+      "enum": [
+        "HS256",
+        "HS384",
+        "HS512",
+        "ES256",
+        "ES384",
+        "RS256",
+        "RS384",
+        "RS512",
+        "PS256",
+        "PS384",
+        "PS512",
+        "EdDSA"
+      ]
+    },
     "AuthenticationConfig": {
       "description": "Enum holding one configuration for the client.",
       "oneOf": [
@@ -262,6 +280,17 @@
           "items": {
             "type": "string"
           }
+        },
+        "custom_claims": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MetadataMap"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "issuer": {
           "description": "JWT Issuer",
@@ -418,6 +447,10 @@
       "description": "Represents a key",
       "type": "object",
       "properties": {
+        "algorithm": {
+          "description": "Algorithm used for signing the JWT",
+          "$ref": "#/$defs/AlgorithmRepr"
+        },
         "format": {
           "description": "Key format - PEM, JWK or JWKS",
           "$ref": "#/$defs/KeyFormat"
@@ -428,6 +461,7 @@
         }
       },
       "required": [
+        "algorithm",
         "format",
         "key"
       ]
