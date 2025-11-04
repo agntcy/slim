@@ -26,6 +26,33 @@ use crate::{
     transmitter::SessionTransmitter,
 };
 
+// Third-party crates for trait
+use tracing::error;
+
+/// Trait for session processors (moderator and participant) to handle control messages
+pub(crate) trait SessionProcessor: Send {
+    /// Process a control message specific to the processor type
+    async fn process_control_message(&mut self, message: Message) -> Result<(), SessionError>;
+    
+    /// Get immutable reference to common state
+    fn common(&self) -> &SessionControllerCommon;
+    
+    /// Get mutable reference to common state
+    fn common_mut(&mut self) -> &mut SessionControllerCommon;
+    
+    /// Hook for custom handling before processing application messages
+    /// Returns the potentially modified message
+    fn on_before_app_message(&mut self, message: Message, _direction: MessageDirection) -> Message {
+        message
+    }
+    
+    /// Hook for custom handling of timer failures for control messages
+    /// Returns true if the default handling should be skipped
+    async fn on_control_timer_failure(&mut self, _message_id: u32) -> bool {
+        false
+    }
+}
+
 pub(crate) enum SessionControllerImpl<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -521,6 +548,90 @@ impl SessionControllerCommon {
             msg.set_metadata_map(m);
         }
         self.send_with_timer(msg).await
+    }
+
+    /// Common event loop for session processors
+    pub(crate) async fn run_processor_loop<P>(mut processor: P)
+    where
+        P: SessionProcessor + 'static,
+    {
+        let cancellation_token = processor.common().cancellation_token.clone();
+        loop {
+            let common = processor.common_mut();
+            tokio::select! {
+                next = common.rx_from_session_layer.recv() => {
+                    match next {
+                        Some(message) => match message {
+                            SessionMessage::OnMessage { message, direction } => {
+                                let is_command = processor.common().is_command_message(message.get_session_message_type());
+                                let dir = direction.clone(); // Clone direction to avoid move issues
+                                if is_command {
+                                    if let Err(e) = processor.process_control_message(message).await {
+                                        error!("Error processing control message: {:?}", e);
+                                    }
+                                } else {
+                                    // Allow processor to modify message before sending
+                                    let modified_message = processor.on_before_app_message(message, direction);
+                                    let common = processor.common_mut();
+                                    if let Err(e) = common.session.on_message(SessionMessage::OnMessage { message: modified_message, direction: dir }).await {
+                                        error!("Error sending message to the session: {:?}", e);
+                                    }
+                                }
+                            }
+                            SessionMessage::TimerTimeout { message_id, message_type, name, timeouts } => {
+                                let is_command = processor.common().is_command_message(message_type);
+                                if is_command {
+                                    let common = processor.common_mut();
+                                    if let Err(e) = common.sender.on_timer_timeout(message_id).await {
+                                        error!("Error processing timeout for control message: {:?}", e);
+                                    }
+                                } else {
+                                    let common = processor.common_mut();
+                                    if let Err(e) = common.session.on_message(SessionMessage::TimerTimeout { message_id, message_type, name, timeouts }).await {
+                                        error!("Error processing timeout in the session: {:?}", e);
+                                    }
+                                }
+                            }
+                            SessionMessage::TimerFailure { message_id, message_type, name, timeouts } => {
+                                let is_command = processor.common().is_command_message(message_type);
+                                if is_command {
+                                    {
+                                        let common = processor.common_mut();
+                                        common.sender.on_timer_failure(message_id).await;
+                                    }
+                                    
+                                    // Allow processor to do custom handling
+                                    let _ = processor.on_control_timer_failure(message_id).await;
+                                } else {
+                                    let common = processor.common_mut();
+                                    if let Err(e) = common.session.on_message(SessionMessage::TimerFailure { message_id, message_type, name, timeouts }).await {
+                                        error!("Error processing timer failure in the session: {:?}", e);
+                                    }
+                                }
+                            }
+                            SessionMessage::StartDrain { grace_period_ms: _ } => {
+                                debug!("StartDrain message received (not implemented)");
+                            }
+                            _ => {
+                                debug!("Unexpected message type");
+                            }
+                        }
+                        None => {
+                            let session_id = processor.common().id;
+                            debug!("session controller close channel {}", session_id);
+                            break;
+                        }
+                    }
+                }
+                _ = cancellation_token.cancelled() => {
+                    debug!("cancellation token signaled on session processor, close it");
+                    let common = processor.common_mut();
+                    common.session.close();
+                    common.sender.close();
+                    break;
+                }
+            }
+        }
     }
 }
 

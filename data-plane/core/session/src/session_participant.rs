@@ -10,14 +10,14 @@ use slim_datapath::{
 };
 use slim_mls::mls::Mls;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error};
+use tracing::debug;
 
 use crate::{
     common::{MessageDirection, SessionMessage},
     errors::SessionError,
     mls_state::MlsState,
     session_config::SessionConfig,
-    session_controller::SessionControllerCommon,
+    session_controller::{SessionControllerCommon, SessionProcessor},
     transmitter::SessionTransmitter,
 };
 
@@ -65,7 +65,7 @@ where
         )
         .await;
 
-        tokio::spawn(processor.process_loop());
+        tokio::spawn(SessionControllerCommon::run_processor_loop(processor));
 
         SessionParticipant {
             tx: tx_controller,
@@ -105,6 +105,52 @@ where
     common: SessionControllerCommon,
 
     subscribed: bool,
+}
+
+impl<P, V> SessionProcessor for SessionParticipantProcessor<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    async fn process_control_message(&mut self, message: Message) -> Result<(), SessionError> {
+        match message.get_session_message_type() {
+            ProtoSessionMessageType::JoinRequest => self.on_join_request(message).await,
+            ProtoSessionMessageType::GroupWelcome => self.on_welcome(message).await,
+            ProtoSessionMessageType::GroupAdd => self.on_group_update_message(message, true).await,
+            ProtoSessionMessageType::GroupRemove => {
+                self.on_group_update_message(message, false).await
+            }
+            ProtoSessionMessageType::LeaveRequest => self.on_leave_request(message).await,
+            ProtoSessionMessageType::GroupProposal
+            | ProtoSessionMessageType::GroupAck
+            | ProtoSessionMessageType::GroupNack => todo!(),
+            ProtoSessionMessageType::DiscoveryRequest
+            | ProtoSessionMessageType::DiscoveryReply
+            | ProtoSessionMessageType::JoinReply
+            | ProtoSessionMessageType::LeaveReply => {
+                debug!(
+                    "Unexpected control message type {:?}",
+                    message.get_session_message_type()
+                );
+                Ok(())
+            }
+            _ => {
+                debug!(
+                    "Unexpected message type {:?}",
+                    message.get_session_message_type()
+                );
+                Ok(())
+            }
+        }
+    }
+
+    fn common(&self) -> &SessionControllerCommon {
+        &self.common
+    }
+
+    fn common_mut(&mut self) -> &mut SessionControllerCommon {
+        &mut self.common
+    }
 }
 
 impl<P, V> SessionParticipantProcessor<P, V>
@@ -162,89 +208,7 @@ where
         }
     }
 
-    async fn process_loop(mut self) {
-        loop {
-            tokio::select! {
-                next = self.common.rx_from_session_layer.recv() => {
-                    match next {
-                        Some(message) => match message {
-                            SessionMessage::OnMessage { message, direction } => {
-                                if self.common.is_command_message(message.get_session_message_type()) {
-                                    if let Err(e) = self.process_control_message(message).await {
-                                        error!("Error processing control message: {:?}", e);
-                                    }
-                                } else if let Err(e) = self.common.session.on_message(SessionMessage::OnMessage { message, direction }).await {
-                                    error!("Error sending message to the session: {:?}", e);
-                                }
-                            }
-                            SessionMessage::TimerTimeout { message_id, message_type, name, timeouts } => {
-                                if self.common.is_command_message(message_type) {
-                                    if let Err(e) = self.common.sender.on_timer_timeout(message_id).await {
-                                        error!("Error processing timeout for control message: {:?}", e);
-                                    }
-                                } else if let Err(e) = self.common.session.on_message(SessionMessage::TimerTimeout { message_id, message_type, name, timeouts }).await {
-                                    error!("Error processing timeout in the session: {:?}", e);
-                                }
-                            }
-                            SessionMessage::TimerFailure { message_id, message_type, name, timeouts } => {
-                                if self.common.is_command_message(message_type) {
-                                    self.common.sender.on_timer_failure(message_id).await;
-                                } else if let Err(e) = self.common.session.on_message(SessionMessage::TimerFailure { message_id, message_type, name, timeouts }).await {
-                                    error!("Error processing timer failure in the session: {:?}", e);
-                                }
-                            }
-                            SessionMessage::StartDrain { grace_period_ms: _  } => todo!(),
-                            _ => {
-                                debug!("Unexpected message type");
-                            }
-                        }
-                        None => {
-                            debug!("session controller close channel {}", self.common.id);
-                            break;
-                        }
-                    }
-                }
-                _ = self.common.cancellation_token.cancelled() => {
-                    debug!("cancellation token signaled on participant session processor, close it");
-                    self.common.session.close();
-                    self.common.sender.close();
-                    break;
-                }
-            }
-        }
-    }
 
-    async fn process_control_message(&mut self, message: Message) -> Result<(), SessionError> {
-        match message.get_session_message_type() {
-            ProtoSessionMessageType::JoinRequest => self.on_join_request(message).await,
-            ProtoSessionMessageType::GroupWelcome => self.on_welcome(message).await,
-            ProtoSessionMessageType::GroupAdd => self.on_group_update_message(message, true).await,
-            ProtoSessionMessageType::GroupRemove => {
-                self.on_group_update_message(message, false).await
-            }
-            ProtoSessionMessageType::LeaveRequest => self.on_leave_request(message).await,
-            ProtoSessionMessageType::GroupProposal
-            | ProtoSessionMessageType::GroupAck
-            | ProtoSessionMessageType::GroupNack => todo!(),
-            ProtoSessionMessageType::DiscoveryRequest
-            | ProtoSessionMessageType::DiscoveryReply
-            | ProtoSessionMessageType::JoinReply
-            | ProtoSessionMessageType::LeaveReply => {
-                debug!(
-                    "Unexpected control message type {:?}",
-                    message.get_session_message_type()
-                );
-                Ok(())
-            }
-            _ => {
-                debug!(
-                    "Unexpected message type {:?}",
-                    message.get_session_message_type()
-                );
-                Ok(())
-            }
-        }
-    }
 
     async fn on_join_request(&mut self, msg: Message) -> Result<(), SessionError> {
         debug!(

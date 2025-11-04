@@ -25,7 +25,7 @@ use crate::{
     mls_state::{MlsModeratorState, MlsState},
     moderator_task::{AddParticipant, ModeratorTask, RemoveParticipant, TaskUpdate},
     session_config::SessionConfig,
-    session_controller::SessionControllerCommon,
+    session_controller::{SessionControllerCommon, SessionProcessor},
     traits::Transmitter,
     transmitter::SessionTransmitter,
 };
@@ -74,7 +74,7 @@ where
         )
         .await;
 
-        tokio::spawn(processor.process_loop());
+        tokio::spawn(SessionControllerCommon::run_processor_loop(processor));
 
         SessionModerator {
             tx: tx_controller,
@@ -109,6 +109,111 @@ where
     postponed_message: Option<Message>,
     subscribed: bool,
     closing: bool,
+}
+
+impl<P, V> SessionProcessor for SessionModeratorProcessor<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    async fn process_control_message(&mut self, message: Message) -> Result<(), SessionError> {
+        match message.get_session_message_type() {
+            ProtoSessionMessageType::DiscoveryRequest => self.on_discovery_request(message).await,
+            ProtoSessionMessageType::DiscoveryReply => self.on_discovery_reply(message).await,
+            ProtoSessionMessageType::JoinRequest => {
+                // this message should arrive only from the control plane
+                // the effect of it is to create the session itself with
+                // the right settings. Here we can simply return
+                Ok(())
+            }
+            ProtoSessionMessageType::JoinReply => self.on_join_reply(message).await,
+            ProtoSessionMessageType::LeaveRequest => {
+                // if the metadata contains the key "DELETE_GROUP" remove all the participants
+                // and close the session when all task are completed
+                if message.contains_metadata(DELETE_GROUP) {
+                    return self.delete_all(message).await;
+                }
+
+                // if the message contains a payaload and the name is the same as the
+                // local one, call the delete all anyway
+                if let Some(n) = message
+                    .get_payload()
+                    .unwrap()
+                    .as_command_payload()
+                    .ok()
+                    .and_then(|p| p.as_leave_request_payload().ok())
+                    .and_then(|p| p.destination)
+                    && Name::from(&n) == self.common.source
+                {
+                    return self.delete_all(message).await;
+                }
+
+                // otherwise start the leave process
+                self.on_leave_request(message).await
+            }
+            ProtoSessionMessageType::LeaveReply => self.on_leave_reply(message).await,
+            ProtoSessionMessageType::GroupAck => self.on_group_ack(message).await,
+            ProtoSessionMessageType::GroupProposal => todo!(),
+            ProtoSessionMessageType::GroupAdd
+            | ProtoSessionMessageType::GroupRemove
+            | ProtoSessionMessageType::GroupWelcome
+            | ProtoSessionMessageType::GroupNack => Err(SessionError::Processing(format!(
+                "Unexpected control message type {:?}",
+                message.get_session_message_type()
+            ))),
+            _ => Err(SessionError::Processing(format!(
+                "Unexpected message type {:?}",
+                message.get_session_message_type()
+            ))),
+        }
+    }
+
+    fn common(&self) -> &SessionControllerCommon {
+        &self.common
+    }
+
+    fn common_mut(&mut self) -> &mut SessionControllerCommon {
+        &mut self.common
+    }
+
+    fn on_before_app_message(&mut self, mut message: Message, direction: MessageDirection) -> Message {
+        // this is a application message. if direction (needs to go to the remote endpoint) and
+        // the session is p2p, update the destination of the message with the destination in
+        // the self.common. In this way we always add the right id to the name
+        if direction == MessageDirection::South && self.common.config.session_type == ProtoSessionType::PointToPoint {
+            message.get_slim_header_mut().set_destination(&self.common.destination);
+        }
+        message
+    }
+
+    async fn on_control_timer_failure(&mut self, _message_id: u32) -> bool {
+        // the current task failed:
+        // 1. create the right error message
+        let error_message = match self.current_task.as_ref().unwrap() {
+            ModeratorTask::Add(_) => {
+                "failed to add a participant to the group"
+            }
+            ModeratorTask::Remove(_) => {
+                "failed to remove a participant from the group"
+            }
+            ModeratorTask::Update(_) => {
+                "failed to update state of the participant"
+            }
+        };
+
+        // 2. notify the application
+        if let Err(e) = self.common.tx.send_to_app(Err(SessionError::ModeratorTask(error_message.to_string()))).await {
+            error!("failed to notify application: {}", e);
+        }
+
+        // 3. delete current task and pick a new one
+        self.current_task = None;
+        if let Err(e) = self.pop_task().await {
+            error!("Failed to pop next task: {:?}", e);
+        }
+
+        true
+    }
 }
 
 impl<P, V> SessionModeratorProcessor<P, V>
@@ -169,143 +274,7 @@ where
         }
     }
 
-    async fn process_loop(mut self) {
-        loop {
-            tokio::select! {
-                next = self.common.rx_from_session_layer.recv() => {
-                    match next {
-                        Some(message) => match message {
-                            SessionMessage::OnMessage { mut message, direction } => {
-                                if self.common.is_command_message(message.get_session_message_type()) {
-                                    if let Err(e)= self.process_control_message(message).await {
-                                        error!("Error processeing command message: {}", e);
-                                    }
-                                } else {
-                                    // this is a application message. if direction (needs to go to the remote endpoint) and
-                                    // the session is p2p, update the destination of the message with the destination in
-                                    // the self.common. In this way we always add the right id to the name
-                                    if direction == MessageDirection::South && self.common.config.session_type == ProtoSessionType::PointToPoint {
-                                        message.get_slim_header_mut().set_destination(&self.common.destination);
-                                    }
-                                    if let Err(e) = self.common.session.on_message(SessionMessage::OnMessage { message, direction }).await {
-                                        error!("Error sending message to the session: {}", e);
-                                    }
-                                }
-                            }
-                            SessionMessage::TimerTimeout { message_id, message_type, name, timeouts } => {
-                                if self.common.is_command_message(message_type) {
-                                    if let Err(e)=  self.common.sender.on_timer_timeout(message_id).await {
-                                        error!("Error processeing timeout: {}", e);
-                                    }
-                                } else if let Err(e)=  self.common.session.on_message(SessionMessage::TimerTimeout { message_id, message_type, name, timeouts }).await {
-                                        error!("Error sending timeout to the session: {}", e);
-                                }
-                            }
-                            SessionMessage::TimerFailure { message_id, message_type, name, timeouts} => {
-                                if self.common.is_command_message(message_type) {
-                                    self.common.sender.on_timer_failure(message_id).await;
-                                    // the current task failed:
-                                    // 1. create the right error message
-                                    let error_message = match self.current_task.as_ref().unwrap() {
-                                        ModeratorTask::Add(_) => {
-                                            "failed to add a participant to the group"
-                                        }
-                                        ModeratorTask::Remove(_) => {
-                                            "failed to remove a participant from the group"
-                                        }
-                                        ModeratorTask::Update(_) => {
-                                            "failed to update state of the participant"
-                                        }
-                                    };
 
-                                    // 2. notify the application
-                                    if let Err(e) = self.common.tx.send_to_app(Err(SessionError::ModeratorTask(error_message.to_string()))).await {
-                                        error!("failed to notify application: {}", e);
-                                    }
-
-                                    // 3. delete current task and pick a new one
-                                    self.current_task = None;
-                                    if let Err(e) = self.pop_task().await {
-                                        error!("Failed to pop next task: {:?}", e);
-                                    }
-                                } else if let Err(e) = self.common.session.on_message(SessionMessage::TimerFailure { message_id, message_type, name, timeouts }).await {
-                                        error!("failed to sending timer failure to the session: {}", e);
-                                }
-                            }
-                            SessionMessage::StartDrain { grace_period_ms: _ } => todo!(),
-                            _ => {
-                                debug!("Unexpected message type");
-                            }
-                        }
-
-                        None => {
-                            debug!("session controller close channel {}", self.common.id);
-                            break;
-                        }
-                    }
-
-                }
-                _ = self.common.cancellation_token.cancelled() => {
-                    debug!("cancellation token signaled on participant session processor, close it");
-                    self.common.session.close();
-                    self.common.sender.close();
-                    break;
-                }
-            }
-        }
-    }
-
-    async fn process_control_message(&mut self, message: Message) -> Result<(), SessionError> {
-        match message.get_session_message_type() {
-            ProtoSessionMessageType::DiscoveryRequest => self.on_discovery_request(message).await,
-            ProtoSessionMessageType::DiscoveryReply => self.on_discovery_reply(message).await,
-            ProtoSessionMessageType::JoinRequest => {
-                // this message should arrive only from the control plane
-                // the effect of it is to create the session itself with
-                // the right settings. Here we can simply return
-                Ok(())
-            }
-            ProtoSessionMessageType::JoinReply => self.on_join_reply(message).await,
-            ProtoSessionMessageType::LeaveRequest => {
-                // if the metadata contains the key "DELETE_GROUP" remove all the participants
-                // and close the session when all task are completed
-                if message.contains_metadata(DELETE_GROUP) {
-                    return self.delete_all(message).await;
-                }
-
-                // if the message contains a payaload and the name is the same as the
-                // local one, call the delete all anyway
-                if let Some(n) = message
-                    .get_payload()
-                    .unwrap()
-                    .as_command_payload()
-                    .ok()
-                    .and_then(|p| p.as_leave_request_payload().ok())
-                    .and_then(|p| p.destination)
-                    && Name::from(&n) == self.common.source
-                {
-                    return self.delete_all(message).await;
-                }
-
-                // otherwise start the leave process
-                self.on_leave_request(message).await
-            }
-            ProtoSessionMessageType::LeaveReply => self.on_leave_reply(message).await,
-            ProtoSessionMessageType::GroupAck => self.on_group_ack(message).await,
-            ProtoSessionMessageType::GroupProposal => todo!(),
-            ProtoSessionMessageType::GroupAdd
-            | ProtoSessionMessageType::GroupRemove
-            | ProtoSessionMessageType::GroupWelcome
-            | ProtoSessionMessageType::GroupNack => Err(SessionError::Processing(format!(
-                "Unexpected control message type {:?}",
-                message.get_session_message_type()
-            ))),
-            _ => Err(SessionError::Processing(format!(
-                "Unexpected message type {:?}",
-                message.get_session_message_type()
-            ))),
-        }
-    }
 
     /// message processing functions
     async fn on_discovery_request(&mut self, mut msg: Message) -> Result<(), SessionError> {
