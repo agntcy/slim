@@ -82,6 +82,14 @@ tasks:
     vars:
       TESTS: '{{.TESTS | default ""}}'
 
+  data-plane:bindings:test:coverage:
+    desc: "Test the Python bindings with coverage"
+    dir: ./python/bindings
+    cmds:
+      - task python:bindings:test:coverage TESTS={{.TESTS}}
+    vars:
+      TESTS: '{{.TESTS | default ""}}'
+
   data-plane:core:test:
     desc: "Run core end to end tests"
     dir: ./testing
@@ -99,3 +107,13 @@ tasks:
     desc: "Generate the gRPC schema"
     cmds:
       - cargo run --bin generate-schema
+
+  # Enhanced coverage task that includes Python bindings coverage
+  data-plane:coverage-full:
+    desc: "Run full tests coverage including Python bindings"
+    cmds:
+      - task: data-plane:toolchain:test:coverage
+        vars:
+          ARGS: "{{.GLOBAL_ARGS}} --all-targets --locked --all-features"
+      - task: data-plane:bindings:test:coverage
+      - task: data-plane:core:test

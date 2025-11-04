@@ -40,7 +40,7 @@ building = [
     "maturin[patchelf]>=1.8.2; sys_platform == 'linux'",
 ]
 
-testing = ["pytest>=8.3.4", "pytest-asyncio>=0.25.3"]
+testing = ["pytest>=8.3.4", "pytest-asyncio>=0.25.3", "pytest-cov>=6.0.0"]
 
 linting = ["griffe>=1.5.5", "pyright>=1.1.0", "ruff>=0.9.3", "mypy>=1.14.1"]
 
@@ -55,6 +55,20 @@ module-name = "slim_bindings._slim_bindings"
 
 [tool.pytest.ini_options]
 testpaths = "tests"
+
+[tool.coverage.run]
+omit = ["tests/*", "examples/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
 
 [tool.ruff]
 extend-exclude = ["slim_bindings/_slim_bindings.pyi"]
