@@ -61,12 +61,8 @@ jobs:
           uv-install: true
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
-      - name: Setup Rust Caching
-        uses: Swatinem/rust-cache@v2
         with:
-          workspaces: ./data-plane
-          cache-on-failure: false
-          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}
+          workspace: ./data-plane
       - name: Build wheels
         run: |
           task python:bindings:packaging PROFILE=release

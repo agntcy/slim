@@ -1,0 +1,44 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+name: Test Buildx Cache (Reusable)
+
+on:
+  workflow_dispatch:
+    inputs:
+      bake-targets:
+        description: "Space/comma separated bake targets (e.g. slim or slim,control-plane)"
+        required: true
+        default: "slim"
+      image-tag:
+        description: "Image tag to use for both builds"
+        required: true
+        default: "cache-test"
+      bake-file:
+        description: "Bake definition file"
+        required: true
+        default: "docker-bake.hcl"
+      image-repo:
+        description: "Image repo (leave default unless pushing)"
+        required: true
+        default: "ghcr.io/agntcy/slim"
+  pull_request:
+    paths:
+      - ".github/workflows/reusable-docker-build-push.yaml"
+      - ".github/workflows/test-buildx-cache-reusable.yaml"
+
+jobs:
+  cold-build:
+    name: Cold build (no cache)
+    uses: ./.github/workflows/reusable-docker-build-push.yaml
+    with:
+      bake-targets: slim
+      image-tag: ${{ github.sha }}
+
+  warm-build:
+    name: Warm build (reuse cache)
+    needs: cold-build
+    uses: ./.github/workflows/reusable-docker-build-push.yaml
+    with:
+      bake-targets: slim
+      image-tag: ${{ github.sha }}
