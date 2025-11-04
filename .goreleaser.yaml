@@ -1,0 +1,49 @@
+version: 2
+
+dist: .dist/slimctl
+
+builds:
+  - main: cmd/main.go
+    id: slimctl
+    binary: slimctl
+    dir: control-plane/slimctl
+
+
+    goos:
+      #      - linux
+      #      - windows
+      - darwin
+
+archives:
+  - name_template: "slimctl_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "slimctl_checksums.txt"
+
+changelog:
+  disable: true
+
+
+homebrew_casks:
+  - name: slimctl
+    description: "A CLI tool for managing SLIM Devices"
+    homepage: "https://github.com/agntcy/slim/tree/main/control-plane/slimctl"
+    directory: brew-casks
+
+    binaries:
+      - slimctl
+
+    url:
+      template: "https://github.com/agntcy/slim/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+      using: ":homebrew_curl"
+
+    skip_upload: false
+
+    repository:
+      owner: agntcy
+      branch: brew
+
+      name: "agntcy/slim"
+
+
+
