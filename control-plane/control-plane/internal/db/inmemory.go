@@ -237,10 +237,12 @@ func (d *dbService) DeleteNode(id string) error {
 }
 
 func (d *dbService) AddRoute(route Route) string {
-	routeID := route.GetID()
+	//routeID := route.GetKey()
+	routeID := uuid.New().String()
 	// Add route to the map
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	route.ID = routeID
 	route.LastUpdated = time.Now()
 	d.routes[routeID] = route
 	return routeID

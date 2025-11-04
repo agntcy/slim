@@ -214,15 +214,18 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 		}
 
 		for _, subAck := range ack.GetSubscriptionsStatus() {
-			// get route key to find the corresponding route
-			routeKey := s.getSubscriptionToRouteKey(nodeID, subAck.Subscription)
-
-			// Fetch route from database using the route key
-			route := s.dbService.GetRouteByID(routeKey)
-			if route == nil {
+			// find corresponding route in the database
+			destNodeID := ""
+			if subAck.Subscription.NodeId != nil {
+				destNodeID = *subAck.Subscription.NodeId
+			}
+			route, rerr := s.dbService.GetRouteForSrcAndDestinationAndName(nodeID, subAck.Subscription.Component_0,
+				subAck.Subscription.Component_1, subAck.Subscription.Component_2, subAck.Subscription.Id,
+				destNodeID, subAck.Subscription.ConnectionId)
+			if rerr != nil {
 				zlog.Warn().
-					Str("route_key", routeKey).
-					Msg("Route not found for subscription acknowledgment")
+					Str("subscription", subAck.Subscription.String()).
+					Msgf("Route not found for subscription acknowledgment: %s", rerr.Error())
 				continue
 			}
 
@@ -230,27 +233,27 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 				// Success case: mark route as applied or delete if it was marked as deleted
 				if route.Deleted {
 					// Route was for deletion, so delete it from database
-					if err := s.dbService.DeleteRoute(routeKey); err != nil {
+					if err := s.dbService.DeleteRoute(route.ID); err != nil {
 						zlog.Error().
 							Err(err).
-							Str("route_key", routeKey).
+							Str("route_key", route.GetKey()).
 							Msg("Failed to delete route from database")
-						return fmt.Errorf("failed to delete route %s: %w", routeKey, err)
+						return fmt.Errorf("failed to delete route %s: %w", route.GetKey(), err)
 					}
 					zlog.Info().
-						Str("route_key", routeKey).
+						Str("route_key", route.GetKey()).
 						Msg("Successfully deleted route")
 				} else {
 					// Route was for creation/update, mark as applied
-					if err := s.dbService.MarkRouteAsApplied(routeKey); err != nil {
+					if err := s.dbService.MarkRouteAsApplied(route.ID); err != nil {
 						zlog.Error().
 							Err(err).
-							Str("route_key", routeKey).
+							Str("route_key", route.GetKey()).
 							Msg("Failed to mark route as applied")
-						return fmt.Errorf("failed to mark route %s as applied: %w", routeKey, err)
+						return fmt.Errorf("failed to mark route %s as applied: %w", route.GetKey(), err)
 					}
 					zlog.Debug().
-						Str("route_key", routeKey).
+						Str("route_key", route.GetKey()).
 						Msg("Successfully marked route as applied")
 				}
 			} else {
@@ -262,16 +265,16 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 					failedMsg = connErr
 				}
 
-				if err := s.dbService.MarkRouteAsFailed(routeKey, failedMsg); err != nil {
+				if err := s.dbService.MarkRouteAsFailed(route.ID, failedMsg); err != nil {
 					zlog.Error().
 						Err(err).
-						Str("route_key", routeKey).
+						Str("route_key", route.GetKey()).
 						Str("error_msg", failedMsg).
 						Msg("Failed to mark route as failed")
-					return fmt.Errorf("failed to mark route %s as failed: %w", routeKey, err)
+					return fmt.Errorf("failed to mark route %s as failed: %w", route.GetKey(), err)
 				}
 				zlog.Info().
-					Str("route_key", routeKey).
+					Str("route_key", route.GetKey()).
 					Str("error_msg", failedMsg).
 					Msg("Marked route as failed")
 			}
@@ -287,14 +290,4 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 	}
 
 	return nil
-}
-
-// getSubscriptionErrorKey creates a unique key for subscription error mapping
-func (s *RouteReconciler) getSubscriptionToRouteKey(sourceNodeID string, sub *controllerapi.Subscription) string {
-	nodeID := ""
-	if sub.NodeId != nil {
-		nodeID = *sub.NodeId
-	}
-	return fmt.Sprintf("%s:%s/%s/%s/%v->%s[%s]", sourceNodeID,
-		sub.Component_0, sub.Component_1, sub.Component_2, sub.Id, nodeID, sub.ConnectionId)
 }

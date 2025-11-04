@@ -23,13 +23,14 @@ type DataAccess interface {
 		Component2 string, ComponentID *wrapperspb.UInt64Value) []Route
 	GetRouteForSrcAndDestinationAndName(srcNodeID string, Component0 string, Component1 string,
 		Component2 string, ComponentID *wrapperspb.UInt64Value, destNodeID string, destEndpoint string) (Route, error)
-	GetRouteByID(routeID string) *Route
-	DeleteRoute(routeID string) error
-	MarkRouteAsDeleted(routeID string) error
 	// FilterRoutesBySourceAndDestination returns all routes matching the given sourceNodeID and destNodeID if any.
 	// If any of the parameters is an empty string, it is treated as a wildcard.
 	FilterRoutesBySourceAndDestination(sourceNodeID string, destNodeID string) []Route
 
+	GetRouteByID(routeID string) *Route
+
+	DeleteRoute(routeID string) error
+	MarkRouteAsDeleted(routeID string) error
 	MarkRouteAsApplied(routeID string) error
 	MarkRouteAsFailed(routeID string, msg string) error
 
@@ -77,6 +78,7 @@ const (
 )
 
 type Route struct {
+	ID string
 	// ID of the node which the route is applied to.
 	// If SourceNodeID is AllNodesID, the route applies to all nodes
 	SourceNodeID string
@@ -95,7 +97,7 @@ type Route struct {
 	LastUpdated    time.Time
 }
 
-func (r Route) GetID() string {
+func (r Route) GetKey() string {
 	return fmt.Sprintf("%s:%s/%s/%s/%v->%s[%s]", r.SourceNodeID,
 		r.Component0, r.Component1, r.Component2, r.ComponentID, r.DestNodeID, r.DestEndpoint)
 }

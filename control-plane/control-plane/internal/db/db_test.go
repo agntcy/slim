@@ -115,7 +115,7 @@ func testRouteOperations(t *testing.T, da DataAccess) {
 	// Test FilterRoutesBySourceAndDestination
 	filteredRoutes := da.FilterRoutesBySourceAndDestination("node1", "node2")
 	assert.Len(t, filteredRoutes, 1, "Should find 1 route from node1 to node2")
-	assert.Equal(t, routeID1, filteredRoutes[0].GetID())
+	assert.Equal(t, routeID1, filteredRoutes[0].ID)
 
 	filteredRoutes = da.FilterRoutesBySourceAndDestination("node1", "node3")
 	assert.Len(t, filteredRoutes, 1, "Should find 1 route from node1 to node3")
