@@ -951,7 +951,6 @@ fn decode_jwt_expiry_unverified(token: &str) -> Result<u64, AuthError> {
     }
 }
 
-// Calculate refresh interval as 2/3 of the token's lifetime
 trait JwtLike {
     fn token(&self) -> &str;
 }
@@ -1007,6 +1006,7 @@ fn calculate_backoff_with_token_expiry<T: JwtLike>(
     }
 }
 
+/// Calculate refresh interval as 2/3 of the token's lifetime
 fn calculate_refresh_interval<T: JwtLike>(jwt: &T) -> Result<Duration, AuthError> {
     const TWO_THIRDS: f64 = 2.0 / 3.0;
     let default = Duration::from_secs(30);
