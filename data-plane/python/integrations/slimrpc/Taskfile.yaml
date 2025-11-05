@@ -10,3 +10,18 @@ includes:
     taskfile: ../../../../tasks/python.yaml
     vars:
       UV_ARGS: '--package slimrpc'
+
+tasks:
+  python:slimrpc:test:
+    desc: "Run the slimrpc integration tests"
+    vars:
+      TARGET: '{{.TESTS | default "tests"}}'
+    cmds:
+      - uv run --package slimrpc pytest -s {{.TARGET}}
+
+  python:slimrpc:test:coverage:
+    desc: "Run the slimrpc integration tests with coverage"
+    vars:
+      TARGET: '{{.TESTS | default "tests"}}'
+    cmds:
+      - uv run --package slimrpc pytest --cov=slimrpc --cov-report=lcov:coverage.lcov --cov-report=html --cov-report=term -s {{.TARGET}}

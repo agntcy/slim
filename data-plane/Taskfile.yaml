@@ -90,6 +90,14 @@ tasks:
     vars:
       TESTS: '{{.TESTS | default ""}}'
 
+  data-plane:slimrpc:test:coverage:
+    desc: "Test the slimrpc integration with coverage"
+    dir: ./python/integrations/slimrpc
+    cmds:
+      - task python:slimrpc:test:coverage TESTS={{.TESTS}}
+    vars:
+      TESTS: '{{.TESTS | default ""}}'
+
   data-plane:core:test:
     desc: "Run core end to end tests"
     dir: ./testing
@@ -116,4 +124,5 @@ tasks:
         vars:
           ARGS: "{{.GLOBAL_ARGS}} --all-targets --locked --all-features"
       - task: data-plane:bindings:test:coverage
+      - task: data-plane:slimrpc:test:coverage
       - task: data-plane:core:test
