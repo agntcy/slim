@@ -338,6 +338,29 @@ impl SessionHeader {
     }
 }
 
+/// SessionMessageType
+/// Helper methods for session message types
+impl SessionMessageType {
+    /// Check if a message type is a command message (not application data)
+    pub fn is_command_message(&self) -> bool {
+        matches!(
+            self,
+            SessionMessageType::DiscoveryRequest
+                | SessionMessageType::DiscoveryReply
+                | SessionMessageType::JoinRequest
+                | SessionMessageType::JoinReply
+                | SessionMessageType::LeaveRequest
+                | SessionMessageType::LeaveReply
+                | SessionMessageType::GroupAdd
+                | SessionMessageType::GroupRemove
+                | SessionMessageType::GroupWelcome
+                | SessionMessageType::GroupProposal
+                | SessionMessageType::GroupAck
+                | SessionMessageType::GroupNack
+        )
+    }
+}
+
 /// ProtoSubscribe
 /// This message is used to subscribe to a topic
 impl ProtoSubscribe {

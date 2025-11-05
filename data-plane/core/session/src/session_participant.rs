@@ -61,14 +61,14 @@ where
 
         // Create the session (inner layer)
         let inner = crate::session::Session::new(
-            settings.id,
-            settings.config.clone(),
-            &settings.source,
-            settings.tx.clone(),
+            settings.common.id,
+            settings.common.config.clone(),
+            &settings.common.source,
+            settings.common.tx.clone(),
             tx_signals,
         );
 
-        let mls_state = if settings.config.mls_enabled {
+        let mls_state = if settings.common.config.mls_enabled {
             Some(
                 MlsState::new(Arc::new(Mutex::new(Mls::new(
                     settings.identity_provider.clone(),
@@ -82,14 +82,7 @@ where
             None
         };
 
-        let common = SessionControllerCommon::new_without_channels(
-            settings.id,
-            settings.source,
-            settings.destination,
-            settings.config,
-            settings.tx,
-            settings.tx_to_session_layer,
-        );
+        let common = SessionControllerCommon::new_without_channels(settings.common);
 
         SessionParticipant {
             moderator_name: None,
@@ -113,10 +106,7 @@ where
     async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
         match message {
             SessionMessage::OnMessage { message, direction } => {
-                if self
-                    .common
-                    .is_command_message(message.get_session_message_type())
-                {
+                if message.get_session_message_type().is_command_message() {
                     self.process_control_message(message).await
                 } else {
                     self.inner
@@ -130,7 +120,7 @@ where
                 name,
                 timeouts,
             } => {
-                if self.common.is_command_message(message_type) {
+                if message_type.is_command_message() {
                     self.common.sender.on_timer_timeout(message_id).await
                 } else {
                     self.inner
@@ -149,7 +139,7 @@ where
                 name,
                 timeouts,
             } => {
-                if self.common.is_command_message(message_type) {
+                if message_type.is_command_message() {
                     self.common.sender.on_timer_failure(message_id).await;
                     Ok(())
                 } else {
@@ -216,7 +206,7 @@ where
     async fn on_join_request(&mut self, msg: Message) -> Result<(), SessionError> {
         debug!(
             "received join request on {} with id {}",
-            self.common.source,
+            self.common.common.source,
             msg.get_id()
         );
         let source = msg.get_source();
@@ -256,7 +246,7 @@ where
     async fn on_welcome(&mut self, msg: Message) -> Result<(), SessionError> {
         debug!(
             "received welcome on {} with id {}",
-            self.common.source,
+            self.common.common.source,
             msg.get_id()
         );
 
@@ -280,7 +270,7 @@ where
             let name = Name::from(&n);
             self.group_list.insert(name.clone());
 
-            if name != self.common.source {
+            if name != self.common.common.source {
                 debug!("add endpoint to the session {}", msg.get_source());
                 self.inner.add_endpoint(&name).await?;
             }
@@ -304,7 +294,7 @@ where
     ) -> Result<(), SessionError> {
         debug!(
             "received update on {} with id {}",
-            self.common.source,
+            self.common.common.source,
             msg.get_id()
         );
 
@@ -314,7 +304,7 @@ where
                 .mls_state
                 .as_mut()
                 .unwrap()
-                .process_control_message(msg.clone(), &self.common.source)
+                .process_control_message(msg.clone(), &self.common.common.source)
                 .await?;
 
             if !ret {
@@ -378,9 +368,10 @@ where
         self.leave(&msg).await?;
 
         self.common
+            .common
             .tx_to_session_layer
             .send(Ok(SessionMessage::DeleteSession {
-                session_id: self.common.id,
+                session_id: self.common.common.id,
             }))
             .await
             .map_err(|e| SessionError::Processing(format!("failed to notify session layer: {}", e)))
@@ -393,16 +384,16 @@ where
 
         self.subscribed = true;
 
-        if self.common.config.session_type == ProtoSessionType::PointToPoint {
+        if self.common.common.config.session_type == ProtoSessionType::PointToPoint {
             return Ok(());
         }
 
         self.common
-            .set_route(&self.common.destination, msg.get_incoming_conn())
+            .set_route(&self.common.common.destination, msg.get_incoming_conn())
             .await?;
         let sub = Message::new_subscribe(
-            &self.common.source,
-            &self.common.destination,
+            &self.common.common.source,
+            &self.common.common.destination,
             None,
             Some(SlimHeaderFlags::default().with_forward_to(msg.get_incoming_conn())),
         );
@@ -412,10 +403,10 @@ where
 
     async fn leave(&self, msg: &Message) -> Result<(), SessionError> {
         self.common
-            .delete_route(&self.common.destination, msg.get_incoming_conn())
+            .delete_route(&self.common.common.destination, msg.get_incoming_conn())
             .await?;
 
-        if self.common.config.session_type == ProtoSessionType::PointToPoint {
+        if self.common.common.config.session_type == ProtoSessionType::PointToPoint {
             return Ok(());
         }
 
@@ -426,8 +417,8 @@ where
             )
             .await?;
         let sub = Message::new_unsubscribe(
-            &self.common.source,
-            &self.common.destination,
+            &self.common.common.source,
+            &self.common.common.destination,
             None,
             Some(SlimHeaderFlags::default().with_forward_to(msg.get_incoming_conn())),
         );

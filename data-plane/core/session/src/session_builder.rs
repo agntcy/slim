@@ -11,17 +11,11 @@ use slim_datapath::{
     },
     messages::Name,
 };
-use tokio_util::sync::CancellationToken;
 
 use crate::{
-    MessageDirection,
-    common::SessionMessage,
-    errors::SessionError,
-    session_config::SessionConfig,
-    session_controller::{SessionController, SessionControllerImpl},
-    session_moderator::SessionModerator,
-    session_participant::SessionParticipant,
-    session_settings::SessionSettings,
+    MessageDirection, common::SessionMessage, errors::SessionError, session_config::SessionConfig,
+    session_controller::SessionController, session_moderator::SessionModerator,
+    session_participant::SessionParticipant, session_settings::{SessionCommonFields, SessionSettings},
     transmitter::SessionTransmitter,
 };
 
@@ -75,7 +69,6 @@ pub struct ForModerator;
 ///     .with_storage_path(storage_path)
 ///     .with_tx(transmitter)
 ///     .with_tx_to_session_layer(tx_channel)
-///     .with_cancellation_token(token)
 ///     .ready()?  // Validates all fields are set
 ///     .build()   // Constructs the SessionController
 ///     .await?;
@@ -94,7 +87,6 @@ pub struct ForModerator;
 ///     .with_storage_path(path)
 ///     .with_tx(tx)
 ///     .with_tx_to_session_layer(tx_layer)
-///     .with_cancellation_token(token)
 ///     .ready()?
 ///     .build()
 ///     .await;
@@ -113,7 +105,6 @@ pub struct ForModerator;
 ///     .with_storage_path(storage_path)
 ///     .with_tx(tx)
 ///     .with_tx_to_session_layer(tx_to_layer)
-///     .with_cancellation_token(cancel_token)
 ///     .ready()?
 ///     .build()
 ///     .await;
@@ -132,7 +123,6 @@ where
     storage_path: Option<std::path::PathBuf>,
     tx: Option<SessionTransmitter>,
     tx_to_session_layer: Option<tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>>,
-    cancellation_token: Option<CancellationToken>,
     _target: PhantomData<Target>,
     _state: PhantomData<State>,
 }
@@ -154,7 +144,6 @@ where
             storage_path: None,
             tx: None,
             tx_to_session_layer: None,
-            cancellation_token: None,
             _target: PhantomData,
             _state: PhantomData,
         }
@@ -208,11 +197,6 @@ where
         self
     }
 
-    pub fn with_cancellation_token(mut self, cancellation_token: CancellationToken) -> Self {
-        self.cancellation_token = Some(cancellation_token);
-        self
-    }
-
     pub fn ready(self) -> Result<SessionBuilder<P, V, Target, Ready>, SessionError> {
         // Verify all required fields are set
         if self.id.is_none()
@@ -224,7 +208,6 @@ where
             || self.storage_path.is_none()
             || self.tx.is_none()
             || self.tx_to_session_layer.is_none()
-            || self.cancellation_token.is_none()
         {
             return Err(SessionError::ConfigurationError(
                 "Not all required fields are set in SessionBuilder".to_string(),
@@ -241,7 +224,6 @@ where
             storage_path: self.storage_path,
             tx: self.tx,
             tx_to_session_layer: self.tx_to_session_layer,
-            cancellation_token: self.cancellation_token,
             _target: PhantomData,
             _state: PhantomData,
         })
@@ -297,22 +279,35 @@ where
         let source = self.source.clone().unwrap();
         let destination = self.destination.clone().unwrap();
         let config = self.config.clone().unwrap();
-        let cancellation_token = self.cancellation_token.clone().unwrap();
 
-        let controller = if config.initiator {
-            SessionControllerImpl::SessionModerator(self.build_moderator_impl().await)
-        } else {
-            SessionControllerImpl::SessionParticipant(self.build_participant_impl().await)
+        let session_controller = match config.initiator {
+            true => {
+                let inner = self.build_moderator_impl().await;
+
+                tracing::debug!("Building SessionController as Moderator");
+
+                SessionController::from_parts(
+                    id,
+                    source,
+                    destination,
+                    config,
+                    inner,
+                )
+            }
+            false => {
+                let inner = self.build_participant_impl().await;
+
+                tracing::debug!("Building SessionController as Participant");
+
+                SessionController::from_parts(
+                    id,
+                    source,
+                    destination,
+                    config,
+                    inner,
+                )
+            }
         };
-
-        let session_controller = SessionController::from_parts(
-            id,
-            source,
-            destination,
-            config,
-            controller,
-            cancellation_token,
-        );
 
         // if the session is a p2p session and the session is created
         // as initiator we need to invite the remote participant
@@ -343,31 +338,37 @@ where
     }
 
     async fn build_moderator_impl(self) -> SessionModerator<P, V> {
-        let settings = SessionSettings {
+        let common = SessionCommonFields {
             id: self.id.unwrap(),
             source: self.source.unwrap(),
             destination: self.destination.unwrap(),
             config: self.config.unwrap(),
+            tx: self.tx.unwrap(),
+            tx_to_session_layer: self.tx_to_session_layer.unwrap(),
+        };
+        let settings = SessionSettings {
+            common,
             identity_provider: self.identity_provider.unwrap(),
             identity_verifier: self.identity_verifier.unwrap(),
             storage_path: self.storage_path.unwrap(),
-            tx: self.tx.unwrap(),
-            tx_to_session_layer: self.tx_to_session_layer.unwrap(),
         };
         SessionModerator::new(settings).await
     }
 
     async fn build_participant_impl(self) -> SessionParticipant<P, V> {
-        let settings = SessionSettings {
+        let common = SessionCommonFields {
             id: self.id.unwrap(),
             source: self.source.unwrap(),
             destination: self.destination.unwrap(),
             config: self.config.unwrap(),
+            tx: self.tx.unwrap(),
+            tx_to_session_layer: self.tx_to_session_layer.unwrap(),
+        };
+        let settings = SessionSettings {
+            common,
             identity_provider: self.identity_provider.unwrap(),
             identity_verifier: self.identity_verifier.unwrap(),
             storage_path: self.storage_path.unwrap(),
-            tx: self.tx.unwrap(),
-            tx_to_session_layer: self.tx_to_session_layer.unwrap(),
         };
         SessionParticipant::new(settings).await
     }
@@ -381,16 +382,19 @@ where
 {
     /// Build a SessionParticipant
     pub async fn build(self) -> SessionParticipant<P, V> {
-        let settings = SessionSettings {
+        let common = SessionCommonFields {
             id: self.id.unwrap(),
             source: self.source.unwrap(),
             destination: self.destination.unwrap(),
             config: self.config.unwrap(),
+            tx: self.tx.unwrap(),
+            tx_to_session_layer: self.tx_to_session_layer.unwrap(),
+        };
+        let settings = SessionSettings {
+            common,
             identity_provider: self.identity_provider.unwrap(),
             identity_verifier: self.identity_verifier.unwrap(),
             storage_path: self.storage_path.unwrap(),
-            tx: self.tx.unwrap(),
-            tx_to_session_layer: self.tx_to_session_layer.unwrap(),
         };
         SessionParticipant::new(settings).await
     }
@@ -404,16 +408,19 @@ where
 {
     /// Build a SessionModerator
     pub async fn build(self) -> SessionModerator<P, V> {
-        let settings = SessionSettings {
+        let common = SessionCommonFields {
             id: self.id.unwrap(),
             source: self.source.unwrap(),
             destination: self.destination.unwrap(),
             config: self.config.unwrap(),
+            tx: self.tx.unwrap(),
+            tx_to_session_layer: self.tx_to_session_layer.unwrap(),
+        };
+        let settings = SessionSettings {
+            common,
             identity_provider: self.identity_provider.unwrap(),
             identity_verifier: self.identity_verifier.unwrap(),
             storage_path: self.storage_path.unwrap(),
-            tx: self.tx.unwrap(),
-            tx_to_session_layer: self.tx_to_session_layer.unwrap(),
         };
         SessionModerator::new(settings).await
     }

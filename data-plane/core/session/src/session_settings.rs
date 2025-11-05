@@ -9,6 +9,31 @@ use crate::{
     transmitter::SessionTransmitter,
 };
 
+/// Common fields shared between session components.
+///
+/// This struct contains the core session identification and communication
+/// channels that are used by both the construction settings and runtime state.
+#[derive(Clone)]
+pub(crate) struct SessionCommonFields {
+    /// Session ID
+    pub(crate) id: u32,
+
+    /// Local endpoint name
+    pub(crate) source: Name,
+
+    /// Remote endpoint or group name
+    pub(crate) destination: Name,
+
+    /// Session configuration
+    pub(crate) config: SessionConfig,
+
+    /// Transmitter for sending messages
+    pub(crate) tx: SessionTransmitter,
+
+    /// Channel to communicate with session layer
+    pub(crate) tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
+}
+
 /// Settings struct for constructing session components.
 ///
 /// This struct encapsulates all the parameters needed to construct
@@ -26,17 +51,8 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    /// Session ID
-    pub(crate) id: u32,
-
-    /// Local endpoint name
-    pub(crate) source: Name,
-
-    /// Remote endpoint or group name
-    pub(crate) destination: Name,
-
-    /// Session configuration
-    pub(crate) config: SessionConfig,
+    /// Common session fields
+    pub(crate) common: SessionCommonFields,
 
     /// Identity token provider
     pub(crate) identity_provider: P,
@@ -46,10 +62,4 @@ where
 
     /// Storage path for session data
     pub(crate) storage_path: std::path::PathBuf,
-
-    /// Transmitter for sending messages
-    pub(crate) tx: SessionTransmitter,
-
-    /// Channel to communicate with session layer
-    pub(crate) tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
 }

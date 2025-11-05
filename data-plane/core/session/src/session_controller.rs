@@ -22,23 +22,12 @@ use crate::{
     MessageDirection, SessionError, Transmitter,
     common::SessionMessage,
     controller_sender::ControllerSender,
-    traits::MessageHandler,
     session_builder::{ForController, SessionBuilder},
     session_config::SessionConfig,
-    session_moderator::SessionModerator,
-    session_participant::SessionParticipant,
+    session_settings::SessionCommonFields,
     timer_factory::TimerSettings,
-    transmitter::SessionTransmitter,
+    traits::MessageHandler,
 };
-
-pub(crate) enum SessionControllerImpl<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
-    SessionParticipant(SessionParticipant<P, V>),
-    SessionModerator(SessionModerator<P, V>),
-}
 
 pub struct SessionController {
     /// session id
@@ -72,27 +61,25 @@ impl SessionController {
     }
 
     /// Internal constructor for the builder to use
-    pub(crate) fn from_parts<P, V>(
+    pub(crate) fn from_parts<I>(
         id: u32,
         source: Name,
         destination: Name,
         config: SessionConfig,
-        controller: SessionControllerImpl<P, V>,
-        cancellation_token: CancellationToken,
+        inner: I,
     ) -> Self
     where
-        P: TokenProvider + Send + Sync + Clone + 'static,
-        V: Verifier + Send + Sync + Clone + 'static,
+        I: MessageHandler + Send + Sync + 'static,
     {
         // Create channel for internal message processing
         let (tx_controller, rx_controller) = tokio::sync::mpsc::channel(256);
 
         // Spawn the processing loop
-        let cancellation_token_clone = cancellation_token.clone();
+        let cancellation_token = CancellationToken::new();
         tokio::spawn(Self::processing_loop(
-            controller,
+            inner,
             rx_controller,
-            cancellation_token_clone,
+            cancellation_token.clone(),
         ));
 
         Self {
@@ -106,14 +93,11 @@ impl SessionController {
     }
 
     /// Internal processing loop that handles messages with mutable access
-    async fn processing_loop<P, V>(
-        mut controller: SessionControllerImpl<P, V>,
+    async fn processing_loop(
+        mut inner: impl MessageHandler + Send + Sync + 'static,
         mut rx: tokio::sync::mpsc::Receiver<SessionMessage>,
         cancellation_token: CancellationToken,
-    ) where
-        P: TokenProvider + Send + Sync + Clone + 'static,
-        V: Verifier + Send + Sync + Clone + 'static,
-    {
+    ) {
         loop {
             tokio::select! {
                 _ = cancellation_token.cancelled() => {
@@ -123,18 +107,9 @@ impl SessionController {
                 msg = rx.recv() => {
                     match msg {
                         Some(session_message) => {
-                            match &mut controller {
-                                SessionControllerImpl::SessionParticipant(cp) => {
-                                    if let Err(e) = cp.on_message(session_message).await {
-                                        tracing::error!(error=%e, "Error processing message in SessionParticipant");
-                                    }
-                                }
-                                SessionControllerImpl::SessionModerator(cm) => {
-                                    if let Err(e) = cm.on_message(session_message).await {
-                                        tracing::error!(error=%e, "Error processing message in SessionModerator");
-                                    }
-                                }
-                            };
+                            if let Err(e) = inner.on_message(session_message).await {
+                                tracing::error!(error=%e, "Error processing message in session");
+                            }
                         }
                         None => {
                             debug!("Controller channel closed, exiting processing loop");
@@ -146,10 +121,9 @@ impl SessionController {
         }
 
         // Perform shutdown
-        let _ = match &mut controller {
-            SessionControllerImpl::SessionParticipant(cp) => MessageHandler::on_shutdown(cp).await,
-            SessionControllerImpl::SessionModerator(cm) => MessageHandler::on_shutdown(cm).await,
-        };
+        if let Err(e) = inner.on_shutdown().await {
+            tracing::error!(error=%e, "Error during shutdown of session");
+        }
     }
 
     /// getters
@@ -373,41 +347,17 @@ pub fn handle_channel_discovery_message(
 }
 
 pub struct SessionControllerCommon {
-    /// session id
-    pub(crate) id: u32,
-
-    ///local name
-    pub(crate) source: Name,
-
-    /// remote/group name
-    /// in case of remote the name the id may be updated after the discovery phase
-    pub(crate) destination: Name,
-
-    /// session configuration
-    pub(crate) config: SessionConfig,
+    /// common session fields
+    pub(crate) common: SessionCommonFields,
 
     /// sender for command messages
     pub(crate) sender: ControllerSender,
-
-    /// directly sent to the slim/app
-    pub(crate) tx: SessionTransmitter,
-
-    /// channel used to communincate with the session layer.
-    pub(crate) tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
 }
 
 impl SessionControllerCommon {
     const MAX_FANOUT: u32 = 256;
 
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new_without_channels(
-        id: u32,
-        source: Name,
-        destination: Name,
-        config: SessionConfig,
-        tx: SessionTransmitter,
-        tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
-    ) -> Self {
+    pub(crate) fn new_without_channels(common: SessionCommonFields) -> Self {
         // timers settings for the controller
         let controller_timer_settings =
             TimerSettings::constant(Duration::from_secs(1)).with_max_retries(10);
@@ -418,45 +368,22 @@ impl SessionControllerCommon {
         // create the controller sender
         let controller_sender = ControllerSender::new(
             controller_timer_settings,
-            source.clone(),
+            common.source.clone(),
             // send messages to slim/app
-            tx.clone(),
+            common.tx.clone(),
             // send signal to the controller
             tx_controller,
         );
 
         SessionControllerCommon {
-            id,
-            source,
-            destination,
-            config,
+            common,
             sender: controller_sender,
-            tx,
-            tx_to_session_layer,
         }
     }
 
     /// internal and helper functions
-    pub(crate) fn is_command_message(&self, message_type: ProtoSessionMessageType) -> bool {
-        matches!(
-            message_type,
-            ProtoSessionMessageType::DiscoveryRequest
-                | ProtoSessionMessageType::DiscoveryReply
-                | ProtoSessionMessageType::JoinRequest
-                | ProtoSessionMessageType::JoinReply
-                | ProtoSessionMessageType::LeaveRequest
-                | ProtoSessionMessageType::LeaveReply
-                | ProtoSessionMessageType::GroupAdd
-                | ProtoSessionMessageType::GroupRemove
-                | ProtoSessionMessageType::GroupWelcome
-                | ProtoSessionMessageType::GroupProposal
-                | ProtoSessionMessageType::GroupAck
-                | ProtoSessionMessageType::GroupNack
-        )
-    }
-
     pub(crate) async fn send_to_slim(&self, message: Message) -> Result<(), SessionError> {
-        self.tx.send_to_slim(Ok(message)).await
+        self.common.tx.send_to_slim(Ok(message)).await
     }
 
     pub(crate) async fn send_with_timer(&mut self, message: Message) -> Result<(), SessionError> {
@@ -465,7 +392,7 @@ impl SessionControllerCommon {
 
     pub(crate) async fn set_route(&self, name: &Name, conn: u64) -> Result<(), SessionError> {
         let route = Message::new_subscribe(
-            &self.source,
+            &self.common.source,
             name,
             None,
             Some(SlimHeaderFlags::default().with_recv_from(conn)),
@@ -476,7 +403,7 @@ impl SessionControllerCommon {
 
     pub(crate) async fn delete_route(&self, name: &Name, conn: u64) -> Result<(), SessionError> {
         let route = Message::new_unsubscribe(
-            &self.source,
+            &self.common.source,
             name,
             None,
             Some(SlimHeaderFlags::default().with_recv_from(conn)),
@@ -506,16 +433,16 @@ impl SessionControllerCommon {
         };
 
         let slim_header = Some(SlimHeader::new(
-            &self.source,
+            &self.common.source,
             dst,
             "", // put empty identity it will be updated by the identity interceptor
             flags,
         ));
 
         let session_header = Some(SessionHeader::new(
-            self.config.session_type.into(),
+            self.common.config.session_type.into(),
             message_type.into(),
-            self.id,
+            self.common.id,
             message_id,
         ));
 

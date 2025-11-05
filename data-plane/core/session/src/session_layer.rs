@@ -223,7 +223,6 @@ where
                 .with_storage_path(self.storage_path.clone())
                 .with_tx(tx)
                 .with_tx_to_session_layer(self.tx_session.clone())
-                .with_cancellation_token(tokio_util::sync::CancellationToken::new())
                 .ready()?
                 .build()
                 .await?,

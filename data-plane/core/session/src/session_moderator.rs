@@ -62,14 +62,14 @@ where
 
         // Create the session (inner layer)
         let inner = crate::session::Session::new(
-            settings.id,
-            settings.config.clone(),
-            &settings.source,
-            settings.tx.clone(),
+            settings.common.id,
+            settings.common.config.clone(),
+            &settings.common.source,
+            settings.common.tx.clone(),
             tx_signals,
         );
 
-        let mls_state = if settings.config.mls_enabled {
+        let mls_state = if settings.common.config.mls_enabled {
             let mls_state = MlsState::new(Arc::new(Mutex::new(Mls::new(
                 settings.identity_provider.clone(),
                 settings.identity_verifier.clone(),
@@ -83,14 +83,7 @@ where
             None
         };
 
-        let common = SessionControllerCommon::new_without_channels(
-            settings.id,
-            settings.source,
-            settings.destination,
-            settings.config,
-            settings.tx,
-            settings.tx_to_session_layer,
-        );
+        let common = SessionControllerCommon::new_without_channels(settings.common);
 
         SessionModerator {
             tasks_todo: vec![].into(),
@@ -120,21 +113,18 @@ where
                 mut message,
                 direction,
             } => {
-                if self
-                    .common
-                    .is_command_message(message.get_session_message_type())
-                {
+                if message.get_session_message_type().is_command_message() {
                     self.process_control_message(message).await
                 } else {
                     // this is a application message. if direction (needs to go to the remote endpoint) and
                     // the session is p2p, update the destination of the message with the destination in
                     // the self.common. In this way we always add the right id to the name
                     if direction == MessageDirection::South
-                        && self.common.config.session_type == ProtoSessionType::PointToPoint
+                        && self.common.common.config.session_type == ProtoSessionType::PointToPoint
                     {
                         message
                             .get_slim_header_mut()
-                            .set_destination(&self.common.destination);
+                            .set_destination(&self.common.common.destination);
                     }
                     self.inner
                         .on_message(SessionMessage::OnMessage { message, direction })
@@ -147,7 +137,7 @@ where
                 name,
                 timeouts,
             } => {
-                if self.common.is_command_message(message_type) {
+                if message_type.is_command_message() {
                     self.common.sender.on_timer_timeout(message_id).await
                 } else {
                     self.inner
@@ -166,7 +156,7 @@ where
                 name,
                 timeouts,
             } => {
-                if self.common.is_command_message(message_type) {
+                if message_type.is_command_message() {
                     self.common.sender.on_timer_failure(message_id).await;
                     // the current task failed:
                     // 1. create the right error message
@@ -179,6 +169,7 @@ where
                     // 2. notify the application
                     // TODO: revisit this part
                     if let Err(e) = self
+                        .common
                         .common
                         .tx
                         .send_to_app(Err(SessionError::ModeratorTask(error_message.to_string())))
@@ -248,7 +239,7 @@ where
                     .as_command_payload()?
                     .as_leave_request_payload()?
                     .destination
-                    && Name::from(&n) == self.common.source
+                    && Name::from(&n) == self.common.common.source
                 {
                     return self.delete_all(message).await;
                 }
@@ -309,7 +300,7 @@ where
 
                 // create a new empty payload and change the message destination
                 let p = CommandPayload::new_discovery_request_payload(None).as_content();
-                msg.get_slim_header_mut().set_source(&self.common.source);
+                msg.get_slim_header_mut().set_source(&self.common.common.source);
                 msg.get_slim_header_mut().set_destination(&dst);
                 msg.set_payload(p);
                 msg
@@ -362,9 +353,9 @@ where
         // on the connection from where we received the message. This has to be done
         // all the times because the messages from the remote endpoints may come from
         // different connections. In case the route exists already it will be just ignored
-        if self.common.config.session_type == ProtoSessionType::Multicast {
+        if self.common.common.config.session_type == ProtoSessionType::Multicast {
             self.common
-                .set_route(&self.common.destination, msg.get_incoming_conn())
+                .set_route(&self.common.common.destination, msg.get_incoming_conn())
                 .await?;
         }
 
@@ -372,16 +363,16 @@ where
         // send a join message
         let msg_id = rand::random::<u32>();
 
-        let channel = if self.common.config.session_type == ProtoSessionType::Multicast {
-            Some(self.common.destination.clone())
+        let channel = if self.common.common.config.session_type == ProtoSessionType::Multicast {
+            Some(self.common.common.destination.clone())
         } else {
             None
         };
 
         let payload = CommandPayload::new_join_request_payload(
             self.mls_state.is_some(),
-            self.common.config.max_retries,
-            self.common.config.duration,
+            self.common.common.config.max_retries,
+            self.common.common.config.duration,
             channel,
         )
         .as_content();
@@ -397,7 +388,7 @@ where
                 ProtoSessionMessageType::JoinRequest,
                 msg_id,
                 payload,
-                Some(self.common.config.metadata.clone()),
+                Some(self.common.common.config.metadata.clone()),
                 false,
             )
             .await?;
@@ -480,7 +471,7 @@ where
             debug!("send add update to channel with id {}", add_msg_id);
             self.common
                 .send_control_message(
-                    &self.common.destination.clone(),
+                    &self.common.common.destination.clone(),
                     ProtoSessionMessageType::GroupAdd,
                     add_msg_id,
                     update_payload,
@@ -567,7 +558,7 @@ where
                 let dst = dst.with_id(id);
 
                 let new_payload = CommandPayload::new_leave_request_payload(None).as_content();
-                msg.get_slim_header_mut().set_source(&self.common.source);
+                msg.get_slim_header_mut().set_source(&self.common.common.source);
                 msg.get_slim_header_mut().set_destination(&dst);
                 msg.set_payload(new_payload);
                 msg.set_message_id(rand::random::<u32>());
@@ -633,7 +624,7 @@ where
 
             self.common
                 .send_control_message(
-                    &self.common.destination.clone(),
+                    &self.common.common.destination.clone(),
                     ProtoSessionMessageType::GroupRemove,
                     msg_id,
                     update_payload,
@@ -681,7 +672,7 @@ where
         self.tasks_todo.clear();
 
         // Remove the local name from the participants list
-        let mut local = self.common.source.clone();
+        let mut local = self.common.common.source.clone();
         local.reset_id();
         self.group_list.remove(&local);
         // Collect the participants first to avoid borrowing conflicts
@@ -845,13 +836,13 @@ where
 
         // if this is a point to point connection set the remote name so that we
         // can add also the right id to the message destination name
-        if self.common.config.session_type == ProtoSessionType::PointToPoint {
-            self.common.destination = remote;
+        if self.common.common.config.session_type == ProtoSessionType::PointToPoint {
+            self.common.common.destination = remote;
         } else {
             // if this is a multicast session we need to subscribe for the channel name
             let sub = Message::new_subscribe(
-                &self.common.source,
-                &self.common.destination,
+                &self.common.common.source,
+                &self.common.common.destination,
                 None,
                 Some(SlimHeaderFlags::default().with_forward_to(conn)),
             );
@@ -865,7 +856,7 @@ where
         }
 
         // add ourself to the participants
-        let mut local_name = self.common.source.clone();
+        let mut local_name = self.common.common.source.clone();
         let id = local_name.id();
         local_name.reset_id();
         self.group_list.insert(local_name, id);
@@ -880,9 +871,10 @@ where
         // notify the session layer
         let res = self
             .common
+            .common
             .tx_to_session_layer
             .send(Ok(SessionMessage::DeleteSession {
-                session_id: self.common.id,
+                session_id: self.common.common.id,
             }))
             .await;
 
