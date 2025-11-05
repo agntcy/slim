@@ -3,7 +3,6 @@
 
 use std::{
     collections::{HashMap, VecDeque},
-    sync::Arc,
 };
 
 use async_trait::async_trait;
@@ -15,80 +14,67 @@ use slim_datapath::{
     },
     messages::{Name, utils::DELETE_GROUP, utils::SlimHeaderFlags},
 };
-use slim_mls::mls::Mls;
-use tokio::sync::Mutex;
+
 use tracing::{debug, error};
 
 use crate::{
     common::{MessageDirection, SessionMessage},
     errors::SessionError,
-    traits::MessageHandler,
-    mls_state::{MlsModeratorState, MlsState},
+    mls_state::{MlsModeratorState},
     moderator_task::{AddParticipant, ModeratorTask, RemoveParticipant, TaskUpdate},
-    session_builder::{ForModerator, SessionBuilder},
     session_controller::SessionControllerCommon,
     session_settings::SessionSettings,
+    traits::MessageHandler,
     traits::Transmitter,
 };
 
-pub struct SessionModerator<P, V>
+pub struct SessionModerator<P, V, I>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    I: MessageHandler + Send + Sync + 'static,
 {
+    /// Queue of tasks to be performed by the moderator
     tasks_todo: VecDeque<Message>,
+
+    /// Current task being processed by the moderator
     current_task: Option<ModeratorTask>,
+
+    /// MLS state for the moderator
     mls_state: Option<MlsModeratorState<P, V>>,
+
+    /// List of group participants
     group_list: HashMap<Name, u64>,
+
+    /// Common session controller data
     common: SessionControllerCommon,
+
+    /// Postponed message to be sent after current task completion
     postponed_message: Option<Message>,
+
+    /// Subscription status
     subscribed: bool,
+
+    /// Closing status
     closing: bool,
-    inner: crate::session::Session,
+
+    /// Inner message handler
+    inner: I,
 }
 
-impl<P, V> SessionModerator<P, V>
+impl<P, V, I> SessionModerator<P, V, I>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    I: MessageHandler + Send + Sync + 'static,
 {
-    /// Returns a new SessionBuilder for constructing a SessionModerator
-    pub fn builder() -> SessionBuilder<P, V, ForModerator> {
-        SessionBuilder::for_moderator()
-    }
-
-    pub(crate) async fn new(settings: SessionSettings<P, V>) -> Self {
-        let (tx_signals, _rx_signals) = tokio::sync::mpsc::channel(128);
-
-        // Create the session (inner layer)
-        let inner = crate::session::Session::new(
-            settings.common.id,
-            settings.common.config.clone(),
-            &settings.common.source,
-            settings.common.tx.clone(),
-            tx_signals,
-        );
-
-        let mls_state = if settings.common.config.mls_enabled {
-            let mls_state = MlsState::new(Arc::new(Mutex::new(Mls::new(
-                settings.identity_provider.clone(),
-                settings.identity_verifier.clone(),
-                settings.storage_path.clone(),
-            ))))
-            .await
-            .expect("failed to create MLS state");
-
-            Some(MlsModeratorState::new(mls_state))
-        } else {
-            None
-        };
-
-        let common = SessionControllerCommon::new_without_channels(settings.common);
+    pub(crate) fn new(inner: I, settings: SessionSettings<P, V>) -> Self {
+        let common = SessionControllerCommon::new(settings.common);
 
         SessionModerator {
             tasks_todo: vec![].into(),
             current_task: None,
-            mls_state,
+            mls_state: None,
             group_list: HashMap::new(),
             common,
             postponed_message: None,
@@ -102,11 +88,31 @@ where
 /// Implementation of MessageHandler trait for SessionModerator
 /// This allows the moderator to be used as a layer in the generic layer system
 #[async_trait]
-impl<P, V> MessageHandler for SessionModerator<P, V>
+impl<P, V, I> MessageHandler for SessionModerator<P, V, I>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    I: MessageHandler + Send + Sync + 'static,
 {
+    async fn init(&mut self) -> Result<(), SessionError> {
+        // Initialize MLS
+        // self.mls_state = if self.common.common.config.mls_enabled {
+        //     let mls_state = MlsState::new(Arc::new(Mutex::new(Mls::new(
+        //         self.commonscommon.identity_provider.clone(),
+        //         settings.identity_verifier.clone(),
+        //         settings.storage_path.clone(),
+        //     ))))
+        //     .await
+        //     .expect("failed to create MLS state");
+
+        //     Some(MlsModeratorState::new(mls_state))
+        // } else {
+        //     None
+        // };
+
+        Ok(())
+    }
+
     async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
         match message {
             SessionMessage::OnMessage {
@@ -197,6 +203,14 @@ where
         }
     }
 
+    async fn add_endpoint(&mut self, endpoint: &Name) -> Result<(), SessionError> {
+        self.inner.add_endpoint(endpoint).await
+    }
+
+    fn remove_endpoint(&mut self, endpoint: &Name) {
+        self.inner.remove_endpoint(endpoint);
+    }
+
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {
         // Moderator-specific cleanup
         self.subscribed = false;
@@ -208,10 +222,11 @@ where
     }
 }
 
-impl<P, V> SessionModerator<P, V>
+impl<P, V, I> SessionModerator<P, V, I>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    I: MessageHandler + Send + Sync + 'static,
 {
     async fn process_control_message(&mut self, message: Message) -> Result<(), SessionError> {
         match message.get_session_message_type() {
@@ -300,7 +315,8 @@ where
 
                 // create a new empty payload and change the message destination
                 let p = CommandPayload::new_discovery_request_payload(None).as_content();
-                msg.get_slim_header_mut().set_source(&self.common.common.source);
+                msg.get_slim_header_mut()
+                    .set_source(&self.common.common.source);
                 msg.get_slim_header_mut().set_destination(&dst);
                 msg.set_payload(p);
                 msg
@@ -558,7 +574,8 @@ where
                 let dst = dst.with_id(id);
 
                 let new_payload = CommandPayload::new_leave_request_payload(None).as_content();
-                msg.get_slim_header_mut().set_source(&self.common.common.source);
+                msg.get_slim_header_mut()
+                    .set_source(&self.common.common.source);
                 msg.get_slim_header_mut().set_destination(&dst);
                 msg.set_payload(new_payload);
                 msg.set_message_id(rand::random::<u32>());

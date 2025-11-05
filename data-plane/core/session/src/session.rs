@@ -175,10 +175,23 @@ impl Session {
 /// This allows Session to be used as a layer in the generic layer system
 #[async_trait]
 impl MessageHandler for Session {
+    async fn init(&mut self) -> Result<(), SessionError> {
+        // Session is the innermost layer, no initialization needed
+        Ok(())
+    }
+
     async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
         // Process through the session's existing on_message method
         // Session is the innermost layer, so it doesn't delegate to anything
         self.on_message(message).await
+    }
+
+    async fn add_endpoint(&mut self, endpoint: &slim_datapath::messages::Name) -> Result<(), SessionError> {
+        self.add_endpoint(endpoint).await
+    }
+
+    fn remove_endpoint(&mut self, endpoint: &slim_datapath::messages::Name) {
+        self.remove_endpoint(endpoint);
     }
 
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {

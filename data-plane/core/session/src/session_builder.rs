@@ -13,9 +13,15 @@ use slim_datapath::{
 };
 
 use crate::{
-    MessageDirection, common::SessionMessage, errors::SessionError, session_config::SessionConfig,
-    session_controller::SessionController, session_moderator::SessionModerator,
-    session_participant::SessionParticipant, session_settings::{SessionCommonFields, SessionSettings},
+    MessageDirection,
+    common::SessionMessage,
+    errors::SessionError,
+    session_config::SessionConfig,
+    session_controller::SessionController,
+    session_moderator::SessionModerator,
+    session_participant::SessionParticipant,
+    session_settings::{SessionCommonFields, SessionSettings},
+    traits::MessageHandler,
     transmitter::SessionTransmitter,
 };
 
@@ -282,30 +288,18 @@ where
 
         let session_controller = match config.initiator {
             true => {
-                let inner = self.build_moderator_impl().await;
+                let (inner, tx, rx) = self.build_moderator_impl().await?;
 
                 tracing::debug!("Building SessionController as Moderator");
 
-                SessionController::from_parts(
-                    id,
-                    source,
-                    destination,
-                    config,
-                    inner,
-                )
+                SessionController::from_parts(id, source, destination, config, tx, rx, inner)
             }
             false => {
-                let inner = self.build_participant_impl().await;
+                let (inner, tx, rx) = self.build_participant_impl().await?;
 
                 tracing::debug!("Building SessionController as Participant");
 
-                SessionController::from_parts(
-                    id,
-                    source,
-                    destination,
-                    config,
-                    inner,
-                )
+                SessionController::from_parts(id, source, destination, config, tx, rx, inner)
             }
         };
 
@@ -337,91 +331,93 @@ where
         Ok(session_controller)
     }
 
-    async fn build_moderator_impl(self) -> SessionModerator<P, V> {
+    async fn build_moderator_impl(
+        self,
+    ) -> Result<
+        (
+            SessionModerator<P, V, crate::session::Session>,
+            tokio::sync::mpsc::Sender<SessionMessage>,
+            tokio::sync::mpsc::Receiver<SessionMessage>,
+        ),
+        SessionError,
+    > {
+        let (tx_session, rx_session) = tokio::sync::mpsc::channel(256);
+
+        // Create the base Session layer
+        let inner = crate::session::Session::new(
+            self.id.unwrap(),
+            self.config.clone().unwrap(),
+            &self.source.clone().unwrap(),
+            self.tx.clone().unwrap(),
+            tx_session.clone(),
+        );
+
+        // Common fields for the moderator
         let common = SessionCommonFields {
             id: self.id.unwrap(),
             source: self.source.unwrap(),
             destination: self.destination.unwrap(),
             config: self.config.unwrap(),
             tx: self.tx.unwrap(),
+            tx_session: tx_session.clone(),
             tx_to_session_layer: self.tx_to_session_layer.unwrap(),
         };
+
         let settings = SessionSettings {
             common,
             identity_provider: self.identity_provider.unwrap(),
             identity_verifier: self.identity_verifier.unwrap(),
             storage_path: self.storage_path.unwrap(),
         };
-        SessionModerator::new(settings).await
+
+        let mut moderator = SessionModerator::new(inner, settings);
+        moderator.init().await?;
+
+        Ok((moderator, tx_session, rx_session))
     }
 
-    async fn build_participant_impl(self) -> SessionParticipant<P, V> {
-        let common = SessionCommonFields {
-            id: self.id.unwrap(),
-            source: self.source.unwrap(),
-            destination: self.destination.unwrap(),
-            config: self.config.unwrap(),
-            tx: self.tx.unwrap(),
-            tx_to_session_layer: self.tx_to_session_layer.unwrap(),
-        };
-        let settings = SessionSettings {
-            common,
-            identity_provider: self.identity_provider.unwrap(),
-            identity_verifier: self.identity_verifier.unwrap(),
-            storage_path: self.storage_path.unwrap(),
-        };
-        SessionParticipant::new(settings).await
-    }
-}
+    async fn build_participant_impl(
+        self,
+    ) -> Result<
+        (
+            SessionParticipant<P, V, crate::session::Session>,
+            tokio::sync::mpsc::Sender<SessionMessage>,
+            tokio::sync::mpsc::Receiver<SessionMessage>,
+        ),
+        SessionError,
+    > {
+        let (tx_session, rx_session) = tokio::sync::mpsc::channel(256);
 
-// Build methods for SessionParticipant
-impl<P, V> SessionBuilder<P, V, ForParticipant, Ready>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
-    /// Build a SessionParticipant
-    pub async fn build(self) -> SessionParticipant<P, V> {
-        let common = SessionCommonFields {
-            id: self.id.unwrap(),
-            source: self.source.unwrap(),
-            destination: self.destination.unwrap(),
-            config: self.config.unwrap(),
-            tx: self.tx.unwrap(),
-            tx_to_session_layer: self.tx_to_session_layer.unwrap(),
-        };
-        let settings = SessionSettings {
-            common,
-            identity_provider: self.identity_provider.unwrap(),
-            identity_verifier: self.identity_verifier.unwrap(),
-            storage_path: self.storage_path.unwrap(),
-        };
-        SessionParticipant::new(settings).await
-    }
-}
+        // Create the base Session layer
+        let inner = crate::session::Session::new(
+            self.id.unwrap(),
+            self.config.clone().unwrap(),
+            &self.source.clone().unwrap(),
+            self.tx.clone().unwrap(),
+            tx_session.clone(),
+        );
 
-// Build methods for SessionModerator
-impl<P, V> SessionBuilder<P, V, ForModerator, Ready>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
-    /// Build a SessionModerator
-    pub async fn build(self) -> SessionModerator<P, V> {
+        // Common fields for the participant
         let common = SessionCommonFields {
             id: self.id.unwrap(),
             source: self.source.unwrap(),
             destination: self.destination.unwrap(),
             config: self.config.unwrap(),
             tx: self.tx.unwrap(),
+            tx_session: tx_session.clone(),
             tx_to_session_layer: self.tx_to_session_layer.unwrap(),
         };
+
         let settings = SessionSettings {
             common,
             identity_provider: self.identity_provider.unwrap(),
             identity_verifier: self.identity_verifier.unwrap(),
             storage_path: self.storage_path.unwrap(),
         };
-        SessionModerator::new(settings).await
+
+        let mut participant = SessionParticipant::new(inner, settings);
+        participant.init().await?;
+
+        Ok((participant, tx_session, rx_session))
     }
 }

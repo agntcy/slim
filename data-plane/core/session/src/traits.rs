@@ -29,6 +29,9 @@ pub trait Transmitter: SessionInterceptorProvider {
 /// The layer decides whether to pass messages to its inner layer or handle them itself (or both).
 #[async_trait]
 pub trait MessageHandler: Send + Sync {
+    /// Init the layer.
+    async fn init(&mut self) -> Result<(), SessionError>;
+
     /// Process an incoming or outgoing message.
     ///
     /// # Arguments
@@ -39,6 +42,18 @@ pub trait MessageHandler: Send + Sync {
     /// * `Ok(())` - If processing succeeded
     /// * `Err(SessionError)` - If processing failed
     async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError>;
+
+    /// Add an endpoint to the session.
+    /// Default implementation does nothing for layers that don't manage endpoints.
+    async fn add_endpoint(&mut self, _endpoint: &slim_datapath::messages::Name) -> Result<(), SessionError> {
+        Ok(())
+    }
+
+    /// Remove an endpoint from the session.
+    /// Default implementation does nothing for layers that don't manage endpoints.
+    fn remove_endpoint(&mut self, _endpoint: &slim_datapath::messages::Name) {
+        // Default: do nothing
+    }
 
     /// Optional hook called before the layer is shut down.
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {

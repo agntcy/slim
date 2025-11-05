@@ -27,10 +27,13 @@ pub(crate) struct SessionCommonFields {
     /// Session configuration
     pub(crate) config: SessionConfig,
 
-    /// Transmitter for sending messages
+    /// Transmitter for sending messages to App and SLIM
     pub(crate) tx: SessionTransmitter,
 
-    /// Channel to communicate with session layer
+    /// Tx channel for sending messages to session queue
+    pub(crate) tx_session: tokio::sync::mpsc::Sender<SessionMessage>,
+
+    /// Channel to send messages to the session layer
     pub(crate) tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
 }
 

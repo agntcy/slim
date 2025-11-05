@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashSet, sync::Arc};
+use std::collections::HashSet;
 
 use async_trait::async_trait;
 use slim_auth::traits::{TokenProvider, Verifier};
@@ -9,24 +9,23 @@ use slim_datapath::{
     api::{CommandPayload, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType},
     messages::{Name, utils::SlimHeaderFlags},
 };
-use slim_mls::mls::Mls;
-use tokio::sync::Mutex;
+
 use tracing::debug;
 
 use crate::{
     common::SessionMessage,
     errors::SessionError,
-    traits::MessageHandler,
     mls_state::MlsState,
-    session_builder::{ForParticipant, SessionBuilder},
     session_controller::SessionControllerCommon,
     session_settings::SessionSettings,
+    traits::MessageHandler,
 };
 
-pub struct SessionParticipant<P, V>
+pub struct SessionParticipant<P, V, I>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    I: MessageHandler + Send + Sync + 'static,
 {
     /// name of the moderator, used to send mls proposal messages
     moderator_name: Option<Name>,
@@ -42,52 +41,23 @@ where
 
     subscribed: bool,
 
-    /// inner layer (Session)
-    inner: crate::session::Session,
+    /// inner layer
+    inner: I,
 }
 
-impl<P, V> SessionParticipant<P, V>
+impl<P, V, I> SessionParticipant<P, V, I>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    I: MessageHandler + Send + Sync + 'static,
 {
-    /// Returns a new SessionBuilder for constructing a SessionParticipant
-    pub fn builder() -> SessionBuilder<P, V, ForParticipant> {
-        SessionBuilder::for_participant()
-    }
-
-    pub(crate) async fn new(settings: SessionSettings<P, V>) -> Self {
-        let (tx_signals, _rx_signals) = tokio::sync::mpsc::channel(128);
-
-        // Create the session (inner layer)
-        let inner = crate::session::Session::new(
-            settings.common.id,
-            settings.common.config.clone(),
-            &settings.common.source,
-            settings.common.tx.clone(),
-            tx_signals,
-        );
-
-        let mls_state = if settings.common.config.mls_enabled {
-            Some(
-                MlsState::new(Arc::new(Mutex::new(Mls::new(
-                    settings.identity_provider.clone(),
-                    settings.identity_verifier.clone(),
-                    settings.storage_path.clone(),
-                ))))
-                .await
-                .expect("failed to create MLS state"),
-            )
-        } else {
-            None
-        };
-
-        let common = SessionControllerCommon::new_without_channels(settings.common);
+    pub(crate) fn new(inner: I, settings: SessionSettings<P, V>) -> Self {
+        let common = SessionControllerCommon::new(settings.common);
 
         SessionParticipant {
             moderator_name: None,
             group_list: HashSet::new(),
-            mls_state,
+            mls_state: None,
             common,
             subscribed: false,
             inner,
@@ -98,11 +68,31 @@ where
 /// Implementation of MessageHandler trait for SessionParticipant
 /// This allows the participant to be used as a layer in the generic layer system
 #[async_trait]
-impl<P, V> MessageHandler for SessionParticipant<P, V>
+impl<P, V, I> MessageHandler for SessionParticipant<P, V, I>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    I: MessageHandler + Send + Sync + 'static,
 {
+    async fn init(&mut self) -> Result<(), SessionError> {
+        // // Initialize MLS
+        // self.mls_state = if self.common.common.config.mls_enabled {
+        //     let mls_state = MlsState::new(Arc::new(Mutex::new(Mls::new(
+        //         settings.identity_provider.clone(),
+        //         settings.identity_verifier.clone(),
+        //         settings.storage_path.clone(),
+        //     ))))
+        //     .await
+        //     .expect("failed to create MLS state");
+
+        //     Some(MlsModeratorState::new(mls_state))
+        // } else {
+        //     None
+        // };
+
+        Ok(())
+    }
+
     async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
         match message {
             SessionMessage::OnMessage { message, direction } => {
@@ -158,6 +148,14 @@ where
         }
     }
 
+    async fn add_endpoint(&mut self, endpoint: &Name) -> Result<(), SessionError> {
+        self.inner.add_endpoint(endpoint).await
+    }
+
+    fn remove_endpoint(&mut self, endpoint: &Name) {
+        self.inner.remove_endpoint(endpoint);
+    }
+
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {
         // Participant-specific cleanup
         self.subscribed = false;
@@ -166,10 +164,11 @@ where
     }
 }
 
-impl<P, V> SessionParticipant<P, V>
+impl<P, V, I> SessionParticipant<P, V, I>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
+    I: MessageHandler + Send + Sync + 'static,
 {
     async fn process_control_message(&mut self, message: Message) -> Result<(), SessionError> {
         match message.get_session_message_type() {

@@ -24,7 +24,7 @@ use crate::{
     controller_sender::ControllerSender,
     session_builder::{ForController, SessionBuilder},
     session_config::SessionConfig,
-    session_settings::SessionCommonFields,
+    session_settings::{SessionCommonFields, SessionSettings},
     timer_factory::TimerSettings,
     traits::MessageHandler,
 };
@@ -66,28 +66,23 @@ impl SessionController {
         source: Name,
         destination: Name,
         config: SessionConfig,
+        tx: tokio::sync::mpsc::Sender<SessionMessage>,
+        rx: tokio::sync::mpsc::Receiver<SessionMessage>,
         inner: I,
     ) -> Self
     where
         I: MessageHandler + Send + Sync + 'static,
     {
-        // Create channel for internal message processing
-        let (tx_controller, rx_controller) = tokio::sync::mpsc::channel(256);
-
         // Spawn the processing loop
         let cancellation_token = CancellationToken::new();
-        tokio::spawn(Self::processing_loop(
-            inner,
-            rx_controller,
-            cancellation_token.clone(),
-        ));
+        tokio::spawn(Self::processing_loop(inner, rx, cancellation_token.clone()));
 
         Self {
             id,
             source,
             destination,
             config,
-            tx_controller,
+            tx_controller: tx,
             cancellation_token,
         }
     }
@@ -357,13 +352,10 @@ pub struct SessionControllerCommon {
 impl SessionControllerCommon {
     const MAX_FANOUT: u32 = 256;
 
-    pub(crate) fn new_without_channels(common: SessionCommonFields) -> Self {
+    pub(crate) fn new(settings: SessionSettings<>) -> Self {
         // timers settings for the controller
         let controller_timer_settings =
             TimerSettings::constant(Duration::from_secs(1)).with_max_retries(10);
-
-        // create a dummy channel for the controller sender
-        let (tx_controller, _rx_controller) = tokio::sync::mpsc::channel(1);
 
         // create the controller sender
         let controller_sender = ControllerSender::new(
@@ -372,7 +364,7 @@ impl SessionControllerCommon {
             // send messages to slim/app
             common.tx.clone(),
             // send signal to the controller
-            tx_controller,
+            common.tx_session.clone(),
         );
 
         SessionControllerCommon {
