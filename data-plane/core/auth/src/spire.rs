@@ -67,8 +67,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use futures::StreamExt;
 use jsonwebtoken_aws_lc::TokenData;
-// for .next() on the JWT bundle stream
-use parking_lot::RwLock; // switched to parking_lot for sync RwLock
+use parking_lot::RwLock;
 use serde::de::DeserializeOwned;
 use serde_json::{self, Value};
 use spiffe::{
@@ -79,7 +78,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info}; // for sync access in TokenProvider impl
+use tracing::{debug, info};
 
 use crate::errors::AuthError;
 use crate::metadata::MetadataMap;
@@ -751,8 +750,14 @@ impl JwtSource {
             Err(err) => {
                 tracing::warn!(error=%err, "jwt_source: failed to fetch JWT SVID; backing off");
 
-                // Apply exponential backoff
-                let deadline = tokio::time::Instant::now() + *backoff;
+                // Calculate exponential backoff, but cap it to prevent current token expiration
+                let next_backoff = calculate_backoff_with_token_expiry(
+                    *backoff,
+                    current.read().as_ref(),
+                    cfg.min_retry_backoff,
+                );
+
+                let deadline = tokio::time::Instant::now() + next_backoff;
                 refresh_timer.as_mut().reset(deadline);
                 *backoff = (*backoff * 2).min(cfg.max_retry_backoff);
 
@@ -957,6 +962,51 @@ impl JwtLike for JwtSvid {
     }
 }
 
+/// Calculate the next backoff duration, capping it to prevent token expiration
+///
+/// Returns the appropriate backoff duration considering:
+/// - If token is expired: returns min_retry_backoff for immediate retry
+/// - If token expires soon: caps backoff to 90% of remaining lifetime
+/// - Otherwise: returns the requested backoff unchanged
+fn calculate_backoff_with_token_expiry<T: JwtLike>(
+    requested_backoff: Duration,
+    current_token: Option<&T>,
+    min_retry_backoff: Duration,
+) -> Duration {
+    let Some(token) = current_token else {
+        return requested_backoff;
+    };
+
+    let Ok(expiry) = decode_jwt_expiry_unverified(token.token()) else {
+        return requested_backoff;
+    };
+
+    let Ok(now) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) else {
+        return requested_backoff;
+    };
+
+    if expiry > now.as_secs() {
+        // Token not expired - cap backoff to 90% of remaining lifetime
+        let remaining_lifetime = Duration::from_secs(expiry - now.as_secs());
+        let max_safe_backoff = Duration::from_secs_f64(remaining_lifetime.as_secs_f64() * 0.9);
+
+        if requested_backoff > max_safe_backoff {
+            tracing::debug!(
+                "jwt_source: capping backoff to {}s to prevent token expiration ({}s remaining)",
+                max_safe_backoff.as_secs(),
+                remaining_lifetime.as_secs()
+            );
+            max_safe_backoff
+        } else {
+            requested_backoff
+        }
+    } else {
+        // Token expired - use minimum backoff for immediate retry
+        tracing::warn!("jwt_source: current JWT SVID is already expired");
+        min_retry_backoff
+    }
+}
+
 fn calculate_refresh_interval<T: JwtLike>(jwt: &T) -> Result<Duration, AuthError> {
     const TWO_THIRDS: f64 = 2.0 / 3.0;
     let default = Duration::from_secs(30);
@@ -1046,6 +1096,7 @@ impl Verifier for SpireIdentityManager {
 
 #[cfg(test)]
 mod tests {
+    use super::calculate_backoff_with_token_expiry;
     use super::calculate_refresh_interval;
     use super::decode_jwt_expiry_unverified;
     use serde_json::json;
@@ -1226,6 +1277,81 @@ mod tests {
             dur,
             Duration::from_secs(30),
             "expired token should return default 30s interval"
+        );
+    }
+
+    #[test]
+    fn test_backoff_with_expired_token_retries_immediately() {
+        // Create an expired token (expired 10 seconds ago)
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let expired_token = build_svid_like_token(
+            now - 10,
+            vec!["aud".to_string()],
+            "spiffe://example.org/service",
+        );
+        let expired_svid = expired_token
+            .parse::<spiffe::JwtSvid>()
+            .expect("JwtSvid::parse_insecure should succeed");
+
+        // Simulate a large backoff that would normally be used
+        let large_backoff = Duration::from_secs(60);
+
+        // Simulate min_retry_backoff
+        let min_backoff = Duration::from_secs(1);
+
+        // Calculate what the next backoff should be given an expired token
+        let next_backoff =
+            calculate_backoff_with_token_expiry(large_backoff, Some(&expired_svid), min_backoff);
+
+        // Verify that with an expired token, we retry with minimal backoff
+        assert_eq!(
+            next_backoff,
+            min_backoff,
+            "expired token should trigger immediate retry with min backoff, not {}s",
+            large_backoff.as_secs()
+        );
+    }
+
+    #[test]
+    fn test_backoff_capped_to_token_lifetime() {
+        // Create a token that expires in 10 seconds
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let short_lived_token = build_svid_like_token(
+            now + 10,
+            vec!["aud".to_string()],
+            "spiffe://example.org/service",
+        );
+        let short_lived_svid = short_lived_token
+            .parse::<spiffe::JwtSvid>()
+            .expect("JwtSvid::parse_insecure should succeed");
+
+        // Simulate a large backoff (60 seconds) that exceeds token lifetime
+        let large_backoff = Duration::from_secs(60);
+        let min_backoff = Duration::from_secs(1);
+
+        // Calculate what the next backoff should be
+        let next_backoff = calculate_backoff_with_token_expiry(
+            large_backoff,
+            Some(&short_lived_svid),
+            min_backoff,
+        );
+
+        // Backoff should be capped to ~9 seconds (90% of 10 seconds remaining)
+        assert!(
+            next_backoff <= Duration::from_secs(9),
+            "backoff should be capped to token lifetime, got {:?}",
+            next_backoff
+        );
+        assert!(
+            next_backoff >= Duration::from_secs(8),
+            "backoff should be close to 90% of remaining lifetime, got {:?}",
+            next_backoff
         );
     }
 }

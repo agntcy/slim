@@ -22,7 +22,6 @@ use url::Url;
 
 // Default token refresh buffer (60 seconds before expiry)
 const REFRESH_BUFFER_SECONDS: u64 = 60;
-// Refresh ratio constant removed (was 2/3) - integer math used directly where needed
 
 /// Cache entry for OIDC access tokens
 #[derive(Debug, Clone)]

@@ -774,6 +774,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
+    #[cfg(target_os = "linux")]
     async fn test_tls_spiffe_grpc_configuration() -> Result<(), Box<dyn std::error::Error>> {
         // SPIFFE / SPIRE mTLS integration test.
         // Sets up a SPIRE server + agent and uses SPIFFE directly in both client and server
