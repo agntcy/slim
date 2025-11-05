@@ -45,6 +45,11 @@ class Server:
         self.handlers: dict[ServiceMethod, RPCHandler] = {}
         self._pyname_to_handler: dict[slim_bindings.PyName, RPCHandler] = {}
 
+    @classmethod
+    async def from_slim_app_config(cls, slim_app_config: SLIMAppConfig) -> "Server":
+        local_app = await create_local_app(slim_app_config)
+        return cls(local_app=local_app)
+
     def register_method_handlers(
         self, service_name: str, handlers: dict[str, RPCHandler]
     ) -> None:
@@ -65,11 +70,6 @@ class Server:
         self.handlers[ServiceMethod(service=service_name, method=method_name)] = (
             rpc_handler
         )
-
-    @classmethod
-    async def from_slim_app_config(cls, slim_app_config: SLIMAppConfig) -> "Server":
-        local_app = await create_local_app(slim_app_config)
-        return cls(local_app=local_app)
 
     async def run(self) -> None:
         """
