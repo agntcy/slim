@@ -1,7 +1,9 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
-import pytest
+from collections.abc import AsyncIterable, AsyncIterator
+from typing import Any
 
+import pytest
 from google.protobuf.any_pb2 import Any as AnyMessage
 from google.rpc import code_pb2, status_pb2
 
@@ -10,8 +12,8 @@ from slimrpc.rpc import RPCHandler, SRPCResponseError
 from slimrpc.server import call_handler
 
 
-async def _collect(generator):
-    results = []
+async def _collect(generator: AsyncIterable[tuple[int, Any]]) -> list[tuple[int, Any]]:
+    results: list[tuple[int, Any]] = []
     async for item in generator:
         results.append(item)
     return results
@@ -47,7 +49,7 @@ async def test_call_handler_unary_success() -> None:
 
 @pytest.mark.asyncio
 async def test_call_handler_streaming_responses() -> None:
-    async def behaviour(request: str, context: Context):
+    async def behaviour(request: str, context: Context) -> AsyncIterator[str]:
         assert request == "stream"
         assert context.source_name == "org/ns/client"
         for item in ("one", "two", "three"):
@@ -84,9 +86,7 @@ async def test_call_handler_translates_srpc_errors() -> None:
     detail.value = b"detail"
 
     async def behaviour(request: str, context: Context) -> str:
-        raise SRPCResponseError(
-            code_pb2.INVALID_ARGUMENT, "boom", details=[detail]
-        )
+        raise SRPCResponseError(code_pb2.INVALID_ARGUMENT, "boom", details=[detail])
 
     handler = RPCHandler(
         behaviour=behaviour,

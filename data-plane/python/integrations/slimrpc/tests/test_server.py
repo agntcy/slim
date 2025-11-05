@@ -1,22 +1,25 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
+from collections.abc import Iterable
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
-
 from google.rpc import code_pb2
 
 from slimrpc.context import Context
 from slimrpc.server import request_generator
 
+OK_CODE: int = cast(int, code_pb2.OK)
+
 
 class FakeLocalApp:
-    def __init__(self, responses):
-        self._responses = list(responses)
+    def __init__(self, responses: Iterable[tuple[SimpleNamespace, bytes]]) -> None:
+        self._responses: list[tuple[SimpleNamespace, bytes]] = list(responses)
         self.calls: list[int] = []
 
-    async def receive(self, session: int):
+    async def receive(self, session: int) -> tuple[SimpleNamespace, bytes]:
         self.calls.append(session)
         return self._responses.pop(0)
 
@@ -33,10 +36,10 @@ def _session(metadata: dict[str, str]) -> SimpleNamespace:
 
 @pytest.mark.asyncio
 async def test_request_generator_yields_until_terminator() -> None:
-    responses = [
+    responses: list[tuple[SimpleNamespace, bytes]] = [
         (_session({"seq": "1"}), b"first"),
         (_session({"seq": "2"}), b"second"),
-        (_session({"code": str(code_pb2.OK)}), b""),
+        (_session({"code": str(OK_CODE)}), b""),
     ]
     local_app = FakeLocalApp(responses)
     session_info = _session({})
@@ -67,4 +70,3 @@ async def test_request_generator_propagates_deserializer_errors() -> None:
 
     with pytest.raises(ValueError):
         await consume()
-
