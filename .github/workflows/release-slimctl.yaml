@@ -53,6 +53,6 @@ jobs:
 
       - name: Upload to existing release
         run: |
-          mv .dist/bin/slimctl .dist/bin/slimctl-${{ matrix.os }}-${{ matrix.arch }}
           TAG=${GITHUB_REF#refs/tags/}
-          gh release upload "$TAG" .dist/bin/slimctl-${{ matrix.os }}-${{ matrix.arch }} --clobber
+          assets=$(find .dist/slimctl -type f -name '*.tar.gz')
+          gh release upload "$TAG" "$assets" --clobber
