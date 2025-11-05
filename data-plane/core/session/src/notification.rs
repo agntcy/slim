@@ -4,19 +4,14 @@
 // Standard library imports
 
 // Third-party crates
-use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::ProtoMessage as Message;
 
 use crate::context::SessionContext;
 
 /// Session context
-pub enum Notification<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
+pub enum Notification {
     /// New session notification
-    NewSession(SessionContext<P, V>),
+    NewSession(SessionContext),
     /// Normal message notification
     NewMessage(Box<Message>),
 }

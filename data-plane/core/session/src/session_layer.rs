@@ -32,14 +32,14 @@ use super::{SessionError, session_controller::handle_channel_discovery_message};
 use crate::interceptor::SessionInterceptorProvider; // needed for add_interceptor
 
 /// SessionLayer manages sessions and their lifecycle
-pub struct SessionLayer<P, V, T = AppTransmitter<P, V>>
+pub struct SessionLayer<P, V, T = AppTransmitter>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
     T: Transmitter + Send + Sync + Clone + 'static,
 {
     /// Session pool
-    pool: Arc<AsyncRwLock<HashMap<u32, Arc<SessionController<P, V>>>>>,
+    pool: Arc<AsyncRwLock<HashMap<u32, Arc<SessionController>>>>,
 
     /// Default name of the local app
     app_id: u64,
@@ -58,7 +58,7 @@ where
 
     /// Tx channels
     tx_slim: SlimChannelSender,
-    tx_app: Sender<Result<Notification<P, V>, SessionError>>,
+    tx_app: Sender<Result<Notification, SessionError>>,
 
     // Transmitter to bypass sessions
     transmitter: T,
@@ -84,7 +84,7 @@ where
         identity_verifier: V,
         conn_id: u64,
         tx_slim: SlimChannelSender,
-        tx_app: Sender<Result<Notification<P, V>, SessionError>>,
+        tx_app: Sender<Result<Notification, SessionError>>,
         transmitter: T,
         storage_path: std::path::PathBuf,
     ) -> Self {
@@ -113,7 +113,7 @@ where
         self.tx_slim.clone()
     }
 
-    pub fn tx_app(&self) -> Sender<Result<Notification<P, V>, SessionError>> {
+    pub fn tx_app(&self) -> Sender<Result<Notification, SessionError>> {
         self.tx_app.clone()
     }
 
@@ -171,7 +171,7 @@ where
         local_name: Name,
         destination: Name,
         id: Option<u32>,
-    ) -> Result<SessionContext<P, V>, SessionError> {
+    ) -> Result<SessionContext, SessionError> {
         // get a lock on the session pool
         let mut pool = self.pool.write().await;
 
@@ -284,7 +284,7 @@ where
     pub async fn handle_message_from_app(
         &self,
         message: Message,
-        context: &SessionContext<P, V>,
+        context: &SessionContext,
     ) -> Result<(), SessionError> {
         context
             .session()

@@ -74,7 +74,7 @@ where
         identity_verifier: V,
         conn_id: u64,
         tx_slim: SlimChannelSender,
-        tx_app: mpsc::Sender<Result<Notification<P, V>, SessionError>>,
+        tx_app: mpsc::Sender<Result<Notification, SessionError>>,
         storage_path: std::path::PathBuf,
     ) -> Self {
         // Create identity interceptor
@@ -84,7 +84,7 @@ where
         ));
 
         // Create the transmitter
-        let transmitter = AppTransmitter::<P, V> {
+        let transmitter = AppTransmitter {
             slim_tx: tx_slim.clone(),
             app_tx: tx_app.clone(),
             interceptors: Arc::new(SyncRwLock::new(Vec::new())),
@@ -120,7 +120,7 @@ where
         session_config: SessionConfig,
         destination: Name,
         id: Option<u32>,
-    ) -> Result<SessionContext<P, V>, SessionError> {
+    ) -> Result<SessionContext, SessionError> {
         let ret = self
             .session_layer
             .create_session(session_config, self.app_name.clone(), destination, id)
@@ -131,10 +131,7 @@ where
     }
 
     /// Delete a session.
-    pub async fn delete_session(
-        &self,
-        session: &SessionController<P, V>,
-    ) -> Result<(), SessionError> {
+    pub async fn delete_session(&self, session: &SessionController) -> Result<(), SessionError> {
         // remove the session from the pool
         if self.session_layer.remove_session(session.id()).await {
             Ok(())

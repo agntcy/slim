@@ -3,7 +3,6 @@
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::messages::Name;
-use tokio_util::sync::CancellationToken;
 
 use crate::{
     common::SessionMessage, errors::SessionError, session_config::SessionConfig,
@@ -53,7 +52,4 @@ where
 
     /// Channel to communicate with session layer
     pub(crate) tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
-
-    /// Cancellation token for graceful shutdown
-    pub(crate) cancellation_token: CancellationToken,
 }

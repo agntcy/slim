@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 // Third-party crates
 use parking_lot::RwLock;
-use slim_auth::traits::{TokenProvider, Verifier};
 use tokio::sync::mpsc::Sender;
 
 use slim_datapath::Status;
@@ -106,26 +105,18 @@ impl Transmitter for SessionTransmitter {
 
 /// Transmitter used to intercept messages sent from the application side and apply interceptors
 #[derive(Clone)]
-pub struct AppTransmitter<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
+pub struct AppTransmitter {
     /// SLIM tx (bounded channel)
     pub slim_tx: SlimChannelSender,
 
     /// App tx (bounded channel here; notifications)
-    pub app_tx: Sender<Result<Notification<P, V>, SessionError>>,
+    pub app_tx: Sender<Result<Notification, SessionError>>,
 
     // Interceptors to be called on message reception/send
     pub interceptors: Arc<RwLock<Vec<Arc<dyn SessionInterceptor + Send + Sync>>>>,
 }
 
-impl<P, V> SessionInterceptorProvider for AppTransmitter<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
+impl SessionInterceptorProvider for AppTransmitter {
     fn add_interceptor(&self, interceptor: Arc<dyn SessionInterceptor + Send + Sync + 'static>) {
         self.interceptors.write().push(interceptor);
     }
@@ -135,11 +126,7 @@ where
     }
 }
 
-impl<P, V> Transmitter for AppTransmitter<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
+impl Transmitter for AppTransmitter {
     fn send_to_app(
         &self,
         mut message: Result<Message, SessionError>,
@@ -158,7 +145,7 @@ where
                 }
             }
 
-            tx.send(message.map(|msg| Notification::<P, V>::NewMessage(Box::new(msg))))
+            tx.send(message.map(|msg| Notification::NewMessage(Box::new(msg))))
                 .await
                 .map_err(|e| SessionError::AppTransmission(e.to_string()))
         }
@@ -195,51 +182,10 @@ mod tests {
     use crate::interceptor::{SessionInterceptor, SessionInterceptorProvider};
     use crate::{SessionError, notification::Notification};
     use async_trait::async_trait;
-    use slim_auth::errors::AuthError;
-    use slim_auth::traits::{TokenProvider, Verifier};
     use slim_datapath::Status;
     use slim_datapath::api::{ApplicationPayload, ProtoMessage as Message};
     use slim_datapath::messages::encoder::Name;
     use tokio::sync::mpsc;
-
-    #[derive(Clone, Default)]
-    struct DummyProvider;
-    impl TokenProvider for DummyProvider {
-        fn get_token(&self) -> Result<String, AuthError> {
-            Ok("id-token".into())
-        }
-
-        fn get_id(&self) -> Result<String, AuthError> {
-            Ok("id".into())
-        }
-    }
-
-    #[derive(Clone, Default)]
-    struct DummyVerifier;
-    #[async_trait]
-    impl Verifier for DummyVerifier {
-        async fn verify(&self, _token: impl Into<String> + Send) -> Result<(), AuthError> {
-            Ok(())
-        }
-        fn try_verify(&self, _token: impl Into<String>) -> Result<(), AuthError> {
-            Ok(())
-        }
-        async fn get_claims<Claims>(
-            &self,
-            _token: impl Into<String> + Send,
-        ) -> Result<Claims, AuthError>
-        where
-            Claims: serde::de::DeserializeOwned + Send,
-        {
-            Err(AuthError::TokenInvalid("na".into()))
-        }
-        fn try_get_claims<Claims>(&self, _token: impl Into<String>) -> Result<Claims, AuthError>
-        where
-            Claims: serde::de::DeserializeOwned + Send,
-        {
-            Err(AuthError::TokenInvalid("na".into()))
-        }
-    }
 
     #[derive(Clone, Default)]
     struct RecordingInterceptor {
@@ -310,9 +256,8 @@ mod tests {
     #[tokio::test]
     async fn app_transmitter_interceptor_application_send_to_app() {
         let (slim_tx, mut slim_rx) = mpsc::channel::<Result<Message, Status>>(4);
-        let (app_tx, mut app_rx) =
-            mpsc::channel::<Result<Notification<DummyProvider, DummyVerifier>, SessionError>>(4);
-        let tx = AppTransmitter::<DummyProvider, DummyVerifier> {
+        let (app_tx, mut app_rx) = mpsc::channel::<Result<Notification, SessionError>>(4);
+        let tx = AppTransmitter {
             slim_tx,
             app_tx,
             interceptors: Arc::new(RwLock::new(vec![])),

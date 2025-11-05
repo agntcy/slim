@@ -5,7 +5,6 @@ use slim_session::session_controller::SessionController;
 use std::collections::HashMap;
 use tokio::sync::RwLock;
 
-use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::messages::Name;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 use slim_session::SessionError;
@@ -18,24 +17,16 @@ use crate::errors::ServiceError;
 ///
 /// Wraps the session context with proper async access patterns for message reception.
 #[derive(Debug)]
-pub struct BindingsSessionContext<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
+pub struct BindingsSessionContext {
     /// Weak reference to the underlying session
-    pub session: std::sync::Weak<SessionController<P, V>>,
+    pub session: std::sync::Weak<SessionController>,
     /// Message receiver wrapped in RwLock for concurrent access
     pub rx: RwLock<slim_session::AppChannelReceiver>,
 }
 
-impl<P, V> From<SessionContext<P, V>> for BindingsSessionContext<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
+impl From<SessionContext> for BindingsSessionContext {
     /// Create a new BindingsSessionContext from a SessionContext
-    fn from(ctx: SessionContext<P, V>) -> Self {
+    fn from(ctx: SessionContext) -> Self {
         let (session, rx) = ctx.into_parts();
         Self {
             session,
@@ -44,11 +35,7 @@ where
     }
 }
 
-impl<P, V> BindingsSessionContext<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
+impl BindingsSessionContext {
     /// Publish a message through this session
     pub async fn publish(
         &self,

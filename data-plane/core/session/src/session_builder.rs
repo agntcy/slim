@@ -292,7 +292,7 @@ where
     ///
     /// Automatically determines whether to create a moderator or participant
     /// internally based on the session configuration's `initiator` flag.
-    pub async fn build(self) -> Result<SessionController<P, V>, SessionError> {
+    pub async fn build(self) -> Result<SessionController, SessionError> {
         let id = self.id.unwrap();
         let source = self.source.clone().unwrap();
         let destination = self.destination.clone().unwrap();
@@ -353,7 +353,6 @@ where
             storage_path: self.storage_path.unwrap(),
             tx: self.tx.unwrap(),
             tx_to_session_layer: self.tx_to_session_layer.unwrap(),
-            cancellation_token: self.cancellation_token.unwrap(),
         };
         SessionModerator::new(settings).await
     }
@@ -369,7 +368,6 @@ where
             storage_path: self.storage_path.unwrap(),
             tx: self.tx.unwrap(),
             tx_to_session_layer: self.tx_to_session_layer.unwrap(),
-            cancellation_token: self.cancellation_token.unwrap(),
         };
         SessionParticipant::new(settings).await
     }
@@ -393,7 +391,6 @@ where
             storage_path: self.storage_path.unwrap(),
             tx: self.tx.unwrap(),
             tx_to_session_layer: self.tx_to_session_layer.unwrap(),
-            cancellation_token: self.cancellation_token.unwrap(),
         };
         SessionParticipant::new(settings).await
     }
@@ -417,7 +414,6 @@ where
             storage_path: self.storage_path.unwrap(),
             tx: self.tx.unwrap(),
             tx_to_session_layer: self.tx_to_session_layer.unwrap(),
-            cancellation_token: self.cancellation_token.unwrap(),
         };
         SessionModerator::new(settings).await
     }

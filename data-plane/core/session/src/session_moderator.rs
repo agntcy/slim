@@ -3,10 +3,10 @@
 
 use std::{
     collections::{HashMap, VecDeque},
-    marker::PhantomData,
     sync::Arc,
 };
 
+use async_trait::async_trait;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
@@ -16,20 +16,19 @@ use slim_datapath::{
     messages::{Name, utils::DELETE_GROUP, utils::SlimHeaderFlags},
 };
 use slim_mls::mls::Mls;
-use tokio_util::sync::CancellationToken;
+use tokio::sync::Mutex;
 use tracing::{debug, error};
 
 use crate::{
     common::{MessageDirection, SessionMessage},
     errors::SessionError,
+    traits::MessageHandler,
     mls_state::{MlsModeratorState, MlsState},
     moderator_task::{AddParticipant, ModeratorTask, RemoveParticipant, TaskUpdate},
     session_builder::{ForModerator, SessionBuilder},
-    session_config::SessionConfig,
-    session_controller::{SessionControllerCommon, SessionProcessor},
+    session_controller::SessionControllerCommon,
     session_settings::SessionSettings,
     traits::Transmitter,
-    transmitter::SessionTransmitter,
 };
 
 pub struct SessionModerator<P, V>
@@ -37,8 +36,15 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    tx: tokio::sync::mpsc::Sender<SessionMessage>,
-    _phantom: PhantomData<(P, V)>,
+    tasks_todo: VecDeque<Message>,
+    current_task: Option<ModeratorTask>,
+    mls_state: Option<MlsModeratorState<P, V>>,
+    group_list: HashMap<Name, u64>,
+    common: SessionControllerCommon,
+    postponed_message: Option<Message>,
+    subscribed: bool,
+    closing: bool,
+    inner: crate::session::Session,
 }
 
 impl<P, V> SessionModerator<P, V>
@@ -52,62 +58,166 @@ where
     }
 
     pub(crate) async fn new(settings: SessionSettings<P, V>) -> Self {
-        let (tx_controller, rx_controller) = tokio::sync::mpsc::channel(128);
+        let (tx_signals, _rx_signals) = tokio::sync::mpsc::channel(128);
 
-        let processor = SessionModeratorProcessor::new(
+        // Create the session (inner layer)
+        let inner = crate::session::Session::new(
+            settings.id,
+            settings.config.clone(),
+            &settings.source,
+            settings.tx.clone(),
+            tx_signals,
+        );
+
+        let mls_state = if settings.config.mls_enabled {
+            let mls_state = MlsState::new(Arc::new(Mutex::new(Mls::new(
+                settings.identity_provider.clone(),
+                settings.identity_verifier.clone(),
+                settings.storage_path.clone(),
+            ))))
+            .await
+            .expect("failed to create MLS state");
+
+            Some(MlsModeratorState::new(mls_state))
+        } else {
+            None
+        };
+
+        let common = SessionControllerCommon::new_without_channels(
             settings.id,
             settings.source,
             settings.destination,
             settings.config,
-            settings.identity_provider,
-            settings.identity_verifier,
-            settings.storage_path,
             settings.tx,
-            tx_controller.clone(),
-            rx_controller,
             settings.tx_to_session_layer,
-            settings.cancellation_token,
-        )
-        .await;
-
-        tokio::spawn(SessionControllerCommon::run_processor_loop(processor));
+        );
 
         SessionModerator {
-            tx: tx_controller,
-            _phantom: PhantomData,
+            tasks_todo: vec![].into(),
+            current_task: None,
+            mls_state,
+            group_list: HashMap::new(),
+            common,
+            postponed_message: None,
+            subscribed: false,
+            closing: false,
+            inner,
         }
-    }
-
-    pub async fn on_message(
-        &self,
-        message: Message,
-        direction: MessageDirection,
-    ) -> Result<(), SessionError> {
-        let msg = SessionMessage::OnMessage { message, direction };
-
-        self.tx
-            .send(msg)
-            .await
-            .map_err(|e| SessionError::SlimTransmission(e.to_string()))
     }
 }
 
-pub struct SessionModeratorProcessor<P, V>
+/// Implementation of MessageHandler trait for SessionModerator
+/// This allows the moderator to be used as a layer in the generic layer system
+#[async_trait]
+impl<P, V> MessageHandler for SessionModerator<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    tasks_todo: VecDeque<Message>,
-    current_task: Option<ModeratorTask>,
-    mls_state: Option<MlsModeratorState<P, V>>,
-    group_list: HashMap<Name, u64>,
-    common: SessionControllerCommon,
-    postponed_message: Option<Message>,
-    subscribed: bool,
-    closing: bool,
+    async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
+        match message {
+            SessionMessage::OnMessage {
+                mut message,
+                direction,
+            } => {
+                if self
+                    .common
+                    .is_command_message(message.get_session_message_type())
+                {
+                    self.process_control_message(message).await
+                } else {
+                    // this is a application message. if direction (needs to go to the remote endpoint) and
+                    // the session is p2p, update the destination of the message with the destination in
+                    // the self.common. In this way we always add the right id to the name
+                    if direction == MessageDirection::South
+                        && self.common.config.session_type == ProtoSessionType::PointToPoint
+                    {
+                        message
+                            .get_slim_header_mut()
+                            .set_destination(&self.common.destination);
+                    }
+                    self.inner
+                        .on_message(SessionMessage::OnMessage { message, direction })
+                        .await
+                }
+            }
+            SessionMessage::TimerTimeout {
+                message_id,
+                message_type,
+                name,
+                timeouts,
+            } => {
+                if self.common.is_command_message(message_type) {
+                    self.common.sender.on_timer_timeout(message_id).await
+                } else {
+                    self.inner
+                        .on_message(SessionMessage::TimerTimeout {
+                            message_id,
+                            message_type,
+                            name,
+                            timeouts,
+                        })
+                        .await
+                }
+            }
+            SessionMessage::TimerFailure {
+                message_id,
+                message_type,
+                name,
+                timeouts,
+            } => {
+                if self.common.is_command_message(message_type) {
+                    self.common.sender.on_timer_failure(message_id).await;
+                    // the current task failed:
+                    // 1. create the right error message
+                    let error_message = match self.current_task.as_ref().unwrap() {
+                        ModeratorTask::Add(_) => "failed to add a participant to the group",
+                        ModeratorTask::Remove(_) => "failed to remove a participant from the group",
+                        ModeratorTask::Update(_) => "failed to update state of the participant",
+                    };
+
+                    // 2. notify the application
+                    // TODO: revisit this part
+                    if let Err(e) = self
+                        .common
+                        .tx
+                        .send_to_app(Err(SessionError::ModeratorTask(error_message.to_string())))
+                        .await
+                    {
+                        error!("failed to notify application: {}", e);
+                    }
+
+                    // 3. delete current task and pick a new one
+                    self.current_task = None;
+                    self.pop_task().await
+                } else {
+                    self.inner
+                        .on_message(SessionMessage::TimerFailure {
+                            message_id,
+                            message_type,
+                            name,
+                            timeouts,
+                        })
+                        .await
+                }
+            }
+            SessionMessage::StartDrain { grace_period_ms: _ } => todo!(),
+            SessionMessage::DeleteSession { session_id: _ } => todo!(),
+        }
+    }
+
+    async fn on_shutdown(&mut self) -> Result<(), SessionError> {
+        // Moderator-specific cleanup
+        self.subscribed = false;
+        if !self.closing {
+            self.send_close_signal().await;
+        }
+        // Shutdown inner layer
+        MessageHandler::on_shutdown(&mut self.inner).await
+    }
 }
 
-impl<P, V> SessionProcessor for SessionModeratorProcessor<P, V>
+impl<P, V> SessionModerator<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
@@ -130,15 +240,14 @@ where
                     return self.delete_all(message).await;
                 }
 
-                // if the message contains a payaload and the name is the same as the
+                // if the message contains a payload and the name is the same as the
                 // local one, call the delete all anyway
                 if let Some(n) = message
                     .get_payload()
                     .unwrap()
-                    .as_command_payload()
-                    .ok()
-                    .and_then(|p| p.as_leave_request_payload().ok())
-                    .and_then(|p| p.destination)
+                    .as_command_payload()?
+                    .as_leave_request_payload()?
+                    .destination
                     && Name::from(&n) == self.common.source
                 {
                     return self.delete_all(message).await;
@@ -161,119 +270,6 @@ where
                 "Unexpected message type {:?}",
                 message.get_session_message_type()
             ))),
-        }
-    }
-
-    fn common(&self) -> &SessionControllerCommon {
-        &self.common
-    }
-
-    fn common_mut(&mut self) -> &mut SessionControllerCommon {
-        &mut self.common
-    }
-
-    fn on_before_app_message(
-        &mut self,
-        mut message: Message,
-        direction: MessageDirection,
-    ) -> Message {
-        // this is a application message. if direction (needs to go to the remote endpoint) and
-        // the session is p2p, update the destination of the message with the destination in
-        // the self.common. In this way we always add the right id to the name
-        if direction == MessageDirection::South
-            && self.common.config.session_type == ProtoSessionType::PointToPoint
-        {
-            message
-                .get_slim_header_mut()
-                .set_destination(&self.common.destination);
-        }
-        message
-    }
-
-    async fn on_control_timer_failure(&mut self, _message_id: u32) -> bool {
-        // the current task failed:
-        // 1. create the right error message
-        let error_message = match self.current_task.as_ref().unwrap() {
-            ModeratorTask::Add(_) => "failed to add a participant to the group",
-            ModeratorTask::Remove(_) => "failed to remove a participant from the group",
-            ModeratorTask::Update(_) => "failed to update state of the participant",
-        };
-
-        // 2. notify the application
-        if let Err(e) = self
-            .common
-            .tx
-            .send_to_app(Err(SessionError::ModeratorTask(error_message.to_string())))
-            .await
-        {
-            error!("failed to notify application: {}", e);
-        }
-
-        // 3. delete current task and pick a new one
-        self.current_task = None;
-        if let Err(e) = self.pop_task().await {
-            error!("Failed to pop next task: {:?}", e);
-        }
-
-        true
-    }
-}
-
-impl<P, V> SessionModeratorProcessor<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
-    #[allow(clippy::too_many_arguments)]
-    pub async fn new(
-        id: u32,
-        source: Name,
-        destination: Name,
-        config: SessionConfig,
-        identity_provider: P,
-        identity_verifier: V,
-        storage_path: std::path::PathBuf,
-        tx: SessionTransmitter,
-        tx_controller: tokio::sync::mpsc::Sender<SessionMessage>,
-        rx_controller: tokio::sync::mpsc::Receiver<SessionMessage>,
-        tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
-        cancellation_token: CancellationToken,
-    ) -> Self {
-        let mls_state = if config.mls_enabled {
-            let mls_state = MlsState::new(Arc::new(tokio::sync::Mutex::new(Mls::new(
-                identity_provider.clone(),
-                identity_verifier.clone(),
-                storage_path,
-            ))))
-            .await
-            .expect("failed to create MLS state");
-
-            Some(MlsModeratorState::new(mls_state))
-        } else {
-            None
-        };
-
-        let common = SessionControllerCommon::new(
-            id,
-            source,
-            destination,
-            config,
-            tx,
-            tx_controller,
-            rx_controller,
-            tx_to_session_layer,
-            cancellation_token,
-        );
-
-        SessionModeratorProcessor {
-            tasks_todo: vec![].into(),
-            current_task: None,
-            mls_state,
-            group_list: HashMap::new(),
-            common,
-            postponed_message: None,
-            subscribed: false,
-            closing: false,
         }
     }
 
@@ -436,7 +432,7 @@ where
 
         // notify the local session that a new participant was added to the group
         debug!("add endpoint to the session {}", msg.get_source());
-        self.common.session.add_endpoint(&msg.get_source()).await?;
+        self.inner.add_endpoint(&msg.get_source()).await?;
 
         // get mls data if MLS is enabled
         let (commit, welcome) = if self.mls_state.is_some() {
@@ -602,9 +598,7 @@ where
 
         self.group_list.remove(&dst_without_id);
 
-        self.common
-            .session
-            .remove_endpoint(&leave_message.get_dst());
+        self.inner.remove_endpoint(&leave_message.get_dst());
 
         // Before send the leave request we may need to send the Group update
         // with the new participant list and the new mls payload if needed
@@ -832,7 +826,14 @@ where
         };
 
         debug!("Process a new task from the todo list");
-        Box::pin(self.process_control_message(msg)).await
+        // Process the control message by calling on_message
+        // Since this is a control message coming from our internal queue,
+        // we use MessageDirection::North (coming from network/control plane)
+        self.on_message(SessionMessage::OnMessage {
+            message: msg,
+            direction: MessageDirection::North,
+        })
+        .await
     }
 
     async fn join(&mut self, remote: Name, conn: u64) -> Result<(), SessionError> {

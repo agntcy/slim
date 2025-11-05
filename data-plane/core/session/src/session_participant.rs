@@ -1,89 +1,29 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashSet, marker::PhantomData, sync::Arc};
+use std::{collections::HashSet, sync::Arc};
 
+use async_trait::async_trait;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{CommandPayload, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType},
     messages::{Name, utils::SlimHeaderFlags},
 };
 use slim_mls::mls::Mls;
-use tokio_util::sync::CancellationToken;
+use tokio::sync::Mutex;
 use tracing::debug;
 
 use crate::{
-    common::{MessageDirection, SessionMessage},
+    common::SessionMessage,
     errors::SessionError,
+    traits::MessageHandler,
     mls_state::MlsState,
     session_builder::{ForParticipant, SessionBuilder},
-    session_config::SessionConfig,
-    session_controller::{SessionControllerCommon, SessionProcessor},
+    session_controller::SessionControllerCommon,
     session_settings::SessionSettings,
-    transmitter::SessionTransmitter,
 };
 
 pub struct SessionParticipant<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
-    tx: tokio::sync::mpsc::Sender<SessionMessage>,
-    _phantom: PhantomData<(P, V)>,
-}
-
-impl<P, V> SessionParticipant<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
-    /// Returns a new SessionBuilder for constructing a SessionParticipant
-    pub fn builder() -> SessionBuilder<P, V, ForParticipant> {
-        SessionBuilder::for_participant()
-    }
-
-    pub(crate) async fn new(settings: SessionSettings<P, V>) -> Self {
-        let (tx_controller, rx_controller) = tokio::sync::mpsc::channel(128);
-
-        let processor = SessionParticipantProcessor::new(
-            settings.id,
-            settings.source,
-            settings.destination,
-            settings.config,
-            settings.identity_provider,
-            settings.identity_verifier,
-            settings.storage_path,
-            settings.tx,
-            tx_controller.clone(),
-            rx_controller,
-            settings.tx_to_session_layer,
-            settings.cancellation_token,
-        )
-        .await;
-
-        tokio::spawn(SessionControllerCommon::run_processor_loop(processor));
-
-        SessionParticipant {
-            tx: tx_controller,
-            _phantom: PhantomData,
-        }
-    }
-
-    pub async fn on_message(
-        &self,
-        message: Message,
-        direction: MessageDirection,
-    ) -> Result<(), SessionError> {
-        let msg = SessionMessage::OnMessage { message, direction };
-
-        self.tx
-            .send(msg)
-            .await
-            .map_err(|e| SessionError::SlimTransmission(e.to_string()))
-    }
-}
-
-pub struct SessionParticipantProcessor<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
@@ -101,9 +41,142 @@ where
     common: SessionControllerCommon,
 
     subscribed: bool,
+
+    /// inner layer (Session)
+    inner: crate::session::Session,
 }
 
-impl<P, V> SessionProcessor for SessionParticipantProcessor<P, V>
+impl<P, V> SessionParticipant<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    /// Returns a new SessionBuilder for constructing a SessionParticipant
+    pub fn builder() -> SessionBuilder<P, V, ForParticipant> {
+        SessionBuilder::for_participant()
+    }
+
+    pub(crate) async fn new(settings: SessionSettings<P, V>) -> Self {
+        let (tx_signals, _rx_signals) = tokio::sync::mpsc::channel(128);
+
+        // Create the session (inner layer)
+        let inner = crate::session::Session::new(
+            settings.id,
+            settings.config.clone(),
+            &settings.source,
+            settings.tx.clone(),
+            tx_signals,
+        );
+
+        let mls_state = if settings.config.mls_enabled {
+            Some(
+                MlsState::new(Arc::new(Mutex::new(Mls::new(
+                    settings.identity_provider.clone(),
+                    settings.identity_verifier.clone(),
+                    settings.storage_path.clone(),
+                ))))
+                .await
+                .expect("failed to create MLS state"),
+            )
+        } else {
+            None
+        };
+
+        let common = SessionControllerCommon::new_without_channels(
+            settings.id,
+            settings.source,
+            settings.destination,
+            settings.config,
+            settings.tx,
+            settings.tx_to_session_layer,
+        );
+
+        SessionParticipant {
+            moderator_name: None,
+            group_list: HashSet::new(),
+            mls_state,
+            common,
+            subscribed: false,
+            inner,
+        }
+    }
+}
+
+/// Implementation of MessageHandler trait for SessionParticipant
+/// This allows the participant to be used as a layer in the generic layer system
+#[async_trait]
+impl<P, V> MessageHandler for SessionParticipant<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
+        match message {
+            SessionMessage::OnMessage { message, direction } => {
+                if self
+                    .common
+                    .is_command_message(message.get_session_message_type())
+                {
+                    self.process_control_message(message).await
+                } else {
+                    self.inner
+                        .on_message(SessionMessage::OnMessage { message, direction })
+                        .await
+                }
+            }
+            SessionMessage::TimerTimeout {
+                message_id,
+                message_type,
+                name,
+                timeouts,
+            } => {
+                if self.common.is_command_message(message_type) {
+                    self.common.sender.on_timer_timeout(message_id).await
+                } else {
+                    self.inner
+                        .on_message(SessionMessage::TimerTimeout {
+                            message_id,
+                            message_type,
+                            name,
+                            timeouts,
+                        })
+                        .await
+                }
+            }
+            SessionMessage::TimerFailure {
+                message_id,
+                message_type,
+                name,
+                timeouts,
+            } => {
+                if self.common.is_command_message(message_type) {
+                    self.common.sender.on_timer_failure(message_id).await;
+                    Ok(())
+                } else {
+                    self.inner
+                        .on_message(SessionMessage::TimerFailure {
+                            message_id,
+                            message_type,
+                            name,
+                            timeouts,
+                        })
+                        .await
+                }
+            }
+            SessionMessage::StartDrain { grace_period_ms: _ } => todo!(),
+            SessionMessage::DeleteSession { session_id: _ } => todo!(),
+        }
+    }
+
+    async fn on_shutdown(&mut self) -> Result<(), SessionError> {
+        // Participant-specific cleanup
+        self.subscribed = false;
+        // Shutdown inner layer
+        MessageHandler::on_shutdown(&mut self.inner).await
+    }
+}
+
+impl<P, V> SessionParticipant<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
@@ -137,70 +210,6 @@ where
                 );
                 Ok(())
             }
-        }
-    }
-
-    fn common(&self) -> &SessionControllerCommon {
-        &self.common
-    }
-
-    fn common_mut(&mut self) -> &mut SessionControllerCommon {
-        &mut self.common
-    }
-}
-
-impl<P, V> SessionParticipantProcessor<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
-    #[allow(clippy::too_many_arguments)]
-    pub async fn new(
-        id: u32,
-        source: Name,
-        destination: Name,
-        config: SessionConfig,
-        identity_provider: P,
-        identity_verifier: V,
-        storage_path: std::path::PathBuf,
-        tx: SessionTransmitter,
-        tx_controller: tokio::sync::mpsc::Sender<SessionMessage>,
-        rx_controller: tokio::sync::mpsc::Receiver<SessionMessage>,
-        tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
-        cancellation_token: CancellationToken,
-    ) -> Self {
-        let mls_state = if config.mls_enabled {
-            Some(
-                MlsState::new(Arc::new(tokio::sync::Mutex::new(Mls::new(
-                    identity_provider,
-                    identity_verifier,
-                    storage_path,
-                ))))
-                .await
-                .expect("failed to create MLS state"),
-            )
-        } else {
-            None
-        };
-
-        let common = SessionControllerCommon::new(
-            id,
-            source,
-            destination,
-            config,
-            tx,
-            tx_controller,
-            rx_controller,
-            tx_to_session_layer,
-            cancellation_token,
-        );
-
-        SessionParticipantProcessor {
-            moderator_name: None,
-            group_list: HashSet::new(),
-            mls_state,
-            common,
-            subscribed: false,
         }
     }
 
@@ -273,7 +282,7 @@ where
 
             if name != self.common.source {
                 debug!("add endpoint to the session {}", msg.get_source());
-                self.common.session.add_endpoint(&name).await?;
+                self.inner.add_endpoint(&name).await?;
             }
         }
 
@@ -328,7 +337,7 @@ where
                 self.group_list.insert(name.clone());
 
                 debug!("add endpoint to the session {}", msg.get_source());
-                self.common.session.add_endpoint(&name).await?;
+                self.inner.add_endpoint(&name).await?;
             }
         } else {
             let p = msg
@@ -341,7 +350,7 @@ where
                 self.group_list.remove(&name);
 
                 debug!("remove endpoint from the session {}", msg.get_source());
-                self.common.session.remove_endpoint(&name);
+                self.inner.remove_endpoint(&name);
             }
         }
 

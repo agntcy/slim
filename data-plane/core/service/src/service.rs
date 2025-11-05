@@ -225,7 +225,7 @@ impl Service {
     ) -> Result<
         (
             App<P, V>,
-            mpsc::Receiver<Result<Notification<P, V>, SessionError>>,
+            mpsc::Receiver<Result<Notification, SessionError>>,
         ),
         ServiceError,
     >

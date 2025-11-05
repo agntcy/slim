@@ -5,33 +5,22 @@
 use std::future::Future;
 use std::sync::{Arc, Weak};
 
-// Third-party crates
-use slim_auth::traits::{TokenProvider, Verifier};
-
 use crate::common::AppChannelReceiver;
 use crate::session_controller::SessionController;
 
 /// Session context
 #[derive(Debug)]
-pub struct SessionContext<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
+pub struct SessionContext {
     /// Weak reference to session (lifecycle managed externally)
-    pub session: Weak<SessionController<P, V>>,
+    pub session: Weak<SessionController>,
 
     /// Receive queue for the session
     pub rx: AppChannelReceiver,
 }
 
-impl<P, V> SessionContext<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
+impl SessionContext {
     /// Create a new SessionContext
-    pub fn new(session: Arc<SessionController<P, V>>, rx: AppChannelReceiver) -> Self {
+    pub fn new(session: Arc<SessionController>, rx: AppChannelReceiver) -> Self {
         SessionContext {
             session: Arc::downgrade(&session),
             rx,
@@ -39,17 +28,17 @@ where
     }
 
     /// Get a weak reference to the underlying session handle.
-    pub fn session(&self) -> &Weak<SessionController<P, V>> {
+    pub fn session(&self) -> &Weak<SessionController> {
         &self.session
     }
 
     /// Get a Arc to the underlying session handle
-    pub fn session_arc(&self) -> Option<Arc<SessionController<P, V>>> {
+    pub fn session_arc(&self) -> Option<Arc<SessionController>> {
         self.session().upgrade()
     }
 
     /// Consume the context returning session, receiver and optional metadata.
-    pub fn into_parts(self) -> (Weak<SessionController<P, V>>, AppChannelReceiver) {
+    pub fn into_parts(self) -> (Weak<SessionController>, AppChannelReceiver) {
         (self.session, self.rx)
     }
 
@@ -67,9 +56,9 @@ where
     /// });
     /// // keep using `session` for lifecycle operations (e.g. deletion)
     /// ```
-    pub fn spawn_receiver<F, Fut>(self, f: F) -> Weak<SessionController<P, V>>
+    pub fn spawn_receiver<F, Fut>(self, f: F) -> Weak<SessionController>
     where
-        F: FnOnce(AppChannelReceiver, Weak<SessionController<P, V>>) -> Fut + Send + 'static,
+        F: FnOnce(AppChannelReceiver, Weak<SessionController>) -> Fut + Send + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
         let (session, rx) = self.into_parts();
@@ -144,7 +133,7 @@ mod tests {
     async fn build_session_controller_with_app_tx(
         id: u32,
         app_tx: AppChannelSender,
-    ) -> Arc<SessionController<DummyProvider, DummyVerifier>> {
+    ) -> Arc<SessionController> {
         use crate::SlimChannelSender;
         use crate::common::SessionMessage;
 

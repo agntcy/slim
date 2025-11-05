@@ -36,7 +36,7 @@ use slim_session::context::SessionContext;
 /// This struct is not exposed directly to Python; it is wrapped by
 /// `PySessionContext`.
 pub(crate) struct PySessionCtxInternal {
-    pub(crate) bindings_ctx: BindingsSessionContext<IdentityProvider, IdentityVerifier>,
+    pub(crate) bindings_ctx: BindingsSessionContext,
 }
 
 /// Python-exposed session context wrapper.
@@ -68,8 +68,8 @@ pub(crate) struct PySessionContext {
     pub(crate) internal: Arc<PySessionCtxInternal>,
 }
 
-impl From<SessionContext<IdentityProvider, IdentityVerifier>> for PySessionContext {
-    fn from(ctx: SessionContext<IdentityProvider, IdentityVerifier>) -> Self {
+impl From<SessionContext> for PySessionContext {
+    fn from(ctx: SessionContext) -> Self {
         // Convert to BindingsSessionContext
         let bindings_ctx = BindingsSessionContext::from(ctx);
 
@@ -80,9 +80,7 @@ impl From<SessionContext<IdentityProvider, IdentityVerifier>> for PySessionConte
 }
 
 // Internal helper to obtain a strong session reference or raise a Python exception
-fn strong_session(
-    weak: &Weak<SessionController<IdentityProvider, IdentityVerifier>>,
-) -> PyResult<Arc<SessionController<IdentityProvider, IdentityVerifier>>> {
+fn strong_session(weak: &Weak<SessionController>) -> PyResult<Arc<SessionController>> {
     weak.upgrade().ok_or_else(|| {
         PyErr::new::<PyException, _>(
             SessionError::SessionClosed("session already closed".to_string()).to_string(),

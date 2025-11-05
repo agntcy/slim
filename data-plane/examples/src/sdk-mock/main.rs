@@ -17,10 +17,10 @@ mod args;
 
 // Function to handle session messages using spawn_receiver
 fn spawn_session_receiver(
-    session_ctx: slim_session::context::SessionContext<SharedSecret, SharedSecret>,
+    session_ctx: slim_session::context::SessionContext,
     local_name: String,
     route: Name,
-) -> std::sync::Arc<SessionController<SharedSecret, SharedSecret>> {
+) -> std::sync::Arc<SessionController> {
     session_ctx
         .spawn_receiver(|mut rx, weak| async move {
             info!("Session handler task started");

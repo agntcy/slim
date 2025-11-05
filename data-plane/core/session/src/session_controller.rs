@@ -22,7 +22,7 @@ use crate::{
     MessageDirection, SessionError, Transmitter,
     common::SessionMessage,
     controller_sender::ControllerSender,
-    session::Session,
+    traits::MessageHandler,
     session_builder::{ForController, SessionBuilder},
     session_config::SessionConfig,
     session_moderator::SessionModerator,
@@ -30,33 +30,6 @@ use crate::{
     timer_factory::TimerSettings,
     transmitter::SessionTransmitter,
 };
-
-// Third-party crates for trait
-use tracing::error;
-
-/// Trait for session processors (moderator and participant) to handle control messages
-pub(crate) trait SessionProcessor: Send {
-    /// Process a control message specific to the processor type
-    async fn process_control_message(&mut self, message: Message) -> Result<(), SessionError>;
-
-    /// Get immutable reference to common state
-    fn common(&self) -> &SessionControllerCommon;
-
-    /// Get mutable reference to common state
-    fn common_mut(&mut self) -> &mut SessionControllerCommon;
-
-    /// Hook for custom handling before processing application messages
-    /// Returns the potentially modified message
-    fn on_before_app_message(&mut self, message: Message, _direction: MessageDirection) -> Message {
-        message
-    }
-
-    /// Hook for custom handling of timer failures for control messages
-    /// Returns true if the default handling should be skipped
-    async fn on_control_timer_failure(&mut self, _message_id: u32) -> bool {
-        false
-    }
-}
 
 pub(crate) enum SessionControllerImpl<P, V>
 where
@@ -67,11 +40,7 @@ where
     SessionModerator(SessionModerator<P, V>),
 }
 
-pub struct SessionController<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
+pub struct SessionController {
     /// session id
     pub(crate) id: u32,
 
@@ -84,41 +53,103 @@ where
     /// session config
     pub(crate) config: SessionConfig,
 
-    /// controller (participant or moderator)
-    pub(crate) controller: SessionControllerImpl<P, V>,
+    /// channel to send messages to the processing loop
+    tx_controller: tokio::sync::mpsc::Sender<SessionMessage>,
 
     /// use in drop implementation to close immediately
     /// the session processor loop
     pub(crate) cancellation_token: CancellationToken,
 }
 
-impl<P, V> SessionController<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
+impl SessionController {
     /// Returns a new SessionBuilder for constructing a SessionController
-    pub fn builder() -> SessionBuilder<P, V, ForController> {
+    pub fn builder<P, V>() -> SessionBuilder<P, V, ForController>
+    where
+        P: TokenProvider + Send + Sync + Clone + 'static,
+        V: Verifier + Send + Sync + Clone + 'static,
+    {
         SessionBuilder::for_controller()
     }
 
     /// Internal constructor for the builder to use
-    pub(crate) fn from_parts(
+    pub(crate) fn from_parts<P, V>(
         id: u32,
         source: Name,
         destination: Name,
         config: SessionConfig,
         controller: SessionControllerImpl<P, V>,
         cancellation_token: CancellationToken,
-    ) -> Self {
+    ) -> Self
+    where
+        P: TokenProvider + Send + Sync + Clone + 'static,
+        V: Verifier + Send + Sync + Clone + 'static,
+    {
+        // Create channel for internal message processing
+        let (tx_controller, rx_controller) = tokio::sync::mpsc::channel(256);
+
+        // Spawn the processing loop
+        let cancellation_token_clone = cancellation_token.clone();
+        tokio::spawn(Self::processing_loop(
+            controller,
+            rx_controller,
+            cancellation_token_clone,
+        ));
+
         Self {
             id,
             source,
             destination,
             config,
-            controller,
+            tx_controller,
             cancellation_token,
         }
+    }
+
+    /// Internal processing loop that handles messages with mutable access
+    async fn processing_loop<P, V>(
+        mut controller: SessionControllerImpl<P, V>,
+        mut rx: tokio::sync::mpsc::Receiver<SessionMessage>,
+        cancellation_token: CancellationToken,
+    ) where
+        P: TokenProvider + Send + Sync + Clone + 'static,
+        V: Verifier + Send + Sync + Clone + 'static,
+    {
+        loop {
+            tokio::select! {
+                _ = cancellation_token.cancelled() => {
+                    debug!("Processing loop cancelled");
+                    break;
+                }
+                msg = rx.recv() => {
+                    match msg {
+                        Some(session_message) => {
+                            match &mut controller {
+                                SessionControllerImpl::SessionParticipant(cp) => {
+                                    if let Err(e) = cp.on_message(session_message).await {
+                                        tracing::error!(error=%e, "Error processing message in SessionParticipant");
+                                    }
+                                }
+                                SessionControllerImpl::SessionModerator(cm) => {
+                                    if let Err(e) = cm.on_message(session_message).await {
+                                        tracing::error!(error=%e, "Error processing message in SessionModerator");
+                                    }
+                                }
+                            };
+                        }
+                        None => {
+                            debug!("Controller channel closed, exiting processing loop");
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Perform shutdown
+        let _ = match &mut controller {
+            SessionControllerImpl::SessionParticipant(cp) => MessageHandler::on_shutdown(cp).await,
+            SessionControllerImpl::SessionModerator(cm) => MessageHandler::on_shutdown(cm).await,
+        };
     }
 
     /// getters
@@ -147,22 +178,21 @@ where
     }
 
     pub fn is_initiator(&self) -> bool {
-        match self.controller {
-            SessionControllerImpl::SessionParticipant(_) => false,
-            SessionControllerImpl::SessionModerator(_) => true,
-        }
+        self.config.initiator
     }
 
-    /// public functions
+    /// Send a message to the controller for processing
     pub async fn on_message(
         &self,
-        msg: Message,
+        message: Message,
         direction: MessageDirection,
     ) -> Result<(), SessionError> {
-        match &self.controller {
-            SessionControllerImpl::SessionParticipant(cp) => cp.on_message(msg, direction).await,
-            SessionControllerImpl::SessionModerator(cm) => cm.on_message(msg, direction).await,
-        }
+        self.tx_controller
+            .send(SessionMessage::OnMessage { message, direction })
+            .await
+            .map_err(|e| {
+                SessionError::Processing(format!("Failed to send message to controller: {}", e))
+            })
     }
 
     pub fn close(&mut self) {
@@ -251,7 +281,7 @@ where
             ProtoSessionType::Multicast => {
                 if !self.is_initiator() {
                     return Err(SessionError::Processing(
-                        "cannot remove participant from this session session".into(),
+                        "cannot invite participant to this session session".into(),
                     ));
                 }
                 let slim_header = Some(SlimHeader::new(self.source(), destination, "", None));
@@ -297,11 +327,7 @@ where
     }
 }
 
-impl<P, V> Drop for SessionController<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
+impl Drop for SessionController {
     fn drop(&mut self) {
         self.cancellation_token.cancel();
     }
@@ -366,39 +392,28 @@ pub struct SessionControllerCommon {
     /// directly sent to the slim/app
     pub(crate) tx: SessionTransmitter,
 
-    /// channel used to received messages from the session layer
-    /// and timeouts from timers
-    pub(crate) rx_from_session_layer: tokio::sync::mpsc::Receiver<SessionMessage>,
-
     /// channel used to communincate with the session layer.
     pub(crate) tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
-
-    /// the session itself
-    pub(crate) session: Session,
-
-    /// cancellation token to exit from the processor loop
-    /// in case of session drop
-    pub(crate) cancellation_token: CancellationToken,
 }
 
 impl SessionControllerCommon {
     const MAX_FANOUT: u32 = 256;
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new(
+    pub(crate) fn new_without_channels(
         id: u32,
         source: Name,
         destination: Name,
         config: SessionConfig,
         tx: SessionTransmitter,
-        tx_controller: tokio::sync::mpsc::Sender<SessionMessage>,
-        rx_controller: tokio::sync::mpsc::Receiver<SessionMessage>,
         tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
-        cancellation_token: CancellationToken,
     ) -> Self {
         // timers settings for the controller
         let controller_timer_settings =
             TimerSettings::constant(Duration::from_secs(1)).with_max_retries(10);
+
+        // create a dummy channel for the controller sender
+        let (tx_controller, _rx_controller) = tokio::sync::mpsc::channel(1);
 
         // create the controller sender
         let controller_sender = ControllerSender::new(
@@ -407,16 +422,7 @@ impl SessionControllerCommon {
             // send messages to slim/app
             tx.clone(),
             // send signal to the controller
-            tx_controller.clone(),
-        );
-
-        // create the session
-        let session = Session::new(
-            id,
-            config.clone(),
-            &source,
-            tx.clone(),
-            tx_controller.clone(),
+            tx_controller,
         );
 
         SessionControllerCommon {
@@ -426,10 +432,7 @@ impl SessionControllerCommon {
             config,
             sender: controller_sender,
             tx,
-            rx_from_session_layer: rx_controller,
             tx_to_session_layer,
-            session,
-            cancellation_token,
         }
     }
 
@@ -535,90 +538,6 @@ impl SessionControllerCommon {
         }
         self.send_with_timer(msg).await
     }
-
-    /// Common event loop for session processors
-    pub(crate) async fn run_processor_loop<P>(mut processor: P)
-    where
-        P: SessionProcessor + 'static,
-    {
-        let cancellation_token = processor.common().cancellation_token.clone();
-        loop {
-            let common = processor.common_mut();
-            tokio::select! {
-                next = common.rx_from_session_layer.recv() => {
-                    match next {
-                        Some(message) => match message {
-                            SessionMessage::OnMessage { message, direction } => {
-                                let is_command = processor.common().is_command_message(message.get_session_message_type());
-                                let dir = direction.clone(); // Clone direction to avoid move issues
-                                if is_command {
-                                    if let Err(e) = processor.process_control_message(message).await {
-                                        error!("Error processing control message: {:?}", e);
-                                    }
-                                } else {
-                                    // Allow processor to modify message before sending
-                                    let modified_message = processor.on_before_app_message(message, direction);
-                                    let common = processor.common_mut();
-                                    if let Err(e) = common.session.on_message(SessionMessage::OnMessage { message: modified_message, direction: dir }).await {
-                                        error!("Error sending message to the session: {:?}", e);
-                                    }
-                                }
-                            }
-                            SessionMessage::TimerTimeout { message_id, message_type, name, timeouts } => {
-                                let is_command = processor.common().is_command_message(message_type);
-                                if is_command {
-                                    let common = processor.common_mut();
-                                    if let Err(e) = common.sender.on_timer_timeout(message_id).await {
-                                        error!("Error processing timeout for control message: {:?}", e);
-                                    }
-                                } else {
-                                    let common = processor.common_mut();
-                                    if let Err(e) = common.session.on_message(SessionMessage::TimerTimeout { message_id, message_type, name, timeouts }).await {
-                                        error!("Error processing timeout in the session: {:?}", e);
-                                    }
-                                }
-                            }
-                            SessionMessage::TimerFailure { message_id, message_type, name, timeouts } => {
-                                let is_command = processor.common().is_command_message(message_type);
-                                if is_command {
-                                    {
-                                        let common = processor.common_mut();
-                                        common.sender.on_timer_failure(message_id).await;
-                                    }
-
-                                    // Allow processor to do custom handling
-                                    let _ = processor.on_control_timer_failure(message_id).await;
-                                } else {
-                                    let common = processor.common_mut();
-                                    if let Err(e) = common.session.on_message(SessionMessage::TimerFailure { message_id, message_type, name, timeouts }).await {
-                                        error!("Error processing timer failure in the session: {:?}", e);
-                                    }
-                                }
-                            }
-                            SessionMessage::StartDrain { grace_period_ms: _ } => {
-                                debug!("StartDrain message received (not implemented)");
-                            }
-                            _ => {
-                                debug!("Unexpected message type");
-                            }
-                        }
-                        None => {
-                            let session_id = processor.common().id;
-                            debug!("session controller close channel {}", session_id);
-                            break;
-                        }
-                    }
-                }
-                _ = cancellation_token.cancelled() => {
-                    debug!("cancellation token signaled on session processor, close it");
-                    let common = processor.common_mut();
-                    common.session.close();
-                    common.sender.close();
-                    break;
-                }
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -663,7 +582,7 @@ mod tests {
             metadata: std::collections::HashMap::new(),
         };
 
-        let moderator = SessionBuilder::for_moderator()
+        let mut moderator = SessionBuilder::for_moderator()
             .with_id(session_id)
             .with_source(moderator_name.clone())
             .with_destination(participant_name.clone())
@@ -697,7 +616,7 @@ mod tests {
             metadata: std::collections::HashMap::new(),
         };
 
-        let participant = SessionBuilder::for_participant()
+        let mut participant = SessionBuilder::for_participant()
             .with_id(session_id)
             .with_source(participant_name_id.clone())
             .with_destination(moderator_name.clone())
@@ -731,7 +650,10 @@ mod tests {
             Message::new_publish_with_headers(slim_header, session_header, payload);
 
         moderator
-            .on_message(discovery_request.clone(), MessageDirection::South)
+            .on_message(SessionMessage::OnMessage {
+                message: discovery_request,
+                direction: MessageDirection::South,
+            })
             .await
             .expect("error sending discovery request");
 
@@ -771,7 +693,10 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         moderator
-            .on_message(discovery_reply, MessageDirection::North)
+            .on_message(SessionMessage::OnMessage {
+                message: discovery_reply,
+                direction: MessageDirection::North,
+            })
             .await
             .expect("error processing discovery reply on moderator");
 
@@ -807,7 +732,10 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         participant
-            .on_message(join_request_to_participant, MessageDirection::North)
+            .on_message(SessionMessage::OnMessage {
+                message: join_request_to_participant,
+                direction: MessageDirection::North,
+            })
             .await
             .expect("error processing join request on participant");
 
@@ -842,7 +770,10 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         moderator
-            .on_message(join_reply_to_moderator, MessageDirection::North)
+            .on_message(SessionMessage::OnMessage {
+                message: join_reply_to_moderator,
+                direction: MessageDirection::North,
+            })
             .await
             .expect("error processing join reply on moderator");
 
@@ -866,7 +797,10 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         participant
-            .on_message(welcome_to_participant, MessageDirection::North)
+            .on_message(SessionMessage::OnMessage {
+                message: welcome_to_participant,
+                direction: MessageDirection::North,
+            })
             .await
             .expect("error processing welcome message on participant");
 
@@ -890,7 +824,10 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         moderator
-            .on_message(ack_to_moderator, MessageDirection::North)
+            .on_message(SessionMessage::OnMessage {
+                message: ack_to_moderator,
+                direction: MessageDirection::North,
+            })
             .await
             .expect("error processing ack on moderator");
 
@@ -927,7 +864,10 @@ mod tests {
 
         // call on message on the moderator (direction south)
         moderator
-            .on_message(app_message.clone(), MessageDirection::South)
+            .on_message(SessionMessage::OnMessage {
+                message: app_message,
+                direction: MessageDirection::South,
+            })
             .await
             .expect("error sending application message from moderator");
 
@@ -953,7 +893,10 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         participant
-            .on_message(app_msg_to_participant, MessageDirection::North)
+            .on_message(SessionMessage::OnMessage {
+                message: app_msg_to_participant,
+                direction: MessageDirection::North,
+            })
             .await
             .expect("error processing application message on participant");
 
@@ -1001,7 +944,10 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         moderator
-            .on_message(ack_to_moderator, MessageDirection::North)
+            .on_message(SessionMessage::OnMessage {
+                message: ack_to_moderator,
+                direction: MessageDirection::North,
+            })
             .await
             .expect("error processing ack on moderator");
 
@@ -1037,7 +983,10 @@ mod tests {
         let leave_request = Message::new_publish_with_headers(slim_header, session_header, payload);
 
         moderator
-            .on_message(leave_request.clone(), MessageDirection::South)
+            .on_message(SessionMessage::OnMessage {
+                message: leave_request,
+                direction: MessageDirection::South,
+            })
             .await
             .expect("error sending leave request");
 
@@ -1061,7 +1010,10 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         participant
-            .on_message(leave_request_to_participant, MessageDirection::North)
+            .on_message(SessionMessage::OnMessage {
+                message: leave_request_to_participant,
+                direction: MessageDirection::North,
+            })
             .await
             .expect("error processing leave request on participant");
 
@@ -1098,7 +1050,10 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         moderator
-            .on_message(leave_reply_to_moderator, MessageDirection::North)
+            .on_message(SessionMessage::OnMessage {
+                message: leave_reply_to_moderator,
+                direction: MessageDirection::North,
+            })
             .await
             .expect("error processing leave reply on moderator");
 

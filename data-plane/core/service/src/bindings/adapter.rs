@@ -28,7 +28,7 @@ where
     app: Arc<App<P, V>>,
 
     /// Channel receiver for notifications from the app
-    notification_rx: Arc<RwLock<mpsc::Receiver<Result<Notification<P, V>, SessionError>>>>,
+    notification_rx: Arc<RwLock<mpsc::Receiver<Result<Notification, SessionError>>>>,
 }
 
 impl<P, V> BindingsAdapter<P, V>
@@ -39,7 +39,7 @@ where
     /// Create a new AppAdapter wrapping the given App
     pub fn new_with_app(
         app: App<P, V>,
-        notification_rx: mpsc::Receiver<Result<Notification<P, V>, SessionError>>,
+        notification_rx: mpsc::Receiver<Result<Notification, SessionError>>,
     ) -> Self {
         Self {
             app: Arc::new(app),
@@ -145,17 +145,14 @@ where
         &self,
         session_config: SessionConfig,
         destination: Name,
-    ) -> Result<SessionContext<P, V>, SessionError> {
+    ) -> Result<SessionContext, SessionError> {
         self.app
             .create_session(session_config, destination, None)
             .await
     }
 
     /// Delete a session by its context
-    pub async fn delete_session(
-        &self,
-        session: &SessionController<P, V>,
-    ) -> Result<(), SessionError> {
+    pub async fn delete_session(&self, session: &SessionController) -> Result<(), SessionError> {
         self.app.delete_session(session).await
     }
 
@@ -186,7 +183,7 @@ where
     pub async fn listen_for_session(
         &self,
         timeout: Option<std::time::Duration>,
-    ) -> Result<SessionContext<P, V>, ServiceError> {
+    ) -> Result<SessionContext, ServiceError> {
         let mut rx = self.notification_rx.write().await;
 
         let recv_fut = rx.recv();
@@ -270,7 +267,7 @@ mod tests {
     /// Create a mock app and notification receiver for testing
     fn create_mock_app_with_receiver() -> (
         App<TestProvider, TestVerifier>,
-        mpsc::Receiver<Result<Notification<TestProvider, TestVerifier>, SessionError>>,
+        mpsc::Receiver<Result<Notification, SessionError>>,
     ) {
         let (tx_slim, _rx_slim) = mpsc::channel(128);
         let (tx_app, rx_app) = mpsc::channel(128);

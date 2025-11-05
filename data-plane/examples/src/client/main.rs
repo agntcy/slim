@@ -15,7 +15,7 @@ use slim_session::Notification;
 mod args;
 
 fn spawn_session_receiver(
-    session_ctx: slim_session::context::SessionContext<SharedSecret, SharedSecret>,
+    session_ctx: slim_session::context::SessionContext,
     message: &Option<String>,
 ) {
     let message_clone = message.clone();

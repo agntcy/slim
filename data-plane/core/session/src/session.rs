@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use async_trait::async_trait;
 use slim_datapath::{
     api::{ProtoMessage as Message, ProtoSessionMessageType},
     messages::Name,
@@ -11,7 +12,7 @@ use tracing::debug;
 
 use crate::{
     MessageDirection, common::SessionMessage, errors::SessionError, session_config::SessionConfig,
-    session_receiver::SessionReceiver, session_sender::SessionSender,
+    session_receiver::SessionReceiver, session_sender::SessionSender, traits::MessageHandler,
     transmitter::SessionTransmitter,
 };
 
@@ -167,6 +168,22 @@ impl Session {
                 message_type
             ))),
         }
+    }
+}
+
+/// Implementation of MessageHandler trait for Session
+/// This allows Session to be used as a layer in the generic layer system
+#[async_trait]
+impl MessageHandler for Session {
+    async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
+        // Process through the session's existing on_message method
+        // Session is the innermost layer, so it doesn't delegate to anything
+        self.on_message(message).await
+    }
+
+    async fn on_shutdown(&mut self) -> Result<(), SessionError> {
+        self.close();
+        Ok(())
     }
 }
 
