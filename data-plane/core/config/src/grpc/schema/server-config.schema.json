@@ -1,0 +1,693 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ServerConfig",
+  "type": "object",
+  "properties": {
+    "auth": {
+      "description": "Auth for this receiver.",
+      "$ref": "#/$defs/AuthenticationConfig",
+      "default": {
+        "type": "none"
+      }
+    },
+    "endpoint": {
+      "description": "Endpoint is the address to listen on.",
+      "type": "string"
+    },
+    "http2_only": {
+      "description": "Use HTTP 2 only.",
+      "type": "boolean",
+      "default": true
+    },
+    "keepalive": {
+      "description": "Keepalive anchor for all the settings related to keepalive.",
+      "$ref": "#/$defs/KeepaliveServerParameters",
+      "default": {
+        "max_connection_age": "2h",
+        "max_connection_age_grace": "5m",
+        "max_connection_idle": "1h",
+        "time": "2m",
+        "timeout": "20s"
+      }
+    },
+    "max_concurrent_streams": {
+      "description": "MaxConcurrentStreams sets the limit on the number of concurrent streams to each ServerTransport.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint32",
+      "minimum": 0
+    },
+    "max_frame_size": {
+      "description": "Maximum size (in MiB) of messages accepted by the server.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint32",
+      "minimum": 0
+    },
+    "max_header_list_size": {
+      "description": "Max header list size",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint32",
+      "minimum": 0
+    },
+    "metadata": {
+      "description": "Arbitrary user-provided metadata.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MetadataMap"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "read_buffer_size": {
+      "description": "ReadBufferSize for gRPC server.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint",
+      "minimum": 0
+    },
+    "tls": {
+      "description": "Configures the protocol to use TLS.",
+      "$ref": "#/$defs/TlsServerConfig",
+      "default": {
+        "ca_source": {
+          "type": "none"
+        },
+        "client_ca": {
+          "type": "none"
+        },
+        "include_system_ca_certs_pool": true,
+        "insecure": false,
+        "reload_client_ca_file": false,
+        "reload_interval": null,
+        "source": {
+          "type": "none"
+        },
+        "tls_version": "tls1.3"
+      }
+    },
+    "write_buffer_size": {
+      "description": "WriteBufferSize for gRPC server.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "endpoint"
+  ],
+  "$defs": {
+    "AlgorithmRepr": {
+      "description": "Local enum used only for JSON Schema generation of the `algorithm` field.\nRemote schema representation of jsonwebtoken_aws_lc::Algorithm",
+      "type": "string",
+      "enum": [
+        "HS256",
+        "HS384",
+        "HS512",
+        "ES256",
+        "ES384",
+        "RS256",
+        "RS384",
+        "RS512",
+        "PS256",
+        "PS384",
+        "PS512",
+        "EdDSA"
+      ]
+    },
+    "AuthenticationConfig": {
+      "description": "Enum holding one configuration for the client.",
+      "oneOf": [
+        {
+          "description": "Basic authentication configuration.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "basic"
+            }
+          },
+          "$ref": "#/$defs/Config",
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "description": "JWT authentication configuration.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "jwt"
+            }
+          },
+          "$ref": "#/$defs/Config2",
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "description": "None",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "none"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        }
+      ]
+    },
+    "CaSource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "file"
+            }
+          },
+          "required": [
+            "type",
+            "path"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "data": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "pem"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ]
+        },
+        {
+          "description": "SPIRE authentication configuration",
+          "type": "object",
+          "properties": {
+            "jwt_audiences": {
+              "description": "Audiences to request / verify for JWT SVIDs",
+              "type": "array",
+              "default": [
+                "slim"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "socket_path": {
+              "description": "Path to the SPIFFE Workload API socket (None => use SPIFFE_ENDPOINT_SOCKET env var)",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "target_spiffe_id": {
+              "description": "Optional target SPIFFE ID when requesting JWT SVIDs",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "trust_domains": {
+              "description": "Optional trust domains override for X.509 bundle retrieval. If set,\n`get_x509_bundle()` uses this instead of deriving from the current SVID.",
+              "type": "array",
+              "default": [],
+              "items": {
+                "type": "string"
+              }
+            },
+            "type": {
+              "type": "string",
+              "const": "spire"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "none"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        }
+      ]
+    },
+    "Claims": {
+      "type": "object",
+      "properties": {
+        "audience": {
+          "description": "JWT audience",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "custom_claims": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MetadataMap"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "issuer": {
+          "description": "JWT Issuer",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "subject": {
+          "description": "JWT Subject",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "Config": {
+      "type": "object",
+      "properties": {
+        "password": {
+          "description": "The password for the username.",
+          "$ref": "#/$defs/OpaqueString"
+        },
+        "username": {
+          "description": "The username the client will use to authenticate.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "username",
+        "password"
+      ]
+    },
+    "Config2": {
+      "type": "object",
+      "properties": {
+        "claims": {
+          "description": "Claims",
+          "$ref": "#/$defs/Claims",
+          "default": {
+            "audience": null,
+            "custom_claims": null,
+            "issuer": null,
+            "subject": null
+          }
+        },
+        "duration": {
+          "description": "JWT Duration (will become exp: now() + duration)",
+          "type": "string",
+          "default": "1h"
+        },
+        "key": {
+          "description": "One of: `encoding`, `decoding`, or `autoresolve`\nEncoding key is used for signing JWTs (client-side).\nDecoding key is used for verifying JWTs (server-side).\nAutoresolve is used to automatically resolve the key based on the claims.",
+          "$ref": "#/$defs/JwtKey"
+        }
+      },
+      "required": [
+        "key"
+      ]
+    },
+    "Duration": {
+      "type": "object",
+      "properties": {
+        "nanos": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "secs": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "secs",
+        "nanos"
+      ]
+    },
+    "JwtKey": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "encoding"
+            }
+          },
+          "$ref": "#/$defs/Key",
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "decoding"
+            }
+          },
+          "$ref": "#/$defs/Key",
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "autoresolve"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        }
+      ]
+    },
+    "KeepaliveServerParameters": {
+      "type": "object",
+      "properties": {
+        "max_connection_age": {
+          "description": "max_connection_age sets the maximum amount of time a connection may exist before it will be closed.",
+          "type": "string",
+          "default": "2h"
+        },
+        "max_connection_age_grace": {
+          "description": "max_connection_age_grace is an additional time given after MaxConnectionAge before closing the connection.",
+          "type": "string",
+          "default": "5m"
+        },
+        "max_connection_idle": {
+          "description": "max_connection_idle sets the time after which an idle connection is closed.",
+          "type": "string",
+          "default": "1h"
+        },
+        "time": {
+          "description": "Time sets the frequency of the keepalive ping.",
+          "type": "string",
+          "default": "2m"
+        },
+        "timeout": {
+          "description": "Timeout sets the amount of time the server waits for a keepalive ping ack.",
+          "type": "string",
+          "default": "20s"
+        }
+      }
+    },
+    "Key": {
+      "description": "Represents a key",
+      "type": "object",
+      "properties": {
+        "algorithm": {
+          "description": "Algorithm used for signing the JWT",
+          "$ref": "#/$defs/AlgorithmRepr"
+        },
+        "format": {
+          "description": "Key format - PEM, JWK or JWKS",
+          "$ref": "#/$defs/KeyFormat"
+        },
+        "key": {
+          "description": "Encoded key or file path",
+          "$ref": "#/$defs/KeyData"
+        }
+      },
+      "required": [
+        "algorithm",
+        "format",
+        "key"
+      ]
+    },
+    "KeyData": {
+      "description": "Enum representing key data types",
+      "oneOf": [
+        {
+          "description": "String with encoded key(s)",
+          "type": "object",
+          "properties": {
+            "data": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "data"
+          ]
+        },
+        {
+          "description": "File path to the key(s)",
+          "type": "object",
+          "properties": {
+            "file": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "file"
+          ]
+        }
+      ]
+    },
+    "KeyFormat": {
+      "type": "string",
+      "enum": [
+        "pem",
+        "jwk",
+        "jwks"
+      ]
+    },
+    "MetadataMap": {
+      "description": "A generic metadata map. Newtype with a flattened map so that serde encodes\njust a JSON/YAML object and not an inner field name.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/MetadataValue"
+      }
+    },
+    "MetadataValue": {
+      "description": "A generic metadata value.\n\nSupported variants:\n- String\n- Number (serde_json::Number – can represent integer & floating point)\n- List (Vec<MetadataValue>)\n- Map (nested MetadataMap)",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MetadataValue"
+          }
+        },
+        {
+          "$ref": "#/$defs/MetadataMap"
+        }
+      ]
+    },
+    "OpaqueString": {
+      "type": "string"
+    },
+    "TlsServerConfig": {
+      "type": "object",
+      "properties": {
+        "ca_source": {
+          "$ref": "#/$defs/CaSource",
+          "default": {
+            "type": "none"
+          }
+        },
+        "client_ca": {
+          "description": "Client CA sources (choose one: file, pem, or spire for SPIFFE bundle)",
+          "$ref": "#/$defs/CaSource",
+          "default": {
+            "type": "none"
+          }
+        },
+        "include_system_ca_certs_pool": {
+          "description": "If true, also load system root CA certificates",
+          "type": "boolean",
+          "default": true
+        },
+        "insecure": {
+          "description": "insecure do not setup a TLS server",
+          "type": "boolean",
+          "default": false
+        },
+        "reload_client_ca_file": {
+          "description": "Reload the ClientCAs file when it is modified\nTODO(msardara): not implemented yet",
+          "type": "boolean",
+          "default": false
+        },
+        "reload_interval": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/TlsSource",
+          "default": {
+            "type": "none"
+          }
+        },
+        "tls_version": {
+          "type": "string",
+          "default": "tls1.3"
+        }
+      }
+    },
+    "TlsSource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "cert": {
+              "type": "string"
+            },
+            "key": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "pem"
+            }
+          },
+          "required": [
+            "type",
+            "cert",
+            "key"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "cert": {
+              "type": "string"
+            },
+            "key": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "file"
+            }
+          },
+          "required": [
+            "type",
+            "cert",
+            "key"
+          ]
+        },
+        {
+          "description": "SPIRE authentication configuration",
+          "type": "object",
+          "properties": {
+            "jwt_audiences": {
+              "description": "Audiences to request / verify for JWT SVIDs",
+              "type": "array",
+              "default": [
+                "slim"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "socket_path": {
+              "description": "Path to the SPIFFE Workload API socket (None => use SPIFFE_ENDPOINT_SOCKET env var)",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "target_spiffe_id": {
+              "description": "Optional target SPIFFE ID when requesting JWT SVIDs",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "trust_domains": {
+              "description": "Optional trust domains override for X.509 bundle retrieval. If set,\n`get_x509_bundle()` uses this instead of deriving from the current SVID.",
+              "type": "array",
+              "default": [],
+              "items": {
+                "type": "string"
+              }
+            },
+            "type": {
+              "type": "string",
+              "const": "spire"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "none"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        }
+      ]
+    }
+  }
+}

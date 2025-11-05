@@ -247,9 +247,9 @@ mod tests {
     use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::messages::Name;
 
-    use slim_auth::testutils::TEST_VALID_SECRET;
     use slim_session::point_to_point::PointToPointConfiguration;
     use slim_session::{Notification, SessionConfig, SessionError, SessionType};
+    use slim_testing::utils::TEST_VALID_SECRET;
 
     use crate::bindings::session_context::BindingsSessionContext;
 

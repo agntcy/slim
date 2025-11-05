@@ -26,4 +26,5 @@ services:
           tls:
             insecure: true
       token_provider:
-        shared_secret: "group-abcdef-12345678901234567890"
+        type: shared_secret
+        data: "group-abcdef-12345678901234567890"

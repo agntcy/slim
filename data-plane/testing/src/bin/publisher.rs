@@ -5,17 +5,17 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::{collections::HashMap, sync::Arc};
 
-use parking_lot::RwLock;
-use slim_datapath::messages::Name;
-use testing::parse_line;
-use tokio_util::sync::CancellationToken;
-
 use clap::Parser;
 use indicatif::ProgressBar;
+use parking_lot::RwLock;
+use slim_datapath::messages::Name;
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
 
 use slim::config;
 use slim_auth::shared_secret::SharedSecret;
+
+use slim_testing::parse_line;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -120,8 +120,8 @@ async fn main() {
     let (app, _rx) = svc
         .create_app(
             &app_name,
-            SharedSecret::new("a", slim_auth::testutils::TEST_VALID_SECRET),
-            SharedSecret::new("a", slim_auth::testutils::TEST_VALID_SECRET),
+            SharedSecret::new("a", slim_testing::utils::TEST_VALID_SECRET),
+            SharedSecret::new("a", slim_testing::utils::TEST_VALID_SECRET),
         )
         .await
         .expect("failed to create app");
