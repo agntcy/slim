@@ -7,7 +7,7 @@ name: ci-release-slimctl
 on:
   push:
     tags:
-      - 'slimctl-*'
+      - 'slimctl-brew-*'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -27,8 +27,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [darwin, linux]
-        arch: [amd64, arm64]
+        os: [ darwin, linux ]
+        arch: [ amd64, arm64 ]
 
     steps:
       - name: Checkout Repo
@@ -37,8 +37,19 @@ jobs:
       - name: Setup Go
         uses: ./.github/actions/setup-go
 
-      - name: Build
-        run: CGO_ENABLED=0 GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} task control-plane:slimctl:build
+      - name: Generate Go protobuf and gRPC code
+        run: task control-plane:proto:generate
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          # either 'goreleaser' (default) or 'goreleaser-pro'
+          distribution: goreleaser
+          # 'latest', 'nightly', or a semver
+          version: "~> v2"
+          args: release --clean --snapshot --verbose
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Authenticate
         run: gh auth login --with-token <<< "${{ secrets.GITHUB_TOKEN }}"
