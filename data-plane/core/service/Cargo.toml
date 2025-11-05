@@ -15,7 +15,6 @@ agntcy-slim-controller = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-mls = { workspace = true }
 agntcy-slim-session = { workspace = true }
-
 dirs = "5.0"
 drain = { workspace = true }
 parking_lot = { workspace = true }
@@ -26,5 +25,6 @@ tokio-util = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
+agntcy-slim-testing = { workspace = true }
 tokio-test = { workspace = true }
 tracing-test = { workspace = true }

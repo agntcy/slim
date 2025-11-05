@@ -6,6 +6,7 @@
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use serde_json::Value as JsonValue;
+use slim_auth::metadata::MetadataMap;
 use std::collections::HashMap;
 
 use crate::errors::SlimIdentityError;
@@ -85,15 +86,14 @@ impl IdentityClaims {
     }
 
     /// Creates a claims map with just the public key (for backward compatibility)
-    pub fn pubkey_only_claims_map(public_key: impl Into<String>) -> HashMap<String, JsonValue> {
-        HashMap::from([(
-            claim_keys::PUBKEY.to_string(),
-            JsonValue::String(public_key.into()),
-        )])
+    pub fn pubkey_only_claims_map(public_key: impl Into<String>) -> MetadataMap {
+        let mut claims_map = MetadataMap::new();
+        claims_map.insert(claim_keys::PUBKEY.to_string(), public_key.into());
+        claims_map
     }
 
     /// Creates a claims map from raw public key bytes (base64 encoded)
-    pub fn from_public_key_bytes(public_key_bytes: &[u8]) -> HashMap<String, JsonValue> {
+    pub fn from_public_key_bytes(public_key_bytes: &[u8]) -> MetadataMap {
         let public_key_b64 = BASE64.encode(public_key_bytes);
         Self::pubkey_only_claims_map(public_key_b64)
     }
@@ -173,10 +173,8 @@ mod tests {
         let claims_map = IdentityClaims::pubkey_only_claims_map("base64encodedkey");
 
         assert_eq!(claims_map.len(), 1);
-        assert_eq!(
-            claims_map.get("pubkey").unwrap().as_str().unwrap(),
-            "base64encodedkey"
-        );
+        let pkey: String = claims_map.get("pubkey").unwrap().try_into().unwrap();
+        assert_eq!(&pkey, "base64encodedkey");
     }
 
     #[test]

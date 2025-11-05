@@ -4,7 +4,6 @@
 pub mod auth;
 pub mod component;
 pub mod grpc;
-pub mod metadata;
 pub mod provider;
 pub mod testutils;
 pub mod tls;

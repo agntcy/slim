@@ -6,12 +6,13 @@ use slim_datapath::messages::Name;
 use slim_session::Notification;
 use std::fs::File;
 use std::io::prelude::*;
-use testing::parse_line;
 
 use clap::Parser;
 use indicatif::ProgressBar;
 use slim::config;
 use tracing::{debug, error, info};
+
+use slim_testing::parse_line;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -73,8 +74,8 @@ async fn main() {
     let (app, mut rx) = svc
         .create_app(
             &app_name,
-            SharedSecret::new("a", slim_auth::testutils::TEST_VALID_SECRET),
-            SharedSecret::new("a", slim_auth::testutils::TEST_VALID_SECRET),
+            SharedSecret::new("a", slim_testing::utils::TEST_VALID_SECRET),
+            SharedSecret::new("a", slim_testing::utils::TEST_VALID_SECRET),
         )
         .await
         .expect("failed to create app");

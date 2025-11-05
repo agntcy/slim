@@ -12,7 +12,6 @@ use rmcp::{
 };
 use slim::config::ConfigResult;
 use slim_auth::shared_secret::SharedSecret;
-use slim_auth::testutils::TEST_VALID_SECRET;
 use slim_datapath::messages::Name;
 use slim_session::{
     PointToPointConfiguration, SessionConfig,
@@ -238,11 +237,13 @@ impl Proxy {
         // create service from config
         let mut svc = self.config.services.remove(&self.svc_id).unwrap();
 
+        const SECRET: &str = "tUDNjNmc4s6om6yziR4nmBVKKTFCXhfJEiP";
+
         let (app, mut slim_rx) = svc
             .create_app(
                 &self.name,
-                SharedSecret::new("id", TEST_VALID_SECRET),
-                SharedSecret::new("id", TEST_VALID_SECRET),
+                SharedSecret::new("id", SECRET),
+                SharedSecret::new("id", SECRET),
             )
             .await
             .expect("failed to create app");
