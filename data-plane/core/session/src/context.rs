@@ -171,19 +171,22 @@ mod tests {
 
         // Create a SessionController
         Arc::new(
-            SessionController::new(
-                id,
-                source,
-                destination,
-                cfg,
-                DummyProvider,
-                DummyVerifier,
-                std::env::temp_dir(),
-                session_tx,
-                tx_session,
-            )
-            .await
-            .expect("Failed to create SessionController"),
+            SessionController::builder()
+                .with_id(id)
+                .with_source(source)
+                .with_destination(destination)
+                .with_config(cfg)
+                .with_identity_provider(DummyProvider)
+                .with_identity_verifier(DummyVerifier)
+                .with_storage_path(std::env::temp_dir())
+                .with_tx(session_tx)
+                .with_tx_to_session_layer(tx_session)
+                .with_cancellation_token(tokio_util::sync::CancellationToken::new())
+                .ready()
+                .expect("Failed to prepare SessionController builder")
+                .build()
+                .await
+                .expect("Failed to create SessionController"),
         )
     }
 

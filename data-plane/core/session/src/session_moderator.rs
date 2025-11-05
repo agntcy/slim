@@ -24,8 +24,10 @@ use crate::{
     errors::SessionError,
     mls_state::{MlsModeratorState, MlsState},
     moderator_task::{AddParticipant, ModeratorTask, RemoveParticipant, TaskUpdate},
+    session_builder::{ForModerator, SessionBuilder},
     session_config::SessionConfig,
     session_controller::{SessionControllerCommon, SessionProcessor},
+    session_settings::SessionSettings,
     traits::Transmitter,
     transmitter::SessionTransmitter,
 };
@@ -44,33 +46,27 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    pub(crate) async fn new(
-        id: u32,
-        source: Name,
-        destination: Name,
-        config: SessionConfig,
-        identity_provider: P,
-        identity_verifier: V,
-        storage_path: std::path::PathBuf,
-        tx: SessionTransmitter,
-        tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
-        cancellation_token: CancellationToken,
-    ) -> Self {
+    /// Returns a new SessionBuilder for constructing a SessionModerator
+    pub fn builder() -> SessionBuilder<P, V, ForModerator> {
+        SessionBuilder::for_moderator()
+    }
+
+    pub(crate) async fn new(settings: SessionSettings<P, V>) -> Self {
         let (tx_controller, rx_controller) = tokio::sync::mpsc::channel(128);
 
         let processor = SessionModeratorProcessor::new(
-            id,
-            source,
-            destination,
-            config,
-            identity_provider,
-            identity_verifier,
-            storage_path,
-            tx,
+            settings.id,
+            settings.source,
+            settings.destination,
+            settings.config,
+            settings.identity_provider,
+            settings.identity_verifier,
+            settings.storage_path,
+            settings.tx,
             tx_controller.clone(),
             rx_controller,
-            tx_to_session_layer,
-            cancellation_token,
+            settings.tx_to_session_layer,
+            settings.cancellation_token,
         )
         .await;
 
@@ -176,12 +172,20 @@ where
         &mut self.common
     }
 
-    fn on_before_app_message(&mut self, mut message: Message, direction: MessageDirection) -> Message {
+    fn on_before_app_message(
+        &mut self,
+        mut message: Message,
+        direction: MessageDirection,
+    ) -> Message {
         // this is a application message. if direction (needs to go to the remote endpoint) and
         // the session is p2p, update the destination of the message with the destination in
         // the self.common. In this way we always add the right id to the name
-        if direction == MessageDirection::South && self.common.config.session_type == ProtoSessionType::PointToPoint {
-            message.get_slim_header_mut().set_destination(&self.common.destination);
+        if direction == MessageDirection::South
+            && self.common.config.session_type == ProtoSessionType::PointToPoint
+        {
+            message
+                .get_slim_header_mut()
+                .set_destination(&self.common.destination);
         }
         message
     }
@@ -190,19 +194,18 @@ where
         // the current task failed:
         // 1. create the right error message
         let error_message = match self.current_task.as_ref().unwrap() {
-            ModeratorTask::Add(_) => {
-                "failed to add a participant to the group"
-            }
-            ModeratorTask::Remove(_) => {
-                "failed to remove a participant from the group"
-            }
-            ModeratorTask::Update(_) => {
-                "failed to update state of the participant"
-            }
+            ModeratorTask::Add(_) => "failed to add a participant to the group",
+            ModeratorTask::Remove(_) => "failed to remove a participant from the group",
+            ModeratorTask::Update(_) => "failed to update state of the participant",
         };
 
         // 2. notify the application
-        if let Err(e) = self.common.tx.send_to_app(Err(SessionError::ModeratorTask(error_message.to_string()))).await {
+        if let Err(e) = self
+            .common
+            .tx
+            .send_to_app(Err(SessionError::ModeratorTask(error_message.to_string())))
+            .await
+        {
             error!("failed to notify application: {}", e);
         }
 
@@ -273,8 +276,6 @@ where
             closing: false,
         }
     }
-
-
 
     /// message processing functions
     async fn on_discovery_request(&mut self, mut msg: Message) -> Result<(), SessionError> {

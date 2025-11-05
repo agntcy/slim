@@ -69,7 +69,6 @@ dependencies = [
  "pin-project",
  "rand 0.9.2",
  "reqwest",
- "rustls",
  "schemars 1.0.4",
  "serde",
  "serde_json",

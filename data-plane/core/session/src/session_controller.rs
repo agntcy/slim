@@ -19,10 +19,15 @@ use slim_datapath::{
 
 // Local crate
 use crate::{
-    MessageDirection, SessionError, Transmitter, common::SessionMessage,
-    controller_sender::ControllerSender, session::Session, session_config::SessionConfig,
-    session_controller_builder::SessionControllerBuilder, session_moderator::SessionModerator,
-    session_participant::SessionParticipant, timer_factory::TimerSettings,
+    MessageDirection, SessionError, Transmitter,
+    common::SessionMessage,
+    controller_sender::ControllerSender,
+    session::Session,
+    session_builder::{ForController, SessionBuilder},
+    session_config::SessionConfig,
+    session_moderator::SessionModerator,
+    session_participant::SessionParticipant,
+    timer_factory::TimerSettings,
     transmitter::SessionTransmitter,
 };
 
@@ -33,19 +38,19 @@ use tracing::error;
 pub(crate) trait SessionProcessor: Send {
     /// Process a control message specific to the processor type
     async fn process_control_message(&mut self, message: Message) -> Result<(), SessionError>;
-    
+
     /// Get immutable reference to common state
     fn common(&self) -> &SessionControllerCommon;
-    
+
     /// Get mutable reference to common state
     fn common_mut(&mut self) -> &mut SessionControllerCommon;
-    
+
     /// Hook for custom handling before processing application messages
     /// Returns the potentially modified message
     fn on_before_app_message(&mut self, message: Message, _direction: MessageDirection) -> Message {
         message
     }
-    
+
     /// Hook for custom handling of timer failures for control messages
     /// Returns true if the default handling should be skipped
     async fn on_control_timer_failure(&mut self, _message_id: u32) -> bool {
@@ -68,23 +73,23 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     /// session id
-    id: u32,
+    pub(crate) id: u32,
 
     /// local name
-    source: Name,
+    pub(crate) source: Name,
 
     /// group or remote endpoint name
-    destination: Name,
+    pub(crate) destination: Name,
 
     /// session config
-    config: SessionConfig,
+    pub(crate) config: SessionConfig,
 
     /// controller (participant or moderator)
-    controller: SessionControllerImpl<P, V>,
+    pub(crate) controller: SessionControllerImpl<P, V>,
 
     /// use in drop implementation to close immediately
     /// the session processor loop
-    cancellation_token: CancellationToken,
+    pub(crate) cancellation_token: CancellationToken,
 }
 
 impl<P, V> SessionController<P, V>
@@ -92,47 +97,28 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    pub async fn new(
+    /// Returns a new SessionBuilder for constructing a SessionController
+    pub fn builder() -> SessionBuilder<P, V, ForController> {
+        SessionBuilder::for_controller()
+    }
+
+    /// Internal constructor for the builder to use
+    pub(crate) fn from_parts(
         id: u32,
         source: Name,
         destination: Name,
         config: SessionConfig,
-        identity_provider: P,
-        identity_verifier: V,
-        storage_path: std::path::PathBuf,
-        tx: SessionTransmitter,
-        tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
-    ) -> Result<Self, SessionError> {
-        let session_config = config.clone();
-        let cancellation_token = CancellationToken::new();
-
-        let builder = SessionControllerBuilder::new()
-            .with_id(id)
-            .with_source(source.clone())
-            .with_destination(destination.clone())
-            .with_config(config.clone())
-            .with_identity_provider(identity_provider)
-            .with_identity_verifier(identity_verifier)
-            .with_storage_path(storage_path)
-            .with_tx(tx)
-            .with_tx_to_session_layer(tx_to_session_layer)
-            .with_cancellation_token(cancellation_token.clone())
-            .ready()?;
-
-        let controller = if config.initiator {
-            SessionControllerImpl::SessionModerator(builder.build_moderator().await)
-        } else {
-            SessionControllerImpl::SessionParticipant(builder.build_participant().await)
-        };
-
-        Ok(SessionController {
+        controller: SessionControllerImpl<P, V>,
+        cancellation_token: CancellationToken,
+    ) -> Self {
+        Self {
             id,
             source,
             destination,
-            config: session_config,
+            config,
             controller,
             cancellation_token,
-        })
+        }
     }
 
     /// getters
@@ -599,7 +585,7 @@ impl SessionControllerCommon {
                                         let common = processor.common_mut();
                                         common.sender.on_timer_failure(message_id).await;
                                     }
-                                    
+
                                     // Allow processor to do custom handling
                                     let _ = processor.on_control_timer_failure(message_id).await;
                                 } else {
@@ -677,7 +663,7 @@ mod tests {
             metadata: std::collections::HashMap::new(),
         };
 
-        let moderator = SessionControllerBuilder::new()
+        let moderator = SessionBuilder::for_moderator()
             .with_id(session_id)
             .with_source(moderator_name.clone())
             .with_destination(participant_name.clone())
@@ -690,7 +676,7 @@ mod tests {
             .with_cancellation_token(cancellation_token.clone())
             .ready()
             .expect("failed to validate builder")
-            .build_moderator()
+            .build()
             .await;
 
         // create a SessionParticipant
@@ -711,7 +697,7 @@ mod tests {
             metadata: std::collections::HashMap::new(),
         };
 
-        let participant = SessionControllerBuilder::new()
+        let participant = SessionBuilder::for_participant()
             .with_id(session_id)
             .with_source(participant_name_id.clone())
             .with_destination(moderator_name.clone())
@@ -724,7 +710,7 @@ mod tests {
             .with_cancellation_token(cancellation_token.clone())
             .ready()
             .expect("failed to validate builder")
-            .build_participant()
+            .build()
             .await;
 
         // create a discovery request and send it on the moderator on message (direction south)

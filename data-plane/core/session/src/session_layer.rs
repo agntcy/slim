@@ -24,6 +24,7 @@ use crate::common::SessionMessage;
 use crate::notification::Notification;
 use crate::session_config::SessionConfig;
 use crate::session_controller::SessionController;
+
 use crate::transmitter::{AppTransmitter, SessionTransmitter};
 
 // Local crate
@@ -218,18 +219,20 @@ where
         tx.add_interceptor(identity_interceptor);
 
         let session_controller = Arc::new(
-            SessionController::new(
-                id,
-                local_name,
-                destination,
-                session_config,
-                self.identity_provider.clone(),
-                self.identity_verifier.clone(),
-                self.storage_path.clone(),
-                tx,
-                self.tx_session.clone(),
-            )
-            .await?,
+            SessionController::builder()
+                .with_id(id)
+                .with_source(local_name)
+                .with_destination(destination)
+                .with_config(session_config)
+                .with_identity_provider(self.identity_provider.clone())
+                .with_identity_verifier(self.identity_verifier.clone())
+                .with_storage_path(self.storage_path.clone())
+                .with_tx(tx)
+                .with_tx_to_session_layer(self.tx_session.clone())
+                .with_cancellation_token(tokio_util::sync::CancellationToken::new())
+                .ready()?
+                .build()
+                .await?,
         );
 
         let ret = pool.insert(id, session_controller.clone());

@@ -16,8 +16,10 @@ use crate::{
     common::{MessageDirection, SessionMessage},
     errors::SessionError,
     mls_state::MlsState,
+    session_builder::{ForParticipant, SessionBuilder},
     session_config::SessionConfig,
     session_controller::{SessionControllerCommon, SessionProcessor},
+    session_settings::SessionSettings,
     transmitter::SessionTransmitter,
 };
 
@@ -35,33 +37,27 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    pub(crate) async fn new(
-        id: u32,
-        source: Name,
-        destination: Name,
-        config: SessionConfig,
-        identity_provider: P,
-        identity_verifier: V,
-        storage_path: std::path::PathBuf,
-        tx: SessionTransmitter,
-        tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
-        cancellation_token: CancellationToken,
-    ) -> Self {
+    /// Returns a new SessionBuilder for constructing a SessionParticipant
+    pub fn builder() -> SessionBuilder<P, V, ForParticipant> {
+        SessionBuilder::for_participant()
+    }
+
+    pub(crate) async fn new(settings: SessionSettings<P, V>) -> Self {
         let (tx_controller, rx_controller) = tokio::sync::mpsc::channel(128);
 
         let processor = SessionParticipantProcessor::new(
-            id,
-            source,
-            destination,
-            config,
-            identity_provider,
-            identity_verifier,
-            storage_path,
-            tx,
+            settings.id,
+            settings.source,
+            settings.destination,
+            settings.config,
+            settings.identity_provider,
+            settings.identity_verifier,
+            settings.storage_path,
+            settings.tx,
             tx_controller.clone(),
             rx_controller,
-            tx_to_session_layer,
-            cancellation_token,
+            settings.tx_to_session_layer,
+            settings.cancellation_token,
         )
         .await;
 
@@ -207,8 +203,6 @@ where
             subscribed: false,
         }
     }
-
-
 
     async fn on_join_request(&mut self, msg: Message) -> Result<(), SessionError> {
         debug!(

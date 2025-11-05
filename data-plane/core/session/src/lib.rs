@@ -13,14 +13,15 @@ pub mod notification;
 pub mod producer_buffer;
 pub mod receiver_buffer;
 pub mod session;
+mod session_builder;
 pub mod session_config;
 pub mod session_controller;
-mod session_controller_builder;
 mod session_layer;
 mod session_moderator;
 mod session_participant;
 pub mod session_receiver;
 pub mod session_sender;
+mod session_settings;
 pub mod timer;
 pub mod timer_factory;
 mod traits;
@@ -28,6 +29,9 @@ pub mod transmitter;
 
 // Traits
 pub use traits::Transmitter;
+
+// Re-export the unified builder for convenience
+pub use session_builder::{ForController, ForModerator, ForParticipant, SessionBuilder};
 
 // Session Errors
 pub use errors::SessionError;
