@@ -807,32 +807,32 @@ impl MessageProcessor {
             }
 
             if !connected {
+                //delete connection state
+                let (local_subs, _remote_subs) = self_clone
+                    .forwarder()
+                    .on_connection_drop(conn_index, is_local);
+
                 // if connection is not local and controller exists, notify about lost subscriptions on the connection
                 if let (false, Some(tx)) = (is_local, tx_cp) {
-                    let subscriptions = self_clone
-                        .forwarder()
-                        .get_local_subscriptions_on_connection(conn_index);
-
-                    if !subscriptions.is_empty() {
-                        for subscription in subscriptions {
-                            debug!(
-                                "notify control plane about lost subscription: {}",
-                                subscription
+                    for local_sub in local_subs {
+                        debug!(
+                            "notify control plane about lost subscription: {}",
+                            local_sub
+                        );
+                        let msg = Message::new_unsubscribe(
+                            &local_sub,
+                            &local_sub,
+                            None,
+                            Some(SlimHeaderFlags::default().with_recv_from(conn_index)),
+                        );
+                        if let Err(e) = tx.send(Ok(msg)).await {
+                            error!(
+                                "failed to send unsubscribe message to control plane for subscription {}: {}",
+                                local_sub, e
                             );
-                            let msg = Message::new_unsubscribe(
-                                &subscription,
-                                &subscription,
-                                None,
-                                Some(SlimHeaderFlags::default().with_recv_from(conn_index)),
-                            );
-                            let _ = tx.send(Ok(msg)).await;
                         }
                     }
                 }
-                // delete connection state
-                self_clone
-                    .forwarder()
-                    .on_connection_drop(conn_index, is_local);
 
                 info!(telemetry = true, counter.num_active_connections = -1);
             }
