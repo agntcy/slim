@@ -12,9 +12,15 @@ builds:
       - MAIN_MODULE="github.com/agntcy/slim"
 
     goos:
-      #      - linux
-      #      - windows
       - darwin
+      - linux
+#      - windows
+
+    goarch:
+      - amd64
+      - arm64
+#      - 386
+
     ldflags:
       - -X '{{.Env.MAIN_MODULE}}/control-plane/slimctl/internal/cmd/version.semVersion={{.Version}}'
       - -X '{{.Env.MAIN_MODULE}}/control-plane/slimctl/internal/cmd/version.gitCommit={{.Commit}}'

@@ -26,9 +26,6 @@ jobs:
 
     strategy:
       fail-fast: false
-      matrix:
-        os: [ darwin, linux ]
-        arch: [ amd64, arm64 ]
 
     steps:
       - name: Checkout Repo
