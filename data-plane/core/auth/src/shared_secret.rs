@@ -64,6 +64,7 @@ use std::{
 
 use crate::{
     errors::AuthError,
+    metadata::MetadataMap,
     traits::{TokenProvider, Verifier},
 };
 
@@ -456,10 +457,7 @@ impl TokenProvider for SharedSecret {
         Ok(format!("{}:{}:{}::{}", self.id(), ts, nonce, mac))
     }
 
-    async fn get_token_with_claims(
-        &self,
-        custom_claims: std::collections::HashMap<String, serde_json::Value>,
-    ) -> Result<String, AuthError> {
+    async fn get_token_with_claims(&self, custom_claims: MetadataMap) -> Result<String, AuthError> {
         if self.0.shared_secret.is_empty() {
             return Err(AuthError::TokenInvalid(
                 "shared_secret is empty".to_string(),
@@ -854,15 +852,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_custom_claims() {
-        use serde_json::json;
-
         let s = SharedSecret::new("svc", &valid_secret());
 
         // Create custom claims
-        let mut custom_claims = std::collections::HashMap::new();
-        custom_claims.insert("user_id".to_string(), json!("user-123"));
-        custom_claims.insert("role".to_string(), json!("admin"));
-        custom_claims.insert("tenant_id".to_string(), json!("tenant-456"));
+        let mut custom_claims = MetadataMap::new();
+        custom_claims.insert("user_id", "user-123");
+        custom_claims.insert("role", "admin");
+        custom_claims.insert("tenant_id", "tenant-456");
 
         // Generate token with custom claims
         let token = s.get_token_with_claims(custom_claims).await.unwrap();
@@ -895,7 +891,7 @@ mod tests {
         let s = SharedSecret::new("svc", &valid_secret());
 
         // Generate token with empty custom claims
-        let custom_claims = std::collections::HashMap::new();
+        let custom_claims = MetadataMap::new();
         let token = s.get_token_with_claims(custom_claims).await.unwrap();
 
         // Verify token format (5 parts)

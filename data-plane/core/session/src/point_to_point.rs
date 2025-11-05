@@ -1358,8 +1358,8 @@ mod tests {
     use crate::{
         session_controller::handle_channel_discovery_message, transmitter::SessionTransmitter,
     };
-    use slim_auth::testutils::TEST_VALID_SECRET;
     use slim_datapath::{api::ProtoMessage, messages::Name};
+    use slim_testing::utils::TEST_VALID_SECRET;
 
     #[tokio::test]
     async fn test_point_to_point_create() {

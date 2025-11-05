@@ -17,6 +17,10 @@ services:
       clients:
         - endpoint: "https://localhost:46357"
           tls:
-            ca_file: "./config/crypto/server-ca-cert.pem"
-            cert_file: "./config/crypto/client-cert.pem"
-            key_file: "./config/crypto/client-key.pem"
+            source:
+              type: file
+              cert: "./config/crypto/client-cert.pem"
+              key: "./config/crypto/client-key.pem"
+            ca_source:
+              type: file
+              path: "./config/crypto/server-ca-cert.pem"

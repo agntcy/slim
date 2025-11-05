@@ -37,7 +37,6 @@ jobs:
     with:
       bake-targets: slim
       image-tag: ${{ github.sha }}
-      cache-source: data-plane/target
 
   mcp-proxy-docker-build:
     name: Build SLIM MCP Proxy docker image
@@ -48,7 +47,6 @@ jobs:
 
   data-plane-bindings-examples-docker-build:
     name: Build Python examples docker image
-    if:
     uses: ./.github/workflows/reusable-docker-build-push.yaml
     with:
       bake-targets: bindings-examples

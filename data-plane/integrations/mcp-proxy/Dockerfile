@@ -46,6 +46,10 @@ curl -1sLf 'https://dl.cloudsmith.io/public/task/task/setup.deb.sh' | bash
 apt-get install -y task
 EOF
 
+# Copy source code
+COPY . /app
+WORKDIR /app/data-plane/integrations/mcp-proxy
+
 # Build debug application
 RUN <<EOF
 case ${TARGETARCH} in
