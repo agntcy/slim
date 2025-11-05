@@ -4,10 +4,17 @@
 use std::marker::PhantomData;
 
 use slim_auth::traits::{TokenProvider, Verifier};
-use slim_datapath::messages::Name;
+use slim_datapath::{
+    api::{
+        CommandPayload, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType,
+        SessionHeader, SlimHeader,
+    },
+    messages::Name,
+};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
+    MessageDirection,
     common::SessionMessage,
     errors::SessionError,
     session_config::SessionConfig,
@@ -298,14 +305,41 @@ where
             SessionControllerImpl::SessionParticipant(self.build_participant_impl().await)
         };
 
-        Ok(SessionController::from_parts(
+        let session_controller = SessionController::from_parts(
             id,
             source,
             destination,
             config,
             controller,
             cancellation_token,
-        ))
+        );
+
+        // if the session is a p2p session and the session is created
+        // as initiator we need to invite the remote participant
+        if session_controller.is_initiator()
+            && session_controller.session_type() == ProtoSessionType::PointToPoint
+        {
+            // send a discovery request
+            let slim_header = Some(SlimHeader::new(
+                session_controller.source(),
+                session_controller.dst(),
+                "",
+                None,
+            ));
+            let session_header = Some(SessionHeader::new(
+                session_controller.session_type().into(),
+                ProtoSessionMessageType::DiscoveryRequest.into(),
+                session_controller.id(),
+                rand::random::<u32>(),
+            ));
+            let payload = Some(CommandPayload::new_discovery_request_payload(None).as_content());
+            let discovery = Message::new_publish_with_headers(slim_header, session_header, payload);
+            session_controller
+                .on_message(discovery, MessageDirection::South)
+                .await?;
+        }
+
+        Ok(session_controller)
     }
 
     async fn build_moderator_impl(self) -> SessionModerator<P, V> {
