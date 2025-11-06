@@ -363,6 +363,7 @@ pub struct PySessionConfiguration {
 }
 
 // TODO(msardara): unify the configs as now they became identical
+#[gen_stub_pymethods]
 #[pymethods]
 impl PySessionConfiguration {
     /// Create a PointToPoint session configuration.

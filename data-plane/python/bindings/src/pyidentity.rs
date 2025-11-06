@@ -30,7 +30,9 @@
 //   exceptions when methods are invoked across the boundary.
 
 use pyo3::prelude::*;
-use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pyclass_enum, gen_stub_pymethods};
+use pyo3_stub_gen::derive::{
+    gen_stub_pyclass, gen_stub_pyclass_complex_enum, gen_stub_pyclass_enum, gen_stub_pymethods,
+};
 
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::builder::JwtBuilder;
@@ -100,7 +102,7 @@ impl From<PyAlgorithm> for Algorithm {
 /// Either a path on disk (`File`) or inline string content (`Content`)
 /// containing the encoded key. The interpretation depends on the
 /// accompanying `PyKeyFormat`.
-#[gen_stub_pyclass_enum]
+#[gen_stub_pyclass_complex_enum]
 #[derive(Clone, PartialEq)]
 #[pyclass(eq)]
 pub(crate) enum PyKeyData {
@@ -277,9 +279,9 @@ pub(crate) type IdentityProvider = AuthProvider;
 /// )
 /// # Verifier would normally use the corresponding public key (PyIdentityVerifier.Jwt).
 /// ```
-#[gen_stub_pyclass_enum]
-#[derive(Clone, PartialEq)]
-#[pyclass(eq)]
+#[gen_stub_pyclass_complex_enum]
+#[derive(Clone)]
+#[pyclass()]
 pub(crate) enum PyIdentityProvider {
     #[pyo3(constructor = (path))]
     StaticJwt { path: String },
@@ -443,7 +445,7 @@ pub(crate) type IdentityVerifier = AuthVerifier;
 ///     require_sub=True,
 /// )
 /// ```
-#[gen_stub_pyclass_enum]
+#[gen_stub_pyclass_complex_enum]
 #[derive(Clone, PartialEq)]
 #[pyclass(eq)]
 pub(crate) enum PyIdentityVerifier {

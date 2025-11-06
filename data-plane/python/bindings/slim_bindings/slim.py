@@ -3,7 +3,7 @@
 
 from datetime import timedelta
 
-from slim_bindings._slim_bindings import (  # type: ignore[attr-defined]
+from slim_bindings._slim_bindings import (
     PyApp,
     PyIdentityProvider,
     PyIdentityVerifier,
