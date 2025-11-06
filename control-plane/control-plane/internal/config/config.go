@@ -119,7 +119,7 @@ func DefaultConfig() *ControlPlaneConfig {
 			MaxNumOfParallelReconciles: 1000,
 		}, // Default to 3 threads
 		DatabaseConfig{
-			FilePath: "controlplane.db",
+			FilePath: "db/controlplane.db",
 		},
 	}
 }

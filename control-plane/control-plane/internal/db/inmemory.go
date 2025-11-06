@@ -11,7 +11,7 @@ import (
 
 type dbService struct {
 	nodes    map[string]Node
-	routes   map[string]Route
+	routes   map[uint64]Route
 	channels map[string]Channel
 	mu       sync.RWMutex
 }
@@ -19,7 +19,7 @@ type dbService struct {
 func NewInMemoryDBService() DataAccess {
 	return &dbService{
 		nodes:    make(map[string]Node),
-		routes:   make(map[string]Route, 100),
+		routes:   make(map[uint64]Route, 100),
 		channels: make(map[string]Channel),
 	}
 }
@@ -123,7 +123,7 @@ func (d *dbService) SaveNode(node Node) (string, bool, error) {
 	} else {
 		// Check if node exists and compare connection details
 		if existingNode, exists := d.nodes[node.ID]; exists {
-			connDetailsChanged = d.hasConnectionDetailsChanged(existingNode.ConnDetails, node.ConnDetails)
+			connDetailsChanged = hasConnectionDetailsChanged(existingNode.ConnDetails, node.ConnDetails)
 		} else {
 			connDetailsChanged = false
 		}
@@ -133,93 +133,6 @@ func (d *dbService) SaveNode(node Node) (string, bool, error) {
 	d.nodes[node.ID] = node
 
 	return node.ID, connDetailsChanged, nil
-}
-
-// hasConnectionDetailsChanged compares two slices of ConnectionDetails and returns true if they differ
-func (d *dbService) hasConnectionDetailsChanged(existing, newConnDetails []ConnectionDetails) bool {
-	// If lengths are different, details have changed
-	if len(existing) != len(newConnDetails) {
-		return true
-	}
-
-	// Create maps for efficient comparison
-	existingMap := make(map[string]ConnectionDetails)
-	for _, cd := range existing {
-		key := d.getConnectionDetailsKey(cd)
-		existingMap[key] = cd
-	}
-
-	newMap := make(map[string]ConnectionDetails)
-	for _, cd := range newConnDetails {
-		key := d.getConnectionDetailsKey(cd)
-		newMap[key] = cd
-	}
-
-	// Check if all existing connections are still present and unchanged
-	for key, existingCD := range existingMap {
-		newCD, exists := newMap[key]
-		if !exists {
-			return true // Connection removed
-		}
-		if !d.connectionDetailsEqual(existingCD, newCD) {
-			return true // Connection details changed
-		}
-	}
-
-	// Check if there are any new connections
-	for key := range newMap {
-		if _, exists := existingMap[key]; !exists {
-			return true // New connection added
-		}
-	}
-
-	return false
-}
-
-// getConnectionDetailsKey creates a unique key for a ConnectionDetails for comparison
-func (d *dbService) getConnectionDetailsKey(cd ConnectionDetails) string {
-	return cd.Endpoint // Use endpoint as the primary key
-}
-
-// connectionDetailsEqual compares two ConnectionDetails structs for equality
-func (d *dbService) connectionDetailsEqual(cd1, cd2 ConnectionDetails) bool {
-	// Compare Endpoint
-	if cd1.Endpoint != cd2.Endpoint {
-		return false
-	}
-
-	// Compare MTLSRequired
-	if cd1.MTLSRequired != cd2.MTLSRequired {
-		return false
-	}
-
-	// Compare ExternalEndpoint (handling nil pointers)
-	if cd1.ExternalEndpoint == nil && cd2.ExternalEndpoint != nil {
-		return false
-	}
-	if cd1.ExternalEndpoint != nil && cd2.ExternalEndpoint == nil {
-		return false
-	}
-	if cd1.ExternalEndpoint != nil && cd2.ExternalEndpoint != nil {
-		if *cd1.ExternalEndpoint != *cd2.ExternalEndpoint {
-			return false
-		}
-	}
-
-	// Compare GroupName (handling nil pointers)
-	if cd1.GroupName == nil && cd2.GroupName != nil {
-		return false
-	}
-	if cd1.GroupName != nil && cd2.GroupName == nil {
-		return false
-	}
-	if cd1.GroupName != nil && cd2.GroupName != nil {
-		if *cd1.GroupName != *cd2.GroupName {
-			return false
-		}
-	}
-
-	return true
 }
 
 // DeleteNode implements DataAccess.
@@ -237,12 +150,11 @@ func (d *dbService) DeleteNode(id string) error {
 }
 
 func (d *dbService) AddRoute(route Route) (Route, error) {
-	//routeID := route.toString()
-	routeID := uuid.New().String()
+	routeID := route.GetUniqueID()
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if _, exists := d.routes[routeID]; exists {
-		return Route{}, fmt.Errorf("route %s already exists", routeID)
+		return Route{}, fmt.Errorf("route %s already exists", route.String())
 	}
 
 	// Add route to the map
@@ -252,23 +164,23 @@ func (d *dbService) AddRoute(route Route) (Route, error) {
 	return route, nil
 }
 
-func (d *dbService) DeleteRoute(routeID string) error {
+func (d *dbService) DeleteRoute(routeID uint64) error {
 	// Remove route from the map
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if _, exists := d.routes[routeID]; !exists {
-		return fmt.Errorf("route %s not found", routeID)
+		return fmt.Errorf("route %v not found", routeID)
 	}
 	delete(d.routes, routeID)
 	return nil
 }
 
-func (d *dbService) MarkRouteAsDeleted(routeID string) error {
+func (d *dbService) MarkRouteAsDeleted(routeID uint64) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	route, exists := d.routes[routeID]
 	if !exists {
-		return fmt.Errorf("route %s not found", routeID)
+		return fmt.Errorf("route %v not found", routeID)
 	}
 	route.LastUpdated = time.Now()
 	route.Deleted = true
@@ -277,12 +189,12 @@ func (d *dbService) MarkRouteAsDeleted(routeID string) error {
 }
 
 // MarkRouteAsApplied implements DataAccess.
-func (d *dbService) MarkRouteAsApplied(routeID string) error {
+func (d *dbService) MarkRouteAsApplied(routeID uint64) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	route, exists := d.routes[routeID]
 	if !exists {
-		return fmt.Errorf("route %s not found", routeID)
+		return fmt.Errorf("route %v not found", routeID)
 	}
 	route.LastUpdated = time.Now()
 	route.Status = RouteStatusApplied
@@ -291,12 +203,12 @@ func (d *dbService) MarkRouteAsApplied(routeID string) error {
 }
 
 // MarkRouteAsFailed implements DataAccess.
-func (d *dbService) MarkRouteAsFailed(routeID string, msg string) error {
+func (d *dbService) MarkRouteAsFailed(routeID uint64, msg string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	route, exists := d.routes[routeID]
 	if !exists {
-		return fmt.Errorf("route %s not found", routeID)
+		return fmt.Errorf("route %v not found", routeID)
 	}
 	route.LastUpdated = time.Now()
 	route.Status = RouteStatusFailed
@@ -305,7 +217,7 @@ func (d *dbService) MarkRouteAsFailed(routeID string, msg string) error {
 	return nil
 }
 
-func (d *dbService) GetRouteByID(routeID string) *Route {
+func (d *dbService) GetRouteByID(routeID uint64) *Route {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	if _, exists := d.routes[routeID]; !exists {

@@ -23,11 +23,9 @@ type DataAccessImplementation struct {
 func getDataAccessImplementations() []DataAccessImplementation {
 	return []DataAccessImplementation{
 		{
-			Name: "InMemoryDBService",
-			Factory: func() DataAccess {
-				return NewInMemoryDBService()
-			},
-			Cleanup: func(da DataAccess) {
+			Name:    "InMemoryDBService",
+			Factory: NewInMemoryDBService,
+			Cleanup: func(_ DataAccess) {
 				// InMemory doesn't need cleanup
 			},
 		},
@@ -115,7 +113,7 @@ func testRouteOperations(t *testing.T, da DataAccess) {
 	assert.Equal(t, route1.ComponentID.GetValue(), retrievedRoute.ComponentID.GetValue())
 
 	// Test GetRouteByID with non-existent ID
-	nonExistentRoute := da.GetRouteByID("non-existent-id")
+	nonExistentRoute := da.GetRouteByID(0)
 	assert.Nil(t, nonExistentRoute, "GetRouteByID should return nil for non-existent route")
 
 	// Test GetRoutesForNodeID
@@ -148,7 +146,7 @@ func testRouteOperations(t *testing.T, da DataAccess) {
 	assert.Equal(t, RouteStatusApplied, updatedRoute.Status, "Route status should be Applied")
 
 	// Test MarkRouteAsApplied with non-existent ID
-	err = da.MarkRouteAsApplied("non-existent-id")
+	err = da.MarkRouteAsApplied(0)
 	assert.Error(t, err, "MarkRouteAsApplied should return error for non-existent route")
 
 	// Test MarkRouteAsFailed
@@ -162,7 +160,7 @@ func testRouteOperations(t *testing.T, da DataAccess) {
 	assert.Equal(t, failureMsg, failedRoute.StatusMsg, "Status message should be set")
 
 	// Test MarkRouteAsFailed with non-existent ID
-	err = da.MarkRouteAsFailed("non-existent-id", "some error")
+	err = da.MarkRouteAsFailed(0, "some error")
 	assert.Error(t, err, "MarkRouteAsFailed should return error for non-existent route")
 
 	// Test MarkRouteAsDeleted
@@ -174,7 +172,7 @@ func testRouteOperations(t *testing.T, da DataAccess) {
 	assert.True(t, deletedRoute.Deleted, "Route should be marked as deleted")
 
 	// Test MarkRouteAsDeleted with non-existent ID
-	err = da.MarkRouteAsDeleted("non-existent-id")
+	err = da.MarkRouteAsDeleted(0)
 	assert.Error(t, err, "MarkRouteAsDeleted should return error for non-existent route")
 
 	// Test DeleteRoute
@@ -185,7 +183,7 @@ func testRouteOperations(t *testing.T, da DataAccess) {
 	assert.Nil(t, deletedRoute, "Route should be completely removed")
 
 	// Test DeleteRoute with non-existent ID
-	err = da.DeleteRoute("non-existent-id")
+	err = da.DeleteRoute(0)
 	assert.Error(t, err, "DeleteRoute should return error for non-existent route")
 
 	// Test ComponentID nil handling
@@ -454,15 +452,15 @@ func testConcurrentOperations(t *testing.T, da DataAccess) {
 	for i := 0; i < numGoroutines; i++ {
 		go func(workerID int) {
 			defer func() { done <- true }()
-
-			for j := 0; j < operationsPerGoroutine; j++ {
+			var j uint64
+			for j = 0; j < operationsPerGoroutine; j++ {
 				route := Route{
 					SourceNodeID: fmt.Sprintf("worker-%d", workerID),
 					DestNodeID:   fmt.Sprintf("dest-%d-%d", workerID, j),
 					Component0:   "org",
 					Component1:   "service",
 					Component2:   "method",
-					ComponentID:  wrapperspb.UInt64(uint64(j)),
+					ComponentID:  wrapperspb.UInt64(j),
 					Status:       RouteStatusFailed,
 					LastUpdated:  time.Now(),
 				}
@@ -540,14 +538,15 @@ func BenchmarkDataAccess_GetRoutesForNodeID(b *testing.B) {
 
 			// Setup: Add some routes
 			nodeID := "benchmark-node"
-			for i := 0; i < 1000; i++ {
+			var i uint64
+			for i = 0; i < 1000; i++ {
 				route := Route{
 					SourceNodeID: nodeID,
 					DestNodeID:   fmt.Sprintf("dest-%d", i),
 					Component0:   "org",
 					Component1:   "service",
 					Component2:   "method",
-					ComponentID:  wrapperspb.UInt64(uint64(i)),
+					ComponentID:  wrapperspb.UInt64(i),
 					Status:       RouteStatusFailed,
 					LastUpdated:  time.Now(),
 				}

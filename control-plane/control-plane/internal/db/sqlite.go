@@ -2,9 +2,11 @@ package db
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -28,7 +30,7 @@ func (NodeModel) TableName() string {
 }
 
 type RouteModel struct {
-	ID             string `gorm:"primaryKey"`
+	ID             uint64 `gorm:"primaryKey"`
 	SourceNodeID   string
 	DestNodeID     string
 	DestEndpoint   string
@@ -93,7 +95,7 @@ func (s *SQLiteDBService) ListNodes() []Node {
 func (s *SQLiteDBService) GetNode(id string) (*Node, error) {
 	var nodeModel NodeModel
 	if err := s.db.First(&nodeModel, "id = ?", id).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("node with ID %s not found", id)
 		}
 		return nil, err
@@ -107,12 +109,12 @@ func (s *SQLiteDBService) SaveNode(node Node) (string, bool, error) {
 	connDetailsChanged := false
 
 	if node.ID == "" {
-		node.ID = generateUUID()
+		node.ID = uuid.New().String()
 	} else {
 		// Check if node exists and compare connection details
 		existing, err := s.GetNode(node.ID)
 		if err == nil {
-			connDetailsChanged = s.hasConnectionDetailsChanged(existing.ConnDetails, node.ConnDetails)
+			connDetailsChanged = hasConnectionDetailsChanged(existing.ConnDetails, node.ConnDetails)
 		}
 	}
 
@@ -139,8 +141,7 @@ func (s *SQLiteDBService) DeleteNode(id string) error {
 
 // Route operations
 func (s *SQLiteDBService) AddRoute(route Route) (Route, error) {
-	//route.ID = route.toString()
-	route.ID = generateUUID()
+	route.ID = route.GetUniqueID()
 	route.LastUpdated = time.Now()
 
 	routeModel := s.routeToRouteModel(route)
@@ -171,16 +172,16 @@ func (s *SQLiteDBService) GetRoutesForDestinationNodeID(nodeID string) []Route {
 	return routes
 }
 
-func (s *SQLiteDBService) GetRoutesForDestinationNodeIDAndName(nodeID string, Component0 string, Component1 string,
-	Component2 string, ComponentID *wrapperspb.UInt64Value) []Route {
+func (s *SQLiteDBService) GetRoutesForDestinationNodeIDAndName(nodeID string, component0 string, component1 string,
+	component2 string, componentID *wrapperspb.UInt64Value) []Route {
 
 	query := s.db.Where("dest_node_id = ? AND component0 = ? AND component1 = ? AND component2 = ?",
-		nodeID, Component0, Component1, Component2)
+		nodeID, component0, component1, component2)
 
-	if ComponentID == nil {
+	if componentID == nil {
 		query = query.Where("component_id IS NULL")
 	} else {
-		query = query.Where("component_id = ?", ComponentID.Value)
+		query = query.Where("component_id = ?", componentID.Value)
 	}
 
 	var routeModels []RouteModel
@@ -193,11 +194,11 @@ func (s *SQLiteDBService) GetRoutesForDestinationNodeIDAndName(nodeID string, Co
 	return routes
 }
 
-func (s *SQLiteDBService) GetRouteForSrcAndDestinationAndName(srcNodeID string, Component0 string, Component1 string,
-	Component2 string, ComponentID *wrapperspb.UInt64Value, destNodeID string, destEndpoint string) (Route, error) {
+func (s *SQLiteDBService) GetRouteForSrcAndDestinationAndName(srcNodeID string, component0 string, component1 string,
+	component2 string, componentID *wrapperspb.UInt64Value, destNodeID string, destEndpoint string) (Route, error) {
 
 	query := s.db.Where("source_node_id = ? AND component0 = ? AND component1 = ? AND component2 = ?",
-		srcNodeID, Component0, Component1, Component2)
+		srcNodeID, component0, component1, component2)
 
 	if destNodeID != "" {
 		query = query.Where("dest_node_id = ?", destNodeID)
@@ -206,15 +207,15 @@ func (s *SQLiteDBService) GetRouteForSrcAndDestinationAndName(srcNodeID string, 
 		query = query.Where("dest_endpoint = ?", destEndpoint)
 	}
 
-	if ComponentID == nil {
+	if componentID == nil {
 		query = query.Where("component_id IS NULL")
 	} else {
-		query = query.Where("component_id = ?", ComponentID.Value)
+		query = query.Where("component_id = ?", componentID.Value)
 	}
 
 	var routeModel RouteModel
 	if err := query.First(&routeModel).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return Route{}, fmt.Errorf("route not found")
 		}
 		return Route{}, err
@@ -243,7 +244,7 @@ func (s *SQLiteDBService) FilterRoutesBySourceAndDestination(sourceNodeID string
 	return routes
 }
 
-func (s *SQLiteDBService) GetRouteByID(routeID string) *Route {
+func (s *SQLiteDBService) GetRouteByID(routeID uint64) *Route {
 	var routeModel RouteModel
 	if err := s.db.First(&routeModel, "id = ?", routeID).Error; err != nil {
 		return nil
@@ -253,18 +254,18 @@ func (s *SQLiteDBService) GetRouteByID(routeID string) *Route {
 	return &route
 }
 
-func (s *SQLiteDBService) DeleteRoute(routeID string) error {
+func (s *SQLiteDBService) DeleteRoute(routeID uint64) error {
 	result := s.db.Delete(&RouteModel{}, "id = ?", routeID)
 	if result.Error != nil {
 		return result.Error
 	}
 	if result.RowsAffected == 0 {
-		return fmt.Errorf("route %s not found", routeID)
+		return fmt.Errorf("route %v not found", routeID)
 	}
 	return nil
 }
 
-func (s *SQLiteDBService) MarkRouteAsDeleted(routeID string) error {
+func (s *SQLiteDBService) MarkRouteAsDeleted(routeID uint64) error {
 	result := s.db.Model(&RouteModel{}).Where("id = ?", routeID).Updates(map[string]interface{}{
 		"deleted":      true,
 		"last_updated": time.Now(),
@@ -273,12 +274,12 @@ func (s *SQLiteDBService) MarkRouteAsDeleted(routeID string) error {
 		return result.Error
 	}
 	if result.RowsAffected == 0 {
-		return fmt.Errorf("route %s not found", routeID)
+		return fmt.Errorf("route %v not found", routeID)
 	}
 	return nil
 }
 
-func (s *SQLiteDBService) MarkRouteAsApplied(routeID string) error {
+func (s *SQLiteDBService) MarkRouteAsApplied(routeID uint64) error {
 	result := s.db.Model(&RouteModel{}).Where("id = ?", routeID).Updates(map[string]interface{}{
 		"status":       int(RouteStatusApplied),
 		"last_updated": time.Now(),
@@ -287,12 +288,12 @@ func (s *SQLiteDBService) MarkRouteAsApplied(routeID string) error {
 		return result.Error
 	}
 	if result.RowsAffected == 0 {
-		return fmt.Errorf("route %s not found", routeID)
+		return fmt.Errorf("route %v not found", routeID)
 	}
 	return nil
 }
 
-func (s *SQLiteDBService) MarkRouteAsFailed(routeID string, msg string) error {
+func (s *SQLiteDBService) MarkRouteAsFailed(routeID uint64, msg string) error {
 	result := s.db.Model(&RouteModel{}).Where("id = ?", routeID).Updates(map[string]interface{}{
 		"status":       int(RouteStatusFailed),
 		"status_msg":   msg,
@@ -302,7 +303,7 @@ func (s *SQLiteDBService) MarkRouteAsFailed(routeID string, msg string) error {
 		return result.Error
 	}
 	if result.RowsAffected == 0 {
-		return fmt.Errorf("route %s not found", routeID)
+		return fmt.Errorf("route %v not found", routeID)
 	}
 	return nil
 }
@@ -340,7 +341,7 @@ func (s *SQLiteDBService) DeleteChannel(channelID string) error {
 func (s *SQLiteDBService) GetChannel(channelID string) (Channel, error) {
 	var channelModel ChannelModel
 	if err := s.db.First(&channelModel, "id = ?", channelID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return Channel{}, fmt.Errorf("channel with ID %s not found", channelID)
 		}
 		return Channel{}, err
@@ -389,7 +390,7 @@ func (s *SQLiteDBService) nodeToNodeModel(node Node) NodeModel {
 
 func (s *SQLiteDBService) nodeModelToNode(nodeModel NodeModel) Node {
 	var connDetails []ConnectionDetails
-	json.Unmarshal([]byte(nodeModel.ConnDetailsJSON), &connDetails)
+	_ = json.Unmarshal([]byte(nodeModel.ConnDetailsJSON), &connDetails)
 
 	return Node{
 		ID:          nodeModel.ID,
@@ -458,87 +459,12 @@ func (s *SQLiteDBService) channelToChannelModel(channel Channel) ChannelModel {
 
 func (s *SQLiteDBService) channelModelToChannel(channelModel ChannelModel) Channel {
 	var moderators, participants []string
-	json.Unmarshal([]byte(channelModel.ModeratorsJSON), &moderators)
-	json.Unmarshal([]byte(channelModel.ParticipantsJSON), &participants)
+	_ = json.Unmarshal([]byte(channelModel.ModeratorsJSON), &moderators)
+	_ = json.Unmarshal([]byte(channelModel.ParticipantsJSON), &participants)
 
 	return Channel{
 		ID:           channelModel.ID,
 		Moderators:   moderators,
 		Participants: participants,
 	}
-}
-
-// Helper method for connection details comparison (reused from in-memory implementation)
-func (s *SQLiteDBService) hasConnectionDetailsChanged(existing, newConnDetails []ConnectionDetails) bool {
-	if len(existing) != len(newConnDetails) {
-		return true
-	}
-
-	existingMap := make(map[string]ConnectionDetails)
-	for _, cd := range existing {
-		key := cd.Endpoint
-		existingMap[key] = cd
-	}
-
-	newMap := make(map[string]ConnectionDetails)
-	for _, cd := range newConnDetails {
-		key := cd.Endpoint
-		newMap[key] = cd
-	}
-
-	for key, existingCD := range existingMap {
-		newCD, exists := newMap[key]
-		if !exists {
-			return true
-		}
-		if !s.connectionDetailsEqual(existingCD, newCD) {
-			return true
-		}
-	}
-
-	for key := range newMap {
-		if _, exists := existingMap[key]; !exists {
-			return true
-		}
-	}
-
-	return false
-}
-
-func (s *SQLiteDBService) connectionDetailsEqual(cd1, cd2 ConnectionDetails) bool {
-	if cd1.Endpoint != cd2.Endpoint || cd1.MTLSRequired != cd2.MTLSRequired {
-		return false
-	}
-
-	if cd1.ExternalEndpoint == nil && cd2.ExternalEndpoint != nil {
-		return false
-	}
-	if cd1.ExternalEndpoint != nil && cd2.ExternalEndpoint == nil {
-		return false
-	}
-	if cd1.ExternalEndpoint != nil && cd2.ExternalEndpoint != nil {
-		if *cd1.ExternalEndpoint != *cd2.ExternalEndpoint {
-			return false
-		}
-	}
-
-	if cd1.GroupName == nil && cd2.GroupName != nil {
-		return false
-	}
-	if cd1.GroupName != nil && cd2.GroupName == nil {
-		return false
-	}
-	if cd1.GroupName != nil && cd2.GroupName != nil {
-		if *cd1.GroupName != *cd2.GroupName {
-			return false
-		}
-	}
-
-	return true
-}
-
-func generateUUID() string {
-	// You can use github.com/google/uuid or any other UUID generator
-	// For now, using a simple time-based approach
-	return fmt.Sprintf("%d", time.Now().UnixNano())
 }
