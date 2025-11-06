@@ -1,9 +1,12 @@
 [package]
-name = "testing"
+name = "agntcy-slim-testing"
 version = "0.1.0"
 edition = { workspace = true }
 license = { workspace = true }
 publish = false
+
+[lib]
+name = "slim_testing"
 
 [[bin]]
 name = "channel"
@@ -25,8 +28,19 @@ agntcy-slim-datapath = { workspace = true }
 agntcy-slim-service = { workspace = true }
 agntcy-slim-session = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
+aws-lc-rs = { workspace = true }
+base64 = { workspace = true }
+bollard = { version = "0.17" }
 clap = { workspace = true }
+futures = { workspace = true }
+jsonwebtoken-aws-lc = { workspace = true }
+libc = { version = "0.2.177" }
 parking_lot = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["fs"] }
 tracing = { workspace = true }
+uuid = { workspace = true }
+wiremock = { workspace = true }

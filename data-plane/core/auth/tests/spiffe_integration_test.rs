@@ -10,14 +10,11 @@
 
 #![cfg(target_os = "linux")]
 
-mod spire_env;
-
-use slim_auth::spiffe::{
-    SpiffeJwtVerifier, SpiffeProvider, SpiffeProviderConfig, SpiffeVerifierConfig,
-};
+use slim_auth::metadata::MetadataMap;
+use slim_auth::spire::SpireIdentityManager;
 use slim_auth::traits::{TokenProvider, Verifier};
-use spire_env::SpireTestEnvironment;
-use std::collections::HashMap;
+use slim_config::auth::spire::SpireConfig;
+use slim_testing::utils::spire_env::SpireTestEnvironment;
 
 /// Helper to check if Docker is available
 async fn is_docker_available() -> bool {
@@ -43,46 +40,61 @@ macro_rules! require_docker {
 
 // Helper functions to reduce test repetition
 
-/// Creates a test SpiffeProviderConfig with a socket path
-fn test_provider_config_with_socket(socket_path: &str) -> SpiffeProviderConfig {
-    SpiffeProviderConfig {
+/// Creates a test SpiffeConfig with a socket path
+fn test_config_with_socket(socket_path: &str) -> SpireConfig {
+    SpireConfig {
         socket_path: Some(socket_path.to_string()),
-        target_spiffe_id: None,
         jwt_audiences: vec!["test".to_string()],
+        ..Default::default()
     }
 }
 
-/// Creates a test SpiffeVerifierConfig with default test audiences
-fn test_verifier_config() -> SpiffeVerifierConfig {
-    SpiffeVerifierConfig {
-        socket_path: None,
+/// Creates a test SpiffeConfig with default test audiences
+fn test_config() -> SpireConfig {
+    SpireConfig {
         jwt_audiences: vec!["test".to_string()],
+        ..Default::default()
     }
 }
 
-/// Creates a test SpiffeVerifierConfig with a socket path
-fn test_verifier_config_with_socket(socket_path: &str) -> SpiffeVerifierConfig {
-    SpiffeVerifierConfig {
+/// Creates a test SpiffeConfig with a socket path and multiple audiences
+fn test_config_with_socket_and_audiences(socket_path: &str) -> SpireConfig {
+    SpireConfig {
         socket_path: Some(socket_path.to_string()),
         jwt_audiences: vec!["test-audience".to_string(), "another-audience".to_string()],
+        ..Default::default()
     }
+}
+
+/// Helper to build a SpireIdentityManager from a SpireConfig
+fn build_manager_from(cfg: &SpireConfig) -> SpireIdentityManager {
+    let mut builder = SpireIdentityManager::builder().with_jwt_audiences(cfg.jwt_audiences.clone());
+
+    if let Some(ref sp) = cfg.socket_path {
+        builder = builder.with_socket_path(sp.clone());
+    }
+    if let Some(ref id) = cfg.target_spiffe_id {
+        builder = builder.with_target_spiffe_id(id.clone());
+    }
+
+    builder.build()
 }
 
 /// Asserts that a provider is in uninitialized state
-fn assert_provider_uninitialized(provider: &SpiffeProvider) {
-    let token_result = provider.get_token();
+fn assert_manager_uninitialized(manager: &SpireIdentityManager) {
+    let token_result = manager.get_token();
     assert!(token_result.is_err(), "Should fail before initialization");
     let err = format!("{}", token_result.unwrap_err());
     assert!(err.contains("not initialized") || err.contains("JwtSource"));
 
-    let x509_result = provider.get_x509_svid();
+    let x509_result = manager.get_x509_svid();
     assert!(x509_result.is_err(), "Should fail before initialization");
     let err = format!("{}", x509_result.unwrap_err());
     assert!(err.contains("not initialized") || err.contains("X509Source"));
 }
 
 /// Asserts that a verifier is in uninitialized state
-async fn assert_verifier_uninitialized(verifier: &SpiffeJwtVerifier) {
+async fn assert_verifier_uninitialized(verifier: &SpireIdentityManager) {
     let token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature";
     let verify_result = verifier.verify(token).await;
     assert!(verify_result.is_err(), "Should fail without initialization");
@@ -101,20 +113,16 @@ async fn test_spiffe_provider_initialization() {
     env.start().await.expect("Failed to start SPIRE containers");
 
     // Now test our SPIFFE provider
-    let config = env.get_spiffe_provider_config();
-    tracing::info!("Creating SpiffeProvider with config: {:?}", config);
+    let config = env.get_spiffe_config();
+    tracing::info!("Creating SpiffeIdentityManager with config: {:?}", config);
 
     // Sleep 3 seconds
     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
-    let mut provider = SpiffeProvider::new(config.clone());
+    let mut provider = build_manager_from(&config);
 
-    // Create verifier config from provider config
-    let verifier_config = SpiffeVerifierConfig {
-        socket_path: config.socket_path.clone(),
-        jwt_audiences: config.jwt_audiences.clone(),
-    };
-    let mut verifier = SpiffeJwtVerifier::new(verifier_config);
+    // Use same unified config for verifier
+    let mut verifier = build_manager_from(&config);
 
     let mut should_panic = false;
     'test_block: {
@@ -193,10 +201,11 @@ async fn test_spiffe_provider_initialization() {
         }
 
         // Test JWT token retrieval with custom claims
-        let custom_claims = HashMap::from([(
-            "pubkey".to_string(),
-            serde_json::Value::String("abcdef".to_string()),
-        )]);
+        let custom_claims = {
+            let mut claims = MetadataMap::new();
+            claims.insert("pubkey", "abcdef");
+            claims
+        };
         match provider.get_token_with_claims(custom_claims).await {
             Ok(token_with_claims) => {
                 tracing::info!("Got JWT token with custom claims");
@@ -269,10 +278,10 @@ async fn test_spiffe_provider_initialization() {
 async fn test_spiffe_jwt_verifier_creation() {
     require_docker!();
 
-    tracing::info!("Testing SpiffeJwtVerifier creation and basic operations");
+    tracing::info!("Testing SPIFFE verifier creation and basic operations");
 
-    let mut verifier =
-        SpiffeJwtVerifier::new(test_verifier_config_with_socket("unix:///tmp/test-socket"));
+    let cfg = test_config_with_socket_and_audiences("unix:///tmp/test-socket");
+    let mut verifier = build_manager_from(&cfg);
     tracing::info!("SpiffeJwtVerifier created with correct configuration");
 
     // Test initialization with non-existent socket
@@ -288,35 +297,35 @@ async fn test_spiffe_jwt_verifier_creation() {
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_spiffe_provider_configurations() {
-    tracing::info!("Testing various SpiffeProvider configurations");
+    tracing::info!("Testing various SPIFFE identity manager configurations");
 
     // Test default configuration
-    let default_config = SpiffeProviderConfig::default();
+    let default_config = SpireConfig::default();
     assert_eq!(default_config.jwt_audiences, vec!["slim".to_string()]);
     assert!(default_config.socket_path.is_none());
     assert!(default_config.target_spiffe_id.is_none());
     tracing::info!("Default configuration is correct");
 
     // Test custom configuration
-    let custom_config = SpiffeProviderConfig {
+    let custom_config = SpireConfig {
         socket_path: Some("unix:///custom/path".to_string()),
         target_spiffe_id: Some("spiffe://example.org/backend".to_string()),
         jwt_audiences: vec!["api".to_string(), "web".to_string()],
+        ..Default::default()
     };
 
-    let provider = SpiffeProvider::new(custom_config);
-    assert_provider_uninitialized(&provider);
+    let provider = build_manager_from(&custom_config);
+    assert_manager_uninitialized(&provider);
     tracing::info!("Correctly fails operations before initialization");
 }
 
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_spiffe_provider_error_handling() {
-    tracing::info!("Testing SpiffeProvider error handling");
+    tracing::info!("Testing SPIFFE identity manager error handling");
 
-    let mut provider = SpiffeProvider::new(test_provider_config_with_socket(
-        "unix:///nonexistent/socket",
-    ));
+    let bad_config = test_config_with_socket("unix:///nonexistent/socket");
+    let mut provider = build_manager_from(&bad_config);
 
     // Should fail to initialize
     let init_result = provider.initialize().await;
@@ -327,23 +336,29 @@ async fn test_spiffe_provider_error_handling() {
     tracing::info!("Correctly handles invalid socket path: {}", err);
 
     // Provider should still be in uninitialized state
-    assert_provider_uninitialized(&provider);
+    assert_manager_uninitialized(&provider);
     tracing::info!("Provider remains in safe uninitialized state after error");
 }
 
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_spiffe_verifier_config() {
-    tracing::info!("Testing SpiffeJwtVerifier configuration");
+    require_docker!();
 
-    // Test with no socket path
-    let _verifier = SpiffeJwtVerifier::new(test_verifier_config());
+    tracing::info!("Testing SPIFFE verifier configuration");
 
-    // Test with empty audiences
-    let _verifier_empty = SpiffeJwtVerifier::new(SpiffeVerifierConfig {
+    // Config without explicit socket path
+    let cfg = test_config();
+    let verifier_no_socket = build_manager_from(&cfg);
+    assert_manager_uninitialized(&verifier_no_socket);
+
+    // Config with empty audiences
+    let empty_cfg = SpireConfig {
         socket_path: Some("unix:///tmp/test".to_string()),
-        jwt_audiences: vec![],
-    });
+        ..Default::default()
+    };
+    let verifier_empty_aud = build_manager_from(&empty_cfg);
+    assert_manager_uninitialized(&verifier_empty_aud);
 
     tracing::info!("Verifier configuration works correctly");
 }
@@ -353,7 +368,8 @@ async fn test_spiffe_verifier_config() {
 async fn test_spiffe_try_methods() {
     tracing::info!("Testing SPIFFE try_* methods for non-async contexts");
 
-    let verifier = SpiffeJwtVerifier::new(test_verifier_config());
+    let cfg_try = test_config();
+    let verifier = build_manager_from(&cfg_try);
 
     // Try to verify without initialization
     let result = verifier.try_verify("fake.token");

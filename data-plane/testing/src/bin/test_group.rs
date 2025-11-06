@@ -9,7 +9,6 @@ use clap::Parser;
 use parking_lot::RwLock;
 use slim::runtime::RuntimeConfiguration;
 use slim_auth::shared_secret::SharedSecret;
-use slim_auth::testutils::TEST_VALID_SECRET;
 use slim_config::component::{Component, id::ID};
 use slim_config::grpc::client::ClientConfig as GrpcClientConfig;
 use slim_config::grpc::server::ServerConfig as GrpcServerConfig;
@@ -17,8 +16,8 @@ use slim_config::tls::client::TlsClientConfig;
 use slim_config::tls::server::TlsServerConfig;
 use slim_datapath::messages::Name;
 use slim_service::{ServiceConfiguration, SlimHeaderFlags};
-use slim_session::Notification;
-use slim_session::SessionConfig;
+use slim_session::{Notification, SessionConfig};
+use slim_testing::utils::TEST_VALID_SECRET;
 use slim_tracing::TracingConfiguration;
 
 const DEFAULT_DATAPLANE_PORT: u16 = 46357;

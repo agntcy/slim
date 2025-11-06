@@ -173,11 +173,11 @@ mod tests {
     use std::time::Duration;
 
     use slim_auth::shared_secret::SharedSecret;
-    use slim_auth::testutils::TEST_VALID_SECRET;
     use slim_config::component::ComponentBuilder;
     use slim_datapath::api::ProtoSessionType;
     use slim_datapath::messages::Name;
     use slim_session::SessionConfig;
+    use slim_testing::utils::TEST_VALID_SECRET;
 
     use crate::bindings::adapter::BindingsAdapter;
     use crate::service::Service;

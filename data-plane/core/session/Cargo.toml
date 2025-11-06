@@ -24,4 +24,5 @@ tonic = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
+agntcy-slim-testing = { workspace = true }
 tracing-test = { workspace = true }

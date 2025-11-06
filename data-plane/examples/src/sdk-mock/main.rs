@@ -9,9 +9,9 @@ use tracing::info;
 
 use slim::config;
 use slim_auth::shared_secret::SharedSecret;
-use slim_auth::testutils::TEST_VALID_SECRET;
 use slim_datapath::{api::ProtoSessionType, messages::Name};
 use slim_session::{SessionConfig, session_controller::SessionController};
+use slim_testing::utils::TEST_VALID_SECRET;
 
 mod args;
 

@@ -17,9 +17,11 @@ use slim_datapath::message_processing::MessageProcessor;
 use crate::service::{ControlPlane, ControlPlaneSettings};
 
 #[derive(Default, Debug, Clone, Deserialize, PartialEq, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub enum TokenProviderAuthConfig {
-    SharedSecret(String),
+    SharedSecret {
+        data: String,
+    },
     StaticJwt(StaticJwtConfig),
     Jwt(JwtConfig),
     #[default]
@@ -27,9 +29,11 @@ pub enum TokenProviderAuthConfig {
 }
 
 #[derive(Default, Debug, Clone, Deserialize, PartialEq, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub enum TokenVerifierAuthConfig {
-    SharedSecret(String),
+    SharedSecret {
+        data: String,
+    },
     Jwt(JwtConfig),
     #[default]
     None,
@@ -47,12 +51,10 @@ pub struct Config {
     pub clients: Vec<ClientConfig>,
 
     /// Token provider authentication configuration
-    #[serde(with = "serde_yaml::with::singleton_map")]
     #[serde(default)]
     pub token_provider: TokenProviderAuthConfig,
 
     /// Token verifier authentication configuration
-    #[serde(with = "serde_yaml::with::singleton_map")]
     #[serde(default)]
     pub token_verifier: TokenVerifierAuthConfig,
 }
@@ -101,9 +103,9 @@ impl Config {
 
     fn get_token_provider_auth(&self) -> Option<AuthProvider> {
         match &self.token_provider {
-            TokenProviderAuthConfig::SharedSecret(secret) => Some(
-                AuthProvider::shared_secret_from_str("control-plane", secret),
-            ),
+            TokenProviderAuthConfig::SharedSecret { data } => {
+                Some(AuthProvider::shared_secret_from_str("control-plane", data))
+            }
             TokenProviderAuthConfig::StaticJwt(static_jwt_config) => {
                 let provider = static_jwt_config
                     .build_static_token_provider()
@@ -122,9 +124,9 @@ impl Config {
 
     fn get_token_verifier_auth(&self) -> Option<AuthVerifier> {
         match &self.token_verifier {
-            TokenVerifierAuthConfig::SharedSecret(secret) => Some(
-                AuthVerifier::shared_secret_from_str("control-plane", secret),
-            ),
+            TokenVerifierAuthConfig::SharedSecret { data } => {
+                Some(AuthVerifier::shared_secret_from_str("control-plane", data))
+            }
             TokenVerifierAuthConfig::Jwt(jwt_config) => {
                 let verifier = jwt_config
                     .get_verifier()
@@ -179,13 +181,13 @@ impl Configuration for Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use slim_auth::testutils::TEST_VALID_SECRET;
     use slim_config::auth::jwt::Config as JwtConfig;
     use slim_config::auth::static_jwt::Config as StaticJwtConfig;
     use slim_config::component::id::{ID, Kind};
     use slim_config::grpc::client::ClientConfig;
     use slim_config::grpc::server::ServerConfig;
     use slim_datapath::message_processing::MessageProcessor;
+    use slim_testing::utils::TEST_VALID_SECRET;
     use std::sync::Arc;
 
     fn create_test_server_config() -> ServerConfig {
@@ -238,7 +240,9 @@ mod tests {
 
     #[test]
     fn test_config_with_token_provider_auth_shared_secret() {
-        let auth = TokenProviderAuthConfig::SharedSecret("test-secret".to_string());
+        let auth = TokenProviderAuthConfig::SharedSecret {
+            data: "test-secret".to_string(),
+        };
         let config = Config::new().with_token_provider_auth(auth.clone());
 
         assert_eq!(config.token_provider, auth);
@@ -265,7 +269,7 @@ mod tests {
         let key = JwtKey::Encoding(Key {
             algorithm: Algorithm::HS256,
             format: KeyFormat::Pem,
-            key: KeyData::Str("test-secret".to_string()),
+            key: KeyData::Data("test-secret".to_string()),
         });
         let jwt_config = JwtConfig::new(claims, duration, key);
         let auth = TokenProviderAuthConfig::Jwt(jwt_config);
@@ -276,7 +280,9 @@ mod tests {
 
     #[test]
     fn test_config_with_token_verifier_auth_shared_secret() {
-        let auth = TokenVerifierAuthConfig::SharedSecret("test-secret".to_string());
+        let auth = TokenVerifierAuthConfig::SharedSecret {
+            data: "test-secret".to_string(),
+        };
         let config = Config::new().with_token_verifier_auth(auth.clone());
 
         assert_eq!(config.token_verifier, auth);
@@ -294,7 +300,7 @@ mod tests {
         let key = JwtKey::Decoding(Key {
             algorithm: Algorithm::HS256,
             format: KeyFormat::Pem,
-            key: KeyData::Str("test-secret".to_string()),
+            key: KeyData::Data("test-secret".to_string()),
         });
         let jwt_config = JwtConfig::new(claims, duration, key);
         let auth = TokenVerifierAuthConfig::Jwt(jwt_config);
@@ -327,8 +333,12 @@ mod tests {
     fn test_config_chaining() {
         let server_config = create_test_server_config();
         let client_config = create_test_client_config();
-        let provider_auth = TokenProviderAuthConfig::SharedSecret("provider-secret".to_string());
-        let verifier_auth = TokenVerifierAuthConfig::SharedSecret("verifier-secret".to_string());
+        let provider_auth = TokenProviderAuthConfig::SharedSecret {
+            data: "provider-secret".to_string(),
+        };
+        let verifier_auth = TokenVerifierAuthConfig::SharedSecret {
+            data: "verifier-secret".to_string(),
+        };
 
         let config = Config::new()
             .with_servers(vec![server_config.clone()])
@@ -361,9 +371,15 @@ mod tests {
 
     #[test]
     fn test_token_provider_auth_config_equality() {
-        let secret1 = TokenProviderAuthConfig::SharedSecret("secret1".to_string());
-        let secret2 = TokenProviderAuthConfig::SharedSecret("secret1".to_string());
-        let secret3 = TokenProviderAuthConfig::SharedSecret("secret2".to_string());
+        let secret1 = TokenProviderAuthConfig::SharedSecret {
+            data: "secret0".to_string(),
+        };
+        let secret2 = TokenProviderAuthConfig::SharedSecret {
+            data: "secret0".to_string(),
+        };
+        let secret3 = TokenProviderAuthConfig::SharedSecret {
+            data: "secret2".to_string(),
+        };
 
         assert_eq!(secret1, secret2);
         assert_ne!(secret1, secret3);
@@ -371,9 +387,15 @@ mod tests {
 
     #[test]
     fn test_token_verifier_auth_config_equality() {
-        let secret1 = TokenVerifierAuthConfig::SharedSecret("secret1".to_string());
-        let secret2 = TokenVerifierAuthConfig::SharedSecret("secret1".to_string());
-        let secret3 = TokenVerifierAuthConfig::SharedSecret("secret2".to_string());
+        let secret1 = TokenVerifierAuthConfig::SharedSecret {
+            data: "secret0".to_string(),
+        };
+        let secret2 = TokenVerifierAuthConfig::SharedSecret {
+            data: "secret0".to_string(),
+        };
+        let secret3 = TokenVerifierAuthConfig::SharedSecret {
+            data: "secret2".to_string(),
+        };
 
         assert_eq!(secret1, secret2);
         assert_ne!(secret1, secret3);
@@ -383,7 +405,9 @@ mod tests {
     fn test_config_clone() {
         let server_config = create_test_server_config();
         let client_config = create_test_client_config();
-        let auth = TokenProviderAuthConfig::SharedSecret("test-secret".to_string());
+        let auth = TokenProviderAuthConfig::SharedSecret {
+            data: "secret0".to_string(),
+        };
 
         let config1 = Config::new()
             .with_servers(vec![server_config])
@@ -402,7 +426,9 @@ mod tests {
     async fn test_config_into_service() {
         let server_config = create_test_server_config();
         let client_config = create_test_client_config();
-        let auth = TokenProviderAuthConfig::SharedSecret(TEST_VALID_SECRET.to_string());
+        let auth = TokenProviderAuthConfig::SharedSecret {
+            data: TEST_VALID_SECRET.to_string(),
+        };
 
         let config = Config::new()
             .with_servers(vec![server_config.clone()])
@@ -434,20 +460,23 @@ mod tests {
 
         #[test]
         fn test_token_provider_auth_config_serialize_shared_secret() {
-            let auth = TokenProviderAuthConfig::SharedSecret("test-secret".to_string());
+            let auth = TokenProviderAuthConfig::SharedSecret {
+                data: "test-secret".to_string(),
+            };
             let json = serde_json::to_string(&auth).unwrap();
+            println!("Serialized JSON: {}", json);
             assert!(json.contains("shared_secret"));
             assert!(json.contains("test-secret"));
         }
 
         #[test]
         fn test_token_provider_auth_config_deserialize_shared_secret() {
-            let json = r#"{"shared_secret":"test-secret"}"#;
+            let json = r#"{"type": "shared_secret", "data": "test-secret"}"#;
             let auth: TokenProviderAuthConfig = serde_json::from_str(json).unwrap();
 
             match auth {
-                TokenProviderAuthConfig::SharedSecret(secret) => {
-                    assert_eq!(secret, "test-secret");
+                TokenProviderAuthConfig::SharedSecret { data } => {
+                    assert_eq!(data, "test-secret");
                 }
                 _ => panic!("Expected SharedSecret variant"),
             }
@@ -475,10 +504,12 @@ mod tests {
 
         #[test]
         fn test_config_with_all_auth_combinations() {
-            let provider_auth =
-                TokenProviderAuthConfig::SharedSecret("provider-secret".to_string());
-            let verifier_auth =
-                TokenVerifierAuthConfig::SharedSecret("verifier-secret".to_string());
+            let provider_auth = TokenProviderAuthConfig::SharedSecret {
+                data: "provider-secret".to_string(),
+            };
+            let verifier_auth = TokenVerifierAuthConfig::SharedSecret {
+                data: "verifier-secret".to_string(),
+            };
 
             let config = Config::new()
                 .with_token_provider_auth(provider_auth.clone())
@@ -533,7 +564,7 @@ mod tests {
                 slim_config::auth::jwt::JwtKey::Decoding(Key {
                     algorithm: Algorithm::HS256,
                     format: KeyFormat::Pem,
-                    key: KeyData::Str("test-key".to_string()),
+                    key: KeyData::Data("test-key".to_string()),
                 }),
             ));
 
@@ -593,12 +624,11 @@ mod tests {
                 assert_eq!(config.token_verifier, TokenVerifierAuthConfig::None);
 
                 // Adding one shouldn't affect the other
-                let config_with_provider =
-                    config
-                        .clone()
-                        .with_token_provider_auth(TokenProviderAuthConfig::SharedSecret(
-                            "secret".to_string(),
-                        ));
+                let config_with_provider = config.clone().with_token_provider_auth(
+                    TokenProviderAuthConfig::SharedSecret {
+                        data: "secret".to_string(),
+                    },
+                );
 
                 assert_ne!(
                     config_with_provider.token_provider,
@@ -613,7 +643,9 @@ mod tests {
 
         #[test]
         fn test_token_verifier_auth_config_serialize_shared_secret() {
-            let auth = TokenVerifierAuthConfig::SharedSecret("test-secret".to_string());
+            let auth = TokenVerifierAuthConfig::SharedSecret {
+                data: "test-secret".to_string(),
+            };
             let json = serde_json::to_string(&auth).unwrap();
             assert!(json.contains("shared_secret"));
             assert!(json.contains("test-secret"));
@@ -621,11 +653,11 @@ mod tests {
 
         #[test]
         fn test_token_verifier_auth_config_deserialize_shared_secret() {
-            let json = r#"{"shared_secret":"test-secret"}"#;
+            let json = r#"{"type": "shared_secret", "data": "test-secret"}"#;
             let auth: TokenVerifierAuthConfig = serde_json::from_str(json).unwrap();
 
             match auth {
-                TokenVerifierAuthConfig::SharedSecret(secret) => {
+                TokenVerifierAuthConfig::SharedSecret { data: secret } => {
                     assert_eq!(secret, "test-secret");
                 }
                 _ => panic!("Expected SharedSecret variant"),

@@ -4,8 +4,7 @@
 use std::sync::Arc;
 
 use rustls::{
-    ClientConfig as RustlsClientConfig, DigitallySignedStruct, Error, RootCertStore,
-    SignatureScheme,
+    ClientConfig as RustlsClientConfig, DigitallySignedStruct, Error, SignatureScheme,
     client::{
         ResolvesClientCert,
         danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
@@ -14,16 +13,20 @@ use rustls::{
     version::{TLS12, TLS13},
 };
 use rustls_pki_types::{CertificateDer, ServerName, UnixTime};
+
 use schemars::JsonSchema;
 use serde;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use super::common::{Config, ConfigError, RustlsConfigLoader};
+use super::common::{Config, ConfigError, RustlsConfigLoader, TlsSource};
 use crate::{
     component::configuration::{Configuration, ConfigurationError},
-    tls::common::{StaticCertResolver, WatcherCertResolver},
+    tls::common::{StaticCertResolver, TlsComponent, WatcherCertResolver},
 };
+
+#[cfg(not(target_family = "windows"))]
+use crate::{auth::spire, tls::common::SpireCertResolver};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
 pub struct TlsClientConfig {
@@ -144,15 +147,40 @@ impl ResolvesClientCert for super::common::StaticCertResolver {
     }
 }
 
+#[cfg(not(target_family = "windows"))]
+impl ResolvesClientCert for SpireCertResolver {
+    fn resolve(
+        &self,
+        _acceptable_issuers: &[&[u8]],
+        _sigschemes: &[rustls::SignatureScheme],
+    ) -> Option<Arc<CertifiedKey>> {
+        if !self.has_certs() {
+            return None;
+        }
+
+        match self.build_certified_key() {
+            Ok((ck, _)) => Some(ck),
+            Err(e) => {
+                tracing::warn!(error=%e, "spire cert resolver: failed to build client cert");
+                None
+            }
+        }
+    }
+
+    fn has_certs(&self) -> bool {
+        self.has_certs()
+    }
+}
+
 // methods for ClientConfig to create a RustlsClientConfig from the config
 impl TlsClientConfig {
     /// Create a new TlsClientConfig
     pub fn new() -> Self {
-        TlsClientConfig::default()
+        Self::default()
     }
 
     pub fn insecure() -> Self {
-        TlsClientConfig {
+        Self {
             insecure: true,
             ..Default::default()
         }
@@ -160,7 +188,7 @@ impl TlsClientConfig {
 
     /// Set insecure (disable certificate verification)
     pub fn with_insecure_skip_verify(self, insecure_skip_verify: bool) -> Self {
-        TlsClientConfig {
+        Self {
             insecure_skip_verify,
             ..self
         }
@@ -168,12 +196,12 @@ impl TlsClientConfig {
 
     /// Set insecure (disable TLS)
     pub fn with_insecure(self, insecure: bool) -> Self {
-        TlsClientConfig { insecure, ..self }
+        Self { insecure, ..self }
     }
 
     /// Set the CA file
     pub fn with_ca_file(self, ca_file: &str) -> Self {
-        TlsClientConfig {
+        Self {
             config: self.config.with_ca_file(ca_file),
             ..self
         }
@@ -181,8 +209,17 @@ impl TlsClientConfig {
 
     /// Set the CA pem
     pub fn with_ca_pem(self, ca_pem: &str) -> Self {
-        TlsClientConfig {
+        Self {
             config: self.config.with_ca_pem(ca_pem),
+            ..self
+        }
+    }
+
+    /// Set spire CA
+    #[cfg(not(target_family = "windows"))]
+    pub fn with_ca_spire(self, config: spire::SpireConfig) -> Self {
+        Self {
+            config: self.config.with_ca_spire(config),
             ..self
         }
     }
@@ -198,33 +235,26 @@ impl TlsClientConfig {
     }
 
     /// Set the cert file (for client auth)
-    pub fn with_cert_file(self, cert_file: &str) -> Self {
+    pub fn with_cert_and_key_file(self, cert_file: &str, key_file: &str) -> Self {
         TlsClientConfig {
-            config: self.config.with_cert_file(cert_file),
-            ..self
-        }
-    }
-
-    /// Set the cert pem (for client auth)
-    pub fn with_cert_pem(self, cert_pem: &str) -> Self {
-        TlsClientConfig {
-            config: self.config.with_cert_pem(cert_pem),
-            ..self
-        }
-    }
-
-    /// Set the key file (for client auth)
-    pub fn with_key_file(self, key_file: &str) -> Self {
-        TlsClientConfig {
-            config: self.config.with_key_file(key_file),
+            config: self.config.with_cert_and_key_file(cert_file, key_file),
             ..self
         }
     }
 
     /// Set the key pem (for client auth)
-    pub fn with_key_pem(self, key_pem: &str) -> Self {
+    pub fn with_cert_and_key_pem(self, cert_pem: &str, key_pem: &str) -> Self {
         TlsClientConfig {
-            config: self.config.with_key_pem(key_pem),
+            config: self.config.with_cert_and_key_pem(cert_pem, key_pem),
+            ..self
+        }
+    }
+
+    /// Set the cert spire (for client auth)
+    #[cfg(not(target_family = "windows"))]
+    pub fn with_cert_and_key_spire(self, config: spire::SpireConfig) -> Self {
+        TlsClientConfig {
+            config: self.config.with_spire(config),
             ..self
         }
     }
@@ -245,72 +275,70 @@ impl TlsClientConfig {
         }
     }
 
-    fn load_rustls_client_config(
-        &self,
-        root_store: RootCertStore,
-    ) -> Result<RustlsClientConfig, ConfigError> {
+    async fn load_rustls_client_config(&self) -> Result<Option<RustlsClientConfig>, ConfigError> {
         use ConfigError::*;
 
-        // Check TLS version
+        // If insecure (disable TLS) and no CA configured, return None early
+        if self.insecure && !self.config.has(TlsComponent::Ca) {
+            return Ok(None);
+        }
+
+        // Resolve TLS version
         let tls_version = match self.config.tls_version.as_str() {
             "tls1.2" => &TLS12,
             "tls1.3" => &TLS13,
-            _ => {
-                // return an error if the tls version is invalid
-                return Err(InvalidTlsVersion(self.config.tls_version.clone()));
-            }
+            _ => return Err(InvalidTlsVersion(self.config.tls_version.clone())),
         };
 
-        // create a client ConfigBuilder
+        // Load CA root store
+        let root_store = self.config.load_ca_cert_pool().await?;
+
+        // Base builder
         let config_builder = RustlsClientConfig::builder_with_protocol_versions(&[tls_version])
             .with_root_certificates(root_store);
 
-        // Check if enable client auth or not
-        match (
-            self.config.has_cert_file() && self.config.has_key_file(),
-            self.config.has_cert_pem() && self.config.has_key_pem(),
-        ) {
-            (true, true) => {
-                // If both cert_file and cert_pem are set, return an error
-                Err(CannotUseBoth("cert".to_string()))
+        // Build client config including client auth (spire / file / pem)
+        let client_config = match &self.config.source {
+            #[cfg(not(target_family = "windows"))]
+            TlsSource::Spire { config: spire_cfg } => {
+                // Dynamic spire client cert resolver (no manual cert/key injection)
+                let spire_resolver =
+                    SpireCertResolver::new(spire_cfg.clone(), config_builder.crypto_provider())
+                        .await
+                        .map_err(|e| ConfigError::InvalidSpireConfig {
+                            details: format!("failed to create spire cert resolver: {}", e),
+                            config: spire_cfg.clone(),
+                        })?;
+                config_builder.with_client_cert_resolver(Arc::new(spire_resolver))
             }
-            (false, false) => {
-                // If no client auth, return the config with client auth disabled
-                Ok(config_builder.with_no_client_auth())
+            TlsSource::File { cert, key, .. } => {
+                let cert_resolver =
+                    WatcherCertResolver::new(key, cert, config_builder.crypto_provider())?;
+                config_builder.with_client_cert_resolver(Arc::new(cert_resolver))
             }
-            (true, false) => {
-                // Create a custom Certificate provider that watches for changes in the certificate or the key file
-                let cert_resolver = WatcherCertResolver::new(
-                    self.config.key_file.as_ref().unwrap(),
-                    self.config.cert_file.as_ref().unwrap(),
-                    config_builder.crypto_provider(),
-                )?;
+            TlsSource::Pem { cert, key, .. } => {
+                let cert_resolver =
+                    StaticCertResolver::new(key, cert, config_builder.crypto_provider())?;
+                config_builder.with_client_cert_resolver(Arc::new(cert_resolver))
+            }
+            TlsSource::None => {
+                // No source configured => no client auth; may still have system CA roots
+                config_builder.with_no_client_auth()
+            }
+        };
 
-                Ok(config_builder.with_client_cert_resolver(Arc::new(cert_resolver)))
-            }
-            (false, true) => {
-                let cert_resolver = StaticCertResolver::new(
-                    self.config.key_pem.as_ref().unwrap(),
-                    self.config.cert_pem.as_ref().unwrap(),
-                    config_builder.crypto_provider(),
-                )?;
-                Ok(config_builder.with_client_cert_resolver(Arc::new(cert_resolver)))
-            }
-        }
+        Ok(Some(client_config))
     }
 }
 
 // trait implementation
+#[async_trait::async_trait]
 impl RustlsConfigLoader<RustlsClientConfig> for TlsClientConfig {
-    fn load_rustls_config(&self) -> Result<Option<RustlsClientConfig>, ConfigError> {
-        if self.insecure && !self.config.has_ca() {
+    async fn load_rustls_config(&self) -> Result<Option<RustlsClientConfig>, ConfigError> {
+        let Some(mut client_config) = self.load_rustls_client_config().await? else {
             return Ok(None);
-        }
+        };
 
-        let root_store = self.config.load_ca_cert_pool()?;
-        let mut client_config = self.load_rustls_client_config(root_store)?;
-
-        // Set unsecure stuff
         if self.insecure_skip_verify {
             client_config
                 .dangerous()

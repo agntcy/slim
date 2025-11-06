@@ -328,11 +328,12 @@ mod tests {
 
     use super::*;
 
-    use slim_auth::{shared_secret::SharedSecret, testutils::TEST_VALID_SECRET};
+    use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::api::{
         ApplicationPayload, CommandPayload, ProtoMessage, ProtoSessionMessageType,
         ProtoSessionType, SessionHeader, SlimHeader,
     };
+    use slim_testing::utils::TEST_VALID_SECRET;
 
     #[allow(dead_code)]
     fn create_app() -> App<SharedSecret, SharedSecret> {

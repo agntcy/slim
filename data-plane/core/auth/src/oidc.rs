@@ -3,6 +3,7 @@
 
 use crate::errors::AuthError;
 use crate::jwt::extract_sub_claim_unsafe;
+use crate::metadata::MetadataMap;
 use crate::resolver::JwksCache;
 use crate::traits::{TokenProvider, Verifier};
 use async_trait::async_trait;
@@ -21,8 +22,6 @@ use url::Url;
 
 // Default token refresh buffer (60 seconds before expiry)
 const REFRESH_BUFFER_SECONDS: u64 = 60;
-// Refresh tokens at 2/3 of their lifetime
-const REFRESH_RATIO: f64 = 2.0 / 3.0;
 
 /// Cache entry for OIDC access tokens
 #[derive(Debug, Clone)]
@@ -300,8 +299,8 @@ impl OidcTokenProvider {
             .as_secs();
         let expiry = now + expires_in;
 
-        // Calculate refresh time (2/3 of token lifetime)
-        let refresh_at = now + ((expires_in as f64 * REFRESH_RATIO) as u64);
+        // Calculate refresh time (2/3 of token lifetime) using integer math to avoid float casting
+        let refresh_at = now + (expires_in * 2 / 3);
 
         // Cache the token using the structured cache
         let cache_key = self.get_cache_key();
@@ -385,7 +384,7 @@ impl TokenProvider for OidcTokenProvider {
 
     async fn get_token_with_claims(
         &self,
-        _custom_claims: std::collections::HashMap<String, serde_json::Value>,
+        _custom_claims: MetadataMap,
     ) -> Result<String, AuthError> {
         // This provider does not support custom claims in the token
         Err(AuthError::UnsupportedOperation(
@@ -588,7 +587,7 @@ mod tests {
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     // Use the test utilities from the testutils module
-    use crate::testutils::{TestClaims, setup_oidc_mock_server, setup_test_jwt_resolver};
+    use slim_testing::utils::{TestClaims, setup_oidc_mock_server, setup_test_jwt_resolver};
 
     #[tokio::test]
     async fn test_oidc_token_provider_client_credentials_flow() {

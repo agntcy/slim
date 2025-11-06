@@ -235,8 +235,8 @@ mod tests {
     use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::{api::ProtoSessionType, messages::Name};
 
-    use slim_auth::testutils::TEST_VALID_SECRET;
-    use slim_session::{Notification, SessionError};
+    use slim_session::{Notification, SessionConfig, SessionError};
+    use slim_testing::utils::TEST_VALID_SECRET;
 
     use crate::bindings::session_context::BindingsSessionContext;
 

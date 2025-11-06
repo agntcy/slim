@@ -113,7 +113,11 @@ impl PyApp {
     }
 
     async fn run_server(&self, config: PyGrpcServerConfig) -> Result<(), ServiceError> {
-        self.internal.service.get_service().run_server(&config)
+        self.internal
+            .service
+            .get_service()
+            .run_server(&config)
+            .await
     }
 
     async fn stop_server(&self, endpoint: &str) -> Result<(), ServiceError> {

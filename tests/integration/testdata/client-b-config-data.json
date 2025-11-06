@@ -1,10 +1,9 @@
 {
   "endpoint": "http://127.0.0.1:46367",
   "auth": {
-    "basic": {
-      "username": "testuser",
-      "password": "secret123"
-    }
+    "type": "basic",
+    "username": "testuser",
+    "password": "secret123"
   },
   "buffer_size": 1024,
   "compression": "Gzip",

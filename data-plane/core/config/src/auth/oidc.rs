@@ -20,7 +20,6 @@ pub struct Config {
     pub client_id: Option<String>,
 
     /// OAuth2 client secret (required for provider functionality)
-    #[schemars(skip)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_secret: Option<String>,
 
