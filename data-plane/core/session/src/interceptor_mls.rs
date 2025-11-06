@@ -150,8 +150,6 @@ mod tests {
         let mls_arc = Arc::new(Mutex::new(mls));
         let interceptor = MlsInterceptor::new(mls_arc);
 
-        let payload = Some(ApplicationPayload::new("text", b"test message".to_vec()).as_content());
-
         let mut msg = Message::builder()
             .source(
                 slim_datapath::messages::Name::from_strings(["org", "default", "test"]).with_id(0),
@@ -198,7 +196,6 @@ mod tests {
         let bob_interceptor = MlsInterceptor::new(Arc::new(Mutex::new(bob_mls)));
 
         let original_payload = b"Hello from Alice!";
-        let payload = Some(ApplicationPayload::new("text", original_payload.to_vec()).as_content());
 
         let mut alice_msg = Message::builder()
             .source(

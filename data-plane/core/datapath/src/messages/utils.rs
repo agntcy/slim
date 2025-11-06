@@ -1448,8 +1448,12 @@ impl ProtoMessageBuilder {
 
     /// Builds a publish message
     pub fn build_publish(self) -> Result<ProtoMessage, MessageError> {
-        let source = self.source.ok_or_else(|| MessageError::BuilderError("source is required".to_string()))?;
-        let destination = self.destination.ok_or_else(|| MessageError::BuilderError("destination is required".to_string()))?;
+        let source = self
+            .source
+            .ok_or_else(|| MessageError::BuilderError("source is required".to_string()))?;
+        let destination = self
+            .destination
+            .ok_or_else(|| MessageError::BuilderError("destination is required".to_string()))?;
 
         let slim_header = Some(SlimHeader::new(
             &source,
@@ -1480,8 +1484,12 @@ impl ProtoMessageBuilder {
 
     /// Builds a subscribe message
     pub fn build_subscribe(self) -> Result<ProtoMessage, MessageError> {
-        let source = self.source.ok_or_else(|| MessageError::BuilderError("source is required".to_string()))?;
-        let destination = self.destination.ok_or_else(|| MessageError::BuilderError("destination is required".to_string()))?;
+        let source = self
+            .source
+            .ok_or_else(|| MessageError::BuilderError("source is required".to_string()))?;
+        let destination = self
+            .destination
+            .ok_or_else(|| MessageError::BuilderError("destination is required".to_string()))?;
 
         let subscribe =
             ProtoSubscribe::new(&source, &destination, self.identity.as_deref(), self.flags);
@@ -1494,8 +1502,12 @@ impl ProtoMessageBuilder {
 
     /// Builds an unsubscribe message
     pub fn build_unsubscribe(self) -> Result<ProtoMessage, MessageError> {
-        let source = self.source.ok_or_else(|| MessageError::BuilderError("source is required".to_string()))?;
-        let destination = self.destination.ok_or_else(|| MessageError::BuilderError("destination is required".to_string()))?;
+        let source = self
+            .source
+            .ok_or_else(|| MessageError::BuilderError("source is required".to_string()))?;
+        let destination = self
+            .destination
+            .ok_or_else(|| MessageError::BuilderError("destination is required".to_string()))?;
 
         let unsubscribe =
             ProtoUnsubscribe::new(&source, &destination, self.identity.as_deref(), self.flags);

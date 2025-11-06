@@ -102,7 +102,7 @@ impl ProducerBuffer {
 mod tests {
     use super::*;
     use slim_datapath::api::{
-        ApplicationPayload, ProtoSessionMessageType, ProtoSessionType, SessionHeader, SlimHeader,
+        ProtoSessionMessageType, ProtoSessionType, SessionHeader, SlimHeader,
     };
     use slim_datapath::messages::encoder::Name;
 
@@ -246,7 +246,6 @@ mod tests {
             0,
             0,
         );
-        let payload = Some(ApplicationPayload::new("", vec![]).as_content());
         let mut p = Message::builder()
             .with_slim_header(slim_header)
             .with_session_header(h)

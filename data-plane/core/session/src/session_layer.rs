@@ -307,8 +307,12 @@ where
         match session_message_type {
             ProtoSessionMessageType::DiscoveryRequest => {
                 // reply directly without creating any new Session
-                let msg =
-                    handle_channel_discovery_message(message, local_name, session_id, session_type)?;
+                let msg = handle_channel_discovery_message(
+                    message,
+                    local_name,
+                    session_id,
+                    session_type,
+                )?;
 
                 self.transmitter.send_to_slim(Ok(msg)).await.map_err(|e| {
                     SessionError::SlimTransmission(format!("error sending discovery reply: {}", e))

@@ -208,7 +208,7 @@ mod tests {
     use crate::transmitter::SessionTransmitter;
 
     use super::*;
-    use slim_datapath::api::{ApplicationPayload, ProtoSessionType};
+    use slim_datapath::api::ProtoSessionType;
     use std::{collections::HashMap, time::Duration};
     use tokio::time::timeout;
     use tracing_test::traced_test;

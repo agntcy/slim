@@ -296,9 +296,7 @@ mod tests {
 
     use super::*;
     use slim_datapath::{
-        api::{
-            CommandPayload, ProtoSessionMessageType, ProtoSessionType, SessionHeader, SlimHeader,
-        },
+        api::{CommandPayload, ProtoSessionMessageType, ProtoSessionType},
         messages::Name,
     };
     use std::time::Duration;

@@ -183,7 +183,7 @@ mod tests {
     use crate::{SessionError, notification::Notification};
     use async_trait::async_trait;
     use slim_datapath::Status;
-    use slim_datapath::api::{ApplicationPayload, ProtoMessage as Message};
+    use slim_datapath::api::ProtoMessage as Message;
     use slim_datapath::messages::encoder::Name;
     use tokio::sync::mpsc;
 

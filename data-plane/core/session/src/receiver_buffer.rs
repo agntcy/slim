@@ -291,7 +291,7 @@ impl ReceiverBuffer {
 #[cfg(test)]
 mod tests {
     use slim_datapath::api::{
-        ApplicationPayload, ProtoSessionMessageType, ProtoSessionType, SessionHeader, SlimHeader,
+        ProtoSessionMessageType, ProtoSessionType, SessionHeader, SlimHeader,
     };
     use slim_datapath::messages::encoder::Name;
     use tracing_test::traced_test;

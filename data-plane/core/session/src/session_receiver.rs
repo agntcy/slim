@@ -344,7 +344,6 @@ mod tests {
     use crate::transmitter::SessionTransmitter;
 
     use super::*;
-    use slim_datapath::api::ApplicationPayload;
     use std::time::Duration;
     use tokio::time::timeout;
     use tracing_test::traced_test;

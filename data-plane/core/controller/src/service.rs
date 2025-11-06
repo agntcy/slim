@@ -537,10 +537,13 @@ fn create_channel_message(
         .session_message_type(request_type)
         .session_id(session_id)
         .message_id(message_id)
-        .payload(payload.ok_or_else(|| ControllerError::DatapathError("payload is required".to_string()))?)
+        .payload(
+            payload
+                .ok_or_else(|| ControllerError::DatapathError("payload is required".to_string()))?,
+        )
         .build_publish()
         .map_err(|e| ControllerError::DatapathError(e.to_string()))?;
-    
+
     Ok(message)
 }
 
@@ -625,7 +628,7 @@ fn invite_participant_message(
         payload,
         auth_provider,
     )?;
-    
+
     Ok(msg)
 }
 
@@ -653,7 +656,7 @@ fn remove_participant_message(
         payload,
         auth_provider,
     )?;
-    
+
     Ok(msg)
 }
 
