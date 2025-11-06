@@ -117,17 +117,6 @@ target "llamaindex-time-agent" {
   tags = get_tag(target.docker-metadata-action.tags, "${target.llamaindex-time-agent.name}")
 }
 
-target "testutils" {
-  context = "."
-  dockerfile = "./data-plane/Dockerfile"
-  target = "testutils"
-  inherits = [
-    "_common",
-    "docker-metadata-action",
-  ]
-  tags = get_tag(target.docker-metadata-action.tags, "${target.testutils.name}")
-}
-
 target "control-plane" {
   contexts = {
     src = "."

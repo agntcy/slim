@@ -273,7 +273,7 @@ impl SlimHeader {
     // returns the connection to use to process correctly the message
     // first connection is from where we received the packet
     // the second is where to forward the packet if needed
-    pub fn get_in_out_connections(&self) -> (u64, Option<u64>) {
+    pub(crate) fn get_in_out_connections(&self) -> (u64, Option<u64>) {
         // when calling this function, incoming connection is set
         let incoming = self
             .get_incoming_conn()
@@ -366,7 +366,7 @@ impl SessionMessageType {
 /// ProtoSubscribe
 /// This message is used to subscribe to a topic
 impl ProtoSubscribe {
-    pub fn new(
+    fn new(
         source: &Name,
         dst: &Name,
         identity: Option<&str>,
@@ -392,7 +392,7 @@ impl From<ProtoMessage> for ProtoSubscribe {
 /// ProtoUnsubscribe
 /// This message is used to unsubscribe from a topic
 impl ProtoUnsubscribe {
-    pub fn new(
+    fn new(
         source: &Name,
         dst: &Name,
         identity: Option<&str>,
@@ -418,22 +418,7 @@ impl From<ProtoMessage> for ProtoUnsubscribe {
 /// ProtoPublish
 /// This message is used to publish a message, either to a shared channel or to a specific application
 impl ProtoPublish {
-    pub fn new(
-        source: &Name,
-        dst: &Name,
-        identity: Option<&str>,
-        flags: Option<SlimHeaderFlags>,
-        content: Option<Content>,
-    ) -> Self {
-        let id = identity.unwrap_or("");
-        let slim_header = Some(SlimHeader::new(source, dst, id, flags));
-
-        let session_header = SessionHeader::default();
-
-        Self::with_header(slim_header, Some(session_header), content)
-    }
-
-    pub fn with_header(
+    fn with_header(
         header: Option<SlimHeader>,
         session: Option<SessionHeader>,
         payload: Option<Content>,
@@ -442,38 +427,6 @@ impl ProtoPublish {
             header,
             session,
             msg: payload,
-        }
-    }
-
-    pub fn with_application_payaload(
-        header: Option<SlimHeader>,
-        session: Option<SessionHeader>,
-        application_payload: Option<ApplicationPayload>,
-    ) -> Self {
-        let content: Option<Content> = application_payload.map(|payload| Content {
-            content_type: Some(ContentType::AppPayload(payload)),
-        });
-
-        ProtoPublish {
-            header,
-            session,
-            msg: content,
-        }
-    }
-
-    pub fn with_command_payaload(
-        header: Option<SlimHeader>,
-        session: Option<SessionHeader>,
-        command_payload: Option<CommandPayload>,
-    ) -> Self {
-        let content: Option<Content> = command_payload.map(|payload| Content {
-            content_type: Some(ContentType::CommandPayload(payload)),
-        });
-
-        ProtoPublish {
-            header,
-            session,
-            msg: content,
         }
     }
 

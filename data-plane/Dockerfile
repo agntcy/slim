@@ -69,9 +69,6 @@ task -v data-plane:fetch TARGET=${RUSTARCH}
 task -v data-plane:build:strip TARGET=${RUSTARCH} PROFILE=release
 mv target/${RUSTARCH}/release/slim /slim
 mv target/${RUSTARCH}/release/slim.dbg /slim.dbg
-mv target/${RUSTARCH}/release/workload-gen /workload-gen
-mv target/${RUSTARCH}/release/publisher /publisher
-mv target/${RUSTARCH}/release/subscriber /subscriber
 EOF
 
 # runtime images  - debug executable, debug symbols and, most importantly, a shell :)
@@ -92,18 +89,3 @@ ARG TARGETARCH
 
 # copy the artifacts from the build stage
 COPY --from=rust /slim /slim
-
-FROM debian:bookworm-slim AS testutils
-ARG TARGETARCH
-
-RUN apt-get update && apt-get install -y \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-# copy artifacts from build stage
-COPY --from=rust /workload-gen /app/workload-gen
-COPY --from=rust /publisher /app/publisher
-COPY --from=rust /subscriber /app/subscriber
-
-CMD ["/app/workload-gen"]
