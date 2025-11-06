@@ -370,20 +370,16 @@ where
 
         let new_session = match session_message_type {
             ProtoSessionMessageType::JoinRequest => {
-                // Create a new session based on the message payload
-                let payload = message
-                    .get_payload()
-                    .ok_or(SessionError::Processing(
-                        "missing join request payload".to_string(),
-                    ))?
-                    .as_command_payload()?
-                    .as_join_request_payload()?;
-
                 match message.get_session_header().session_type() {
                     ProtoSessionType::PointToPoint => {
                         let conf = crate::SessionConfig::from_join_request(
                             ProtoSessionType::PointToPoint,
-                            message.get_payload().unwrap().as_command_payload()?,
+                            message.extract_command_payload().map_err(|e| {
+                                SessionError::Processing(format!(
+                                    "failed to extract command payload: {}",
+                                    e
+                                ))
+                            })?,
                             message.get_metadata_map(),
                             false,
                         )?;
@@ -398,29 +394,40 @@ where
                     }
                     ProtoSessionType::Multicast => {
                         // Multicast sessions require timer settings; reject if missing.
+                        let payload = message.extract_join_request().map_err(|e| {
+                            SessionError::Processing(format!(
+                                "failed to extract join request payload: {}",
+                                e
+                            ))
+                        })?;
+
                         if payload.timer_settings.is_none() {
                             return Err(SessionError::Processing(
                                 "missing timer options".to_string(),
                             ));
                         }
 
-                        // Determine initiator (moderator) before building metadata snapshot.
-                        let initiator = message.remove_metadata(IS_MODERATOR).is_some();
-
-                        let conf = crate::SessionConfig::from_join_request(
-                            ProtoSessionType::Multicast,
-                            message.get_payload().unwrap().as_command_payload()?,
-                            message.get_metadata_map(),
-                            initiator,
-                        )?;
-
-                        let channel = if let Some(c) = payload.channel {
-                            Name::from(&c)
+                        let channel = if let Some(c) = &payload.channel {
+                            Name::from(c)
                         } else {
                             return Err(SessionError::Processing(
                                 "missing channel name".to_string(),
                             ));
                         };
+
+                        // Determine initiator (moderator) before building metadata snapshot.
+                        let initiator = message.remove_metadata(IS_MODERATOR).is_some();
+                        let conf = crate::SessionConfig::from_join_request(
+                            ProtoSessionType::Multicast,
+                            message.extract_command_payload().map_err(|e| {
+                                SessionError::Processing(format!(
+                                    "failed to extract command payload: {}",
+                                    e
+                                ))
+                            })?,
+                            message.get_metadata_map(),
+                            initiator,
+                        )?;
 
                         self.create_session(
                             conf,
@@ -497,12 +504,9 @@ where
         if let Some(controller) = self.pool.read().await.get(&id)
             && controller.is_initiator()
             && message
-                .get_payload()
-                .unwrap()
-                .as_command_payload()
+                .extract_discovery_request()
                 .ok()
-                .and_then(|p| p.as_discovery_request_payload().ok())
-                .and_then(|p| p.destination)
+                .and_then(|p| p.destination.as_ref())
                 .is_some()
         {
             // Existing session where we are the initiator and payload includes a destination name:

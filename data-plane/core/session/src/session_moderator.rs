@@ -257,7 +257,8 @@ where
                     .as_command_payload()?
                     .as_leave_request_payload()?
                     .destination
-                    && Name::from(&n) == self.common.settings.source
+                    .as_ref()
+                    && Name::from(n) == self.common.settings.source
                 {
                     return self.delete_all(message).await;
                 }
@@ -302,18 +303,19 @@ where
 
         // check if there is a destination name in the payload. If yes recreate the message
         // with the right destination and send it out
-        let payload = msg
-            .get_payload()
-            .unwrap()
-            .as_command_payload()?
-            .as_discovery_request_payload()?;
+        let payload = msg.extract_discovery_request().map_err(|e| {
+            SessionError::Processing(format!(
+                "failed to extract discovery request payload: {}",
+                e
+            ))
+        })?;
 
-        let mut discovery = match payload.destination {
+        let mut discovery = match &payload.destination {
             Some(dst_name) => {
                 // set the route to forward the messages correctly
                 // here we assume that the destination is reachable from the
                 // same connection from where we got the message from the controller
-                let dst = Name::from(&dst_name);
+                let dst = Name::from(dst_name);
                 self.common.set_route(&dst, msg.get_incoming_conn()).await?;
 
                 // create a new empty payload and change the message destination
@@ -551,55 +553,48 @@ where
             return Ok(());
         }
 
-        // now the moderator is busy
         self.current_task = Some(ModeratorTask::Remove(RemoveParticipant::default()));
 
         // adjust the message according to the sender:
         // - if coming from the controller (destination in the payload) we need to modify source and destination
         // - if coming from the app (empty payload) we need to add the participant id to the destination
-        let payload = msg
-            .get_payload()
-            .unwrap()
-            .as_command_payload()?
-            .as_leave_request_payload()?;
+        let payload_destination = msg
+            .extract_leave_request()
+            .map_err(|e| {
+                SessionError::Processing(format!("failed to extract leave request payload: {}", e))
+            })?
+            .destination
+            .clone();
 
-        let (leave_message, dst_without_id) = match payload.destination {
-            Some(dst_name) => {
-                // Handle case where destination is provided
-                let dst = Name::from(&dst_name);
-                let id = *self
-                    .group_list
-                    .get(&dst)
-                    .ok_or(SessionError::RemoveParticipant(
-                        "participant not found".to_string(),
-                    ))?;
-
-                let dst = dst.with_id(id);
-
-                let new_payload = CommandPayload::new_leave_request_payload(None).as_content();
-                msg.get_slim_header_mut()
-                    .set_source(&self.common.settings.source);
-                msg.get_slim_header_mut().set_destination(&dst);
-                msg.set_payload(new_payload);
-                msg.set_message_id(rand::random::<u32>());
-                (msg, Name::from(&dst_name))
-            }
-            None => {
-                // Handle case where no destination is provided, use message destination
-                let original_dst = msg.get_dst();
-                let dst = msg.get_dst();
-                let id = *self
-                    .group_list
-                    .get(&dst)
-                    .ok_or(SessionError::RemoveParticipant(
-                        "participant not found".to_string(),
-                    ))?;
-
-                msg.get_slim_header_mut().set_destination(&dst.with_id(id));
-                msg.set_message_id(rand::random::<u32>());
-                (msg, original_dst)
-            }
+        // Determine the destination name (without ID) based on payload
+        let dst_without_id = match payload_destination {
+            Some(ref dst_name) => Name::from(dst_name),
+            None => msg.get_dst(),
         };
+
+        // Look up participant ID in group list
+        let id = *self
+            .group_list
+            .get(&dst_without_id)
+            .ok_or(SessionError::RemoveParticipant(
+                "participant not found".to_string(),
+            ))?;
+
+        // Update message based on whether destination was provided in payload
+        if payload_destination.is_some() {
+            // Destination provided: update source, destination, and payload
+            let new_payload = CommandPayload::new_leave_request_payload(None).as_content();
+            msg.get_slim_header_mut()
+                .set_source(&self.common.settings.source);
+            msg.set_payload(new_payload);
+        }
+
+        // Set destination with ID and message ID (common to both cases)
+        let dst_with_id = dst_without_id.clone().with_id(id);
+        msg.get_slim_header_mut().set_destination(&dst_with_id);
+        msg.set_message_id(rand::random::<u32>());
+
+        let leave_message = msg;
 
         // remove the participant from the group list and notify the the local session
         debug!(
@@ -608,8 +603,7 @@ where
         );
 
         self.group_list.remove(&dst_without_id);
-
-        self.inner.remove_endpoint(&leave_message.get_dst());
+        self.remove_endpoint(&leave_message.get_dst());
 
         // Before send the leave request we may need to send the Group update
         // with the new participant list and the new mls payload if needed

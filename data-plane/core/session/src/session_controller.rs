@@ -354,8 +354,6 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    const MAX_FANOUT: u32 = 256;
-
     pub(crate) fn new(settings: SessionSettings<P, V>) -> Self {
         // timers settings for the controller
         let controller_timer_settings =
@@ -416,33 +414,16 @@ where
         payload: Content,
         broadcast: bool,
     ) -> Message {
-        let flags = if broadcast {
-            Some(SlimHeaderFlags::new(
-                Self::MAX_FANOUT,
-                None,
-                None,
-                None,
-                None,
-            ))
-        } else {
-            None
-        };
-
-        let slim_header = Some(SlimHeader::new(
+        Message::new_control_message(
             &self.settings.source,
             dst,
-            "", // put empty identity it will be updated by the identity interceptor
-            flags,
-        ));
-
-        let session_header = Some(SessionHeader::new(
-            self.settings.config.session_type.into(),
-            message_type.into(),
+            self.settings.config.session_type,
+            message_type,
             self.settings.id,
             message_id,
-        ));
-
-        Message::new_publish_with_headers(slim_header, session_header, Some(payload))
+            payload,
+            broadcast,
+        )
     }
 
     pub(crate) async fn send_control_message(

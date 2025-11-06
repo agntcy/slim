@@ -79,22 +79,20 @@ where
             return Ok(());
         }
 
-        let payload = msg
-            .get_payload()
-            .unwrap()
-            .as_command_payload()?
-            .as_welcome_payload()?;
-        let mls_payload = payload.mls.ok_or_else(|| {
+        let payload = msg.extract_group_welcome().map_err(|e| {
+            SessionError::WelcomeMessage(format!("failed to extract welcome payload: {}", e))
+        })?;
+        let mls_payload = payload.mls.as_ref().ok_or_else(|| {
             SessionError::WelcomeMessage("missing mls payload in welcome message".to_string())
         })?;
         self.last_mls_msg_id = mls_payload.commit_id;
-        let welcome = mls_payload.mls_content;
+        let welcome = &mls_payload.mls_content;
 
         self.group = self
             .mls
             .lock()
             .await
-            .process_welcome(&welcome)
+            .process_welcome(welcome)
             .await
             .map_err(|e| SessionError::WelcomeMessage(e.to_string()))?;
 
@@ -127,29 +125,31 @@ where
                     self.process_proposal_message(msg, local_name).await?;
                 }
                 ProtoSessionMessageType::GroupAdd => {
-                    let payload = msg
-                        .get_payload()
-                        .unwrap()
-                        .as_command_payload()?
-                        .as_group_add_payload()?;
-                    let mls_payload = payload.mls.ok_or_else(|| {
+                    let payload = msg.extract_group_add().map_err(|e| {
+                        SessionError::Processing(format!(
+                            "failed to extract group add payload: {}",
+                            e
+                        ))
+                    })?;
+                    let mls_payload = payload.mls.as_ref().ok_or_else(|| {
                         SessionError::Processing("missing mls payload in add message".to_string())
                     })?;
-                    self.process_commit_message(msg, mls_payload).await?;
+                    self.process_commit_message(mls_payload).await?;
                 }
                 ProtoSessionMessageType::GroupRemove => {
-                    let payload = msg
-                        .get_payload()
-                        .unwrap()
-                        .as_command_payload()?
-                        .as_group_remove_payload()?;
-                    let mls_payload = payload.mls.ok_or_else(|| {
+                    let payload = msg.extract_group_remove().map_err(|e| {
+                        SessionError::Processing(format!(
+                            "failed to extract group remove payload: {}",
+                            e
+                        ))
+                    })?;
+                    let mls_payload = payload.mls.as_ref().ok_or_else(|| {
                         SessionError::Processing(
                             "missing mls payload in remove message".to_string(),
                         )
                     })?;
 
-                    self.process_commit_message(msg, mls_payload).await?;
+                    self.process_commit_message(mls_payload).await?;
                 }
                 _ => {
                     error!("unknown control message type, drop it");
@@ -165,8 +165,7 @@ where
 
     async fn process_commit_message(
         &mut self,
-        _msg: Message,
-        mls_payload: MlsPayload,
+        mls_payload: &MlsPayload,
     ) -> Result<(), SessionError> {
         trace!("processing stored commit {}", mls_payload.commit_id);
 
@@ -186,11 +185,9 @@ where
     ) -> Result<(), SessionError> {
         trace!("processing stored proposal {}", proposal.get_id());
 
-        let payload = proposal
-            .get_payload()
-            .unwrap()
-            .as_command_payload()?
-            .as_group_proposal_payload()?;
+        let payload = proposal.extract_group_proposal().map_err(|e| {
+            SessionError::Processing(format!("failed to extract group proposal payload: {}", e))
+        })?;
 
         let original_source = Name::from(payload.source.as_ref().ok_or_else(|| {
             SessionError::Processing("missing source in proposal payload".to_string())
@@ -222,22 +219,24 @@ where
             ));
         }
 
+        let command_payload = msg.extract_command_payload().map_err(|e| {
+            SessionError::MLSIdMessage(format!("failed to extract command payload: {}", e))
+        })?;
+
         let commit_id = match msg.get_session_header().session_message_type() {
             ProtoSessionMessageType::GroupAdd => {
-                msg.get_payload()
-                    .unwrap()
-                    .as_command_payload()?
+                command_payload
                     .as_group_add_payload()?
                     .mls
+                    .as_ref()
                     .ok_or_else(|| SessionError::MLSIdMessage("missing mls payload".to_string()))?
                     .commit_id
             }
             ProtoSessionMessageType::GroupRemove => {
-                msg.get_payload()
-                    .unwrap()
-                    .as_command_payload()?
+                command_payload
                     .as_group_remove_payload()?
                     .mls
+                    .as_ref()
                     .ok_or_else(|| SessionError::MLSIdMessage("missing mls payload".to_string()))?
                     .commit_id
             }
@@ -315,11 +314,9 @@ where
         &mut self,
         msg: &Message,
     ) -> Result<(CommitMsg, WelcomeMsg), SessionError> {
-        let payload = msg
-            .get_payload()
-            .unwrap()
-            .as_command_payload()?
-            .as_join_reply_payload()?;
+        let payload = msg.extract_join_reply().map_err(|e| {
+            SessionError::AddParticipant(format!("failed to extract join reply payload: {}", e))
+        })?;
 
         match self
             .common

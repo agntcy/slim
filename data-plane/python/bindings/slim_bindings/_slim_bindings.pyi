@@ -12,6 +12,120 @@ class PyApp:
     @property
     def name(self) -> PyName: ...
 
+class PyIdentityProvider:
+    r"""
+    Python-facing identity provider definitions.
+    
+    Variants:
+    * StaticJwt { path }: Load a token from a file (cached, static).
+    * Jwt { private_key, duration, issuer?, audience?, subject? }:
+        Dynamically sign tokens using provided private key with optional
+        standard JWT claims (iss, aud, sub) and a token validity duration.
+    * SharedSecret { identity, shared_secret }:
+        Symmetric token provider using a shared secret. Used mainly for testing.
+    
+    Examples (Python):
+    
+    Static (pre-issued) JWT token loaded from a file:
+    ```python
+    from slim_bindings import PyIdentityProvider
+    
+    provider = PyIdentityProvider.StaticJwt(path="service.token")
+    # 'provider.get_token()' (internally) will manage reloading of the file if it changes.
+    ```
+    
+    Dynamically signed JWT using a private key (claims + duration):
+    ```python
+    from slim_bindings import (
+        PyIdentityProvider, PyKey, PyAlgorithm, PyKeyFormat, PyKeyData
+    )
+    import datetime
+    
+    signing_key = PyKey(
+        algorithm=PyAlgorithm.RS256,
+        format=PyKeyFormat.Pem,
+        key=PyKeyData.File("private_key.pem"),
+    )
+    
+    provider = PyIdentityProvider.Jwt(
+        private_key=signing_key,
+        duration=datetime.timedelta(minutes=30),
+        issuer="my-issuer",
+        audience=["downstream-svc"],
+        subject="svc-a",
+    )
+    ```
+    
+    Shared secret token provider for tests / local development:
+    ```python
+    from slim_bindings import PyIdentityProvider
+    
+    provider = PyIdentityProvider.SharedSecret(
+        identity="svc-a",
+        shared_secret="not-for-production",
+    )
+    ```
+    
+    End-to-end example pairing with a verifier:
+    ```python
+    # For a simple shared-secret flow:
+    from slim_bindings import PyIdentityProvider, PyIdentityVerifier
+    
+    provider = PyIdentityProvider.SharedSecret(identity="svc-a", shared_secret="dev-secret")
+    verifier = PyIdentityVerifier.SharedSecret(identity="svc-a", shared_secret="dev-secret")
+    
+    # Pass both into Slim.new(local_name, provider, verifier)
+    ```
+    
+    Jwt variant quick start (full):
+    ```python
+    import datetime
+    from slim_bindings import (
+        PyIdentityProvider, PyIdentityVerifier,
+        PyKey, PyAlgorithm, PyKeyFormat, PyKeyData
+    )
+    
+    key = PyKey(PyAlgorithm.RS256, PyKeyFormat.Pem, PyKeyData.File("private_key.pem"))
+    provider = PyIdentityProvider.Jwt(
+        private_key=key,
+        duration=datetime.timedelta(hours=1),
+        issuer="my-issuer",
+        audience=["svc-b"],
+        subject="svc-a"
+    )
+    # Verifier would normally use the corresponding public key (PyIdentityVerifier.Jwt).
+    ```
+    """
+    class StaticJwt(PyIdentityProvider):
+        __match_args__ = ("path",)
+        @property
+        def path(self) -> builtins.str: ...
+        def __new__(cls, path:builtins.str) -> PyIdentityProvider.StaticJwt: ...
+    
+    class Jwt(PyIdentityProvider):
+        __match_args__ = ("private_key", "duration", "issuer", "audience", "subject",)
+        @property
+        def private_key(self) -> PyKey: ...
+        @property
+        def duration(self) -> datetime.timedelta: ...
+        @property
+        def issuer(self) -> typing.Optional[builtins.str]: ...
+        @property
+        def audience(self) -> typing.Optional[builtins.list[builtins.str]]: ...
+        @property
+        def subject(self) -> typing.Optional[builtins.str]: ...
+        def __new__(cls, private_key:PyKey, duration:datetime.timedelta, issuer:typing.Optional[builtins.str]=None, audience:typing.Optional[typing.Sequence[builtins.str]]=None, subject:typing.Optional[builtins.str]=None) -> PyIdentityProvider.Jwt: ...
+    
+    class SharedSecret(PyIdentityProvider):
+        __match_args__ = ("identity", "shared_secret",)
+        @property
+        def identity(self) -> builtins.str: ...
+        @property
+        def shared_secret(self) -> builtins.str: ...
+        def __new__(cls, identity:builtins.str, shared_secret:builtins.str) -> PyIdentityProvider.SharedSecret: ...
+    
+    ...
+
 class PyKey:
     r"""
     Composite key description used for signing or verification.
@@ -228,94 +342,6 @@ class PyAlgorithm(Enum):
     ES256 = ...
     ES384 = ...
     EdDSA = ...
-
-class PyIdentityProvider(Enum):
-    r"""
-    Python-facing identity provider definitions.
-    
-    Variants:
-    * StaticJwt { path }: Load a token from a file (cached, static).
-    * Jwt { private_key, duration, issuer?, audience?, subject? }:
-        Dynamically sign tokens using provided private key with optional
-        standard JWT claims (iss, aud, sub) and a token validity duration.
-    * SharedSecret { identity, shared_secret }:
-        Symmetric token provider using a shared secret. Used mainly for testing.
-    
-    Examples (Python):
-    
-    Static (pre-issued) JWT token loaded from a file:
-    ```python
-    from slim_bindings import PyIdentityProvider
-    
-    provider = PyIdentityProvider.StaticJwt(path="service.token")
-    # 'provider.get_token()' (internally) will manage reloading of the file if it changes.
-    ```
-    
-    Dynamically signed JWT using a private key (claims + duration):
-    ```python
-    from slim_bindings import (
-        PyIdentityProvider, PyKey, PyAlgorithm, PyKeyFormat, PyKeyData
-    )
-    import datetime
-    
-    signing_key = PyKey(
-        algorithm=PyAlgorithm.RS256,
-        format=PyKeyFormat.Pem,
-        key=PyKeyData.File("private_key.pem"),
-    )
-    
-    provider = PyIdentityProvider.Jwt(
-        private_key=signing_key,
-        duration=datetime.timedelta(minutes=30),
-        issuer="my-issuer",
-        audience=["downstream-svc"],
-        subject="svc-a",
-    )
-    ```
-    
-    Shared secret token provider for tests / local development:
-    ```python
-    from slim_bindings import PyIdentityProvider
-    
-    provider = PyIdentityProvider.SharedSecret(
-        identity="svc-a",
-        shared_secret="not-for-production",
-    )
-    ```
-    
-    End-to-end example pairing with a verifier:
-    ```python
-    # For a simple shared-secret flow:
-    from slim_bindings import PyIdentityProvider, PyIdentityVerifier
-    
-    provider = PyIdentityProvider.SharedSecret(identity="svc-a", shared_secret="dev-secret")
-    verifier = PyIdentityVerifier.SharedSecret(identity="svc-a", shared_secret="dev-secret")
-    
-    # Pass both into Slim.new(local_name, provider, verifier)
-    ```
-    
-    Jwt variant quick start (full):
-    ```python
-    import datetime
-    from slim_bindings import (
-        PyIdentityProvider, PyIdentityVerifier,
-        PyKey, PyAlgorithm, PyKeyFormat, PyKeyData
-    )
-    
-    key = PyKey(PyAlgorithm.RS256, PyKeyFormat.Pem, PyKeyData.File("private_key.pem"))
-    provider = PyIdentityProvider.Jwt(
-        private_key=key,
-        duration=datetime.timedelta(hours=1),
-        issuer="my-issuer",
-        audience=["svc-b"],
-        subject="svc-a"
-    )
-    # Verifier would normally use the corresponding public key (PyIdentityVerifier.Jwt).
-    ```
-    """
-    StaticJwt = ...
-    Jwt = ...
-    SharedSecret = ...
 
 class PyIdentityVerifier(Enum):
     r"""

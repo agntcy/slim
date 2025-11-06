@@ -158,12 +158,6 @@ impl SessionSender {
     }
 
     async fn on_publish_message(&mut self, mut message: Message) -> Result<(), SessionError> {
-        //if self.endpoints_list.is_empty() {
-        //    return Err(SessionError::Processing(
-        //        "endpoint list is empty, cannot create timers".to_string(),
-        //    ));
-        //}
-
         // compute message id
         // by increasing next_id before assign it to message_id
         // we always skip message 0 (used as drain timer id)

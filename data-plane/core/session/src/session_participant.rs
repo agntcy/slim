@@ -258,14 +258,14 @@ where
 
         self.join(&msg).await?;
 
-        let list = msg
+        let list = &msg
             .get_payload()
             .unwrap()
             .as_command_payload()?
             .as_welcome_payload()?
             .participants;
         for n in list {
-            let name = Name::from(&n);
+            let name = Name::from(n);
             self.group_list.insert(name.clone());
 
             if name != self.common.settings.source {
