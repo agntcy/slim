@@ -35,8 +35,6 @@ pub trait SubscriptionTable {
         is_local: bool,
     ) -> Result<(), SubscriptionTableError>;
 
-    fn get_local_subscriptions_on_connection(&self, conn_index: u64) -> Vec<Name>;
-
     fn remove_connection(
         &self,
         conn: u64,

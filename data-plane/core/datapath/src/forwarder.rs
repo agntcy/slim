@@ -60,11 +60,6 @@ where
         }
     }
 
-    pub fn get_local_subscriptions_on_connection(&self, conn_index: u64) -> Vec<Name> {
-        self.subscription_table
-            .get_local_subscriptions_on_connection(conn_index)
-    }
-
     pub fn on_connection_drop(
         &self,
         conn_index: u64,

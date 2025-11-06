@@ -589,12 +589,6 @@ impl SubscriptionTable for SubscriptionTableImpl {
         Ok(())
     }
 
-    fn get_local_subscriptions_on_connection(&self, conn: u64) -> Vec<Name> {
-        let conn_map = self.connections.read();
-        let set: Option<&HashSet<Name>> = conn_map.get(&conn);
-        set.map(|s| s.iter().cloned().collect()).unwrap_or_default()
-    }
-
     fn remove_connection(
         &self,
         conn: u64,
@@ -878,39 +872,5 @@ mod tests {
 
         assert_eq!(h[&name2].1, vec![3]);
         assert_eq!(h[&name2].2, vec![] as Vec<u64>);
-    }
-    #[test]
-    #[traced_test]
-    fn test_get_local_subscriptions_on_connection() {
-        let name1 = Name::from_strings(["org", "default", "a"]);
-        let name2 = Name::from_strings(["org", "default", "b"]);
-
-        let t = SubscriptionTableImpl::default();
-
-        // Test getting subscriptions from non-existent connection
-        let result = t.get_local_subscriptions_on_connection(999);
-        assert_eq!(result, Vec::<Name>::new());
-
-        // Add subscriptions to connection 1
-        assert_eq!(t.add_subscription(name1.clone(), 1, true), Ok(()));
-        assert_eq!(t.add_subscription(name2.clone(), 1, true), Ok(()));
-
-        // Test getting subscriptions from connection 1
-        let result = t.get_local_subscriptions_on_connection(1);
-        assert_eq!(result.len(), 2);
-        assert!(result.contains(&name1));
-        assert!(result.contains(&name2));
-
-        // Remove a subscription from connection 1 and test
-        assert_eq!(t.remove_subscription(&name1, 1, true), Ok(()));
-        let result = t.get_local_subscriptions_on_connection(1);
-        assert_eq!(result.len(), 1);
-        assert!(!result.contains(&name1));
-        assert!(result.contains(&name2));
-
-        // Test with empty connection after removing all subscriptions
-        assert_eq!(t.remove_subscription(&name2, 1, true), Ok(()));
-        let result = t.get_local_subscriptions_on_connection(1);
-        assert_eq!(result, Vec::<Name>::new());
     }
 }
