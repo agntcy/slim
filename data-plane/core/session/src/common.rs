@@ -5,11 +5,8 @@
 use tonic::Status;
 
 use slim_datapath::{
-    api::{
-        ApplicationPayload, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType,
-        SessionHeader, SlimHeader,
-    },
-    messages::{Name, utils::SlimHeaderFlags},
+    api::{ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType},
+    messages::{Name, utils::MessageError},
 };
 
 // Local crate
@@ -53,31 +50,23 @@ pub fn new_message_from_session_fields(
     message_type: ProtoSessionMessageType,
     session_id: u32,
     message_id: u32,
-) -> Message {
-    let flags = if is_error {
-        Some(
-            SlimHeaderFlags::default()
-                .with_forward_to(target_conn)
-                .with_error(true),
-        )
-    } else {
-        Some(SlimHeaderFlags::default().with_forward_to(target_conn))
-    };
+) -> Result<Message, MessageError> {
+    let mut builder = Message::builder()
+        .source(local_name.clone())
+        .destination(target_name.clone())
+        .identity("")
+        .forward_to(target_conn)
+        .session_type(session_type)
+        .session_message_type(message_type)
+        .session_id(session_id)
+        .message_id(message_id)
+        .application_payload("", vec![]);
 
-    let slim_header = Some(SlimHeader::new(local_name, target_name, "", flags));
+    if is_error {
+        builder = builder.error(true);
+    }
 
-    let session_header = Some(SessionHeader::new(
-        session_type.into(),
-        message_type.into(),
-        session_id,
-        message_id,
-    ));
-
-    Message::new_publish_with_headers(
-        slim_header,
-        session_header,
-        Some(ApplicationPayload::new("", vec![]).as_content()),
-    )
+    builder.build_publish()
 }
 
 /// Message types for communication between session components

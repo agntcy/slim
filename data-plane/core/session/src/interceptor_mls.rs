@@ -152,13 +152,16 @@ mod tests {
 
         let payload = Some(ApplicationPayload::new("text", b"test message".to_vec()).as_content());
 
-        let mut msg = Message::new_publish(
-            &slim_datapath::messages::Name::from_strings(["org", "default", "test"]).with_id(0),
-            &slim_datapath::messages::Name::from_strings(["org", "default", "target"]),
-            None,
-            None,
-            payload,
-        );
+        let mut msg = Message::builder()
+            .source(
+                slim_datapath::messages::Name::from_strings(["org", "default", "test"]).with_id(0),
+            )
+            .destination(slim_datapath::messages::Name::from_strings([
+                "org", "default", "target",
+            ]))
+            .application_payload("text", b"test message".to_vec())
+            .build_publish()
+            .unwrap();
 
         let result = interceptor.on_msg_from_app(&mut msg).await;
         assert!(result.is_err());
@@ -197,13 +200,16 @@ mod tests {
         let original_payload = b"Hello from Alice!";
         let payload = Some(ApplicationPayload::new("text", original_payload.to_vec()).as_content());
 
-        let mut alice_msg = Message::new_publish(
-            &slim_datapath::messages::Name::from_strings(["org", "default", "alice"]).with_id(0),
-            &slim_datapath::messages::Name::from_strings(["org", "default", "bob"]),
-            None,
-            None,
-            payload,
-        );
+        let mut alice_msg = Message::builder()
+            .source(
+                slim_datapath::messages::Name::from_strings(["org", "default", "alice"]).with_id(0),
+            )
+            .destination(slim_datapath::messages::Name::from_strings([
+                "org", "default", "bob",
+            ]))
+            .application_payload("text", original_payload.to_vec())
+            .build_publish()
+            .unwrap();
 
         alice_interceptor
             .on_msg_from_app(&mut alice_msg)

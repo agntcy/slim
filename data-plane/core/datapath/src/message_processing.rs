@@ -686,12 +686,12 @@ impl MessageProcessor {
                                 info!("connection re-established");
                                 // the subscription table should be ok already
                                 for r in remote_subscriptions.iter() {
-                                    let sub_msg = Message::new_subscribe(
-                                        r.source(),
-                                        r.name(),
-                                        Some(r.source_identity()),
-                                        None,
-                                    );
+                                    let sub_msg = Message::builder()
+                                        .source(r.source().clone())
+                                        .destination(r.name().clone())
+                                        .identity(r.source_identity())
+                                        .build_subscribe()
+                                        .unwrap();
                                     if self.send_msg(sub_msg, conn_index).await.is_err() {
                                         error!("error restoring subscription on remote node");
                                     }

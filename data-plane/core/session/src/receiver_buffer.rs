@@ -344,19 +344,42 @@ mod tests {
             5,
         );
 
-        let payload = Some(ApplicationPayload::new("", vec![]).as_content());
-        let p0 =
-            Message::new_publish_with_headers(Some(slim_header.clone()), Some(h0), payload.clone());
-        let p1 =
-            Message::new_publish_with_headers(Some(slim_header.clone()), Some(h1), payload.clone());
-        let p2 =
-            Message::new_publish_with_headers(Some(slim_header.clone()), Some(h2), payload.clone());
-        let p3 =
-            Message::new_publish_with_headers(Some(slim_header.clone()), Some(h3), payload.clone());
-        let p4 =
-            Message::new_publish_with_headers(Some(slim_header.clone()), Some(h4), payload.clone());
-        let p5 =
-            Message::new_publish_with_headers(Some(slim_header.clone()), Some(h5), payload.clone());
+        let p0 = Message::builder()
+            .with_slim_header(slim_header.clone())
+            .with_session_header(h0)
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
+        let p1 = Message::builder()
+            .with_slim_header(slim_header.clone())
+            .with_session_header(h1)
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
+        let p2 = Message::builder()
+            .with_slim_header(slim_header.clone())
+            .with_session_header(h2)
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
+        let p3 = Message::builder()
+            .with_slim_header(slim_header.clone())
+            .with_session_header(h3)
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
+        let p4 = Message::builder()
+            .with_slim_header(slim_header.clone())
+            .with_session_header(h4)
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
+        let p5 = Message::builder()
+            .with_slim_header(slim_header.clone())
+            .with_session_header(h5)
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
 
         // insert in order
         let mut buffer = ReceiverBuffer::default();

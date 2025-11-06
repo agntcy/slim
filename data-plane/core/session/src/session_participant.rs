@@ -227,7 +227,7 @@ where
             None
         };
 
-        let content = CommandPayload::new_join_reply_payload(payload).as_content();
+        let content = CommandPayload::builder().join_reply(payload).as_content();
 
         debug!("send join reply message");
         let reply = self.common.create_control_message(
@@ -236,7 +236,7 @@ where
             msg.get_id(),
             content,
             false,
-        );
+        )?;
 
         self.common.send_to_slim(reply).await
     }
@@ -278,9 +278,9 @@ where
             &msg.get_source(),
             ProtoSessionMessageType::GroupAck,
             msg.get_id(),
-            CommandPayload::new_group_ack_payload().as_content(),
+            CommandPayload::builder().group_ack().as_content(),
             false,
-        );
+        )?;
 
         self.common.send_to_slim(ack).await
     }
@@ -346,9 +346,9 @@ where
             &msg.get_source(),
             ProtoSessionMessageType::GroupAck,
             msg.get_id(),
-            CommandPayload::new_group_ack_payload().as_content(),
+            CommandPayload::builder().group_ack().as_content(),
             false,
-        );
+        )?;
         self.common.send_to_slim(msg).await
     }
 
@@ -357,9 +357,9 @@ where
             &msg.get_source(),
             ProtoSessionMessageType::LeaveReply,
             msg.get_id(),
-            CommandPayload::new_leave_reply_payload().as_content(),
+            CommandPayload::builder().leave_reply().as_content(),
             false,
-        );
+        )?;
 
         self.common.send_to_slim(reply).await?;
 
@@ -389,12 +389,12 @@ where
         self.common
             .set_route(&self.common.settings.destination, msg.get_incoming_conn())
             .await?;
-        let sub = Message::new_subscribe(
-            &self.common.settings.source,
-            &self.common.settings.destination,
-            None,
-            Some(SlimHeaderFlags::default().with_forward_to(msg.get_incoming_conn())),
-        );
+        let sub = Message::builder()
+            .source(self.common.settings.source.clone())
+            .destination(self.common.settings.destination.clone())
+            .flags(SlimHeaderFlags::default().with_forward_to(msg.get_incoming_conn()))
+            .build_subscribe()
+            .unwrap();
 
         self.common.send_to_slim(sub).await
     }
@@ -414,12 +414,12 @@ where
                 msg.get_incoming_conn(),
             )
             .await?;
-        let sub = Message::new_unsubscribe(
-            &self.common.settings.source,
-            &self.common.settings.destination,
-            None,
-            Some(SlimHeaderFlags::default().with_forward_to(msg.get_incoming_conn())),
-        );
+        let sub = Message::builder()
+            .source(self.common.settings.source.clone())
+            .destination(self.common.settings.destination.clone())
+            .flags(SlimHeaderFlags::default().with_forward_to(msg.get_incoming_conn()))
+            .build_unsubscribe()
+            .unwrap();
 
         self.common.send_to_slim(sub).await
     }

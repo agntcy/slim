@@ -179,7 +179,8 @@ impl SessionReceiver {
             slim_datapath::api::ProtoSessionMessageType::MsgAck,
             message.get_session_header().session_id,
             message.get_id(),
-        );
+        )
+        .map_err(|e| SessionError::Processing(e.to_string()))?;
 
         self.tx.send_to_slim(Ok(ack)).await
     }
@@ -256,7 +257,8 @@ impl SessionReceiver {
                 slim_datapath::api::ProtoSessionMessageType::RtxRequest,
                 self.session_id,
                 rtx_id,
-            );
+            )
+            .map_err(|e| SessionError::Processing(e.to_string()))?;
 
             // for each RTX start a timer
             debug!("create rtx timer for message {} form {}", rtx_id, source);
@@ -371,13 +373,12 @@ mod tests {
         );
 
         // Create test message 1
-        let mut message1 = Message::new_publish(
-            &remote_name,
-            &local_name,
-            None,
-            None,
-            Some(ApplicationPayload::new("test_payload_1", vec![1, 2, 3, 4]).as_content()),
-        );
+        let mut message1 = Message::builder()
+            .source(remote_name.clone())
+            .destination(local_name.clone())
+            .application_payload("test_payload_1", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
         message1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message1.get_session_header_mut().set_message_id(1);
         message1.get_session_header_mut().set_session_id(10);
@@ -416,13 +417,12 @@ mod tests {
         assert_eq!(ack1.get_session_header().get_message_id(), 1);
 
         // Create test message 2
-        let mut message2 = Message::new_publish(
-            &remote_name,
-            &local_name,
-            None,
-            None,
-            Some(ApplicationPayload::new("test_payload_2", vec![5, 6, 7, 8]).as_content()),
-        );
+        let mut message2 = Message::builder()
+            .source(remote_name.clone())
+            .destination(local_name.clone())
+            .application_payload("test_payload_2", vec![5, 6, 7, 8])
+            .build_publish()
+            .unwrap();
         message2.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message2.get_session_header_mut().set_message_id(2);
         message2.get_session_header_mut().set_session_id(10);
@@ -485,13 +485,12 @@ mod tests {
         );
 
         // Create test message 1
-        let mut message1 = Message::new_publish(
-            &remote_name,
-            &local_name,
-            None,
-            None,
-            Some(ApplicationPayload::new("test_payload_2", vec![5, 6, 7, 8]).as_content()),
-        );
+        let mut message1 = Message::builder()
+            .source(remote_name.clone())
+            .destination(local_name.clone())
+            .application_payload("test_payload_2", vec![5, 6, 7, 8])
+            .build_publish()
+            .unwrap();
         message1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message1.get_session_header_mut().set_message_id(1);
         message1.get_session_header_mut().set_session_id(10);
@@ -528,13 +527,12 @@ mod tests {
         assert_eq!(ack1.get_session_header().get_message_id(), 1);
 
         // Create test message 3 (message 2 is missing)
-        let mut message3 = Message::new_publish(
-            &remote_name,
-            &local_name,
-            None,
-            None,
-            Some(ApplicationPayload::new("test_payload_3", vec![9, 10, 11, 12]).as_content()),
-        );
+        let mut message3 = Message::builder()
+            .source(remote_name.clone())
+            .destination(local_name.clone())
+            .application_payload("test_payload_3", vec![9, 10, 11, 12])
+            .build_publish()
+            .unwrap();
         message3.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message3.get_session_header_mut().set_message_id(3);
         message3.get_session_header_mut().set_session_id(10);
@@ -714,13 +712,12 @@ mod tests {
         );
 
         // Create test message 1
-        let mut message1 = Message::new_publish(
-            &remote_name,
-            &local_name,
-            None,
-            None,
-            Some(ApplicationPayload::new("test_payload_1", vec![1, 2, 3, 4]).as_content()),
-        );
+        let mut message1 = Message::builder()
+            .source(remote_name.clone())
+            .destination(local_name.clone())
+            .application_payload("test_payload_1", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
         message1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message1.get_session_header_mut().set_message_id(1);
         message1.get_session_header_mut().set_session_id(10);
@@ -757,13 +754,12 @@ mod tests {
         assert_eq!(ack1.get_session_header().get_message_id(), 1);
 
         // Create test message 3 (message 2 is missing)
-        let mut message3 = Message::new_publish(
-            &remote_name,
-            &local_name,
-            None,
-            None,
-            Some(ApplicationPayload::new("test_payload_3", vec![9, 10, 11, 12]).as_content()),
-        );
+        let mut message3 = Message::builder()
+            .source(remote_name.clone())
+            .destination(local_name.clone())
+            .application_payload("test_payload_3", vec![9, 10, 11, 12])
+            .build_publish()
+            .unwrap();
         message3.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message3.get_session_header_mut().set_message_id(3);
         message3.get_session_header_mut().set_session_id(10);
@@ -805,13 +801,12 @@ mod tests {
         assert_eq!(rtx_request.get_id(), 2);
 
         // Create RTX reply with the missing message 2
-        let mut rtx_reply = Message::new_publish(
-            &remote_name,
-            &local_name,
-            None,
-            None,
-            Some(ApplicationPayload::new("test_payload_2", vec![5, 6, 7, 8]).as_content()),
-        );
+        let mut rtx_reply = Message::builder()
+            .source(remote_name.clone())
+            .destination(local_name.clone())
+            .application_payload("test_payload_2", vec![5, 6, 7, 8])
+            .build_publish()
+            .unwrap();
         rtx_reply.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxReply);
         rtx_reply.get_session_header_mut().set_message_id(2);
         rtx_reply.get_session_header_mut().set_session_id(10);
@@ -875,13 +870,12 @@ mod tests {
         );
 
         // Create test message 1
-        let mut message1 = Message::new_publish(
-            &remote_name,
-            &local_name,
-            None,
-            None,
-            Some(ApplicationPayload::new("test_payload_1", vec![1, 2, 3, 4]).as_content()),
-        );
+        let mut message1 = Message::builder()
+            .source(remote_name.clone())
+            .destination(local_name.clone())
+            .application_payload("test_payload_1", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
         message1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message1.get_session_header_mut().set_message_id(1);
         message1.get_session_header_mut().set_session_id(10);
@@ -918,13 +912,12 @@ mod tests {
         assert_eq!(ack1.get_session_header().get_message_id(), 1);
 
         // Create test message 3 (message 2 is missing)
-        let mut message3 = Message::new_publish(
-            &remote_name,
-            &local_name,
-            None,
-            None,
-            Some(ApplicationPayload::new("test_payload_3", vec![9, 10, 11, 12]).as_content()),
-        );
+        let mut message3 = Message::builder()
+            .source(remote_name.clone())
+            .destination(local_name.clone())
+            .application_payload("test_payload_3", vec![9, 10, 11, 12])
+            .build_publish()
+            .unwrap();
         message3.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message3.get_session_header_mut().set_message_id(3);
         message3.get_session_header_mut().set_session_id(10);
@@ -966,13 +959,12 @@ mod tests {
         assert_eq!(rtx_request.get_id(), 2);
 
         // Create RTX reply with an error for message 2
-        let mut rtx_reply = Message::new_publish(
-            &remote_name,
-            &local_name,
-            None,
-            None,
-            Some(ApplicationPayload::new("", vec![]).as_content()),
-        );
+        let mut rtx_reply = Message::builder()
+            .source(remote_name.clone())
+            .destination(local_name.clone())
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
         rtx_reply.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxReply);
         rtx_reply.get_session_header_mut().set_message_id(2);
         rtx_reply.get_session_header_mut().set_session_id(10);
@@ -1047,13 +1039,12 @@ mod tests {
         );
 
         // Create and send message 1 from remote1
-        let mut message1_r1 = Message::new_publish(
-            &remote1_name,
-            &group_name,
-            None,
-            None,
-            Some(ApplicationPayload::new("payload_1_r1", vec![1, 2, 3, 4]).as_content()),
-        );
+        let mut message1_r1 = Message::builder()
+            .source(remote1_name.clone())
+            .destination(group_name.clone())
+            .application_payload("payload_1_r1", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
         message1_r1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message1_r1.get_session_header_mut().set_message_id(1);
         message1_r1.get_session_header_mut().set_session_id(10);
@@ -1065,13 +1056,12 @@ mod tests {
             .expect("error sending message1_r1");
 
         // Create and send message 1 from remote2
-        let mut message1_r2 = Message::new_publish(
-            &remote2_name,
-            &group_name,
-            None,
-            None,
-            Some(ApplicationPayload::new("payload_1_r2", vec![5, 6, 7, 8]).as_content()),
-        );
+        let mut message1_r2 = Message::builder()
+            .source(remote2_name.clone())
+            .destination(group_name.clone())
+            .application_payload("payload_1_r2", vec![5, 6, 7, 8])
+            .build_publish()
+            .unwrap();
         message1_r2.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message1_r2.get_session_header_mut().set_message_id(1);
         message1_r2.get_session_header_mut().set_session_id(10);
@@ -1083,13 +1073,12 @@ mod tests {
             .expect("error sending message1_r2");
 
         // Create and send message 2 from remote1
-        let mut message2_r1 = Message::new_publish(
-            &remote1_name,
-            &group_name,
-            None,
-            None,
-            Some(ApplicationPayload::new("payload_2_r1", vec![9, 10, 11, 12]).as_content()),
-        );
+        let mut message2_r1 = Message::builder()
+            .source(remote1_name.clone())
+            .destination(group_name.clone())
+            .application_payload("payload_2_r1", vec![9, 10, 11, 12])
+            .build_publish()
+            .unwrap();
         message2_r1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message2_r1.get_session_header_mut().set_message_id(2);
         message2_r1.get_session_header_mut().set_session_id(10);
@@ -1101,13 +1090,12 @@ mod tests {
             .expect("error sending message2_r1");
 
         // Create and send message 2 from remote2
-        let mut message2_r2 = Message::new_publish(
-            &remote2_name,
-            &group_name,
-            None,
-            None,
-            Some(ApplicationPayload::new("payload_2_r2", vec![13, 14, 15, 16]).as_content()),
-        );
+        let mut message2_r2 = Message::builder()
+            .source(remote2_name.clone())
+            .destination(group_name.clone())
+            .application_payload("payload_2_r2", vec![13, 14, 15, 16])
+            .build_publish()
+            .unwrap();
         message2_r2.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message2_r2.get_session_header_mut().set_message_id(2);
         message2_r2.get_session_header_mut().set_session_id(10);
@@ -1186,13 +1174,12 @@ mod tests {
         );
 
         // Send messages 1, 2, 3 from remote1 (complete sequence)
-        let mut message1_r1 = Message::new_publish(
-            &remote1_name,
-            &group_name,
-            None,
-            None,
-            Some(ApplicationPayload::new("payload_1_r1", vec![1, 2, 3, 4]).as_content()),
-        );
+        let mut message1_r1 = Message::builder()
+            .source(remote1_name.clone())
+            .destination(group_name.clone())
+            .application_payload("payload_1_r1", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
         message1_r1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message1_r1.get_session_header_mut().set_message_id(1);
         message1_r1.get_session_header_mut().set_session_id(10);
@@ -1203,13 +1190,12 @@ mod tests {
             .await
             .expect("error sending message1_r1");
 
-        let mut message2_r1 = Message::new_publish(
-            &remote1_name,
-            &group_name,
-            None,
-            None,
-            Some(ApplicationPayload::new("payload_2_r1", vec![5, 6, 7, 8]).as_content()),
-        );
+        let mut message2_r1 = Message::builder()
+            .source(remote1_name.clone())
+            .destination(group_name.clone())
+            .application_payload("payload_2_r1", vec![5, 6, 7, 8])
+            .build_publish()
+            .unwrap();
         message2_r1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message2_r1.get_session_header_mut().set_message_id(2);
         message2_r1.get_session_header_mut().set_session_id(10);
@@ -1220,13 +1206,12 @@ mod tests {
             .await
             .expect("error sending message2_r1");
 
-        let mut message3_r1 = Message::new_publish(
-            &remote1_name,
-            &group_name,
-            None,
-            None,
-            Some(ApplicationPayload::new("payload_3_r1", vec![9, 10, 11, 12]).as_content()),
-        );
+        let mut message3_r1 = Message::builder()
+            .source(remote1_name.clone())
+            .destination(group_name.clone())
+            .application_payload("payload_3_r1", vec![9, 10, 11, 12])
+            .build_publish()
+            .unwrap();
         message3_r1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message3_r1.get_session_header_mut().set_message_id(3);
         message3_r1.get_session_header_mut().set_session_id(10);
@@ -1238,13 +1223,12 @@ mod tests {
             .expect("error sending message3_r1");
 
         // Send messages 1 and 3 from remote2 (missing message 2)
-        let mut message1_r2 = Message::new_publish(
-            &remote2_name,
-            &group_name,
-            None,
-            None,
-            Some(ApplicationPayload::new("payload_1_r2", vec![13, 14, 15, 16]).as_content()),
-        );
+        let mut message1_r2 = Message::builder()
+            .source(remote2_name.clone())
+            .destination(group_name.clone())
+            .application_payload("payload_1_r2", vec![13, 14, 15, 16])
+            .build_publish()
+            .unwrap();
         message1_r2.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message1_r2.get_session_header_mut().set_message_id(1);
         message1_r2.get_session_header_mut().set_session_id(10);
@@ -1255,13 +1239,12 @@ mod tests {
             .await
             .expect("error sending message1_r2");
 
-        let mut message3_r2 = Message::new_publish(
-            &remote2_name,
-            &group_name,
-            None,
-            None,
-            Some(ApplicationPayload::new("payload_3_r2", vec![17, 18, 19, 20]).as_content()),
-        );
+        let mut message3_r2 = Message::builder()
+            .source(remote2_name.clone())
+            .destination(group_name.clone())
+            .application_payload("payload_3_r2", vec![17, 18, 19, 20])
+            .build_publish()
+            .unwrap();
         message3_r2.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message3_r2.get_session_header_mut().set_message_id(3);
         message3_r2.get_session_header_mut().set_session_id(10);
@@ -1332,13 +1315,12 @@ mod tests {
         assert_eq!(rtx_request.get_dst(), remote2_name);
 
         // Create and send RTX reply with the missing message 2 from remote2
-        let mut rtx_reply = Message::new_publish(
-            &remote2_name,
-            &local_name,
-            None,
-            None,
-            Some(ApplicationPayload::new("payload_2_r2", vec![21, 22, 23, 24]).as_content()),
-        );
+        let mut rtx_reply = Message::builder()
+            .source(remote2_name.clone())
+            .destination(local_name.clone())
+            .application_payload("payload_2_r2", vec![21, 22, 23, 24])
+            .build_publish()
+            .unwrap();
         rtx_reply.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxReply);
         rtx_reply.get_session_header_mut().set_message_id(2);
         rtx_reply.get_session_header_mut().set_session_id(10);

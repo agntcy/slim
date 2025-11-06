@@ -212,9 +212,12 @@ mod tests {
         let dst = Name::from_strings(["d", "e", "f"]).with_id(0);
 
         // Signature: (&Name, &Name, Option<SlimHeaderFlags>, &str, Vec<u8>)
-        let payload =
-            Some(ApplicationPayload::new("application/octet-stream", vec![]).as_content());
-        Message::new_publish(&source, &dst, None, None, payload)
+        Message::builder()
+            .source(source)
+            .destination(dst)
+            .application_payload("application/octet-stream", vec![])
+            .build_publish()
+            .unwrap()
     }
 
     #[tokio::test]

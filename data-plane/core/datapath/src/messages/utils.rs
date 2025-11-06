@@ -51,6 +51,8 @@ pub enum MessageError {
     NotCommandPayload,
     #[error("invalid command payload type: expected {expected}, got {got}")]
     InvalidCommandPayloadType { expected: String, got: String },
+    #[error("builder error: {0}")]
+    BuilderError(String),
 }
 
 /// ProtoName from Name
@@ -553,126 +555,6 @@ impl ProtoMessage {
         }
     }
 
-    pub fn new_subscribe(
-        source: &Name,
-        dst: &Name,
-        identity: Option<&str>,
-        flags: Option<SlimHeaderFlags>,
-    ) -> Self {
-        let subscribe = ProtoSubscribe::new(source, dst, identity, flags);
-
-        Self::new(HashMap::new(), ProtoSubscribeType(subscribe))
-    }
-
-    pub fn new_unsubscribe(
-        source: &Name,
-        dst: &Name,
-        identity: Option<&str>,
-        flags: Option<SlimHeaderFlags>,
-    ) -> Self {
-        let unsubscribe = ProtoUnsubscribe::new(source, dst, identity, flags);
-
-        Self::new(HashMap::new(), ProtoUnsubscribeType(unsubscribe))
-    }
-
-    pub fn new_publish(
-        source: &Name,
-        dst: &Name,
-        identity: Option<&str>,
-        flags: Option<SlimHeaderFlags>,
-        content: Option<Content>,
-    ) -> Self {
-        let publish = ProtoPublish::new(source, dst, identity, flags, content);
-
-        Self::new(HashMap::new(), ProtoPublishType(publish))
-    }
-
-    pub fn new_publish_with_headers(
-        slim_header: Option<SlimHeader>,
-        session_header: Option<SessionHeader>,
-        content: Option<Content>,
-    ) -> Self {
-        let publish = ProtoPublish::with_header(slim_header, session_header, content);
-
-        Self::new(HashMap::new(), ProtoPublishType(publish))
-    }
-
-    /// Creates a discovery request message with minimum required information
-    ///
-    /// # Arguments
-    /// * `source` - The source name
-    /// * `destination` - The destination name
-    /// * `session_type` - The session type (PointToPoint or Multicast)
-    /// * `session_id` - The session ID
-    ///
-    /// # Returns
-    /// A ProtoMessage configured as a discovery request
-    pub fn new_discovery_request(
-        source: &Name,
-        destination: &Name,
-        session_type: ProtoSessionType,
-        session_id: u32,
-    ) -> Self {
-        let slim_header = Some(SlimHeader::new(source, destination, "", None));
-        let session_header = Some(SessionHeader::new(
-            session_type.into(),
-            SessionMessageType::DiscoveryRequest.into(),
-            session_id,
-            rand::random::<u32>(),
-        ));
-        let payload = Some(CommandPayload::new_discovery_request_payload(None).as_content());
-        Self::new_publish_with_headers(slim_header, session_header, payload)
-    }
-
-    /// Creates a control message with session headers
-    ///
-    /// This is a convenience method for creating session control messages with all required headers.
-    ///
-    /// # Arguments
-    /// * `source` - The source name
-    /// * `destination` - The destination name
-    /// * `session_type` - The session type (PointToPoint or Multicast)
-    /// * `message_type` - The session message type (e.g., JoinRequest, GroupAdd, etc.)
-    /// * `session_id` - The session ID
-    /// * `message_id` - The message ID
-    /// * `payload` - The message payload
-    /// * `broadcast` - Whether to broadcast (sets fanout to 256)
-    ///
-    /// # Returns
-    /// A ProtoMessage configured as a control message
-    pub fn new_control_message(
-        source: &Name,
-        destination: &Name,
-        session_type: ProtoSessionType,
-        message_type: SessionMessageType,
-        session_id: u32,
-        message_id: u32,
-        payload: Content,
-        broadcast: bool,
-    ) -> Self {
-        let flags = if broadcast {
-            Some(SlimHeaderFlags::new(256, None, None, None, None))
-        } else {
-            None
-        };
-
-        let slim_header = Some(SlimHeader::new(
-            source,
-            destination,
-            "", // empty identity - will be updated by identity interceptor
-            flags,
-        ));
-
-        let session_header = Some(SessionHeader::new(
-            session_type.into(),
-            message_type.into(),
-            session_id,
-            message_id,
-        ));
-
-        Self::new_publish_with_headers(slim_header, session_header, Some(payload))
-    }
-
     // validate message
     pub fn validate(&self) -> Result<(), MessageError> {
         // make sure the message type is set
@@ -1029,149 +911,6 @@ macro_rules! impl_command_payload_getters {
 }
 
 impl CommandPayload {
-    pub fn new_discovery_request_payload(destination: Option<Name>) -> Self {
-        let proto_destination = destination.as_ref().map(ProtoName::from);
-        let payload = DiscoveryRequestPayload {
-            destination: proto_destination,
-        };
-        Self {
-            command_payload_type: Some(CommandPayloadType::DiscoveryRequest(payload)),
-        }
-    }
-
-    pub fn new_discovery_reply_payload() -> Self {
-        let payload = DiscoveryReplyPayload {};
-        Self {
-            command_payload_type: Some(CommandPayloadType::DiscoveryReply(payload)),
-        }
-    }
-
-    pub fn new_join_request_payload(
-        enable_mls: bool,
-        max_retries: Option<u32>,
-        timer_duration: Option<Duration>,
-        channel: Option<Name>,
-    ) -> Self {
-        let proto_channel = channel.as_ref().map(ProtoName::from);
-
-        let timer_settings = if let Some(t) = timer_duration
-            && let Some(m) = max_retries
-        {
-            Some(TimerSettings {
-                timeout: t.as_millis() as u32,
-                max_retries: m,
-            })
-        } else {
-            None
-        };
-
-        let payload = JoinRequestPayload {
-            enable_mls,
-            timer_settings,
-            channel: proto_channel,
-        };
-        Self {
-            command_payload_type: Some(CommandPayloadType::JoinRequest(payload)),
-        }
-    }
-
-    pub fn new_join_reply_payload(key_package: Option<Vec<u8>>) -> Self {
-        let payload = JoinReplyPayload { key_package };
-        Self {
-            command_payload_type: Some(CommandPayloadType::JoinReply(payload)),
-        }
-    }
-
-    pub fn new_leave_request_payload(destination: Option<Name>) -> Self {
-        let proto_destination = destination.as_ref().map(ProtoName::from);
-        let payload = LeaveRequestPayload {
-            destination: proto_destination,
-        };
-        Self {
-            command_payload_type: Some(CommandPayloadType::LeaveRequest(payload)),
-        }
-    }
-
-    pub fn new_leave_reply_payload() -> Self {
-        let payload = LeaveReplyPayload {};
-        Self {
-            command_payload_type: Some(CommandPayloadType::LeaveReply(payload)),
-        }
-    }
-
-    pub fn new_group_add_payload(
-        new_participant: Name,
-        participants: Vec<Name>,
-        mls: Option<MlsPayload>,
-    ) -> Self {
-        let proto_new_participant = Some(ProtoName::from(&new_participant));
-        let proto_participants = participants.iter().map(ProtoName::from).collect();
-
-        let payload = GroupAddPayload {
-            new_participant: proto_new_participant,
-            participants: proto_participants,
-            mls,
-        };
-        Self {
-            command_payload_type: Some(CommandPayloadType::GroupAdd(payload)),
-        }
-    }
-
-    pub fn new_group_remove_payload(
-        removed_participant: Name,
-        participants: Vec<Name>,
-        mls: Option<MlsPayload>,
-    ) -> Self {
-        let proto_removed_participant = Some(ProtoName::from(&removed_participant));
-        let proto_participants = participants.iter().map(ProtoName::from).collect();
-
-        let payload = GroupRemovePayload {
-            removed_participant: proto_removed_participant,
-            participants: proto_participants,
-            mls,
-        };
-        Self {
-            command_payload_type: Some(CommandPayloadType::GroupRemove(payload)),
-        }
-    }
-
-    pub fn new_group_welcome_payload(participants: Vec<Name>, mls: Option<MlsPayload>) -> Self {
-        let proto_participants = participants.iter().map(ProtoName::from).collect();
-
-        let payload = GroupWelcomePayload {
-            participants: proto_participants,
-            mls,
-        };
-        Self {
-            command_payload_type: Some(CommandPayloadType::GroupWelcome(payload)),
-        }
-    }
-
-    pub fn new_group_proposal_payload(source: Option<Name>, mls_proposal: Vec<u8>) -> Self {
-        let proto_source = source.as_ref().map(ProtoName::from);
-        let payload = GroupProposalPayload {
-            source: proto_source,
-            mls_proposal,
-        };
-        Self {
-            command_payload_type: Some(CommandPayloadType::GroupProposal(payload)),
-        }
-    }
-
-    pub fn new_group_ack_payload() -> Self {
-        let payload = GroupAckPayload {};
-        Self {
-            command_payload_type: Some(CommandPayloadType::GroupAck(payload)),
-        }
-    }
-
-    pub fn new_group_nack_payload() -> Self {
-        let payload = GroupNackPayload {};
-        Self {
-            command_payload_type: Some(CommandPayloadType::GroupNack(payload)),
-        }
-    }
-
     pub fn as_content(self) -> Content {
         Content {
             content_type: Some(ContentType::CommandPayload(self)),
@@ -1204,6 +943,583 @@ impl AsRef<ProtoPublish> for ProtoMessage {
     }
 }
 
+/// Builder for creating CommandPayload instances with a fluent API
+///
+/// Provides methods for creating all types of command payloads.
+///
+/// # Examples
+///
+/// ## Discovery Request
+/// ```
+/// use slim_datapath::api::CommandPayload;
+/// use slim_datapath::messages::Name;
+///
+/// let dest = Name::from_strings(["org", "namespace", "service"]);
+/// let payload = CommandPayload::builder().discovery_request(Some(dest));
+/// ```
+///
+/// ## Join Request with Timer Settings
+/// ```
+/// use slim_datapath::api::CommandPayload;
+/// use slim_datapath::messages::Name;
+/// use std::time::Duration;
+///
+/// let channel = Name::from_strings(["org", "namespace", "channel"]);
+/// let payload = CommandPayload::builder().join_request(
+///     true,  // enable_mls
+///     Some(5),  // max_retries
+///     Some(Duration::from_secs(10)),  // timeout
+///     Some(channel),
+/// );
+/// ```
+///
+/// ## Group Operations
+/// ```
+/// use slim_datapath::api::CommandPayload;
+/// use slim_datapath::messages::Name;
+///
+/// let participant = Name::from_strings(["org", "ns", "user1"]);
+/// let participants = vec![
+///     Name::from_strings(["org", "ns", "user2"]),
+///     Name::from_strings(["org", "ns", "user3"]),
+/// ];
+///
+/// // Add participant
+/// let add_payload = CommandPayload::builder().group_add(
+///     participant.clone(),
+///     participants.clone(),
+///     None,  // mls payload
+/// );
+/// ```
+pub struct CommandPayloadBuilder;
+
+impl CommandPayloadBuilder {
+    /// Creates a new CommandPayloadBuilder
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// Creates a discovery request payload
+    pub fn discovery_request(self, destination: Option<Name>) -> CommandPayload {
+        let proto_destination = destination.as_ref().map(ProtoName::from);
+        let payload = DiscoveryRequestPayload {
+            destination: proto_destination,
+        };
+        CommandPayload {
+            command_payload_type: Some(CommandPayloadType::DiscoveryRequest(payload)),
+        }
+    }
+
+    /// Creates a discovery reply payload
+    pub fn discovery_reply(self) -> CommandPayload {
+        let payload = DiscoveryReplyPayload {};
+        CommandPayload {
+            command_payload_type: Some(CommandPayloadType::DiscoveryReply(payload)),
+        }
+    }
+
+    /// Creates a join request payload
+    pub fn join_request(
+        self,
+        enable_mls: bool,
+        max_retries: Option<u32>,
+        timer_duration: Option<Duration>,
+        channel: Option<Name>,
+    ) -> CommandPayload {
+        let proto_channel = channel.as_ref().map(ProtoName::from);
+
+        let timer_settings = if let Some(t) = timer_duration
+            && let Some(m) = max_retries
+        {
+            Some(TimerSettings {
+                timeout: t.as_millis() as u32,
+                max_retries: m,
+            })
+        } else {
+            None
+        };
+
+        let payload = JoinRequestPayload {
+            enable_mls,
+            timer_settings,
+            channel: proto_channel,
+        };
+        CommandPayload {
+            command_payload_type: Some(CommandPayloadType::JoinRequest(payload)),
+        }
+    }
+
+    /// Creates a join reply payload
+    pub fn join_reply(self, key_package: Option<Vec<u8>>) -> CommandPayload {
+        let payload = JoinReplyPayload { key_package };
+        CommandPayload {
+            command_payload_type: Some(CommandPayloadType::JoinReply(payload)),
+        }
+    }
+
+    /// Creates a leave request payload
+    pub fn leave_request(self, destination: Option<Name>) -> CommandPayload {
+        let proto_destination = destination.as_ref().map(ProtoName::from);
+        let payload = LeaveRequestPayload {
+            destination: proto_destination,
+        };
+        CommandPayload {
+            command_payload_type: Some(CommandPayloadType::LeaveRequest(payload)),
+        }
+    }
+
+    /// Creates a leave reply payload
+    pub fn leave_reply(self) -> CommandPayload {
+        let payload = LeaveReplyPayload {};
+        CommandPayload {
+            command_payload_type: Some(CommandPayloadType::LeaveReply(payload)),
+        }
+    }
+
+    /// Creates a group add payload
+    pub fn group_add(
+        self,
+        new_participant: Name,
+        participants: Vec<Name>,
+        mls: Option<MlsPayload>,
+    ) -> CommandPayload {
+        let proto_new_participant = Some(ProtoName::from(&new_participant));
+        let proto_participants = participants.iter().map(ProtoName::from).collect();
+
+        let payload = GroupAddPayload {
+            new_participant: proto_new_participant,
+            participants: proto_participants,
+            mls,
+        };
+        CommandPayload {
+            command_payload_type: Some(CommandPayloadType::GroupAdd(payload)),
+        }
+    }
+
+    /// Creates a group remove payload
+    pub fn group_remove(
+        self,
+        removed_participant: Name,
+        participants: Vec<Name>,
+        mls: Option<MlsPayload>,
+    ) -> CommandPayload {
+        let proto_removed_participant = Some(ProtoName::from(&removed_participant));
+        let proto_participants = participants.iter().map(ProtoName::from).collect();
+
+        let payload = GroupRemovePayload {
+            removed_participant: proto_removed_participant,
+            participants: proto_participants,
+            mls,
+        };
+        CommandPayload {
+            command_payload_type: Some(CommandPayloadType::GroupRemove(payload)),
+        }
+    }
+
+    /// Creates a group welcome payload
+    pub fn group_welcome(self, participants: Vec<Name>, mls: Option<MlsPayload>) -> CommandPayload {
+        let proto_participants = participants.iter().map(ProtoName::from).collect();
+
+        let payload = GroupWelcomePayload {
+            participants: proto_participants,
+            mls,
+        };
+        CommandPayload {
+            command_payload_type: Some(CommandPayloadType::GroupWelcome(payload)),
+        }
+    }
+
+    /// Creates a group proposal payload
+    pub fn group_proposal(self, source: Option<Name>, mls_proposal: Vec<u8>) -> CommandPayload {
+        let proto_source = source.as_ref().map(ProtoName::from);
+        let payload = GroupProposalPayload {
+            source: proto_source,
+            mls_proposal,
+        };
+        CommandPayload {
+            command_payload_type: Some(CommandPayloadType::GroupProposal(payload)),
+        }
+    }
+
+    /// Creates a group ack payload
+    pub fn group_ack(self) -> CommandPayload {
+        let payload = GroupAckPayload {};
+        CommandPayload {
+            command_payload_type: Some(CommandPayloadType::GroupAck(payload)),
+        }
+    }
+
+    /// Creates a group nack payload
+    pub fn group_nack(self) -> CommandPayload {
+        let payload = GroupNackPayload {};
+        CommandPayload {
+            command_payload_type: Some(CommandPayloadType::GroupNack(payload)),
+        }
+    }
+}
+
+impl Default for CommandPayloadBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl CommandPayload {
+    /// Creates a new builder for CommandPayload
+    pub fn builder() -> CommandPayloadBuilder {
+        CommandPayloadBuilder::new()
+    }
+}
+
+/// Builder for creating ProtoMessage instances with a fluent API
+///
+/// # Examples
+///
+/// ## Basic Publish Message
+/// ```
+/// use slim_datapath::api::{ProtoMessage, ProtoSessionType};
+/// use slim_datapath::messages::Name;
+///
+/// let source = Name::from_strings(["org", "ns", "app"]).with_id(1);
+/// let dest = Name::from_strings(["org", "ns", "service"]).with_id(2);
+///
+/// let msg = ProtoMessage::builder()
+///     .source(source)
+///     .destination(dest)
+///     .session_type(ProtoSessionType::PointToPoint)
+///     .session_id(123)
+///     .application_payload("text", b"Hello".to_vec())
+///     .build_publish()
+///     .unwrap();
+/// ```
+///
+/// ## Session Control Message
+/// ```
+/// use slim_datapath::api::{CommandPayload, ProtoMessage, ProtoSessionType, ProtoSessionMessageType};
+/// use slim_datapath::messages::Name;
+///
+/// let source = Name::from_strings(["org", "ns", "app"]);
+/// let dest = Name::from_strings(["org", "ns", "service"]);
+///
+/// let cmd = CommandPayload::builder().discovery_request(Some(dest.clone()));
+///
+/// let msg = ProtoMessage::builder()
+///     .source(source)
+///     .destination(dest)
+///     .session_type(ProtoSessionType::PointToPoint)
+///     .session_message_type(ProtoSessionMessageType::DiscoveryRequest)
+///     .session_id(42)
+///     .command_payload(cmd)
+///     .build_publish()
+///     .unwrap();
+/// ```
+///
+/// ## Multicast with Broadcast
+/// ```
+/// use slim_datapath::api::{ProtoMessage, ProtoSessionType};
+/// use slim_datapath::messages::Name;
+///
+/// let source = Name::from_strings(["org", "ns", "app"]);
+/// let dest = Name::from_strings(["org", "ns", "channel"]);
+///
+/// let msg = ProtoMessage::builder()
+///     .source(source)
+///     .destination(dest)
+///     .session_type(ProtoSessionType::Multicast)
+///     .fanout(256)
+///     .application_payload("event", b"broadcast event".to_vec())
+///     .metadata("priority", "high")
+///     .build_publish()
+///     .unwrap();
+/// ```
+///
+/// ## Subscribe/Unsubscribe Messages
+/// ```
+/// use slim_datapath::api::ProtoMessage;
+/// use slim_datapath::messages::Name;
+///
+/// let source = Name::from_strings(["org", "ns", "app"]);
+/// let dest = Name::from_strings(["org", "ns", "topic"]);
+///
+/// // Subscribe
+/// let sub_msg = ProtoMessage::builder()
+///     .source(source.clone())
+///     .destination(dest.clone())
+///     .recv_from(100)
+///     .build_subscribe()
+///     .unwrap();
+///
+/// // Unsubscribe
+/// let unsub_msg = ProtoMessage::builder()
+///     .source(source)
+///     .destination(dest)
+///     .build_unsubscribe()
+///     .unwrap();
+/// ```
+pub struct ProtoMessageBuilder {
+    source: Option<Name>,
+    destination: Option<Name>,
+    identity: Option<String>,
+    flags: Option<SlimHeaderFlags>,
+    session_type: Option<ProtoSessionType>,
+    session_message_type: Option<SessionMessageType>,
+    session_id: Option<u32>,
+    message_id: Option<u32>,
+    payload: Option<Content>,
+    metadata: HashMap<String, String>,
+}
+
+impl ProtoMessageBuilder {
+    /// Creates a new ProtoMessageBuilder
+    pub fn new() -> Self {
+        Self {
+            source: None,
+            destination: None,
+            identity: None,
+            flags: None,
+            session_type: None,
+            session_message_type: None,
+            session_id: None,
+            message_id: None,
+            payload: None,
+            metadata: HashMap::new(),
+        }
+    }
+
+    /// Sets the source name
+    pub fn source(mut self, source: Name) -> Self {
+        self.source = Some(source);
+        self
+    }
+
+    /// Sets the destination name
+    pub fn destination(mut self, destination: Name) -> Self {
+        self.destination = Some(destination);
+        self
+    }
+
+    /// Sets the identity string
+    pub fn identity(mut self, identity: impl Into<String>) -> Self {
+        self.identity = Some(identity.into());
+        self
+    }
+
+    /// Sets the SLIM header flags
+    pub fn flags(mut self, flags: SlimHeaderFlags) -> Self {
+        self.flags = Some(flags);
+        self
+    }
+
+    /// Sets the fanout value
+    pub fn fanout(mut self, fanout: u32) -> Self {
+        let flags = self.flags.take().unwrap_or_default();
+        self.flags = Some(flags.with_fanout(fanout));
+        self
+    }
+
+    /// Sets the recv_from connection
+    pub fn recv_from(mut self, recv_from: u64) -> Self {
+        let flags = self.flags.take().unwrap_or_default();
+        self.flags = Some(flags.with_recv_from(recv_from));
+        self
+    }
+
+    /// Sets the forward_to connection
+    pub fn forward_to(mut self, forward_to: u64) -> Self {
+        let flags = self.flags.take().unwrap_or_default();
+        self.flags = Some(flags.with_forward_to(forward_to));
+        self
+    }
+
+    /// Sets the incoming connection
+    pub fn incoming_conn(mut self, incoming_conn: u64) -> Self {
+        let flags = self.flags.take().unwrap_or_default();
+        self.flags = Some(flags.with_incoming_conn(incoming_conn));
+        self
+    }
+
+    /// Sets the error flag
+    pub fn error(mut self, error: bool) -> Self {
+        let flags = self.flags.take().unwrap_or_default();
+        self.flags = Some(flags.with_error(error));
+        self
+    }
+
+    /// Sets the session type
+    pub fn session_type(mut self, session_type: ProtoSessionType) -> Self {
+        self.session_type = Some(session_type);
+        self
+    }
+
+    /// Sets the session message type
+    pub fn session_message_type(mut self, session_message_type: SessionMessageType) -> Self {
+        self.session_message_type = Some(session_message_type);
+        self
+    }
+
+    /// Sets the session ID
+    pub fn session_id(mut self, session_id: u32) -> Self {
+        self.session_id = Some(session_id);
+        self
+    }
+
+    /// Sets the message ID
+    pub fn message_id(mut self, message_id: u32) -> Self {
+        self.message_id = Some(message_id);
+        self
+    }
+
+    /// Sets the message payload
+    pub fn payload(mut self, payload: Content) -> Self {
+        self.payload = Some(payload);
+        self
+    }
+
+    /// Sets an application payload
+    pub fn application_payload(mut self, payload_type: &str, blob: Vec<u8>) -> Self {
+        let app_payload = ApplicationPayload::new(payload_type, blob);
+        self.payload = Some(app_payload.as_content());
+        self
+    }
+
+    /// Sets a command payload
+    pub fn command_payload(mut self, payload: CommandPayload) -> Self {
+        self.payload = Some(payload.as_content());
+        self
+    }
+
+    /// Sets a pre-built SlimHeader (for low-level use cases)
+    ///
+    /// This is a convenience method for cases where you already have a constructed SlimHeader.
+    /// For most cases, prefer using the individual builder methods like `source()`, `destination()`, etc.
+    pub fn with_slim_header(mut self, header: SlimHeader) -> Self {
+        // Extract fields from the header
+        if let Some(src) = &header.source {
+            self.source = Some(Name::from(src));
+        }
+        if let Some(dst) = &header.destination {
+            self.destination = Some(Name::from(dst));
+        }
+        if !header.identity.is_empty() {
+            self.identity = Some(header.identity.clone());
+        }
+
+        // Extract flags
+        let flags = SlimHeaderFlags {
+            fanout: header.fanout,
+            recv_from: header.recv_from,
+            forward_to: header.forward_to,
+            incoming_conn: header.incoming_conn,
+            error: header.error,
+        };
+        self.flags = Some(flags);
+        self
+    }
+
+    /// Sets a pre-built SessionHeader (for low-level use cases)
+    ///
+    /// This is a convenience method for cases where you already have a constructed SessionHeader.
+    /// For most cases, prefer using the individual builder methods like `session_type()`, `session_message_type()`, etc.
+    pub fn with_session_header(mut self, header: SessionHeader) -> Self {
+        self.session_type = Some(
+            ProtoSessionType::try_from(header.session_type)
+                .unwrap_or(ProtoSessionType::PointToPoint),
+        );
+        self.session_message_type = Some(
+            SessionMessageType::try_from(header.session_message_type)
+                .unwrap_or(SessionMessageType::Msg),
+        );
+        self.session_id = Some(header.session_id);
+        self.message_id = Some(header.message_id);
+        self
+    }
+
+    /// Adds metadata to the message
+    pub fn metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.metadata.insert(key.into(), value.into());
+        self
+    }
+
+    /// Adds multiple metadata entries
+    pub fn metadata_map(mut self, map: HashMap<String, String>) -> Self {
+        self.metadata.extend(map);
+        self
+    }
+
+    /// Builds a publish message
+    pub fn build_publish(self) -> Result<ProtoMessage, MessageError> {
+        let source = self.source.ok_or_else(|| MessageError::BuilderError("source is required".to_string()))?;
+        let destination = self.destination.ok_or_else(|| MessageError::BuilderError("destination is required".to_string()))?;
+
+        let slim_header = Some(SlimHeader::new(
+            &source,
+            &destination,
+            self.identity.as_deref().unwrap_or(""),
+            self.flags,
+        ));
+
+        let session_header = if self.session_type.is_some() || self.session_message_type.is_some() {
+            Some(SessionHeader::new(
+                self.session_type
+                    .unwrap_or(ProtoSessionType::PointToPoint)
+                    .into(),
+                self.session_message_type
+                    .unwrap_or(SessionMessageType::Msg)
+                    .into(),
+                self.session_id.unwrap_or(0),
+                self.message_id.unwrap_or_else(rand::random),
+            ))
+        } else {
+            Some(SessionHeader::default())
+        };
+
+        let publish = ProtoPublish::with_header(slim_header, session_header, self.payload);
+        let message = ProtoMessage::new(self.metadata, ProtoPublishType(publish));
+        Ok(message)
+    }
+
+    /// Builds a subscribe message
+    pub fn build_subscribe(self) -> Result<ProtoMessage, MessageError> {
+        let source = self.source.ok_or_else(|| MessageError::BuilderError("source is required".to_string()))?;
+        let destination = self.destination.ok_or_else(|| MessageError::BuilderError("destination is required".to_string()))?;
+
+        let subscribe =
+            ProtoSubscribe::new(&source, &destination, self.identity.as_deref(), self.flags);
+
+        Ok(ProtoMessage::new(
+            self.metadata,
+            ProtoSubscribeType(subscribe),
+        ))
+    }
+
+    /// Builds an unsubscribe message
+    pub fn build_unsubscribe(self) -> Result<ProtoMessage, MessageError> {
+        let source = self.source.ok_or_else(|| MessageError::BuilderError("source is required".to_string()))?;
+        let destination = self.destination.ok_or_else(|| MessageError::BuilderError("destination is required".to_string()))?;
+
+        let unsubscribe =
+            ProtoUnsubscribe::new(&source, &destination, self.identity.as_deref(), self.flags);
+
+        Ok(ProtoMessage::new(
+            self.metadata,
+            ProtoUnsubscribeType(unsubscribe),
+        ))
+    }
+}
+
+impl Default for ProtoMessageBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ProtoMessage {
+    /// Creates a new builder for ProtoMessage
+    pub fn builder() -> ProtoMessageBuilder {
+        ProtoMessageBuilder::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{api::proto::dataplane::v1::SessionMessageType, messages::encoder::Name};
@@ -1218,10 +1534,22 @@ mod tests {
         flags: Option<SlimHeaderFlags>,
     ) {
         let sub = {
+            let mut builder = ProtoMessage::builder()
+                .source(source.clone())
+                .destination(dst.clone());
+
+            if let Some(id) = identity {
+                builder = builder.identity(id);
+            }
+
+            if let Some(f) = flags.clone() {
+                builder = builder.flags(f);
+            }
+
             if subscription {
-                ProtoMessage::new_subscribe(&source, &dst, identity, flags.clone())
+                builder.build_subscribe().unwrap()
             } else {
-                ProtoMessage::new_unsubscribe(&source, &dst, identity, flags.clone())
+                builder.build_unsubscribe().unwrap()
             }
         };
 
@@ -1248,12 +1576,20 @@ mod tests {
         identity: Option<&str>,
         flags: Option<SlimHeaderFlags>,
     ) {
-        let content = Some(
-            ApplicationPayload::new("str", "this is the content of the message".into())
-                .as_content(),
-        );
+        let mut builder = ProtoMessage::builder()
+            .source(source.clone())
+            .destination(dst.clone())
+            .application_payload("str", "this is the content of the message".into());
 
-        let pub_msg = ProtoMessage::new_publish(&source, &dst, identity, flags.clone(), content);
+        if let Some(id) = identity {
+            builder = builder.identity(id);
+        }
+
+        if let Some(f) = flags.clone() {
+            builder = builder.flags(f);
+        }
+
+        let pub_msg = builder.build_publish().unwrap();
 
         let flags = if flags.is_none() {
             Some(SlimHeaderFlags::default())
@@ -1425,31 +1761,31 @@ mod tests {
 
         // ProtoMessage to ProtoSubscribe
         let dst = Name::from_strings(["org", "ns", "type"]).with_id(1);
-        let proto_subscribe = ProtoMessage::new_subscribe(
-            &name,
-            &dst,
-            None,
-            Some(
+        let proto_subscribe = ProtoMessage::builder()
+            .source(name.clone())
+            .destination(dst.clone())
+            .flags(
                 SlimHeaderFlags::default()
                     .with_recv_from(2)
                     .with_forward_to(3),
-            ),
-        );
+            )
+            .build_subscribe()
+            .unwrap();
         let proto_subscribe = ProtoSubscribe::from(proto_subscribe);
         assert_eq!(proto_subscribe.header.as_ref().unwrap().get_source(), name);
         assert_eq!(proto_subscribe.header.as_ref().unwrap().get_dst(), dst,);
 
         // ProtoMessage to ProtoUnsubscribe
-        let proto_unsubscribe = ProtoMessage::new_unsubscribe(
-            &name,
-            &dst,
-            None,
-            Some(
+        let proto_unsubscribe = ProtoMessage::builder()
+            .source(name.clone())
+            .destination(dst.clone())
+            .flags(
                 SlimHeaderFlags::default()
                     .with_recv_from(2)
                     .with_forward_to(3),
-            ),
-        );
+            )
+            .build_unsubscribe()
+            .unwrap();
         let proto_unsubscribe = ProtoUnsubscribe::from(proto_unsubscribe);
         assert_eq!(
             proto_unsubscribe.header.as_ref().unwrap().get_source(),
@@ -1458,22 +1794,17 @@ mod tests {
         assert_eq!(proto_unsubscribe.header.as_ref().unwrap().get_dst(), dst);
 
         // ProtoMessage to ProtoPublish
-        let content = Some(
-            ApplicationPayload::new("str", "this is the content of the message".into())
-                .as_content(),
-        );
-
-        let proto_publish = ProtoMessage::new_publish(
-            &name,
-            &dst,
-            None,
-            Some(
+        let proto_publish = ProtoMessage::builder()
+            .source(name.clone())
+            .destination(dst.clone())
+            .flags(
                 SlimHeaderFlags::default()
                     .with_recv_from(2)
                     .with_forward_to(3),
-            ),
-            content,
-        );
+            )
+            .application_payload("str", "this is the content of the message".into())
+            .build_publish()
+            .unwrap();
         let proto_publish = ProtoPublish::from(proto_publish);
         assert_eq!(proto_publish.header.as_ref().unwrap().get_source(), name);
         assert_eq!(proto_publish.header.as_ref().unwrap().get_dst(), dst);
@@ -1485,16 +1816,16 @@ mod tests {
         let dst = Name::from_strings(["org", "ns", "type"]).with_id(2);
 
         // panic if SLIM header is not found
-        let msg = ProtoMessage::new_subscribe(
-            &source,
-            &dst,
-            None,
-            Some(
+        let msg = ProtoMessage::builder()
+            .source(source.clone())
+            .destination(dst.clone())
+            .flags(
                 SlimHeaderFlags::default()
                     .with_recv_from(2)
                     .with_forward_to(3),
-            ),
-        );
+            )
+            .build_subscribe()
+            .unwrap();
 
         // let's try to convert it to a unsubscribe
         // this should panic because the message type is not unsubscribe
@@ -1608,5 +1939,171 @@ mod tests {
         // Test invalid conversion
         let invalid_service_type = SessionMessageType::try_from(total_service_types + 1);
         assert!(invalid_service_type.is_err());
+    }
+
+    #[test]
+    fn test_proto_message_builder() {
+        let source = Name::from_strings(["org", "ns", "type"]).with_id(1);
+        let dest = Name::from_strings(["org", "ns", "app"]).with_id(2);
+
+        // Test basic publish message
+        let msg = ProtoMessage::builder()
+            .source(source.clone())
+            .destination(dest.clone())
+            .application_payload("test", b"hello world".to_vec())
+            .build_publish()
+            .unwrap();
+
+        assert!(msg.is_publish());
+        assert_eq!(msg.get_source(), source);
+        assert_eq!(msg.get_dst(), dest);
+
+        // Test with session headers
+        let msg = ProtoMessage::builder()
+            .source(source.clone())
+            .destination(dest.clone())
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(SessionMessageType::Msg)
+            .session_id(42)
+            .message_id(100)
+            .fanout(256)
+            .application_payload("test", b"broadcast".to_vec())
+            .build_publish()
+            .unwrap();
+
+        assert_eq!(msg.get_session_type(), ProtoSessionType::Multicast);
+        assert_eq!(msg.get_id(), 100);
+        assert_eq!(msg.get_fanout(), 256);
+
+        // Test with metadata
+        let msg = ProtoMessage::builder()
+            .source(source.clone())
+            .destination(dest.clone())
+            .metadata("key1", "value1")
+            .metadata("key2", "value2")
+            .application_payload("test", vec![1, 2, 3])
+            .build_publish()
+            .unwrap();
+
+        assert_eq!(msg.get_metadata("key1"), Some(&"value1".to_string()));
+        assert_eq!(msg.get_metadata("key2"), Some(&"value2".to_string()));
+
+        // Test subscribe message
+        let msg = ProtoMessage::builder()
+            .source(source.clone())
+            .destination(dest.clone())
+            .recv_from(10)
+            .build_subscribe()
+            .unwrap();
+
+        assert!(msg.is_subscribe());
+        assert_eq!(msg.get_recv_from(), Some(10));
+
+        // Test unsubscribe message
+        let msg = ProtoMessage::builder()
+            .source(source.clone())
+            .destination(dest.clone())
+            .forward_to(20)
+            .build_unsubscribe()
+            .unwrap();
+
+        assert!(msg.is_unsubscribe());
+        assert_eq!(msg.get_forward_to(), Some(20));
+    }
+
+    #[test]
+    fn test_command_payload_builder() {
+        let dest = Name::from_strings(["org", "ns", "app"]);
+
+        // Test discovery request
+        let payload = CommandPayload::builder().discovery_request(Some(dest.clone()));
+        let extracted = payload.as_discovery_request_payload().unwrap();
+        assert!(extracted.destination.is_some());
+
+        // Test discovery reply
+        let payload = CommandPayload::builder().discovery_reply();
+        assert!(payload.as_discovery_reply_payload().is_ok());
+
+        // Test join request
+        let payload = CommandPayload::builder().join_request(
+            true,
+            Some(5),
+            Some(Duration::from_secs(10)),
+            Some(dest.clone()),
+        );
+        let extracted = payload.as_join_request_payload().unwrap();
+        assert!(extracted.enable_mls);
+        assert!(extracted.timer_settings.is_some());
+
+        // Test join reply
+        let payload = CommandPayload::builder().join_reply(Some(vec![1, 2, 3]));
+        let extracted = payload.as_join_reply_payload().unwrap();
+        assert_eq!(extracted.key_package, Some(vec![1, 2, 3]));
+
+        // Test leave request
+        let payload = CommandPayload::builder().leave_request(Some(dest.clone()));
+        assert!(payload.as_leave_request_payload().is_ok());
+
+        // Test leave reply
+        let payload = CommandPayload::builder().leave_reply();
+        assert!(payload.as_leave_reply_payload().is_ok());
+
+        // Test group add
+        let participants = vec![dest.clone()];
+        let payload = CommandPayload::builder().group_add(dest.clone(), participants.clone(), None);
+        let extracted = payload.as_group_add_payload().unwrap();
+        assert!(extracted.new_participant.is_some());
+
+        // Test group remove
+        let payload =
+            CommandPayload::builder().group_remove(dest.clone(), participants.clone(), None);
+        let extracted = payload.as_group_remove_payload().unwrap();
+        assert!(extracted.removed_participant.is_some());
+
+        // Test group welcome
+        let payload = CommandPayload::builder().group_welcome(participants.clone(), None);
+        let extracted = payload.as_welcome_payload().unwrap();
+        assert!(!extracted.participants.is_empty());
+
+        // Test group proposal
+        let payload = CommandPayload::builder().group_proposal(Some(dest.clone()), vec![4, 5, 6]);
+        let extracted = payload.as_group_proposal_payload().unwrap();
+        assert_eq!(extracted.mls_proposal, vec![4, 5, 6]);
+
+        // Test group ack
+        let payload = CommandPayload::builder().group_ack();
+        assert!(payload.as_group_ack_payload().is_ok());
+
+        // Test group nack
+        let payload = CommandPayload::builder().group_nack();
+        assert!(payload.as_group_nack_payload().is_ok());
+    }
+
+    #[test]
+    fn test_builder_with_command_payload() {
+        let source = Name::from_strings(["org", "ns", "type"]).with_id(1);
+        let dest = Name::from_strings(["org", "ns", "app"]).with_id(2);
+
+        let cmd_payload = CommandPayload::builder().discovery_request(Some(dest.clone()));
+
+        let msg = ProtoMessage::builder()
+            .source(source.clone())
+            .destination(dest.clone())
+            .session_type(ProtoSessionType::PointToPoint)
+            .session_message_type(SessionMessageType::DiscoveryRequest)
+            .session_id(1)
+            .command_payload(cmd_payload)
+            .build_publish()
+            .unwrap();
+
+        assert!(msg.is_publish());
+        assert_eq!(
+            msg.get_session_message_type(),
+            SessionMessageType::DiscoveryRequest
+        );
+
+        // Verify we can extract the payload
+        let extracted = msg.extract_discovery_request().unwrap();
+        assert!(extracted.destination.is_some());
     }
 }

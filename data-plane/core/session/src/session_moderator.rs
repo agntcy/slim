@@ -319,7 +319,9 @@ where
                 self.common.set_route(&dst, msg.get_incoming_conn()).await?;
 
                 // create a new empty payload and change the message destination
-                let p = CommandPayload::new_discovery_request_payload(None).as_content();
+                let p = CommandPayload::builder()
+                    .discovery_request(None)
+                    .as_content();
                 msg.get_slim_header_mut()
                     .set_source(&self.common.settings.source);
                 msg.get_slim_header_mut().set_destination(&dst);
@@ -390,13 +392,14 @@ where
             None
         };
 
-        let payload = CommandPayload::new_join_request_payload(
-            self.mls_state.is_some(),
-            self.common.settings.config.max_retries,
-            self.common.settings.config.duration,
-            channel,
-        )
-        .as_content();
+        let payload = CommandPayload::builder()
+            .join_request(
+                self.mls_state.is_some(),
+                self.common.settings.config.max_retries,
+                self.common.settings.config.duration,
+                channel,
+            )
+            .as_content();
 
         debug!(
             "send join request to {} with id {}",
@@ -482,12 +485,9 @@ where
         // send the group update
         if participants_vec.len() > 2 {
             debug!("participant len is > 2, send a group update");
-            let update_payload = CommandPayload::new_group_add_payload(
-                msg.get_source().clone(),
-                participants_vec.clone(),
-                commit,
-            )
-            .as_content();
+            let update_payload = CommandPayload::builder()
+                .group_add(msg.get_source().clone(), participants_vec.clone(), commit)
+                .as_content();
             let add_msg_id = rand::random::<u32>();
             debug!("send add update to channel with id {}", add_msg_id);
             self.common
@@ -517,8 +517,9 @@ where
 
         // send welcome message
         let welcome_msg_id = rand::random::<u32>();
-        let welcome_payload =
-            CommandPayload::new_group_welcome_payload(participants_vec, welcome).as_content();
+        let welcome_payload = CommandPayload::builder()
+            .group_welcome(participants_vec, welcome)
+            .as_content();
         debug!(
             "send welcome message to {} with id {}",
             msg.get_slim_header().get_source(),
@@ -583,7 +584,7 @@ where
         // Update message based on whether destination was provided in payload
         if payload_destination.is_some() {
             // Destination provided: update source, destination, and payload
-            let new_payload = CommandPayload::new_leave_request_payload(None).as_content();
+            let new_payload = CommandPayload::builder().leave_request(None).as_content();
             msg.get_slim_header_mut()
                 .set_source(&self.common.settings.source);
             msg.set_payload(new_payload);
@@ -628,12 +629,9 @@ where
                 None => None,
             };
 
-            let update_payload = CommandPayload::new_group_remove_payload(
-                leave_message.get_dst(),
-                participants_vec,
-                mls_payload,
-            )
-            .as_content();
+            let update_payload = CommandPayload::builder()
+                .group_remove(leave_message.get_dst(), participants_vec, mls_payload)
+                .as_content();
             let msg_id = rand::random::<u32>();
 
             self.common
@@ -699,9 +697,9 @@ where
                 &p,
                 ProtoSessionMessageType::LeaveRequest,
                 rand::random::<u32>(),
-                CommandPayload::new_leave_request_payload(None).as_content(),
+                CommandPayload::builder().leave_request(None).as_content(),
                 false,
-            );
+            )?;
             // append the task to the list
             self.tasks_todo.push_back(leave);
         }
@@ -854,12 +852,12 @@ where
             self.common.settings.destination = remote;
         } else {
             // if this is a multicast session we need to subscribe for the channel name
-            let sub = Message::new_subscribe(
-                &self.common.settings.source,
-                &self.common.settings.destination,
-                None,
-                Some(SlimHeaderFlags::default().with_forward_to(conn)),
-            );
+            let sub = Message::builder()
+                .source(self.common.settings.source.clone())
+                .destination(self.common.settings.destination.clone())
+                .flags(SlimHeaderFlags::default().with_forward_to(conn))
+                .build_subscribe()
+                .unwrap();
 
             self.common.send_to_slim(sub).await?;
         }

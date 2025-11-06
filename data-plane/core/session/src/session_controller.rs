@@ -11,8 +11,8 @@ use tracing::debug;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        ApplicationPayload, CommandPayload, Content, ProtoMessage as Message,
-        ProtoSessionMessageType, ProtoSessionType, SessionHeader, SlimHeader,
+        CommandPayload, Content, ProtoMessage as Message, ProtoSessionMessageType,
+        ProtoSessionType, SlimHeader,
     },
     messages::{Name, utils::SlimHeaderFlags},
 };
@@ -221,17 +221,18 @@ impl SessionController {
     ) -> Result<(), SessionError> {
         let ct = payload_type.unwrap_or_else(|| "msg".to_string());
 
-        let payload = Some(ApplicationPayload::new(&ct, blob).as_content());
-
-        let slim_header = Some(SlimHeader::new(self.source(), name, "", Some(flags)));
-        let session_header = Some(SessionHeader::new(
-            self.session_type().into(),
-            ProtoSessionMessageType::Msg.into(),
-            self.id(),
-            rand::random::<u32>(), // this will be changed by the session itself
-        ));
-
-        let mut msg = Message::new_publish_with_headers(slim_header, session_header, payload);
+        let mut msg = Message::builder()
+            .source(self.source().clone())
+            .destination(name.clone())
+            .identity("")
+            .flags(flags)
+            .session_type(self.session_type())
+            .session_message_type(ProtoSessionMessageType::Msg)
+            .session_id(self.id())
+            .message_id(rand::random::<u32>()) // this will be changed by the session itself
+            .application_payload(&ct, blob)
+            .build_publish()
+            .map_err(|e| SessionError::Processing(e.to_string()))?;
         if let Some(map) = metadata
             && !map.is_empty()
         {
@@ -243,8 +244,21 @@ impl SessionController {
     }
 
     /// Creates a discovery request message with minimum required information
-    fn create_discovery_request(&self, destination: &Name) -> Message {
-        Message::new_discovery_request(self.source(), destination, self.session_type(), self.id())
+    fn create_discovery_request(&self, destination: &Name) -> Result<Message, SessionError> {
+        let payload = CommandPayload::builder()
+            .discovery_request(None)
+            .as_content();
+        Message::builder()
+            .source(self.source().clone())
+            .destination(destination.clone())
+            .identity("")
+            .session_type(self.session_type())
+            .session_message_type(ProtoSessionMessageType::DiscoveryRequest)
+            .session_id(self.id())
+            .message_id(rand::random::<u32>())
+            .payload(payload)
+            .build_publish()
+            .map_err(|e| SessionError::Processing(e.to_string()))
     }
 
     pub async fn invite_participant(&self, destination: &Name) -> Result<(), SessionError> {
@@ -258,7 +272,7 @@ impl SessionController {
                         "cannot invite participant to this session session".into(),
                     ));
                 }
-                let msg = self.create_discovery_request(destination);
+                let msg = self.create_discovery_request(destination)?;
                 self.publish_message(msg).await
             }
             _ => Err(SessionError::Processing("unexpected session type".into())),
@@ -276,15 +290,17 @@ impl SessionController {
                         "cannot remove participant from this session session".into(),
                     ));
                 }
-                let slim_header = Some(SlimHeader::new(self.source(), destination, "", None));
-                let session_header = Some(SessionHeader::new(
-                    ProtoSessionType::Multicast.into(),
-                    ProtoSessionMessageType::LeaveRequest.into(),
-                    self.id(),
-                    rand::random::<u32>(),
-                ));
-                let payload = Some(CommandPayload::new_leave_request_payload(None).as_content());
-                let msg = Message::new_publish_with_headers(slim_header, session_header, payload);
+                let msg = Message::builder()
+                    .source(self.source().clone())
+                    .destination(destination.clone())
+                    .identity("")
+                    .session_type(ProtoSessionType::Multicast)
+                    .session_message_type(ProtoSessionMessageType::LeaveRequest)
+                    .session_id(self.id())
+                    .message_id(rand::random::<u32>())
+                    .payload(CommandPayload::builder().leave_request(None).as_content())
+                    .build_publish()
+                    .map_err(|e| SessionError::Processing(e.to_string()))?;
                 self.publish_message(msg).await
             }
             _ => Err(SessionError::Processing("unexpected session type".into())),
@@ -303,7 +319,7 @@ pub fn handle_channel_discovery_message(
     app_name: &Name,
     session_id: u32,
     session_type: ProtoSessionType,
-) -> Message {
+) -> Result<Message, SessionError> {
     let destination = message.get_source();
 
     // the destination of the discovery message may be different from the name of
@@ -315,26 +331,24 @@ pub fn handle_channel_discovery_message(
     source.set_id(app_name.id());
     let msg_id = message.get_id();
 
-    let slim_header = Some(SlimHeader::new(
+    let slim_header = SlimHeader::new(
         &source,
         &destination,
         "", // the identity will be added by the identity interceptor
         Some(SlimHeaderFlags::default().with_forward_to(message.get_incoming_conn())),
-    ));
-
-    // no need to specify the source and the destination here. these messages
-    // will never be seen by the application
-    let session_header = Some(SessionHeader::new(
-        session_type.into(),
-        ProtoSessionMessageType::DiscoveryReply.into(),
-        session_id,
-        msg_id,
-    ));
+    );
 
     debug!("Received discovery request, reply to the msg source");
 
-    let payload = Some(CommandPayload::new_discovery_reply_payload().as_content());
-    Message::new_publish_with_headers(slim_header, session_header, payload)
+    Message::builder()
+        .with_slim_header(slim_header)
+        .session_type(session_type)
+        .session_message_type(ProtoSessionMessageType::DiscoveryReply)
+        .session_id(session_id)
+        .message_id(msg_id)
+        .payload(CommandPayload::builder().discovery_reply().as_content())
+        .build_publish()
+        .map_err(|e| SessionError::Processing(e.to_string()))
 }
 
 pub(crate) struct SessionControllerCommon<P, V>
@@ -385,23 +399,23 @@ where
     }
 
     pub(crate) async fn set_route(&self, name: &Name, conn: u64) -> Result<(), SessionError> {
-        let route = Message::new_subscribe(
-            &self.settings.source,
-            name,
-            None,
-            Some(SlimHeaderFlags::default().with_recv_from(conn)),
-        );
+        let route = Message::builder()
+            .source(self.settings.source.clone())
+            .destination(name.clone())
+            .flags(SlimHeaderFlags::default().with_recv_from(conn))
+            .build_subscribe()
+            .unwrap();
 
         self.send_to_slim(route).await
     }
 
     pub(crate) async fn delete_route(&self, name: &Name, conn: u64) -> Result<(), SessionError> {
-        let route = Message::new_unsubscribe(
-            &self.settings.source,
-            name,
-            None,
-            Some(SlimHeaderFlags::default().with_recv_from(conn)),
-        );
+        let route = Message::builder()
+            .source(self.settings.source.clone())
+            .destination(name.clone())
+            .flags(SlimHeaderFlags::default().with_recv_from(conn))
+            .build_unsubscribe()
+            .unwrap();
 
         self.send_to_slim(route).await
     }
@@ -413,17 +427,24 @@ where
         message_id: u32,
         payload: Content,
         broadcast: bool,
-    ) -> Message {
-        Message::new_control_message(
-            &self.settings.source,
-            dst,
-            self.settings.config.session_type,
-            message_type,
-            self.settings.id,
-            message_id,
-            payload,
-            broadcast,
-        )
+    ) -> Result<Message, SessionError> {
+        let mut builder = Message::builder()
+            .source(self.settings.source.clone())
+            .destination(dst.clone())
+            .identity("")
+            .session_type(self.settings.config.session_type)
+            .session_message_type(message_type)
+            .session_id(self.settings.id)
+            .message_id(message_id)
+            .payload(payload);
+
+        if broadcast {
+            builder = builder.fanout(256);
+        }
+
+        builder
+            .build_publish()
+            .map_err(|e| SessionError::Processing(e.to_string()))
     }
 
     pub(crate) async fn send_control_message(
@@ -436,7 +457,7 @@ where
         broadcast: bool,
     ) -> Result<(), SessionError> {
         let mut msg =
-            self.create_control_message(dst, message_type, message_id, payload, broadcast);
+            self.create_control_message(dst, message_type, message_id, payload, broadcast)?;
         if let Some(m) = metadata {
             msg.set_metadata_map(m);
         }
@@ -552,21 +573,18 @@ mod tests {
         let discovery_msg_id = received_discovery_request.get_id();
 
         // create a discovery reply and call the on message on the moderator with the reply (direction north)
-        let slim_header = Some(SlimHeader::new(
-            &participant_name_id,
-            &moderator_name,
-            "",
-            Some(SlimHeaderFlags::default().with_forward_to(1)),
-        ));
-        let session_header = Some(SessionHeader::new(
-            slim_datapath::api::ProtoSessionType::PointToPoint.into(),
-            slim_datapath::api::ProtoSessionMessageType::DiscoveryReply.into(),
-            session_id,
-            discovery_msg_id,
-        ));
-        let payload = Some(CommandPayload::new_discovery_reply_payload().as_content());
-        let mut discovery_reply =
-            Message::new_publish_with_headers(slim_header, session_header, payload);
+        let mut discovery_reply = Message::builder()
+            .source(participant_name_id.clone())
+            .destination(moderator_name.clone())
+            .identity("")
+            .forward_to(1)
+            .session_type(slim_datapath::api::ProtoSessionType::PointToPoint)
+            .session_message_type(slim_datapath::api::ProtoSessionMessageType::DiscoveryReply)
+            .session_id(session_id)
+            .message_id(discovery_msg_id)
+            .payload(CommandPayload::builder().discovery_reply().as_content())
+            .build_publish()
+            .unwrap();
         discovery_reply
             .get_slim_header_mut()
             .set_incoming_conn(Some(1));
@@ -715,20 +733,17 @@ mod tests {
 
         // create an application message using the participant name
         let app_data = b"Hello from moderator to participant".to_vec();
-        let slim_header = Some(SlimHeader::new(
-            &moderator_name,
-            &participant_name,
-            "",
-            None,
-        ));
-        let session_header = Some(SessionHeader::new(
-            slim_datapath::api::ProtoSessionType::PointToPoint.into(),
-            slim_datapath::api::ProtoSessionMessageType::Msg.into(),
-            session_id,
-            1,
-        ));
-        let payload = Some(ApplicationPayload::new("test-app-data", app_data.clone()).as_content());
-        let app_message = Message::new_publish_with_headers(slim_header, session_header, payload);
+        let app_message = Message::builder()
+            .source(moderator_name.clone())
+            .destination(participant_name.clone())
+            .identity("")
+            .session_type(slim_datapath::api::ProtoSessionType::PointToPoint)
+            .session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg)
+            .session_id(session_id)
+            .message_id(1)
+            .application_payload("test-app-data", app_data.clone())
+            .build_publish()
+            .unwrap();
 
         // call on message on the moderator (direction south)
         moderator
@@ -826,20 +841,17 @@ mod tests {
         );
 
         // create a leave request and send to moderator on message (direction south)
-        let slim_header = Some(SlimHeader::new(
-            &moderator_name,
-            &participant_name,
-            "",
-            None,
-        ));
-        let session_header = Some(SessionHeader::new(
-            slim_datapath::api::ProtoSessionType::PointToPoint.into(),
-            slim_datapath::api::ProtoSessionMessageType::LeaveRequest.into(),
-            session_id,
-            rand::random::<u32>(),
-        ));
-        let payload = Some(CommandPayload::new_leave_request_payload(None).as_content());
-        let leave_request = Message::new_publish_with_headers(slim_header, session_header, payload);
+        let leave_request = Message::builder()
+            .source(moderator_name.clone())
+            .destination(participant_name.clone())
+            .identity("")
+            .session_type(slim_datapath::api::ProtoSessionType::PointToPoint)
+            .session_message_type(slim_datapath::api::ProtoSessionMessageType::LeaveRequest)
+            .session_id(session_id)
+            .message_id(rand::random::<u32>())
+            .payload(CommandPayload::builder().leave_request(None).as_content())
+            .build_publish()
+            .unwrap();
 
         moderator
             .on_message(leave_request, MessageDirection::South)

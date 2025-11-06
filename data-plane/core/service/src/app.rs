@@ -183,7 +183,15 @@ where
             Some(SlimHeaderFlags::default())
         };
 
-        let msg = Message::new_subscribe(&self.app_name, &name, None, header);
+        let mut builder = Message::builder()
+            .source(self.app_name.clone())
+            .destination(name.clone());
+
+        if let Some(h) = header {
+            builder = builder.flags(h);
+        }
+
+        let msg = builder.build_subscribe().unwrap();
 
         // Subscribe
         self.send_message_without_context(msg).await?;
@@ -204,7 +212,15 @@ where
             Some(SlimHeaderFlags::default())
         };
 
-        let msg = Message::new_subscribe(&self.app_name, name, None, header);
+        let mut builder = Message::builder()
+            .source(self.app_name.clone())
+            .destination(name.clone());
+
+        if let Some(h) = header {
+            builder = builder.flags(h);
+        }
+
+        let msg = builder.build_unsubscribe().unwrap();
 
         // Unsubscribe
         self.send_message_without_context(msg).await?;
@@ -220,25 +236,27 @@ where
         debug!("set route: {} - {:?}", name, conn);
 
         // send a message with subscription from
-        let msg = Message::new_subscribe(
-            &self.app_name,
-            name,
-            None,
-            Some(SlimHeaderFlags::default().with_recv_from(conn)),
-        );
+        let msg = Message::builder()
+            .source(self.app_name.clone())
+            .destination(name.clone())
+            .flags(SlimHeaderFlags::default().with_recv_from(conn))
+            .build_subscribe()
+            .unwrap();
+
         self.send_message_without_context(msg).await
     }
 
+    /// Remove a route towards another app
     pub async fn remove_route(&self, name: &Name, conn: u64) -> Result<(), ServiceError> {
-        debug!("unset route to {} - {}", name, conn);
+        debug!("remove route: {} - {:?}", name, conn);
 
-        //  send a message with unsubscription from
-        let msg = Message::new_unsubscribe(
-            &self.app_name,
-            name,
-            None,
-            Some(SlimHeaderFlags::default().with_recv_from(conn)),
-        );
+        // send a message with unsubscription from
+        let msg = Message::builder()
+            .source(self.app_name.clone())
+            .destination(name.clone())
+            .flags(SlimHeaderFlags::default().with_recv_from(conn))
+            .build_unsubscribe()
+            .unwrap();
 
         self.send_message_without_context(msg).await
     }
@@ -253,7 +271,11 @@ where
             debug!("starting message processing loop for {}", app_name);
 
             // subscribe for local name running this loop
-            let subscribe_msg = Message::new_subscribe(&app_name, &app_name, None, None);
+            let subscribe_msg = Message::builder()
+                .source(app_name.clone())
+                .destination(app_name.clone())
+                .build_subscribe()
+                .unwrap();
             let tx = session_layer.tx_slim();
             tx.send(Ok(subscribe_msg))
                 .await
@@ -330,8 +352,7 @@ mod tests {
 
     use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::api::{
-        ApplicationPayload, CommandPayload, ProtoMessage, ProtoSessionMessageType,
-        ProtoSessionType, SessionHeader, SlimHeader,
+        CommandPayload, ProtoMessage, ProtoSessionMessageType, ProtoSessionType,
     };
     use slim_testing::utils::TEST_VALID_SECRET;
 
@@ -495,24 +516,22 @@ mod tests {
         );
 
         // send join_request message to create the session
-        let payload =
-            CommandPayload::new_join_request_payload(false, None, None, None).as_content();
+        let payload = CommandPayload::builder()
+            .join_request(false, None, None, None)
+            .as_content();
 
-        let slim_header = Some(SlimHeader::new(
-            &source,
-            &dest,
-            "",
-            Some(SlimHeaderFlags::default().with_incoming_conn(0)),
-        ));
-        let session_header = Some(SessionHeader::new(
-            slim_datapath::api::ProtoSessionType::PointToPoint.into(),
-            slim_datapath::api::ProtoSessionMessageType::JoinRequest.into(),
-            1,
-            1, // this id will be changed by the session controller
-        ));
-
-        let mut join_request =
-            Message::new_publish_with_headers(slim_header, session_header, Some(payload));
+        let mut join_request = Message::builder()
+            .source(source.clone())
+            .destination(dest.clone())
+            .identity("")
+            .incoming_conn(0)
+            .session_type(slim_datapath::api::ProtoSessionType::PointToPoint)
+            .session_message_type(slim_datapath::api::ProtoSessionMessageType::JoinRequest)
+            .session_id(1)
+            .message_id(1) // this id will be changed by the session controller
+            .payload(payload)
+            .build_publish()
+            .unwrap();
 
         app.session_layer
             .handle_message_from_slim(join_request.clone())
@@ -549,13 +568,14 @@ mod tests {
         };
         assert_eq!(session_ctx.session().upgrade().unwrap().id(), 1);
 
-        let mut message = ProtoMessage::new_publish(
-            &source,
-            &Name::from_strings(["org", "ns", "type"]).with_id(0),
-            Some(&identity.get_token().unwrap()),
-            Some(SlimHeaderFlags::default().with_incoming_conn(0)),
-            Some(ApplicationPayload::new("msg", vec![0x1, 0x2, 0x3, 0x4]).as_content()),
-        );
+        let mut message = ProtoMessage::builder()
+            .source(source.clone())
+            .destination(Name::from_strings(["org", "ns", "type"]).with_id(0))
+            .identity(identity.get_token().unwrap())
+            .flags(SlimHeaderFlags::default().with_incoming_conn(0))
+            .application_payload("msg", vec![0x1, 0x2, 0x3, 0x4])
+            .build_publish()
+            .unwrap();
 
         // set the session id in the message
         let header = message.get_session_header_mut();
@@ -622,23 +642,20 @@ mod tests {
         );
 
         // create a discovery reply with the right id
-        let slim_header = Some(SlimHeader::new(
-            &dst,
-            &source,
-            &identity.get_token().unwrap(),
-            Some(SlimHeaderFlags::default().with_incoming_conn(0)),
-        ));
-        let session_header = Some(SessionHeader::new(
-            slim_datapath::api::ProtoSessionType::PointToPoint.into(),
-            slim_datapath::api::ProtoSessionMessageType::DiscoveryReply.into(),
-            1,
-            discovery_req.get_id(),
-        ));
+        let payload = CommandPayload::builder().discovery_reply().as_content();
 
-        let payload = CommandPayload::new_discovery_reply_payload().as_content();
-
-        let discovery_reply =
-            Message::new_publish_with_headers(slim_header, session_header, Some(payload));
+        let discovery_reply = Message::builder()
+            .source(dst.clone())
+            .destination(source.clone())
+            .identity(&identity.get_token().unwrap())
+            .incoming_conn(0)
+            .session_type(slim_datapath::api::ProtoSessionType::PointToPoint)
+            .session_message_type(slim_datapath::api::ProtoSessionMessageType::DiscoveryReply)
+            .session_id(1)
+            .message_id(discovery_req.get_id())
+            .payload(payload)
+            .build_publish()
+            .unwrap();
 
         // process the discovery reply
         app.session_layer
@@ -668,23 +685,20 @@ mod tests {
         );
 
         // reply with the right id
-        let slim_header = Some(SlimHeader::new(
-            &dst,
-            &source,
-            &identity.get_token().unwrap(),
-            Some(SlimHeaderFlags::default().with_incoming_conn(0)),
-        ));
-        let session_header = Some(SessionHeader::new(
-            slim_datapath::api::ProtoSessionType::PointToPoint.into(),
-            slim_datapath::api::ProtoSessionMessageType::JoinReply.into(),
-            1,
-            join_req.get_id(),
-        ));
+        let payload = CommandPayload::builder().join_reply(None).as_content();
 
-        let payload = CommandPayload::new_join_reply_payload(None).as_content();
-
-        let join_replay =
-            Message::new_publish_with_headers(slim_header, session_header, Some(payload));
+        let join_replay = Message::builder()
+            .source(dst.clone())
+            .destination(source.clone())
+            .identity(&identity.get_token().unwrap())
+            .incoming_conn(0)
+            .session_type(slim_datapath::api::ProtoSessionType::PointToPoint)
+            .session_message_type(slim_datapath::api::ProtoSessionMessageType::JoinReply)
+            .session_id(1)
+            .message_id(join_req.get_id())
+            .payload(payload)
+            .build_publish()
+            .unwrap();
 
         app.session_layer
             .handle_message_from_slim(join_replay.clone())
@@ -703,23 +717,20 @@ mod tests {
             ProtoSessionMessageType::GroupWelcome
         );
 
-        // send an ack for the welcome message
-        let slim_header = Some(SlimHeader::new(
-            &dst,
-            &source,
-            &identity.get_token().unwrap(),
-            Some(SlimHeaderFlags::default().with_incoming_conn(0)),
-        ));
-        let session_header = Some(SessionHeader::new(
-            slim_datapath::api::ProtoSessionType::PointToPoint.into(),
-            slim_datapath::api::ProtoSessionMessageType::GroupAck.into(),
-            1,
-            welcome.get_id(),
-        ));
+        let payload = CommandPayload::builder().group_ack().as_content();
 
-        let payload = CommandPayload::new_group_ack_payload().as_content();
-
-        let ack = Message::new_publish_with_headers(slim_header, session_header, Some(payload));
+        let ack = Message::builder()
+            .source(dst.clone())
+            .destination(source.clone())
+            .identity(&identity.get_token().unwrap())
+            .incoming_conn(0)
+            .session_type(slim_datapath::api::ProtoSessionType::PointToPoint)
+            .session_message_type(slim_datapath::api::ProtoSessionMessageType::GroupAck)
+            .session_id(1)
+            .message_id(welcome.get_id())
+            .payload(payload)
+            .build_publish()
+            .unwrap();
 
         app.session_layer
             .handle_message_from_slim(ack.clone())
@@ -727,13 +738,12 @@ mod tests {
             .expect("error receiving join reply");
 
         // now we can finally send a message
-        let mut message = ProtoMessage::new_publish(
-            &source,
-            &dst,
-            None,
-            None,
-            Some(ApplicationPayload::new("msg", vec![0x1, 0x2, 0x3, 0x4]).as_content()),
-        );
+        let mut message = ProtoMessage::builder()
+            .source(source.clone())
+            .destination(dst.clone())
+            .application_payload("msg", vec![0x1, 0x2, 0x3, 0x4])
+            .build_publish()
+            .unwrap();
 
         // set the session id in the message
         let header = message.get_session_header_mut();

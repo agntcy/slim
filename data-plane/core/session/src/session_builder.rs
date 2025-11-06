@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
-    api::{ProtoMessage as Message, ProtoSessionType},
+    api::{CommandPayload, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType},
     messages::Name,
 };
 
@@ -298,12 +298,20 @@ where
             && session_controller.session_type() == ProtoSessionType::PointToPoint
         {
             // send a discovery request
-            let discovery = Message::new_discovery_request(
-                session_controller.source(),
-                session_controller.dst(),
-                session_controller.session_type(),
-                session_controller.id(),
-            );
+            let payload = CommandPayload::builder()
+                .discovery_request(None)
+                .as_content();
+            let discovery = Message::builder()
+                .source(session_controller.source().clone())
+                .destination(session_controller.dst().clone())
+                .identity("")
+                .session_type(session_controller.session_type())
+                .session_message_type(ProtoSessionMessageType::DiscoveryRequest)
+                .session_id(session_controller.id())
+                .message_id(rand::random::<u32>())
+                .payload(payload)
+                .build_publish()
+                .unwrap();
             session_controller
                 .on_message(discovery, MessageDirection::South)
                 .await?;

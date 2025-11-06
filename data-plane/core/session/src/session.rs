@@ -251,13 +251,12 @@ mod tests {
             .expect("error adding participant");
 
         // Create a test message from app to slim (south direction)
-        let mut message = Message::new_publish(
-            &local_name,
-            &remote_name,
-            None,
-            None,
-            Some(ApplicationPayload::new("test_payload", vec![1, 2, 3, 4]).as_content()),
-        );
+        let mut message = Message::builder()
+            .source(local_name.clone())
+            .destination(remote_name.clone())
+            .application_payload("test_payload", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
         message.set_session_message_type(ProtoSessionMessageType::Msg);
 
         // Send the message
@@ -318,13 +317,12 @@ mod tests {
         assert_eq!(retransmitted, message);
 
         // get a message ack
-        let mut ack_message = Message::new_publish(
-            &remote_name,
-            &local_name,
-            None,
-            None,
-            Some(ApplicationPayload::new("", vec![]).as_content()),
-        );
+        let mut ack_message = Message::builder()
+            .source(remote_name.clone())
+            .destination(local_name.clone())
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
         ack_message.set_session_message_type(ProtoSessionMessageType::MsgAck);
         ack_message.get_session_header_mut().set_message_id(1);
         ack_message
@@ -382,13 +380,12 @@ mod tests {
         );
 
         // Receive message 1 from slim
-        let mut message1 = Message::new_publish(
-            &remote_name,
-            &local_name,
-            None,
-            None,
-            Some(ApplicationPayload::new("test_payload_1", vec![1, 2, 3, 4]).as_content()),
-        );
+        let mut message1 = Message::builder()
+            .source(local_name.clone())
+            .destination(remote_name.clone())
+            .application_payload("test_payload_1", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
         message1.set_session_message_type(ProtoSessionMessageType::Msg);
         message1.get_session_header_mut().set_message_id(1);
         message1.get_session_header_mut().set_session_id(session_id);
@@ -425,16 +422,15 @@ mod tests {
             ProtoSessionMessageType::MsgAck
         );
         assert_eq!(ack1.get_session_header().get_message_id(), 1);
-        assert_eq!(ack1.get_dst(), remote_name);
+        assert_eq!(ack1.get_dst(), local_name);
 
         // receive message 3 from slim direction north (skipping message 2)
-        let mut message3 = Message::new_publish(
-            &remote_name,
-            &local_name,
-            None,
-            None,
-            Some(ApplicationPayload::new("test_payload_3", vec![5, 6, 7, 8]).as_content()),
-        );
+        let mut message3 = Message::builder()
+            .source(local_name.clone())
+            .destination(remote_name.clone())
+            .application_payload("test_payload_3", vec![7, 8, 9])
+            .build_publish()
+            .unwrap();
         message3.set_session_message_type(ProtoSessionMessageType::Msg);
         message3.get_session_header_mut().set_message_id(3);
         message3.get_session_header_mut().set_session_id(session_id);
@@ -507,16 +503,15 @@ mod tests {
             ProtoSessionMessageType::RtxRequest
         );
         assert_eq!(rtx_request.get_session_header().get_message_id(), 2);
-        assert_eq!(rtx_request.get_dst(), remote_name);
+        assert_eq!(rtx_request.get_dst(), local_name);
 
         // Create message 2 and send it as an RtxReply
-        let mut message2 = Message::new_publish(
-            &remote_name,
-            &local_name,
-            None,
-            None,
-            Some(ApplicationPayload::new("test_payload_2", vec![9, 10, 11, 12]).as_content()),
-        );
+        let mut message2 = Message::builder()
+            .source(local_name.clone())
+            .destination(remote_name.clone())
+            .application_payload("test_payload_2", vec![9, 10, 11, 12])
+            .build_publish()
+            .unwrap();
         message2.set_session_message_type(ProtoSessionMessageType::RtxReply);
         message2.get_session_header_mut().set_message_id(2);
         message2.get_session_header_mut().set_session_id(session_id);
@@ -546,7 +541,7 @@ mod tests {
             .expect("error in received message2");
 
         assert_eq!(received2.get_id(), 2);
-        assert_eq!(received2.get_source(), remote_name);
+        assert_eq!(received2.get_source(), local_name);
 
         // Message 3 should be delivered next (it was buffered)
         let received3 = timeout(Duration::from_millis(100), rx_app.recv())
@@ -556,7 +551,7 @@ mod tests {
             .expect("error in received message3");
 
         assert_eq!(received3.get_id(), 3);
-        assert_eq!(received3.get_source(), remote_name);
+        assert_eq!(received3.get_source(), local_name);
     }
 
     #[tokio::test]
@@ -630,13 +625,12 @@ mod tests {
             .expect("error adding participant");
 
         // Send message 1 from the application
-        let mut message1 = Message::new_publish(
-            &sender_name,
-            &receiver_name,
-            None,
-            None,
-            Some(ApplicationPayload::new("test_payload", vec![1, 2, 3, 4]).as_content()),
-        );
+        let mut message1 = Message::builder()
+            .source(sender_name.clone())
+            .destination(receiver_name.clone())
+            .application_payload("test_payload", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
         message1.set_session_message_type(ProtoSessionMessageType::Msg);
 
         sender_session

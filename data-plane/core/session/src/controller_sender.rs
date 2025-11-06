@@ -323,23 +323,20 @@ mod tests {
         let mut sender = ControllerSender::new(settings, source.clone(), tx, tx_signal);
 
         // Create a discovery request message
-        let payload = CommandPayload::new_discovery_request_payload(None);
+        let payload = CommandPayload::builder().discovery_request(None);
         let session_id = 1;
 
-        let slim_header = Some(SlimHeader::new(&source, &remote, "", None));
-
-        let session_header = Some(SessionHeader::new(
-            ProtoSessionType::Multicast.into(),
-            ProtoSessionMessageType::DiscoveryRequest.into(),
-            session_id,
-            1,
-        ));
-
-        let request = Message::new_publish_with_headers(
-            slim_header,
-            session_header,
-            Some(payload.as_content()),
-        );
+        let request = Message::builder()
+            .source(source.clone())
+            .destination(remote.clone())
+            .identity("")
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::DiscoveryRequest)
+            .session_id(session_id)
+            .message_id(1)
+            .payload(payload.as_content())
+            .build_publish()
+            .unwrap();
 
         // Send the message using on_message function
         sender
@@ -393,22 +390,19 @@ mod tests {
         assert_eq!(received, request);
 
         // Create the discovery reply
-        let payload = CommandPayload::new_discovery_reply_payload();
+        let payload = CommandPayload::builder().discovery_reply();
 
-        let slim_header = Some(SlimHeader::new(&remote, &source, "", None));
-
-        let session_header = Some(SessionHeader::new(
-            ProtoSessionType::Multicast.into(),
-            ProtoSessionMessageType::DiscoveryReply.into(),
-            session_id,
-            1,
-        ));
-
-        let reply = Message::new_publish_with_headers(
-            slim_header,
-            session_header,
-            Some(payload.as_content()),
-        );
+        let reply = Message::builder()
+            .source(source.clone())
+            .destination(remote.clone())
+            .identity("")
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::DiscoveryReply)
+            .session_id(session_id)
+            .message_id(1)
+            .payload(payload.as_content())
+            .build_publish()
+            .unwrap();
 
         // Send the message using on_message function
         sender
@@ -439,7 +433,7 @@ mod tests {
         let mut sender = ControllerSender::new(settings, source.clone(), tx, tx_signal);
 
         // Create a join request message
-        let payload = CommandPayload::new_join_request_payload(
+        let payload = CommandPayload::builder().join_request(
             false, // enable_mls
             None,  // max_retries
             None,  // timer_duration
@@ -448,20 +442,17 @@ mod tests {
 
         let session_id = 1;
 
-        let slim_header = Some(SlimHeader::new(&source, &remote, "", None));
-
-        let session_header = Some(SessionHeader::new(
-            ProtoSessionType::Multicast.into(),
-            ProtoSessionMessageType::JoinRequest.into(),
-            session_id,
-            1,
-        ));
-
-        let request = Message::new_publish_with_headers(
-            slim_header,
-            session_header,
-            Some(payload.as_content()),
-        );
+        let request = Message::builder()
+            .source(source.clone())
+            .destination(remote.clone())
+            .identity("")
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::JoinRequest)
+            .session_id(session_id)
+            .message_id(1)
+            .payload(payload.as_content())
+            .build_publish()
+            .unwrap();
 
         // Send the message using on_message function
         sender
@@ -515,22 +506,19 @@ mod tests {
         assert_eq!(received, request);
 
         // Create the join reply
-        let payload = CommandPayload::new_join_reply_payload(None);
+        let payload = CommandPayload::builder().join_reply(None);
 
-        let slim_header = Some(SlimHeader::new(&remote, &source, "", None));
-
-        let session_header = Some(SessionHeader::new(
-            ProtoSessionType::Multicast.into(),
-            ProtoSessionMessageType::JoinReply.into(),
-            session_id,
-            1,
-        ));
-
-        let reply = Message::new_publish_with_headers(
-            slim_header,
-            session_header,
-            Some(payload.as_content()),
-        );
+        let reply = Message::builder()
+            .source(source.clone())
+            .destination(remote.clone())
+            .identity("")
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::JoinReply)
+            .session_id(session_id)
+            .message_id(1)
+            .payload(payload.as_content())
+            .build_publish()
+            .unwrap();
 
         // Send the reply using on_message function
         sender
@@ -561,24 +549,21 @@ mod tests {
         let mut sender = ControllerSender::new(settings, source.clone(), tx, tx_signal);
 
         // Create a leave request message
-        let payload = CommandPayload::new_leave_request_payload(None);
+        let payload = CommandPayload::builder().leave_request(None);
 
         let session_id = 1;
 
-        let slim_header = Some(SlimHeader::new(&source, &remote, "", None));
-
-        let session_header = Some(SessionHeader::new(
-            ProtoSessionType::Multicast.into(),
-            ProtoSessionMessageType::LeaveRequest.into(),
-            session_id,
-            1,
-        ));
-
-        let request = Message::new_publish_with_headers(
-            slim_header,
-            session_header,
-            Some(payload.as_content()),
-        );
+        let request = Message::builder()
+            .source(source.clone())
+            .destination(remote.clone())
+            .identity("")
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::LeaveRequest)
+            .session_id(session_id)
+            .message_id(1)
+            .payload(payload.as_content())
+            .build_publish()
+            .unwrap();
 
         // Send the message using on_message function
         sender
@@ -632,22 +617,19 @@ mod tests {
         assert_eq!(received, request);
 
         // Create the leave reply
-        let payload = CommandPayload::new_leave_reply_payload();
+        let payload = CommandPayload::builder().leave_reply();
 
-        let slim_header = Some(SlimHeader::new(&remote, &source, "", None));
-
-        let session_header = Some(SessionHeader::new(
-            ProtoSessionType::Multicast.into(),
-            ProtoSessionMessageType::LeaveReply.into(),
-            session_id,
-            1,
-        ));
-
-        let reply = Message::new_publish_with_headers(
-            slim_header,
-            session_header,
-            Some(payload.as_content()),
-        );
+        let reply = Message::builder()
+            .source(source.clone())
+            .destination(remote.clone())
+            .identity("")
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::LeaveReply)
+            .session_id(session_id)
+            .message_id(1)
+            .payload(payload.as_content())
+            .build_publish()
+            .unwrap();
 
         // Send the reply using on_message function
         sender
@@ -678,26 +660,21 @@ mod tests {
 
         // Create a group welcome message
         let participant = Name::from_strings(["org", "ns", "participant"]);
-        let payload = CommandPayload::new_group_welcome_payload(
-            vec![participant.clone(), source.clone()],
-            None,
-        );
+        let payload = CommandPayload::builder()
+            .group_welcome(vec![participant.clone(), source.clone()], None);
         let session_id = 1;
 
-        let slim_header = Some(SlimHeader::new(&source, &remote, "", None));
-
-        let session_header = Some(SessionHeader::new(
-            ProtoSessionType::Multicast.into(),
-            ProtoSessionMessageType::GroupWelcome.into(),
-            session_id,
-            1,
-        ));
-
-        let welcome = Message::new_publish_with_headers(
-            slim_header,
-            session_header,
-            Some(payload.as_content()),
-        );
+        let welcome = Message::builder()
+            .source(source.clone())
+            .destination(remote.clone())
+            .identity("")
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::GroupWelcome)
+            .session_id(session_id)
+            .message_id(1)
+            .payload(payload.as_content())
+            .build_publish()
+            .unwrap();
 
         // Send the message using on_message function
         sender
@@ -751,22 +728,19 @@ mod tests {
         assert_eq!(received, welcome);
 
         // Create the group ack
-        let payload = CommandPayload::new_group_ack_payload();
+        let payload = CommandPayload::builder().group_ack();
 
-        let slim_header = Some(SlimHeader::new(&remote, &source, "", None));
-
-        let session_header = Some(SessionHeader::new(
-            ProtoSessionType::Multicast.into(),
-            ProtoSessionMessageType::GroupAck.into(),
-            session_id,
-            1,
-        ));
-
-        let ack = Message::new_publish_with_headers(
-            slim_header,
-            session_header,
-            Some(payload.as_content()),
-        );
+        let ack = Message::builder()
+            .source(source.clone())
+            .destination(remote.clone())
+            .identity("")
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::GroupAck)
+            .session_id(session_id)
+            .message_id(1)
+            .payload(payload.as_content())
+            .build_publish()
+            .unwrap();
 
         // Send the ack using on_message function
         sender.on_message(&ack).await.expect("error sending ack");
@@ -796,7 +770,7 @@ mod tests {
         // Create a group add message with 2 participants
         let participant1 = Name::from_strings(["org", "ns", "participant1"]);
         let participant2 = Name::from_strings(["org", "ns", "participant2"]);
-        let payload = CommandPayload::new_group_add_payload(
+        let payload = CommandPayload::builder().group_add(
             participant1.clone(),
             vec![participant1.clone(), participant2.clone(), source.clone()],
             None, // mls_commit
@@ -804,20 +778,17 @@ mod tests {
 
         let session_id = 1;
 
-        let slim_header = Some(SlimHeader::new(&source, &remote, "", None));
-
-        let session_header = Some(SessionHeader::new(
-            ProtoSessionType::Multicast.into(),
-            ProtoSessionMessageType::GroupAdd.into(),
-            session_id,
-            1,
-        ));
-
-        let update = Message::new_publish_with_headers(
-            slim_header,
-            session_header,
-            Some(payload.as_content()),
-        );
+        let update = Message::builder()
+            .source(source.clone())
+            .destination(remote.clone())
+            .identity("")
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::GroupAdd)
+            .session_id(session_id)
+            .message_id(1)
+            .payload(payload.as_content())
+            .build_publish()
+            .unwrap();
 
         // Send the message using on_message function
         sender
@@ -871,22 +842,19 @@ mod tests {
         assert_eq!(received, update);
 
         // Create the first group ack from participant1
-        let payload = CommandPayload::new_group_ack_payload();
+        let payload = CommandPayload::builder().group_ack();
 
-        let slim_header = Some(SlimHeader::new(&participant1, &source, "", None));
-
-        let session_header = Some(SessionHeader::new(
-            ProtoSessionType::Multicast.into(),
-            ProtoSessionMessageType::GroupAck.into(),
-            session_id,
-            1,
-        ));
-
-        let ack1 = Message::new_publish_with_headers(
-            slim_header,
-            session_header,
-            Some(payload.as_content()),
-        );
+        let ack1 = Message::builder()
+            .source(participant1.clone())
+            .destination(source.clone())
+            .identity("")
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::GroupAck)
+            .session_id(session_id)
+            .message_id(1)
+            .payload(payload.as_content())
+            .build_publish()
+            .unwrap();
 
         // Send the first ack using on_message function
         sender
@@ -901,22 +869,19 @@ mod tests {
         );
 
         // Create the second group ack from participant2
-        let payload = CommandPayload::new_group_ack_payload();
+        let payload = CommandPayload::builder().group_ack();
 
-        let slim_header = Some(SlimHeader::new(&participant2, &source, "", None));
-
-        let session_header = Some(SessionHeader::new(
-            ProtoSessionType::Multicast.into(),
-            ProtoSessionMessageType::GroupAck.into(),
-            session_id,
-            1,
-        ));
-
-        let ack2 = Message::new_publish_with_headers(
-            slim_header,
-            session_header,
-            Some(payload.as_content()),
-        );
+        let ack2 = Message::builder()
+            .source(participant2.clone())
+            .destination(source.clone())
+            .identity("")
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::GroupAck)
+            .session_id(session_id)
+            .message_id(1)
+            .payload(payload.as_content())
+            .build_publish()
+            .unwrap();
 
         // Send the second ack using on_message function
         sender
@@ -950,7 +915,7 @@ mod tests {
         // Create a group add message with 2 participants (plus source)
         let participant1 = Name::from_strings(["org", "ns", "participant1"]);
         let participant2 = Name::from_strings(["org", "ns", "participant2"]);
-        let payload = CommandPayload::new_group_add_payload(
+        let payload = CommandPayload::builder().group_add(
             participant1.clone(),
             vec![participant1.clone(), participant2.clone(), source.clone()],
             None, // mls
@@ -958,20 +923,17 @@ mod tests {
 
         let session_id = 1;
 
-        let slim_header = Some(SlimHeader::new(&source, &remote, "", None));
-
-        let session_header = Some(SessionHeader::new(
-            ProtoSessionType::Multicast.into(),
-            ProtoSessionMessageType::GroupAdd.into(),
-            session_id,
-            1,
-        ));
-
-        let update = Message::new_publish_with_headers(
-            slim_header,
-            session_header,
-            Some(payload.as_content()),
-        );
+        let update = Message::builder()
+            .source(source.clone())
+            .destination(remote.clone())
+            .identity("")
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::GroupAdd)
+            .session_id(session_id)
+            .message_id(1)
+            .payload(payload.as_content())
+            .build_publish()
+            .unwrap();
 
         // Send the message using on_message function
         sender
@@ -1025,22 +987,19 @@ mod tests {
         assert_eq!(received, update);
 
         // Create the first group ack from participant1
-        let payload = CommandPayload::new_group_ack_payload();
+        let payload = CommandPayload::builder().group_ack();
 
-        let slim_header = Some(SlimHeader::new(&participant1, &source, "", None));
-
-        let session_header = Some(SessionHeader::new(
-            ProtoSessionType::Multicast.into(),
-            ProtoSessionMessageType::GroupAck.into(),
-            session_id,
-            1,
-        ));
-
-        let ack1 = Message::new_publish_with_headers(
-            slim_header,
-            session_header,
-            Some(payload.as_content()),
-        );
+        let ack1 = Message::builder()
+            .source(participant1.clone())
+            .destination(source.clone())
+            .identity("")
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::GroupAck)
+            .session_id(session_id)
+            .message_id(1)
+            .payload(payload.as_content())
+            .build_publish()
+            .unwrap();
 
         // Send the first ack using on_message function
         sender
@@ -1086,22 +1045,19 @@ mod tests {
         }
 
         // Now send ack from participant2 (the second unique participant)
-        let payload = CommandPayload::new_group_ack_payload();
+        let payload = CommandPayload::builder().group_ack();
 
-        let slim_header = Some(SlimHeader::new(&participant2, &source, "", None));
-
-        let session_header = Some(SessionHeader::new(
-            ProtoSessionType::Multicast.into(),
-            ProtoSessionMessageType::GroupAck.into(),
-            session_id,
-            1,
-        ));
-
-        let ack2 = Message::new_publish_with_headers(
-            slim_header,
-            session_header,
-            Some(payload.as_content()),
-        );
+        let ack2 = Message::builder()
+            .source(participant2.clone())
+            .destination(source.clone())
+            .identity("")
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::GroupAck)
+            .session_id(session_id)
+            .message_id(1)
+            .payload(payload.as_content())
+            .build_publish()
+            .unwrap();
 
         // Send the second ack from participant2
         sender

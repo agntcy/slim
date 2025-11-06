@@ -310,7 +310,8 @@ impl SessionSender {
                 slim_datapath::api::ProtoSessionMessageType::RtxReply,
                 self.session_id,
                 message_id,
-            );
+            )
+            .map_err(|e| SessionError::Processing(e.to_string()))?;
 
             // send the message
             self.tx
@@ -491,13 +492,12 @@ mod tests {
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
-        let mut message = Message::new_publish(
-            &source,
-            &remote,
-            None,
-            None,
-            Some(ApplicationPayload::new("test_payload", vec![1, 2, 3, 4]).as_content()),
-        );
+        let mut message = Message::builder()
+            .source(source.clone())
+            .destination(remote.clone())
+            .application_payload("test_payload", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
 
         // Set session message type to Msg for reliable sender
         message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
@@ -571,13 +571,12 @@ mod tests {
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
-        let mut message = Message::new_publish(
-            &source,
-            &remote,
-            None,
-            None,
-            Some(ApplicationPayload::new("test_payload", vec![1, 2, 3, 4]).as_content()),
-        );
+        let mut message = Message::builder()
+            .source(source.clone())
+            .destination(remote.clone())
+            .application_payload("test_payload", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
 
         // Set session message type to Msg for reliable sender
         message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
@@ -724,13 +723,12 @@ mod tests {
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
-        let mut message = Message::new_publish(
-            &source,
-            &remote,
-            None,
-            None,
-            Some(ApplicationPayload::new("test_payload", vec![1, 2, 3, 4]).as_content()),
-        );
+        let mut message = Message::builder()
+            .source(source.clone())
+            .destination(remote.clone())
+            .application_payload("test_payload", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
 
         // Set session message type to Msg for reliable sender
         message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
@@ -756,13 +754,12 @@ mod tests {
         assert_eq!(received.get_id(), 1);
 
         // receive an ack from the remote
-        let mut ack = Message::new_publish(
-            &remote,
-            &source,
-            None,
-            None,
-            Some(ApplicationPayload::new("", vec![]).as_content()),
-        );
+        let mut ack = Message::builder()
+            .source(remote.clone())
+            .destination(source.clone())
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
 
         ack.get_session_header_mut().set_message_id(1);
         ack.get_session_header_mut()
@@ -814,13 +811,12 @@ mod tests {
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
-        let mut message = Message::new_publish(
-            &source,
-            &group,
-            None,
-            None,
-            Some(ApplicationPayload::new("test_payload", vec![1, 2, 3, 4]).as_content()),
-        );
+        let mut message = Message::builder()
+            .source(source.clone())
+            .destination(group.clone())
+            .application_payload("test_payload", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
 
         // Set session message type to Msg for reliable sender
         message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
@@ -846,35 +842,32 @@ mod tests {
         assert_eq!(received.get_id(), 1);
 
         // receive acks from all 3 remotes
-        let mut ack1 = Message::new_publish(
-            &remote1,
-            &source,
-            None,
-            None,
-            Some(ApplicationPayload::new("", vec![]).as_content()),
-        );
+        let mut ack1 = Message::builder()
+            .source(remote1.clone())
+            .destination(source.clone())
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
         ack1.get_session_header_mut().set_message_id(1);
         ack1.get_session_header_mut()
             .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
 
-        let mut ack2 = Message::new_publish(
-            &remote2,
-            &source,
-            None,
-            None,
-            Some(ApplicationPayload::new("", vec![]).as_content()),
-        );
+        let mut ack2 = Message::builder()
+            .source(remote2.clone())
+            .destination(source.clone())
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
         ack2.get_session_header_mut().set_message_id(1);
         ack2.get_session_header_mut()
             .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
 
-        let mut ack3 = Message::new_publish(
-            &remote3,
-            &source,
-            None,
-            None,
-            Some(ApplicationPayload::new("", vec![]).as_content()),
-        );
+        let mut ack3 = Message::builder()
+            .source(remote3.clone())
+            .destination(source.clone())
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
         ack3.get_session_header_mut().set_message_id(1);
         ack3.get_session_header_mut()
             .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
@@ -928,13 +921,12 @@ mod tests {
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
-        let mut message = Message::new_publish(
-            &source,
-            &group,
-            None,
-            None,
-            Some(ApplicationPayload::new("test_payload", vec![1, 2, 3, 4]).as_content()),
-        );
+        let mut message = Message::builder()
+            .source(source.clone())
+            .destination(group.clone())
+            .application_payload("test_payload", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
 
         // Set session message type to Msg for reliable sender
         message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
@@ -960,24 +952,22 @@ mod tests {
         assert_eq!(received.get_id(), 1);
 
         // receive acks from only remote1 and remote3 (missing ack from remote2)
-        let mut ack1 = Message::new_publish(
-            &remote1,
-            &source,
-            None,
-            None,
-            Some(ApplicationPayload::new("", vec![]).as_content()),
-        );
+        let mut ack1 = Message::builder()
+            .source(remote1.clone())
+            .destination(source.clone())
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
         ack1.get_session_header_mut().set_message_id(1);
         ack1.get_session_header_mut()
             .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
 
-        let mut ack3 = Message::new_publish(
-            &remote3,
-            &source,
-            None,
-            None,
-            Some(ApplicationPayload::new("", vec![]).as_content()),
-        );
+        let mut ack3 = Message::builder()
+            .source(remote3.clone())
+            .destination(source.clone())
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
         ack3.get_session_header_mut().set_message_id(1);
         ack3.get_session_header_mut()
             .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
@@ -1107,13 +1097,12 @@ mod tests {
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
-        let mut message = Message::new_publish(
-            &source,
-            &group,
-            None,
-            None,
-            Some(ApplicationPayload::new("test_payload", vec![1, 2, 3, 4]).as_content()),
-        );
+        let mut message = Message::builder()
+            .source(source.clone())
+            .destination(group.clone())
+            .application_payload("test_payload", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
 
         // Set session message type to Msg for reliable sender
         message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
@@ -1139,24 +1128,22 @@ mod tests {
         assert_eq!(received.get_id(), 1);
 
         // receive acks from only remote1 and remote3 (missing ack from remote2)
-        let mut ack1 = Message::new_publish(
-            &remote1,
-            &source,
-            None,
-            None,
-            Some(ApplicationPayload::new("", vec![]).as_content()),
-        );
+        let mut ack1 = Message::builder()
+            .source(remote1.clone())
+            .destination(source.clone())
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
         ack1.get_session_header_mut().set_message_id(1);
         ack1.get_session_header_mut()
             .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
 
-        let mut ack3 = Message::new_publish(
-            &remote3,
-            &source,
-            None,
-            None,
-            Some(ApplicationPayload::new("", vec![]).as_content()),
-        );
+        let mut ack3 = Message::builder()
+            .source(remote3.clone())
+            .destination(source.clone())
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
         ack3.get_session_header_mut().set_message_id(1);
         ack3.get_session_header_mut()
             .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
@@ -1213,13 +1200,12 @@ mod tests {
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
-        let mut message = Message::new_publish(
-            &source,
-            &group,
-            None,
-            None,
-            Some(ApplicationPayload::new("test_payload", vec![1, 2, 3, 4]).as_content()),
-        );
+        let mut message = Message::builder()
+            .source(source.clone())
+            .destination(group.clone())
+            .application_payload("test_payload", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
 
         // Set session message type to Msg for reliable sender
         message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
@@ -1245,24 +1231,22 @@ mod tests {
         assert_eq!(received.get_id(), 1);
 
         // receive acks from only remote1 and remote3 (missing ack from remote2)
-        let mut ack1 = Message::new_publish(
-            &remote1,
-            &source,
-            None,
-            None,
-            Some(ApplicationPayload::new("", vec![]).as_content()),
-        );
+        let mut ack1 = Message::builder()
+            .source(remote1.clone())
+            .destination(source.clone())
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
         ack1.get_session_header_mut().set_message_id(1);
         ack1.get_session_header_mut()
             .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
 
-        let mut ack3 = Message::new_publish(
-            &remote3,
-            &source,
-            None,
-            None,
-            Some(ApplicationPayload::new("", vec![]).as_content()),
-        );
+        let mut ack3 = Message::builder()
+            .source(remote3.clone())
+            .destination(source.clone())
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
         ack3.get_session_header_mut().set_message_id(1);
         ack3.get_session_header_mut()
             .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
@@ -1272,13 +1256,12 @@ mod tests {
         sender.on_message(ack3).await.expect("error sending ack3");
 
         // Send RTX request from endpoint 2 instead of removing it
-        let mut rtx_request = Message::new_publish(
-            &remote2,
-            &source,
-            None,
-            None,
-            Some(ApplicationPayload::new("", vec![]).as_content()),
-        );
+        let mut rtx_request = Message::builder()
+            .source(remote2.clone())
+            .destination(source.clone())
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
         rtx_request.get_session_header_mut().set_message_id(1);
         rtx_request
             .get_session_header_mut()
@@ -1337,13 +1320,12 @@ mod tests {
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
-        let mut message = Message::new_publish(
-            &source,
-            &remote,
-            None,
-            None,
-            Some(ApplicationPayload::new("test_payload", vec![1, 2, 3, 4]).as_content()),
-        );
+        let mut message = Message::builder()
+            .source(source.clone())
+            .destination(remote.clone())
+            .application_payload("test_payload", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
 
         // Set session message type to Msg for reliable sender
         message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
@@ -1399,13 +1381,12 @@ mod tests {
         assert_eq!(retransmission.get_id(), 1);
 
         // Now simulate an RTX request from the remote
-        let mut rtx_request = Message::new_publish(
-            &remote,
-            &source,
-            None,
-            None,
-            Some(ApplicationPayload::new("", vec![]).as_content()),
-        );
+        let mut rtx_request = Message::builder()
+            .source(remote.clone())
+            .destination(source.clone())
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
         rtx_request.get_session_header_mut().set_message_id(1);
         rtx_request
             .get_session_header_mut()
@@ -1437,13 +1418,12 @@ mod tests {
         assert_eq!(rtx_reply.get_slim_header().forward_to(), 123);
 
         // Now send an ack from the remote
-        let mut ack = Message::new_publish(
-            &remote,
-            &source,
-            None,
-            None,
-            Some(ApplicationPayload::new("", vec![]).as_content()),
-        );
+        let mut ack = Message::builder()
+            .source(remote.clone())
+            .destination(source.clone())
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
         ack.get_session_header_mut().set_message_id(1);
         ack.get_session_header_mut()
             .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
@@ -1480,13 +1460,12 @@ mod tests {
 
         // Create a test message
         let source = Name::from_strings(["org", "ns", "source"]);
-        let mut message = Message::new_publish(
-            &source,
-            &remote,
-            None,
-            None,
-            Some(ApplicationPayload::new("test_payload", vec![1, 2, 3, 4]).as_content()),
-        );
+        let mut message = Message::builder()
+            .source(source.clone())
+            .destination(remote.clone())
+            .application_payload("test_payload", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
 
         // Set session message type to Msg for reliable sender
         message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);

@@ -30,7 +30,7 @@ use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::traits::TokenProvider;
 use slim_config::grpc::client::ClientConfig;
 use slim_datapath::api::{CommandPayload, Content, ProtoMessage as DataPlaneMessage};
-use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType, SessionHeader, SlimHeader};
+use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType};
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::Name;
 use slim_datapath::messages::encoder::calculate_hash;
@@ -281,12 +281,12 @@ impl ControlPlane {
         let inner = self.controller.inner.clone();
 
         // Send subscription to data-plane to receive messages for the controller source name
-        let subscribe_msg = DataPlaneMessage::new_subscribe(
-            &CONTROLLER_SOURCE_NAME,
-            &CONTROLLER_SOURCE_NAME,
-            Some(&CONTROLLER_SOURCE_NAME.to_string()),
-            None,
-        );
+        let subscribe_msg = DataPlaneMessage::builder()
+            .source(CONTROLLER_SOURCE_NAME.clone())
+            .destination(CONTROLLER_SOURCE_NAME.clone())
+            .identity(CONTROLLER_SOURCE_NAME.to_string())
+            .build_subscribe()
+            .unwrap();
 
         // Send the subscribe message to the data plane
         if let Err(e) = inner.tx_slim.send(Ok(subscribe_msg)).await {
@@ -516,7 +516,7 @@ fn create_channel_message(
     message_id: u32,
     payload: Option<Content>,
     auth_provider: &Option<AuthProvider>,
-) -> DataPlaneMessage {
+) -> Result<DataPlaneMessage, ControllerError> {
     // if the auth_provider is set try to get an identity
     let identity_token = if let Some(auth) = auth_provider {
         auth.get_token()
@@ -529,16 +529,19 @@ fn create_channel_message(
         "".to_string()
     };
 
-    let slim_header = Some(SlimHeader::new(source, destination, &identity_token, None));
-
-    let session_header = Some(SessionHeader::new(
-        ProtoSessionType::Multicast.into(),
-        request_type.into(),
-        session_id,
-        message_id,
-    ));
-
-    DataPlaneMessage::new_publish_with_headers(slim_header, session_header, payload)
+    let message = DataPlaneMessage::builder()
+        .source(source.clone())
+        .destination(destination.clone())
+        .identity(&identity_token)
+        .session_type(ProtoSessionType::Multicast)
+        .session_message_type(request_type)
+        .session_id(session_id)
+        .message_id(message_id)
+        .payload(payload.ok_or_else(|| ControllerError::DatapathError("payload is required".to_string()))?)
+        .build_publish()
+        .map_err(|e| ControllerError::DatapathError(e.to_string()))?;
+    
+    Ok(message)
 }
 
 fn new_channel_message(
@@ -546,17 +549,18 @@ fn new_channel_message(
     moderator: &Name,
     channel: &Name,
     auth_provider: &Option<AuthProvider>,
-) -> DataPlaneMessage {
+) -> Result<DataPlaneMessage, ControllerError> {
     let session_id = generate_session_id(moderator, channel);
 
     let invite_payload = Some(
-        CommandPayload::new_join_request_payload(
-            true,
-            Some(10),
-            Some(Duration::from_secs(1)),
-            Some(channel.clone()),
-        )
-        .as_content(),
+        CommandPayload::builder()
+            .join_request(
+                true,
+                Some(10),
+                Some(Duration::from_secs(1)),
+                Some(channel.clone()),
+            )
+            .as_content(),
     );
 
     let mut msg = create_channel_message(
@@ -567,10 +571,10 @@ fn new_channel_message(
         rand::random::<u32>(),
         invite_payload,
         auth_provider,
-    );
+    )?;
 
     msg.insert_metadata(IS_MODERATOR.to_string(), TRUE_VAL.to_string());
-    msg
+    Ok(msg)
 }
 
 fn delete_channel_message(
@@ -578,10 +582,10 @@ fn delete_channel_message(
     moderator: &Name,
     channel_name: &Name,
     auth_provider: &Option<AuthProvider>,
-) -> DataPlaneMessage {
+) -> Result<DataPlaneMessage, ControllerError> {
     let session_id = generate_session_id(moderator, channel_name);
 
-    let payaload = Some(CommandPayload::new_leave_request_payload(None).as_content());
+    let payaload = Some(CommandPayload::builder().leave_request(None).as_content());
 
     let mut msg = create_channel_message(
         controller,
@@ -591,10 +595,10 @@ fn delete_channel_message(
         rand::random::<u32>(),
         payaload,
         auth_provider,
-    );
+    )?;
 
     msg.insert_metadata(DELETE_GROUP.to_string(), TRUE_VAL.to_string());
-    msg
+    Ok(msg)
 }
 
 fn invite_participant_message(
@@ -603,13 +607,16 @@ fn invite_participant_message(
     participant: &Name,
     channel_name: &Name,
     auth_provider: &Option<AuthProvider>,
-) -> DataPlaneMessage {
+) -> Result<DataPlaneMessage, ControllerError> {
     let session_id = generate_session_id(moderator, channel_name);
 
-    let payload =
-        Some(CommandPayload::new_discovery_request_payload(Some(participant.clone())).as_content());
+    let payload = Some(
+        CommandPayload::builder()
+            .discovery_request(Some(participant.clone()))
+            .as_content(),
+    );
 
-    create_channel_message(
+    let msg = create_channel_message(
         controller,
         moderator,
         ProtoSessionMessageType::DiscoveryRequest,
@@ -617,7 +624,9 @@ fn invite_participant_message(
         rand::random::<u32>(),
         payload,
         auth_provider,
-    )
+    )?;
+    
+    Ok(msg)
 }
 
 fn remove_participant_message(
@@ -626,13 +635,16 @@ fn remove_participant_message(
     participant: &Name,
     channel_name: &Name,
     auth_provider: &Option<AuthProvider>,
-) -> DataPlaneMessage {
+) -> Result<DataPlaneMessage, ControllerError> {
     let session_id = generate_session_id(moderator, channel_name);
 
-    let payload =
-        Some(CommandPayload::new_leave_request_payload(Some(participant.clone())).as_content());
+    let payload = Some(
+        CommandPayload::builder()
+            .leave_request(Some(participant.clone()))
+            .as_content(),
+    );
 
-    create_channel_message(
+    let msg = create_channel_message(
         controller,
         moderator,
         ProtoSessionMessageType::LeaveRequest,
@@ -640,7 +652,9 @@ fn remove_participant_message(
         rand::random::<u32>(),
         payload,
         auth_provider,
-    )
+    )?;
+    
+    Ok(msg)
 }
 
 impl ControllerService {
@@ -774,12 +788,13 @@ impl ControllerService {
                                 ])
                                 .with_id(subscription.id.unwrap_or(Name::NULL_COMPONENT));
 
-                                let msg = DataPlaneMessage::new_subscribe(
-                                    &source,
-                                    &name,
-                                    Some(&identity_token),
-                                    Some(SlimHeaderFlags::default().with_recv_from(conn)),
-                                );
+                                let msg = DataPlaneMessage::builder()
+                                    .source(source.clone())
+                                    .destination(name.clone())
+                                    .identity(&identity_token)
+                                    .flags(SlimHeaderFlags::default().with_recv_from(conn))
+                                    .build_subscribe()
+                                    .unwrap();
 
                                 if let Err(e) = self.send_control_message(msg).await {
                                     subscription_success = false;
@@ -835,12 +850,13 @@ impl ControllerService {
                                 ])
                                 .with_id(subscription.id.unwrap_or(Name::NULL_COMPONENT));
 
-                                let msg = DataPlaneMessage::new_unsubscribe(
-                                    &source,
-                                    &name,
-                                    Some(&identity_token),
-                                    Some(SlimHeaderFlags::default().with_recv_from(conn)),
-                                );
+                                let msg = DataPlaneMessage::builder()
+                                    .source(source.clone())
+                                    .destination(name.clone())
+                                    .identity(&identity_token)
+                                    .flags(SlimHeaderFlags::default().with_recv_from(conn))
+                                    .build_unsubscribe()
+                                    .unwrap();
 
                                 if let Err(e) = self.send_control_message(msg).await {
                                     subscription_success = false;
@@ -1020,7 +1036,7 @@ impl ControllerService {
                                     &moderator_name,
                                     &channel_name,
                                     &self.inner.auth_provider,
-                                );
+                                )?;
 
                                 debug!("Send session creation message: {:?}", creation_msg);
                                 if let Err(e) = self.send_control_message(creation_msg).await {
@@ -1066,7 +1082,7 @@ impl ControllerService {
                                     &moderator_name,
                                     &channel_name,
                                     &self.inner.auth_provider,
-                                );
+                                )?;
 
                                 debug!("Send delete session message: {:?}", delete_msg);
                                 if let Err(e) = self.send_control_message(delete_msg).await {
@@ -1117,7 +1133,7 @@ impl ControllerService {
                                     &participant_name,
                                     &channel_name,
                                     &self.inner.auth_provider,
-                                );
+                                )?;
 
                                 debug!("Send invite participant: {:?}", invite_msg);
 
@@ -1165,7 +1181,7 @@ impl ControllerService {
                                     &participant_name,
                                     &channel_name,
                                     &self.inner.auth_provider,
-                                );
+                                )?;
 
                                 if let Err(e) = self.send_control_message(remove_msg).await {
                                     error!("failed to send channel creation: {}", e);
