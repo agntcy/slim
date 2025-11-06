@@ -44,9 +44,10 @@ jobs:
           - runner: windows-latest
             os: windows
             target: x64
-          - runner: windows-11-arm
-            os: windows
-            target: aarch64
+          # https://github.com/astral-sh/uv/issues/12906
+          # - runner: windows-11-arm
+          #   os: windows
+          #   target: aarch64
           - runner: macos-15-intel
             os: macos
             target: x86_64
