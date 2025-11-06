@@ -1,12 +1,14 @@
 package db
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -60,10 +62,10 @@ func (ChannelModel) TableName() string {
 }
 
 // NewSQLiteDBService creates a new SQLite database service
-func NewSQLiteDBService(dbPath string) (DataAccess, error) {
+func NewSQLiteDBService(ctx context.Context, dbPath string) (DataAccess, error) {
 	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to database: %w", err)
+		return nil, fmt.Errorf("failed to connect to database: %w (path: %s)", err, dbPath)
 	}
 
 	service := &SQLiteDBService{db: db, dbPath: dbPath}
@@ -72,7 +74,8 @@ func NewSQLiteDBService(dbPath string) (DataAccess, error) {
 	if err := service.migrate(); err != nil {
 		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}
-
+	zlog := zerolog.Ctx(ctx)
+	zlog.Debug().Msgf("sqlite database initialized: %s", dbPath)
 	return service, nil
 }
 

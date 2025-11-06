@@ -33,7 +33,7 @@ func main() {
 	ctx := util.GetContextWithLogger(context.Background(), config.LogConfig)
 	zlog := zerolog.Ctx(ctx)
 
-	dbService, err := db.NewSQLiteDBService(config.Database.FilePath)
+	dbService, err := db.NewSQLiteDBService(ctx, config.Database.FilePath)
 	if err != nil {
 		zlog.Fatal().Msgf("failed to initialize database service: %v", err)
 	}

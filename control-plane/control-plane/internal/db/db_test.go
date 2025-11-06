@@ -2,6 +2,7 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"testing"
@@ -34,7 +35,7 @@ func getDataAccessImplementations() []DataAccessImplementation {
 			Factory: func() DataAccess {
 				// Create a temporary database file for testing
 				tempDB := fmt.Sprintf("test_db_%d.sqlite", time.Now().UnixNano())
-				db, err := NewSQLiteDBService(tempDB)
+				db, err := NewSQLiteDBService(context.Background(), tempDB)
 				if err != nil {
 					panic(fmt.Sprintf("Failed to create SQLite test database: %v", err))
 				}
