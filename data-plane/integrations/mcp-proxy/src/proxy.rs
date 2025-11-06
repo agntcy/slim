@@ -73,11 +73,7 @@ pub struct Proxy {
 }
 
 /// Spawn the async task that bridges a SLIM session with the MCP server.
-fn start_proxy_session<P, V>(ctx: SessionContext<P, V>, mcp_server: String)
-where
-    P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
-    V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
-{
+fn start_proxy_session(ctx: SessionContext, mcp_server: String) {
     let session_id_val = ctx.session_arc().unwrap().id();
     ctx.spawn_receiver(move |mut rx, weak| async move {
         info!("Session handler task started (session id={})", session_id_val);
@@ -120,7 +116,7 @@ where
                                 incoming_conn_id = Some(message.get_incoming_conn());
                                 debug!("Initialized remote routing: name={:?} conn_id={:?}", remote_name, incoming_conn_id);
                             }
-                            let payload = match message.get_payload() { Some(p) => p.as_application_payload().blob.to_vec(), None => { error!("empty payload"); continue; } };
+                            let payload = match message.get_payload() { Some(p) => p.as_application_payload().unwrap().blob.to_vec(), None => { error!("empty payload"); continue; } };
                             let jsonrpcmsg: JsonRpcMessage<ClientRequest, ClientResult, ClientNotification> = match serde_json::from_slice(&payload) {
                                 Ok(v) => v,
                                 Err(e) => { error!("error parsing message: {}", e); continue; }
