@@ -51,23 +51,23 @@ changelog:
 homebrew_casks:
   - name: slimctl
     description: "A CLI tool for managing SLIM Devices"
-    homepage: "https://github.com/agntcy/slim/tree/main/control-plane/slimctl"
+    homepage: "https://github.com/lpuskas/slim/tree/main/control-plane/slimctl"
     directory: Casks
 
     binaries:
       - slimctl
 
     url:
-      template: "https://github.com/agntcy/slim/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+      template: "https://github.com/lpuskas/slim/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
       using: ":homebrew_curl"
 
     skip_upload: false
 
     repository:
-      owner: agntcy
+      owner: lpuskas
       branch: brew
 
-      name: "agntcy/slim"
+      name: "lpuskas/slim"
 
 
 
