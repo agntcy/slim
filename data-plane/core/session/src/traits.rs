@@ -11,16 +11,12 @@ use super::SessionInterceptorProvider;
 use crate::{common::SessionMessage, errors::SessionError};
 
 /// Session transmitter trait
+#[async_trait]
 pub trait Transmitter: SessionInterceptorProvider {
-    fn send_to_slim(
-        &self,
-        message: Result<Message, Status>,
-    ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static;
+    async fn send_to_slim(&self, message: Result<Message, Status>) -> Result<(), SessionError>;
 
-    fn send_to_app(
-        &self,
-        message: Result<Message, SessionError>,
-    ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static;
+    async fn send_to_app(&self, message: Result<Message, SessionError>)
+    -> Result<(), SessionError>;
 }
 
 /// Core trait for message handling at any layer.

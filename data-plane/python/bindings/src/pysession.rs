@@ -460,7 +460,7 @@ impl From<SessionConfig> for PySessionConfiguration {
     fn from(session_config: SessionConfig) -> Self {
         PySessionConfiguration {
             session_type: session_config.session_type,
-            timeout: session_config.duration,
+            timeout: session_config.interval,
             max_retries: session_config.max_retries,
             mls_enabled: session_config.mls_enabled,
             initiator: session_config.initiator,
@@ -473,7 +473,7 @@ impl From<&PySessionConfiguration> for SessionConfig {
     fn from(value: &PySessionConfiguration) -> Self {
         SessionConfig {
             session_type: value.session_type,
-            duration: value.timeout,
+            interval: value.timeout,
             max_retries: value.max_retries,
             mls_enabled: value.mls_enabled,
             initiator: value.initiator,

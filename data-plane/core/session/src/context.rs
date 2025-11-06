@@ -142,7 +142,7 @@ mod tests {
         let cfg = SessionConfig {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(3),
-            duration: Some(std::time::Duration::from_secs(1)),
+            interval: Some(std::time::Duration::from_secs(1)),
             mls_enabled: false,
             initiator: false,
             metadata: Default::default(),

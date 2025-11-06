@@ -723,7 +723,7 @@ mod tests {
         let session_config = SessionConfig {
             session_type: slim_datapath::api::ProtoSessionType::Multicast,
             max_retries: Some(5),
-            duration: Some(Duration::from_millis(1000)),
+            interval: Some(Duration::from_millis(1000)),
             mls_enabled: true,
             initiator: true,
             metadata: HashMap::new(),

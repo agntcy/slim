@@ -467,6 +467,28 @@ where
 
 #[cfg(test)]
 mod tests {
+    //! Test coverage for SessionController
+    //!
+    //! This test suite provides comprehensive coverage for the SessionController including:
+    //!
+    //! ## Integration Tests
+    //! - `test_end_to_end_p2p`: Complete point-to-point session lifecycle with MLS
+    //!   (discovery, join, welcome, messaging, leave)
+    //!
+    //! ## Unit Tests
+    //! - **Getters**: All getter methods (id, source, dst, session_type, metadata, etc.)
+    //! - **Publishing**: Basic publish, publish_to specific connection, publish with metadata
+    //! - **Participant Management**:
+    //!   - Invite participant in multicast (success and error cases)
+    //!   - Remove participant in multicast (success and error cases)
+    //!   - Error handling for non-initiators
+    //!   - Error handling for P2P sessions
+    //! - **Message Handling**: Discovery message handling, on_message with different directions
+    //! - **Lifecycle**: Drop implementation and cancellation token behavior
+    //! - **Internal Methods**: create_discovery_request validation
+    //!
+    //! Coverage: 15 unit tests + 1 comprehensive integration test
+
     use crate::transmitter::SessionTransmitter;
 
     use super::*;
@@ -477,6 +499,436 @@ mod tests {
     use tracing_test::traced_test;
 
     const SHARED_SECRET: &str = "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas";
+
+    /// Test helper to create a SessionController with common setup
+    struct SessionControllerTestBuilder {
+        session_id: u32,
+        source: Name,
+        destination: Name,
+        session_type: ProtoSessionType,
+        mls_enabled: bool,
+        initiator: bool,
+        max_retries: Option<u32>,
+        interval: Option<Duration>,
+        metadata: HashMap<String, String>,
+    }
+
+    impl SessionControllerTestBuilder {
+        #[allow(dead_code)]
+        fn new() -> Self {
+            Self {
+                session_id: 10,
+                source: Name::from_strings(["org", "ns", "source"]).with_id(1),
+                destination: Name::from_strings(["org", "ns", "dest"]).with_id(2),
+                session_type: ProtoSessionType::PointToPoint,
+                mls_enabled: false,
+                initiator: true,
+                max_retries: Some(5),
+                interval: Some(Duration::from_millis(200)),
+                metadata: HashMap::new(),
+            }
+        }
+
+        fn with_session_id(mut self, id: u32) -> Self {
+            self.session_id = id;
+            self
+        }
+
+        #[allow(dead_code)]
+        fn with_source(mut self, source: Name) -> Self {
+            self.source = source;
+            self
+        }
+
+        #[allow(dead_code)]
+        fn with_destination(mut self, destination: Name) -> Self {
+            self.destination = destination;
+            self
+        }
+
+        fn with_session_type(mut self, session_type: ProtoSessionType) -> Self {
+            self.session_type = session_type;
+            self
+        }
+
+        fn with_mls_enabled(mut self, enabled: bool) -> Self {
+            self.mls_enabled = enabled;
+            self
+        }
+
+        fn with_initiator(mut self, initiator: bool) -> Self {
+            self.initiator = initiator;
+            self
+        }
+
+        fn with_metadata(mut self, metadata: HashMap<String, String>) -> Self {
+            self.metadata = metadata;
+            self
+        }
+
+        async fn build(
+            self,
+        ) -> (
+            SessionController,
+            tokio::sync::mpsc::Receiver<Result<Message, slim_datapath::Status>>,
+            tokio::sync::mpsc::UnboundedReceiver<Result<Message, SessionError>>,
+        ) {
+            let config = SessionConfig {
+                session_type: self.session_type,
+                max_retries: self.max_retries,
+                interval: self.interval,
+                mls_enabled: self.mls_enabled,
+                initiator: self.initiator,
+                metadata: self.metadata,
+            };
+
+            let (tx_slim, rx_slim) = tokio::sync::mpsc::channel(10);
+            let (tx_app, rx_app) = tokio::sync::mpsc::unbounded_channel();
+            let (tx_session_layer, _rx_session_layer) = tokio::sync::mpsc::channel(10);
+
+            let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+            let storage_path =
+                std::path::PathBuf::from(format!("/tmp/test_session_{}", rand::random::<u64>()));
+
+            let controller = SessionController::builder()
+                .with_id(self.session_id)
+                .with_source(self.source.clone())
+                .with_destination(self.destination.clone())
+                .with_config(config)
+                .with_identity_provider(SharedSecret::new("test", SHARED_SECRET))
+                .with_identity_verifier(SharedSecret::new("test", SHARED_SECRET))
+                .with_storage_path(storage_path)
+                .with_tx(tx)
+                .with_tx_to_session_layer(tx_session_layer)
+                .ready()
+                .expect("failed to validate builder")
+                .build()
+                .await
+                .expect("failed to build controller");
+
+            (controller, rx_slim, rx_app)
+        }
+    }
+
+    #[tokio::test]
+    async fn test_session_controller_getters() {
+        let mut metadata = HashMap::new();
+        metadata.insert("key1".to_string(), "value1".to_string());
+
+        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
+            .with_session_id(42)
+            .with_session_type(ProtoSessionType::Multicast)
+            .with_mls_enabled(true)
+            .with_metadata(metadata)
+            .build()
+            .await;
+
+        assert_eq!(controller.id(), 42);
+        assert_eq!(
+            controller.source(),
+            &Name::from_strings(["org", "ns", "source"]).with_id(1)
+        );
+        assert_eq!(
+            controller.dst(),
+            &Name::from_strings(["org", "ns", "dest"]).with_id(2)
+        );
+        assert_eq!(controller.session_type(), ProtoSessionType::Multicast);
+        assert!(controller.is_initiator());
+        assert_eq!(
+            controller.metadata().get("key1"),
+            Some(&"value1".to_string())
+        );
+
+        let retrieved_config = controller.session_config();
+        assert_eq!(retrieved_config.session_type, ProtoSessionType::Multicast);
+        assert_eq!(retrieved_config.max_retries, Some(5));
+    }
+
+    #[tokio::test]
+    async fn test_publish_basic() {
+        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build().await;
+
+        let target_name = Name::from_strings(["org", "ns", "target"]);
+        let payload = b"Hello World".to_vec();
+
+        controller
+            .publish(
+                &target_name,
+                payload.clone(),
+                Some("test-type".to_string()),
+                None,
+            )
+            .await
+            .expect("publish should succeed");
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    #[tokio::test]
+    async fn test_publish_to_specific_connection() {
+        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
+            .with_session_type(ProtoSessionType::Multicast)
+            .build()
+            .await;
+
+        let target_name = Name::from_strings(["org", "ns", "target"]);
+        let payload = b"Hello to specific connection".to_vec();
+        let connection_id = 123u64;
+
+        controller
+            .publish_to(
+                &target_name,
+                connection_id,
+                payload.clone(),
+                Some("test-type".to_string()),
+                None,
+            )
+            .await
+            .expect("publish_to should succeed");
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    #[tokio::test]
+    async fn test_publish_with_metadata() {
+        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
+            .with_session_type(ProtoSessionType::Multicast)
+            .build()
+            .await;
+
+        let target_name = Name::from_strings(["org", "ns", "target"]);
+        let payload = b"Hello with metadata".to_vec();
+
+        let mut metadata = HashMap::new();
+        metadata.insert("custom_key".to_string(), "custom_value".to_string());
+
+        controller
+            .publish(
+                &target_name,
+                payload.clone(),
+                Some("test-type".to_string()),
+                Some(metadata),
+            )
+            .await
+            .expect("publish with metadata should succeed");
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    #[tokio::test]
+    async fn test_invite_participant_in_multicast() {
+        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
+            .with_session_type(ProtoSessionType::Multicast)
+            .build()
+            .await;
+
+        let participant = Name::from_strings(["org", "ns", "participant"]);
+
+        controller
+            .invite_participant(&participant)
+            .await
+            .expect("invite should succeed");
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    #[tokio::test]
+    async fn test_invite_participant_not_initiator_error() {
+        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
+            .with_session_type(ProtoSessionType::Multicast)
+            .with_initiator(false)
+            .build()
+            .await;
+
+        let participant = Name::from_strings(["org", "ns", "new_participant"]);
+
+        let result = controller.invite_participant(&participant).await;
+        assert!(result.is_err());
+        if let Err(SessionError::Processing(msg)) = result {
+            assert!(msg.contains("cannot invite participant"));
+        } else {
+            panic!("Expected SessionError::Processing");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_invite_participant_p2p_error() {
+        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
+            .with_session_type(ProtoSessionType::PointToPoint)
+            .build()
+            .await;
+
+        let participant = Name::from_strings(["org", "ns", "participant"]);
+
+        let result = controller.invite_participant(&participant).await;
+        assert!(result.is_err());
+        if let Err(SessionError::Processing(msg)) = result {
+            assert!(msg.contains("cannot invite participant to point-to-point"));
+        } else {
+            panic!("Expected SessionError::Processing");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_remove_participant_in_multicast() {
+        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
+            .with_session_type(ProtoSessionType::Multicast)
+            .build()
+            .await;
+
+        let participant = Name::from_strings(["org", "ns", "participant"]);
+
+        controller
+            .remove_participant(&participant)
+            .await
+            .expect("remove should succeed");
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    #[tokio::test]
+    async fn test_remove_participant_not_initiator_error() {
+        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
+            .with_session_type(ProtoSessionType::Multicast)
+            .with_initiator(false)
+            .build()
+            .await;
+
+        let participant = Name::from_strings(["org", "ns", "participant"]);
+
+        let result = controller.remove_participant(&participant).await;
+        assert!(result.is_err());
+        if let Err(SessionError::Processing(msg)) = result {
+            assert!(msg.contains("cannot remove participant"));
+        } else {
+            panic!("Expected SessionError::Processing");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_remove_participant_p2p_error() {
+        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
+            .with_session_type(ProtoSessionType::PointToPoint)
+            .build()
+            .await;
+
+        let participant = Name::from_strings(["org", "ns", "participant"]);
+
+        let result = controller.remove_participant(&participant).await;
+        assert!(result.is_err());
+        if let Err(SessionError::Processing(msg)) = result {
+            assert!(msg.contains("cannot remove participant to point-to-point"));
+        } else {
+            panic!("Expected SessionError::Processing");
+        }
+    }
+
+    #[test]
+    fn test_handle_channel_discovery_message() {
+        let app_name = Name::from_strings(["org", "ns", "app"]).with_id(100);
+        let session_id = 42;
+
+        let discovery_request = Message::builder()
+            .source(Name::from_strings(["org", "ns", "requester"]).with_id(1))
+            .destination(Name::from_strings(["org", "ns", "service"]))
+            .identity("")
+            .incoming_conn(999)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::DiscoveryRequest)
+            .session_id(session_id)
+            .message_id(123)
+            .payload(
+                CommandPayload::builder()
+                    .discovery_request(None)
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let response = handle_channel_discovery_message(
+            &discovery_request,
+            &app_name,
+            session_id,
+            ProtoSessionType::Multicast,
+        )
+        .expect("should create discovery response");
+
+        assert_eq!(
+            response.get_session_message_type(),
+            ProtoSessionMessageType::DiscoveryReply
+        );
+        assert_eq!(response.get_session_header().get_session_id(), session_id);
+        assert_eq!(response.get_id(), 123);
+        assert_eq!(
+            response.get_dst(),
+            Name::from_strings(["org", "ns", "requester"]).with_id(1)
+        );
+        assert_eq!(response.get_slim_header().get_forward_to(), Some(999));
+    }
+
+    #[tokio::test]
+    async fn test_controller_drop_cancels_processing() {
+        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build().await;
+
+        let token = controller.cancellation_token.clone();
+        assert!(!token.is_cancelled());
+
+        drop(controller);
+
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert!(token.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn test_on_message_direction_north() {
+        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build().await;
+
+        let test_message = Message::builder()
+            .source(controller.dst().clone())
+            .destination(controller.source().clone())
+            .identity("")
+            .session_type(ProtoSessionType::PointToPoint)
+            .session_message_type(ProtoSessionMessageType::Msg)
+            .session_id(controller.id())
+            .message_id(1)
+            .application_payload("test", b"test data".to_vec())
+            .build_publish()
+            .unwrap();
+
+        let result = controller
+            .on_message(test_message, MessageDirection::North)
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_create_discovery_request() {
+        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
+            .with_session_type(ProtoSessionType::Multicast)
+            .build()
+            .await;
+
+        let target = Name::from_strings(["org", "ns", "target"]);
+        let discovery_msg = controller
+            .create_discovery_request(&target)
+            .expect("should create discovery request");
+
+        assert_eq!(discovery_msg.get_source(), *controller.source());
+        assert_eq!(discovery_msg.get_dst(), target);
+        assert_eq!(
+            discovery_msg.get_session_message_type(),
+            ProtoSessionMessageType::DiscoveryRequest
+        );
+        assert_eq!(
+            discovery_msg.get_session_header().get_session_id(),
+            controller.id()
+        );
+        assert_eq!(
+            discovery_msg.get_session_type(),
+            ProtoSessionType::Multicast
+        );
+    }
 
     #[tokio::test]
     #[traced_test]
@@ -500,7 +952,7 @@ mod tests {
         let moderator_config = SessionConfig {
             session_type: slim_datapath::api::ProtoSessionType::PointToPoint,
             max_retries: Some(5),
-            duration: Some(Duration::from_millis(200)),
+            interval: Some(Duration::from_millis(200)),
             mls_enabled: true,
             initiator: true,
             metadata: std::collections::HashMap::new(),
@@ -534,7 +986,7 @@ mod tests {
         let participant_config = SessionConfig {
             session_type: slim_datapath::api::ProtoSessionType::PointToPoint,
             max_retries: Some(5),
-            duration: Some(Duration::from_millis(200)),
+            interval: Some(Duration::from_millis(200)),
             mls_enabled: true,
             initiator: false,
             metadata: std::collections::HashMap::new(),

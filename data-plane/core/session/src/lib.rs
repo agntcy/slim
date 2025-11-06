@@ -24,11 +24,15 @@ pub mod session_sender;
 mod session_settings;
 pub mod timer;
 pub mod timer_factory;
-mod traits;
+pub mod traits;
 pub mod transmitter;
 
+// Test utilities (only available during tests)
+#[cfg(test)]
+pub mod test_utils;
+
 // Traits
-pub use traits::Transmitter;
+pub use traits::{MessageHandler, Transmitter};
 
 // Re-export the unified builder for convenience
 pub use session_builder::{ForController, ForModerator, ForParticipant, SessionBuilder};
@@ -43,7 +47,7 @@ pub use interceptor::SessionInterceptorProvider;
 pub use session_config::SessionConfig;
 
 // Common Session Types - internal use
-pub use common::{MessageDirection, SESSION_RANGE, SlimChannelSender};
+pub use common::{MessageDirection, SESSION_RANGE, SessionMessage, SlimChannelSender};
 
 // Session layer
 pub use session_layer::SessionLayer;

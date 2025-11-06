@@ -311,7 +311,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let conf = SessionConfig {
         session_type: slim_datapath::api::ProtoSessionType::PointToPoint,
         max_retries: Some(10),
-        duration: Some(Duration::from_secs(1)),
+        interval: Some(Duration::from_secs(1)),
         mls_enabled,
         initiator: true,
         metadata: HashMap::new(),

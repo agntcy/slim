@@ -27,9 +27,10 @@ use crate::transmitter::{AppTransmitter, SessionTransmitter};
 // Local crate
 use super::context::SessionContext;
 use super::interceptor::IdentityInterceptor;
-use super::{MessageDirection, SESSION_RANGE, SlimChannelSender, Transmitter};
+use super::{MessageDirection, SESSION_RANGE, SlimChannelSender};
 use super::{SessionError, session_controller::handle_channel_discovery_message};
-use crate::interceptor::SessionInterceptorProvider; // needed for add_interceptor
+use crate::interceptor::SessionInterceptorProvider;
+use crate::traits::Transmitter; // needed for add_interceptor
 
 /// SessionLayer manages sessions and their lifecycle
 pub struct SessionLayer<P, V, T = AppTransmitter>
@@ -538,5 +539,421 @@ where
     #[cfg(test)]
     pub async fn is_pool_empty(&self) -> bool {
         self.pool.read().await.is_empty()
+    }
+
+    /// Get the number of sessions in the pool (for testing purposes)
+    #[cfg(test)]
+    pub async fn pool_size(&self) -> usize {
+        self.pool.read().await.len()
+    }
+
+    /// Get a session from the pool (for testing purposes)
+    #[cfg(test)]
+    pub async fn get_session(&self, id: u32) -> Option<Arc<SessionController>> {
+        self.pool.read().await.get(&id).cloned()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_utils::{MockTokenProvider, MockTransmitter, MockVerifier};
+    use slim_datapath::Status;
+    use slim_datapath::api::ProtoSessionType;
+    use slim_datapath::messages::Name;
+    use tokio::sync::mpsc;
+
+    // --- Test Mocks -----------------------------------------------------------------------
+
+    fn make_name(parts: &[&str; 3]) -> Name {
+        Name::from_strings([parts[0], parts[1], parts[2]]).with_id(0)
+    }
+
+    type TestSessionLayer = SessionLayer<MockTokenProvider, MockVerifier, MockTransmitter>;
+    type SlimReceiver = mpsc::Receiver<Result<Message, Status>>;
+    type AppReceiver = mpsc::Receiver<Result<Notification, SessionError>>;
+    type TransmitterReceiver = mpsc::UnboundedReceiver<Result<Message, Status>>;
+
+    fn setup_session_layer() -> (
+        TestSessionLayer,
+        SlimReceiver,
+        AppReceiver,
+        TransmitterReceiver,
+    ) {
+        let app_name = make_name(&["test", "app", "v1"]);
+        let identity_provider = MockTokenProvider;
+        let identity_verifier = MockVerifier;
+        let conn_id = 12345u64;
+
+        let (tx_slim, rx_slim) = mpsc::channel(16);
+        let (tx_app, rx_app) = mpsc::channel(16);
+        let (tx_transmitter, rx_transmitter) = mpsc::unbounded_channel();
+
+        let transmitter = MockTransmitter {
+            slim_tx: tx_transmitter,
+            interceptors: Arc::new(parking_lot::Mutex::new(vec![])),
+        };
+
+        let storage_path = std::path::PathBuf::from("/tmp/test");
+
+        let session_layer = SessionLayer::new(
+            app_name,
+            identity_provider,
+            identity_verifier,
+            conn_id,
+            tx_slim,
+            tx_app,
+            transmitter,
+            storage_path,
+        );
+
+        (session_layer, rx_slim, rx_app, rx_transmitter)
+    }
+
+    #[tokio::test]
+    async fn test_new_session_layer() {
+        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+
+        assert_eq!(session_layer.app_id(), 0);
+        assert_eq!(session_layer.conn_id(), 12345);
+        assert!(session_layer.is_pool_empty().await);
+    }
+
+    #[tokio::test]
+    async fn test_add_and_remove_app_name() {
+        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+
+        let name1 = make_name(&["service", "v1", "api"]);
+        let name2 = make_name(&["service", "v2", "api"]);
+
+        session_layer.add_app_name(name1.clone());
+        session_layer.add_app_name(name2.clone());
+
+        // Verify names are added
+        assert_eq!(session_layer.app_names.read().len(), 3); // initial + 2 added
+
+        session_layer.remove_app_name(&name1);
+        assert_eq!(session_layer.app_names.read().len(), 2);
+
+        session_layer.remove_app_name(&name2);
+        assert_eq!(session_layer.app_names.read().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_identity_token() {
+        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+
+        let token = session_layer.get_identity_token();
+        assert!(token.is_ok());
+        assert_eq!(token.unwrap(), "mock_token");
+    }
+
+    #[tokio::test]
+    async fn test_create_session_with_auto_id() {
+        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+
+        let local_name = make_name(&["local", "app", "v1"]);
+        let destination = make_name(&["remote", "app", "v1"]);
+        let config = SessionConfig {
+            session_type: ProtoSessionType::PointToPoint,
+            max_retries: Some(3),
+            interval: Some(std::time::Duration::from_secs(1)),
+            mls_enabled: false,
+            initiator: true,
+            metadata: Default::default(),
+        };
+
+        let result = session_layer
+            .create_session(config, local_name, destination, None)
+            .await;
+
+        assert!(result.is_ok());
+        assert_eq!(session_layer.pool_size().await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_create_session_with_specific_id() {
+        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+
+        let local_name = make_name(&["local", "app", "v1"]);
+        let destination = make_name(&["remote", "app", "v1"]);
+        let config = SessionConfig {
+            session_type: ProtoSessionType::PointToPoint,
+            max_retries: Some(3),
+            interval: Some(std::time::Duration::from_secs(1)),
+            mls_enabled: false,
+            initiator: true,
+            metadata: Default::default(),
+        };
+
+        let session_id = 100u32;
+        let result = session_layer
+            .create_session(config, local_name, destination, Some(session_id))
+            .await;
+
+        assert!(result.is_ok());
+        assert_eq!(session_layer.pool_size().await, 1);
+
+        let session = session_layer.get_session(session_id).await;
+        assert!(session.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_create_session_with_invalid_id() {
+        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+
+        let local_name = make_name(&["local", "app", "v1"]);
+        let destination = make_name(&["remote", "app", "v1"]);
+        let config = SessionConfig {
+            session_type: ProtoSessionType::PointToPoint,
+            max_retries: Some(3),
+            interval: Some(std::time::Duration::from_secs(1)),
+            mls_enabled: false,
+            initiator: true,
+            metadata: Default::default(),
+        };
+
+        // Use an ID outside the SESSION_RANGE (SESSION_RANGE is 0..u32::MAX-1000)
+        let invalid_id = u32::MAX - 500; // This is outside SESSION_RANGE
+        let result = session_layer
+            .create_session(config, local_name, destination, Some(invalid_id))
+            .await;
+
+        assert!(result.is_err());
+        match result {
+            Err(SessionError::InvalidSessionId(_)) => {}
+            _ => panic!("Expected InvalidSessionId error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_create_session_with_duplicate_id() {
+        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+
+        let local_name = make_name(&["local", "app", "v1"]);
+        let destination = make_name(&["remote", "app", "v1"]);
+        let config = SessionConfig {
+            session_type: ProtoSessionType::PointToPoint,
+            max_retries: Some(3),
+            interval: Some(std::time::Duration::from_secs(1)),
+            mls_enabled: false,
+            initiator: true,
+            metadata: Default::default(),
+        };
+
+        let session_id = 100u32;
+
+        // Create first session
+        let result1 = session_layer
+            .create_session(
+                config.clone(),
+                local_name.clone(),
+                destination.clone(),
+                Some(session_id),
+            )
+            .await;
+        assert!(result1.is_ok());
+
+        // Try to create second session with same ID
+        let result2 = session_layer
+            .create_session(config, local_name, destination, Some(session_id))
+            .await;
+
+        assert!(result2.is_err());
+        match result2 {
+            Err(SessionError::SessionIdAlreadyUsed(_)) => {}
+            _ => panic!("Expected SessionIdAlreadyUsed error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_remove_session() {
+        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+
+        let local_name = make_name(&["local", "app", "v1"]);
+        let destination = make_name(&["remote", "app", "v1"]);
+        let config = SessionConfig {
+            session_type: ProtoSessionType::PointToPoint,
+            max_retries: Some(3),
+            interval: Some(std::time::Duration::from_secs(1)),
+            mls_enabled: false,
+            initiator: true,
+            metadata: Default::default(),
+        };
+
+        let session_id = 100u32;
+        let _context = session_layer
+            .create_session(config, local_name, destination, Some(session_id))
+            .await
+            .unwrap();
+
+        assert_eq!(session_layer.pool_size().await, 1);
+
+        let removed = session_layer.remove_session(session_id).await;
+        assert!(removed);
+        assert!(session_layer.is_pool_empty().await);
+
+        // Try to remove non-existent session
+        let removed_again = session_layer.remove_session(session_id).await;
+        assert!(!removed_again);
+    }
+
+    #[tokio::test]
+    async fn test_get_local_name_for_session() {
+        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+
+        let name = make_name(&["service", "api", "v1"]);
+        session_layer.add_app_name(name.clone());
+
+        let dst = name.with_id(123);
+        let result = session_layer.get_local_name_for_session(dst);
+
+        assert!(result.is_ok());
+        let local_name = result.unwrap();
+        assert_eq!(local_name.id(), session_layer.app_id());
+    }
+
+    #[tokio::test]
+    async fn test_get_local_name_for_session_not_found() {
+        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+
+        let unknown_name = make_name(&["unknown", "service", "v1"]);
+        let result = session_layer.get_local_name_for_session(unknown_name);
+
+        assert!(result.is_err());
+        match result {
+            Err(SessionError::SubscriptionNotFound(_)) => {}
+            _ => panic!("Expected SubscriptionNotFound error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_tx_slim_and_tx_app_cloning() {
+        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+
+        let tx_slim = session_layer.tx_slim();
+        let tx_app = session_layer.tx_app();
+
+        // Just verify that we can clone these channels
+        let _tx_slim2 = tx_slim.clone();
+        let _tx_app2 = tx_app.clone();
+    }
+
+    #[tokio::test]
+    async fn test_handle_discovery_request_without_session() {
+        let (session_layer, _rx_slim, _rx_app, mut rx_transmitter) = setup_session_layer();
+
+        let local_name = make_name(&["local", "app", "v1"]);
+        session_layer.add_app_name(local_name.clone());
+
+        let source = make_name(&["remote", "app", "v1"]);
+        let message = Message::builder()
+            .source(source)
+            .destination(local_name.clone().with_id(session_layer.app_id()))
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::PointToPoint)
+            .session_message_type(ProtoSessionMessageType::DiscoveryRequest)
+            .session_id(100)
+            .message_id(0)
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
+
+        let result = session_layer
+            .handle_message_from_slim_without_session(
+                &local_name,
+                &message,
+                ProtoSessionType::PointToPoint,
+                ProtoSessionMessageType::DiscoveryRequest,
+                100,
+            )
+            .await;
+
+        assert!(result.is_ok());
+
+        // Verify that a discovery reply was sent
+        let sent_message = rx_transmitter.try_recv();
+        assert!(
+            sent_message.is_ok(),
+            "Expected a message to be sent to transmitter"
+        );
+        let msg = sent_message.unwrap().unwrap();
+        assert_eq!(
+            msg.get_session_header().session_message_type(),
+            ProtoSessionMessageType::DiscoveryReply
+        );
+    }
+
+    #[tokio::test]
+    async fn test_handle_message_from_slim_without_session_invalid_type() {
+        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+
+        let local_name = make_name(&["local", "app", "v1"]);
+        let source = make_name(&["remote", "app", "v1"]);
+        let message = Message::builder()
+            .source(source)
+            .destination(local_name.clone().with_id(session_layer.app_id()))
+            .application_payload("application/octet-stream", vec![])
+            .build_publish()
+            .unwrap();
+
+        let result = session_layer
+            .handle_message_from_slim_without_session(
+                &local_name,
+                &message,
+                ProtoSessionType::PointToPoint,
+                ProtoSessionMessageType::Msg, // Not a DiscoveryRequest
+                100,
+            )
+            .await;
+
+        assert!(result.is_err());
+        match result {
+            Err(SessionError::SlimTransmission(_)) => {}
+            _ => panic!("Expected SlimTransmission error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_multiple_sessions_in_pool() {
+        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+
+        let local_name = make_name(&["local", "app", "v1"]);
+        let config = SessionConfig {
+            session_type: ProtoSessionType::PointToPoint,
+            max_retries: Some(3),
+            interval: Some(std::time::Duration::from_secs(1)),
+            mls_enabled: false,
+            initiator: true,
+            metadata: Default::default(),
+        };
+
+        // Create multiple sessions
+        for i in 0..5 {
+            let destination = make_name(&["remote", &format!("app{}", i), "v1"]);
+            let result = session_layer
+                .create_session(config.clone(), local_name.clone(), destination, None)
+                .await;
+            assert!(result.is_ok());
+        }
+
+        assert_eq!(session_layer.pool_size().await, 5);
+    }
+
+    #[tokio::test]
+    async fn test_remove_app_name_with_null_component() {
+        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+
+        let name = make_name(&["service", "v1", "api"]).with_id(123);
+        session_layer.add_app_name(name.clone());
+
+        // Remove with specific ID (should normalize to NULL_COMPONENT)
+        session_layer.remove_app_name(&name);
+
+        // The name with NULL_COMPONENT should be removed
+        let name_null = name.with_id(Name::NULL_COMPONENT);
+        assert!(!session_layer.app_names.read().contains(&name_null));
     }
 }

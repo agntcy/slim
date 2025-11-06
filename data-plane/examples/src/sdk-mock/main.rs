@@ -167,7 +167,7 @@ async fn main() {
         let config = SessionConfig {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: None,
-            duration: None,
+            interval: None,
             mls_enabled: mls_group_id.is_some(),
             initiator: true,
             metadata: HashMap::new(),

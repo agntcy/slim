@@ -30,7 +30,7 @@ impl Session {
         tx: SessionTransmitter,
         tx_signals: Sender<SessionMessage>,
     ) -> Self {
-        let timer_settings = if let Some(duration) = session_config.duration
+        let timer_settings = if let Some(duration) = session_config.interval
             && let Some(max_retries) = session_config.max_retries
         {
             let timer_settings = crate::timer_factory::TimerSettings::constant(duration)
@@ -229,7 +229,7 @@ mod tests {
         let session_config = SessionConfig {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(5),
-            duration: Some(Duration::from_millis(200)),
+            interval: Some(Duration::from_millis(200)),
             mls_enabled: false,
             initiator: false,
             metadata: HashMap::new(),
@@ -365,7 +365,7 @@ mod tests {
         let session_config = SessionConfig {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(5),
-            duration: Some(Duration::from_millis(500)),
+            interval: Some(Duration::from_millis(500)),
             mls_enabled: false,
             initiator: false,
             metadata: HashMap::new(),
@@ -573,7 +573,7 @@ mod tests {
         let sender_config = SessionConfig {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(5),
-            duration: Some(Duration::from_millis(200)),
+            interval: Some(Duration::from_millis(200)),
             mls_enabled: false,
             initiator: true,
             metadata: HashMap::new(),
@@ -604,7 +604,7 @@ mod tests {
         let receiver_config = SessionConfig {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(5),
-            duration: Some(Duration::from_millis(200)),
+            interval: Some(Duration::from_millis(200)),
             mls_enabled: false,
             initiator: false,
             metadata: HashMap::new(),

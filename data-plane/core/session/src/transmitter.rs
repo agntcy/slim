@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Standard library imports
-use std::future::Future;
 use std::sync::Arc;
 
 // Third-party crates
@@ -53,11 +52,12 @@ impl SessionInterceptorProvider for SessionTransmitter {
     }
 }
 
+#[async_trait::async_trait]
 impl Transmitter for SessionTransmitter {
-    fn send_to_app(
+    async fn send_to_app(
         &self,
         mut message: Result<Message, SessionError>,
-    ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static {
+    ) -> Result<(), SessionError> {
         let tx = self.app_tx.clone();
 
         // Interceptors only run on successful messages
@@ -66,22 +66,17 @@ impl Transmitter for SessionTransmitter {
             Err(_) => Vec::new(),
         };
 
-        async move {
-            if let Ok(msg) = message.as_mut() {
-                for interceptor in interceptors {
-                    interceptor.on_msg_from_slim(msg).await?;
-                }
+        if let Ok(msg) = message.as_mut() {
+            for interceptor in interceptors {
+                interceptor.on_msg_from_slim(msg).await?;
             }
-
-            tx.send(message)
-                .map_err(|e| SessionError::AppTransmission(e.to_string()))
         }
+
+        tx.send(message)
+            .map_err(|e| SessionError::AppTransmission(e.to_string()))
     }
 
-    fn send_to_slim(
-        &self,
-        mut message: Result<Message, Status>,
-    ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static {
+    async fn send_to_slim(&self, mut message: Result<Message, Status>) -> Result<(), SessionError> {
         let tx = self.slim_tx.clone();
 
         // Interceptors only run on successful messages
@@ -90,16 +85,14 @@ impl Transmitter for SessionTransmitter {
             Err(_) => Vec::new(),
         };
 
-        async move {
-            if let Ok(msg) = message.as_mut() {
-                for interceptor in interceptors {
-                    interceptor.on_msg_from_app(msg).await?;
-                }
+        if let Ok(msg) = message.as_mut() {
+            for interceptor in interceptors {
+                interceptor.on_msg_from_app(msg).await?;
             }
-
-            tx.try_send(message)
-                .map_err(|e| SessionError::SlimTransmission(e.to_string()))
         }
+
+        tx.try_send(message)
+            .map_err(|e| SessionError::SlimTransmission(e.to_string()))
     }
 }
 
@@ -126,11 +119,12 @@ impl SessionInterceptorProvider for AppTransmitter {
     }
 }
 
+#[async_trait::async_trait]
 impl Transmitter for AppTransmitter {
-    fn send_to_app(
+    async fn send_to_app(
         &self,
         mut message: Result<Message, SessionError>,
-    ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static {
+    ) -> Result<(), SessionError> {
         let tx = self.app_tx.clone();
 
         let interceptors = match &message {
@@ -138,23 +132,18 @@ impl Transmitter for AppTransmitter {
             Err(_) => Vec::new(),
         };
 
-        async move {
-            if let Ok(msg) = message.as_mut() {
-                for interceptor in interceptors {
-                    interceptor.on_msg_from_slim(msg).await?;
-                }
+        if let Ok(msg) = message.as_mut() {
+            for interceptor in interceptors {
+                interceptor.on_msg_from_slim(msg).await?;
             }
-
-            tx.send(message.map(|msg| Notification::NewMessage(Box::new(msg))))
-                .await
-                .map_err(|e| SessionError::AppTransmission(e.to_string()))
         }
+
+        tx.send(message.map(|msg| Notification::NewMessage(Box::new(msg))))
+            .await
+            .map_err(|e| SessionError::AppTransmission(e.to_string()))
     }
 
-    fn send_to_slim(
-        &self,
-        mut message: Result<Message, Status>,
-    ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static {
+    async fn send_to_slim(&self, mut message: Result<Message, Status>) -> Result<(), SessionError> {
         let tx = self.slim_tx.clone();
 
         // Interceptors only run on successful messages
@@ -163,16 +152,14 @@ impl Transmitter for AppTransmitter {
             Err(_) => Vec::new(),
         };
 
-        async move {
-            if let Ok(msg) = message.as_mut() {
-                for interceptor in interceptors {
-                    interceptor.on_msg_from_app(msg).await?;
-                }
+        if let Ok(msg) = message.as_mut() {
+            for interceptor in interceptors {
+                interceptor.on_msg_from_app(msg).await?;
             }
-
-            tx.try_send(message)
-                .map_err(|e| SessionError::SlimTransmission(e.to_string()))
         }
+
+        tx.try_send(message)
+            .map_err(|e| SessionError::SlimTransmission(e.to_string()))
     }
 }
 

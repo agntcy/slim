@@ -1011,7 +1011,7 @@ mod tests {
         let session_config = SessionConfig {
             session_type: ProtoSessionType::Multicast,
             max_retries: Some(5),
-            duration: Some(std::time::Duration::from_millis(1000)),
+            interval: Some(std::time::Duration::from_millis(1000)),
             mls_enabled: true,
             initiator: true,
             metadata: HashMap::new(),

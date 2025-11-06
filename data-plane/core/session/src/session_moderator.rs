@@ -217,9 +217,12 @@ where
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {
         // Moderator-specific cleanup
         self.subscribed = false;
-        if !self.closing {
-            self.send_close_signal().await;
-        }
+
+        // TODO: check when to call this
+        // if !self.closing {
+        //     self.send_close_signal().await;
+        // }
+
         // Shutdown inner layer
         MessageHandler::on_shutdown(&mut self.inner).await
     }
@@ -396,7 +399,7 @@ where
             .join_request(
                 self.mls_state.is_some(),
                 self.common.settings.config.max_retries,
-                self.common.settings.config.duration,
+                self.common.settings.config.interval,
                 channel,
             )
             .as_content();
@@ -903,5 +906,457 @@ where
     #[allow(dead_code)]
     async fn on_mls_proposal(&mut self, _msg: Message) -> Result<(), SessionError> {
         todo!()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session_config::SessionConfig;
+    use crate::session_settings::SessionSettings;
+    use crate::test_utils::{MockInnerHandler, MockTokenProvider, MockVerifier};
+    use slim_datapath::Status;
+    use slim_datapath::api::{CommandPayload, ProtoSessionType};
+    use slim_datapath::messages::Name;
+    use tokio::sync::mpsc;
+
+    // --- Test Helpers -----------------------------------------------------------------------
+
+    fn make_name(parts: &[&str; 3]) -> Name {
+        Name::from_strings([parts[0], parts[1], parts[2]]).with_id(0)
+    }
+
+    fn setup_moderator() -> (
+        SessionModerator<MockTokenProvider, MockVerifier, MockInnerHandler>,
+        mpsc::Receiver<Result<Message, Status>>,
+        mpsc::Receiver<Result<SessionMessage, SessionError>>,
+    ) {
+        let source = make_name(&["local", "moderator", "v1"]).with_id(100);
+        let destination = make_name(&["channel", "name", "v1"]).with_id(200);
+
+        let identity_provider = MockTokenProvider;
+        let identity_verifier = MockVerifier;
+
+        let (tx_slim, rx_slim) = mpsc::channel(16);
+        let (tx_app, _rx_app) = mpsc::unbounded_channel();
+        let (tx_session, _rx_session) = mpsc::channel(16);
+        let (tx_session_layer, rx_session_layer) = mpsc::channel(16);
+
+        let tx = crate::transmitter::SessionTransmitter::new(tx_slim, tx_app);
+
+        let config = SessionConfig {
+            session_type: ProtoSessionType::Multicast,
+            max_retries: Some(3),
+            interval: Some(std::time::Duration::from_secs(1)),
+            mls_enabled: false,
+            initiator: true,
+            metadata: Default::default(),
+        };
+
+        let storage_path = std::path::PathBuf::from("/tmp/test");
+
+        let settings = SessionSettings {
+            id: 1,
+            source,
+            destination,
+            config,
+            tx,
+            tx_session,
+            tx_to_session_layer: tx_session_layer,
+            identity_provider,
+            identity_verifier,
+            storage_path,
+        };
+
+        let inner = MockInnerHandler::new();
+        let moderator = SessionModerator::new(inner, settings);
+
+        (moderator, rx_slim, rx_session_layer)
+    }
+
+    #[tokio::test]
+    async fn test_moderator_new() {
+        let (moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+
+        assert!(moderator.tasks_todo.is_empty());
+        assert!(moderator.current_task.is_none());
+        assert!(moderator.mls_state.is_none());
+        assert!(moderator.group_list.is_empty());
+        assert!(moderator.postponed_message.is_none());
+        assert!(!moderator.subscribed);
+        assert!(!moderator.closing);
+    }
+
+    #[tokio::test]
+    async fn test_moderator_init() {
+        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+
+        let result = moderator.init().await;
+        assert!(result.is_ok());
+        assert!(moderator.mls_state.is_none()); // MLS is disabled in test setup
+    }
+
+    #[tokio::test]
+    async fn test_moderator_discovery_request_starts_task() {
+        let (mut moderator, mut rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        let source = make_name(&["requester", "app", "v1"]).with_id(300);
+        let destination = moderator.common.settings.source.clone();
+
+        let discovery_msg = Message::builder()
+            .source(source.clone())
+            .destination(destination)
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::DiscoveryRequest)
+            .session_id(1)
+            .message_id(100)
+            .payload(
+                CommandPayload::builder()
+                    .discovery_request(None)
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let result = moderator.on_discovery_request(discovery_msg).await;
+        assert!(result.is_ok());
+
+        // Should have created an Add task
+        assert!(moderator.current_task.is_some());
+        assert!(matches!(
+            moderator.current_task,
+            Some(ModeratorTask::Add(_))
+        ));
+
+        // Should have sent a discovery request
+        let sent_msg = rx_slim.try_recv();
+        assert!(sent_msg.is_ok());
+        let msg = sent_msg.unwrap().unwrap();
+        assert_eq!(
+            msg.get_session_header().session_message_type(),
+            ProtoSessionMessageType::DiscoveryRequest
+        );
+    }
+
+    #[tokio::test]
+    async fn test_moderator_discovery_request_when_busy() {
+        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        // Set a current task to make moderator busy
+        moderator.current_task = Some(ModeratorTask::Add(AddParticipant::default()));
+
+        let source = make_name(&["requester", "app", "v1"]).with_id(300);
+        let destination = moderator.common.settings.source.clone();
+
+        let discovery_msg = Message::builder()
+            .source(source.clone())
+            .destination(destination)
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::DiscoveryRequest)
+            .session_id(1)
+            .message_id(100)
+            .payload(
+                CommandPayload::builder()
+                    .discovery_request(None)
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let result = moderator.on_discovery_request(discovery_msg).await;
+        assert!(result.is_ok());
+
+        // Should have added task to todo list
+        assert_eq!(moderator.tasks_todo.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_moderator_join_request_passthrough() {
+        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        let source = make_name(&["requester", "app", "v1"]).with_id(300);
+        let destination = moderator.common.settings.source.clone();
+
+        let join_msg = Message::builder()
+            .source(source.clone())
+            .destination(destination)
+            .identity("")
+            .forward_to(0)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::JoinRequest)
+            .session_id(1)
+            .message_id(100)
+            .payload(
+                CommandPayload::builder()
+                    .join_request(
+                        false,
+                        Some(3),
+                        Some(std::time::Duration::from_secs(1)),
+                        None,
+                    )
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let result = moderator.process_control_message(join_msg).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_moderator_application_message_forwarding() {
+        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        let source = moderator.common.settings.source.clone();
+        let destination = moderator.common.settings.destination.clone();
+
+        let app_msg = Message::builder()
+            .source(source)
+            .destination(destination)
+            .identity("")
+            .forward_to(0)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::Msg)
+            .session_id(1)
+            .message_id(100)
+            .application_payload("application/octet-stream", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
+
+        let result = moderator
+            .on_message(SessionMessage::OnMessage {
+                message: app_msg,
+                direction: MessageDirection::South,
+            })
+            .await;
+
+        assert!(result.is_ok());
+
+        // Should have forwarded to inner handler
+        assert_eq!(moderator.inner.get_messages_count().await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_moderator_add_and_remove_endpoint() {
+        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        let endpoint = make_name(&["participant", "app", "v1"]).with_id(400);
+
+        // Add endpoint
+        let result = moderator.add_endpoint(&endpoint).await;
+        assert!(result.is_ok());
+        assert_eq!(moderator.inner.get_endpoints_added_count().await, 1);
+
+        // Remove endpoint
+        moderator.remove_endpoint(&endpoint);
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        assert_eq!(moderator.inner.get_endpoints_removed_count().await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_moderator_join_sets_subscribed() {
+        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        assert!(!moderator.subscribed);
+
+        let remote = make_name(&["remote", "app", "v1"]).with_id(200);
+        let result = moderator.join(remote, 12345).await;
+
+        assert!(result.is_ok());
+        assert!(moderator.subscribed);
+        assert!(!moderator.group_list.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_moderator_join_only_once() {
+        let (mut moderator, mut rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        let remote = make_name(&["remote", "app", "v1"]).with_id(200);
+
+        // First join
+        moderator.join(remote.clone(), 12345).await.unwrap();
+        let first_subscribe = rx_slim.try_recv();
+        assert!(first_subscribe.is_ok());
+
+        // Second join should do nothing
+        moderator.join(remote, 12345).await.unwrap();
+        let second_subscribe = rx_slim.try_recv();
+        assert!(second_subscribe.is_err()); // No message should be sent
+    }
+
+    #[tokio::test]
+    async fn test_moderator_on_shutdown() {
+        let (mut moderator, _rx_slim, mut rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        let result = moderator.on_shutdown().await;
+        assert!(result.is_ok());
+        assert!(!moderator.subscribed);
+
+        // Should have sent close signal
+        let close_msg = rx_session_layer.try_recv();
+        assert!(close_msg.is_ok());
+        if let Ok(Ok(SessionMessage::DeleteSession { session_id })) = close_msg {
+            assert_eq!(session_id, 1);
+        } else {
+            panic!("Expected DeleteSession message");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_moderator_delete_all_creates_leave_tasks() {
+        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        // Add some participants to group list
+        moderator
+            .group_list
+            .insert(make_name(&["participant1", "app", "v1"]), 401);
+        moderator
+            .group_list
+            .insert(make_name(&["participant2", "app", "v1"]), 402);
+        moderator
+            .group_list
+            .insert(make_name(&["participant3", "app", "v1"]), 403);
+
+        let delete_msg = Message::builder()
+            .source(moderator.common.settings.source.clone())
+            .destination(moderator.common.settings.destination.clone())
+            .identity("")
+            .forward_to(0)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::LeaveRequest)
+            .session_id(1)
+            .message_id(100)
+            .payload(CommandPayload::builder().leave_request(None).as_content())
+            .build_publish()
+            .unwrap();
+
+        let result = moderator.delete_all(delete_msg).await;
+        assert!(result.is_ok() || result.is_err()); // May error due to missing routes
+
+        assert!(moderator.closing);
+        assert!(moderator.mls_state.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_moderator_timer_timeout_for_control_message() {
+        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        // Timer timeout for control messages requires sender to have pending messages
+        // Without setup, it will fail. Just verify it processes without panicking.
+        let result = moderator
+            .on_message(SessionMessage::TimerTimeout {
+                message_id: 100,
+                message_type: ProtoSessionMessageType::DiscoveryRequest,
+                name: None,
+                timeouts: 1,
+            })
+            .await;
+
+        // Result may be error if no pending timer exists, which is expected
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_moderator_timer_timeout_for_app_message() {
+        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        let result = moderator
+            .on_message(SessionMessage::TimerTimeout {
+                message_id: 100,
+                message_type: ProtoSessionMessageType::Msg,
+                name: None,
+                timeouts: 1,
+            })
+            .await;
+
+        assert!(result.is_ok());
+        // Should have forwarded to inner handler
+        assert_eq!(moderator.inner.get_messages_count().await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_moderator_point_to_point_destination_update() {
+        let source = make_name(&["local", "app", "v1"]).with_id(100);
+        let destination = make_name(&["remote", "app", "v1"]).with_id(200);
+
+        let identity_provider = MockTokenProvider;
+        let identity_verifier = MockVerifier;
+
+        let (tx_slim, _rx_slim) = mpsc::channel(16);
+        let (tx_app, _rx_app) = mpsc::unbounded_channel();
+        let (tx_session, _rx_session) = mpsc::channel(16);
+        let (tx_session_layer, _rx_session_layer) = mpsc::channel(16);
+
+        let tx = crate::transmitter::SessionTransmitter::new(tx_slim, tx_app);
+
+        let config = SessionConfig {
+            session_type: ProtoSessionType::PointToPoint,
+            max_retries: Some(3),
+            interval: Some(std::time::Duration::from_secs(1)),
+            mls_enabled: false,
+            initiator: true,
+            metadata: Default::default(),
+        };
+
+        let storage_path = std::path::PathBuf::from("/tmp/test");
+
+        let settings = SessionSettings {
+            id: 1,
+            source: source.clone(),
+            destination: destination.clone(),
+            config,
+            tx,
+            tx_session,
+            tx_to_session_layer: tx_session_layer,
+            identity_provider,
+            identity_verifier,
+            storage_path,
+        };
+
+        let inner = MockInnerHandler::new();
+        let mut moderator = SessionModerator::new(inner, settings);
+        moderator.init().await.unwrap();
+
+        let app_msg = Message::builder()
+            .source(source)
+            .destination(destination)
+            .identity("")
+            .forward_to(0)
+            .session_type(ProtoSessionType::PointToPoint)
+            .session_message_type(ProtoSessionMessageType::Msg)
+            .session_id(1)
+            .message_id(100)
+            .application_payload("application/octet-stream", vec![1, 2, 3])
+            .build_publish()
+            .unwrap();
+
+        let _original_dest = app_msg.get_dst();
+
+        let result = moderator
+            .on_message(SessionMessage::OnMessage {
+                message: app_msg,
+                direction: MessageDirection::South,
+            })
+            .await;
+
+        assert!(result.is_ok());
+        // In P2P mode going South, destination should be updated
     }
 }

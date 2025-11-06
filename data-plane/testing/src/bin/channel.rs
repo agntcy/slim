@@ -209,7 +209,7 @@ async fn main() {
         let config = SessionConfig {
             session_type: slim_datapath::api::ProtoSessionType::Multicast,
             max_retries: Some(10),
-            duration: Some(Duration::from_secs(1)),
+            interval: Some(Duration::from_secs(1)),
             mls_enabled,
             initiator: true,
             metadata: HashMap::new(),

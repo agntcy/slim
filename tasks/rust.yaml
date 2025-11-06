@@ -193,7 +193,7 @@ tasks:
     cmds:
       - task: toolchain:test
         vars:
-          ARGS: "{{.GLOBAL_ARGS}} --all-targets --locked --all-features -- --nocapture"
+          ARGS: "{{.GLOBAL_ARGS}} --all-targets --locked --all-features"
       - task: bindings:test
       - task: core:test
 
