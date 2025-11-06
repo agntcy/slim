@@ -53,6 +53,9 @@ chmod +x /tmp/llvm.sh
 
 curl -1sLf 'https://dl.cloudsmith.io/public/task/task/setup.deb.sh' | bash
 apt-get install -y task
+
+# Install rust toolchain
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 EOF
 
 # Copy code into builder
