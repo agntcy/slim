@@ -4,7 +4,7 @@
 # Build container
 FROM --platform=${BUILDPLATFORM} rust:1.90-slim-bookworm AS rust
 
-SHELL ["/bin/bash", "-c"]
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
 ARG TARGETARCH
 

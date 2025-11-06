@@ -4,7 +4,7 @@
 # Build container with cross-compilation support
 FROM --platform=${BUILDPLATFORM} ghcr.io/astral-sh/uv:0.7.0-python3.13-bookworm AS builder
 
-SHELL ["/bin/bash", "-c"]
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
 ARG TARGETARCH
 
@@ -21,11 +21,9 @@ RUN --mount=type=cache,target=/app/data-plane/target <<EOF
 case ${TARGETARCH} in
     "amd64")
         PACKAGES="gcc-x86-64-linux-gnu g++-x86-64-linux-gnu"
-        RUSTARCH="x86_64-unknown-linux-gnu"
         ;;
     "arm64")
         PACKAGES="gcc-aarch64-linux-gnu g++-aarch64-linux-gnu"
-        RUSTARCH="aarch64-unknown-linux-gnu"
         ;;
     *)
         echo "Unsupported platform: ${TARGETPLATFORM}"
@@ -55,7 +53,7 @@ curl -1sLf 'https://dl.cloudsmith.io/public/task/task/setup.deb.sh' | bash
 apt-get install -y task
 
 # Install rust toolchain
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 EOF
 
 # Copy code into builder
@@ -77,7 +75,7 @@ case ${TARGETARCH} in
         ;;
 esac
 
-cargo fetch --target ${RUSTARCH}
+cargo fetch --target ${RUSTARCH}-unknown-linux-gnu
 
 uv python install cpython-3.13.3-linux-${RUSTARCH}
 export PYO3_CROSS_INCLUDE_DIR=~/.local/share/uv/python/cpython-3.13.3-linux-${RUSTARCH}-gnu/include
