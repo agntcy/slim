@@ -2,7 +2,7 @@
 cask "slimctl" do
   name "slimctl"
   desc "A CLI tool for managing SLIM Devices"
-  homepage "https://github.com/agntcy/slim/tree/main/control-plane/slimctl"
+  homepage "https://github.com/lpuskas/slim/tree/main/control-plane/slimctl"
   version "0.0.1"
 
   livecheck do
@@ -13,27 +13,27 @@ cask "slimctl" do
 
   on_macos do
     on_intel do
-      url "https://github.com/agntcy/slim/releases/download/v#{version}/slimctl_#{version}_darwin_amd64.tar.gz",
+      url "https://github.com/lpuskas/slim/releases/download/v#{version}/slimctl_#{version}_darwin_amd64.tar.gz",
         using: :homebrew_curl
-      sha256 "f24de444fb093042447124dfc6a242c32d38b105255e341b0504dca617fd041b"
+      sha256 "483f9c7f3d0a34a019d530fcab245cecac52c1ca87f787fe89770f8e6f88752a"
     end
     on_arm do
-      url "https://github.com/agntcy/slim/releases/download/v#{version}/slimctl_#{version}_darwin_arm64.tar.gz",
+      url "https://github.com/lpuskas/slim/releases/download/v#{version}/slimctl_#{version}_darwin_arm64.tar.gz",
         using: :homebrew_curl
-      sha256 "9c387d6a22bd609d62393ea9e5b89de67c4c0cf2bbe92bb26e99128e25e71745"
+      sha256 "b61f4cc40d50339d5c064a82cd86aa8ad3a0155efc410da4381a23c3df0389dc"
     end
   end
 
   on_linux do
     on_intel do
-      url "https://github.com/agntcy/slim/releases/download/v#{version}/slimctl_#{version}_linux_amd64.tar.gz",
+      url "https://github.com/lpuskas/slim/releases/download/v#{version}/slimctl_#{version}_linux_amd64.tar.gz",
         using: :homebrew_curl
-      sha256 "fc4aa7fa07e1f65e47956e1cfad48b50cc11030b6860c2a8bc9d197c12778eb5"
+      sha256 "a702cd5c71fe7cf86890bfe979a5547153fa39c5a20ce277ff4329b799774181"
     end
     on_arm do
-      url "https://github.com/agntcy/slim/releases/download/v#{version}/slimctl_#{version}_linux_arm64.tar.gz",
+      url "https://github.com/lpuskas/slim/releases/download/v#{version}/slimctl_#{version}_linux_arm64.tar.gz",
         using: :homebrew_curl
-      sha256 "9e1206450268846ad1663252d7baba7db37545a7ab4df93b5c1545283e096cc7"
+      sha256 "07eac0557e4d8a48b0a59e3c8c827692016bfe3dc17566aad55dd6a41d7ee192"
     end
   end
 
