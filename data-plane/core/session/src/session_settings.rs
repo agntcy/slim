@@ -9,12 +9,23 @@ use crate::{
     transmitter::SessionTransmitter,
 };
 
-/// Common fields shared between session components.
+/// Settings struct for constructing session components.
 ///
-/// This struct contains the core session identification and communication
-/// channels that are used by both the construction settings and runtime state.
+/// This struct encapsulates all the parameters needed to construct
+/// `SessionParticipant`, `SessionModerator`, and `SessionController`.
+/// It reduces the number of parameters passed to internal constructors
+/// and provides a clean internal API.
+///
+/// # Note
+///
+/// This struct is primarily for internal use. External users should use
+/// the `SessionBuilder` for a more ergonomic API.
 #[derive(Clone)]
-pub(crate) struct SessionCommonFields {
+pub(crate) struct SessionSettings<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
     /// Session ID
     pub(crate) id: u32,
 
@@ -35,27 +46,6 @@ pub(crate) struct SessionCommonFields {
 
     /// Channel to send messages to the session layer
     pub(crate) tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
-}
-
-/// Settings struct for constructing session components.
-///
-/// This struct encapsulates all the parameters needed to construct
-/// `SessionParticipant`, `SessionModerator`, and `SessionController`.
-/// It reduces the number of parameters passed to internal constructors
-/// and provides a clean internal API.
-///
-/// # Note
-///
-/// This struct is primarily for internal use. External users should use
-/// the `SessionBuilder` for a more ergonomic API.
-#[derive(Clone)]
-pub(crate) struct SessionSettings<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
-    /// Common session fields
-    pub(crate) common: SessionCommonFields,
 
     /// Identity token provider
     pub(crate) identity_provider: P,

@@ -78,7 +78,7 @@ pub enum SessionError {
     NoMls,
     #[error("error generating key package: {0}")]
     MLSKeyPackage(String),
-    #[error("invialid id message: {0}")]
+    #[error("invalid id message: {0}")]
     MLSIdMessage(String),
     #[error("error processing welcome message: {0}")]
     WelcomeMessage(String),

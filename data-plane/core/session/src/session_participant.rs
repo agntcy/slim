@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashSet;
+use std::{collections::HashSet, sync::Arc};
 
 use async_trait::async_trait;
 use slim_auth::traits::{TokenProvider, Verifier};
@@ -10,14 +10,13 @@ use slim_datapath::{
     messages::{Name, utils::SlimHeaderFlags},
 };
 
+use slim_mls::mls::Mls;
+use tokio::sync::Mutex;
 use tracing::debug;
 
 use crate::{
-    common::SessionMessage,
-    errors::SessionError,
-    mls_state::MlsState,
-    session_controller::SessionControllerCommon,
-    session_settings::SessionSettings,
+    common::SessionMessage, errors::SessionError, mls_state::MlsState,
+    session_controller::SessionControllerCommon, session_settings::SessionSettings,
     traits::MessageHandler,
 };
 
@@ -37,7 +36,7 @@ where
     mls_state: Option<MlsState<P, V>>,
 
     /// common session state
-    common: SessionControllerCommon,
+    common: SessionControllerCommon<P, V>,
 
     subscribed: bool,
 
@@ -52,7 +51,7 @@ where
     I: MessageHandler + Send + Sync + 'static,
 {
     pub(crate) fn new(inner: I, settings: SessionSettings<P, V>) -> Self {
-        let common = SessionControllerCommon::new(settings.common);
+        let common = SessionControllerCommon::new(settings);
 
         SessionParticipant {
             moderator_name: None,
@@ -75,20 +74,20 @@ where
     I: MessageHandler + Send + Sync + 'static,
 {
     async fn init(&mut self) -> Result<(), SessionError> {
-        // // Initialize MLS
-        // self.mls_state = if self.common.common.config.mls_enabled {
-        //     let mls_state = MlsState::new(Arc::new(Mutex::new(Mls::new(
-        //         settings.identity_provider.clone(),
-        //         settings.identity_verifier.clone(),
-        //         settings.storage_path.clone(),
-        //     ))))
-        //     .await
-        //     .expect("failed to create MLS state");
+        // Initialize MLS
+        self.mls_state = if self.common.settings.config.mls_enabled {
+            let mls_state = MlsState::new(Arc::new(Mutex::new(Mls::new(
+                self.common.settings.identity_provider.clone(),
+                self.common.settings.identity_verifier.clone(),
+                self.common.settings.storage_path.clone(),
+            ))))
+            .await
+            .expect("failed to create MLS state");
 
-        //     Some(MlsModeratorState::new(mls_state))
-        // } else {
-        //     None
-        // };
+            Some(mls_state)
+        } else {
+            None
+        };
 
         Ok(())
     }
@@ -205,7 +204,7 @@ where
     async fn on_join_request(&mut self, msg: Message) -> Result<(), SessionError> {
         debug!(
             "received join request on {} with id {}",
-            self.common.common.source,
+            self.common.settings.source,
             msg.get_id()
         );
         let source = msg.get_source();
@@ -245,7 +244,7 @@ where
     async fn on_welcome(&mut self, msg: Message) -> Result<(), SessionError> {
         debug!(
             "received welcome on {} with id {}",
-            self.common.common.source,
+            self.common.settings.source,
             msg.get_id()
         );
 
@@ -269,7 +268,7 @@ where
             let name = Name::from(&n);
             self.group_list.insert(name.clone());
 
-            if name != self.common.common.source {
+            if name != self.common.settings.source {
                 debug!("add endpoint to the session {}", msg.get_source());
                 self.inner.add_endpoint(&name).await?;
             }
@@ -293,7 +292,7 @@ where
     ) -> Result<(), SessionError> {
         debug!(
             "received update on {} with id {}",
-            self.common.common.source,
+            self.common.settings.source,
             msg.get_id()
         );
 
@@ -303,7 +302,7 @@ where
                 .mls_state
                 .as_mut()
                 .unwrap()
-                .process_control_message(msg.clone(), &self.common.common.source)
+                .process_control_message(msg.clone(), &self.common.settings.source)
                 .await?;
 
             if !ret {
@@ -367,10 +366,10 @@ where
         self.leave(&msg).await?;
 
         self.common
-            .common
+            .settings
             .tx_to_session_layer
             .send(Ok(SessionMessage::DeleteSession {
-                session_id: self.common.common.id,
+                session_id: self.common.settings.id,
             }))
             .await
             .map_err(|e| SessionError::Processing(format!("failed to notify session layer: {}", e)))
@@ -383,16 +382,16 @@ where
 
         self.subscribed = true;
 
-        if self.common.common.config.session_type == ProtoSessionType::PointToPoint {
+        if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
             return Ok(());
         }
 
         self.common
-            .set_route(&self.common.common.destination, msg.get_incoming_conn())
+            .set_route(&self.common.settings.destination, msg.get_incoming_conn())
             .await?;
         let sub = Message::new_subscribe(
-            &self.common.common.source,
-            &self.common.common.destination,
+            &self.common.settings.source,
+            &self.common.settings.destination,
             None,
             Some(SlimHeaderFlags::default().with_forward_to(msg.get_incoming_conn())),
         );
@@ -402,10 +401,10 @@ where
 
     async fn leave(&self, msg: &Message) -> Result<(), SessionError> {
         self.common
-            .delete_route(&self.common.common.destination, msg.get_incoming_conn())
+            .delete_route(&self.common.settings.destination, msg.get_incoming_conn())
             .await?;
 
-        if self.common.common.config.session_type == ProtoSessionType::PointToPoint {
+        if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
             return Ok(());
         }
 
@@ -416,8 +415,8 @@ where
             )
             .await?;
         let sub = Message::new_unsubscribe(
-            &self.common.common.source,
-            &self.common.common.destination,
+            &self.common.settings.source,
+            &self.common.settings.destination,
             None,
             Some(SlimHeaderFlags::default().with_forward_to(msg.get_incoming_conn())),
         );

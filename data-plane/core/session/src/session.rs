@@ -186,7 +186,10 @@ impl MessageHandler for Session {
         self.on_message(message).await
     }
 
-    async fn add_endpoint(&mut self, endpoint: &slim_datapath::messages::Name) -> Result<(), SessionError> {
+    async fn add_endpoint(
+        &mut self,
+        endpoint: &slim_datapath::messages::Name,
+    ) -> Result<(), SessionError> {
         self.add_endpoint(endpoint).await
     }
 

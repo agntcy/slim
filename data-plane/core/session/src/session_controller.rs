@@ -24,7 +24,7 @@ use crate::{
     controller_sender::ControllerSender,
     session_builder::{ForController, SessionBuilder},
     session_config::SessionConfig,
-    session_settings::{SessionCommonFields, SessionSettings},
+    session_settings::SessionSettings,
     timer_factory::TimerSettings,
     traits::MessageHandler,
 };
@@ -89,7 +89,7 @@ impl SessionController {
 
     /// Internal processing loop that handles messages with mutable access
     async fn processing_loop(
-        mut inner: impl MessageHandler + Send + Sync + 'static,
+        mut inner: impl MessageHandler + 'static,
         mut rx: tokio::sync::mpsc::Receiver<SessionMessage>,
         cancellation_token: CancellationToken,
     ) {
@@ -242,6 +242,11 @@ impl SessionController {
         self.publish_message(msg).await
     }
 
+    /// Creates a discovery request message with minimum required information
+    fn create_discovery_request(&self, destination: &Name) -> Message {
+        Message::new_discovery_request(self.source(), destination, self.session_type(), self.id())
+    }
+
     pub async fn invite_participant(&self, destination: &Name) -> Result<(), SessionError> {
         match self.session_type() {
             ProtoSessionType::PointToPoint => Err(SessionError::Processing(
@@ -253,16 +258,7 @@ impl SessionController {
                         "cannot invite participant to this session session".into(),
                     ));
                 }
-                let slim_header = Some(SlimHeader::new(self.source(), destination, "", None));
-                let session_header = Some(SessionHeader::new(
-                    ProtoSessionType::Multicast.into(),
-                    ProtoSessionMessageType::DiscoveryRequest.into(),
-                    self.id(),
-                    rand::random::<u32>(),
-                ));
-                let payload =
-                    Some(CommandPayload::new_discovery_request_payload(None).as_content());
-                let msg = Message::new_publish_with_headers(slim_header, session_header, payload);
+                let msg = self.create_discovery_request(destination);
                 self.publish_message(msg).await
             }
             _ => Err(SessionError::Processing("unexpected session type".into())),
@@ -341,18 +337,26 @@ pub fn handle_channel_discovery_message(
     Message::new_publish_with_headers(slim_header, session_header, payload)
 }
 
-pub struct SessionControllerCommon {
+pub(crate) struct SessionControllerCommon<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
     /// common session fields
-    pub(crate) common: SessionCommonFields,
+    pub(crate) settings: SessionSettings<P, V>,
 
     /// sender for command messages
     pub(crate) sender: ControllerSender,
 }
 
-impl SessionControllerCommon {
+impl<P, V> SessionControllerCommon<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
     const MAX_FANOUT: u32 = 256;
 
-    pub(crate) fn new(settings: SessionSettings<>) -> Self {
+    pub(crate) fn new(settings: SessionSettings<P, V>) -> Self {
         // timers settings for the controller
         let controller_timer_settings =
             TimerSettings::constant(Duration::from_secs(1)).with_max_retries(10);
@@ -360,22 +364,22 @@ impl SessionControllerCommon {
         // create the controller sender
         let controller_sender = ControllerSender::new(
             controller_timer_settings,
-            common.source.clone(),
+            settings.source.clone(),
             // send messages to slim/app
-            common.tx.clone(),
+            settings.tx.clone(),
             // send signal to the controller
-            common.tx_session.clone(),
+            settings.tx_session.clone(),
         );
 
         SessionControllerCommon {
-            common,
+            settings,
             sender: controller_sender,
         }
     }
 
     /// internal and helper functions
     pub(crate) async fn send_to_slim(&self, message: Message) -> Result<(), SessionError> {
-        self.common.tx.send_to_slim(Ok(message)).await
+        self.settings.tx.send_to_slim(Ok(message)).await
     }
 
     pub(crate) async fn send_with_timer(&mut self, message: Message) -> Result<(), SessionError> {
@@ -384,7 +388,7 @@ impl SessionControllerCommon {
 
     pub(crate) async fn set_route(&self, name: &Name, conn: u64) -> Result<(), SessionError> {
         let route = Message::new_subscribe(
-            &self.common.source,
+            &self.settings.source,
             name,
             None,
             Some(SlimHeaderFlags::default().with_recv_from(conn)),
@@ -395,7 +399,7 @@ impl SessionControllerCommon {
 
     pub(crate) async fn delete_route(&self, name: &Name, conn: u64) -> Result<(), SessionError> {
         let route = Message::new_unsubscribe(
-            &self.common.source,
+            &self.settings.source,
             name,
             None,
             Some(SlimHeaderFlags::default().with_recv_from(conn)),
@@ -425,16 +429,16 @@ impl SessionControllerCommon {
         };
 
         let slim_header = Some(SlimHeader::new(
-            &self.common.source,
+            &self.settings.source,
             dst,
             "", // put empty identity it will be updated by the identity interceptor
             flags,
         ));
 
         let session_header = Some(SessionHeader::new(
-            self.common.config.session_type.into(),
+            self.settings.config.session_type.into(),
             message_type.into(),
-            self.common.id,
+            self.settings.id,
             message_id,
         ));
 
@@ -481,7 +485,6 @@ mod tests {
         let participant_name_id = Name::from_strings(["org", "ns", "participant"]).with_id(1);
         let storage_path_moderator = std::path::PathBuf::from("/tmp/test_invite_moderator");
         let storage_path_participant = std::path::PathBuf::from("/tmp/test_invite_participant");
-        let cancellation_token = CancellationToken::new();
 
         // create a SessionModerator
         let (tx_slim_moderator, mut rx_slim_moderator) = tokio::sync::mpsc::channel(10);
@@ -501,7 +504,7 @@ mod tests {
             metadata: std::collections::HashMap::new(),
         };
 
-        let mut moderator = SessionBuilder::for_moderator()
+        let moderator = SessionController::builder()
             .with_id(session_id)
             .with_source(moderator_name.clone())
             .with_destination(participant_name.clone())
@@ -511,11 +514,11 @@ mod tests {
             .with_storage_path(storage_path_moderator.clone())
             .with_tx(tx_moderator.clone())
             .with_tx_to_session_layer(tx_session_layer_moderator)
-            .with_cancellation_token(cancellation_token.clone())
             .ready()
             .expect("failed to validate builder")
             .build()
-            .await;
+            .await
+            .unwrap();
 
         // create a SessionParticipant
         let (tx_slim_participant, mut rx_slim_participant) = tokio::sync::mpsc::channel(10);
@@ -535,7 +538,7 @@ mod tests {
             metadata: std::collections::HashMap::new(),
         };
 
-        let mut participant = SessionBuilder::for_participant()
+        let participant = SessionController::builder()
             .with_id(session_id)
             .with_source(participant_name_id.clone())
             .with_destination(moderator_name.clone())
@@ -545,37 +548,13 @@ mod tests {
             .with_storage_path(storage_path_participant.clone())
             .with_tx(tx_participant.clone())
             .with_tx_to_session_layer(tx_session_layer_participant)
-            .with_cancellation_token(cancellation_token.clone())
             .ready()
             .expect("failed to validate builder")
             .build()
-            .await;
-
-        // create a discovery request and send it on the moderator on message (direction south)
-        let slim_header = Some(SlimHeader::new(
-            &moderator_name,
-            &participant_name,
-            "",
-            None,
-        ));
-        let session_header = Some(SessionHeader::new(
-            slim_datapath::api::ProtoSessionType::PointToPoint.into(),
-            slim_datapath::api::ProtoSessionMessageType::DiscoveryRequest.into(),
-            session_id,
-            1, // this id will be changed by the session controller
-        ));
-        let payload = Some(CommandPayload::new_discovery_request_payload(None).as_content());
-        let discovery_request =
-            Message::new_publish_with_headers(slim_header, session_header, payload);
-
-        moderator
-            .on_message(SessionMessage::OnMessage {
-                message: discovery_request,
-                direction: MessageDirection::South,
-            })
             .await
-            .expect("error sending discovery request");
+            .unwrap();
 
+        // Discovery request message is automatically sent by the moderator on creation
         // check that the request is received by slim on the moderator
         let received_discovery_request =
             timeout(Duration::from_millis(100), rx_slim_moderator.recv())
@@ -612,10 +591,7 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         moderator
-            .on_message(SessionMessage::OnMessage {
-                message: discovery_reply,
-                direction: MessageDirection::North,
-            })
+            .on_message(discovery_reply, MessageDirection::North)
             .await
             .expect("error processing discovery reply on moderator");
 
@@ -651,10 +627,7 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         participant
-            .on_message(SessionMessage::OnMessage {
-                message: join_request_to_participant,
-                direction: MessageDirection::North,
-            })
+            .on_message(join_request_to_participant, MessageDirection::North)
             .await
             .expect("error processing join request on participant");
 
@@ -689,10 +662,7 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         moderator
-            .on_message(SessionMessage::OnMessage {
-                message: join_reply_to_moderator,
-                direction: MessageDirection::North,
-            })
+            .on_message(join_reply_to_moderator, MessageDirection::North)
             .await
             .expect("error processing join reply on moderator");
 
@@ -716,10 +686,7 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         participant
-            .on_message(SessionMessage::OnMessage {
-                message: welcome_to_participant,
-                direction: MessageDirection::North,
-            })
+            .on_message(welcome_to_participant, MessageDirection::North)
             .await
             .expect("error processing welcome message on participant");
 
@@ -743,10 +710,7 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         moderator
-            .on_message(SessionMessage::OnMessage {
-                message: ack_to_moderator,
-                direction: MessageDirection::North,
-            })
+            .on_message(ack_to_moderator, MessageDirection::North)
             .await
             .expect("error processing ack on moderator");
 
@@ -754,7 +718,11 @@ mod tests {
         let no_more_moderator = timeout(Duration::from_millis(100), rx_slim_moderator.recv()).await;
         assert!(
             no_more_moderator.is_err(),
-            "Expected no more messages on moderator slim channel"
+            "Expected no more messages on moderator slim channel, received {:?}",
+            no_more_moderator
+                .ok()
+                .and_then(|opt| opt)
+                .and_then(|res| res.ok())
         );
 
         let no_more_participant =
@@ -783,10 +751,7 @@ mod tests {
 
         // call on message on the moderator (direction south)
         moderator
-            .on_message(SessionMessage::OnMessage {
-                message: app_message,
-                direction: MessageDirection::South,
-            })
+            .on_message(app_message, MessageDirection::South)
             .await
             .expect("error sending application message from moderator");
 
@@ -812,10 +777,7 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         participant
-            .on_message(SessionMessage::OnMessage {
-                message: app_msg_to_participant,
-                direction: MessageDirection::North,
-            })
+            .on_message(app_msg_to_participant, MessageDirection::North)
             .await
             .expect("error processing application message on participant");
 
@@ -863,10 +825,7 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         moderator
-            .on_message(SessionMessage::OnMessage {
-                message: ack_to_moderator,
-                direction: MessageDirection::North,
-            })
+            .on_message(ack_to_moderator, MessageDirection::North)
             .await
             .expect("error processing ack on moderator");
 
@@ -902,10 +861,7 @@ mod tests {
         let leave_request = Message::new_publish_with_headers(slim_header, session_header, payload);
 
         moderator
-            .on_message(SessionMessage::OnMessage {
-                message: leave_request,
-                direction: MessageDirection::South,
-            })
+            .on_message(leave_request, MessageDirection::South)
             .await
             .expect("error sending leave request");
 
@@ -929,10 +885,7 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         participant
-            .on_message(SessionMessage::OnMessage {
-                message: leave_request_to_participant,
-                direction: MessageDirection::North,
-            })
+            .on_message(leave_request_to_participant, MessageDirection::North)
             .await
             .expect("error processing leave request on participant");
 
@@ -969,10 +922,7 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         moderator
-            .on_message(SessionMessage::OnMessage {
-                message: leave_reply_to_moderator,
-                direction: MessageDirection::North,
-            })
+            .on_message(leave_reply_to_moderator, MessageDirection::North)
             .await
             .expect("error processing leave reply on moderator");
 

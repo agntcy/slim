@@ -5,24 +5,15 @@ use std::marker::PhantomData;
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
-    api::{
-        CommandPayload, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType,
-        SessionHeader, SlimHeader,
-    },
+    api::{ProtoMessage as Message, ProtoSessionType},
     messages::Name,
 };
 
 use crate::{
-    MessageDirection,
-    common::SessionMessage,
-    errors::SessionError,
-    session_config::SessionConfig,
-    session_controller::SessionController,
-    session_moderator::SessionModerator,
-    session_participant::SessionParticipant,
-    session_settings::{SessionCommonFields, SessionSettings},
-    traits::MessageHandler,
-    transmitter::SessionTransmitter,
+    MessageDirection, common::SessionMessage, errors::SessionError, session_config::SessionConfig,
+    session_controller::SessionController, session_moderator::SessionModerator,
+    session_participant::SessionParticipant, session_settings::SessionSettings,
+    traits::MessageHandler, transmitter::SessionTransmitter,
 };
 
 // Marker types for builder states
@@ -286,21 +277,19 @@ where
         let destination = self.destination.clone().unwrap();
         let config = self.config.clone().unwrap();
 
-        let session_controller = match config.initiator {
-            true => {
-                let (inner, tx, rx) = self.build_moderator_impl().await?;
+        let role = if config.initiator {
+            "Moderator"
+        } else {
+            "Participant"
+        };
+        tracing::debug!("Building SessionController as {}", role);
 
-                tracing::debug!("Building SessionController as Moderator");
-
-                SessionController::from_parts(id, source, destination, config, tx, rx, inner)
-            }
-            false => {
-                let (inner, tx, rx) = self.build_participant_impl().await?;
-
-                tracing::debug!("Building SessionController as Participant");
-
-                SessionController::from_parts(id, source, destination, config, tx, rx, inner)
-            }
+        let session_controller = if config.initiator {
+            let (inner, tx, rx) = self.build_session_stack(SessionModerator::new).await?;
+            SessionController::from_parts(id, source, destination, config, tx, rx, inner)
+        } else {
+            let (inner, tx, rx) = self.build_session_stack(SessionParticipant::new).await?;
+            SessionController::from_parts(id, source, destination, config, tx, rx, inner)
         };
 
         // if the session is a p2p session and the session is created
@@ -309,20 +298,12 @@ where
             && session_controller.session_type() == ProtoSessionType::PointToPoint
         {
             // send a discovery request
-            let slim_header = Some(SlimHeader::new(
+            let discovery = Message::new_discovery_request(
                 session_controller.source(),
                 session_controller.dst(),
-                "",
-                None,
-            ));
-            let session_header = Some(SessionHeader::new(
-                session_controller.session_type().into(),
-                ProtoSessionMessageType::DiscoveryRequest.into(),
+                session_controller.session_type(),
                 session_controller.id(),
-                rand::random::<u32>(),
-            ));
-            let payload = Some(CommandPayload::new_discovery_request_payload(None).as_content());
-            let discovery = Message::new_publish_with_headers(slim_header, session_header, payload);
+            );
             session_controller
                 .on_message(discovery, MessageDirection::South)
                 .await?;
@@ -331,16 +312,22 @@ where
         Ok(session_controller)
     }
 
-    async fn build_moderator_impl(
+    /// Generic helper function to build session stacks, eliminating code duplication
+    /// between moderator and participant stack building.
+    async fn build_session_stack<W>(
         self,
+        wrapper_constructor: impl FnOnce(crate::session::Session, SessionSettings<P, V>) -> W,
     ) -> Result<
         (
-            SessionModerator<P, V, crate::session::Session>,
+            W,
             tokio::sync::mpsc::Sender<SessionMessage>,
             tokio::sync::mpsc::Receiver<SessionMessage>,
         ),
         SessionError,
-    > {
+    >
+    where
+        W: MessageHandler,
+    {
         let (tx_session, rx_session) = tokio::sync::mpsc::channel(256);
 
         // Create the base Session layer
@@ -352,8 +339,7 @@ where
             tx_session.clone(),
         );
 
-        // Common fields for the moderator
-        let common = SessionCommonFields {
+        let settings = SessionSettings {
             id: self.id.unwrap(),
             source: self.source.unwrap(),
             destination: self.destination.unwrap(),
@@ -361,63 +347,14 @@ where
             tx: self.tx.unwrap(),
             tx_session: tx_session.clone(),
             tx_to_session_layer: self.tx_to_session_layer.unwrap(),
-        };
-
-        let settings = SessionSettings {
-            common,
             identity_provider: self.identity_provider.unwrap(),
             identity_verifier: self.identity_verifier.unwrap(),
             storage_path: self.storage_path.unwrap(),
         };
 
-        let mut moderator = SessionModerator::new(inner, settings);
-        moderator.init().await?;
+        let mut wrapper = wrapper_constructor(inner, settings);
+        wrapper.init().await?;
 
-        Ok((moderator, tx_session, rx_session))
-    }
-
-    async fn build_participant_impl(
-        self,
-    ) -> Result<
-        (
-            SessionParticipant<P, V, crate::session::Session>,
-            tokio::sync::mpsc::Sender<SessionMessage>,
-            tokio::sync::mpsc::Receiver<SessionMessage>,
-        ),
-        SessionError,
-    > {
-        let (tx_session, rx_session) = tokio::sync::mpsc::channel(256);
-
-        // Create the base Session layer
-        let inner = crate::session::Session::new(
-            self.id.unwrap(),
-            self.config.clone().unwrap(),
-            &self.source.clone().unwrap(),
-            self.tx.clone().unwrap(),
-            tx_session.clone(),
-        );
-
-        // Common fields for the participant
-        let common = SessionCommonFields {
-            id: self.id.unwrap(),
-            source: self.source.unwrap(),
-            destination: self.destination.unwrap(),
-            config: self.config.unwrap(),
-            tx: self.tx.unwrap(),
-            tx_session: tx_session.clone(),
-            tx_to_session_layer: self.tx_to_session_layer.unwrap(),
-        };
-
-        let settings = SessionSettings {
-            common,
-            identity_provider: self.identity_provider.unwrap(),
-            identity_verifier: self.identity_verifier.unwrap(),
-            storage_path: self.storage_path.unwrap(),
-        };
-
-        let mut participant = SessionParticipant::new(inner, settings);
-        participant.init().await?;
-
-        Ok((participant, tx_session, rx_session))
+        Ok((wrapper, tx_session, rx_session))
     }
 }

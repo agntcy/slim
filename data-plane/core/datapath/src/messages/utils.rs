@@ -585,6 +585,33 @@ impl ProtoMessage {
         Self::new(HashMap::new(), ProtoPublishType(publish))
     }
 
+    /// Creates a discovery request message with minimum required information
+    ///
+    /// # Arguments
+    /// * `source` - The source name
+    /// * `destination` - The destination name
+    /// * `session_type` - The session type (PointToPoint or Multicast)
+    /// * `session_id` - The session ID
+    ///
+    /// # Returns
+    /// A ProtoMessage configured as a discovery request
+    pub fn new_discovery_request(
+        source: &Name,
+        destination: &Name,
+        session_type: ProtoSessionType,
+        session_id: u32,
+    ) -> Self {
+        let slim_header = Some(SlimHeader::new(source, destination, "", None));
+        let session_header = Some(SessionHeader::new(
+            session_type.into(),
+            SessionMessageType::DiscoveryRequest.into(),
+            session_id,
+            rand::random::<u32>(),
+        ));
+        let payload = Some(CommandPayload::new_discovery_request_payload(None).as_content());
+        Self::new_publish_with_headers(slim_header, session_header, payload)
+    }
+
     // validate message
     pub fn validate(&self) -> Result<(), MessageError> {
         // make sure the message type is set

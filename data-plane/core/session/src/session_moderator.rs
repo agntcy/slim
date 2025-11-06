@@ -3,6 +3,7 @@
 
 use std::{
     collections::{HashMap, VecDeque},
+    sync::Arc,
 };
 
 use async_trait::async_trait;
@@ -14,18 +15,19 @@ use slim_datapath::{
     },
     messages::{Name, utils::DELETE_GROUP, utils::SlimHeaderFlags},
 };
+use tokio::sync::Mutex;
 
+use slim_mls::mls::Mls;
 use tracing::{debug, error};
 
 use crate::{
     common::{MessageDirection, SessionMessage},
     errors::SessionError,
-    mls_state::{MlsModeratorState},
+    mls_state::{MlsModeratorState, MlsState},
     moderator_task::{AddParticipant, ModeratorTask, RemoveParticipant, TaskUpdate},
     session_controller::SessionControllerCommon,
     session_settings::SessionSettings,
-    traits::MessageHandler,
-    traits::Transmitter,
+    traits::{MessageHandler, Transmitter},
 };
 
 pub struct SessionModerator<P, V, I>
@@ -46,8 +48,8 @@ where
     /// List of group participants
     group_list: HashMap<Name, u64>,
 
-    /// Common session controller data
-    common: SessionControllerCommon,
+    /// Common settings
+    common: SessionControllerCommon<P, V>,
 
     /// Postponed message to be sent after current task completion
     postponed_message: Option<Message>,
@@ -69,7 +71,7 @@ where
     I: MessageHandler + Send + Sync + 'static,
 {
     pub(crate) fn new(inner: I, settings: SessionSettings<P, V>) -> Self {
-        let common = SessionControllerCommon::new(settings.common);
+        let common = SessionControllerCommon::new(settings);
 
         SessionModerator {
             tasks_todo: vec![].into(),
@@ -96,19 +98,19 @@ where
 {
     async fn init(&mut self) -> Result<(), SessionError> {
         // Initialize MLS
-        // self.mls_state = if self.common.common.config.mls_enabled {
-        //     let mls_state = MlsState::new(Arc::new(Mutex::new(Mls::new(
-        //         self.commonscommon.identity_provider.clone(),
-        //         settings.identity_verifier.clone(),
-        //         settings.storage_path.clone(),
-        //     ))))
-        //     .await
-        //     .expect("failed to create MLS state");
+        self.mls_state = if self.common.settings.config.mls_enabled {
+            let mls_state = MlsState::new(Arc::new(Mutex::new(Mls::new(
+                self.common.settings.identity_provider.clone(),
+                self.common.settings.identity_verifier.clone(),
+                self.common.settings.storage_path.clone(),
+            ))))
+            .await
+            .expect("failed to create MLS state");
 
-        //     Some(MlsModeratorState::new(mls_state))
-        // } else {
-        //     None
-        // };
+            Some(MlsModeratorState::new(mls_state))
+        } else {
+            None
+        };
 
         Ok(())
     }
@@ -126,11 +128,12 @@ where
                     // the session is p2p, update the destination of the message with the destination in
                     // the self.common. In this way we always add the right id to the name
                     if direction == MessageDirection::South
-                        && self.common.common.config.session_type == ProtoSessionType::PointToPoint
+                        && self.common.settings.config.session_type
+                            == ProtoSessionType::PointToPoint
                     {
                         message
                             .get_slim_header_mut()
-                            .set_destination(&self.common.common.destination);
+                            .set_destination(&self.common.settings.destination);
                     }
                     self.inner
                         .on_message(SessionMessage::OnMessage { message, direction })
@@ -176,7 +179,7 @@ where
                     // TODO: revisit this part
                     if let Err(e) = self
                         .common
-                        .common
+                        .settings
                         .tx
                         .send_to_app(Err(SessionError::ModeratorTask(error_message.to_string())))
                         .await
@@ -254,7 +257,7 @@ where
                     .as_command_payload()?
                     .as_leave_request_payload()?
                     .destination
-                    && Name::from(&n) == self.common.common.source
+                    && Name::from(&n) == self.common.settings.source
                 {
                     return self.delete_all(message).await;
                 }
@@ -316,7 +319,7 @@ where
                 // create a new empty payload and change the message destination
                 let p = CommandPayload::new_discovery_request_payload(None).as_content();
                 msg.get_slim_header_mut()
-                    .set_source(&self.common.common.source);
+                    .set_source(&self.common.settings.source);
                 msg.get_slim_header_mut().set_destination(&dst);
                 msg.set_payload(p);
                 msg
@@ -369,9 +372,9 @@ where
         // on the connection from where we received the message. This has to be done
         // all the times because the messages from the remote endpoints may come from
         // different connections. In case the route exists already it will be just ignored
-        if self.common.common.config.session_type == ProtoSessionType::Multicast {
+        if self.common.settings.config.session_type == ProtoSessionType::Multicast {
             self.common
-                .set_route(&self.common.common.destination, msg.get_incoming_conn())
+                .set_route(&self.common.settings.destination, msg.get_incoming_conn())
                 .await?;
         }
 
@@ -379,16 +382,16 @@ where
         // send a join message
         let msg_id = rand::random::<u32>();
 
-        let channel = if self.common.common.config.session_type == ProtoSessionType::Multicast {
-            Some(self.common.common.destination.clone())
+        let channel = if self.common.settings.config.session_type == ProtoSessionType::Multicast {
+            Some(self.common.settings.destination.clone())
         } else {
             None
         };
 
         let payload = CommandPayload::new_join_request_payload(
             self.mls_state.is_some(),
-            self.common.common.config.max_retries,
-            self.common.common.config.duration,
+            self.common.settings.config.max_retries,
+            self.common.settings.config.duration,
             channel,
         )
         .as_content();
@@ -404,7 +407,7 @@ where
                 ProtoSessionMessageType::JoinRequest,
                 msg_id,
                 payload,
-                Some(self.common.common.config.metadata.clone()),
+                Some(self.common.settings.config.metadata.clone()),
                 false,
             )
             .await?;
@@ -487,7 +490,7 @@ where
             debug!("send add update to channel with id {}", add_msg_id);
             self.common
                 .send_control_message(
-                    &self.common.common.destination.clone(),
+                    &self.common.settings.destination.clone(),
                     ProtoSessionMessageType::GroupAdd,
                     add_msg_id,
                     update_payload,
@@ -575,7 +578,7 @@ where
 
                 let new_payload = CommandPayload::new_leave_request_payload(None).as_content();
                 msg.get_slim_header_mut()
-                    .set_source(&self.common.common.source);
+                    .set_source(&self.common.settings.source);
                 msg.get_slim_header_mut().set_destination(&dst);
                 msg.set_payload(new_payload);
                 msg.set_message_id(rand::random::<u32>());
@@ -641,7 +644,7 @@ where
 
             self.common
                 .send_control_message(
-                    &self.common.common.destination.clone(),
+                    &self.common.settings.destination.clone(),
                     ProtoSessionMessageType::GroupRemove,
                     msg_id,
                     update_payload,
@@ -689,7 +692,7 @@ where
         self.tasks_todo.clear();
 
         // Remove the local name from the participants list
-        let mut local = self.common.common.source.clone();
+        let mut local = self.common.settings.source.clone();
         local.reset_id();
         self.group_list.remove(&local);
         // Collect the participants first to avoid borrowing conflicts
@@ -853,13 +856,13 @@ where
 
         // if this is a point to point connection set the remote name so that we
         // can add also the right id to the message destination name
-        if self.common.common.config.session_type == ProtoSessionType::PointToPoint {
-            self.common.common.destination = remote;
+        if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
+            self.common.settings.destination = remote;
         } else {
             // if this is a multicast session we need to subscribe for the channel name
             let sub = Message::new_subscribe(
-                &self.common.common.source,
-                &self.common.common.destination,
+                &self.common.settings.source,
+                &self.common.settings.destination,
                 None,
                 Some(SlimHeaderFlags::default().with_forward_to(conn)),
             );
@@ -873,7 +876,7 @@ where
         }
 
         // add ourself to the participants
-        let mut local_name = self.common.common.source.clone();
+        let mut local_name = self.common.settings.source.clone();
         let id = local_name.id();
         local_name.reset_id();
         self.group_list.insert(local_name, id);
@@ -888,10 +891,10 @@ where
         // notify the session layer
         let res = self
             .common
-            .common
+            .settings
             .tx_to_session_layer
             .send(Ok(SessionMessage::DeleteSession {
-                session_id: self.common.common.id,
+                session_id: self.common.settings.id,
             }))
             .await;
 

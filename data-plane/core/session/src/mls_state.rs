@@ -276,7 +276,7 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    /// mls state in common between moderator and
+    /// mls state in common between moderator and participants
     pub(crate) common: MlsState<P, V>,
 
     /// map of the participants (with real ids) with package keys
