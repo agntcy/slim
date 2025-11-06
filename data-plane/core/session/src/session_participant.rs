@@ -270,7 +270,7 @@ where
 
             if name != self.common.settings.source {
                 debug!("add endpoint to the session {}", msg.get_source());
-                self.inner.add_endpoint(&name).await?;
+                self.add_endpoint(&name).await?;
             }
         }
 
@@ -325,7 +325,7 @@ where
                 self.group_list.insert(name.clone());
 
                 debug!("add endpoint to the session {}", msg.get_source());
-                self.inner.add_endpoint(&name).await?;
+                self.add_endpoint(&name).await?;
             }
         } else {
             let p = msg

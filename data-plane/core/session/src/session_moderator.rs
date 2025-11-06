@@ -284,7 +284,7 @@ where
 
     /// message processing functions
     async fn on_discovery_request(&mut self, mut msg: Message) -> Result<(), SessionError> {
-        debug!("received discovery request");
+        debug!(%self.common.settings.id, "received discovery request");
         // the channel discovery starts a new participant invite.
         // process the request only if not busy
         if self.current_task.is_some() {
@@ -442,7 +442,7 @@ where
 
         // notify the local session that a new participant was added to the group
         debug!("add endpoint to the session {}", msg.get_source());
-        self.inner.add_endpoint(&msg.get_source()).await?;
+        self.add_endpoint(&msg.get_source()).await?;
 
         // get mls data if MLS is enabled
         let (commit, welcome) = if self.mls_state.is_some() {
