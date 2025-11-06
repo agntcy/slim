@@ -279,7 +279,7 @@ pub(crate) type IdentityProvider = AuthProvider;
 /// )
 /// # Verifier would normally use the corresponding public key (PyIdentityVerifier.Jwt).
 /// ```
-#[gen_stub_pyclass_complex_enum]
+#[gen_stub_pyclass_enum]
 #[derive(Clone, PartialEq)]
 #[pyclass(eq)]
 pub(crate) enum PyIdentityProvider {
