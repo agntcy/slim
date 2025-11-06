@@ -2,12 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Standard library imports
-use std::future::Future;
 use std::sync::Arc;
 
 // Third-party crates
 use parking_lot::RwLock;
-use slim_auth::traits::{TokenProvider, Verifier};
 use tokio::sync::mpsc::Sender;
 
 use slim_datapath::Status;
@@ -54,11 +52,12 @@ impl SessionInterceptorProvider for SessionTransmitter {
     }
 }
 
+#[async_trait::async_trait]
 impl Transmitter for SessionTransmitter {
-    fn send_to_app(
+    async fn send_to_app(
         &self,
         mut message: Result<Message, SessionError>,
-    ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static {
+    ) -> Result<(), SessionError> {
         let tx = self.app_tx.clone();
 
         // Interceptors only run on successful messages
@@ -67,22 +66,17 @@ impl Transmitter for SessionTransmitter {
             Err(_) => Vec::new(),
         };
 
-        async move {
-            if let Ok(msg) = message.as_mut() {
-                for interceptor in interceptors {
-                    interceptor.on_msg_from_slim(msg).await?;
-                }
+        if let Ok(msg) = message.as_mut() {
+            for interceptor in interceptors {
+                interceptor.on_msg_from_slim(msg).await?;
             }
-
-            tx.send(message)
-                .map_err(|e| SessionError::AppTransmission(e.to_string()))
         }
+
+        tx.send(message)
+            .map_err(|e| SessionError::AppTransmission(e.to_string()))
     }
 
-    fn send_to_slim(
-        &self,
-        mut message: Result<Message, Status>,
-    ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static {
+    async fn send_to_slim(&self, mut message: Result<Message, Status>) -> Result<(), SessionError> {
         let tx = self.slim_tx.clone();
 
         // Interceptors only run on successful messages
@@ -91,41 +85,31 @@ impl Transmitter for SessionTransmitter {
             Err(_) => Vec::new(),
         };
 
-        async move {
-            if let Ok(msg) = message.as_mut() {
-                for interceptor in interceptors {
-                    interceptor.on_msg_from_app(msg).await?;
-                }
+        if let Ok(msg) = message.as_mut() {
+            for interceptor in interceptors {
+                interceptor.on_msg_from_app(msg).await?;
             }
-
-            tx.try_send(message)
-                .map_err(|e| SessionError::SlimTransmission(e.to_string()))
         }
+
+        tx.try_send(message)
+            .map_err(|e| SessionError::SlimTransmission(e.to_string()))
     }
 }
 
 /// Transmitter used to intercept messages sent from the application side and apply interceptors
 #[derive(Clone)]
-pub struct AppTransmitter<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
+pub struct AppTransmitter {
     /// SLIM tx (bounded channel)
     pub slim_tx: SlimChannelSender,
 
     /// App tx (bounded channel here; notifications)
-    pub app_tx: Sender<Result<Notification<P, V>, SessionError>>,
+    pub app_tx: Sender<Result<Notification, SessionError>>,
 
     // Interceptors to be called on message reception/send
     pub interceptors: Arc<RwLock<Vec<Arc<dyn SessionInterceptor + Send + Sync>>>>,
 }
 
-impl<P, V> SessionInterceptorProvider for AppTransmitter<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
+impl SessionInterceptorProvider for AppTransmitter {
     fn add_interceptor(&self, interceptor: Arc<dyn SessionInterceptor + Send + Sync + 'static>) {
         self.interceptors.write().push(interceptor);
     }
@@ -135,15 +119,12 @@ where
     }
 }
 
-impl<P, V> Transmitter for AppTransmitter<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
-    fn send_to_app(
+#[async_trait::async_trait]
+impl Transmitter for AppTransmitter {
+    async fn send_to_app(
         &self,
         mut message: Result<Message, SessionError>,
-    ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static {
+    ) -> Result<(), SessionError> {
         let tx = self.app_tx.clone();
 
         let interceptors = match &message {
@@ -151,23 +132,18 @@ where
             Err(_) => Vec::new(),
         };
 
-        async move {
-            if let Ok(msg) = message.as_mut() {
-                for interceptor in interceptors {
-                    interceptor.on_msg_from_slim(msg).await?;
-                }
+        if let Ok(msg) = message.as_mut() {
+            for interceptor in interceptors {
+                interceptor.on_msg_from_slim(msg).await?;
             }
-
-            tx.send(message.map(|msg| Notification::NewMessage(Box::new(msg))))
-                .await
-                .map_err(|e| SessionError::AppTransmission(e.to_string()))
         }
+
+        tx.send(message.map(|msg| Notification::NewMessage(Box::new(msg))))
+            .await
+            .map_err(|e| SessionError::AppTransmission(e.to_string()))
     }
 
-    fn send_to_slim(
-        &self,
-        mut message: Result<Message, Status>,
-    ) -> impl Future<Output = Result<(), SessionError>> + Send + 'static {
+    async fn send_to_slim(&self, mut message: Result<Message, Status>) -> Result<(), SessionError> {
         let tx = self.slim_tx.clone();
 
         // Interceptors only run on successful messages
@@ -176,16 +152,14 @@ where
             Err(_) => Vec::new(),
         };
 
-        async move {
-            if let Ok(msg) = message.as_mut() {
-                for interceptor in interceptors {
-                    interceptor.on_msg_from_app(msg).await?;
-                }
+        if let Ok(msg) = message.as_mut() {
+            for interceptor in interceptors {
+                interceptor.on_msg_from_app(msg).await?;
             }
-
-            tx.try_send(message)
-                .map_err(|e| SessionError::SlimTransmission(e.to_string()))
         }
+
+        tx.try_send(message)
+            .map_err(|e| SessionError::SlimTransmission(e.to_string()))
     }
 }
 
@@ -195,51 +169,10 @@ mod tests {
     use crate::interceptor::{SessionInterceptor, SessionInterceptorProvider};
     use crate::{SessionError, notification::Notification};
     use async_trait::async_trait;
-    use slim_auth::errors::AuthError;
-    use slim_auth::traits::{TokenProvider, Verifier};
     use slim_datapath::Status;
-    use slim_datapath::api::{ApplicationPayload, ProtoMessage as Message};
+    use slim_datapath::api::ProtoMessage as Message;
     use slim_datapath::messages::encoder::Name;
     use tokio::sync::mpsc;
-
-    #[derive(Clone, Default)]
-    struct DummyProvider;
-    impl TokenProvider for DummyProvider {
-        fn get_token(&self) -> Result<String, AuthError> {
-            Ok("id-token".into())
-        }
-
-        fn get_id(&self) -> Result<String, AuthError> {
-            Ok("id".into())
-        }
-    }
-
-    #[derive(Clone, Default)]
-    struct DummyVerifier;
-    #[async_trait]
-    impl Verifier for DummyVerifier {
-        async fn verify(&self, _token: impl Into<String> + Send) -> Result<(), AuthError> {
-            Ok(())
-        }
-        fn try_verify(&self, _token: impl Into<String>) -> Result<(), AuthError> {
-            Ok(())
-        }
-        async fn get_claims<Claims>(
-            &self,
-            _token: impl Into<String> + Send,
-        ) -> Result<Claims, AuthError>
-        where
-            Claims: serde::de::DeserializeOwned + Send,
-        {
-            Err(AuthError::TokenInvalid("na".into()))
-        }
-        fn try_get_claims<Claims>(&self, _token: impl Into<String>) -> Result<Claims, AuthError>
-        where
-            Claims: serde::de::DeserializeOwned + Send,
-        {
-            Err(AuthError::TokenInvalid("na".into()))
-        }
-    }
 
     #[derive(Clone, Default)]
     struct RecordingInterceptor {
@@ -266,9 +199,12 @@ mod tests {
         let dst = Name::from_strings(["d", "e", "f"]).with_id(0);
 
         // Signature: (&Name, &Name, Option<SlimHeaderFlags>, &str, Vec<u8>)
-        let payload =
-            Some(ApplicationPayload::new("application/octet-stream", vec![]).as_content());
-        Message::new_publish(&source, &dst, None, None, payload)
+        Message::builder()
+            .source(source)
+            .destination(dst)
+            .application_payload("application/octet-stream", vec![])
+            .build_publish()
+            .unwrap()
     }
 
     #[tokio::test]
@@ -310,9 +246,8 @@ mod tests {
     #[tokio::test]
     async fn app_transmitter_interceptor_application_send_to_app() {
         let (slim_tx, mut slim_rx) = mpsc::channel::<Result<Message, Status>>(4);
-        let (app_tx, mut app_rx) =
-            mpsc::channel::<Result<Notification<DummyProvider, DummyVerifier>, SessionError>>(4);
-        let tx = AppTransmitter::<DummyProvider, DummyVerifier> {
+        let (app_tx, mut app_rx) = mpsc::channel::<Result<Notification, SessionError>>(4);
+        let tx = AppTransmitter {
             slim_tx,
             app_tx,
             interceptors: Arc::new(RwLock::new(vec![])),

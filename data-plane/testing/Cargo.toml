@@ -9,18 +9,6 @@ publish = false
 name = "slim_testing"
 
 [[bin]]
-name = "workload-gen"
-path = "src/bin/workload-gen.rs"
-
-[[bin]]
-name = "subscriber"
-path = "src/bin/subscriber.rs"
-
-[[bin]]
-name = "publisher"
-path = "src/bin/publisher.rs"
-
-[[bin]]
 name = "channel"
 path = "src/bin/channel.rs"
 
@@ -45,7 +33,6 @@ base64 = { workspace = true }
 bollard = { version = "0.17" }
 clap = { workspace = true }
 futures = { workspace = true }
-indicatif = { workspace = true }
 jsonwebtoken-aws-lc = { workspace = true }
 libc = { version = "0.2.177" }
 parking_lot = { workspace = true }
@@ -54,7 +41,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["fs"] }
-tokio-util = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
 wiremock = { workspace = true }

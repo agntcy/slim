@@ -15,10 +15,6 @@ use slim_mls::mls::Mls;
 // Local crate
 use crate::{errors::SessionError, interceptor::SessionInterceptor};
 
-// Metadata Keys
-pub const METADATA_MLS_ENABLED: &str = "MLS_ENABLED";
-pub const METADATA_MLS_INIT_COMMIT_ID: &str = "MLS_INIT_COMMIT_ID";
-
 pub struct MlsInterceptor<P, V>
 where
     P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
@@ -57,7 +53,8 @@ where
             | ProtoSessionMessageType::JoinReply
             | ProtoSessionMessageType::LeaveRequest
             | ProtoSessionMessageType::LeaveReply
-            | ProtoSessionMessageType::GroupUpdate
+            | ProtoSessionMessageType::GroupAdd
+            | ProtoSessionMessageType::GroupRemove
             | ProtoSessionMessageType::GroupWelcome
             | ProtoSessionMessageType::GroupProposal
             | ProtoSessionMessageType::GroupAck => {
@@ -67,7 +64,7 @@ where
             _ => {}
         }
 
-        let payload = &msg.get_payload().unwrap().as_application_payload().blob;
+        let payload = &msg.get_payload().unwrap().as_application_payload()?.blob;
 
         let mut mls_guard = self.mls.lock().await;
 
@@ -103,7 +100,8 @@ where
             | ProtoSessionMessageType::JoinReply
             | ProtoSessionMessageType::LeaveRequest
             | ProtoSessionMessageType::LeaveReply
-            | ProtoSessionMessageType::GroupUpdate
+            | ProtoSessionMessageType::GroupAdd
+            | ProtoSessionMessageType::GroupRemove
             | ProtoSessionMessageType::GroupWelcome
             | ProtoSessionMessageType::GroupProposal
             | ProtoSessionMessageType::GroupAck => {
@@ -113,7 +111,7 @@ where
             _ => {}
         }
 
-        let payload = &msg.get_payload().unwrap().as_application_payload().blob;
+        let payload = &msg.get_payload().unwrap().as_application_payload()?.blob;
 
         let decrypted_payload = {
             let mut mls_guard = self.mls.lock().await;
@@ -152,15 +150,16 @@ mod tests {
         let mls_arc = Arc::new(Mutex::new(mls));
         let interceptor = MlsInterceptor::new(mls_arc);
 
-        let payload = Some(ApplicationPayload::new("text", b"test message".to_vec()).as_content());
-
-        let mut msg = Message::new_publish(
-            &slim_datapath::messages::Name::from_strings(["org", "default", "test"]).with_id(0),
-            &slim_datapath::messages::Name::from_strings(["org", "default", "target"]),
-            None,
-            None,
-            payload,
-        );
+        let mut msg = Message::builder()
+            .source(
+                slim_datapath::messages::Name::from_strings(["org", "default", "test"]).with_id(0),
+            )
+            .destination(slim_datapath::messages::Name::from_strings([
+                "org", "default", "target",
+            ]))
+            .application_payload("text", b"test message".to_vec())
+            .build_publish()
+            .unwrap();
 
         let result = interceptor.on_msg_from_app(&mut msg).await;
         assert!(result.is_err());
@@ -197,15 +196,17 @@ mod tests {
         let bob_interceptor = MlsInterceptor::new(Arc::new(Mutex::new(bob_mls)));
 
         let original_payload = b"Hello from Alice!";
-        let payload = Some(ApplicationPayload::new("text", original_payload.to_vec()).as_content());
 
-        let mut alice_msg = Message::new_publish(
-            &slim_datapath::messages::Name::from_strings(["org", "default", "alice"]).with_id(0),
-            &slim_datapath::messages::Name::from_strings(["org", "default", "bob"]),
-            None,
-            None,
-            payload,
-        );
+        let mut alice_msg = Message::builder()
+            .source(
+                slim_datapath::messages::Name::from_strings(["org", "default", "alice"]).with_id(0),
+            )
+            .destination(slim_datapath::messages::Name::from_strings([
+                "org", "default", "bob",
+            ]))
+            .application_payload("text", original_payload.to_vec())
+            .build_publish()
+            .unwrap();
 
         alice_interceptor
             .on_msg_from_app(&mut alice_msg)
@@ -217,6 +218,7 @@ mod tests {
                 .get_payload()
                 .unwrap()
                 .as_application_payload()
+                .unwrap()
                 .blob,
             original_payload
         );
@@ -228,7 +230,12 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            bob_msg.get_payload().unwrap().as_application_payload().blob,
+            bob_msg
+                .get_payload()
+                .unwrap()
+                .as_application_payload()
+                .unwrap()
+                .blob,
             original_payload
         );
     }

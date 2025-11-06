@@ -12,149 +12,7 @@ class PyApp:
     @property
     def name(self) -> PyName: ...
 
-class PyKey:
-    r"""
-    Composite key description used for signing or verification.
-    
-    Fields:
-    * algorithm: `PyAlgorithm` to apply
-    * format: `PyKeyFormat` describing encoding
-    * key: `PyKeyData` where the actual bytes originate
-    """
-    @property
-    def algorithm(self) -> PyAlgorithm: ...
-    @algorithm.setter
-    def algorithm(self, value: PyAlgorithm) -> None: ...
-    @property
-    def format(self) -> PyKeyFormat: ...
-    @format.setter
-    def format(self, value: PyKeyFormat) -> None: ...
-    @property
-    def key(self) -> PyKeyData: ...
-    @key.setter
-    def key(self, value: PyKeyData) -> None: ...
-    def __new__(cls, algorithm:PyAlgorithm, format:PyKeyFormat, key:PyKeyData) -> PyKey:
-        r"""
-        Construct a new `PyKey`.
-        
-        Args:
-          algorithm: Algorithm used for signing / verification.
-          format: Representation format (PEM/JWK/JWKS).
-          key: Source (file vs inline content).
-        """
-
-class PyMessageContext:
-    r"""
-    Python-visible context accompanying every received message.
-    
-    Provides routing and descriptive metadata needed for replying,
-    auditing, and instrumentation.
-    
-    This type implements `From<MessageContext>` and `Into<MessageContext>`
-    for seamless conversion with the common core message context type.
-    
-    Fields:
-    * `source_name`: Fully-qualified sender identity.
-    * `destination_name`: Fully-qualified destination identity (may be an empty placeholder
-      when not explicitly set, e.g. broadcast/group scenarios).
-    * `payload_type`: Logical/semantic type (defaults to "msg" if unspecified).
-    * `metadata`: Arbitrary key/value pairs supplied by the sender (e.g. tracing IDs).
-    * `input_connection`: Numeric identifier of the inbound connection carrying the message.
-    """
-    @property
-    def source_name(self) -> PyName: ...
-    @property
-    def destination_name(self) -> PyName: ...
-    @property
-    def payload_type(self) -> builtins.str: ...
-    @property
-    def metadata(self) -> builtins.dict[builtins.str, builtins.str]: ...
-    @property
-    def input_connection(self) -> builtins.int: ...
-    @property
-    def identity(self) -> builtins.str: ...
-    def __new__(cls) -> PyMessageContext:
-        r"""
-        Prevent direct construction from Python. `PyMessageContext` instances
-        are created internally when messages are received from the service.
-        """
-
-class PyName:
-    r"""
-    name class
-    """
-    @property
-    def id(self) -> builtins.int: ...
-    @id.setter
-    def id(self, value: builtins.int) -> None: ...
-    def __eq__(self, other:builtins.object) -> builtins.bool: ...
-    def __str__(self) -> builtins.str: ...
-    def __new__(cls, component0:builtins.str, component1:builtins.str, component2:builtins.str, id:typing.Optional[builtins.int]=None) -> PyName: ...
-    def components(self) -> builtins.list[builtins.int]: ...
-    def components_strings(self) -> builtins.list[builtins.str]: ...
-    def equal_without_id(self, name:PyName) -> builtins.bool: ...
-    def __hash__(self) -> builtins.int: ...
-
-class PySessionContext:
-    r"""
-    Python-exposed session context wrapper.
-    
-    A thin, cloneable handle around the underlying Rust session state that provides
-    both session metadata access and session-specific operations. All getters perform
-    a safe upgrade of the weak internal session reference, returning a Python exception
-    if the session has already been closed.
-    
-    Properties (getters exposed to Python):
-    - id -> int: Unique numeric identifier of the session. Raises a Python
-      exception if the session has been closed.
-    - metadata -> dict[str,str]: Arbitrary key/value metadata copied from the
-      current SessionConfig. A cloned map is returned so Python can mutate
-      without racing the underlying config.
-    - session_type -> PySessionType: High-level transport classification
-      (PointToPoint, Group), inferred from internal kind + destination.
-    - src -> PyName: Fully qualified source identity that originated / owns
-      the session.
-    - dst -> PyName: Destination name:
-        * PyName of the peer for PointToPoint
-        * PyName of the channel for Group
-    - session_config -> PySessionConfiguration: Current effective configuration
-      converted to the Python-facing enum variant.
-    """
-    @property
-    def id(self) -> builtins.int: ...
-    @property
-    def metadata(self) -> builtins.dict[builtins.str, builtins.str]: ...
-    @property
-    def session_type(self) -> PySessionType: ...
-    @property
-    def src(self) -> PyName: ...
-    @property
-    def dst(self) -> typing.Optional[PyName]: ...
-    @property
-    def session_config(self) -> PySessionConfiguration: ...
-    def set_session_config(self, config:PySessionConfiguration) -> None: ...
-
-class PyAlgorithm(Enum):
-    r"""
-    JWT / signature algorithms exposed to Python.
-    
-    Maps 1:1 to `slim_auth::jwt::Algorithm`.
-    Provides stable integer values for stub generation / introspection.
-    """
-    HS256 = ...
-    HS384 = ...
-    HS512 = ...
-    RS256 = ...
-    RS384 = ...
-    RS512 = ...
-    PS256 = ...
-    PS384 = ...
-    PS512 = ...
-    ES256 = ...
-    ES384 = ...
-    EdDSA = ...
-
-class PyIdentityProvider(Enum):
+class PyIdentityProvider:
     r"""
     Python-facing identity provider definitions.
     
@@ -238,9 +96,252 @@ class PyIdentityProvider(Enum):
     # Verifier would normally use the corresponding public key (PyIdentityVerifier.Jwt).
     ```
     """
-    StaticJwt = ...
-    Jwt = ...
-    SharedSecret = ...
+    class StaticJwt(PyIdentityProvider):
+        __match_args__ = ("path",)
+        @property
+        def path(self) -> builtins.str: ...
+        def __new__(cls, path:builtins.str) -> PyIdentityProvider.StaticJwt: ...
+    
+    class Jwt(PyIdentityProvider):
+        __match_args__ = ("private_key", "duration", "issuer", "audience", "subject",)
+        @property
+        def private_key(self) -> PyKey: ...
+        @property
+        def duration(self) -> datetime.timedelta: ...
+        @property
+        def issuer(self) -> typing.Optional[builtins.str]: ...
+        @property
+        def audience(self) -> typing.Optional[builtins.list[builtins.str]]: ...
+        @property
+        def subject(self) -> typing.Optional[builtins.str]: ...
+        def __new__(cls, private_key:PyKey, duration:datetime.timedelta, issuer:typing.Optional[builtins.str]=None, audience:typing.Optional[typing.Sequence[builtins.str]]=None, subject:typing.Optional[builtins.str]=None) -> PyIdentityProvider.Jwt: ...
+    
+    class SharedSecret(PyIdentityProvider):
+        __match_args__ = ("identity", "shared_secret",)
+        @property
+        def identity(self) -> builtins.str: ...
+        @property
+        def shared_secret(self) -> builtins.str: ...
+        def __new__(cls, identity:builtins.str, shared_secret:builtins.str) -> PyIdentityProvider.SharedSecret: ...
+    
+    ...
+
+class PyKey:
+    r"""
+    Composite key description used for signing or verification.
+    
+    Fields:
+    * algorithm: `PyAlgorithm` to apply
+    * format: `PyKeyFormat` describing encoding
+    * key: `PyKeyData` where the actual bytes originate
+    """
+    @property
+    def algorithm(self) -> PyAlgorithm: ...
+    @algorithm.setter
+    def algorithm(self, value: PyAlgorithm) -> None: ...
+    @property
+    def format(self) -> PyKeyFormat: ...
+    @format.setter
+    def format(self, value: PyKeyFormat) -> None: ...
+    @property
+    def key(self) -> PyKeyData: ...
+    @key.setter
+    def key(self, value: PyKeyData) -> None: ...
+    def __new__(cls, algorithm:PyAlgorithm, format:PyKeyFormat, key:PyKeyData) -> PyKey:
+        r"""
+        Construct a new `PyKey`.
+        
+        Args:
+          algorithm: Algorithm used for signing / verification.
+          format: Representation format (PEM/JWK/JWKS).
+          key: Source (file vs inline content).
+        """
+
+class PyMessageContext:
+    r"""
+    Python-visible context accompanying every received message.
+    
+    Provides routing and descriptive metadata needed for replying,
+    auditing, and instrumentation.
+    
+    This type implements `From<MessageContext>` and `Into<MessageContext>`
+    for seamless conversion with the common core message context type.
+    
+    Fields:
+    * `source_name`: Fully-qualified sender identity.
+    * `destination_name`: Fully-qualified destination identity (may be an empty placeholder
+      when not explicitly set, e.g. broadcast/group scenarios).
+    * `payload_type`: Logical/semantic type (defaults to "msg" if unspecified).
+    * `metadata`: Arbitrary key/value pairs supplied by the sender (e.g. tracing IDs).
+    * `input_connection`: Numeric identifier of the inbound connection carrying the message.
+    """
+    @property
+    def source_name(self) -> PyName: ...
+    @property
+    def destination_name(self) -> PyName: ...
+    @property
+    def payload_type(self) -> builtins.str: ...
+    @property
+    def metadata(self) -> builtins.dict[builtins.str, builtins.str]: ...
+    @property
+    def input_connection(self) -> builtins.int: ...
+    @property
+    def identity(self) -> builtins.str: ...
+    def __new__(cls) -> PyMessageContext:
+        r"""
+        Prevent direct construction from Python. `PyMessageContext` instances
+        are created internally when messages are received from the service.
+        """
+
+class PyName:
+    r"""
+    name class
+    """
+    @property
+    def id(self) -> builtins.int: ...
+    @id.setter
+    def id(self, value: builtins.int) -> None: ...
+    def __eq__(self, other:builtins.object) -> builtins.bool: ...
+    def __str__(self) -> builtins.str: ...
+    def __new__(cls, component0:builtins.str, component1:builtins.str, component2:builtins.str, id:typing.Optional[builtins.int]=None) -> PyName: ...
+    def components(self) -> builtins.list[builtins.int]: ...
+    def components_strings(self) -> builtins.list[builtins.str]: ...
+    def equal_without_id(self, name:PyName) -> builtins.bool: ...
+    def __hash__(self) -> builtins.int: ...
+
+class PySessionConfiguration:
+    r"""
+    User-facing configuration for establishing and tuning sessions.
+    
+    Each variant maps to a core `SessionConfig` and defines the behavior of session-level
+    operations like message publishing, participant management, and message reception.
+    
+    Common fields:
+    * `timeout`: How long we wait for an ack before trying again.
+    * `max_retries`: Number of attempts to send a message. If we run out, an error is returned.
+    * `mls_enabled`: Turn on MLS for end‑to‑end crypto.
+    * `metadata`: One-shot string key/value tags sent at session start; the other side can read them for tracing, routing, auth, etc.
+    
+    Variant-specific notes:
+    * `PointToPoint`: Direct communication with a specific peer. Session operations target the peer directly.
+    * `Group`: Channel-based multicast communication. Session operations affect the entire group.
+    
+    # Examples
+    
+    ## Python: Create different session configs
+    ```python
+    from slim_bindings import PySessionConfiguration, PyName
+    
+    # PointToPoint session - direct peer communication
+    p2p_cfg = PySessionConfiguration.PointToPoint(
+        peer_name=PyName("org", "namespace", "service"), # target peer
+        timeout=datetime.timedelta(seconds=2), # wait 2 seconds for an ack
+        max_retries=5, # retry up to 5 times
+        mls_enabled=True, # enable MLS
+        metadata={"trace_id": "1234abcd"} # arbitrary (string -> string) key/value pairs to send at session establishment
+    )
+    
+    # Group session (channel-based)
+    channel = PyName("org", "namespace", "channel")
+    group_cfg = PySessionConfiguration.Group(
+        channel_name=channel, # group channel_name
+        max_retries=2, # retry up to 2 times
+        timeout=datetime.timedelta(seconds=2), # wait 2 seconds for an ack
+        mls_enabled=True, # enable MLS
+        metadata={"role": "publisher"} # arbitrary (string -> string) key/value pairs to send at session establishment
+    )
+    ```
+    
+    ## Python: Using a config when creating a session
+    ```python
+    slim = await Slim.new(local_name, provider, verifier)
+    session = await slim.create_session(p2p_cfg)
+    print("Session ID:", session.id)
+    print("Type:", session.session_type)
+    print("Metadata:", session.metadata)
+    ```
+    
+    ## Python: Updating configuration after creation
+    ```python
+    # Adjust retries & metadata dynamically
+    new_cfg = PySessionConfiguration.PointToPoint(
+        peer_name=PyName("org", "namespace", "service"),
+        timeout=None,
+        max_retries=10,
+        mls_enabled=True,
+        metadata={"trace_id": "1234abcd", "phase": "retrying"}
+    )
+    session.set_session_config(new_cfg)
+    ```
+    
+    ## Rust (internal conversion flow)
+    The enum transparently converts to and from `SessionConfig`:
+    ```
+    // Example conversion (pseudo-code):
+    // let core: SessionConfig = py_cfg.clone().into();
+    // let roundtrip: PySessionConfiguration = core.into();
+    // assert_eq!(py_cfg, roundtrip);
+    ```
+    """
+    ...
+
+class PySessionContext:
+    r"""
+    Python-exposed session context wrapper.
+    
+    A thin, cloneable handle around the underlying Rust session state that provides
+    both session metadata access and session-specific operations. All getters perform
+    a safe upgrade of the weak internal session reference, returning a Python exception
+    if the session has already been closed.
+    
+    Properties (getters exposed to Python):
+    - id -> int: Unique numeric identifier of the session. Raises a Python
+      exception if the session has been closed.
+    - metadata -> dict[str,str]: Arbitrary key/value metadata copied from the
+      current SessionConfig. A cloned map is returned so Python can mutate
+      without racing the underlying config.
+    - session_type -> PySessionType: High-level transport classification
+      (PointToPoint, Group), inferred from internal kind + destination.
+    - src -> PyName: Fully qualified source identity that originated / owns
+      the session.
+    - dst -> PyName: Destination name:
+        * PyName of the peer for PointToPoint
+        * PyName of the channel for Group
+    - session_config -> PySessionConfiguration: Current effective configuration
+      converted to the Python-facing enum variant.
+    """
+    @property
+    def id(self) -> builtins.int: ...
+    @property
+    def metadata(self) -> builtins.dict[builtins.str, builtins.str]: ...
+    @property
+    def session_type(self) -> PySessionType: ...
+    @property
+    def src(self) -> PyName: ...
+    @property
+    def dst(self) -> typing.Optional[PyName]: ...
+    @property
+    def session_config(self) -> PySessionConfiguration: ...
+
+class PyAlgorithm(Enum):
+    r"""
+    JWT / signature algorithms exposed to Python.
+    
+    Maps 1:1 to `slim_auth::jwt::Algorithm`.
+    Provides stable integer values for stub generation / introspection.
+    """
+    HS256 = ...
+    HS384 = ...
+    HS512 = ...
+    RS256 = ...
+    RS384 = ...
+    RS512 = ...
+    PS256 = ...
+    PS384 = ...
+    PS512 = ...
+    ES256 = ...
+    ES384 = ...
+    EdDSA = ...
 
 class PyIdentityVerifier(Enum):
     r"""
@@ -367,89 +468,6 @@ class PyKeyFormat(Enum):
     Jwk = ...
     Jwks = ...
 
-class PySessionConfiguration(Enum):
-    r"""
-    User-facing configuration for establishing and tuning sessions.
-    
-    Each variant maps to a core `SessionConfig` and defines the behavior of session-level
-    operations like message publishing, participant management, and message reception.
-    
-    Common fields:
-    * `timeout`: How long we wait for an ack before trying again.
-    * `max_retries`: Number of attempts to send a message. If we run out, an error is returned.
-    * `mls_enabled`: Turn on MLS for end‑to‑end crypto.
-    * `metadata`: One-shot string key/value tags sent at session start; the other side can read them for tracing, routing, auth, etc.
-    
-    Variant-specific notes:
-    * `PointToPoint`: Direct communication with a specific peer. Session operations target the peer directly.
-    * `Group`: Channel-based multicast communication. Session operations affect the entire group.
-    
-    # Examples
-    
-    ## Python: Create different session configs
-    ```python
-    from slim_bindings import PySessionConfiguration, PyName
-    
-    # PointToPoint session - direct peer communication
-    p2p_cfg = PySessionConfiguration.PointToPoint(
-        peer_name=PyName("org", "namespace", "service"), # target peer
-        timeout=datetime.timedelta(seconds=2), # wait 2 seconds for an ack
-        max_retries=5, # retry up to 5 times
-        mls_enabled=True, # enable MLS
-        metadata={"trace_id": "1234abcd"} # arbitrary (string -> string) key/value pairs to send at session establishment
-    )
-    
-    # Group session (channel-based)
-    channel = PyName("org", "namespace", "channel")
-    group_cfg = PySessionConfiguration.Group(
-        channel_name=channel, # group channel_name
-        max_retries=2, # retry up to 2 times
-        timeout=datetime.timedelta(seconds=2), # wait 2 seconds for an ack
-        mls_enabled=True, # enable MLS
-        metadata={"role": "publisher"} # arbitrary (string -> string) key/value pairs to send at session establishment
-    )
-    ```
-    
-    ## Python: Using a config when creating a session
-    ```python
-    slim = await Slim.new(local_name, provider, verifier)
-    session = await slim.create_session(p2p_cfg)
-    print("Session ID:", session.id)
-    print("Type:", session.session_type)
-    print("Metadata:", session.metadata)
-    ```
-    
-    ## Python: Updating configuration after creation
-    ```python
-    # Adjust retries & metadata dynamically
-    new_cfg = PySessionConfiguration.PointToPoint(
-        peer_name=PyName("org", "namespace", "service"),
-        timeout=None,
-        max_retries=10,
-        mls_enabled=True,
-        metadata={"trace_id": "1234abcd", "phase": "retrying"}
-    )
-    session.set_session_config(new_cfg)
-    ```
-    
-    ## Rust (internal conversion flow)
-    The enum transparently converts to and from `SessionConfig`:
-    ```
-    // Example conversion (pseudo-code):
-    // let core: SessionConfig = py_cfg.clone().into();
-    // let roundtrip: PySessionConfiguration = core.into();
-    // assert_eq!(py_cfg, roundtrip);
-    ```
-    """
-    PointToPoint = ...
-    r"""
-    PointToPoint configuration with a fixed destination (peer_name).
-    """
-    Group = ...
-    r"""
-    Group configuration: one-to-many distribution through a channel_name.
-    """
-
 class PySessionType(Enum):
     r"""
     High-level session classification presented to Python.
@@ -467,7 +485,7 @@ def connect(svc:PyApp, config:dict) -> typing.Any: ...
 
 def create_pyapp(name:PyName, provider:PyIdentityProvider, verifier:PyIdentityVerifier, local_service:builtins.bool=False) -> typing.Any: ...
 
-def create_session(svc:PyApp, config:PySessionConfiguration) -> typing.Any: ...
+def create_session(svc:PyApp, destination:PyName, config:PySessionConfiguration) -> typing.Any: ...
 
 def delete_session(svc:PyApp, session_context:PySessionContext) -> typing.Any: ...
 
@@ -505,8 +523,6 @@ def remove(session_context:PySessionContext, name:PyName) -> typing.Any:
 def remove_route(svc:PyApp, name:PyName, conn:builtins.int) -> typing.Any: ...
 
 def run_server(svc:PyApp, config:dict) -> typing.Any: ...
-
-def set_default_session_config(svc:PyApp, config:PySessionConfiguration) -> None: ...
 
 def set_route(svc:PyApp, name:PyName, conn:builtins.int) -> typing.Any: ...
 
