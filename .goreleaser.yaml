@@ -61,7 +61,7 @@ homebrew_casks:
       template: "https://github.com/agntcy/slim/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
       using: ":homebrew_curl"
 
-    skip_upload: true
+    skip_upload: false
 
     repository:
       owner: agntcy

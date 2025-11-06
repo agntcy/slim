@@ -54,5 +54,4 @@ jobs:
       - name: Upload to existing release
         run: |
           TAG=${GITHUB_REF#refs/tags/}
-          assets=echo $(find .dist/slimctl -type f -name '*.tar.gz')
-          gh release upload "$TAG" "$assets" --clobber
+          gh release upload "$TAG" $(find .dist/slimctl -type f -name '*.tar.gz') --clobber
