@@ -86,7 +86,7 @@ macro_rules! create_auth_service {
             .layer(SetRequestHeaderLayer::new($header_map))
             .layer(auth_layer)
             .service($channel)
-            .boxed())
+            .boxed_clone())
     }};
 }
 
@@ -398,7 +398,8 @@ impl ClientConfig {
                               + 'static,
             Future: Send,
         > + Send
-        + use<>,
+        + Clone
+        + 'static,
         ConfigError,
     > {
         // Validate endpoint
@@ -687,7 +688,8 @@ impl ClientConfig {
                               + 'static,
             Future: Send,
         > + Send
-        + use<>,
+        + Clone
+        + 'static,
         ConfigError,
     > {
         match &self.auth {
@@ -703,7 +705,7 @@ impl ClientConfig {
             AuthenticationConfig::None => Ok(tower::ServiceBuilder::new()
                 .layer(SetRequestHeaderLayer::new(header_map))
                 .service(channel)
-                .boxed()),
+                .boxed_clone()),
         }
     }
 
