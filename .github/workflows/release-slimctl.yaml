@@ -59,6 +59,8 @@ jobs:
 
       - name: Copy cask to tap
         run: |
+          # ensure the Casks directory  exists        
+          mkdir -p ./Casks
           cp .dist/slimctl/homebrew/Casks/slimctl.rb ./Casks/slimctl.rb
 
       - name: Create Pull Request
