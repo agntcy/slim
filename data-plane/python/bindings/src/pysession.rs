@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use pyo3::exceptions::PyException;
+use slim_datapath::api::ProtoSessionType;
+use slim_session::session_controller::SessionController;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::sync::{Arc, Weak};
@@ -11,17 +13,15 @@ use pyo3_stub_gen::derive::gen_stub_pyclass;
 use pyo3_stub_gen::derive::gen_stub_pyclass_enum;
 use pyo3_stub_gen::derive::gen_stub_pyfunction;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
-use slim_session::{SessionConfig, SessionError, SessionType};
+use slim_session::{SessionConfig, SessionError};
 
 use crate::pyidentity::{IdentityProvider, IdentityVerifier};
 use crate::pymessage::PyMessageContext;
 use crate::utils::PyName;
 use slim_datapath::messages::Name;
 use slim_service::{BindingsAdapter, BindingsSessionContext, MessageContext};
-use slim_session::MulticastConfiguration;
-use slim_session::PointToPointConfiguration;
 pub use slim_session::SESSION_UNSPECIFIED;
-use slim_session::Session;
+
 use slim_session::context::SessionContext;
 
 /// Internal shared session context state.
@@ -36,7 +36,7 @@ use slim_session::context::SessionContext;
 /// This struct is not exposed directly to Python; it is wrapped by
 /// `PySessionContext`.
 pub(crate) struct PySessionCtxInternal {
-    pub(crate) bindings_ctx: BindingsSessionContext<IdentityProvider, IdentityVerifier>,
+    pub(crate) bindings_ctx: BindingsSessionContext,
 }
 
 /// Python-exposed session context wrapper.
@@ -68,8 +68,8 @@ pub(crate) struct PySessionContext {
     pub(crate) internal: Arc<PySessionCtxInternal>,
 }
 
-impl From<SessionContext<IdentityProvider, IdentityVerifier>> for PySessionContext {
-    fn from(ctx: SessionContext<IdentityProvider, IdentityVerifier>) -> Self {
+impl From<SessionContext> for PySessionContext {
+    fn from(ctx: SessionContext) -> Self {
         // Convert to BindingsSessionContext
         let bindings_ctx = BindingsSessionContext::from(ctx);
 
@@ -80,9 +80,7 @@ impl From<SessionContext<IdentityProvider, IdentityVerifier>> for PySessionConte
 }
 
 // Internal helper to obtain a strong session reference or raise a Python exception
-fn strong_session(
-    weak: &Weak<Session<IdentityProvider, IdentityVerifier>>,
-) -> PyResult<Arc<Session<IdentityProvider, IdentityVerifier>>> {
+fn strong_session(weak: &Weak<SessionController>) -> PyResult<Arc<SessionController>> {
     weak.upgrade().ok_or_else(|| {
         PyErr::new::<PyException, _>(
             SessionError::SessionClosed("session already closed".to_string()).to_string(),
@@ -112,15 +110,14 @@ impl PySessionContext {
                     SessionError::SessionClosed("session already closed".to_string()).to_string(),
                 )
             })?;
-        let session_config = session.session_config();
 
-        Ok(session_config.metadata())
+        Ok(session.metadata())
     }
 
     #[getter]
     pub fn session_type(&self) -> PyResult<PySessionType> {
         let session = strong_session(&self.internal.bindings_ctx.session)?;
-        Ok(session.kind().into())
+        Ok(session.session_type().into())
     }
 
     #[getter]
@@ -134,21 +131,13 @@ impl PySessionContext {
     pub fn dst(&self) -> PyResult<Option<PyName>> {
         let session = strong_session(&self.internal.bindings_ctx.session)?;
 
-        Ok(session.dst().map(|name| name.into()))
+        Ok(Some(session.dst().clone().into()))
     }
 
     #[getter]
     pub fn session_config(&self) -> PyResult<PySessionConfiguration> {
         let session = strong_session(&self.internal.bindings_ctx.session)?;
         Ok(session.session_config().into())
-    }
-
-    pub fn set_session_config(&self, config: PySessionConfiguration) -> PyResult<()> {
-        let session = strong_session(&self.internal.bindings_ctx.session)?;
-        session
-            .set_session_config(&config.into())
-            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
-        Ok(())
     }
 }
 
@@ -189,14 +178,7 @@ impl PySessionContext {
             Some(name) => (name, None),
             None => match &message_ctx {
                 Some(ctx) => (&ctx.source_name, Some(ctx.input_connection)),
-                None => match session.session_config().destination_name() {
-                    Some(n) => (&PyName::from(n), None),
-                    None => {
-                        return Err(PyErr::new::<PyException, _>(
-                            "either name or message_ctx must be provided for publish",
-                        ));
-                    }
-                },
+                None => (&PyName::from(session.dst().clone()), None),
             },
         };
 
@@ -281,11 +263,12 @@ pub enum PySessionType {
     Group = 1,
 }
 
-impl From<SessionType> for PySessionType {
-    fn from(value: SessionType) -> Self {
+impl From<ProtoSessionType> for PySessionType {
+    fn from(value: ProtoSessionType) -> Self {
         match value {
-            SessionType::PointToPoint => PySessionType::PointToPoint,
-            SessionType::Multicast => PySessionType::Group,
+            ProtoSessionType::PointToPoint => PySessionType::PointToPoint,
+            ProtoSessionType::Multicast => PySessionType::Group,
+            ProtoSessionType::Unspecified => panic!("unexpected session type"),
         }
     }
 }
@@ -361,167 +344,140 @@ impl From<SessionType> for PySessionType {
 /// // let roundtrip: PySessionConfiguration = core.into();
 /// // assert_eq!(py_cfg, roundtrip);
 /// ```
-#[gen_stub_pyclass_enum]
-#[derive(Clone, PartialEq)]
-#[pyclass(eq, str)]
-pub(crate) enum PySessionConfiguration {
-    /// PointToPoint configuration with a fixed destination (peer_name).
-    #[pyo3(constructor = (peer_name, timeout=None, max_retries=None, mls_enabled=false, metadata=HashMap::new()))]
-    PointToPoint {
-        peer_name: PyName,
-        timeout: Option<std::time::Duration>,
-        /// Optional maximum retry attempts.
-        max_retries: Option<u32>,
-        /// Enable (true) or disable (false) MLS features.
-        mls_enabled: bool,
-        /// Arbitrary metadata key/value pairs.
-        metadata: HashMap<String, String>,
-    },
-
-    /// Group configuration: one-to-many distribution through a channel_name.
-    #[pyo3(constructor = (channel_name, max_retries=0, timeout=std::time::Duration::from_millis(1000), mls_enabled=false, metadata=HashMap::new()))]
-    Group {
-        /// Group channel_name (channel) identifier.
-        channel_name: PyName,
-        /// Maximum retry attempts for setup or message send.
-        max_retries: u32,
-        /// Per-operation timeout.
-        timeout: std::time::Duration,
-        /// Enable (true) or disable (false) MLS features.
-        mls_enabled: bool,
-        /// Arbitrary metadata key/value pairs.
-        metadata: HashMap<String, String>,
-    },
+#[gen_stub_pyclass]
+#[pyclass]
+#[derive(Clone)]
+pub struct PySessionConfiguration {
+    /// session type
+    session_type: ProtoSessionType,
+    /// Optional maximum retry attempts.
+    max_retries: Option<u32>,
+    /// interval between attempts
+    timeout: Option<std::time::Duration>,
+    /// Enable (true) or disable (false) MLS features.
+    mls_enabled: bool,
+    /// True is this endpoint is the initiator of the session
+    initiator: bool,
+    /// Arbitrary metadata key/value pairs.
+    metadata: HashMap<String, String>,
 }
 
 // TODO(msardara): unify the configs as now they became identical
 #[pymethods]
 impl PySessionConfiguration {
-    /// Return the name of the destination (peer or channel).
-    #[getter]
-    pub fn destination_name(&self) -> PyName {
-        match self {
-            PySessionConfiguration::PointToPoint { peer_name, .. } => peer_name.clone(),
-            PySessionConfiguration::Group { channel_name, .. } => channel_name.clone(),
+    /// Create a PointToPoint session configuration.
+    ///
+    /// Args:
+    ///     timeout: Optional timeout duration
+    ///     max_retries: Optional maximum retry attempts
+    ///     mls_enabled: Enable MLS encryption (default: false)
+    ///     metadata: Optional metadata dictionary
+    #[staticmethod]
+    #[pyo3(name = "PointToPoint", signature = (timeout=None, max_retries=None, mls_enabled=false, metadata=None))]
+    pub fn point_to_point(
+        timeout: Option<std::time::Duration>,
+        max_retries: Option<u32>,
+        mls_enabled: bool,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Self {
+        PySessionConfiguration {
+            session_type: ProtoSessionType::PointToPoint,
+            max_retries,
+            timeout,
+            mls_enabled,
+            initiator: true,
+            metadata: metadata.unwrap_or_default(),
         }
+    }
+
+    /// Create a Group session configuration.
+    ///
+    /// Args:
+    ///     timeout: Optional timeout duration
+    ///     max_retries: Optional maximum retry attempts
+    ///     mls_enabled: Enable MLS encryption (default: false)
+    ///     metadata: Optional metadata dictionary
+    #[staticmethod]
+    #[pyo3(name = "Group", signature = (timeout=None, max_retries=None, mls_enabled=false, metadata=None))]
+    pub fn group(
+        timeout: Option<std::time::Duration>,
+        max_retries: Option<u32>,
+        mls_enabled: bool,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Self {
+        PySessionConfiguration {
+            session_type: ProtoSessionType::Multicast,
+            max_retries,
+            timeout,
+            mls_enabled,
+            initiator: true,
+            metadata: metadata.unwrap_or_default(),
+        }
+    }
+
+    /// Return the session type.
+    #[getter]
+    pub fn session_type(&self) -> PySessionType {
+        self.session_type.into()
     }
 
     /// Return the metadata map (cloned).
     #[getter]
     pub fn metadata(&self) -> HashMap<String, String> {
-        match self {
-            PySessionConfiguration::PointToPoint { metadata, .. } => metadata.clone(),
-            PySessionConfiguration::Group { metadata, .. } => metadata.clone(),
-        }
+        self.metadata.clone()
     }
 
     /// Return whether MLS is enabled.
     #[getter]
     pub fn mls_enabled(&self) -> bool {
-        match self {
-            PySessionConfiguration::PointToPoint { mls_enabled, .. } => *mls_enabled,
-            PySessionConfiguration::Group { mls_enabled, .. } => *mls_enabled,
-        }
+        self.mls_enabled
     }
 
     /// Return the timeout duration (if any).
     #[getter]
     pub fn timeout(&self) -> Option<std::time::Duration> {
-        match self {
-            PySessionConfiguration::PointToPoint { timeout, .. } => *timeout,
-            PySessionConfiguration::Group { timeout, .. } => Some(*timeout),
-        }
+        self.timeout
     }
 
     /// Return the maximum number of retries (if any).
     #[getter]
     pub fn max_retries(&self) -> Option<u32> {
-        match self {
-            PySessionConfiguration::PointToPoint { max_retries, .. } => *max_retries,
-            PySessionConfiguration::Group { max_retries, .. } => Some(*max_retries),
-        }
+        self.max_retries
     }
 }
 
 impl Display for PySessionConfiguration {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PySessionConfiguration::PointToPoint {
-                peer_name,
-                timeout,
-                max_retries,
-                mls_enabled,
-                metadata,
-            } => write!(
-                f,
-                "PointToPoint(peer_name={}, timeout={:?}, max_retries={:?}, mls_enabled={}, metadata={:?})",
-                peer_name, timeout, max_retries, mls_enabled, metadata
-            ),
-            PySessionConfiguration::Group {
-                channel_name,
-                max_retries,
-                timeout,
-                mls_enabled,
-                metadata,
-            } => write!(
-                f,
-                "Group(channel_name={}, max_retries={}, timeout={:?}, mls_enabled={}, metadata={:?})",
-                channel_name, max_retries, timeout, mls_enabled, metadata
-            ),
-        }
+        write!(
+            f,
+            "SessionConfig(timeout={:?}, max_retries={:?}, mls_enabled={}, metadata={:?})",
+            self.timeout, self.max_retries, self.mls_enabled, self.metadata
+        )
     }
 }
 
 impl From<SessionConfig> for PySessionConfiguration {
     fn from(session_config: SessionConfig) -> Self {
-        match session_config {
-            SessionConfig::PointToPoint(config) => PySessionConfiguration::PointToPoint {
-                peer_name: config.peer_name.expect("peer name not set").into(),
-                timeout: config.timeout,
-                max_retries: config.max_retries,
-                mls_enabled: config.mls_enabled,
-                metadata: config.metadata,
-            },
-            SessionConfig::Multicast(config) => PySessionConfiguration::Group {
-                channel_name: config.channel_name.into(),
-                max_retries: config.max_retries,
-                timeout: config.timeout,
-                mls_enabled: config.mls_enabled,
-                metadata: config.metadata,
-            },
+        PySessionConfiguration {
+            session_type: session_config.session_type,
+            timeout: session_config.interval,
+            max_retries: session_config.max_retries,
+            mls_enabled: session_config.mls_enabled,
+            initiator: session_config.initiator,
+            metadata: session_config.metadata,
         }
     }
 }
 
-impl From<PySessionConfiguration> for SessionConfig {
-    fn from(value: PySessionConfiguration) -> Self {
-        match value {
-            PySessionConfiguration::PointToPoint {
-                peer_name,
-                timeout,
-                max_retries,
-                mls_enabled,
-                metadata,
-            } => SessionConfig::PointToPoint(PointToPointConfiguration::new(
-                timeout,
-                max_retries,
-                mls_enabled,
-                Some(peer_name.into()),
-                metadata,
-            )),
-            PySessionConfiguration::Group {
-                channel_name,
-                max_retries,
-                timeout,
-                mls_enabled,
-                metadata,
-            } => SessionConfig::Multicast(MulticastConfiguration::new(
-                channel_name.into(),
-                Some(max_retries),
-                Some(timeout),
-                mls_enabled,
-                metadata,
-            )),
+impl From<&PySessionConfiguration> for SessionConfig {
+    fn from(value: &PySessionConfiguration) -> Self {
+        SessionConfig {
+            session_type: value.session_type,
+            interval: value.timeout,
+            max_retries: value.max_retries,
+            mls_enabled: value.mls_enabled,
+            initiator: value.initiator,
+            metadata: value.metadata.clone(),
         }
     }
 }

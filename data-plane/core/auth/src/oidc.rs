@@ -592,7 +592,7 @@ mod tests {
     #[tokio::test]
     async fn test_oidc_token_provider_client_credentials_flow() {
         // Initialize crypto provider for tests
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        slim_config::tls::provider::initialize_crypto_provider();
 
         let (_mock_server, issuer_url, expected_token) = setup_oidc_mock_server().await;
 
@@ -614,7 +614,7 @@ mod tests {
     #[tokio::test]
     async fn test_oidc_token_provider_caching() {
         // Initialize crypto provider for tests
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        slim_config::tls::provider::initialize_crypto_provider();
 
         let (_mock_server, issuer_url, expected_token) = setup_oidc_mock_server().await;
 
@@ -977,7 +977,7 @@ mod tests {
     #[tokio::test]
     async fn test_oidc_token_provider_error_handling() {
         // Initialize crypto provider for tests
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        slim_config::tls::provider::initialize_crypto_provider();
 
         let mock_server = MockServer::start().await;
         let issuer_url = mock_server.uri();
@@ -1033,7 +1033,7 @@ mod tests {
     #[tokio::test]
     async fn test_oidc_token_provider_invalid_token_response() {
         // Initialize crypto provider for tests
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        slim_config::tls::provider::initialize_crypto_provider();
 
         let mock_server = MockServer::start().await;
         let issuer_url = mock_server.uri();

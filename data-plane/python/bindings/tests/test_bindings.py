@@ -32,7 +32,6 @@ from slim_bindings._slim_bindings import (
     listen_for_session,
     publish,
     run_server,
-    set_default_session_config,
     set_route,
     stop_server,
     subscribe,
@@ -88,7 +87,7 @@ async def test_end_to_end(server):
 
     # create point to point session
     session_context_alice = await create_session(
-        svc_alice, slim_bindings.PySessionConfiguration.PointToPoint(peer_name=bob_name)
+        svc_alice, bob_name, slim_bindings.PySessionConfiguration.PointToPoint()
     )
 
     # send msg from Alice to Bob
@@ -141,121 +140,6 @@ async def test_end_to_end(server):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("server", ["127.0.0.1:12344"], indirect=True)
-async def test_session_config(server):
-    """Verify per-session configuration reflection and default override:
-    - Create initial PointToPoint session with custom timeout
-    - Read back config via session_context.session_config
-    - Set new default session configuration
-    - Cause remote peer to create a session toward local service
-    - Assert received session adopts new default
-    - Validate message delivery still works
-    """
-
-    org = "org"
-    ns = "default"
-    alice_name_str = "alice_cfg"
-
-    alice_name = slim_bindings.PyName(org, ns, alice_name_str)
-
-    # create svc
-    svc = await create_svc(alice_name)
-
-    # create a PointToPoint session with custom parameters
-    session_config = slim_bindings.PySessionConfiguration.PointToPoint(
-        peer_name=alice_name,
-        timeout=datetime.timedelta(seconds=2),
-    )
-
-    session_config2 = slim_bindings.PySessionConfiguration.PointToPoint(
-        peer_name=alice_name,
-        timeout=datetime.timedelta(seconds=3),
-    )
-
-    session_context = await create_session(svc, session_config)
-
-    # get per-session configuration via new API (synchronous method)
-    session_config_ret = session_context.session_config
-
-    assert isinstance(
-        session_config_ret, slim_bindings.PySessionConfiguration.PointToPoint
-    )
-    assert session_config == session_config_ret, (
-        f"session config mismatch: {session_config} vs {session_config_ret}"
-    )
-    assert session_config2 != session_config_ret, (
-        f"sessions should differ: {session_config2} vs {session_config_ret}"
-    )
-
-    # Set the default session configuration (no direct read-back API; validate by creating a new session)
-    set_default_session_config(svc, session_config2)
-
-    # ------------------------------------------------------------------
-    # Validate that a session initiated towards this service adopts the new default
-    # ------------------------------------------------------------------
-    peer_name = slim_bindings.PyName(org, ns, "peer_cfg")
-    peer_svc = await create_svc(peer_name, local_service=server.local_service)
-
-    # Connect both services to the running server
-    conn_id_local = await connect(
-        svc,
-        {"endpoint": "http://127.0.0.1:12344", "tls": {"insecure": True}},
-    )
-    conn_id_peer = await connect(
-        peer_svc,
-        {"endpoint": "http://127.0.0.1:12344", "tls": {"insecure": True}},
-    )
-
-    # Build fully qualified names (with instance IDs) and subscribe
-    local_name_with_id = slim_bindings.PyName(org, ns, alice_name_str, id=svc.id)
-    peer_name_with_id = slim_bindings.PyName(org, ns, "peer_cfg", id=peer_svc.id)
-    await subscribe(svc, local_name_with_id, conn_id_local)
-    await subscribe(peer_svc, peer_name_with_id, conn_id_peer)
-
-    # Allow propagation
-    await asyncio.sleep(0.5)
-
-    # Set route from peer -> local so peer can send directly
-    await set_route(peer_svc, local_name_with_id, conn_id_peer)
-
-    # Peer creates a session
-    peer_session_ctx = await create_session(
-        peer_svc,
-        slim_bindings.PySessionConfiguration.PointToPoint(peer_name=local_name_with_id),
-    )
-
-    # Send a first message to trigger session creation on local service
-    msg = [9, 9, 9]
-    await publish(
-        peer_session_ctx,
-        1,
-        msg,
-        name=local_name_with_id,
-    )
-
-    # Local service should receive a new session notification
-    received_session_ctx = await listen_for_session(svc)
-    received_config = received_session_ctx.session_config
-
-    # Assert that the received session is correct
-    assert received_config.destination_name == peer_svc.name, (
-        f"received name does not match: {received_config.destination_name} vs {peer_svc.name}"
-    )
-
-    # Basic sanity: message should be retrievable
-    _, payload = await get_message(received_session_ctx)
-    assert payload == bytes(msg)
-
-    # Delete the sessions
-    await delete_session(svc, received_session_ctx)
-    await delete_session(peer_svc, peer_session_ctx)
-
-    # Cleanup connections (session deletion is implicit on drop / test end)
-    await disconnect(peer_svc, conn_id_peer)
-    await disconnect(svc, conn_id_local)
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("server", ["127.0.0.1:12345"], indirect=True)
 async def test_slim_wrapper(server):
     """Exercise high-level Slim + PySession convenience API:
@@ -296,9 +180,8 @@ async def test_slim_wrapper(server):
 
     # create session
     session_context = await slim2.create_session(
-        slim_bindings.PySessionConfiguration.PointToPoint(
-            peer_name=name1,
-        )
+        name1,
+        slim_bindings.PySessionConfiguration.PointToPoint(),
     )
 
     # publish message
@@ -390,9 +273,8 @@ async def test_auto_reconnect_after_server_restart(server):
     # create point to point session
     session_context = await create_session(
         svc_alice,
-        slim_bindings.PySessionConfiguration.PointToPoint(
-            peer_name=bob_name,
-        ),
+        bob_name,
+        slim_bindings.PySessionConfiguration.PointToPoint(),
     )
 
     # send baseline message Alice -> Bob; Bob should first receive a new session then the message
@@ -459,9 +341,8 @@ async def test_error_on_nonexistent_subscription(server):
     # create point to point session (Alice only)
     session_context = await create_session(
         svc_alice,
-        slim_bindings.PySessionConfiguration.PointToPoint(
-            peer_name=bob_name,
-        ),
+        bob_name,
+        slim_bindings.PySessionConfiguration.PointToPoint(),
     )
 
     # publish a message from Alice intended for Bob (who is not there)
@@ -554,8 +435,9 @@ async def test_get_message_timeout(server):
 
     # Create a session (with dummy peer for timeout testing)
     dummy_peer = slim_bindings.PyName("org", "default", "dummy_peer")
-    p2p_config = slim_bindings.PySessionConfiguration.PointToPoint(peer_name=dummy_peer)
-    session_context = await create_session(svc_alice, p2p_config)
+    session_context = await create_session(
+        svc_alice, dummy_peer, slim_bindings.PySessionConfiguration.PointToPoint()
+    )
 
     # Test with a short timeout - should raise an exception
     start_time = asyncio.get_event_loop().time()

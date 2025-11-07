@@ -92,11 +92,12 @@ enum SessionMessageType {
   SESSION_MESSAGE_TYPE_JOIN_REPLY = 8;
   SESSION_MESSAGE_TYPE_LEAVE_REQUEST = 9;
   SESSION_MESSAGE_TYPE_LEAVE_REPLY = 10;
-  SESSION_MESSAGE_TYPE_GROUP_UPDATE = 11;
-  SESSION_MESSAGE_TYPE_GROUP_WELCOME = 12;
-  SESSION_MESSAGE_TYPE_GROUP_PROPOSAL = 13;
-  SESSION_MESSAGE_TYPE_GROUP_ACK = 14;
-  SESSION_MESSAGE_TYPE_GROUP_NACK = 15;
+  SESSION_MESSAGE_TYPE_GROUP_ADD = 11;
+  SESSION_MESSAGE_TYPE_GROUP_REMOVE = 12;
+  SESSION_MESSAGE_TYPE_GROUP_WELCOME = 13;
+  SESSION_MESSAGE_TYPE_GROUP_PROPOSAL = 14;
+  SESSION_MESSAGE_TYPE_GROUP_ACK = 15;
+  SESSION_MESSAGE_TYPE_GROUP_NACK = 16;
 }
 
 // SLIM message content
@@ -120,11 +121,12 @@ message CommandPayload {
     JoinReplyPayload join_reply = 4;
     LeaveRequestPayload leave_request = 5;
     LeaveReplyPayload leave_reply = 6;
-    GroupUpdatePayload group_update = 7;
-    GroupWelcomePayload group_welcome = 8;
-    GroupProposalPayload group_proposal = 9;
-    GroupAckPayload group_ack = 10;
-    GroupNackPayload group_nack = 11;
+    GroupAddPayload group_add = 7;
+    GroupRemovePayload group_remove = 8;
+    GroupWelcomePayload group_welcome = 9;
+    GroupProposalPayload group_proposal = 10;
+    GroupAckPayload group_ack = 11;
+    GroupNackPayload group_nack = 12;
   }
 }
 
@@ -142,23 +144,19 @@ message DiscoveryReplyPayload {}
 
 // Join Request
 message JoinRequestPayload {
-  // specifies if acks are expected or not
-  bool require_acks = 1;
-  // specifies if rtx are expected or not
-  bool require_rtx = 2;
   // true if mls is enabled
-  bool enable_mls = 3;
+  bool enable_mls = 1;
   // settings for timers for rtx and acks
-  optional TimerSettings timer_settings = 4;
+  optional TimerSettings timer_settings = 2;
   // name where to send the messages
-  // it can be a channel or the same as the moderator
-  optional Name channel = 5;
+  // it can be a channel or none
+  optional Name channel = 3;
 }
 
 message TimerSettings {
   // timeout is intended in ms
-  optional uint32 timeout = 1;
-  optional uint32 max_retries = 2;
+  uint32 timeout = 1;
+  uint32 max_retries = 2;
 }
 
 // Join Reply
@@ -177,26 +175,44 @@ message LeaveRequestPayload {
 // Leave Reply
 message LeaveReplyPayload {}
 
-// Group Update
-// sent every time there is a modification
-// in the participant list
-message GroupUpdatePayload {
-  // current list of participants
-  repeated Name participant = 1;
+// MLS payaload to add to the group
+// messages when mls is active
+message MlsPayload {
+  // the commit id for add/rm participants
+  // the last commit id sent by the moderator in case of welcome message
+  uint32 commit_id = 1;
+  // commit or welcome mls message
+  bytes mls_content = 2;
+}
+
+// Group Add Payload
+// sent when a new participant is added
+message GroupAddPayload {
+  // new participant to add
+  Name new_participant = 1;
+  // new list of participants
+  repeated Name participants = 2;
   // used only when MLS is enabled
-  optional bytes mls_commit = 2;
+  optional MlsPayload mls = 3;
+}
+
+// Group Remove Payload
+// sent when a participant is removed
+message GroupRemovePayload {
+  // new participant to add
+  Name removed_participant = 1;
+  // new list of participants
+  repeated Name participants = 2;
+  // used only when MLS is enabled
+  optional MlsPayload mls = 3;
 }
 
 // Group Welcome
 // sent on group join
 message GroupWelcomePayload {
-  repeated Name participant = 1;
+  repeated Name participants = 1;
   // used only when MLS is enabled
-  // id of the last MLS commit to keep
-  // track of the order
-  optional uint32 msl_commit_id = 2;
-  // MLS welcome message
-  optional bytes mls_welcome = 3;
+  optional MlsPayload mls = 2;
 }
 
 // Group Proposal

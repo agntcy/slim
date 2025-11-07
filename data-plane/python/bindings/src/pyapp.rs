@@ -91,9 +91,14 @@ impl PyApp {
 
     async fn create_session(
         &self,
+        destination: Name,
         session_config: SessionConfig,
     ) -> Result<PySessionContext, SessionError> {
-        let ctx = self.internal.adapter.create_session(session_config).await?;
+        let ctx = self
+            .internal
+            .adapter
+            .create_session(session_config, destination)
+            .await?;
         Ok(PySessionContext::from(ctx))
     }
 
@@ -144,10 +149,6 @@ impl PyApp {
         self.internal.adapter.remove_route(&name.into(), conn).await
     }
 
-    fn set_default_session_config(&self, config: SessionConfig) -> Result<(), SessionError> {
-        self.internal.adapter.set_default_session_config(&config)
-    }
-
     async fn delete_session(&self, session: PySessionContext) -> Result<(), SessionError> {
         session
             .delete(&self.internal.adapter)
@@ -158,14 +159,15 @@ impl PyApp {
 
 #[gen_stub_pyfunction]
 #[pyfunction]
-#[pyo3(signature = (svc, config))]
+#[pyo3(signature = (svc, destination, config))]
 pub fn create_session(
     py: Python,
     svc: PyApp,
+    destination: PyName,
     config: PySessionConfiguration,
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        svc.create_session(config.into())
+        svc.create_session(destination.into(), SessionConfig::from(&config))
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
@@ -184,18 +186,6 @@ pub fn delete_session(
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     })
-}
-
-#[gen_stub_pyfunction]
-#[pyfunction]
-#[pyo3(signature = (svc, config))]
-pub fn set_default_session_config(
-    _py: Python,
-    svc: PyApp,
-    config: PySessionConfiguration,
-) -> PyResult<()> {
-    svc.set_default_session_config(config.into())
-        .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
 }
 
 #[gen_stub_pyfunction]

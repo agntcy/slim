@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-version: '3'
+version: "3"
 
 silent: true
 set: [pipefail]
@@ -97,5 +97,7 @@ tasks:
 
   python:bindings:generate-stub:
     desc: "Generate stub file for the Python bindings"
-    cmds:
-      - cargo run --bin stub_gen
+    cmds: 
+      - cmd: |
+          export PYTHONHOME="$(dirname $(dirname $(realpath $(which .venv/bin/python))))"
+          uv run cargo run --bin stub_gen

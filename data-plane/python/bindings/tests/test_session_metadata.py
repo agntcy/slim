@@ -60,8 +60,8 @@ async def test_session_metadata_merge_roundtrip(server):
     metadata = {"a": "1", "k": "session"}
 
     # Create PointToPoint session
-    sess_cfg = PySessionConfiguration.PointToPoint(receiver_name, metadata=metadata)
-    session_sender = await sender.create_session(sess_cfg)
+    sess_cfg = PySessionConfiguration.PointToPoint(metadata=metadata)
+    session_sender = await sender.create_session(receiver_name, sess_cfg)
 
     await session_sender.publish(b"hello")
 

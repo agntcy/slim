@@ -133,13 +133,11 @@ async def test_identity_verification(server, audience):
     )
 
     # Create PointToPoint session
-    session_info = await slim_sender.create_session(
-        slim_bindings.PySessionConfiguration.PointToPoint(
-            peer_name=receiver_name,
-            timeout=datetime.timedelta(seconds=1),
-            max_retries=3,
-        )
+    session_config = slim_bindings.PySessionConfiguration.PointToPoint(
+        max_retries=3,
+        timeout=datetime.timedelta(seconds=1),
     )
+    session_info = await slim_sender.create_session(receiver_name, session_config)
 
     # messages
     pub_msg = str.encode("thisistherequest")

@@ -70,16 +70,18 @@ impl MessageContext {
         let payload_bytes = publish
             .msg
             .as_ref()
-            .map(|c| c.as_application_payload().blob.clone())
+            .and_then(|c| c.as_application_payload().ok())
+            .map(|p| p.blob.clone())
             .unwrap_or_default();
         let payload_type = publish
             .msg
             .as_ref()
-            .map(|c| {
-                if c.as_application_payload().payload_type.is_empty() {
+            .and_then(|c| c.as_application_payload().ok())
+            .map(|p| {
+                if p.payload_type.is_empty() {
                     "msg".to_string()
                 } else {
-                    c.as_application_payload().payload_type.clone()
+                    p.payload_type.clone()
                 }
             })
             .unwrap_or_else(|| "msg".to_string());
