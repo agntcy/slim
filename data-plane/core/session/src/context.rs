@@ -173,7 +173,6 @@ mod tests {
                 .ready()
                 .expect("Failed to prepare SessionController builder")
                 .build()
-                .await
                 .expect("Failed to create SessionController"),
         )
     }

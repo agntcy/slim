@@ -217,7 +217,7 @@ impl Service {
     }
 
     // APP APIs
-    pub async fn create_app<P, V>(
+    pub fn create_app<P, V>(
         &self,
         app_name: &Name,
         identity_provider: P,
@@ -575,7 +575,6 @@ mod tests {
                 SharedSecret::new("a", TEST_VALID_SECRET),
                 SharedSecret::new("a", TEST_VALID_SECRET),
             )
-            .await
             .expect("failed to create app");
 
         // create a publisher
@@ -586,7 +585,6 @@ mod tests {
                 SharedSecret::new("a", TEST_VALID_SECRET),
                 SharedSecret::new("a", TEST_VALID_SECRET),
             )
-            .await
             .expect("failed to create app");
 
         // sleep to allow the subscription to be processed
@@ -602,7 +600,6 @@ mod tests {
         config.initiator = true;
         let send_session = pub_app
             .create_session(config, subscriber_name.clone(), None)
-            .await
             .unwrap();
 
         time::sleep(Duration::from_millis(100)).await;
@@ -613,7 +610,6 @@ mod tests {
             .session_arc()
             .unwrap()
             .publish(&subscriber_name, message_blob.clone(), None, None)
-            .await
             .unwrap();
 
         // wait for the new session to arrive in the subscriber app
@@ -698,7 +694,6 @@ mod tests {
                 SharedSecret::new("a", TEST_VALID_SECRET),
                 SharedSecret::new("a", TEST_VALID_SECRET),
             )
-            .await
             .expect("failed to create app");
 
         //////////////////////////// p2p session ////////////////////////////////////////////////////////////////////////
@@ -707,7 +702,6 @@ mod tests {
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_info = app
             .create_session(session_config, dst, None)
-            .await
             .expect("failed to create session");
 
         // check the configuration we get is the one we used to create the session
@@ -730,7 +724,6 @@ mod tests {
         };
         let _session_info = app
             .create_session(session_config, stream.clone(), None)
-            .await
             .expect("failed to create session");
 
         // The multicast session was created successfully

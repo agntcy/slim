@@ -167,7 +167,6 @@ async fn main() {
             SharedSecret::new(&local_name_str, slim_testing::utils::TEST_VALID_SECRET),
             SharedSecret::new(&local_name_str, slim_testing::utils::TEST_VALID_SECRET),
         )
-        .await
         .expect("failed to create app");
 
     // run the service - this will create all the connections provided via the config file.
@@ -216,7 +215,6 @@ async fn main() {
         };
         let session_ctx = app
             .create_session(config, channel_name.clone(), Some(12345))
-            .await
             .expect("error creating session");
 
         // invite all participants
@@ -226,7 +224,6 @@ async fn main() {
                 .session_arc()
                 .unwrap()
                 .invite_participant(&p)
-                .await
                 .expect("error sending invite message");
         }
 
@@ -273,7 +270,6 @@ async fn main() {
 
             if session_arc
                 .publish_with_flags(&channel_name, flags, p, None, None)
-                .await
                 .is_err()
             {
                 panic!("an error occurred sending publication from moderator",);
@@ -337,7 +333,6 @@ async fn main() {
                                                 if let Some(session_arc) = weak.upgrade()
                                                     && session_arc
                                                         .publish_with_flags(&channel_name_clone, flags, p, None, None)
-                                                        .await
                                                         .is_err()
                                                     {
                                                         panic!("an error occurred sending publication from moderator");

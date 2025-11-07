@@ -9,7 +9,6 @@ use std::sync::Arc;
 use parking_lot::RwLock as SyncRwLock;
 use rand::Rng;
 use slim_datapath::messages::utils::IS_MODERATOR;
-use tokio::sync::RwLock as AsyncRwLock;
 use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, warn};
 
@@ -40,7 +39,7 @@ where
     T: Transmitter + Send + Sync + Clone + 'static,
 {
     /// Session pool
-    pool: Arc<AsyncRwLock<HashMap<u32, Arc<SessionController>>>>,
+    pool: Arc<SyncRwLock<HashMap<u32, Arc<SessionController>>>>,
 
     /// Default name of the local app
     app_id: u64,
@@ -92,7 +91,7 @@ where
         let (tx_session, rx_session) = tokio::sync::mpsc::channel(16);
 
         let sl = SessionLayer {
-            pool: Arc::new(AsyncRwLock::new(HashMap::new())),
+            pool: Arc::new(SyncRwLock::new(HashMap::new())),
             app_id: app_name.id(),
             app_names: SyncRwLock::new(HashSet::from([app_name.with_id(Name::NULL_COMPONENT)])),
             identity_provider,
@@ -166,84 +165,136 @@ where
             .map_err(|e| e.to_string())
     }
 
-    pub async fn create_session(
+    pub fn create_session(
         &self,
         session_config: SessionConfig,
         local_name: Name,
         destination: Name,
         id: Option<u32>,
     ) -> Result<SessionContext, SessionError> {
-        // get a lock on the session pool
-        let mut pool = self.pool.write().await;
+        // Retry loop to handle race conditions when generating random IDs
+        loop {
+            // get a lock on the session pool
+            let session_id = {
+                let pool = self.pool.read();
 
-        // generate a new session ID in the SESSION_RANGE if not provided
-        let id = match id {
-            Some(id) => {
-                // make sure provided id is in range
-                if !SESSION_RANGE.contains(&id) {
-                    return Err(SessionError::InvalidSessionId(id.to_string()));
-                }
+                // generate a new session ID in the SESSION_RANGE if not provided
+                match id {
+                    Some(id) => {
+                        // make sure provided id is in range
+                        if !SESSION_RANGE.contains(&id) {
+                            return Err(SessionError::InvalidSessionId(id.to_string()));
+                        }
 
-                // check if the session ID is already used
-                if pool.contains_key(&id) {
-                    return Err(SessionError::SessionIdAlreadyUsed(id.to_string()));
-                }
+                        // check if the session ID is already used
+                        if pool.contains_key(&id) {
+                            return Err(SessionError::SessionIdAlreadyUsed(id.to_string()));
+                        }
 
-                id
-            }
-            None => {
-                // generate a new session ID
-                loop {
-                    let id = rand::rng().random_range(SESSION_RANGE);
-                    if !pool.contains_key(&id) {
-                        break id;
+                        id
+                    }
+                    None => {
+                        // generate a new session ID
+                        loop {
+                            let session_id = rand::rng().random_range(SESSION_RANGE);
+                            if !pool.contains_key(&session_id) {
+                                break session_id;
+                            }
+                        }
                     }
                 }
-            }
-        };
+            }; // lock is dropped here
 
-        // Create a new transmitter with identity interceptors
-        let (app_tx, app_rx) = tokio::sync::mpsc::unbounded_channel();
-        let tx = SessionTransmitter::new(self.tx_slim.clone(), app_tx);
+            // Create a new transmitter with identity interceptors
+            let (app_tx, app_rx) = tokio::sync::mpsc::unbounded_channel();
+            let tx = SessionTransmitter::new(self.tx_slim.clone(), app_tx);
 
-        let identity_interceptor = Arc::new(IdentityInterceptor::new(
-            self.identity_provider.clone(),
-            self.identity_verifier.clone(),
-        ));
+            let identity_interceptor = Arc::new(IdentityInterceptor::new(
+                self.identity_provider.clone(),
+                self.identity_verifier.clone(),
+            ));
 
-        tx.add_interceptor(identity_interceptor);
+            tx.add_interceptor(identity_interceptor);
 
-        let session_controller = Arc::new(
-            SessionController::builder()
-                .with_id(id)
-                .with_source(local_name)
-                .with_destination(destination)
-                .with_config(session_config)
+            // Build the session controller (this is async, so no locks are held)
+            let builder = SessionController::builder()
+                .with_id(session_id)
+                .with_source(local_name.clone())
+                .with_destination(destination.clone())
+                .with_config(session_config.clone())
                 .with_identity_provider(self.identity_provider.clone())
                 .with_identity_verifier(self.identity_verifier.clone())
                 .with_storage_path(self.storage_path.clone())
                 .with_tx(tx)
                 .with_tx_to_session_layer(self.tx_session.clone())
-                .ready()?
-                .build()
-                .await?,
-        );
+                .ready()?;
 
-        let ret = pool.insert(id, session_controller.clone());
+            // Perform the async build operation without holding any lock
+            let session_controller = Arc::new(builder.build()?);
 
-        // This should never happen, but just in case
-        if ret.is_some() {
-            panic!("session already exists: {}", ret.is_some());
+            // Reacquire lock to insert the session
+            let mut pool = self.pool.write();
+
+            // Double-check that the ID wasn't taken while we didn't hold the lock
+            if pool.contains_key(&session_id) {
+                // If a specific ID was provided, return an error
+                if id.is_some() {
+                    return Err(SessionError::SessionIdAlreadyUsed(session_id.to_string()));
+                }
+                // If ID was randomly generated, retry with a new ID
+                continue;
+            }
+
+            let ret = pool.insert(session_id, session_controller.clone());
+
+            // This should never happen, but just in case
+            if ret.is_some() {
+                panic!("session already exists: {}", ret.is_some());
+            }
+
+            return Ok(SessionContext::new(session_controller, app_rx));
         }
-
-        Ok(SessionContext::new(session_controller, app_rx))
     }
 
     /// Remove a session from the pool
-    pub async fn remove_session(&self, id: u32) -> bool {
+    pub async fn remove_session(&self, id: u32) -> Result<(), SessionError> {
         // get the write lock
-        let mut pool = self.pool.write().await;
-        pool.remove(&id).is_some()
+        let session = self
+            .pool
+            .write()
+            .remove(&id)
+            .ok_or(SessionError::SessionNotFound(id))?;
+
+        // close the session with timeout
+        session.close().await?;
+
+        // Done
+        Ok(())
+    }
+
+    /// Clear all sessions,
+    pub async fn clear_all_sessions(&self) -> HashMap<u32, Result<(), SessionError>> {
+        let pool = {
+            let mut pool = self.pool.write();
+            let copy = pool.clone();
+            pool.clear();
+            copy
+        };
+
+        // Gather all the futures to close sessions
+        let futures: Vec<_> = pool
+            .iter()
+            .map(|(id, session)| async move { (id, session.close().await) })
+            .collect();
+
+        // Await for all sessions to close
+        let results = futures::future::join_all(futures).await;
+
+        // Return the errors, if any
+        results
+            .into_iter()
+            .map(|(id, result)| (*id, result))
+            .collect()
     }
 
     pub fn listen_from_sessions(
@@ -259,8 +310,7 @@ where
                         match next {
                             Some(Ok(SessionMessage::DeleteSession { session_id })) => {
                                 debug!("received closing signal from session {}, cancel it from the pool", session_id);
-                                let mut pool = pool_clone.write().await;
-                                if pool.remove(&session_id).is_none() {
+                                if pool_clone.write().remove(&session_id).is_none() {
                                     warn!("requested to delete unknown session id {}", session_id);
                                 }
                             }
@@ -281,7 +331,7 @@ where
         });
     }
 
-    pub async fn handle_message_from_app(
+    pub fn handle_message_from_app(
         &self,
         message: Message,
         context: &SessionContext,
@@ -291,7 +341,6 @@ where
             .upgrade()
             .ok_or(SessionError::SessionNotFound(0))?
             .on_message(message, MessageDirection::South)
-            .await
     }
 
     /// Handle session from slim without creating a session
@@ -363,11 +412,9 @@ where
         }
 
         // check if we have a session for the given session ID
-        if let Some(controller) = self.pool.read().await.get(&id) {
+        if let Some(controller) = self.pool.read().get(&id) {
             // pass the message to the session
-            return controller
-                .on_message(message, MessageDirection::North)
-                .await;
+            return controller.on_message(message, MessageDirection::North);
         }
 
         // get local name for the session
@@ -394,8 +441,7 @@ where
                             local_name,
                             message.get_source(),
                             Some(message.get_session_header().session_id),
-                        )
-                        .await?
+                        )?
                     }
                     ProtoSessionType::Multicast => {
                         // Multicast sessions require timer settings; reject if missing.
@@ -439,8 +485,7 @@ where
                             local_name,
                             channel,
                             Some(message.get_session_header().session_id),
-                        )
-                        .await?
+                        )?
                     }
                     _ => {
                         warn!(
@@ -487,8 +532,7 @@ where
             .ok_or(SessionError::SessionClosed(
                 "newly created session already closed: this should not happen".to_string(),
             ))?
-            .on_message(message, MessageDirection::North)
-            .await?;
+            .on_message(message, MessageDirection::North)?;
 
         // send new session to the app
         self.tx_app
@@ -506,7 +550,7 @@ where
         session_message_type: ProtoSessionMessageType,
     ) -> Result<(), SessionError> {
         // received a discovery message
-        if let Some(controller) = self.pool.read().await.get(&id)
+        if let Some(controller) = self.pool.read().get(&id)
             && controller.is_initiator()
             && message
                 .extract_discovery_request()
@@ -516,9 +560,7 @@ where
         {
             // Existing session where we are the initiator and payload includes a destination name:
             // controller is requesting to add a new participant to this session.
-            controller
-                .on_message(message, MessageDirection::North)
-                .await
+            controller.on_message(message, MessageDirection::North)
         } else {
             // Handle the discovery request without creating a local session.
             let local_name =
@@ -537,20 +579,20 @@ where
 
     /// Check if the session pool is empty (for testing purposes)
     #[cfg(test)]
-    pub async fn is_pool_empty(&self) -> bool {
-        self.pool.read().await.is_empty()
+    pub fn is_pool_empty(&self) -> bool {
+        self.pool.read().is_empty()
     }
 
     /// Get the number of sessions in the pool (for testing purposes)
     #[cfg(test)]
-    pub async fn pool_size(&self) -> usize {
-        self.pool.read().await.len()
+    pub fn pool_size(&self) -> usize {
+        self.pool.read().len()
     }
 
     /// Get a session from the pool (for testing purposes)
     #[cfg(test)]
-    pub async fn get_session(&self, id: u32) -> Option<Arc<SessionController>> {
-        self.pool.read().await.get(&id).cloned()
+    pub fn get_session(&self, id: u32) -> Option<Arc<SessionController>> {
+        self.pool.read().get(&id).cloned()
     }
 }
 
@@ -616,7 +658,7 @@ mod tests {
 
         assert_eq!(session_layer.app_id(), 0);
         assert_eq!(session_layer.conn_id(), 12345);
-        assert!(session_layer.is_pool_empty().await);
+        assert!(session_layer.is_pool_empty());
     }
 
     #[tokio::test]
@@ -665,10 +707,10 @@ mod tests {
 
         let result = session_layer
             .create_session(config, local_name, destination, None)
-            .await;
+            ;
 
         assert!(result.is_ok());
-        assert_eq!(session_layer.pool_size().await, 1);
+        assert_eq!(session_layer.pool_size(), 1);
     }
 
     #[tokio::test]
@@ -689,12 +731,12 @@ mod tests {
         let session_id = 100u32;
         let result = session_layer
             .create_session(config, local_name, destination, Some(session_id))
-            .await;
+            ;
 
         assert!(result.is_ok());
-        assert_eq!(session_layer.pool_size().await, 1);
+        assert_eq!(session_layer.pool_size(), 1);
 
-        let session = session_layer.get_session(session_id).await;
+        let session = session_layer.get_session(session_id);
         assert!(session.is_some());
     }
 
@@ -717,7 +759,7 @@ mod tests {
         let invalid_id = u32::MAX - 500; // This is outside SESSION_RANGE
         let result = session_layer
             .create_session(config, local_name, destination, Some(invalid_id))
-            .await;
+            ;
 
         assert!(result.is_err());
         match result {
@@ -751,13 +793,12 @@ mod tests {
                 destination.clone(),
                 Some(session_id),
             )
-            .await;
+            ;
         assert!(result1.is_ok());
 
         // Try to create second session with same ID
-        let result2 = session_layer
-            .create_session(config, local_name, destination, Some(session_id))
-            .await;
+        let result2 =
+            session_layer.create_session(config, local_name, destination, Some(session_id));
 
         assert!(result2.is_err());
         match result2 {
@@ -784,18 +825,17 @@ mod tests {
         let session_id = 100u32;
         let _context = session_layer
             .create_session(config, local_name, destination, Some(session_id))
-            .await
             .unwrap();
 
-        assert_eq!(session_layer.pool_size().await, 1);
+        assert_eq!(session_layer.pool_size(), 1);
 
         let removed = session_layer.remove_session(session_id).await;
-        assert!(removed);
-        assert!(session_layer.is_pool_empty().await);
+        assert!(removed.is_ok());
+        assert!(session_layer.is_pool_empty());
 
         // Try to remove non-existent session
         let removed_again = session_layer.remove_session(session_id).await;
-        assert!(!removed_again);
+        assert!(removed_again.is_err());
     }
 
     #[tokio::test]
@@ -933,13 +973,12 @@ mod tests {
         // Create multiple sessions
         for i in 0..5 {
             let destination = make_name(&["remote", &format!("app{}", i), "v1"]);
-            let result = session_layer
-                .create_session(config.clone(), local_name.clone(), destination, None)
-                .await;
+            let result =
+                session_layer.create_session(config.clone(), local_name.clone(), destination, None);
             assert!(result.is_ok());
         }
 
-        assert_eq!(session_layer.pool_size().await, 5);
+        assert_eq!(session_layer.pool_size(), 5);
     }
 
     #[tokio::test]

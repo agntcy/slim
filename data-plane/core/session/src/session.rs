@@ -365,7 +365,7 @@ mod tests {
         let session_config = SessionConfig {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(5),
-            interval: Some(Duration::from_millis(500)),
+            interval: Some(Duration::from_millis(200)),
             mls_enabled: false,
             initiator: false,
             metadata: HashMap::new(),

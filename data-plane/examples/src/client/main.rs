@@ -25,7 +25,7 @@ fn spawn_session_receiver(
 
             if let Some(m) = message_clone {
                 if let Some(s) = session.upgrade() {
-                        if let Err(e) = s.publish(s.dst(), m.encode_to_vec(), None, None).await {
+                        if let Err(e) = s.publish(s.dst(), m.encode_to_vec(), None, None) {
                             error!("Failed to publish message to session: {:?}", e);
                         }
                 } else {
@@ -118,7 +118,6 @@ async fn main() -> Result<()> {
             SharedSecret::new(&local_name.to_string(), secret),
             SharedSecret::new(&local_name.to_string(), secret),
         )
-        .await
         .with_context(|| format!("Failed to create app for name {}", local_name))?;
 
     // Start service (establish client connections)

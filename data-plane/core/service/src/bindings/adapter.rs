@@ -56,7 +56,7 @@ where
     ) -> Result<Self, ServiceError> {
         let (app, rx) = service
             .create_app(&app_name, identity_provider, identity_verifier)
-            .await?;
+            ?;
 
         Ok(Self::new_with_app(app, rx))
     }
@@ -141,14 +141,12 @@ where
     }
 
     /// Create a new session with the given configuration
-    pub async fn create_session(
+    pub fn create_session(
         &self,
         session_config: SessionConfig,
         destination: Name,
     ) -> Result<SessionContext, SessionError> {
-        self.app
-            .create_session(session_config, destination, None)
-            .await
+        self.app.create_session(session_config, destination, None)
     }
 
     /// Delete a session by its context
@@ -463,7 +461,6 @@ mod tests {
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
             .create_session(session_config, dst)
-            .await
             .expect("Failed to create session");
 
         // Get the session reference and test delete
@@ -542,7 +539,6 @@ mod tests {
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
             .create_session(config, dst)
-            .await
             .expect("Failed to create session");
 
         // Convert to BindingsSessionContext for session operations
@@ -569,11 +565,11 @@ mod tests {
 
         // Test invite/remove operations on session context
         let peer_name = Name::from_strings(["org", "peer", "service"]);
-        let invite_result = session_bindings.invite(&peer_name).await;
+        let invite_result = session_bindings.invite(&peer_name);
         // Note: This may fail in test environment, but we're testing the API structure
         assert!(invite_result.is_err() || invite_result.is_ok());
 
-        let remove_result = session_bindings.remove(&peer_name).await;
+        let remove_result = session_bindings.remove(&peer_name);
         assert!(remove_result.is_err() || remove_result.is_ok());
 
         // Verify adapter still handles app-level operations

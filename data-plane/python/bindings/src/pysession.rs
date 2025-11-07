@@ -215,17 +215,15 @@ impl PySessionContext {
         self.internal
             .bindings_ctx
             .invite(&name.into())
-            .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
         Ok(())
     }
 
     /// Remove a participant from this session (multicast only)
-    pub(crate) async fn remove(&self, name: PyName) -> PyResult<()> {
+    pub(crate) fn remove(&self, name: PyName) -> PyResult<()> {
         self.internal
             .bindings_ctx
             .remove(&name.into())
-            .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
         Ok(())
     }
@@ -557,7 +555,7 @@ pub fn remove(
 ) -> PyResult<Bound<PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(
         py,
-        async move { session_context.remove(name).await },
+        async move { session_context.remove(name) },
     )
 }
 

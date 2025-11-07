@@ -80,7 +80,6 @@ fn spawn_session_receiver(
                                 let reply_bytes = reply.into_bytes();
                                 if let Err(e) = session_arc
                                     .publish(&route, reply_bytes, None, None)
-                                    .await
                                 {
                                     info!("error sending periodic reply: {}", e);
                                 }
@@ -137,7 +136,6 @@ async fn main() {
             SharedSecret::new(local_name, TEST_VALID_SECRET),
             SharedSecret::new(local_name, TEST_VALID_SECRET),
         )
-        .await
         .expect("failed to create app");
 
     // run the service - this will create all the connections provided via the config file.
@@ -174,7 +172,6 @@ async fn main() {
         };
         let session_ctx = app
             .create_session(config, remote_app_name.clone(), None)
-            .await
             .expect("error creating p2p session");
 
         // Get the session and spawn receiver for handling responses
@@ -187,7 +184,6 @@ async fn main() {
         // publish message using session context
         session
             .publish(&remote_app_name, msg.into(), None, None)
-            .await
             .unwrap();
 
         sessions.push(session);

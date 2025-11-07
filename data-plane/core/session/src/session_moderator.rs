@@ -966,6 +966,7 @@ mod tests {
             identity_provider,
             identity_verifier,
             storage_path,
+            graceful_shutdown_timeout: None,
         };
 
         let inner = MockInnerHandler::new();
@@ -1328,6 +1329,7 @@ mod tests {
             identity_provider,
             identity_verifier,
             storage_path,
+            graceful_shutdown_timeout: None,
         };
 
         let inner = MockInnerHandler::new();

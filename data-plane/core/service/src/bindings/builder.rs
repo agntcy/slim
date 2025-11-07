@@ -52,7 +52,7 @@ where
     }
 
     /// Build the AppAdapter using a Service instance
-    pub async fn build(self, service: &Service) -> Result<BindingsAdapter<P, V>, ServiceError> {
+    pub fn build(self, service: &Service) -> Result<BindingsAdapter<P, V>, ServiceError> {
         let app_name = self
             .app_name
             .ok_or_else(|| ServiceError::ConfigError("app name is required".to_string()))?;
@@ -66,9 +66,7 @@ where
         })?;
 
         // Use Service to create the App and get the notification receiver
-        let (app, rx_app) = service
-            .create_app(&app_name, identity_provider, identity_verifier)
-            .await?;
+        let (app, rx_app) = service.create_app(&app_name, identity_provider, identity_verifier)?;
 
         Ok(BindingsAdapter::new_with_app(app, rx_app))
     }
@@ -126,7 +124,6 @@ mod tests {
             .with_identity_provider(provider)
             .with_identity_verifier(verifier)
             .build(&service)
-            .await
             .expect("Builder should work with all required fields");
 
         assert!(adapter.id() > 0);
@@ -144,8 +141,7 @@ mod tests {
         let result = BindingsAdapter::builder()
             .with_identity_provider(provider)
             .with_identity_verifier(verifier)
-            .build(&service)
-            .await;
+            .build(&service);
 
         assert!(result.is_err());
         let error_string = match result {
@@ -164,8 +160,7 @@ mod tests {
         let result = BindingsAdapter::<TestProvider, TestVerifier>::builder()
             .with_name(app_name)
             .with_identity_verifier(verifier)
-            .build(&service)
-            .await;
+            .build(&service);
 
         assert!(result.is_err());
         let error_string = match result {
@@ -185,7 +180,7 @@ mod tests {
             .with_name(app_name)
             .with_identity_provider(provider)
             .build(&service)
-            .await;
+            ;
 
         assert!(result.is_err());
         let error_string = match result {
@@ -206,7 +201,6 @@ mod tests {
             .with_identity_provider(provider)
             .with_identity_verifier(verifier)
             .build(&service)
-            .await
             .expect("Default builder should work");
 
         assert!(adapter.id() > 0);

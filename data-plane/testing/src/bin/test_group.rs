@@ -128,7 +128,6 @@ async fn run_participant_task(name: Name) -> Result<(), String> {
             SharedSecret::new(&name.to_string(), TEST_VALID_SECRET),
             SharedSecret::new(&name.to_string(), TEST_VALID_SECRET),
         )
-        .await
         .map_err(|_| format!("Failed to create participant {}", name))?;
 
     svc.run()
@@ -181,7 +180,7 @@ async fn run_participant_task(name: Name) -> Result<(), String> {
                                                             let payload = msg_id.to_ne_bytes().to_vec();
                                                             let flags = SlimHeaderFlags::new(10, None, None, None, None);
                                                             if let Some(session_arc) = weak.upgrade() &&
-                                                                session_arc.publish_with_flags(&session_channel_name_clone, flags, payload, None, None).await.is_err() {
+                                                                session_arc.publish_with_flags(&session_channel_name_clone, flags, payload, None, None).is_err() {
                                                                 panic!("an error occurred sending publication from moderator");
                                                             }
                                                         }
@@ -261,7 +260,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             SharedSecret::new(&name.to_string(), TEST_VALID_SECRET),
             SharedSecret::new(&name.to_string(), TEST_VALID_SECRET),
         )
-        .await
         .map_err(|_| format!("Failed to create moderator {}", name))?;
 
     svc.run()
@@ -289,7 +287,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let session_ctx = app
         .create_session(conf, channel_name.clone(), None)
-        .await
         .expect("error creating session");
 
     for c in &participants {
@@ -306,7 +303,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .session_arc()
             .unwrap()
             .invite_participant(c)
-            .await
             .expect("error sending invite message");
     }
 
@@ -368,7 +364,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         if session_arc
             .publish_with_flags(&channel_name, flags, p.clone(), None, None)
-            .await
             .is_err()
         {
             panic!("an error occurred sending publication from moderator",);
@@ -384,8 +379,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let _ = session_arc
                 .remove_participant(&participants[to_remove])
-                .await;
-            let _ = session_arc.invite_participant(&participants[to_add]).await;
+               ;
+            let _ = session_arc.invite_participant(&participants[to_add]);
             to_remove = (to_remove + 1) % tot_participants;
             to_add = (to_add + 1) % tot_participants;
 
