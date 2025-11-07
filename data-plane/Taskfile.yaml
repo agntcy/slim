@@ -116,13 +116,11 @@ tasks:
     cmds:
       - cargo run --bin generate-schema
 
-  # Enhanced coverage task that includes Python bindings coverage
+  # Comprehensive coverage task
   data-plane:coverage-full:
-    desc: "Run full tests coverage including Python bindings"
+    desc: "Run comprehensive coverage (Rust + Python)"
     cmds:
-      - task: data-plane:toolchain:test:coverage
-        vars:
-          ARGS: "{{.GLOBAL_ARGS}} --all-targets --locked --all-features"
+      - cargo llvm-cov --workspace --all-targets --locked --all-features --exclude agntcy-slim-bindings --lcov --output-path lcov.info
       - task: data-plane:bindings:test:coverage
       - task: data-plane:slimrpc:test:coverage
       - task: data-plane:core:test
