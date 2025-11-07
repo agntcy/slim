@@ -10,12 +10,11 @@ builds:
     goos:
       - darwin
       - linux
-    #      - windows
-
+      - windows
     goarch:
       - amd64
       - arm64
-    #      - 386
+      - 386
 
     ldflags:
       - -X '{{.ModulePath}}/control-plane/slimctl/internal/cmd/version.semVersion={{.Version}}'
@@ -65,7 +64,3 @@ homebrew_casks:
       pull_request:
         enabled: true
         draft: false
-
-
-
-
