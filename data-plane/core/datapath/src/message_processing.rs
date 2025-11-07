@@ -22,6 +22,7 @@ use crate::api::ProtoPublishType as PublishType;
 use crate::api::ProtoSubscribeType as SubscribeType;
 use crate::api::ProtoUnsubscribeType as UnsubscribeType;
 use crate::api::proto::dataplane::v1::Message;
+
 use crate::api::proto::dataplane::v1::data_plane_service_client::DataPlaneServiceClient;
 use crate::api::proto::dataplane::v1::data_plane_service_server::DataPlaneService;
 use crate::connection::{Channel, Connection, Type as ConnectionType};
@@ -819,12 +820,12 @@ impl MessageProcessor {
                             "notify control plane about lost subscription: {}",
                             local_sub
                         );
-                        let msg = Message::new_unsubscribe(
-                            &local_sub,
-                            &local_sub,
-                            None,
-                            Some(SlimHeaderFlags::default().with_recv_from(conn_index)),
-                        );
+                        let msg = Message::builder()
+                            .source(local_sub.clone())
+                            .destination(local_sub.clone())
+                            .flags(SlimHeaderFlags::default().with_recv_from(conn_index))
+                            .build_unsubscribe()
+                            .unwrap();
                         if let Err(e) = tx.send(Ok(msg)).await {
                             error!(
                                 "failed to send unsubscribe message to control plane for subscription {}: {}",
