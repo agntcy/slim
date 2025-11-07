@@ -473,7 +473,7 @@ fn remove_subscription_from_sub_table(
     name: &Name,
     conn_index: u64,
     is_local: bool,
-    mut table: RwLockWriteGuard<'_, RawRwLock, HashMap<InternalName, NameState>>,
+    table: &mut RwLockWriteGuard<'_, RawRwLock, HashMap<InternalName, NameState>>,
 ) -> Result<(), SubscriptionTableError> {
     // Convert &Name to &InternalName. This is unsafe, but we know the types are compatible.
     let query_name = unsafe { std::mem::transmute::<&Name, &InternalName>(name) };
@@ -578,9 +578,8 @@ impl SubscriptionTable for SubscriptionTableImpl {
         is_local: bool,
     ) -> Result<(), SubscriptionTableError> {
         {
-            let table = self.table.write();
-
-            remove_subscription_from_sub_table(name, conn, is_local, table)?
+            let mut table = self.table.write();
+            remove_subscription_from_sub_table(name, conn, is_local, &mut table)?;
         }
         {
             let conn_table = self.connections.write();
@@ -594,30 +593,16 @@ impl SubscriptionTable for SubscriptionTableImpl {
         conn: u64,
         is_local: bool,
     ) -> Result<HashSet<Name>, SubscriptionTableError> {
-        let removed_subscriptions = {
-            let conn_map = self.connections.read();
-            let set = conn_map.get(&conn);
-            if set.is_none() {
-                return Err(SubscriptionTableError::ConnectionIdNotFound);
-            }
-
-            // Collect all subscription names before removing them
-            let subscriptions_to_remove: HashSet<Name> = set.unwrap().iter().cloned().collect();
-
-            for name in &subscriptions_to_remove {
-                let table = self.table.write();
-                debug!("remove subscription {} from connection {}", name, conn);
-                remove_subscription_from_sub_table(name, conn, is_local, table)?;
-            }
-
-            subscriptions_to_remove
-        };
-
-        {
-            let mut conn_map = self.connections.write();
-            conn_map.remove(&conn); // here the connection must exists.
+        let removed_subscriptions = self
+            .connections
+            .write()
+            .remove(&conn)
+            .ok_or(SubscriptionTableError::ConnectionIdNotFound)?;
+        let mut table = self.table.write();
+        for name in &removed_subscriptions {
+            debug!("remove subscription {} from connection {}", name, conn);
+            remove_subscription_from_sub_table(name, conn, is_local, &mut table)?;
         }
-
         Ok(removed_subscriptions)
     }
 
