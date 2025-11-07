@@ -273,7 +273,7 @@ func (s *RouteReconciler) handleRequest(ctx context.Context, req RouteReconcileR
 						Msg("Failed to mark route as failed")
 					return fmt.Errorf("failed to mark route %s as failed: %w", route, err)
 				}
-				zlog.Info().
+				zlog.Error().
 					Str("route_key", route.String()).
 					Str("error_msg", failedMsg).
 					Msg("Marked route as failed")
