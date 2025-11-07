@@ -16,7 +16,6 @@ else:
 
 import slim_bindings
 from google.rpc import code_pb2, status_pb2
-from slim_bindings._slim_bindings import PyMessageContext
 
 from slimrpc.common import (
     DEADLINE_KEY,
@@ -124,7 +123,7 @@ class Channel:
         session: slim_bindings.PySession,
         response_deserializer: Callable,
         deadline: float,
-    ) -> tuple[PyMessageContext, Any]:
+    ) -> tuple[slim_bindings.PyMessageContext, Any]:
         # Wait for the response
         async with asyncio_timeout_at(
             _compute_loop_deadline_from_real_deadline(deadline)

@@ -145,7 +145,9 @@ class Server:
                     rpc_handler,
                     session,
                 ):
-                    logger.info(f"sending response for session {session.id} with code {code}")
+                    logger.info(
+                        f"sending response for session {session.id} with code {code}"
+                    )
                     await session.publish(
                         rpc_handler.response_serializer(response),
                         metadata={"code": str(code)},

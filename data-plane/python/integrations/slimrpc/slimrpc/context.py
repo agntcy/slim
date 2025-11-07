@@ -3,8 +3,7 @@
 
 from dataclasses import dataclass
 
-from slim_bindings import PySession
-from slim_bindings._slim_bindings import PyMessageContext
+from slim_bindings import PyMessageContext, PySession
 
 
 @dataclass
