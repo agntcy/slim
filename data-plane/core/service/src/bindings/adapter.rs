@@ -54,9 +54,7 @@ where
         identity_provider: P,
         identity_verifier: V,
     ) -> Result<Self, ServiceError> {
-        let (app, rx) = service
-            .create_app(&app_name, identity_provider, identity_verifier)
-            ?;
+        let (app, rx) = service.create_app(&app_name, identity_provider, identity_verifier)?;
 
         Ok(Self::new_with_app(app, rx))
     }
@@ -149,9 +147,19 @@ where
         self.app.create_session(session_config, destination, None)
     }
 
-    /// Delete a session by its context
+    /// Delete a session by its context and return a handle to wait on
+    pub fn delete_session_handle(
+        &self,
+        session: &SessionController,
+    ) -> Result<tokio::task::JoinHandle<()>, SessionError> {
+        self.app.delete_session(session)
+    }
+
+    /// Delete a session by its context and wait for it to complete with default timeout
     pub async fn delete_session(&self, session: &SessionController) -> Result<(), SessionError> {
-        self.app.delete_session(session).await
+        self.app
+            .delete_session_draining(session, std::time::Duration::from_secs(10))
+            .await
     }
 
     /// Subscribe to a name with optional connection ID

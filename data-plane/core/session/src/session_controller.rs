@@ -134,6 +134,13 @@ impl SessionController {
                 _ = cancellation_token.cancelled(), if state == ProcessingState::Active => {
                     state = ProcessingState::Draining;
 
+                    // First finish processing messages already in the queue, until we empty it
+                    debug!("cancellation requested, entering draining state");
+                    while let Ok(msg) = rx.try_recv() {
+                        if let Err(e) = inner.on_message(msg).await {
+                            tracing::error!(error=%e, "Error processing message during draining");
+                        }
+                    }
 
                     // Update the timeout to the configured grace period
                     let shutdown_timeout = settings.graceful_shutdown_timeout
@@ -159,14 +166,18 @@ impl SessionController {
                             }
                         }
                         None => {
-                            debug!("Session channel closed, exiting processing loop");
+                            debug!("Session channel closed, no more messages can arrive - exiting processing loop");
                             break;
                         }
                     }
                 }
             }
 
-            // If inner does not need draining, we can exit early
+            // If we are in draining state and the inner component does not require drain, exit
+            if state == ProcessingState::Draining && !inner.needs_drain() {
+                debug!("draining complete, exiting processing loop");
+                break;
+            }
         }
 
         // Perform final shutdown
@@ -217,19 +228,13 @@ impl SessionController {
             })
     }
 
-    pub async fn close(&self) -> Result<(), SessionError> {
+    pub fn close(&self) -> Result<tokio::task::JoinHandle<()>, SessionError> {
         self.cancellation_token.cancel();
 
-        let handle = self
-            .handle
+        self.handle
             .lock()
             .take()
-            .ok_or(SessionError::Generic("Session already closed".to_string()))?;
-
-        tokio::time::timeout(Duration::from_secs(10), handle)
-            .await
-            .map_err(|_| SessionError::CloseTimeout)?
-            .map_err(|e| SessionError::Generic(e.to_string()))
+            .ok_or(SessionError::Generic("Session already closed".to_string()))
     }
 
     pub fn publish_message(&self, message: Message) -> Result<(), SessionError> {
@@ -528,35 +533,12 @@ where
 
 #[cfg(test)]
 mod tests {
-    //! Test coverage for SessionController
-    //!
-    //! This test suite provides comprehensive coverage for the SessionController including:
-    //!
-    //! ## Integration Tests
-    //! - `test_end_to_end_p2p`: Complete point-to-point session lifecycle with MLS
-    //!   (discovery, join, welcome, messaging, leave)
-    //!
-    //! ## Unit Tests
-    //! - **Getters**: All getter methods (id, source, dst, session_type, metadata, etc.)
-    //! - **Publishing**: Basic publish, publish_to specific connection, publish with metadata
-    //! - **Participant Management**:
-    //!   - Invite participant in multicast (success and error cases)
-    //!   - Remove participant in multicast (success and error cases)
-    //!   - Error handling for non-initiators
-    //!   - Error handling for P2P sessions
-    //! - **Message Handling**: Discovery message handling, on_message with different directions
-    //! - **Lifecycle**:
-    //!   - Drop implementation and cancellation token behavior
-    //!   - Close method: success, already closed error, timeout handling, cancellation ordering
-    //! - **Internal Methods**: create_discovery_request validation
-    //!
-    //! Coverage: 19 unit tests + 1 comprehensive integration test
-
     use crate::transmitter::SessionTransmitter;
 
     use super::*;
     use slim_auth::shared_secret::SharedSecret;
 
+    use std::sync::Arc;
     use std::time::Duration;
     use tokio::time::timeout;
     use tracing_test::traced_test;
@@ -944,9 +926,15 @@ mod tests {
         let token = controller.cancellation_token.clone();
         assert!(!token.is_cancelled());
 
-        let result = controller.close().await;
-        assert!(result.is_ok(), "got error {}", result.unwrap_err());
+        let handle = controller.close();
+        assert!(handle.is_ok(), "got error {}", handle.unwrap_err());
         assert!(token.is_cancelled());
+
+        // Wait for the handle to complete
+        handle
+            .unwrap()
+            .await
+            .expect("processing task should complete");
     }
 
     #[tokio::test]
@@ -954,11 +942,15 @@ mod tests {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build();
 
         // Close once - should succeed
-        let result = controller.close().await;
-        assert!(result.is_ok());
+        let handle = controller.close();
+        assert!(handle.is_ok());
+        handle
+            .unwrap()
+            .await
+            .expect("processing task should complete");
 
         // Close again - should fail with appropriate error
-        let result = controller.close().await;
+        let result = controller.close();
         assert!(result.is_err());
         match result {
             Err(SessionError::Generic(msg)) => {
@@ -969,41 +961,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_close_timeout() {
-        // Create a controller with a session that won't terminate
-        let (controller, mut rx_slim, _rx_app) = SessionControllerTestBuilder::new().build();
-
-        // Keep the processing loop busy by holding onto the receiver
-        // This simulates a scenario where the processing loop doesn't terminate
-        // We'll spawn a task that keeps processing messages to prevent clean shutdown
-        tokio::spawn(async move {
-            // Keep the receiver alive and drain messages to prevent the loop from exiting
-            while let Some(_msg) = rx_slim.recv().await {
-                // Intentionally slow or block to cause timeout
-                tokio::time::sleep(Duration::from_secs(2)).await;
-            }
-        });
-
-        // Try to close - the processing loop should timeout since we're holding the receiver
-        // and artificially delaying message processing
-        // Note: This test verifies the timeout mechanism, but in practice the processing
-        // loop should terminate gracefully when the cancellation token is triggered
-
-        // Actually, let me reconsider - the processing loop will exit when cancelled,
-        // so we need a different approach to test timeout
-
-        // For a proper timeout test, we'd need to mock the JoinHandle or create
-        // a scenario where the task genuinely hangs. Since that's complex,
-        // we'll verify the timeout logic is in place by checking the close implementation
-        // This test documents the expected behavior even if we can't easily trigger it
-
-        // In normal cases, close should succeed
-        let result = controller.close().await;
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_close_cancels_token_before_waiting() {
+    async fn test_close_cancels_token_immediately() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build();
 
         let token = controller.cancellation_token.clone();
@@ -1011,18 +969,15 @@ mod tests {
         // Verify token is not cancelled before close
         assert!(!token.is_cancelled());
 
-        // Start closing in a separate task so we can check the token state
-        let close_handle = tokio::spawn(async move { controller.close().await });
+        // Close returns immediately after cancelling token
+        let handle = controller.close();
+        assert!(handle.is_ok());
 
-        // Give a small delay for the cancellation to propagate
-        tokio::time::sleep(Duration::from_millis(10)).await;
-
-        // Token should be cancelled even if the task hasn't completed yet
+        // Token should be cancelled immediately
         assert!(token.is_cancelled());
 
-        // Verify close completes successfully
-        let result = close_handle.await.unwrap();
-        assert!(result.is_ok());
+        // Wait for processing to complete
+        handle.unwrap().await.expect("processing should complete");
     }
 
     #[tokio::test]
@@ -1527,6 +1482,415 @@ mod tests {
         assert!(
             no_more_participant_final.is_err(),
             "Expected no more messages on participant slim channel after leave"
+        );
+    }
+
+    // ============================================================================
+    // Draining Tests
+    // ============================================================================
+
+    /// Mock handler that tracks draining behavior
+    struct DrainableHandler {
+        messages_received: Arc<tokio::sync::Mutex<Vec<SessionMessage>>>,
+        needs_drain: Arc<std::sync::atomic::AtomicBool>,
+        shutdown_called: Arc<tokio::sync::Mutex<bool>>,
+        drain_delay: Option<Duration>,
+    }
+
+    impl DrainableHandler {
+        fn new() -> Self {
+            Self {
+                messages_received: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+                needs_drain: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                shutdown_called: Arc::new(tokio::sync::Mutex::new(false)),
+                drain_delay: None,
+            }
+        }
+
+        fn with_needs_drain(self, needs_drain: bool) -> Self {
+            self.needs_drain
+                .store(needs_drain, std::sync::atomic::Ordering::SeqCst);
+            self
+        }
+
+        #[allow(dead_code)]
+        fn with_drain_delay(mut self, delay: Duration) -> Self {
+            self.drain_delay = Some(delay);
+            self
+        }
+
+        #[allow(dead_code)]
+        async fn get_messages_count(&self) -> usize {
+            self.messages_received.lock().await.len()
+        }
+
+        #[allow(dead_code)]
+        async fn was_shutdown_called(&self) -> bool {
+            *self.shutdown_called.lock().await
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl MessageHandler for DrainableHandler {
+        async fn init(&mut self) -> Result<(), SessionError> {
+            Ok(())
+        }
+
+        async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
+            self.messages_received.lock().await.push(message);
+            Ok(())
+        }
+
+        fn needs_drain(&self) -> bool {
+            self.needs_drain.load(std::sync::atomic::Ordering::SeqCst)
+        }
+
+        async fn on_shutdown(&mut self) -> Result<(), SessionError> {
+            if let Some(delay) = self.drain_delay {
+                tokio::time::sleep(delay).await;
+            }
+            *self.shutdown_called.lock().await = true;
+            Ok(())
+        }
+    }
+
+    /// Helper to create test SessionSettings
+    fn create_test_settings(
+        graceful_shutdown_timeout: Option<Duration>,
+    ) -> SessionSettings<SharedSecret, SharedSecret> {
+        let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, _rx_app) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_session, _rx_session) = tokio::sync::mpsc::channel(10);
+        let (tx_session_layer, _rx_session_layer) = tokio::sync::mpsc::channel(10);
+
+        SessionSettings {
+            id: 1,
+            source: Name::from_strings(["org", "ns", "test"]).with_id(1),
+            destination: Name::from_strings(["org", "ns", "test"]).with_id(2),
+            config: SessionConfig {
+                session_type: ProtoSessionType::PointToPoint,
+                max_retries: Some(5),
+                interval: Some(Duration::from_millis(200)),
+                mls_enabled: false,
+                initiator: true,
+                metadata: HashMap::new(),
+            },
+            tx: SessionTransmitter::new(tx_slim, tx_app),
+            tx_session,
+            tx_to_session_layer: tx_session_layer,
+            identity_provider: SharedSecret::new("test", SHARED_SECRET),
+            identity_verifier: SharedSecret::new("test", SHARED_SECRET),
+            storage_path: std::path::PathBuf::from("/tmp/test_draining"),
+            graceful_shutdown_timeout,
+        }
+    }
+
+    /// Helper to create a test message
+    fn create_test_message(message_id: u32, payload: Vec<u8>) -> SessionMessage {
+        SessionMessage::OnMessage {
+            message: Message::builder()
+                .source(Name::from_strings(["org", "ns", "test"]).with_id(1))
+                .destination(Name::from_strings(["org", "ns", "test"]).with_id(2))
+                .identity("")
+                .forward_to(1)
+                .session_type(ProtoSessionType::PointToPoint)
+                .session_message_type(ProtoSessionMessageType::Msg)
+                .session_id(1)
+                .message_id(message_id)
+                .application_payload("test", payload)
+                .build_publish()
+                .unwrap(),
+            direction: MessageDirection::South,
+        }
+    }
+
+    /// Helper to spawn a processing loop and return the task handle
+    fn spawn_processing_loop(
+        handler: DrainableHandler,
+        rx: tokio::sync::mpsc::Receiver<SessionMessage>,
+        cancellation_token: CancellationToken,
+        settings: SessionSettings<SharedSecret, SharedSecret>,
+    ) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            SessionController::processing_loop(handler, rx, cancellation_token, settings).await;
+        })
+    }
+
+    #[tokio::test]
+    async fn test_draining_processes_queued_messages() {
+        let handler = DrainableHandler::new();
+        let messages_received = handler.messages_received.clone();
+        let shutdown_called = handler.shutdown_called.clone();
+
+        let (tx, rx) = tokio::sync::mpsc::channel(10);
+        let cancellation_token = CancellationToken::new();
+        let token_clone = cancellation_token.clone();
+
+        let settings = create_test_settings(Some(Duration::from_secs(2)));
+        let processing_task = spawn_processing_loop(handler, rx, cancellation_token, settings);
+
+        // Send multiple messages before cancellation
+        tx.send(create_test_message(1, vec![1, 2, 3]))
+            .await
+            .unwrap();
+        tx.send(create_test_message(2, vec![4, 5, 6]))
+            .await
+            .unwrap();
+        tx.send(create_test_message(3, vec![7, 8, 9]))
+            .await
+            .unwrap();
+
+        // Give some time for messages to be queued
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Trigger cancellation
+        token_clone.cancel();
+
+        // Close the channel to signal no more messages
+        drop(tx);
+
+        // Wait for processing to complete
+        timeout(Duration::from_secs(3), processing_task)
+            .await
+            .expect("timeout waiting for processing loop")
+            .expect("processing loop panicked");
+
+        // Verify all messages were processed
+        assert_eq!(
+            messages_received.lock().await.len(),
+            3,
+            "All queued messages should be processed during draining"
+        );
+        assert!(
+            *shutdown_called.lock().await,
+            "Shutdown should have been called"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_draining_with_needs_drain_true() {
+        let handler = DrainableHandler::new().with_needs_drain(true);
+        let messages_received = handler.messages_received.clone();
+        let shutdown_called = handler.shutdown_called.clone();
+
+        let (tx, rx) = tokio::sync::mpsc::channel(10);
+        let cancellation_token = CancellationToken::new();
+        let token_clone = cancellation_token.clone();
+
+        let settings = create_test_settings(Some(Duration::from_secs(2)));
+        let processing_task = spawn_processing_loop(handler, rx, cancellation_token, settings);
+
+        // Send a message
+        tx.send(create_test_message(1, vec![1, 2, 3]))
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Trigger cancellation and close channel
+        token_clone.cancel();
+        drop(tx);
+
+        // Wait for processing to complete (should wait for drain timeout)
+        timeout(Duration::from_secs(3), processing_task)
+            .await
+            .expect("timeout waiting for processing loop")
+            .expect("processing loop panicked");
+
+        // Verify message was processed and shutdown was called
+        assert_eq!(
+            messages_received.lock().await.len(),
+            1,
+            "Message should be processed"
+        );
+        assert!(
+            *shutdown_called.lock().await,
+            "Shutdown should have been called after draining"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_draining_with_needs_drain_false() {
+        let handler = DrainableHandler::new().with_needs_drain(false);
+        let messages_received = handler.messages_received.clone();
+        let shutdown_called = handler.shutdown_called.clone();
+
+        let (tx, rx) = tokio::sync::mpsc::channel(10);
+        let cancellation_token = CancellationToken::new();
+        let token_clone = cancellation_token.clone();
+
+        let settings = create_test_settings(Some(Duration::from_secs(2)));
+
+        let start_time = tokio::time::Instant::now();
+        let processing_task = spawn_processing_loop(handler, rx, cancellation_token, settings);
+
+        // Send a message
+        tx.send(create_test_message(1, vec![1, 2, 3]))
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Trigger cancellation and close channel
+        token_clone.cancel();
+        drop(tx);
+
+        // Wait for processing to complete (should exit quickly)
+        timeout(Duration::from_secs(1), processing_task)
+            .await
+            .expect("timeout waiting for processing loop")
+            .expect("processing loop panicked");
+
+        let elapsed = start_time.elapsed();
+
+        // Verify message was processed and shutdown was called quickly
+        assert_eq!(
+            messages_received.lock().await.len(),
+            1,
+            "Message should be processed"
+        );
+        assert!(
+            *shutdown_called.lock().await,
+            "Shutdown should have been called"
+        );
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "Should exit quickly when no draining needed"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_draining_timeout_enforced() {
+        // Test that the timeout fires when draining takes too long with needs_drain=true
+        let handler = DrainableHandler::new().with_needs_drain(true);
+
+        let (tx, rx) = tokio::sync::mpsc::channel(10);
+        let cancellation_token = CancellationToken::new();
+        let token_clone = cancellation_token.clone();
+
+        let settings = create_test_settings(Some(Duration::from_millis(500)));
+        let processing_task = spawn_processing_loop(handler, rx, cancellation_token, settings);
+
+        // Give the processing loop a moment to start
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let start_time = tokio::time::Instant::now();
+
+        // Trigger cancellation - this starts draining
+        token_clone.cancel();
+
+        // Keep sending messages to prevent channel from closing
+        // This simulates a scenario where messages keep arriving during drain period
+        let send_task = tokio::spawn(async move {
+            for i in 0..10 {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                if tx
+                    .send(create_test_message(i, vec![i as u8]))
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+
+        // Wait for processing to complete - should timeout after 500ms
+        timeout(Duration::from_secs(2), processing_task)
+            .await
+            .expect("timeout waiting for processing loop")
+            .expect("processing loop panicked");
+
+        let elapsed = start_time.elapsed();
+
+        // Verify timeout was enforced (should be around 500ms)
+        assert!(
+            elapsed >= Duration::from_millis(400),
+            "Should wait at least close to the timeout period"
+        );
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "Should respect the timeout and exit, not wait forever"
+        );
+
+        // Clean up the send task
+        send_task.abort();
+    }
+
+    #[tokio::test]
+    async fn test_draining_no_messages_in_queue() {
+        let handler = DrainableHandler::new().with_needs_drain(true);
+        let messages_received = handler.messages_received.clone();
+        let shutdown_called = handler.shutdown_called.clone();
+
+        let (tx, rx) = tokio::sync::mpsc::channel(10);
+        let cancellation_token = CancellationToken::new();
+        let token_clone = cancellation_token.clone();
+
+        let settings = create_test_settings(Some(Duration::from_secs(1)));
+        let processing_task = spawn_processing_loop(handler, rx, cancellation_token, settings);
+
+        // Trigger cancellation immediately without sending messages
+        token_clone.cancel();
+        drop(tx);
+
+        // Wait for processing to complete
+        timeout(Duration::from_secs(2), processing_task)
+            .await
+            .expect("timeout waiting for processing loop")
+            .expect("processing loop panicked");
+
+        // Verify no messages were processed but shutdown was called
+        assert_eq!(
+            messages_received.lock().await.len(),
+            0,
+            "No messages should be processed"
+        );
+        assert!(
+            *shutdown_called.lock().await,
+            "Shutdown should still be called"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_draining_messages_after_cancellation_processed() {
+        let handler = DrainableHandler::new();
+        let messages_received = handler.messages_received.clone();
+
+        let (tx, rx) = tokio::sync::mpsc::channel(10);
+        let cancellation_token = CancellationToken::new();
+        let token_clone = cancellation_token.clone();
+
+        let settings = create_test_settings(Some(Duration::from_secs(2)));
+
+        // Send messages before cancellation
+        tx.send(create_test_message(1, vec![1, 2, 3]))
+            .await
+            .unwrap();
+        tx.send(create_test_message(2, vec![4, 5, 6]))
+            .await
+            .unwrap();
+
+        // Spawn the processing loop after messages are queued
+        let processing_task = spawn_processing_loop(handler, rx, cancellation_token, settings);
+
+        // Give a moment for processing to start
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Trigger cancellation while messages are in queue
+        token_clone.cancel();
+
+        // Close channel
+        drop(tx);
+
+        // Wait for processing to complete
+        timeout(Duration::from_secs(3), processing_task)
+            .await
+            .expect("timeout waiting for processing loop")
+            .expect("processing loop panicked");
+
+        // Verify messages in queue when cancellation happened were still processed
+        assert_eq!(
+            messages_received.lock().await.len(),
+            2,
+            "Messages in queue during cancellation should be processed"
         );
     }
 }

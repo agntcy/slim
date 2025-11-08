@@ -121,18 +121,35 @@ where
         destination: Name,
         id: Option<u32>,
     ) -> Result<SessionContext, SessionError> {
-        let ret = self
-            .session_layer
-            .create_session(session_config, self.app_name.clone(), destination, id)?;
+        let ret = self.session_layer.create_session(
+            session_config,
+            self.app_name.clone(),
+            destination,
+            id,
+        )?;
 
         // return the session info
         Ok(ret)
     }
 
-    /// Delete a session.
-    pub async fn delete_session(&self, session: &SessionController) -> Result<(), SessionError> {
+    /// Delete a session and return a handle to wait on
+    pub fn delete_session(
+        &self,
+        session: &SessionController,
+    ) -> Result<tokio::task::JoinHandle<()>, SessionError> {
+        self.session_layer.remove_session(session.id())
+    }
+
+    /// Delete a session and wait for it to complete with the given timeout
+    pub async fn delete_session_draining(
+        &self,
+        session: &SessionController,
+        timeout: std::time::Duration,
+    ) -> Result<(), SessionError> {
         // remove the session from the pool
-        self.session_layer.remove_session(session.id()).await
+        self.session_layer
+            .remove_session_draining(session.id(), timeout)
+            .await
     }
 
     /// Get the app name
@@ -256,10 +273,24 @@ where
         self.send_message_without_context(msg).await
     }
 
-    /// Close all sessions and gracefully wait for them to drain
-    pub async fn clear_all_sessions(&self) -> HashMap<u32, Result<(), SessionError>> {
+    /// Close all sessions and return handles to wait on
+    pub fn clear_all_sessions_handles(
+        &self,
+    ) -> HashMap<u32, Result<tokio::task::JoinHandle<()>, SessionError>> {
+        debug!(
+            "clearing all sessions for app {} (returning handles)",
+            self.app_name
+        );
+        self.session_layer.clear_all_sessions_handles()
+    }
+
+    /// Close all sessions and gracefully wait for them to drain with the given timeout
+    pub async fn clear_all_sessions(
+        &self,
+        timeout: std::time::Duration,
+    ) -> HashMap<u32, Result<(), SessionError>> {
         debug!("clearing all sessions for app {}", self.app_name);
-        self.session_layer.clear_all_sessions().await
+        self.session_layer.clear_all_sessions(timeout).await
     }
 
     /// SLIM receiver loop
@@ -397,9 +428,12 @@ mod tests {
 
         assert!(ret.is_ok());
 
-        app.delete_session(&ret.unwrap().session().upgrade().unwrap())
-            .await
-            .unwrap();
+        app.delete_session_draining(
+            &ret.unwrap().session().upgrade().unwrap(),
+            std::time::Duration::from_secs(10),
+        )
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
@@ -448,7 +482,10 @@ mod tests {
         assert!(res.is_ok());
 
         session_layer
-            .delete_session(&res.unwrap().session().upgrade().unwrap())
+            .delete_session_draining(
+                &res.unwrap().session().upgrade().unwrap(),
+                std::time::Duration::from_secs(10),
+            )
             .await
             .unwrap();
     }
@@ -482,7 +519,7 @@ mod tests {
         assert_eq!(strong.id(), 42);
 
         // Delete the session from the app (removes it from the pool)
-        app.delete_session(&strong)
+        app.delete_session_draining(&strong, std::time::Duration::from_secs(10))
             .await
             .expect("failed to delete session");
 

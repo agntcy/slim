@@ -553,10 +553,7 @@ pub fn remove(
     session_context: PySessionContext,
     name: PyName,
 ) -> PyResult<Bound<PyAny>> {
-    pyo3_async_runtimes::tokio::future_into_py(
-        py,
-        async move { session_context.remove(name) },
-    )
+    pyo3_async_runtimes::tokio::future_into_py(py, async move { session_context.remove(name) })
 }
 
 /// Get a message from the specified session.

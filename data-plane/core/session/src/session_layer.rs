@@ -256,8 +256,8 @@ where
         }
     }
 
-    /// Remove a session from the pool
-    pub async fn remove_session(&self, id: u32) -> Result<(), SessionError> {
+    /// Remove a session from the pool and return a handle to optionally wait on
+    pub fn remove_session(&self, id: u32) -> Result<tokio::task::JoinHandle<()>, SessionError> {
         // get the write lock
         let session = self
             .pool
@@ -265,15 +265,30 @@ where
             .remove(&id)
             .ok_or(SessionError::SessionNotFound(id))?;
 
-        // close the session with timeout
-        session.close().await?;
+        // close the session and return the handle
+        session.close()
+    }
 
-        // Done
+    /// Remove a session from the pool and wait for drain to complete
+    pub async fn remove_session_draining(
+        &self,
+        id: u32,
+        timeout: std::time::Duration,
+    ) -> Result<(), SessionError> {
+        let handle = self.remove_session(id)?;
+
+        tokio::time::timeout(timeout, handle)
+            .await
+            .map_err(|_| SessionError::CloseTimeout)?
+            .map_err(|e| SessionError::Generic(e.to_string()))?;
+
         Ok(())
     }
 
-    /// Clear all sessions,
-    pub async fn clear_all_sessions(&self) -> HashMap<u32, Result<(), SessionError>> {
+    /// Clear all sessions and return handles to wait on
+    pub fn clear_all_sessions_handles(
+        &self,
+    ) -> HashMap<u32, Result<tokio::task::JoinHandle<()>, SessionError>> {
         let pool = {
             let mut pool = self.pool.write();
             let copy = pool.clone();
@@ -281,20 +296,42 @@ where
             copy
         };
 
-        // Gather all the futures to close sessions
-        let futures: Vec<_> = pool
-            .iter()
-            .map(|(id, session)| async move { (id, session.close().await) })
+        // Close all sessions and return handles
+        pool.iter()
+            .map(|(id, session)| (*id, session.close()))
+            .collect()
+    }
+
+    /// Clear all sessions and wait for them to complete
+    pub async fn clear_all_sessions(
+        &self,
+        timeout: std::time::Duration,
+    ) -> HashMap<u32, Result<(), SessionError>> {
+        let handles = self.clear_all_sessions_handles();
+
+        // Gather all the futures to wait on handles
+        let futures: Vec<_> = handles
+            .into_iter()
+            .map(|(id, handle_result)| async move {
+                let result = match handle_result {
+                    Ok(handle) => {
+                        // Wait for handle with timeout
+                        tokio::time::timeout(timeout, handle)
+                            .await
+                            .map_err(|_| SessionError::CloseTimeout)
+                            .and_then(|r| r.map_err(|e| SessionError::Generic(e.to_string())))
+                    }
+                    Err(e) => Err(e),
+                };
+                (id, result)
+            })
             .collect();
 
         // Await for all sessions to close
         let results = futures::future::join_all(futures).await;
 
-        // Return the errors, if any
-        results
-            .into_iter()
-            .map(|(id, result)| (*id, result))
-            .collect()
+        // Return the results
+        results.into_iter().collect()
     }
 
     pub fn listen_from_sessions(
@@ -705,9 +742,7 @@ mod tests {
             metadata: Default::default(),
         };
 
-        let result = session_layer
-            .create_session(config, local_name, destination, None)
-            ;
+        let result = session_layer.create_session(config, local_name, destination, None);
 
         assert!(result.is_ok());
         assert_eq!(session_layer.pool_size(), 1);
@@ -729,9 +764,8 @@ mod tests {
         };
 
         let session_id = 100u32;
-        let result = session_layer
-            .create_session(config, local_name, destination, Some(session_id))
-            ;
+        let result =
+            session_layer.create_session(config, local_name, destination, Some(session_id));
 
         assert!(result.is_ok());
         assert_eq!(session_layer.pool_size(), 1);
@@ -757,9 +791,8 @@ mod tests {
 
         // Use an ID outside the SESSION_RANGE (SESSION_RANGE is 0..u32::MAX-1000)
         let invalid_id = u32::MAX - 500; // This is outside SESSION_RANGE
-        let result = session_layer
-            .create_session(config, local_name, destination, Some(invalid_id))
-            ;
+        let result =
+            session_layer.create_session(config, local_name, destination, Some(invalid_id));
 
         assert!(result.is_err());
         match result {
@@ -786,14 +819,12 @@ mod tests {
         let session_id = 100u32;
 
         // Create first session
-        let result1 = session_layer
-            .create_session(
-                config.clone(),
-                local_name.clone(),
-                destination.clone(),
-                Some(session_id),
-            )
-            ;
+        let result1 = session_layer.create_session(
+            config.clone(),
+            local_name.clone(),
+            destination.clone(),
+            Some(session_id),
+        );
         assert!(result1.is_ok());
 
         // Try to create second session with same ID
@@ -829,12 +860,16 @@ mod tests {
 
         assert_eq!(session_layer.pool_size(), 1);
 
-        let removed = session_layer.remove_session(session_id).await;
+        let removed = session_layer
+            .remove_session_draining(session_id, std::time::Duration::from_secs(10))
+            .await;
         assert!(removed.is_ok());
         assert!(session_layer.is_pool_empty());
 
         // Try to remove non-existent session
-        let removed_again = session_layer.remove_session(session_id).await;
+        let removed_again = session_layer
+            .remove_session_draining(session_id, std::time::Duration::from_secs(10))
+            .await;
         assert!(removed_again.is_err());
     }
 

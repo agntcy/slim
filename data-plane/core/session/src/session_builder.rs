@@ -305,8 +305,7 @@ where
                 inner,
             )
         } else {
-            let (inner, tx, rx, settings) =
-                self.build_session_stack(SessionParticipant::new)?;
+            let (inner, tx, rx, settings) = self.build_session_stack(SessionParticipant::new)?;
             SessionController::from_parts(id, source, destination, config, settings, tx, rx, inner)
         };
 

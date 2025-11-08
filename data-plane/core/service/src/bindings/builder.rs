@@ -179,8 +179,7 @@ mod tests {
         let result = BindingsAdapter::<TestProvider, TestVerifier>::builder()
             .with_name(app_name)
             .with_identity_provider(provider)
-            .build(&service)
-            ;
+            .build(&service);
 
         assert!(result.is_err());
         let error_string = match result {
