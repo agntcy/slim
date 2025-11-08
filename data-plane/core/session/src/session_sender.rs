@@ -143,7 +143,7 @@ impl SessionSender {
                         "drain started do no accept new messages".to_string(),
                     ));
                 }
-                self.on_publish_message_with_ack(message, ack_tx).await?;
+                self.on_publish_message(message, ack_tx).await?;
             }
             slim_datapath::api::ProtoSessionMessageType::MsgAck => {
                 debug!("received ack message");
@@ -177,7 +177,7 @@ impl SessionSender {
         Ok(())
     }
 
-    async fn on_publish_message_with_ack(
+    async fn on_publish_message(
         &mut self,
         mut message: Message,
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
@@ -227,9 +227,7 @@ impl SessionSender {
         self.set_timer_and_send(message).await
     }
 
-    async fn on_publish_message(&mut self, message: Message) -> Result<(), SessionError> {
-        self.on_publish_message_with_ack(message, None).await
-    }
+
 
     async fn set_timer_and_send(&mut self, message: Message) -> Result<(), SessionError> {
         let message_id = message.get_id();
