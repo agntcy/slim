@@ -123,7 +123,7 @@ impl Session {
             ProtoSessionMessageType::Msg => {
                 if direction == MessageDirection::South {
                     // message from app to slim, give it to the sender with ack
-                    self.sender.on_message_with_ack(message, ack_tx).await
+                    self.sender.on_message(message, ack_tx).await
                 } else {
                     // message from slim to the app, give it to the receiver
                     // Signal ack immediately for incoming messages
@@ -134,11 +134,7 @@ impl Session {
                 }
             }
             ProtoSessionMessageType::MsgAck | ProtoSessionMessageType::RtxRequest => {
-                // Signal ack immediately for control messages
-                if let Some(tx) = ack_tx {
-                    let _ = tx.send(Ok(()));
-                }
-                self.sender.on_message(message).await
+                self.sender.on_message(message, ack_tx).await
             }
             ProtoSessionMessageType::RtxReply => {
                 // Signal ack immediately for control messages
