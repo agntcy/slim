@@ -22,12 +22,14 @@ use crate::api::ProtoPublishType as PublishType;
 use crate::api::ProtoSubscribeType as SubscribeType;
 use crate::api::ProtoUnsubscribeType as UnsubscribeType;
 use crate::api::proto::dataplane::v1::Message;
+
 use crate::api::proto::dataplane::v1::data_plane_service_client::DataPlaneServiceClient;
 use crate::api::proto::dataplane::v1::data_plane_service_server::DataPlaneService;
 use crate::connection::{Channel, Connection, Type as ConnectionType};
 use crate::errors::DataPathError;
 use crate::forwarder::Forwarder;
 use crate::messages::Name;
+use crate::messages::utils::SlimHeaderFlags;
 use crate::tables::connection_table::ConnectionTable;
 use crate::tables::subscription_table::SubscriptionTableImpl;
 
@@ -806,10 +808,32 @@ impl MessageProcessor {
             }
 
             if !connected {
-                // delete connection state
-                self_clone
+                //delete connection state
+                let (local_subs, _remote_subs) = self_clone
                     .forwarder()
                     .on_connection_drop(conn_index, is_local);
+
+                // if connection is not local and controller exists, notify about lost subscriptions on the connection
+                if let (false, Some(tx)) = (is_local, tx_cp) {
+                    for local_sub in local_subs {
+                        debug!(
+                            "notify control plane about lost subscription: {}",
+                            local_sub
+                        );
+                        let msg = Message::builder()
+                            .source(local_sub.clone())
+                            .destination(local_sub.clone())
+                            .flags(SlimHeaderFlags::default().with_recv_from(conn_index))
+                            .build_unsubscribe()
+                            .unwrap();
+                        if let Err(e) = tx.send(Ok(msg)).await {
+                            error!(
+                                "failed to send unsubscribe message to control plane for subscription {}: {}",
+                                local_sub, e
+                            );
+                        }
+                    }
+                }
 
                 info!(telemetry = true, counter.num_active_connections = -1);
             }
