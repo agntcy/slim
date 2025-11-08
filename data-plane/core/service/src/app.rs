@@ -140,18 +140,6 @@ where
         self.session_layer.remove_session(session.id())
     }
 
-    /// Delete a session and wait for it to complete with the given timeout
-    pub async fn delete_session_draining(
-        &self,
-        session: &SessionController,
-        timeout: std::time::Duration,
-    ) -> Result<(), SessionError> {
-        // remove the session from the pool
-        self.session_layer
-            .remove_session_draining(session.id(), timeout)
-            .await
-    }
-
     /// Get the app name
     ///
     /// Returns a reference to the name that was provided when the App was created.
@@ -274,23 +262,14 @@ where
     }
 
     /// Close all sessions and return handles to wait on
-    pub fn clear_all_sessions_handles(
+    pub fn clear_all_sessions(
         &self,
     ) -> HashMap<u32, Result<tokio::task::JoinHandle<()>, SessionError>> {
         debug!(
             "clearing all sessions for app {} (returning handles)",
             self.app_name
         );
-        self.session_layer.clear_all_sessions_handles()
-    }
-
-    /// Close all sessions and gracefully wait for them to drain with the given timeout
-    pub async fn clear_all_sessions(
-        &self,
-        timeout: std::time::Duration,
-    ) -> HashMap<u32, Result<(), SessionError>> {
-        debug!("clearing all sessions for app {}", self.app_name);
-        self.session_layer.clear_all_sessions(timeout).await
+        self.session_layer.clear_all_sessions()
     }
 
     /// SLIM receiver loop
@@ -428,12 +407,8 @@ mod tests {
 
         assert!(ret.is_ok());
 
-        app.delete_session_draining(
-            &ret.unwrap().session().upgrade().unwrap(),
-            std::time::Duration::from_secs(10),
-        )
-        .await
-        .unwrap();
+        app.delete_session(&ret.unwrap().session().upgrade().unwrap())
+            .unwrap();
     }
 
     #[tokio::test]
@@ -482,11 +457,7 @@ mod tests {
         assert!(res.is_ok());
 
         session_layer
-            .delete_session_draining(
-                &res.unwrap().session().upgrade().unwrap(),
-                std::time::Duration::from_secs(10),
-            )
-            .await
+            .delete_session(&res.unwrap().session().upgrade().unwrap())
             .unwrap();
     }
 
@@ -519,8 +490,7 @@ mod tests {
         assert_eq!(strong.id(), 42);
 
         // Delete the session from the app (removes it from the pool)
-        app.delete_session_draining(&strong, std::time::Duration::from_secs(10))
-            .await
+        app.delete_session(&strong)
             .expect("failed to delete session");
 
         // Drop the last strong reference

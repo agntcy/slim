@@ -13,7 +13,6 @@ agntcy-slim-auth = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-mls = { workspace = true }
 async-trait = { workspace = true }
-futures = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }

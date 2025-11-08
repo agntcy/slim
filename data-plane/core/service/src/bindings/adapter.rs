@@ -9,6 +9,7 @@ use slim_datapath::messages::Name;
 use slim_session::context::SessionContext;
 use slim_session::{Notification, SessionError};
 use slim_session::{SessionConfig, session_controller::SessionController};
+use tokio::task::JoinHandle;
 
 use crate::app::App;
 use crate::bindings::builder::AppAdapterBuilder;
@@ -156,10 +157,11 @@ where
     }
 
     /// Delete a session by its context and wait for it to complete with default timeout
-    pub async fn delete_session(&self, session: &SessionController) -> Result<(), SessionError> {
-        self.app
-            .delete_session_draining(session, std::time::Duration::from_secs(10))
-            .await
+    pub fn delete_session(
+        &self,
+        session: &SessionController,
+    ) -> Result<JoinHandle<()>, SessionError> {
+        self.app.delete_session(session)
     }
 
     /// Subscribe to a name with optional connection ID
@@ -477,7 +479,7 @@ mod tests {
 
         if let Some(session) = session_ref {
             // Test delete session
-            let result = adapter.delete_session(&session).await;
+            let result = adapter.delete_session(&session);
             assert!(result.is_ok());
         }
     }

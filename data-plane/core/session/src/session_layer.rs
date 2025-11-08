@@ -269,24 +269,8 @@ where
         session.close()
     }
 
-    /// Remove a session from the pool and wait for drain to complete
-    pub async fn remove_session_draining(
-        &self,
-        id: u32,
-        timeout: std::time::Duration,
-    ) -> Result<(), SessionError> {
-        let handle = self.remove_session(id)?;
-
-        tokio::time::timeout(timeout, handle)
-            .await
-            .map_err(|_| SessionError::CloseTimeout)?
-            .map_err(|e| SessionError::Generic(e.to_string()))?;
-
-        Ok(())
-    }
-
     /// Clear all sessions and return handles to wait on
-    pub fn clear_all_sessions_handles(
+    pub fn clear_all_sessions(
         &self,
     ) -> HashMap<u32, Result<tokio::task::JoinHandle<()>, SessionError>> {
         let pool = {
@@ -300,38 +284,6 @@ where
         pool.iter()
             .map(|(id, session)| (*id, session.close()))
             .collect()
-    }
-
-    /// Clear all sessions and wait for them to complete
-    pub async fn clear_all_sessions(
-        &self,
-        timeout: std::time::Duration,
-    ) -> HashMap<u32, Result<(), SessionError>> {
-        let handles = self.clear_all_sessions_handles();
-
-        // Gather all the futures to wait on handles
-        let futures: Vec<_> = handles
-            .into_iter()
-            .map(|(id, handle_result)| async move {
-                let result = match handle_result {
-                    Ok(handle) => {
-                        // Wait for handle with timeout
-                        tokio::time::timeout(timeout, handle)
-                            .await
-                            .map_err(|_| SessionError::CloseTimeout)
-                            .and_then(|r| r.map_err(|e| SessionError::Generic(e.to_string())))
-                    }
-                    Err(e) => Err(e),
-                };
-                (id, result)
-            })
-            .collect();
-
-        // Await for all sessions to close
-        let results = futures::future::join_all(futures).await;
-
-        // Return the results
-        results.into_iter().collect()
     }
 
     pub fn listen_from_sessions(
@@ -860,16 +812,12 @@ mod tests {
 
         assert_eq!(session_layer.pool_size(), 1);
 
-        let removed = session_layer
-            .remove_session_draining(session_id, std::time::Duration::from_secs(10))
-            .await;
+        let removed = session_layer.remove_session(session_id);
         assert!(removed.is_ok());
         assert!(session_layer.is_pool_empty());
 
         // Try to remove non-existent session
-        let removed_again = session_layer
-            .remove_session_draining(session_id, std::time::Duration::from_secs(10))
-            .await;
+        let removed_again = session_layer.remove_session(session_id);
         assert!(removed_again.is_err());
     }
 

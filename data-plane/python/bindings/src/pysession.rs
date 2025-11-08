@@ -242,7 +242,6 @@ impl PySessionContext {
 
         adapter
             .delete_session(&session)
-            .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
         Ok(())
     }

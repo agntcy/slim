@@ -228,9 +228,7 @@ async fn main() {
 
     // Delete all the sessions
     for session in sessions {
-        app.delete_session_draining(&session, std::time::Duration::from_secs(2))
-            .await
-            .unwrap();
+        app.delete_session(&session).unwrap();
     }
 
     // consume the service and get the drain signal

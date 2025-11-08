@@ -655,18 +655,10 @@ mod tests {
 
         // Now remove the session from the 2 apps
         pub_app
-            .delete_session_draining(
-                &send_session.session_arc().unwrap(),
-                std::time::Duration::from_secs(10),
-            )
-            .await
+            .delete_session(&send_session.session_arc().unwrap())
             .unwrap();
         sub_app
-            .delete_session_draining(
-                &recv_session.session_arc().unwrap(),
-                std::time::Duration::from_secs(10),
-            )
-            .await
+            .delete_session(&recv_session.session_arc().unwrap())
             .unwrap();
 
         // And drop the 2 apps
