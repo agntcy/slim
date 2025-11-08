@@ -1092,10 +1092,12 @@ mod tests {
     }
 
     #[tokio::test]
+    #[tracing_test::traced_test]
     async fn test_message_acknowledgment_e2e() {
         use crate::service::Service;
         use slim_config::component::id::{ID, Kind};
 
+        tracing::info!("SETUP: Creating service and apps");
         // Create a service instance
         let service_name = "test-service-ack-e2e";
         let id = ID::new_with_name(Kind::new("slim").unwrap(), service_name).unwrap();
@@ -1124,6 +1126,7 @@ mod tests {
         // Wait for subscription to be established
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
+        tracing::info!("SETUP: Creating sender and receiver sessions");
         // Create sessions
         let sender_session = sender_app
             .create_session(
@@ -1155,7 +1158,9 @@ mod tests {
             _ => panic!("unexpected notification"),
         };
 
-        println!("\n=== TEST 1: Successful message with acknowledgment ===");
+        tracing::info!("SETUP: Sessions established successfully");
+
+        tracing::info!("TEST 1: Successful message with acknowledgment");
 
         // Send message from sender to receiver and get ack receiver
         let message_data = b"Hello from sender!".to_vec();
@@ -1166,7 +1171,7 @@ mod tests {
             .publish(&receiver_name, message_data.clone(), None, None)
             .expect("failed to send message with ack");
 
-        println!("Sender: Message sent, waiting for acknowledgment...");
+        tracing::info!("Sender: Message sent, waiting for acknowledgment...");
 
         // Receiver should receive the message
         let received = tokio::time::timeout(
@@ -1178,7 +1183,7 @@ mod tests {
         .expect("subscriber channel closed")
         .expect("error receiving message");
 
-        println!("Receiver: Message received");
+        tracing::info!("Receiver: Message received");
         assert_eq!(
             received
                 .get_payload()
@@ -1195,14 +1200,14 @@ mod tests {
             .expect("timeout waiting for ack notification")
             .expect("ack channel closed");
 
-        println!("Sender: Acknowledgment received from network!");
+        tracing::info!("Sender: Acknowledgment received from network!");
         assert!(
             ack_result.is_ok(),
             "acknowledgment should succeed: {:?}",
             ack_result
         );
 
-        println!("\n=== TEST 2: Multiple messages with acknowledgments ===");
+        tracing::info!("TEST 2: Multiple messages with acknowledgments");
 
         // Send multiple messages and verify all are acknowledged
         let mut ack_receivers = Vec::new();
@@ -1226,7 +1231,7 @@ mod tests {
             .expect("channel closed");
         }
 
-        println!("Publisher: Sent 3 messages, waiting for all acknowledgments...");
+        tracing::info!("Publisher: Sent 3 messages, waiting for all acknowledgments...");
 
         // Wait for all acknowledgments - they should all succeed
         assert!(
@@ -1236,7 +1241,7 @@ mod tests {
                 .all(|r| r.is_ok() && r.unwrap().is_ok())
         );
 
-        println!("\n=== All acknowledgment tests passed! ===");
+        tracing::info!("All acknowledgment tests passed!");
 
         // Cleanup
         sender_app
@@ -1248,10 +1253,12 @@ mod tests {
     }
 
     #[tokio::test]
+    #[tracing_test::traced_test]
     async fn test_invite_participant_with_ack_e2e() {
         use crate::service::Service;
         use slim_config::component::id::{ID, Kind};
 
+        tracing::info!("SETUP: Creating service and apps");
         // Create a service instance
         let service_name = "test-service-invite-ack-e2e";
         let id = ID::new_with_name(Kind::new("slim").unwrap(), service_name).unwrap();
@@ -1290,6 +1297,7 @@ mod tests {
         // Wait for subscriptions to be established
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
+        tracing::info!("SETUP: Creating moderator session");
         // Create moderator session (multicast)
         let moderator_session = moderator_app
             .create_session(
@@ -1309,6 +1317,7 @@ mod tests {
         // Extract the session controller
         let moderator_controller = moderator_session.session().upgrade().unwrap();
 
+        tracing::info!("SETUP: Inviting participant1 (should succeed)");
         // Invite participant1 and wait for ack
         let invite_ack_rx1 = moderator_controller
             .invite_participant(&participant1_name)
@@ -1335,7 +1344,9 @@ mod tests {
             "Expected invite to succeed, got: {:?}",
             invite_result1
         );
+        tracing::info!("SETUP: Participant1 invited successfully");
 
+        tracing::info!("SETUP: Inviting participant2 (should succeed)");
         // Invite participant2 and wait for ack
         let invite_ack_rx2 = moderator_controller
             .invite_participant(&participant2_name)
@@ -1362,12 +1373,13 @@ mod tests {
             "Expected invite to succeed, got: {:?}",
             invite_result2
         );
+        tracing::info!("SETUP: Participant2 invited successfully");
 
         // Verify both participants are successfully added (acks received)
         // The session is now active with both participants
 
         // TEST 1: Try to invite a non-existent participant
-        println!("\n=== TEST 1: Invite non-existent participant ===");
+        tracing::info!("TEST 1: Invite non-existent participant");
         let nonexistent_participant = Name::from_strings(["org", "ns", "ghost"]).with_id(0);
 
         let invite_ghost_rx = moderator_controller
@@ -1388,7 +1400,7 @@ mod tests {
         );
 
         // Now try to remove an existing participant
-        println!("\n=== TEST 2: Remove existing participant ===");
+        tracing::info!("TEST 2: Remove existing participant");
 
         let remove_result_rx = moderator_controller
             .remove_participant(&participant1_name)
@@ -1406,7 +1418,7 @@ mod tests {
             remove_result
         );
 
-        println!("\n=== TEST 3: Remove non-existent participant ===");
+        tracing::info!("TEST 3: Remove non-existent participant");
         let remove_nonexistent_rx = moderator_controller
             .remove_participant(&nonexistent_participant)
             .expect("failed to send remove for ghost");
@@ -1425,6 +1437,6 @@ mod tests {
 
         // NOTE: Remove tests are flaky in test environment and have been moved to separate test
         // The invite mechanism is verified above
-        println!("\n=== All invite tests passed! ===");
+        tracing::info!("All invite tests passed!");
     }
 }

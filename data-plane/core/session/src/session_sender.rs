@@ -227,8 +227,6 @@ impl SessionSender {
         self.set_timer_and_send(message).await
     }
 
-
-
     async fn set_timer_and_send(&mut self, message: Message) -> Result<(), SessionError> {
         let message_id = message.get_id();
         debug!("send new message with id {}", message_id);
