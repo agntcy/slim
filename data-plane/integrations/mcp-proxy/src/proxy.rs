@@ -174,7 +174,7 @@ fn start_proxy_session(ctx: SessionContext, mcp_server: String) {
                             if let Some(conn) = incoming_conn_id {
                                 if let Some(session_arc) = weak.upgrade() {
                                     let vec = serde_json::to_vec(&msg).unwrap();
-                                    if let Err(e) = session_arc.publish_to(remote_name, conn, vec, None, None).await { error!("error sending MCP->client message: {}", e); }
+                                    if let Err(e) = session_arc.publish_to(remote_name, conn, vec, None, None) { error!("error sending MCP->client message: {}", e); }
                                 } else { debug!("session dropped before sending MCP message"); break; }
                             } else {
                                 debug!("dropping MCP message: remote not initialized yet");
@@ -198,7 +198,7 @@ fn start_proxy_session(ctx: SessionContext, mcp_server: String) {
                                 pending_pings.insert(index);
                                 let req = ServerJsonRpcMessage::Request(JsonRpcRequest { jsonrpc: rmcp::model::JsonRpcVersion2_0, id: Number(index), request: rmcp::model::ServerRequest::PingRequest(ping_req) });
                                 let vec = serde_json::to_vec(&req).unwrap();
-                                if let Err(e) = session_arc.publish_to(remote_name, conn, vec, None, None).await { error!("error sending ping: {}", e); }
+                                if let Err(e) = session_arc.publish_to(remote_name, conn, vec, None, None) { error!("error sending ping: {}", e); }
                             }
                         }
                     }
@@ -237,7 +237,6 @@ impl Proxy {
                 SharedSecret::new("id", SECRET),
                 SharedSecret::new("id", SECRET),
             )
-            .await
             .expect("failed to create app");
 
         // run the service - this will create all the connections provided via the config file.
