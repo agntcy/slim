@@ -1246,4 +1246,185 @@ mod tests {
             .delete_session(receiver_session.session().upgrade().unwrap().as_ref())
             .unwrap();
     }
+
+    #[tokio::test]
+    async fn test_invite_participant_with_ack_e2e() {
+        use crate::service::Service;
+        use slim_config::component::id::{ID, Kind};
+
+        // Create a service instance
+        let service_name = "test-service-invite-ack-e2e";
+        let id = ID::new_with_name(Kind::new("slim").unwrap(), service_name).unwrap();
+        let service = Service::new(id);
+
+        // Create moderator and participant apps
+        let moderator_name = Name::from_strings(["org", "ns", "moderator"]).with_id(0);
+        let participant1_name = Name::from_strings(["org", "ns", "participant1"]).with_id(0);
+        let participant2_name = Name::from_strings(["org", "ns", "participant2"]).with_id(0);
+        let channel_name = Name::from_strings(["org", "ns", "channel"]).with_id(0);
+
+        let (moderator_app, _moderator_notifications) = service
+            .create_app(
+                &moderator_name,
+                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET),
+            )
+            .unwrap();
+
+        let (_participant1_app, mut participant1_notifications) = service
+            .create_app(
+                &participant1_name,
+                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET),
+            )
+            .unwrap();
+
+        let (_participant2_app, mut participant2_notifications) = service
+            .create_app(
+                &participant2_name,
+                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET),
+            )
+            .unwrap();
+
+        // Wait for subscriptions to be established
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        // Create moderator session (multicast)
+        let moderator_session = moderator_app
+            .create_session(
+                SessionConfig {
+                    session_type: slim_datapath::api::ProtoSessionType::Multicast,
+                    max_retries: Some(5),
+                    interval: Some(std::time::Duration::from_millis(100)),
+                    mls_enabled: false,
+                    initiator: true,
+                    metadata: HashMap::new(),
+                },
+                channel_name.clone(),
+                None,
+            )
+            .expect("failed to create moderator session");
+
+        // Extract the session controller
+        let moderator_controller = moderator_session.session().upgrade().unwrap();
+
+        // Invite participant1 and wait for ack
+        let invite_ack_rx1 = moderator_controller
+            .invite_participant(&participant1_name)
+            .expect("failed to invite participant1");
+
+        // Wait for participant1 to receive session notification
+        let _participant1_session = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            participant1_notifications.recv(),
+        )
+        .await
+        .expect("timeout waiting for session at participant1")
+        .expect("participant1 channel closed");
+
+        // Wait for invite ack to complete (after JoinReply)
+        let invite_result1 =
+            tokio::time::timeout(std::time::Duration::from_secs(3), invite_ack_rx1)
+                .await
+                .expect("timeout waiting for invite ack")
+                .expect("invite ack channel closed");
+
+        assert!(
+            invite_result1.is_ok(),
+            "Expected invite to succeed, got: {:?}",
+            invite_result1
+        );
+
+        // Invite participant2 and wait for ack
+        let invite_ack_rx2 = moderator_controller
+            .invite_participant(&participant2_name)
+            .expect("failed to invite participant2");
+
+        // Wait for participant2 to receive session notification
+        let _participant2_session = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            participant2_notifications.recv(),
+        )
+        .await
+        .expect("timeout waiting for session at participant2")
+        .expect("participant2 channel closed");
+
+        // Wait for invite ack to complete (after JoinReply)
+        let invite_result2 =
+            tokio::time::timeout(std::time::Duration::from_secs(3), invite_ack_rx2)
+                .await
+                .expect("timeout waiting for invite ack")
+                .expect("invite ack channel closed");
+
+        assert!(
+            invite_result2.is_ok(),
+            "Expected invite to succeed, got: {:?}",
+            invite_result2
+        );
+
+        // Verify both participants are successfully added (acks received)
+        // The session is now active with both participants
+
+        // TEST 1: Try to invite a non-existent participant
+        println!("\n=== TEST 1: Invite non-existent participant ===");
+        let nonexistent_participant = Name::from_strings(["org", "ns", "ghost"]).with_id(0);
+
+        let invite_ghost_rx = moderator_controller
+            .invite_participant(&nonexistent_participant)
+            .expect("failed to send invite to ghost");
+
+        // This should fail since the participant doesn't exist
+        // We do have a 3 sec timeout, but the invite should error out expire sooner (5 * 100ms)
+        let ghost_result = tokio::time::timeout(std::time::Duration::from_secs(3), invite_ghost_rx)
+            .await
+            .expect("timeout waiting for ghost invite ack")
+            .expect("ghost invite ack channel closed");
+
+        assert!(
+            ghost_result.is_err(),
+            "Expected session error for non-existent participant, but got: {:?}",
+            ghost_result
+        );
+
+        // Now try to remove an existing participant
+        println!("\n=== TEST 2: Remove existing participant ===");
+
+        let remove_result_rx = moderator_controller
+            .remove_participant(&participant1_name)
+            .expect("failed to send remove for participant1");
+
+        let remove_result =
+            tokio::time::timeout(std::time::Duration::from_secs(3), remove_result_rx)
+                .await
+                .expect("timeout waiting for remove ack")
+                .expect("remove ack channel closed");
+
+        assert!(
+            remove_result.is_ok(),
+            "Expected remove to succeed, got: {:?}",
+            remove_result
+        );
+
+        println!("\n=== TEST 3: Remove non-existent participant ===");
+        let remove_nonexistent_rx = moderator_controller
+            .remove_participant(&nonexistent_participant)
+            .expect("failed to send remove for ghost");
+
+        let remove_ghost_result =
+            tokio::time::timeout(std::time::Duration::from_secs(3), remove_nonexistent_rx)
+                .await
+                .expect("timeout waiting for remove ack")
+                .expect("remove ack channel closed");
+
+        assert!(
+            remove_ghost_result.is_err(),
+            "Expected remove to fail for non-existent participant, got: {:?}",
+            remove_ghost_result
+        );
+
+        // NOTE: Remove tests are flaky in test environment and have been moved to separate test
+        // The invite mechanism is verified above
+        println!("\n=== All invite tests passed! ===");
+    }
 }

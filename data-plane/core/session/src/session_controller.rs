@@ -27,7 +27,6 @@ use crate::{
     session_builder::{ForController, SessionBuilder},
     session_config::SessionConfig,
     session_settings::SessionSettings,
-    timer_factory::TimerSettings,
     traits::MessageHandler,
 };
 
@@ -383,7 +382,7 @@ impl SessionController {
                 }
                 let msg = Message::builder()
                     .source(self.source().clone())
-                    .destination(destination.clone())
+                    .destination(destination.clone().with_id(Name::NULL_COMPONENT))
                     .identity("")
                     .session_type(ProtoSessionType::Multicast)
                     .session_message_type(ProtoSessionMessageType::LeaveRequest)
@@ -460,13 +459,9 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     pub(crate) fn new(settings: SessionSettings<P, V>) -> Self {
-        // timers settings for the controller
-        let controller_timer_settings =
-            TimerSettings::constant(Duration::from_secs(1)).with_max_retries(10);
-
         // create the controller sender
         let controller_sender = ControllerSender::new(
-            controller_timer_settings,
+            settings.config.get_timer_settings(),
             settings.source.clone(),
             // send messages to slim/app
             settings.tx.clone(),
@@ -485,6 +480,7 @@ where
         self.settings.tx.send_to_slim(Ok(message)).await
     }
 
+    /// Send control message without creating ack channel (for internal use by moderator)
     pub(crate) async fn send_with_timer(&mut self, message: Message) -> Result<(), SessionError> {
         self.sender.on_message(&message).await
     }
@@ -538,6 +534,7 @@ where
             .map_err(|e| SessionError::Processing(e.to_string()))
     }
 
+    /// Send control message without creating ack channel (for internal use by moderator)
     pub(crate) async fn send_control_message(
         &mut self,
         dst: &Name,

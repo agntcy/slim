@@ -196,7 +196,6 @@ impl ControllerSender {
         };
 
         self.pending_replies.insert(id, pending);
-
         self.tx
             .send_to_slim(Ok(message.clone()))
             .await
@@ -406,7 +405,7 @@ mod tests {
         sender
             .on_message(&reply)
             .await
-            .expect("error sending message");
+            .expect("error sending reply");
 
         // this should stop the timer so we should not get any other message in slim
         let res = timeout(Duration::from_millis(400), rx_slim.recv()).await;
@@ -855,10 +854,7 @@ mod tests {
             .unwrap();
 
         // Send the first ack using on_message function
-        sender
-            .on_message(&ack1)
-            .await
-            .expect("error sending first ack");
+        sender.on_message(&ack1).await.expect("error sending ack");
 
         // Verify the message is still pending (timer should NOT stop yet with only 1/2 acks)
         assert!(
@@ -882,10 +878,7 @@ mod tests {
             .unwrap();
 
         // Send the second ack using on_message function
-        sender
-            .on_message(&ack2)
-            .await
-            .expect("error sending second ack");
+        sender.on_message(&ack2).await.expect("error sending ack");
 
         // Now the timer should be stopped - verify no more messages in slim
         let res = timeout(Duration::from_millis(400), rx_slim.recv()).await;
@@ -1000,10 +993,7 @@ mod tests {
             .unwrap();
 
         // Send the first ack using on_message function
-        sender
-            .on_message(&ack1)
-            .await
-            .expect("error sending first ack");
+        sender.on_message(&ack1).await.expect("error sending ack");
 
         // Verify the message is still pending (timer should NOT stop yet with only 1/2 acks)
         assert!(
@@ -1058,10 +1048,7 @@ mod tests {
             .unwrap();
 
         // Send the second ack from participant2
-        sender
-            .on_message(&ack2)
-            .await
-            .expect("error sending second ack");
+        sender.on_message(&ack2).await.expect("error sending ack");
 
         // NOW the timer should be stopped - verify no more messages in slim
         let res = timeout(Duration::from_millis(400), rx_slim.recv()).await;
@@ -1074,4 +1061,284 @@ mod tests {
             "Expected no more timeout signals after all unique acks received"
         );
     }
+
+    // #[tokio::test]
+    // #[traced_test]
+    // async fn test_invite_participant_with_ack_notification() {
+    //     // Test that ack notification works for invite participant (completes after JoinReply, not DiscoveryReply)
+    //     // Note: This test only verifies the DiscoveryRequest/Reply flow at the controller_sender level.
+    //     // The full invite flow (DiscoveryRequest -> JoinRequest -> JoinReply) is handled by the moderator.
+    //     let settings = TimerSettings::constant(Duration::from_millis(200)).with_max_retries(3);
+
+    //     let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+    //     let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
+    //     let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+
+    //     let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+    //     let source = Name::from_strings(["org", "ns", "source"]);
+    //     let remote = Name::from_strings(["org", "ns", "remote"]);
+
+    //     let mut sender = ControllerSender::new(settings, source.clone(), tx, tx_signal);
+
+    //     // Create a discovery request message (invite participant)
+    //     let payload = CommandPayload::builder().discovery_request(None);
+    //     let session_id = 1;
+
+    //     let request = Message::builder()
+    //         .source(source.clone())
+    //         .destination(remote.clone())
+    //         .identity("")
+    //         .session_type(ProtoSessionType::Multicast)
+    //         .session_message_type(ProtoSessionMessageType::DiscoveryRequest)
+    //         .session_id(session_id)
+    //         .message_id(1)
+    //         .payload(payload.as_content())
+    //         .build_publish()
+    //         .unwrap();
+
+    //     // Create an ack channel
+    //     let (ack_tx, ack_rx) = oneshot::channel();
+
+    //     // Send the message with ack notification
+    //     sender
+    //         .on_message(&request, Some(ack_tx))
+    //         .await
+    //         .expect("error sending message");
+
+    //     // Wait for the message to arrive at rx_slim
+    //     let received = timeout(Duration::from_millis(100), rx_slim.recv())
+    //         .await
+    //         .expect("timeout waiting for message")
+    //         .expect("channel closed")
+    //         .expect("error message");
+
+    //     // Verify the message received is the right one
+    //     assert_eq!(received, request);
+
+    //     // Create a discovery reply message
+    //     let reply_payload = CommandPayload::builder().discovery_reply();
+    //     let reply = Message::builder()
+    //         .source(remote.clone())
+    //         .destination(source.clone())
+    //         .identity("")
+    //         .session_type(ProtoSessionType::Multicast)
+    //         .session_message_type(ProtoSessionMessageType::DiscoveryReply)
+    //         .session_id(session_id)
+    //         .message_id(1)
+    //         .payload(reply_payload.as_content())
+    //         .build_publish()
+    //         .unwrap();
+
+    //     // Send the reply
+    //     sender
+    //         .on_message(&reply)
+    //         .await
+    //         .expect("error sending reply");
+
+    //     // Now the ack notification should be triggered
+    //     let ack_result = timeout(Duration::from_millis(100), ack_rx)
+    //         .await
+    //         .expect("timeout waiting for ack notification")
+    //         .expect("ack channel closed");
+
+    //     // Verify we got success
+    //     assert!(ack_result.is_ok(), "Expected Ok result, got: {:?}", ack_result);
+    // }
+
+    // #[tokio::test]
+    // #[traced_test]
+    // async fn test_remove_participant_with_ack_notification() {
+    //     // Test that ack notification works for remove participant (LeaveRequest/Reply)
+    //     let settings = TimerSettings::constant(Duration::from_millis(200)).with_max_retries(3);
+
+    //     let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+    //     let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
+    //     let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+
+    //     let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+    //     let source = Name::from_strings(["org", "ns", "source"]);
+    //     let remote = Name::from_strings(["org", "ns", "remote"]);
+
+    //     let mut sender = ControllerSender::new(settings, source.clone(), tx, tx_signal);
+
+    //     // Create a leave request message (remove participant)
+    //     let payload = CommandPayload::builder().leave_request(None);
+    //     let session_id = 1;
+
+    //     let request = Message::builder()
+    //         .source(source.clone())
+    //         .destination(remote.clone())
+    //         .identity("")
+    //         .session_type(ProtoSessionType::Multicast)
+    //         .session_message_type(ProtoSessionMessageType::LeaveRequest)
+    //         .session_id(session_id)
+    //         .message_id(2)
+    //         .payload(payload.as_content())
+    //         .build_publish()
+    //         .unwrap();
+
+    //     // Create an ack channel
+    //     let (ack_tx, ack_rx) = oneshot::channel();
+
+    //     // Send the message with ack notification
+    //     sender
+    //         .on_message(&request, Some(ack_tx))
+    //         .await
+    //         .expect("error sending message");
+
+    //     // Wait for the message to arrive at rx_slim
+    //     let received = timeout(Duration::from_millis(100), rx_slim.recv())
+    //         .await
+    //         .expect("timeout waiting for message")
+    //         .expect("channel closed")
+    //         .expect("error message");
+
+    //     // Verify the message received is the right one
+    //     assert_eq!(received, request);
+
+    //     // Create a leave reply message
+    //     let reply_payload = CommandPayload::builder().leave_reply();
+    //     let reply = Message::builder()
+    //         .source(remote.clone())
+    //         .destination(source.clone())
+    //         .identity("")
+    //         .session_type(ProtoSessionType::Multicast)
+    //         .session_message_type(ProtoSessionMessageType::LeaveReply)
+    //         .session_id(session_id)
+    //         .message_id(2)
+    //         .payload(reply_payload.as_content())
+    //         .build_publish()
+    //         .unwrap();
+
+    //     // Send the reply
+    //     sender
+    //         .on_message(&reply)
+    //         .await
+    //         .expect("error sending reply");
+
+    //     // Now the ack notification should be triggered
+    //     let ack_result = timeout(Duration::from_millis(100), ack_rx)
+    //         .await
+    //         .expect("timeout waiting for ack notification")
+    //         .expect("ack channel closed");
+
+    //     // Verify we got success
+    //     assert!(ack_result.is_ok(), "Expected Ok result, got: {:?}", ack_result);
+    // }
+
+    // #[tokio::test]
+    // #[traced_test]
+    // async fn test_ack_notification_on_timer_failure() {
+    //     // Test that ack notification receives error on timer failure
+    //     let settings = TimerSettings::constant(Duration::from_millis(50)).with_max_retries(1);
+
+    //     let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+    //     let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
+    //     let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
+
+    //     let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+    //     let source = Name::from_strings(["org", "ns", "source"]);
+    //     let remote = Name::from_strings(["org", "ns", "remote"]);
+
+    //     let mut sender = ControllerSender::new(settings, source.clone(), tx, tx_signal);
+
+    //     // Create a discovery request message
+    //     let payload = CommandPayload::builder().discovery_request(None);
+    //     let session_id = 1;
+
+    //     let request = Message::builder()
+    //         .source(source.clone())
+    //         .destination(remote.clone())
+    //         .identity("")
+    //         .session_type(ProtoSessionType::Multicast)
+    //         .session_message_type(ProtoSessionMessageType::DiscoveryRequest)
+    //         .session_id(session_id)
+    //         .message_id(3)
+    //         .payload(payload.as_content())
+    //         .build_publish()
+    //         .unwrap();
+
+    //     // Create an ack channel
+    //     let (ack_tx, ack_rx) = oneshot::channel();
+
+    //     // Send the message with ack notification
+    //     sender
+    //         .on_message(&request, Some(ack_tx))
+    //         .await
+    //         .expect("error sending message");
+
+    //     // Consume the initial send
+    //     let _ = timeout(Duration::from_millis(100), rx_slim.recv())
+    //         .await
+    //         .expect("timeout waiting for message")
+    //         .expect("channel closed")
+    //         .expect("error message");
+
+    //     // Wait for timer timeout signal
+    //     let timeout_msg = timeout(Duration::from_millis(150), rx_signal.recv())
+    //         .await
+    //         .expect("timeout waiting for timer signal")
+    //         .expect("channel closed");
+
+    //     // Verify we got the timeout
+    //     match timeout_msg {
+    //         SessionMessage::TimerTimeout {
+    //             message_id,
+    //             message_type,
+    //             timeouts,
+    //             ..
+    //         } => {
+    //             assert_eq!(message_id, 3);
+    //             assert_eq!(message_type, ProtoSessionMessageType::DiscoveryRequest);
+    //             assert_eq!(timeouts, 1);
+    //         }
+    //         _ => panic!("Expected TimerTimeout message"),
+    //     }
+
+    //     // Process the timeout to trigger retransmission
+    //     sender.on_timer_timeout(3).await.expect("error on timeout");
+
+    //     // Consume the retransmission
+    //     let _ = timeout(Duration::from_millis(100), rx_slim.recv())
+    //         .await
+    //         .expect("timeout waiting for retransmitted message")
+    //         .expect("channel closed")
+    //         .expect("error message");
+
+    //     // Wait for timer failure signal
+    //     let failure_msg = timeout(Duration::from_millis(150), rx_signal.recv())
+    //         .await
+    //         .expect("timeout waiting for timer failure signal")
+    //         .expect("channel closed");
+
+    //     // Verify we got the failure
+    //     match failure_msg {
+    //         SessionMessage::TimerFailure {
+    //             message_id,
+    //             message_type,
+    //             timeouts,
+    //             ..
+    //         } => {
+    //             assert_eq!(message_id, 3);
+    //             assert_eq!(message_type, ProtoSessionMessageType::DiscoveryRequest);
+    //             assert_eq!(timeouts, 2);
+    //         }
+    //         _ => panic!("Expected TimerFailure message"),
+    //     }
+
+    //     // Process the timer failure
+    //     sender.on_timer_failure(3).await;
+
+    //     // Now the ack notification should be triggered with an error
+    //     let ack_result = timeout(Duration::from_millis(100), ack_rx)
+    //         .await
+    //         .expect("timeout waiting for ack notification")
+    //         .expect("ack channel closed");
+
+    //     // Verify we got an error
+    //     assert!(ack_result.is_err(), "Expected Err result, got: {:?}", ack_result);
+    // }
 }
