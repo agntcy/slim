@@ -757,9 +757,11 @@ mod tests {
         header.set_session_type(ProtoSessionType::PointToPoint);
         header.set_session_message_type(ProtoSessionMessageType::Msg);
 
-        let res = app
-            .session_layer
-            .handle_message_from_app(message.clone(), &res);
+        let res = res
+            .session()
+            .upgrade()
+            .unwrap()
+            .on_message_from_app(message.clone());
 
         assert!(res.is_ok());
 
@@ -1087,5 +1089,161 @@ mod tests {
         };
 
         run_multicast_test(config).await;
+    }
+
+    #[tokio::test]
+    async fn test_message_acknowledgment_e2e() {
+        use crate::service::Service;
+        use slim_config::component::id::{ID, Kind};
+
+        // Create a service instance
+        let service_name = "test-service-ack-e2e";
+        let id = ID::new_with_name(Kind::new("slim").unwrap(), service_name).unwrap();
+        let service = Service::new(id);
+
+        // Create two apps
+        let sender_name = Name::from_strings(["org", "ns", "sender"]).with_id(0);
+        let receiver_name = Name::from_strings(["org", "ns", "receiver"]).with_id(0);
+
+        let (sender_app, _sender_notifications) = service
+            .create_app(
+                &sender_name,
+                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET),
+            )
+            .unwrap();
+
+        let (receiver_app, mut receiver_notifications) = service
+            .create_app(
+                &receiver_name,
+                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET),
+            )
+            .unwrap();
+
+        // Wait for subscription to be established
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        // Create sessions
+        let sender_session = sender_app
+            .create_session(
+                SessionConfig {
+                    session_type: slim_datapath::api::ProtoSessionType::PointToPoint,
+                    max_retries: Some(5),
+                    interval: Some(std::time::Duration::from_millis(1000)),
+                    mls_enabled: true,
+                    initiator: true,
+                    metadata: HashMap::new(),
+                },
+                receiver_name.clone(),
+                None,
+            )
+            .expect("failed to create subscriber session");
+
+        // Wait for session on receiver side
+        let receiver_session = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            receiver_notifications.recv(),
+        )
+        .await
+        .expect("timeout waiting for session at receiver")
+        .expect("receiver channel closed")
+        .expect("error receiving session notification");
+
+        let mut receiver_session = match receiver_session {
+            slim_session::notification::Notification::NewSession(ctx) => ctx,
+            _ => panic!("unexpected notification"),
+        };
+
+        println!("\n=== TEST 1: Successful message with acknowledgment ===");
+
+        // Send message from sender to receiver and get ack receiver
+        let message_data = b"Hello from sender!".to_vec();
+        let ack_rx = sender_session
+            .session()
+            .upgrade()
+            .unwrap()
+            .publish(&receiver_name, message_data.clone(), None, None)
+            .expect("failed to send message with ack");
+
+        println!("Sender: Message sent, waiting for acknowledgment...");
+
+        // Receiver should receive the message
+        let received = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            receiver_session.rx.recv(),
+        )
+        .await
+        .expect("timeout waiting for message at subscriber")
+        .expect("subscriber channel closed")
+        .expect("error receiving message");
+
+        println!("Receiver: Message received");
+        assert_eq!(
+            received
+                .get_payload()
+                .unwrap()
+                .as_application_payload()
+                .unwrap()
+                .blob,
+            message_data
+        );
+
+        // Wait for acknowledgment from network
+        let ack_result = tokio::time::timeout(std::time::Duration::from_secs(2), ack_rx)
+            .await
+            .expect("timeout waiting for ack notification")
+            .expect("ack channel closed");
+
+        println!("Sender: Acknowledgment received from network!");
+        assert!(
+            ack_result.is_ok(),
+            "acknowledgment should succeed: {:?}",
+            ack_result
+        );
+
+        println!("\n=== TEST 2: Multiple messages with acknowledgments ===");
+
+        // Send multiple messages and verify all are acknowledged
+        let mut ack_receivers = Vec::new();
+        for i in 0..3 {
+            let msg = format!("Message {}", i).into_bytes();
+            let ack_rx = sender_session
+                .session()
+                .upgrade()
+                .unwrap()
+                .publish(&receiver_name, msg, None, None)
+                .expect("failed to send message with ack");
+            ack_receivers.push(ack_rx);
+
+            // Receive at receiver
+            let _received = tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                receiver_session.rx.recv(),
+            )
+            .await
+            .expect("timeout waiting for message")
+            .expect("channel closed");
+        }
+
+        println!("Publisher: Sent 3 messages, waiting for all acknowledgments...");
+
+        // Wait for all acknowledgments - they should all succeed
+        assert!(
+            futures::future::join_all(ack_receivers)
+                .await
+                .into_iter()
+                .all(|r| r.is_ok() && r.unwrap().is_ok())
+        );
+
+        println!("\n=== All acknowledgment tests passed! ===");
+
+        // Cleanup
+        sender_app
+            .delete_session(sender_session.session().upgrade().unwrap().as_ref())
+            .unwrap();
+        receiver_app
+            .delete_session(receiver_session.session().upgrade().unwrap().as_ref())
+            .unwrap();
     }
 }

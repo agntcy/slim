@@ -94,12 +94,20 @@ where
 
     async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
         match message {
-            SessionMessage::OnMessage { message, direction } => {
+            SessionMessage::OnMessage {
+                message,
+                direction,
+                ack_tx,
+            } => {
                 if message.get_session_message_type().is_command_message() {
                     self.process_control_message(message).await
                 } else {
                     self.inner
-                        .on_message(SessionMessage::OnMessage { message, direction })
+                        .on_message(SessionMessage::OnMessage {
+                            message,
+                            direction,
+                            ack_tx,
+                        })
                         .await
                 }
             }
@@ -892,6 +900,7 @@ mod tests {
             .on_message(SessionMessage::OnMessage {
                 message: app_msg,
                 direction: crate::MessageDirection::South,
+                ack_tx: None,
             })
             .await;
 

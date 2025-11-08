@@ -120,6 +120,7 @@ where
             SessionMessage::OnMessage {
                 mut message,
                 direction,
+                ack_tx,
             } => {
                 if message.get_session_message_type().is_command_message() {
                     self.process_control_message(message).await
@@ -136,7 +137,11 @@ where
                             .set_destination(&self.common.settings.destination);
                     }
                     self.inner
-                        .on_message(SessionMessage::OnMessage { message, direction })
+                        .on_message(SessionMessage::OnMessage {
+                            message,
+                            direction,
+                            ack_tx,
+                        })
                         .await
                 }
             }
@@ -838,6 +843,7 @@ where
         self.on_message(SessionMessage::OnMessage {
             message: msg,
             direction: MessageDirection::North,
+            ack_tx: None,
         })
         .await
     }
@@ -1138,6 +1144,7 @@ mod tests {
             .on_message(SessionMessage::OnMessage {
                 message: app_msg,
                 direction: MessageDirection::South,
+                ack_tx: None,
             })
             .await;
 
@@ -1355,6 +1362,7 @@ mod tests {
             .on_message(SessionMessage::OnMessage {
                 message: app_msg,
                 direction: MessageDirection::South,
+                ack_tx: None,
             })
             .await;
 

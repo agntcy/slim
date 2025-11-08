@@ -10,7 +10,7 @@ use slim_datapath::{
 };
 
 use crate::{
-    MessageDirection, common::SessionMessage, errors::SessionError, session_config::SessionConfig,
+    common::SessionMessage, errors::SessionError, session_config::SessionConfig,
     session_controller::SessionController, session_moderator::SessionModerator,
     session_participant::SessionParticipant, session_settings::SessionSettings,
     traits::MessageHandler, transmitter::SessionTransmitter,
@@ -329,7 +329,7 @@ where
                 .payload(payload)
                 .build_publish()
                 .unwrap();
-            session_controller.on_message(discovery, MessageDirection::South)?;
+            session_controller.on_message_from_app(discovery)?;
         }
 
         Ok(session_controller)

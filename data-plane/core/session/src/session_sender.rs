@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 use slim_datapath::api::ProtoSessionType;
 use slim_datapath::{api::ProtoMessage as Message, messages::Name};
 use tokio::sync::mpsc::Sender;
+use tokio::sync::oneshot;
 use tracing::debug;
 
 use crate::common::new_message_from_session_fields;
@@ -72,6 +73,9 @@ pub struct SessionSender {
 
     /// drain state - when true, no new messages from app are accepted
     draining_state: SenderDrainStatus,
+
+    /// oneshot senders to signal when network acks are received for each message
+    ack_notifiers: HashMap<u32, oneshot::Sender<Result<(), SessionError>>>,
 }
 
 #[allow(dead_code)]
@@ -105,7 +109,72 @@ impl SessionSender {
             tx,
             to_flush: false,
             draining_state: SenderDrainStatus::NotDraining,
+            ack_notifiers: HashMap::new(),
         }
+    }
+
+    /// Send a message with optional acknowledgment notification
+    pub async fn on_message_with_ack(
+        &mut self,
+        message: Message,
+        ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
+    ) -> Result<(), SessionError> {
+        if self.draining_state == SenderDrainStatus::Completed {
+            if let Some(tx) = ack_tx {
+                let _ = tx.send(Err(SessionError::Processing(
+                    "sender closed, drop message".to_string(),
+                )));
+            }
+            return Err(SessionError::Processing(
+                "sender closed, drop message".to_string(),
+            ));
+        }
+
+        match message.get_session_message_type() {
+            slim_datapath::api::ProtoSessionMessageType::Msg => {
+                debug!("received message");
+                if self.draining_state == SenderDrainStatus::Initiated {
+                    if let Some(tx) = ack_tx {
+                        let _ = tx.send(Err(SessionError::Processing(
+                            "drain started do no accept new messages".to_string(),
+                        )));
+                    }
+                    return Err(SessionError::Processing(
+                        "drain started do no accept new messages".to_string(),
+                    ));
+                }
+                self.on_publish_message_with_ack(message, ack_tx).await?;
+            }
+            slim_datapath::api::ProtoSessionMessageType::MsgAck => {
+                debug!("received ack message");
+                if let Some(tx) = ack_tx {
+                    let _ = tx.send(Ok(()));
+                }
+                if self.timer_factory.is_none() {
+                    return Ok(());
+                }
+                self.on_ack_message(&message);
+            }
+            slim_datapath::api::ProtoSessionMessageType::RtxRequest => {
+                debug!("received rtx message");
+                if let Some(tx) = ack_tx {
+                    let _ = tx.send(Ok(()));
+                }
+                if self.timer_factory.is_none() {
+                    return Ok(());
+                }
+                self.on_ack_message(&message);
+                self.on_rtx_message(message).await?;
+            }
+            _ => {
+                debug!("unexpected message type");
+                if let Some(tx) = ack_tx {
+                    let _ = tx.send(Ok(()));
+                }
+            }
+        }
+
+        Ok(())
     }
 
     pub async fn on_message(&mut self, message: Message) -> Result<(), SessionError> {
@@ -157,7 +226,11 @@ impl SessionSender {
         Ok(())
     }
 
-    async fn on_publish_message(&mut self, mut message: Message) -> Result<(), SessionError> {
+    async fn on_publish_message_with_ack(
+        &mut self,
+        mut message: Message,
+        ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
+    ) -> Result<(), SessionError> {
         // compute message id
         // by increasing next_id before assign it to message_id
         // we always skip message 0 (used as drain timer id)
@@ -181,6 +254,17 @@ impl SessionSender {
         // add the message to the producer buffer.
         self.buffer.push(message.clone());
 
+        // Store the ack notifier if provided
+        if let Some(tx) = ack_tx {
+            // In unreliable mode (no timer_factory), signal success immediately
+            // since we don't wait for network acks
+            if self.timer_factory.is_none() {
+                let _ = tx.send(Ok(()));
+            } else {
+                self.ack_notifiers.insert(message_id, tx);
+            }
+        }
+
         if self.endpoints_list.is_empty() {
             debug!(
                 "there is no remote endopoint connected to the session, store the packet and send it later"
@@ -190,6 +274,10 @@ impl SessionSender {
         }
 
         self.set_timer_and_send(message).await
+    }
+
+    async fn on_publish_message(&mut self, message: Message) -> Result<(), SessionError> {
+        self.on_publish_message_with_ack(message, None).await
     }
 
     async fn set_timer_and_send(&mut self, message: Message) -> Result<(), SessionError> {
@@ -249,6 +337,11 @@ impl SessionSender {
                 // all acks received. stop the timer and remove the entry
                 gt.timer.stop();
                 delete = true;
+
+                // Signal success to the ack notifier if present
+                if let Some(tx) = self.ack_notifiers.remove(&message_id) {
+                    let _ = tx.send(Ok(()));
+                }
             }
         }
 
@@ -365,6 +458,14 @@ impl SessionSender {
 
         self.pending_acks.remove(&id);
 
+        // Signal failure to the ack notifier if present
+        if let Some(tx) = self.ack_notifiers.remove(&id) {
+            let _ = tx.send(Err(SessionError::Processing(format!(
+                "error send message {}. stop retrying",
+                id
+            ))));
+        }
+
         // notify the application that the message was not delivered correctly
         self.tx
             .send_to_app(Err(SessionError::Processing(format!(
@@ -450,6 +551,12 @@ impl SessionSender {
 
         self.pending_acks.clear();
         self.pending_acks_per_endpoint.clear();
+
+        // Notify all pending ack notifiers that the sender is closed
+        for (_, tx) in self.ack_notifiers.drain() {
+            let _ = tx.send(Err(SessionError::Processing("sender closed".to_string())));
+        }
+
         self.draining_state = SenderDrainStatus::Completed;
     }
 }

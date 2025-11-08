@@ -5,6 +5,7 @@
 use std::{collections::HashMap, time::Duration};
 
 use parking_lot::Mutex;
+use tokio::sync::{self, oneshot};
 // Third-party crates
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
@@ -44,7 +45,7 @@ pub struct SessionController {
     pub(crate) config: SessionConfig,
 
     /// channel to send messages to the processing loop
-    tx_controller: tokio::sync::mpsc::Sender<SessionMessage>,
+    tx_controller: sync::mpsc::Sender<SessionMessage>,
 
     /// use in drop implementation to gracefully close the processing loop
     pub(crate) cancellation_token: CancellationToken,
@@ -71,8 +72,8 @@ impl SessionController {
         destination: Name,
         config: SessionConfig,
         settings: SessionSettings<P, V>,
-        tx: tokio::sync::mpsc::Sender<SessionMessage>,
-        rx: tokio::sync::mpsc::Receiver<SessionMessage>,
+        tx: sync::mpsc::Sender<SessionMessage>,
+        rx: sync::mpsc::Receiver<SessionMessage>,
         inner: I,
     ) -> Self
     where
@@ -103,7 +104,7 @@ impl SessionController {
     /// Internal processing loop that handles messages with mutable access
     async fn processing_loop<P, V>(
         mut inner: impl MessageHandler + 'static,
-        mut rx: tokio::sync::mpsc::Receiver<SessionMessage>,
+        mut rx: sync::mpsc::Receiver<SessionMessage>,
         cancellation_token: CancellationToken,
         settings: SessionSettings<P, V>,
     ) where
@@ -156,13 +157,9 @@ impl SessionController {
                 msg = rx.recv() => {
                     match msg {
                         Some(session_message) => {
-                            // Check if we should process this message based on current state
-                            // Process all messages in both Active and Draining states
-                            {
-                                if let Err(e) = inner.on_message(session_message).await {
-                                    let state_str = if state == ProcessingState::Draining { " during graceful shutdown" } else { "" };
-                                    tracing::error!(error=%e, "Error processing message{}", state_str);
-                                }
+                            if let Err(e) = inner.on_message(session_message).await {
+                                let state_str = if state == ProcessingState::Draining { " during graceful shutdown" } else { "" };
+                                tracing::error!(error=%e, "Error processing message{}", state_str);
                             }
                         }
                         None => {
@@ -215,17 +212,36 @@ impl SessionController {
         self.config.initiator
     }
 
-    /// Send a message to the controller for processing
-    pub fn on_message(
+    fn on_message(
         &self,
         message: Message,
         direction: MessageDirection,
+        ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
     ) -> Result<(), SessionError> {
         self.tx_controller
-            .try_send(SessionMessage::OnMessage { message, direction })
+            .try_send(SessionMessage::OnMessage {
+                message,
+                direction,
+                ack_tx,
+            })
             .map_err(|e| {
                 SessionError::Processing(format!("failed to send message to session: {}", e))
             })
+    }
+
+    /// Send a message to the controller for processing
+    pub fn on_message_from_app(
+        &self,
+        message: Message,
+    ) -> Result<oneshot::Receiver<Result<(), SessionError>>, SessionError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.on_message(message, MessageDirection::South, Some(ack_tx))?;
+        Ok(ack_rx)
+    }
+
+    /// Send a message to the controller for processing
+    pub fn on_message_from_slim(&self, message: Message) -> Result<(), SessionError> {
+        self.on_message(message, MessageDirection::North, None)
     }
 
     pub fn close(&self) -> Result<tokio::task::JoinHandle<()>, SessionError> {
@@ -237,8 +253,11 @@ impl SessionController {
             .ok_or(SessionError::Generic("Session already closed".to_string()))
     }
 
-    pub fn publish_message(&self, message: Message) -> Result<(), SessionError> {
-        self.on_message(message, MessageDirection::South)
+    pub fn publish_message(
+        &self,
+        message: Message,
+    ) -> Result<oneshot::Receiver<Result<(), SessionError>>, SessionError> {
+        self.on_message_from_app(message)
     }
 
     /// Publish a message to a specific connection (forward_to)
@@ -249,7 +268,7 @@ impl SessionController {
         blob: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<(), SessionError> {
+    ) -> Result<oneshot::Receiver<Result<(), SessionError>>, SessionError> {
         self.publish_with_flags(
             name,
             SlimHeaderFlags::default().with_forward_to(forward_to),
@@ -266,7 +285,7 @@ impl SessionController {
         blob: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<(), SessionError> {
+    ) -> Result<oneshot::Receiver<Result<(), SessionError>>, SessionError> {
         self.publish_with_flags(
             name,
             SlimHeaderFlags::default(),
@@ -284,7 +303,7 @@ impl SessionController {
         blob: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<(), SessionError> {
+    ) -> Result<oneshot::Receiver<Result<(), SessionError>>, SessionError> {
         let ct = payload_type.unwrap_or_else(|| "msg".to_string());
 
         let mut msg = Message::builder()
@@ -327,7 +346,10 @@ impl SessionController {
             .map_err(|e| SessionError::Processing(e.to_string()))
     }
 
-    pub fn invite_participant(&self, destination: &Name) -> Result<(), SessionError> {
+    pub fn invite_participant(
+        &self,
+        destination: &Name,
+    ) -> Result<oneshot::Receiver<Result<(), SessionError>>, SessionError> {
         match self.session_type() {
             ProtoSessionType::PointToPoint => Err(SessionError::Processing(
                 "cannot invite participant to point-to-point session".into(),
@@ -345,7 +367,10 @@ impl SessionController {
         }
     }
 
-    pub fn remove_participant(&self, destination: &Name) -> Result<(), SessionError> {
+    pub fn remove_participant(
+        &self,
+        destination: &Name,
+    ) -> Result<oneshot::Receiver<Result<(), SessionError>>, SessionError> {
         match self.session_type() {
             ProtoSessionType::PointToPoint => Err(SessionError::Processing(
                 "cannot remove participant to point-to-point session".into(),
@@ -996,7 +1021,7 @@ mod tests {
             .build_publish()
             .unwrap();
 
-        let result = controller.on_message(test_message, MessageDirection::North);
+        let result = controller.on_message_from_slim(test_message);
         assert!(result.is_ok());
     }
 
@@ -1137,7 +1162,7 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         moderator
-            .on_message(discovery_reply, MessageDirection::North)
+            .on_message_from_slim(discovery_reply)
             .expect("error processing discovery reply on moderator");
 
         // check that we get a route for the remote endpoint on slim
@@ -1172,7 +1197,7 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         participant
-            .on_message(join_request_to_participant, MessageDirection::North)
+            .on_message_from_slim(join_request_to_participant)
             .expect("error processing join request on participant");
 
         // check that a route for the moderator is generated
@@ -1206,7 +1231,7 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         moderator
-            .on_message(join_reply_to_moderator, MessageDirection::North)
+            .on_message_from_slim(join_reply_to_moderator)
             .expect("error processing join reply on moderator");
 
         // check that a welcome message is received by slim on the moderator
@@ -1229,7 +1254,7 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         participant
-            .on_message(welcome_to_participant, MessageDirection::North)
+            .on_message_from_slim(welcome_to_participant)
             .expect("error processing welcome message on participant");
 
         // check that an ack group is received by slim on the participant
@@ -1252,7 +1277,7 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         moderator
-            .on_message(ack_to_moderator, MessageDirection::North)
+            .on_message_from_slim(ack_to_moderator)
             .expect("error processing ack on moderator");
 
         // no other message should be sent
@@ -1289,7 +1314,7 @@ mod tests {
 
         // call on message on the moderator (direction south)
         moderator
-            .on_message(app_message, MessageDirection::South)
+            .on_message_from_app(app_message)
             .expect("error sending application message from moderator");
 
         // check that message is received from slim with destination equal to participant name id
@@ -1314,7 +1339,7 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         participant
-            .on_message(app_msg_to_participant, MessageDirection::North)
+            .on_message_from_slim(app_msg_to_participant)
             .expect("error processing application message on participant");
 
         // check that the message is received by the application
@@ -1361,7 +1386,7 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         moderator
-            .on_message(ack_to_moderator, MessageDirection::North)
+            .on_message_from_slim(ack_to_moderator)
             .expect("error processing ack on moderator");
 
         // check that no other message is generated
@@ -1393,7 +1418,7 @@ mod tests {
             .unwrap();
 
         moderator
-            .on_message(leave_request, MessageDirection::South)
+            .on_message_from_app(leave_request)
             .expect("error sending leave request");
 
         // check that the request is received by slim on the moderator
@@ -1416,7 +1441,7 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         participant
-            .on_message(leave_request_to_participant, MessageDirection::North)
+            .on_message_from_slim(leave_request_to_participant)
             .expect("error processing leave request on participant");
 
         // get the leave reply on the participant slim
@@ -1452,7 +1477,7 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         moderator
-            .on_message(leave_reply_to_moderator, MessageDirection::North)
+            .on_message_from_slim(leave_reply_to_moderator)
             .expect("error processing leave reply on moderator");
 
         // expect a remove route for the participant name
@@ -1601,6 +1626,7 @@ mod tests {
                 .build_publish()
                 .unwrap(),
             direction: MessageDirection::South,
+            ack_tx: None,
         }
     }
 

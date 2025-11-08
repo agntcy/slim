@@ -68,6 +68,11 @@ impl SessionContext {
         });
         session
     }
+
+    /// Get the session ID
+    pub fn session_id(&self) -> u32 {
+        self.session_arc().map(|s| s.id()).unwrap_or(0)
+    }
 }
 
 #[cfg(test)]

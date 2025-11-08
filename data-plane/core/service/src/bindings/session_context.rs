@@ -55,7 +55,9 @@ impl BindingsSessionContext {
 
         session
             .publish_with_flags(name, flags, blob, payload_type, metadata)
-            .map_err(|e| ServiceError::SessionError(e.to_string()))
+            .map_err(|e| ServiceError::SessionError(e.to_string()))?;
+
+        Ok(())
     }
 
     /// Publish a message as a reply to a received message (reply semantics)
@@ -100,7 +102,9 @@ impl BindingsSessionContext {
                 payload_type,
                 metadata,
             )
-            .map_err(|e| ServiceError::SessionError(e.to_string()))
+            .map_err(|e| ServiceError::SessionError(e.to_string()))?;
+
+        Ok(())
     }
 
     /// Invite a peer to join this session
@@ -110,7 +114,9 @@ impl BindingsSessionContext {
             .upgrade()
             .ok_or_else(|| SessionError::Processing("Session has been dropped".to_string()))?;
 
-        session.invite_participant(destination)
+        session.invite_participant(destination)?;
+
+        Ok(())
     }
 
     /// Remove a peer from this session
@@ -120,7 +126,9 @@ impl BindingsSessionContext {
             .upgrade()
             .ok_or_else(|| SessionError::Processing("Session has been dropped".to_string()))?;
 
-        session.remove_participant(destination)
+        session.remove_participant(destination)?;
+
+        Ok(())
     }
 
     /// Receive a message from this session with optional timeout

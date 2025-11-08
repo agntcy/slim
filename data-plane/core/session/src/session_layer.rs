@@ -26,7 +26,7 @@ use crate::transmitter::{AppTransmitter, SessionTransmitter};
 // Local crate
 use super::context::SessionContext;
 use super::interceptor::IdentityInterceptor;
-use super::{MessageDirection, SESSION_RANGE, SlimChannelSender};
+use super::{SESSION_RANGE, SlimChannelSender};
 use super::{SessionError, session_controller::handle_channel_discovery_message};
 use crate::interceptor::SessionInterceptorProvider;
 use crate::traits::Transmitter; // needed for add_interceptor
@@ -320,18 +320,6 @@ where
         });
     }
 
-    pub fn handle_message_from_app(
-        &self,
-        message: Message,
-        context: &SessionContext,
-    ) -> Result<(), SessionError> {
-        context
-            .session()
-            .upgrade()
-            .ok_or(SessionError::SessionNotFound(0))?
-            .on_message(message, MessageDirection::South)
-    }
-
     /// Handle session from slim without creating a session
     /// return true is the message processing is done and no
     /// other action is needed, false otherwise
@@ -403,7 +391,8 @@ where
         // check if we have a session for the given session ID
         if let Some(controller) = self.pool.read().get(&id) {
             // pass the message to the session
-            return controller.on_message(message, MessageDirection::North);
+            controller.on_message_from_slim(message)?;
+            return Ok(());
         }
 
         // get local name for the session
@@ -521,7 +510,7 @@ where
             .ok_or(SessionError::SessionClosed(
                 "newly created session already closed: this should not happen".to_string(),
             ))?
-            .on_message(message, MessageDirection::North)?;
+            .on_message_from_slim(message)?;
 
         // send new session to the app
         self.tx_app
@@ -549,7 +538,8 @@ where
         {
             // Existing session where we are the initiator and payload includes a destination name:
             // controller is requesting to add a new participant to this session.
-            controller.on_message(message, MessageDirection::North)
+            controller.on_message_from_slim(message)?;
+            Ok(())
         } else {
             // Handle the discovery request without creating a local session.
             let local_name =
