@@ -47,6 +47,9 @@ pub static CONTROLLER_SOURCE_NAME: std::sync::LazyLock<slim_datapath::messages::
             .with_id(0)
     });
 
+/// Maximum number of queued subscription notifications
+const MAX_QUEUED_NOTIFICATIONS: usize = 1000; // Prevent unbounded growth
+
 /// Settings struct for creating a ControlPlane instance
 #[derive(Clone)]
 pub struct ControlPlaneSettings {
@@ -107,6 +110,9 @@ struct ControllerServiceInternal {
 
     /// authentication verifier for verifying incoming messages from clients
     _auth_verifier: Option<AuthVerifier>,
+
+    /// queue for pending subscription notifications when connections are down
+    pending_notifications: Arc<parking_lot::Mutex<Vec<ControlMessage>>>,
 }
 
 #[derive(Clone)]
@@ -216,6 +222,7 @@ impl ControlPlane {
                     connection_details,
                     auth_provider: config.auth_provider,
                     _auth_verifier: config.auth_verifier,
+                    pending_notifications: Arc::new(parking_lot::Mutex::new(Vec::new())),
                 }),
             },
             rx_slim_option: Some(rx_slim),
@@ -278,7 +285,7 @@ impl ControlPlane {
             .insert("DATA_PLANE".to_string(), cancellation_token_clone);
 
         let clients = self.clients.clone();
-        let inner = self.controller.inner.clone();
+        let controller = self.controller.clone();
 
         // Send subscription to data-plane to receive messages for the controller source name
         let subscribe_msg = DataPlaneMessage::builder()
@@ -289,7 +296,7 @@ impl ControlPlane {
             .unwrap();
 
         // Send the subscribe message to the data plane
-        if let Err(e) = inner.tx_slim.send(Ok(subscribe_msg)).await {
+        if let Err(e) = controller.inner.tx_slim.send(Ok(subscribe_msg)).await {
             error!("failed to send subscribe message to data plane: {}", e);
         }
 
@@ -339,16 +346,8 @@ impl ControlPlane {
                                                 })),
                                         };
 
-                                        for c in &clients {
-                                            let tx = match inner.tx_channels.read().get(&c.endpoint) {
-                                                Some(tx) => tx.clone(),
-                                                None => continue,
-                                            };
-                                            if (tx.send(Ok(ctrl.clone())).await).is_err() {
-                                                error!("error while notifiyng the control plane");
-                                            };
-
-                                        }
+                                        // Use the new queuing mechanism for subscription notifications
+                                        controller.send_or_queue_subscription_notification(ctrl, &clients).await;
                                     }
                                     Err(e) => {
                                         error!("received error from the data plane {}", e.to_string());
@@ -1236,6 +1235,97 @@ impl ControllerService {
         })
     }
 
+    /// Send subscription notification to control plane or queue it if no connection is available.
+    async fn send_or_queue_subscription_notification(
+        &self,
+        ctrl_msg: ControlMessage,
+        clients: &[ClientConfig],
+    ) {
+        let mut has_active_connection = false;
+
+        // Try to send to all active connections
+        for c in clients {
+            let tx = match self.inner.tx_channels.read().get(&c.endpoint) {
+                Some(tx) => tx.clone(),
+                None => continue,
+            };
+
+            if tx.send(Ok(ctrl_msg.clone())).await.is_ok() {
+                has_active_connection = true;
+            } else {
+                debug!(
+                    "failed to send notification to control plane {}",
+                    c.endpoint
+                );
+            }
+        }
+
+        // If no active connections, queue the notification
+        if !has_active_connection {
+            info!("no active control plane connections, queuing subscription notification");
+
+            let mut queue = self.inner.pending_notifications.lock();
+            if queue.len() >= MAX_QUEUED_NOTIFICATIONS {
+                // Remove oldest notification to make room for new one
+                queue.remove(0);
+                debug!("queue full, removed oldest notification");
+            }
+            queue.push(ctrl_msg);
+        }
+    }
+
+    /// Send all queued subscription notifications when connection is restored.
+    async fn send_queued_notifications(&self, endpoint: &str) {
+        let notifications = {
+            let mut queue = self.inner.pending_notifications.lock();
+            if queue.is_empty() {
+                return;
+            }
+            queue.drain(..).collect::<Vec<_>>()
+        };
+
+        if notifications.is_empty() {
+            return;
+        }
+
+        info!(
+            "sending {} queued subscription notifications to {}",
+            notifications.len(),
+            endpoint
+        );
+
+        let tx = match self.inner.tx_channels.read().get(endpoint) {
+            Some(tx) => tx.clone(),
+            None => {
+                // Connection not available, put notifications back in queue
+                self.inner
+                    .pending_notifications
+                    .lock()
+                    .extend(notifications);
+                return;
+            }
+        };
+
+        let mut failed_notifications = Vec::new();
+        for notification in notifications {
+            if let Err(_) = tx.send(Ok(notification.clone())).await {
+                error!(
+                    "failed to send queued notification to control plane {}",
+                    endpoint
+                );
+                failed_notifications.push(notification);
+            }
+        }
+
+        // Re-queue any failed notifications
+        if !failed_notifications.is_empty() {
+            self.inner
+                .pending_notifications
+                .lock()
+                .extend(failed_notifications);
+        }
+    }
+
     /// Process the control message stream.
     fn process_control_message_stream(
         &self,
@@ -1331,6 +1421,13 @@ impl ControllerService {
                                 .tx_channels
                                 .write()
                                 .insert(config.endpoint.clone(), tx);
+
+                            // Send queued notifications after reconnection
+                            let this_clone = this.clone();
+                            let endpoint = config.endpoint.clone();
+                            tokio::spawn(async move {
+                                this_clone.send_queued_notifications(&endpoint).await;
+                            });
                         },
                     )
             }
@@ -1360,11 +1457,14 @@ impl ControllerService {
                 Ok(stream) => {
                     // process the control message stream
                     self.process_control_message_stream(
-                        Some(config),
+                        Some(config.clone()),
                         stream.into_inner(),
                         tx.clone(),
                         cancellation_token.clone(),
                     );
+
+                    // Send any queued notifications after successful connection
+                    self.send_queued_notifications(&config.endpoint).await;
 
                     return Ok(tx);
                 }
@@ -1563,5 +1663,80 @@ mod tests {
             id1 != 0 && id3 != 0 && id4 != 0,
             "session ids should not be zero"
         );
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_subscription_notification_queuing() {
+        // Create an ID for slim instance
+        let id = ID::new_with_name(Kind::new("slim").unwrap(), "test-instance").unwrap();
+
+        // Create drain channels
+        let (_signal, watch) = drain::channel();
+
+        // Create a message processor
+        let message_processor = MessageProcessor::with_drain_channel(watch.clone());
+
+        // Create a control plane instance without any clients
+        let control_plane_settings = ControlPlaneSettings {
+            id,
+            group_name: None,
+            servers: vec![],
+            clients: vec![], // No clients - simulates disconnected state
+            drain_rx: watch,
+            message_processor: Arc::new(message_processor),
+            pubsub_servers: vec![],
+            auth_provider: None,
+            auth_verifier: None,
+        };
+
+        let control_plane = ControlPlane::new(control_plane_settings);
+        let controller = control_plane.controller.clone();
+
+        // Create a test control message (subscription notification)
+        let ctrl_msg = ControlMessage {
+            message_id: uuid::Uuid::new_v4().to_string(),
+            payload: Some(Payload::ConfigCommand(v1::ConfigurationCommand {
+                connections_to_create: vec![],
+                subscriptions_to_set: vec![v1::Subscription {
+                    component_0: "test".to_string(),
+                    component_1: "component".to_string(),
+                    component_2: "name".to_string(),
+                    id: Some(123),
+                    connection_id: "test-conn".to_string(),
+                    node_id: None,
+                }],
+                subscriptions_to_delete: vec![],
+            })),
+        };
+
+        // Create fake client config (no actual connection)
+        let fake_clients = vec![ClientConfig::with_endpoint("http://fake-endpoint:50051")];
+
+        // Verify queue is initially empty
+        assert_eq!(controller.inner.pending_notifications.lock().len(), 0);
+
+        // Send notification when no connections are available - should be queued
+        controller
+            .send_or_queue_subscription_notification(ctrl_msg.clone(), &fake_clients)
+            .await;
+
+        // Verify notification was queued
+        assert_eq!(controller.inner.pending_notifications.lock().len(), 1);
+
+        // Verify the queued message is correct
+        let queued_msg = controller.inner.pending_notifications.lock()[0].clone();
+        assert_eq!(queued_msg.message_id, ctrl_msg.message_id);
+
+        // Test that queue doesn't exceed maximum size
+        for _ in 0..1001 {
+            // Try to add more than MAX_QUEUED_NOTIFICATIONS (1000)
+            controller
+                .send_or_queue_subscription_notification(ctrl_msg.clone(), &fake_clients)
+                .await;
+        }
+
+        // Should be capped at 1000
+        assert_eq!(controller.inner.pending_notifications.lock().len(), 1000);
     }
 }
