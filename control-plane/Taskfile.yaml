@@ -27,6 +27,9 @@ vars:
         sort | \
         tr '\n' ' '
 
+env:
+  GOTOOLCHAIN: "go1.25.0+auto"
+
 tasks:
   control-plane:foreach-module:
     internal: true

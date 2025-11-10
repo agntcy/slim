@@ -2,7 +2,7 @@ module github.com/agntcy/slim/control-plane/token-service
 
 replace github.com/agntcy/slim/control-plane => ..
 
-go 1.23.6
+go 1.25.4
 
 require (
 	github.com/spf13/cobra v1.8.1
