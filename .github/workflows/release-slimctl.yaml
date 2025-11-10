@@ -7,7 +7,7 @@ name: ci-release-slimctl
 on:
   push:
     tags:
-      - 'slimctl-*'
+      - 'slimctl-v*'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -19,16 +19,11 @@ jobs:
 
     permissions:
       contents: write
+      pull-requests: write
 
     defaults:
       run:
         shell: bash
-
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [darwin, linux]
-        arch: [amd64, arm64]
 
     steps:
       - name: Checkout Repo
@@ -37,14 +32,46 @@ jobs:
       - name: Setup Go
         uses: ./.github/actions/setup-go
 
-      - name: Build
-        run: CGO_ENABLED=0 GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} task control-plane:slimctl:build
+      - name: Generate Go protobuf and gRPC code
+        run: task control-plane:proto:generate
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          # either 'goreleaser' (default) or 'goreleaser-pro'
+          distribution: goreleaser
+          # 'latest', 'nightly', or a semver
+          version: "~> v2"
+
+          # the --snapshot flag is required to release on custom tag patterns (not plain semver)
+          # as a result artifacts won't be uploaded to GitHub Releases automatically
+          args: release --clean  --snapshot --verbose
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Authenticate
         run: gh auth login --with-token <<< "${{ secrets.GITHUB_TOKEN }}"
 
       - name: Upload to existing release
         run: |
-          mv .dist/bin/slimctl .dist/bin/slimctl-${{ matrix.os }}-${{ matrix.arch }}
           TAG=${GITHUB_REF#refs/tags/}
-          gh release upload "$TAG" .dist/bin/slimctl-${{ matrix.os }}-${{ matrix.arch }} --clobber
+          echo "Uploading artifacts to release $TAG"
+          gh release upload "$TAG" $(find .dist/slimctl -type f -name '*.tar.gz') --clobber
+
+      - name: Copy cask to tap
+        run: |
+          # ensure the Casks directory  exists        
+          mkdir -p ./Casks
+          cp .dist/slimctl/homebrew/Casks/slimctl.rb ./Casks/slimctl.rb
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: Update cask for slimctl
+          title: Update slimctl cask to latest version
+          body: Update cask to reflect release changes
+          branch: update-cask
+          base: main
+      
+
+

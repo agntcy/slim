@@ -1,0 +1,66 @@
+version: 2
+
+dist: .dist/slimctl
+
+builds:
+  - main: cmd/main.go
+    id: slimctl
+    binary: slimctl
+    dir: control-plane/slimctl
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+      - 386
+
+    ldflags:
+      - -X '{{.ModulePath}}/control-plane/slimctl/internal/cmd/version.semVersion={{.Version}}'
+      - -X '{{.ModulePath}}/control-plane/slimctl/internal/cmd/version.gitCommit={{.Commit}}'
+      - -X '{{.ModulePath}}/control-plane/slimctl/internal/cmd/version.buildDate={{.Date}}'
+
+    hooks:
+      pre:
+        - cmd: go mod tidy
+          dir: control-plane/slimctl
+          output: true
+        - cmd: task control-plane:gogen
+          dir: control-plane
+          output: true
+
+archives:
+  - name_template: "slimctl_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "slimctl_checksums.txt"
+
+changelog:
+  disable: true
+
+homebrew_casks:
+  - name: slimctl
+    description: "A CLI tool for managing SLIM Devices"
+    homepage: "https://github.com/agntcy/slim/control-plane/slimctl"
+    directory: Casks
+
+    binaries:
+      - slimctl
+
+    url:
+      template: "https://github.com/agntcy/slim/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+      using: ":homebrew_curl"
+
+    skip_upload: false
+
+    repository:
+      owner: agntcy
+      name: "slim"
+
+      branch: brew
+      token: "{{ .Env.GITHUB_TOKEN }}"
+
+      pull_request:
+        enabled: true
+        draft: false
