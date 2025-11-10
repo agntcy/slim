@@ -11,6 +11,8 @@ use super::tables::{SubscriptionTable, errors::SubscriptionTableError};
 use crate::messages::Name;
 use crate::tables::remote_subscription_table::SubscriptionInfo;
 
+use tracing::error;
+
 #[derive(Debug)]
 pub struct Forwarder<T>
 where
@@ -58,12 +60,25 @@ where
         }
     }
 
-    pub fn on_connection_drop(&self, conn_index: u64, is_local: bool) {
+    pub fn on_connection_drop(
+        &self,
+        conn_index: u64,
+        is_local: bool,
+    ) -> (HashSet<Name>, HashSet<SubscriptionInfo>) {
         self.connection_table.remove(conn_index as usize);
-        let _ = self
+        let local_subs = self
             .subscription_table
-            .remove_connection(conn_index, is_local);
-        self.remote_subscription_table.remove_connection(conn_index);
+            .remove_connection(conn_index, is_local)
+            .unwrap_or_else(|e| {
+                error!(
+                    "failed to remove local subscriptions for connection {}: {}",
+                    conn_index, e
+                );
+                HashSet::new()
+            });
+        let remote_subs = self.remote_subscription_table.remove_connection(conn_index);
+
+        (local_subs, remote_subs)
     }
 
     pub fn get_connection(&self, conn_index: u64) -> Option<Arc<T>> {

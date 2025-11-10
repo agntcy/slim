@@ -96,8 +96,8 @@ impl RemoteSubscriptions {
         }
     }
 
-    pub fn remove_connection(&self, conn: u64) {
+    pub fn remove_connection(&self, conn: u64) -> HashSet<SubscriptionInfo> {
         let mut map = self.table.write();
-        map.remove(&conn);
+        map.remove(&conn).unwrap_or_default()
     }
 }
