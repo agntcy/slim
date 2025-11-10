@@ -82,7 +82,7 @@ def jwt_identity(
 
 async def create_local_app(
     local_name: slim_bindings.PyName,
-    slim: dict,
+    slim_client_configs: list[dict],
     enable_opentelemetry: bool = False,
     shared_secret: str = "",
 ) -> slim_bindings.Slim:
@@ -106,11 +106,18 @@ async def create_local_app(
 
     local_app = await slim_bindings.Slim.new(local_name, provider, verifier)
 
-    logger.info(f"{local_app.get_id()} Created app")
+    logger.info(f"{local_app.id_str} Created app")
 
     # Connect to slim server
-    _ = await local_app.connect(slim)
+    for config in slim_client_configs:
+        logger.info(f"config: {config}")
+        try:
+            _ = await local_app.connect(config)
+        except Exception as e:
+            # Ignore "client already connected" errors
+            if "client already connected" not in str(e):
+                raise
 
-    logger.info(f"{local_app.get_id()} Connected to {slim['endpoint']}")
+        logger.info(f"{local_app.id_str} Connected to {config['endpoint']}")
 
     return local_app

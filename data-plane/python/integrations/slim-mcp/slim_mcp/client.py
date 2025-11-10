@@ -30,7 +30,7 @@ class SLIMClient(SLIMBase):
 
     def __init__(
         self,
-        config: dict[str, Any],
+        slim_client_configs: list[dict[str, Any]],
         local_organization: str,
         local_namespace: str,
         local_agent: str,
@@ -59,7 +59,7 @@ class SLIMClient(SLIMBase):
         """
 
         super().__init__(
-            config,
+            slim_client_configs,
             local_organization,
             local_namespace,
             local_agent,
@@ -72,13 +72,13 @@ class SLIMClient(SLIMBase):
 
     async def _send_message(
         self,
-        session: slim_bindings.PySessionInfo,
+        session: slim_bindings.PySession,
         message: bytes,
     ) -> None:
         """Send a message to the remote slim instance.
 
         Args:
-            session: Session information for the message
+            session: Session for the message
             message: Message to send in bytes format
 
         Raises:
@@ -94,12 +94,8 @@ class SLIMClient(SLIMBase):
                     "remote_svc": str(self.remote_svc_name),
                 },
             )
-            # Send message to SLIM instance
-            await self.slim.publish(
-                session,
-                message,
-                self.remote_svc_name,
-            )
+            # Send message via session
+            await session.publish(message)
             logger.debug("Message sent successfully")
         except Exception as e:
             logger.error("Failed to send message", exc_info=True)
@@ -110,14 +106,14 @@ class SLIMClient(SLIMBase):
         """Create a new MCP session.
 
         Returns:
-            slim_bindings.PySessionInfo: The new MCP session
+            slim_bindings.PySession: The new MCP session
         """
         # create session
         session = await self.slim.create_session(
-            slim_bindings.PySessionConfiguration.FireAndForget(
-                timeout=self.message_timeout,
+            slim_bindings.PySessionConfiguration.PointToPoint(
+                peer_name=self.remote_svc_name,
                 max_retries=self.message_retries,
-                sticky=True,
+                timeout=self.message_timeout,
             )
         )
 
