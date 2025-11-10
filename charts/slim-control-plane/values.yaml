@@ -35,6 +35,8 @@ config:
   #       useSpiffe: true
   #     spire:
   #       socketPath: "unix:///run/spire/agent-sockets/api.sock"
+  database:
+    filePath: db/controlplane.db
 
   logging:
     level: DEBUG
@@ -97,6 +99,14 @@ service:
     port: 50052
   north:
     port: 50051
+
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 1Gi
+  storageClass: ""
 
 # This block is for setting up the ingress for more information can be found here: https://kubernetes.io/docs/concepts/services-networking/ingress/
 ingress:

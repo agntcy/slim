@@ -16,6 +16,10 @@ type ControlPlaneConfig struct {
 	Southbound APIConfig        `yaml:"southbound"`
 	LogConfig  LogConfig        `yaml:"logging"`
 	Reconciler ReconcilerConfig `yaml:"reconciler"`
+	Database   DatabaseConfig   `yaml:"database"`
+}
+type DatabaseConfig struct {
+	FilePath string `yaml:"filePath"`
 }
 
 type LogConfig struct {
@@ -114,6 +118,9 @@ func DefaultConfig() *ControlPlaneConfig {
 			MaxRequeues:                15,
 			MaxNumOfParallelReconciles: 1000,
 		}, // Default to 3 threads
+		DatabaseConfig{
+			FilePath: "db/controlplane.db",
+		},
 	}
 }
 

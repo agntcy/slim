@@ -153,12 +153,15 @@ func (s *RouteService) addSingleRoute(ctx context.Context, dbRoute db.Route) (st
 		dbRoute.ConnConfigData = configData
 	}
 
-	routeID := s.dbService.AddRoute(dbRoute)
-	zerolog.Ctx(ctx).Info().Msgf("Route added: %s", routeID)
+	route, err := s.dbService.AddRoute(dbRoute)
+	if err != nil {
+		return "", fmt.Errorf("failed to add route to database: %w", err)
+	}
+	zerolog.Ctx(ctx).Info().Msgf("Route added: %s", route)
 	if dbRoute.SourceNodeID != AllNodesID {
 		s.queue.Add(RouteReconcileRequest{NodeID: dbRoute.SourceNodeID})
 	}
-	return routeID, nil
+	return route.String(), nil
 }
 
 func (s *RouteService) DeleteRoute(ctx context.Context, route Route) error {
@@ -179,17 +182,16 @@ func (s *RouteService) DeleteRoute(ctx context.Context, route Route) error {
 		if err != nil {
 			return fmt.Errorf("failed to fetch route for delete (%w)", err)
 		}
-		routeID := dbRoute.GetID()
-		err = s.dbService.DeleteRoute(routeID)
+		err = s.dbService.DeleteRoute(dbRoute.ID)
 		if err != nil {
-			return fmt.Errorf("failed to delete route for %s (%w)", routeID, err)
+			return fmt.Errorf("failed to delete route for %s (%w)", dbRoute, err)
 		}
-		zerolog.Ctx(ctx).Info().Msgf("Route %s deleted.", routeID)
+		zerolog.Ctx(ctx).Info().Msgf("Route %s deleted.", dbRoute)
 
 		routes := s.dbService.GetRoutesForDestinationNodeIDAndName(route.DestNodeID, route.Component0,
 			route.Component1, route.Component2, route.ComponentID)
 		for _, r := range routes {
-			if err := s.deleteSingleRoute(ctx, r.SourceNodeID, r.GetID()); err != nil {
+			if err := s.deleteSingleRoute(ctx, r.SourceNodeID, r.ID, r.String()); err != nil {
 				return err
 			}
 		}
@@ -202,20 +204,19 @@ func (s *RouteService) DeleteRoute(ctx context.Context, route Route) error {
 	if err != nil {
 		return fmt.Errorf("failed to fetch route for delete (%w)", err)
 	}
-	routeID := dbRoute.GetID()
-	if err := s.deleteSingleRoute(ctx, route.SourceNodeID, routeID); err != nil {
+	if err := s.deleteSingleRoute(ctx, route.SourceNodeID, dbRoute.ID, dbRoute.String()); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (s *RouteService) deleteSingleRoute(ctx context.Context, nodeID, routeID string) error {
+func (s *RouteService) deleteSingleRoute(ctx context.Context, nodeID string, routeID uint64, routeKey string) error {
 	err := s.dbService.MarkRouteAsDeleted(routeID)
 	if err != nil {
-		return fmt.Errorf("failed to mark route for delete %s (%w)", routeID, err)
+		return fmt.Errorf("failed to mark route for delete %s (%w)", routeKey, err)
 	}
-	zerolog.Ctx(ctx).Info().Msgf("Route marked for delete: %s", routeID)
+	zerolog.Ctx(ctx).Info().Msgf("Route marked for delete: %s", routeKey)
 	if nodeID != AllNodesID {
 		s.queue.Add(RouteReconcileRequest{NodeID: nodeID})
 	}
@@ -251,14 +252,17 @@ func (s *RouteService) NodeRegistered(ctx context.Context, nodeID string, connDe
 
 		endpoint, configData, err := s.getConnectionDetails(newRoute)
 		if err != nil {
-			zlog.Error().Err(err).Msgf("Failed to get connection details for route: %s", newRoute.GetID())
+			zlog.Error().Err(err).Msgf("Failed to get connection details for route: %s", newRoute)
 		}
 		newRoute.DestEndpoint = endpoint
 		newRoute.ConnConfigData = configData
-		routeID := s.dbService.AddRoute(newRoute)
-		zlog.Debug().Msgf("generic route created: %s", routeID)
+		route, rerr := s.dbService.AddRoute(newRoute)
+		if rerr != nil {
+			zlog.Error().Err(rerr).Msgf("Failed to create generic route: %s", newRoute)
+		} else {
+			zlog.Debug().Msgf("generic route created: %s", route)
+		}
 	}
-	zlog.Debug().Msgf("routes created: %v", len(genericRoutes))
 
 	if connDetailsUpdated {
 		// if connection details were updated, we also need to check routes for other nodes
@@ -271,14 +275,14 @@ func (s *RouteService) NodeRegistered(ctx context.Context, nodeID string, connDe
 			// and create a new route and reconcile
 			endpoint, configData, err := s.getConnectionDetails(r)
 			if err != nil {
-				zlog.Error().Msgf("failed to get connection details for route %s: %v", r.GetID(), err)
+				zlog.Error().Msgf("failed to get connection details for route %s: %v", r, err)
 				continue
 			}
 			if r.DestEndpoint != endpoint || r.ConnConfigData != configData {
-				zerolog.Ctx(ctx).Info().Msgf("Mark route for delete: %s", r.GetID())
-				err := s.dbService.MarkRouteAsDeleted(r.GetID())
+				zerolog.Ctx(ctx).Info().Msgf("Mark route for delete: %s", r)
+				err := s.dbService.MarkRouteAsDeleted(r.ID)
 				if err != nil {
-					zlog.Error().Msgf("failed to mark route %s as deleted: %v", r.GetID(), err)
+					zlog.Error().Msgf("failed to mark route %s as deleted: %v", r, err)
 					continue
 				}
 				newRoute := db.Route{
@@ -292,8 +296,12 @@ func (s *RouteService) NodeRegistered(ctx context.Context, nodeID string, connDe
 					ComponentID:    r.ComponentID,
 					Deleted:        false,
 				}
-				routeID := s.dbService.AddRoute(newRoute)
-				zerolog.Ctx(ctx).Info().Msgf("New route added: %s", routeID)
+				newRoute, err = s.dbService.AddRoute(newRoute)
+				if err != nil {
+					zerolog.Ctx(ctx).Error().Msgf("Failed to add route to database: %s", newRoute)
+					continue
+				}
+				zerolog.Ctx(ctx).Info().Msgf("New route added: %s", newRoute)
 
 				s.queue.Add(RouteReconcileRequest{NodeID: r.SourceNodeID})
 			}
@@ -307,13 +315,13 @@ func (s *RouteService) NodeRegistered(ctx context.Context, nodeID string, connDe
 			// and create a new route and reconcile
 			endpoint, configData, err := s.getConnectionDetails(r)
 			if err != nil {
-				zlog.Error().Msgf("failed to get connection details for route %s: %v", r.GetID(), err)
+				zlog.Error().Msgf("failed to get connection details for route %s: %v", r, err)
 				continue
 			}
 			if r.DestEndpoint != endpoint || r.ConnConfigData != configData {
-				err := s.dbService.MarkRouteAsDeleted(r.GetID())
+				err := s.dbService.MarkRouteAsDeleted(r.ID)
 				if err != nil {
-					zlog.Error().Msgf("failed to mark route %s as deleted: %v", r.GetID(), err)
+					zlog.Error().Msgf("failed to mark route %s as deleted: %v", r, err)
 					continue
 				}
 				newRoute := db.Route{
@@ -327,8 +335,12 @@ func (s *RouteService) NodeRegistered(ctx context.Context, nodeID string, connDe
 					ComponentID:    r.ComponentID,
 					Deleted:        false,
 				}
-				routeID := s.dbService.AddRoute(newRoute)
-				zerolog.Ctx(ctx).Info().Msgf("Route changed: %s", routeID)
+				route, err := s.dbService.AddRoute(newRoute)
+				if err != nil {
+					zlog.Error().Msgf("failed to add new route %s: %v", newRoute, err)
+					continue
+				}
+				zerolog.Ctx(ctx).Info().Msgf("Route changed: %s", route)
 			}
 
 		}
@@ -524,7 +536,7 @@ func (s *RouteService) ListRoutes(_ context.Context,
 	allRoutes := s.dbService.FilterRoutesBySourceAndDestination(request.GetSrcNodeId(), request.GetDestNodeId())
 	routIDs := make([]string, 0, len(allRoutes))
 	for _, r := range allRoutes {
-		routIDs = append(routIDs, r.GetID())
+		routIDs = append(routIDs, r.String())
 	}
 
 	return &controlplaneApi.RouteListResponse{
