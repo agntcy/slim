@@ -265,8 +265,6 @@ func TestSouthbound_MessageHandling(t *testing.T) {
 			Payload: &controllerapi.ControlMessage_ConfigCommandAck{
 				ConfigCommandAck: &controllerapi.ConfigurationCommandAck{
 					OriginalMessageId: configMsg.MessageId,
-					ConnectionsStatus: []*controllerapi.ConnectionAck{},
-					SubscriptionsStatus: []*controllerapi.SubscriptionAck{},
 				},
 			},
 		}
@@ -309,7 +307,9 @@ func TestSouthbound_MessageHandling(t *testing.T) {
 }
 
 // startSouthboundWithMockGroupService creates a southbound server with a mock group service
-func startSouthboundWithMockGroupService(t *testing.T, db db.DataAccess, mockGrp *mockGroupService) (target string, cleanup func()) {
+func startSouthboundWithMockGroupService(
+	t *testing.T, db db.DataAccess, mockGrp *mockGroupService,
+) (target string, cleanup func()) {
 	ctx := util.GetContextWithLogger(context.Background(), config.LogConfig{Level: "debug"})
 	cmdHandler := nodecontrol.DefaultNodeCommandHandler()
 	routeService := routes.NewRouteService(db, cmdHandler,

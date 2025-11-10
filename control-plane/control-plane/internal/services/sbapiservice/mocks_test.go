@@ -232,24 +232,24 @@ func (m *MockSlimServer) GetReceived() (conns map[string]*controllerapi.Connecti
 
 // mockGroupService implements groupservice.GroupManager for testing
 type mockGroupService struct {
-	createChannelResponse      *controlplaneApi.CreateChannelResponse
-	createChannelError         error
-	deleteChannelResponse      *controllerapi.Ack
-	deleteChannelError         error
-	addParticipantResponse     *controllerapi.Ack
-	addParticipantError        error
-	deleteParticipantResponse  *controllerapi.Ack
-	deleteParticipantError     error
-	listChannelsResponse       *controllerapi.ListChannelsResponse
-	listChannelsError          error
-	listParticipantsResponse   *controllerapi.ListParticipantsResponse
-	listParticipantsError      error
+	createChannelResponse     *controlplaneApi.CreateChannelResponse
+	createChannelError        error
+	deleteChannelResponse     *controllerapi.Ack
+	deleteChannelError        error
+	addParticipantResponse    *controllerapi.Ack
+	addParticipantError       error
+	deleteParticipantResponse *controllerapi.Ack
+	deleteParticipantError    error
+	listChannelsResponse      *controllerapi.ListChannelsResponse
+	listChannelsError         error
+	listParticipantsResponse  *controllerapi.ListParticipantsResponse
+	listParticipantsError     error
 }
 
 func (m *mockGroupService) CreateChannel(
-	ctx context.Context,
-	req *controlplaneApi.CreateChannelRequest,
-	node *controlplaneApi.NodeEntry,
+	_ context.Context,
+	_ *controlplaneApi.CreateChannelRequest,
+	_ *controlplaneApi.NodeEntry,
 ) (*controlplaneApi.CreateChannelResponse, error) {
 	if m.createChannelError != nil {
 		return nil, m.createChannelError
@@ -258,9 +258,9 @@ func (m *mockGroupService) CreateChannel(
 }
 
 func (m *mockGroupService) DeleteChannel(
-	ctx context.Context,
-	req *controllerapi.DeleteChannelRequest,
-	node *controlplaneApi.NodeEntry,
+	_ context.Context,
+	_ *controllerapi.DeleteChannelRequest,
+	_ *controlplaneApi.NodeEntry,
 ) (*controllerapi.Ack, error) {
 	if m.deleteChannelError != nil {
 		return nil, m.deleteChannelError
@@ -269,9 +269,9 @@ func (m *mockGroupService) DeleteChannel(
 }
 
 func (m *mockGroupService) AddParticipant(
-	ctx context.Context,
-	req *controllerapi.AddParticipantRequest,
-	node *controlplaneApi.NodeEntry,
+	_ context.Context,
+	_ *controllerapi.AddParticipantRequest,
+	_ *controlplaneApi.NodeEntry,
 ) (*controllerapi.Ack, error) {
 	if m.addParticipantError != nil {
 		return nil, m.addParticipantError
@@ -280,9 +280,9 @@ func (m *mockGroupService) AddParticipant(
 }
 
 func (m *mockGroupService) DeleteParticipant(
-	ctx context.Context,
-	req *controllerapi.DeleteParticipantRequest,
-	node *controlplaneApi.NodeEntry,
+	_ context.Context,
+	_ *controllerapi.DeleteParticipantRequest,
+	_ *controlplaneApi.NodeEntry,
 ) (*controllerapi.Ack, error) {
 	if m.deleteParticipantError != nil {
 		return nil, m.deleteParticipantError
@@ -291,8 +291,8 @@ func (m *mockGroupService) DeleteParticipant(
 }
 
 func (m *mockGroupService) ListChannels(
-	ctx context.Context,
-	req *controllerapi.ListChannelsRequest,
+	_ context.Context,
+	_ *controllerapi.ListChannelsRequest,
 ) (*controllerapi.ListChannelsResponse, error) {
 	if m.listChannelsError != nil {
 		return nil, m.listChannelsError
@@ -301,8 +301,8 @@ func (m *mockGroupService) ListChannels(
 }
 
 func (m *mockGroupService) ListParticipants(
-	ctx context.Context,
-	req *controllerapi.ListParticipantsRequest,
+	_ context.Context,
+	_ *controllerapi.ListParticipantsRequest,
 ) (*controllerapi.ListParticipantsResponse, error) {
 	if m.listParticipantsError != nil {
 		return nil, m.listParticipantsError
@@ -311,8 +311,8 @@ func (m *mockGroupService) ListParticipants(
 }
 
 func (m *mockGroupService) GetChannelDetails(
-	ctx context.Context,
-	channelID string,
+	_ context.Context,
+	_ string,
 ) (db.Channel, error) {
 	return db.Channel{}, nil
 }
