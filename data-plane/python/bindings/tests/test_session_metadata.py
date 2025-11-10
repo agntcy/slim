@@ -10,7 +10,7 @@ Purpose:
   receiving side once the session is established.
 
 What is covered:
-  * Construction of a PointToPoint PySessionConfiguration with custom metadata.
+  * Construction of a PointToPoint SessionConfiguration with custom metadata.
   * Session creation by the sender and automatic session notification for receiver.
   * Verification that all metadata entries appear unchanged on the receiver's
     session context (session_receiver.metadata).
@@ -27,8 +27,8 @@ import pytest
 from common import create_slim
 
 from slim_bindings import (
-    PyName,
-    PySessionConfiguration,
+    Name,
+    SessionConfiguration,
 )
 
 
@@ -49,8 +49,8 @@ async def test_session_metadata_merge_roundtrip(server):
       For each (k, v) in initial metadata: receiver.metadata[k] == v.
     """
     # Define identities
-    sender_name = PyName("org", "ns", "session_sender")
-    receiver_name = PyName("org", "ns", "session_receiver")
+    sender_name = Name("org", "ns", "session_sender")
+    receiver_name = Name("org", "ns", "session_receiver")
 
     # Instantiate Slim instances with shared-secret auth
     sender = await create_slim(sender_name, local_service=False)
@@ -60,7 +60,7 @@ async def test_session_metadata_merge_roundtrip(server):
     metadata = {"a": "1", "k": "session"}
 
     # Create PointToPoint session
-    sess_cfg = PySessionConfiguration.PointToPoint(metadata=metadata)
+    sess_cfg = SessionConfiguration.PointToPoint(metadata=metadata)
     session_sender = await sender.create_session(receiver_name, sess_cfg)
 
     await session_sender.publish(b"hello")

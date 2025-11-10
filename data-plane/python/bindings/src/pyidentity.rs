@@ -8,19 +8,19 @@
 // converted transparently across the FFI boundary.
 //
 // Overview:
-// - PyAlgorithm: Supported JWT / signature algorithms.
-// - PyKeyData: Source of key material (file path vs inline content).
-// - PyKeyFormat: Format of the key material (PEM / JWK / JWKS).
-// - PyKey: Composite describing an algorithm, format and key payload.
-// - PyIdentityProvider: Strategies for producing tokens (static file,
+// - Algorithm: Supported JWT / signature algorithms.
+// - KeyData: Source of key material (file path vs inline content).
+// - KeyFormat: Format of the key material (PEM / JWK / JWKS).
+// - Key: Composite describing an algorithm, format and key payload.
+// - IdentityProvider: Strategies for producing tokens (static file,
 //   signing with private key, or shared secret).
-// - PyIdentityVerifier: Strategies for validating tokens (JWT or
+// - IdentityVerifier: Strategies for validating tokens (JWT or
 //   shared secret).
 //
 // Typical Flow (Python):
-//   1. Create a PyKey (if using a JWT signing or verification scenario)
-//   2. Build a PyIdentityProvider (e.g. Jwt {...})
-//   3. Build a PyIdentityVerifier (e.g. Jwt {...})
+//   1. Create a Key (if using a JWT signing or verification scenario)
+//   2. Build an IdentityProvider (e.g. Jwt {...})
+//   3. Build an IdentityVerifier (e.g. Jwt {...})
 //   4. Pass provider + verifier into Slim.new(...)
 //
 // Error Handling:
@@ -49,7 +49,7 @@ use slim_auth::shared_secret::SharedSecret;
 /// Maps 1:1 to `slim_auth::jwt::Algorithm`.
 /// Provides stable integer values for stub generation / introspection.
 #[gen_stub_pyclass_enum]
-#[pyclass(eq, eq_int)]
+#[pyclass(name = "Algorithm", eq, eq_int)]
 #[derive(PartialEq, Clone)]
 pub(crate) enum PyAlgorithm {
     #[pyo3(name = "HS256")]
@@ -101,10 +101,10 @@ impl From<PyAlgorithm> for Algorithm {
 ///
 /// Either a path on disk (`File`) or inline string content (`Content`)
 /// containing the encoded key. The interpretation depends on the
-/// accompanying `PyKeyFormat`.
+/// accompanying `KeyFormat`.
 #[gen_stub_pyclass_complex_enum]
 #[derive(Clone, PartialEq)]
-#[pyclass(eq)]
+#[pyclass(name = "KeyData", eq)]
 pub(crate) enum PyKeyData {
     #[pyo3(constructor = (path))]
     File { path: String },
@@ -126,7 +126,7 @@ impl From<PyKeyData> for KeyData {
 /// Used during parsing / loading of provided key material.
 #[gen_stub_pyclass_enum]
 #[derive(Clone, PartialEq)]
-#[pyclass(eq)]
+#[pyclass(name = "KeyFormat", eq)]
 pub(crate) enum PyKeyFormat {
     Pem,
     Jwk,
@@ -146,11 +146,11 @@ impl From<PyKeyFormat> for KeyFormat {
 /// Composite key description used for signing or verification.
 ///
 /// Fields:
-/// * algorithm: `PyAlgorithm` to apply
-/// * format: `PyKeyFormat` describing encoding
-/// * key: `PyKeyData` where the actual bytes originate
+/// * algorithm: `Algorithm` to apply
+/// * format: `KeyFormat` describing encoding
+/// * key: `KeyData` where the actual bytes originate
 #[gen_stub_pyclass]
-#[pyclass]
+#[pyclass(name = "Key")]
 #[derive(Clone, PartialEq)]
 pub(crate) struct PyKey {
     #[pyo3(get, set)]
@@ -166,7 +166,7 @@ pub(crate) struct PyKey {
 #[gen_stub_pymethods]
 #[pymethods]
 impl PyKey {
-    /// Construct a new `PyKey`.
+    /// Construct a new `Key`.
     ///
     /// Args:
     ///   algorithm: Algorithm used for signing / verification.
@@ -212,26 +212,26 @@ pub(crate) type IdentityProvider = AuthProvider;
 ///
 /// Static (pre-issued) JWT token loaded from a file:
 /// ```python
-/// from slim_bindings import PyIdentityProvider
+/// from slim_bindings import IdentityProvider
 ///
-/// provider = PyIdentityProvider.StaticJwt(path="service.token")
+/// provider = IdentityProvider.StaticJwt(path="service.token")
 /// # 'provider.get_token()' (internally) will manage reloading of the file if it changes.
 /// ```
 ///
 /// Dynamically signed JWT using a private key (claims + duration):
 /// ```python
 /// from slim_bindings import (
-///     PyIdentityProvider, PyKey, PyAlgorithm, PyKeyFormat, PyKeyData
+///     IdentityProvider, Key, Algorithm, KeyFormat, KeyData
 /// )
 /// import datetime
 ///
-/// signing_key = PyKey(
-///     algorithm=PyAlgorithm.RS256,
-///     format=PyKeyFormat.Pem,
-///     key=PyKeyData.File("private_key.pem"),
+/// signing_key = Key(
+///     algorithm=Algorithm.RS256,
+///     format=KeyFormat.Pem,
+///     key=KeyData.File("private_key.pem"),
 /// )
 ///
-/// provider = PyIdentityProvider.Jwt(
+/// provider = IdentityProvider.Jwt(
 ///     private_key=signing_key,
 ///     duration=datetime.timedelta(minutes=30),
 ///     issuer="my-issuer",
@@ -242,9 +242,9 @@ pub(crate) type IdentityProvider = AuthProvider;
 ///
 /// Shared secret token provider for tests / local development:
 /// ```python
-/// from slim_bindings import PyIdentityProvider
+/// from slim_bindings import IdentityProvider
 ///
-/// provider = PyIdentityProvider.SharedSecret(
+/// provider = IdentityProvider.SharedSecret(
 ///     identity="svc-a",
 ///     shared_secret="not-for-production",
 /// )
@@ -253,10 +253,10 @@ pub(crate) type IdentityProvider = AuthProvider;
 /// End-to-end example pairing with a verifier:
 /// ```python
 /// # For a simple shared-secret flow:
-/// from slim_bindings import PyIdentityProvider, PyIdentityVerifier
+/// from slim_bindings import IdentityProvider, IdentityVerifier
 ///
-/// provider = PyIdentityProvider.SharedSecret(identity="svc-a", shared_secret="dev-secret")
-/// verifier = PyIdentityVerifier.SharedSecret(identity="svc-a", shared_secret="dev-secret")
+/// provider = IdentityProvider.SharedSecret(identity="svc-a", shared_secret="dev-secret")
+/// verifier = IdentityVerifier.SharedSecret(identity="svc-a", shared_secret="dev-secret")
 ///
 /// # Pass both into Slim.new(local_name, provider, verifier)
 /// ```
@@ -265,23 +265,23 @@ pub(crate) type IdentityProvider = AuthProvider;
 /// ```python
 /// import datetime
 /// from slim_bindings import (
-///     PyIdentityProvider, PyIdentityVerifier,
-///     PyKey, PyAlgorithm, PyKeyFormat, PyKeyData
+///     IdentityProvider, IdentityVerifier,
+///     Key, Algorithm, KeyFormat, KeyData
 /// )
 ///
-/// key = PyKey(PyAlgorithm.RS256, PyKeyFormat.Pem, PyKeyData.File("private_key.pem"))
-/// provider = PyIdentityProvider.Jwt(
+/// key = Key(Algorithm.RS256, KeyFormat.Pem, KeyData.File("private_key.pem"))
+/// provider = IdentityProvider.Jwt(
 ///     private_key=key,
 ///     duration=datetime.timedelta(hours=1),
 ///     issuer="my-issuer",
 ///     audience=["svc-b"],
 ///     subject="svc-a"
 /// )
-/// # Verifier would normally use the corresponding public key (PyIdentityVerifier.Jwt).
+/// # Verifier would normally use the corresponding public key (IdentityVerifier.Jwt).
 /// ```
 #[gen_stub_pyclass_complex_enum]
 #[derive(Clone)]
-#[pyclass()]
+#[pyclass(name = "IdentityProvider")]
 pub(crate) enum PyIdentityProvider {
     #[pyo3(constructor = (path))]
     StaticJwt { path: String },
@@ -383,12 +383,12 @@ pub(crate) type IdentityVerifier = AuthVerifier;
 ///
 /// Basic JWT verification with explicit public key:
 /// ```python
-/// pub_key = PyKey(
-///     PyAlgorithm.RS256,
-///     PyKeyFormat.Pem,
-///     PyKeyData.File("public_key.pem"),
+/// pub_key = Key(
+///     Algorithm.RS256,
+///     KeyFormat.Pem,
+///     KeyData.File("public_key.pem"),
 /// )
-/// verifier = PyIdentityVerifier.Jwt(
+/// verifier = IdentityVerifier.Jwt(
 ///     public_key=pub_key,
 ///     autoresolve=False,
 ///     issuer="my-issuer",
@@ -403,7 +403,7 @@ pub(crate) type IdentityVerifier = AuthVerifier;
 /// Auto-resolving JWKS (no public key provided):
 /// ```python
 /// # The underlying implementation must know how / where to resolve JWKS.
-/// verifier = PyIdentityVerifier.Jwt(
+/// verifier = IdentityVerifier.Jwt(
 ///     public_key=None,
 ///     autoresolve=True,
 ///     issuer="https://auth.example.com",
@@ -417,7 +417,7 @@ pub(crate) type IdentityVerifier = AuthVerifier;
 ///
 /// Shared secret verifier (symmetric):
 /// ```python
-/// verifier = PyIdentityVerifier.SharedSecret(
+/// verifier = IdentityVerifier.SharedSecret(
 ///     identity="service-a",
 ///     shared_secret="super-secret-value",
 /// )
@@ -425,7 +425,7 @@ pub(crate) type IdentityVerifier = AuthVerifier;
 ///
 /// Pairing with a provider when constructing Slim:
 /// ```python
-/// provider = PyIdentityProvider.SharedSecret(
+/// provider = IdentityProvider.SharedSecret(
 ///     identity="service-a",
 ///     shared_secret="super-secret-value",
 /// )
@@ -434,7 +434,7 @@ pub(crate) type IdentityVerifier = AuthVerifier;
 ///
 /// Enforcing strict claims (reject tokens missing aud/sub):
 /// ```python
-/// strict_verifier = PyIdentityVerifier.Jwt(
+/// strict_verifier = IdentityVerifier.Jwt(
 ///     public_key=pub_key,
 ///     autoresolve=False,
 ///     issuer="my-issuer",
@@ -447,7 +447,7 @@ pub(crate) type IdentityVerifier = AuthVerifier;
 /// ```
 #[gen_stub_pyclass_complex_enum]
 #[derive(Clone, PartialEq)]
-#[pyclass(eq)]
+#[pyclass(name = "IdentityVerifier", eq)]
 pub(crate) enum PyIdentityVerifier {
     #[pyo3(constructor = (public_key=None, autoresolve=false, issuer=None, audience=None, subject=None, require_iss=false, require_aud=false, require_sub=false))]
     Jwt {

@@ -96,12 +96,12 @@ async def run_client(
 
     # ACTIVE MODE (publishing + expecting replies)
     if message and remote:
-        # Convert the remote ID string into a PyName.
+        # Convert the remote ID string into a Name.
         remote_name = split_id(remote)
         # Establish routing so outbound publishes know the remote destination.
         await local_app.set_route(remote_name)
 
-        config = slim_bindings.PySessionConfiguration.PointToPoint(
+        config = slim_bindings.SessionConfiguration.PointToPoint(
             max_retries=5,
             timeout=datetime.timedelta(seconds=5),
             mls_enabled=enable_mls,

@@ -27,7 +27,7 @@ use crate::utils::PyName;
 /// * `metadata`: Arbitrary key/value pairs supplied by the sender (e.g. tracing IDs).
 /// * `input_connection`: Numeric identifier of the inbound connection carrying the message.
 #[gen_stub_pyclass]
-#[pyclass]
+#[pyclass(name = "MessageContext")]
 #[derive(Clone)]
 pub struct PyMessageContext {
     #[pyo3(get)]
@@ -45,7 +45,7 @@ pub struct PyMessageContext {
 }
 
 impl PyMessageContext {
-    /// Build a `PyMessageContext` plus the raw payload bytes from a low-level
+    /// Build a `MessageContext` plus the raw payload bytes from a low-level
     /// `ProtoMessage`. Uses the common MessageContext implementation and
     /// automatic conversion via the `From` trait.
     pub fn from_proto_message(msg: ProtoMessage) -> Result<(Self, Vec<u8>), ServiceError> {
@@ -55,7 +55,7 @@ impl PyMessageContext {
 }
 
 impl From<MessageContext> for PyMessageContext {
-    /// Convert a common MessageContext into a Python-specific PyMessageContext
+    /// Convert a common MessageContext into a Python-specific MessageContext
     fn from(ctx: MessageContext) -> Self {
         PyMessageContext {
             source_name: PyName::from(ctx.source_name),
@@ -72,7 +72,7 @@ impl From<MessageContext> for PyMessageContext {
 }
 
 impl From<PyMessageContext> for MessageContext {
-    /// Convert a Python-specific PyMessageContext back into a common MessageContext
+    /// Convert a Python-specific MessageContext back into a common MessageContext
     fn from(py_ctx: PyMessageContext) -> Self {
         MessageContext::new(
             py_ctx.source_name.into(),
@@ -88,7 +88,7 @@ impl From<PyMessageContext> for MessageContext {
 #[gen_stub_pymethods]
 #[pymethods]
 impl PyMessageContext {
-    /// Prevent direct construction from Python. `PyMessageContext` instances
+    /// Prevent direct construction from Python. `MessageContext` instances
     /// are created internally when messages are received from the service.
     #[new]
     pub fn new_py() -> PyResult<Self> {
