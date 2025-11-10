@@ -93,10 +93,10 @@ def shared_secret_identity(identity: str, secret: str):
     Returns:
         (provider, verifier): Tuple of PyIdentityProvider & PyIdentityVerifier.
     """
-    provider = slim_bindings.PyIdentityProvider.SharedSecret(  # type: ignore
+    provider = slim_bindings.PyIdentityProvider.SharedSecret(
         identity=identity, shared_secret=secret
     )
-    verifier = slim_bindings.PyIdentityVerifier.SharedSecret(  # type: ignore
+    verifier = slim_bindings.PyIdentityVerifier.SharedSecret(
         identity=identity, shared_secret=secret
     )
     return provider, verifier
@@ -168,7 +168,7 @@ def jwt_identity(
     )
 
     # Static provider returns the same token each request (demo usage).
-    provider = slim_bindings.PyIdentityProvider.StaticJwt(  # type: ignore
+    provider = slim_bindings.PyIdentityProvider.StaticJwt(
         path=jwt_path,
     )
 
@@ -176,14 +176,14 @@ def jwt_identity(
     pykey = slim_bindings.PyKey(
         algorithm=slim_bindings.PyAlgorithm.RS256,  # Hard-coded for example clarity.
         format=slim_bindings.PyKeyFormat.Jwks,
-        key=slim_bindings.PyKeyData.Content(content=spire_jwks),  # type: ignore
+        key=slim_bindings.PyKeyData.Content(content=spire_jwks),
     )
 
     # Build verifier. We nest audience list in list to preserve shape.
-    verifier = slim_bindings.PyIdentityVerifier.Jwt(  # type: ignore
+    verifier = slim_bindings.PyIdentityVerifier.Jwt(
         public_key=pykey,
         issuer=iss,
-        audience=[aud],
+        audience=aud,
         subject=sub,
     )
 

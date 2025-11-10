@@ -126,6 +126,137 @@ class PyIdentityProvider:
     
     ...
 
+class PyIdentityVerifier:
+    r"""
+    Python-facing identity verifier definitions.
+    
+    Variants:
+    * Jwt { public_key?, autoresolve, issuer?, audience?, subject?, require_* }:
+        Verifies tokens using a public key or via JWKS auto-resolution.
+        `require_iss`, `require_aud`, `require_sub` toggle mandatory presence
+        of the respective claims. `autoresolve=True` enables JWKS retrieval
+        (public_key must be omitted in that case).
+    * SharedSecret { identity, shared_secret }:
+        Verifies tokens generated with the same shared secret.
+    
+    JWKS Auto-Resolve:
+      When `autoresolve=True`, the verifier will attempt to resolve keys
+      dynamically (e.g. from a JWKS endpoint) if supported by the underlying
+      implementation.
+    
+    Safety:
+      A direct panic occurs if neither `public_key` nor `autoresolve=True`
+      is provided for the Jwt variant (invalid configuration).
+    
+    Autoresolve key selection (concise algorithm):
+    1. If a static JWKS was injected, use it directly.
+    2. Else if a cached JWKS for the issuer exists and is within TTL, use it.
+    3. Else discover JWKS:
+       - Try {issuer}/.well-known/openid-configuration for "jwks_uri"
+       - Fallback to {issuer}/.well-known/jwks.json
+    4. Fetch & cache the JWKS (default TTL ~1h unless overridden).
+    5. If JWT header has 'kid', pick the matching key ID; otherwise choose the
+       first key whose algorithm matches the token header's alg.
+    6. Convert JWK -> DecodingKey and verify signature; then enforce required
+       claims (iss/aud/sub) per the require_* flags.
+    
+    # Examples (Python)
+    
+    Basic JWT verification with explicit public key:
+    ```python
+    pub_key = PyKey(
+        PyAlgorithm.RS256,
+        PyKeyFormat.Pem,
+        PyKeyData.File("public_key.pem"),
+    )
+    verifier = PyIdentityVerifier.Jwt(
+        public_key=pub_key,
+        autoresolve=False,
+        issuer="my-issuer",
+        audience=["service-b"],
+        subject="service-a",
+        require_iss=True,
+        require_aud=True,
+        require_sub=True,
+    )
+    ```
+    
+    Auto-resolving JWKS (no public key provided):
+    ```python
+    # The underlying implementation must know how / where to resolve JWKS.
+    verifier = PyIdentityVerifier.Jwt(
+        public_key=None,
+        autoresolve=True,
+        issuer="https://auth.example.com",
+        audience=["svc-cluster"],
+        subject=None,
+        require_iss=True,
+        require_aud=True,
+        require_sub=False,
+    )
+    ```
+    
+    Shared secret verifier (symmetric):
+    ```python
+    verifier = PyIdentityVerifier.SharedSecret(
+        identity="service-a",
+        shared_secret="super-secret-value",
+    )
+    ```
+    
+    Pairing with a provider when constructing Slim:
+    ```python
+    provider = PyIdentityProvider.SharedSecret(
+        identity="service-a",
+        shared_secret="super-secret-value",
+    )
+    slim = await Slim.new(local_name, provider, verifier)
+    ```
+    
+    Enforcing strict claims (reject tokens missing aud/sub):
+    ```python
+    strict_verifier = PyIdentityVerifier.Jwt(
+        public_key=pub_key,
+        autoresolve=False,
+        issuer="my-issuer",
+        audience=["service-a"],
+        subject="service-a",
+        require_iss=True,
+        require_aud=True,
+        require_sub=True,
+    )
+    ```
+    """
+    class Jwt(PyIdentityVerifier):
+        __match_args__ = ("public_key", "autoresolve", "issuer", "audience", "subject", "require_iss", "require_aud", "require_sub",)
+        @property
+        def public_key(self) -> typing.Optional[PyKey]: ...
+        @property
+        def autoresolve(self) -> builtins.bool: ...
+        @property
+        def issuer(self) -> typing.Optional[builtins.str]: ...
+        @property
+        def audience(self) -> typing.Optional[builtins.list[builtins.str]]: ...
+        @property
+        def subject(self) -> typing.Optional[builtins.str]: ...
+        @property
+        def require_iss(self) -> builtins.bool: ...
+        @property
+        def require_aud(self) -> builtins.bool: ...
+        @property
+        def require_sub(self) -> builtins.bool: ...
+        def __new__(cls, public_key:typing.Optional[PyKey]=None, autoresolve:builtins.bool=False, issuer:typing.Optional[builtins.str]=None, audience:typing.Optional[typing.Sequence[builtins.str]]=None, subject:typing.Optional[builtins.str]=None, require_iss:builtins.bool=False, require_aud:builtins.bool=False, require_sub:builtins.bool=False) -> PyIdentityVerifier.Jwt: ...
+    
+    class SharedSecret(PyIdentityVerifier):
+        __match_args__ = ("identity", "shared_secret",)
+        @property
+        def identity(self) -> builtins.str: ...
+        @property
+        def shared_secret(self) -> builtins.str: ...
+        def __new__(cls, identity:builtins.str, shared_secret:builtins.str) -> PyIdentityVerifier.SharedSecret: ...
+    
+    ...
+
 class PyKey:
     r"""
     Composite key description used for signing or verification.
@@ -156,6 +287,28 @@ class PyKey:
           format: Representation format (PEM/JWK/JWKS).
           key: Source (file vs inline content).
         """
+
+class PyKeyData:
+    r"""
+    Key material origin.
+    
+    Either a path on disk (`File`) or inline string content (`Content`)
+    containing the encoded key. The interpretation depends on the
+    accompanying `PyKeyFormat`.
+    """
+    class File(PyKeyData):
+        __match_args__ = ("path",)
+        @property
+        def path(self) -> builtins.str: ...
+        def __new__(cls, path:builtins.str) -> PyKeyData.File: ...
+    
+    class Content(PyKeyData):
+        __match_args__ = ("content",)
+        @property
+        def content(self) -> builtins.str: ...
+        def __new__(cls, content:builtins.str) -> PyKeyData.Content: ...
+    
+    ...
 
 class PyMessageContext:
     r"""
@@ -283,7 +436,53 @@ class PySessionConfiguration:
     // assert_eq!(py_cfg, roundtrip);
     ```
     """
-    ...
+    @property
+    def session_type(self) -> PySessionType:
+        r"""
+        Return the session type.
+        """
+    @property
+    def metadata(self) -> builtins.dict[builtins.str, builtins.str]:
+        r"""
+        Return the metadata map (cloned).
+        """
+    @property
+    def mls_enabled(self) -> builtins.bool:
+        r"""
+        Return whether MLS is enabled.
+        """
+    @property
+    def timeout(self) -> typing.Optional[datetime.timedelta]:
+        r"""
+        Return the timeout duration (if any).
+        """
+    @property
+    def max_retries(self) -> typing.Optional[builtins.int]:
+        r"""
+        Return the maximum number of retries (if any).
+        """
+    @staticmethod
+    def PointToPoint(timeout:typing.Optional[datetime.timedelta]=None, max_retries:typing.Optional[builtins.int]=None, mls_enabled:builtins.bool=False, metadata:typing.Optional[typing.Mapping[builtins.str, builtins.str]]=None) -> PySessionConfiguration:
+        r"""
+        Create a PointToPoint session configuration.
+        
+        Args:
+            timeout: Optional timeout duration
+            max_retries: Optional maximum retry attempts
+            mls_enabled: Enable MLS encryption (default: false)
+            metadata: Optional metadata dictionary
+        """
+    @staticmethod
+    def Group(timeout:typing.Optional[datetime.timedelta]=None, max_retries:typing.Optional[builtins.int]=None, mls_enabled:builtins.bool=False, metadata:typing.Optional[typing.Mapping[builtins.str, builtins.str]]=None) -> PySessionConfiguration:
+        r"""
+        Create a Group session configuration.
+        
+        Args:
+            timeout: Optional timeout duration
+            max_retries: Optional maximum retry attempts
+            mls_enabled: Enable MLS encryption (default: false)
+            metadata: Optional metadata dictionary
+        """
 
 class PySessionContext:
     r"""
@@ -342,121 +541,6 @@ class PyAlgorithm(Enum):
     ES256 = ...
     ES384 = ...
     EdDSA = ...
-
-class PyIdentityVerifier(Enum):
-    r"""
-    Python-facing identity verifier definitions.
-    
-    Variants:
-    * Jwt { public_key?, autoresolve, issuer?, audience?, subject?, require_* }:
-        Verifies tokens using a public key or via JWKS auto-resolution.
-        `require_iss`, `require_aud`, `require_sub` toggle mandatory presence
-        of the respective claims. `autoresolve=True` enables JWKS retrieval
-        (public_key must be omitted in that case).
-    * SharedSecret { identity, shared_secret }:
-        Verifies tokens generated with the same shared secret.
-    
-    JWKS Auto-Resolve:
-      When `autoresolve=True`, the verifier will attempt to resolve keys
-      dynamically (e.g. from a JWKS endpoint) if supported by the underlying
-      implementation.
-    
-    Safety:
-      A direct panic occurs if neither `public_key` nor `autoresolve=True`
-      is provided for the Jwt variant (invalid configuration).
-    
-    Autoresolve key selection (concise algorithm):
-    1. If a static JWKS was injected, use it directly.
-    2. Else if a cached JWKS for the issuer exists and is within TTL, use it.
-    3. Else discover JWKS:
-       - Try {issuer}/.well-known/openid-configuration for "jwks_uri"
-       - Fallback to {issuer}/.well-known/jwks.json
-    4. Fetch & cache the JWKS (default TTL ~1h unless overridden).
-    5. If JWT header has 'kid', pick the matching key ID; otherwise choose the
-       first key whose algorithm matches the token header's alg.
-    6. Convert JWK -> DecodingKey and verify signature; then enforce required
-       claims (iss/aud/sub) per the require_* flags.
-    
-    # Examples (Python)
-    
-    Basic JWT verification with explicit public key:
-    ```python
-    pub_key = PyKey(
-        PyAlgorithm.RS256,
-        PyKeyFormat.Pem,
-        PyKeyData.File("public_key.pem"),
-    )
-    verifier = PyIdentityVerifier.Jwt(
-        public_key=pub_key,
-        autoresolve=False,
-        issuer="my-issuer",
-        audience=["service-b"],
-        subject="service-a",
-        require_iss=True,
-        require_aud=True,
-        require_sub=True,
-    )
-    ```
-    
-    Auto-resolving JWKS (no public key provided):
-    ```python
-    # The underlying implementation must know how / where to resolve JWKS.
-    verifier = PyIdentityVerifier.Jwt(
-        public_key=None,
-        autoresolve=True,
-        issuer="https://auth.example.com",
-        audience=["svc-cluster"],
-        subject=None,
-        require_iss=True,
-        require_aud=True,
-        require_sub=False,
-    )
-    ```
-    
-    Shared secret verifier (symmetric):
-    ```python
-    verifier = PyIdentityVerifier.SharedSecret(
-        identity="service-a",
-        shared_secret="super-secret-value",
-    )
-    ```
-    
-    Pairing with a provider when constructing Slim:
-    ```python
-    provider = PyIdentityProvider.SharedSecret(
-        identity="service-a",
-        shared_secret="super-secret-value",
-    )
-    slim = await Slim.new(local_name, provider, verifier)
-    ```
-    
-    Enforcing strict claims (reject tokens missing aud/sub):
-    ```python
-    strict_verifier = PyIdentityVerifier.Jwt(
-        public_key=pub_key,
-        autoresolve=False,
-        issuer="my-issuer",
-        audience=["service-a"],
-        subject="service-a",
-        require_iss=True,
-        require_aud=True,
-        require_sub=True,
-    )
-    ```
-    """
-    Jwt = ...
-    SharedSecret = ...
-
-class PyKeyData(Enum):
-    r"""
-    Key material origin.
-    
-    Either a path on disk (`File`) or inline string content (`Content`)
-    containing the encoded key. The interpretation depends on the
-    accompanying `PyKeyFormat`.
-    """
-    File = ...
-    Content = ...
 
 class PyKeyFormat(Enum):
     r"""

@@ -197,7 +197,7 @@ async def run_client(
         format_message_print(
             f"Creating new group session (moderator)... {split_id(local)}"
         )
-        config = slim_bindings.PySessionConfiguration.Group(  # type: ignore
+        config = slim_bindings.PySessionConfiguration.Group(
             max_retries=5,  # Max per-message resend attempts upon missing ack before reporting a delivery failure.
             timeout=datetime.timedelta(
                 seconds=5

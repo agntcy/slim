@@ -25,7 +25,7 @@ var _ = Describe("Routing", func() {
 		// start control plane
 		var errCP error
 		controlPlaneSession, errCP = gexec.Start(
-			exec.Command(controlPlanePath),
+			exec.Command(controlPlanePath, "--config", "./testdata/control-plane-config.yaml"),
 			GinkgoWriter, GinkgoWriter,
 		)
 
@@ -71,6 +71,9 @@ var _ = Describe("Routing", func() {
 		if controlPlaneSession != nil {
 			controlPlaneSession.Terminate().Wait(30 * time.Second)
 		}
+		// delete control plane database file
+		err := exec.Command("rm", "-f", "controlplane.db").Run()
+		Expect(err).NotTo(HaveOccurred())
 	})
 
 	Describe("message routing with control plane", func() {

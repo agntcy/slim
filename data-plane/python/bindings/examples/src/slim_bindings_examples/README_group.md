@@ -87,7 +87,7 @@ session and can invite participants.
 ```python
 chat_channel = split_id(remote)  # e.g. agntcy/ns/chat
 created_session = await local_app.create_session(
-    slim_bindings.PySessionConfiguration.Group(  # type: ignore  # Build group session configuration
+    slim_bindings.PySessionConfiguration.Group(  # Build group session configuration
         channel_name=chat_channel,  # Logical group channel (PyName) all participants join; acts as group/topic identifier.
         max_retries=5,  # Max per-message resend attempts upon missing ack before reporting a delivery failure.
         timeout=datetime.timedelta(
