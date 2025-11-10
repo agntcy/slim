@@ -2903,7 +2903,7 @@ testing = [
 requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "mcp", specifier = "==1.6.0" },
-    { name = "slim-bindings", specifier = ">=0.5.0" },
+    { name = "slim-bindings", specifier = ">=0.6.3" },
 ]
 
 [package.metadata.requires-dev]
