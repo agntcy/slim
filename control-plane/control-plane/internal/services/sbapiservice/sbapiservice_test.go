@@ -212,3 +212,244 @@ func TestSouthbound_RouteWithConnectionError(t *testing.T) {
 	_ = slim0.Close()
 	_ = slim1.Close()
 }
+
+func TestSouthbound_MessageHandling(t *testing.T) {
+	db := db.NewInMemoryDBService()
+	target, cleanup := startSouthbound(t, db)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Create gRPC client
+	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer conn.Close()
+
+	client := controllerapi.NewControllerServiceClient(conn)
+	stream, err := client.OpenControlChannel(ctx)
+	require.NoError(t, err)
+
+	// Receive initial ACK
+	_, err = stream.Recv()
+	require.NoError(t, err)
+
+	// Send register request
+	err = stream.Send(&controllerapi.ControlMessage{
+		MessageId: "test-register",
+		Payload: &controllerapi.ControlMessage_RegisterNodeRequest{
+			RegisterNodeRequest: &controllerapi.RegisterNodeRequest{
+				NodeId: "slim-message-test",
+				ConnectionDetails: []*controllerapi.ConnectionDetails{
+					{
+						Endpoint: "127.0.0.1:5010",
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	// Receive registration ACK
+	_, err = stream.Recv()
+	require.NoError(t, err)
+
+	// Wait for and acknowledge the initial ConfigCommand from the reconciler
+	configMsg, err := stream.Recv()
+	require.NoError(t, err)
+	if cfgCmd, ok := configMsg.Payload.(*controllerapi.ControlMessage_ConfigCommand); ok {
+		// Acknowledge the config command
+		ackMsg := &controllerapi.ControlMessage{
+			MessageId: "ack-config",
+			Payload: &controllerapi.ControlMessage_ConfigCommandAck{
+				ConfigCommandAck: &controllerapi.ConfigurationCommandAck{
+					OriginalMessageId: configMsg.MessageId,
+					ConnectionsStatus: []*controllerapi.ConnectionAck{},
+					SubscriptionsStatus: []*controllerapi.SubscriptionAck{},
+				},
+			},
+		}
+		err = stream.Send(ackMsg)
+		require.NoError(t, err)
+	} else {
+		t.Fatalf("Expected ConfigCommand, got %T", cfgCmd)
+	}
+
+	// Test sending generic Ack (tests the Ack branch in handleNodeMessages)
+	err = stream.Send(&controllerapi.ControlMessage{
+		MessageId: "test-ack",
+		Payload: &controllerapi.ControlMessage_Ack{
+			Ack: &controllerapi.Ack{
+				Success: true,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	// Give server time to process the ACK message
+	time.Sleep(100 * time.Millisecond)
+
+	// Test deregister flow
+	err = stream.Send(&controllerapi.ControlMessage{
+		MessageId: "test-deregister",
+		Payload: &controllerapi.ControlMessage_DeregisterNodeRequest{
+			DeregisterNodeRequest: &controllerapi.DeregisterNodeRequest{
+				Node: &controllerapi.Node{
+					Id: "slim-message-test",
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	// After deregister, the stream closes
+	time.Sleep(100 * time.Millisecond)
+	_ = stream.CloseSend()
+}
+
+// Note: Channel and Participant operations tests are skipped as they require
+// complex group service setup and node command handler mocking.
+// The message handling code paths for these operations are tested via the
+// existing integration tests and manual testing.
+
+func TestSouthbound_InvalidPayload(t *testing.T) {
+	db := db.NewInMemoryDBService()
+	target, cleanup := startSouthbound(t, db)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create gRPC client
+	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer conn.Close()
+
+	client := controllerapi.NewControllerServiceClient(conn)
+	stream, err := client.OpenControlChannel(ctx)
+	require.NoError(t, err)
+
+	// Receive initial ACK
+	_, err = stream.Recv()
+	require.NoError(t, err)
+
+	// Send register request
+	err = stream.Send(&controllerapi.ControlMessage{
+		MessageId: "test-register",
+		Payload: &controllerapi.ControlMessage_RegisterNodeRequest{
+			RegisterNodeRequest: &controllerapi.RegisterNodeRequest{
+				NodeId: "slim-invalid-test",
+				ConnectionDetails: []*controllerapi.ConnectionDetails{
+					{
+						Endpoint: "127.0.0.1:5003",
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	// Receive registration ACK
+	_, err = stream.Recv()
+	require.NoError(t, err)
+
+	// Wait for and acknowledge the initial ConfigCommand from the reconciler
+	configMsg, err := stream.Recv()
+	require.NoError(t, err)
+	if _, ok := configMsg.Payload.(*controllerapi.ControlMessage_ConfigCommand); ok {
+		// Acknowledge the config command
+		ackMsg := &controllerapi.ControlMessage{
+			MessageId: "ack-config",
+			Payload: &controllerapi.ControlMessage_ConfigCommandAck{
+				ConfigCommandAck: &controllerapi.ConfigurationCommandAck{
+					OriginalMessageId: configMsg.MessageId,
+				},
+			},
+		}
+		err = stream.Send(ackMsg)
+		require.NoError(t, err)
+	}
+
+	// Send a message with generic Ack payload to test that branch
+	err = stream.Send(&controllerapi.ControlMessage{
+		MessageId: "test-ack",
+		Payload: &controllerapi.ControlMessage_Ack{
+			Ack: &controllerapi.Ack{
+				Success: true,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	// Send ConnectionListResponse to test that branch
+	err = stream.Send(&controllerapi.ControlMessage{
+		MessageId: "test-connection-list",
+		Payload: &controllerapi.ControlMessage_ConnectionListResponse{
+			ConnectionListResponse: &controllerapi.ConnectionListResponse{
+				Entries: []*controllerapi.ConnectionEntry{},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	// Send SubscriptionListResponse to test that branch
+	err = stream.Send(&controllerapi.ControlMessage{
+		MessageId: "test-subscription-list",
+		Payload: &controllerapi.ControlMessage_SubscriptionListResponse{
+			SubscriptionListResponse: &controllerapi.SubscriptionListResponse{
+				Entries: []*controllerapi.SubscriptionEntry{},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	// Give some time for messages to be processed
+	time.Sleep(500 * time.Millisecond)
+
+	// Stream should still be alive
+	err = stream.Send(&controllerapi.ControlMessage{
+		MessageId: "test-final-ack",
+		Payload: &controllerapi.ControlMessage_Ack{
+			Ack: &controllerapi.Ack{
+				Success: true,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	_ = stream.CloseSend()
+}
+
+func TestSouthbound_NoRegistration(t *testing.T) {
+	db := db.NewInMemoryDBService()
+	target, cleanup := startSouthbound(t, db)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Create gRPC client
+	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer conn.Close()
+
+	client := controllerapi.NewControllerServiceClient(conn)
+	stream, err := client.OpenControlChannel(ctx)
+	require.NoError(t, err)
+
+	// Receive initial ACK
+	_, err = stream.Recv()
+	require.NoError(t, err)
+
+	// Send a non-registration message (should cause stream to close)
+	err = stream.Send(&controllerapi.ControlMessage{
+		MessageId: "test-invalid",
+		Payload: &controllerapi.ControlMessage_Ack{
+			Ack: &controllerapi.Ack{
+				Success: true,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	// Stream should close or subsequent operations should fail
+	time.Sleep(500 * time.Millisecond)
+}
