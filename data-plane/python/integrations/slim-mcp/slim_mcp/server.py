@@ -21,7 +21,7 @@ PING_INTERVAL = 20
 class SLIMServer(SLIMBase):
     def __init__(
         self,
-        config: dict,
+        slim_client_configs: list[dict],
         local_organization: str,
         local_namespace: str,
         local_agent: str,
@@ -46,7 +46,7 @@ class SLIMServer(SLIMBase):
         """
 
         super().__init__(
-            config,
+            slim_client_configs,
             local_organization,
             local_namespace,
             local_agent,
@@ -54,14 +54,14 @@ class SLIMServer(SLIMBase):
 
     async def _send_message(
         self,
-        session: slim_bindings.PySessionInfo,
+        session: slim_bindings.PySession,
         message: bytes,
     ):
         """
         Send a message to the next slim instance.
 
         Args:
-            session (slim_bindings.PySessionInfo): Session information.
+            session (slim_bindings.PySession): Session.
             message (bytes): Message to send.
 
         Raises:
@@ -71,15 +71,12 @@ class SLIMServer(SLIMBase):
         if not self.slim:
             raise RuntimeError("SLIM is not connected. Please use the with statement.")
 
-        # Send message to slim
-        await self.slim.publish_to(
-            session,
-            message,
-        )
+        # Send message via session
+        await session.publish(message)
 
     def _filter_message(
         self,
-        session: slim_bindings.PySessionInfo,
+        session: slim_bindings.PySession,
         message: types.JSONRPCMessage,
         pending_pings: list[int],
     ) -> bool:
@@ -93,9 +90,7 @@ class SLIMServer(SLIMBase):
 
         return False
 
-    async def _ping(
-        self, session: slim_bindings.PySessionInfo, pending_pings: list[int]
-    ):
+    async def _ping(self, session: slim_bindings.PySession, pending_pings: list[int]):
         while True:
             id = random.randint(0, sys.maxsize)
             pending_pings.append(id)
@@ -137,10 +132,10 @@ class SLIMServer(SLIMBase):
         and receives the next session from the SLIM.
 
         Returns:
-            slim_bindings.PySessionInfo: The received session.
+            slim_bindings.PySession: The received session.
         """
 
-        session, _ = await self.slim.receive()
+        session = await self.slim.listen_for_session()
         logger.debug(f"Received session: {session.id}")
 
         return session
