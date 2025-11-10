@@ -24,10 +24,10 @@ async def create_svc(
         and message operations.
     """
 
-    provider = slim_bindings.PyIdentityProvider.SharedSecret(  # type: ignore
+    provider = slim_bindings.PyIdentityProvider.SharedSecret(
         identity=f"{name}", shared_secret=secret
     )
-    verifier = slim_bindings.PyIdentityVerifier.SharedSecret(  # type: ignore
+    verifier = slim_bindings.PyIdentityVerifier.SharedSecret(
         identity=f"{name}", shared_secret=secret
     )
     return await create_pyapp(name, provider, verifier, local_service=local_service)
@@ -51,10 +51,10 @@ async def create_slim(
     Returns:
         Slim: High-level wrapper around the newly created PyService.
     """
-    provider = slim_bindings.PyIdentityProvider.SharedSecret(  # type: ignore
+    provider = slim_bindings.PyIdentityProvider.SharedSecret(
         identity=f"{name}", shared_secret=secret
     )
-    verifier = slim_bindings.PyIdentityVerifier.SharedSecret(  # type: ignore
+    verifier = slim_bindings.PyIdentityVerifier.SharedSecret(
         identity=f"{name}", shared_secret=secret
     )
     return await slim_bindings.Slim.new(
