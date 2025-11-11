@@ -223,7 +223,7 @@ spec:
 ### 4. Deploy Controller chart on admin cluster
 
 ```bash
-task slim:contoller:deploy
+task slim:controller:deploy
 ```
 
 <details>
