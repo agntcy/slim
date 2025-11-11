@@ -23,7 +23,7 @@ import (
 
 	"github.com/agntcy/slim/control-plane/slimctl/internal/cfg"
 	configCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/config"
-	controllerCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/controller"
+	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/controller"
 	nodectrlCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/nodecontroller"
 	versionCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/version"
 )
@@ -153,16 +153,17 @@ func main() {
 		"path to client TLS key",
 	)
 
-	rootCmd.AddCommand(controllerCmd.NewNodeCmd(conf.AppConfig.CommonOpts))
-	rootCmd.AddCommand(controllerCmd.NewConnectionCmd(conf.AppConfig.CommonOpts))
-	rootCmd.AddCommand(controllerCmd.NewRouteCmd(conf.AppConfig.CommonOpts))
-	rootCmd.AddCommand(controllerCmd.NewChannelCmd(conf.AppConfig.CommonOpts))
-	rootCmd.AddCommand(controllerCmd.NewParticipantCmd(conf.AppConfig.CommonOpts))
-
-	rootCmd.AddCommand(nodectrlCmd.NewNodeCmd(conf.AppConfig.CommonOpts))
+	// add the version command
 	rootCmd.AddCommand(versionCmd.NewVersionCmd(conf.AppConfig.CommonOpts))
 
+	// add the config command tree
 	rootCmd.AddCommand(configCmd.NewConfigCmd(conf))
+
+	// add the controller command tree
+	rootCmd.AddCommand(controller.NewControllerCmd(conf))
+
+	// add the node command tree
+	rootCmd.AddCommand(nodectrlCmd.NewNodeCmd(conf.AppConfig.CommonOpts))
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "CLI error: %v", err)
