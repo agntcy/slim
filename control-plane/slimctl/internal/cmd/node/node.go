@@ -11,8 +11,8 @@ import (
 
 func NewNodeCmd(opts *options.CommonOptions) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "node-connect",
-		Aliases: []string{"nc"},
+		Use:     "node",
+		Aliases: []string{"n", "instance", "i"},
 		Short:   "Connect directly to the node to manage connections & routes.",
 		Long: `Connect directly to the node to manage connections & routes.
 In this case --server should point to the node controller endpoint.`,
