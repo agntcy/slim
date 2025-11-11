@@ -22,10 +22,10 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agntcy/slim/control-plane/slimctl/internal/cfg"
-	configCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/config"
+	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/config"
 	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/controller"
-	nodectrlCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/nodecontroller"
-	versionCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/version"
+	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/node"
+	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/version"
 )
 
 var k = koanf.New(".")
@@ -154,16 +154,16 @@ func main() {
 	)
 
 	// add the version command
-	rootCmd.AddCommand(versionCmd.NewVersionCmd(conf.AppConfig.CommonOpts))
+	rootCmd.AddCommand(version.NewVersionCmd(conf.AppConfig.CommonOpts))
 
 	// add the config command tree
-	rootCmd.AddCommand(configCmd.NewConfigCmd(conf))
+	rootCmd.AddCommand(config.NewConfigCmd(conf))
 
 	// add the controller command tree
 	rootCmd.AddCommand(controller.NewControllerCmd(conf))
 
 	// add the node command tree
-	rootCmd.AddCommand(nodectrlCmd.NewNodeCmd(conf.AppConfig.CommonOpts))
+	rootCmd.AddCommand(node.NewNodeCmd(conf.AppConfig.CommonOpts))
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "CLI error: %v", err)
