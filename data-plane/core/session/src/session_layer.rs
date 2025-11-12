@@ -165,7 +165,36 @@ where
             .map_err(|e| e.to_string())
     }
 
-    pub fn create_session(
+    /// Public interface to create a new session
+    pub async fn create_session(
+        &self,
+        session_config: SessionConfig,
+        local_name: Name,
+        destination: Name,
+        id: Option<u32>,
+    ) -> Result<SessionContext, SessionError> {
+        // Store values before they are moved
+        let is_p2p = session_config.session_type == ProtoSessionType::PointToPoint;
+        let destination_clone = destination.clone();
+
+        let ret = self.create_session_internal(session_config, local_name, destination, id)?;
+
+        // If session is p2p, initiate the discovery request now
+        if is_p2p {
+            ret.session()
+                .upgrade()
+                .ok_or_else(|| SessionError::SessionNotFound(ret.session_id()))?
+                .invite_participant_internal(&destination_clone)
+                .await?
+                .await?;
+        }
+
+        // return the session info
+        Ok(ret)
+    }
+
+    /// Create a new session and add it to the pool
+    fn create_session_internal(
         &self,
         session_config: SessionConfig,
         local_name: Name,
@@ -415,7 +444,7 @@ where
                             false,
                         )?;
 
-                        self.create_session(
+                        self.create_session_internal(
                             conf,
                             local_name,
                             message.get_source(),
@@ -459,7 +488,7 @@ where
                             initiator,
                         )?;
 
-                        self.create_session(
+                        self.create_session_internal(
                             conf,
                             local_name,
                             channel,
@@ -687,7 +716,7 @@ mod tests {
             metadata: Default::default(),
         };
 
-        let result = session_layer.create_session(config, local_name, destination, None);
+        let result = session_layer.create_session_internal(config, local_name, destination, None);
 
         assert!(result.is_ok());
         assert_eq!(session_layer.pool_size(), 1);
@@ -709,8 +738,12 @@ mod tests {
         };
 
         let session_id = 100u32;
-        let result =
-            session_layer.create_session(config, local_name, destination, Some(session_id));
+        let result = session_layer.create_session_internal(
+            config,
+            local_name,
+            destination,
+            Some(session_id),
+        );
 
         assert!(result.is_ok());
         assert_eq!(session_layer.pool_size(), 1);
@@ -736,8 +769,12 @@ mod tests {
 
         // Use an ID outside the SESSION_RANGE (SESSION_RANGE is 0..u32::MAX-1000)
         let invalid_id = u32::MAX - 500; // This is outside SESSION_RANGE
-        let result =
-            session_layer.create_session(config, local_name, destination, Some(invalid_id));
+        let result = session_layer.create_session_internal(
+            config,
+            local_name,
+            destination,
+            Some(invalid_id),
+        );
 
         assert!(result.is_err());
         match result {
@@ -764,7 +801,7 @@ mod tests {
         let session_id = 100u32;
 
         // Create first session
-        let result1 = session_layer.create_session(
+        let result1 = session_layer.create_session_internal(
             config.clone(),
             local_name.clone(),
             destination.clone(),
@@ -773,8 +810,12 @@ mod tests {
         assert!(result1.is_ok());
 
         // Try to create second session with same ID
-        let result2 =
-            session_layer.create_session(config, local_name, destination, Some(session_id));
+        let result2 = session_layer.create_session_internal(
+            config,
+            local_name,
+            destination,
+            Some(session_id),
+        );
 
         assert!(result2.is_err());
         match result2 {
@@ -800,7 +841,7 @@ mod tests {
 
         let session_id = 100u32;
         let _context = session_layer
-            .create_session(config, local_name, destination, Some(session_id))
+            .create_session_internal(config, local_name, destination, Some(session_id))
             .unwrap();
 
         assert_eq!(session_layer.pool_size(), 1);
@@ -949,8 +990,12 @@ mod tests {
         // Create multiple sessions
         for i in 0..5 {
             let destination = make_name(&["remote", &format!("app{}", i), "v1"]);
-            let result =
-                session_layer.create_session(config.clone(), local_name.clone(), destination, None);
+            let result = session_layer.create_session_internal(
+                config.clone(),
+                local_name.clone(),
+                destination,
+                None,
+            );
             assert!(result.is_ok());
         }
 

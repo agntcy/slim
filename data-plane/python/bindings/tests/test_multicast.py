@@ -108,7 +108,7 @@ async def test_group(server, mls_enabled):  # noqa: C901
                 timeout=datetime.timedelta(seconds=5),
                 mls_enabled=mls_enabled,
             )
-            session = participant.create_session(chat_name, session_config)
+            session = await participant.create_session(chat_name, session_config)
 
             # invite all participants
             for i in range(participants_count):
@@ -197,9 +197,7 @@ async def test_group(server, mls_enabled):  # noqa: C901
                     await recv_session.publish(
                         f"{message} - {next_participant_name}".encode()
                     )
-                    print(
-                        f"{part_name} -> Published! Local count: {local_count}"
-                    )
+                    print(f"{part_name} -> Published! Local count: {local_count}")
                 else:
                     print(
                         f"{part_name} -> Receiving message: {msg_rcv.decode()} - not for me. Local count: {local_count}"

@@ -600,6 +600,7 @@ mod tests {
         config.initiator = true;
         let send_session = pub_app
             .create_session(config, subscriber_name.clone(), None)
+            .await
             .unwrap();
 
         time::sleep(Duration::from_millis(100)).await;
@@ -701,7 +702,8 @@ mod tests {
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_info = app
             .create_session(session_config, dst, None)
-            .expect("failed to create session");
+            .await
+            .expect("Failed to create session");
 
         // check the configuration we get is the one we used to create the session
         let _session_config_ret = session_info.session_arc().unwrap();
@@ -723,7 +725,8 @@ mod tests {
         };
         let _session_info = app
             .create_session(session_config, stream.clone(), None)
-            .expect("failed to create session");
+            .await
+            .expect("Failed to create session");
 
         // The multicast session was created successfully
         ////////////////////////////////////////////////////////////////////////////////////////////////////////////////

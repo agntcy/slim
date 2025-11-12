@@ -215,6 +215,7 @@ async fn main() {
         };
         let session_ctx = app
             .create_session(config, channel_name.clone(), Some(12345))
+            .await
             .expect("error creating session");
 
         // invite all participants

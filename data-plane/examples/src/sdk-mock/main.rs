@@ -172,6 +172,7 @@ async fn main() {
         };
         let session_ctx = app
             .create_session(config, remote_app_name.clone(), None)
+            .await
             .expect("error creating p2p session");
 
         // Get the session and spawn receiver for handling responses

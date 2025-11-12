@@ -71,7 +71,7 @@ async def test_end_to_end(server):
     print(bob_name)
 
     # create point to point session
-    session_context_alice = svc_alice.create_session(
+    session_context_alice = await svc_alice.create_session(
         bob_name,
         slim_bindings.PySessionConfiguration.PointToPoint(
             max_retries=5,
@@ -182,7 +182,7 @@ async def test_slim_wrapper(server):
         await slim2.set_route(name1)
 
     # create session
-    session_context = slim2.create_session(
+    session_context = await slim2.create_session(
         name1,
         slim_bindings.PySessionConfiguration.PointToPoint(),
     )
@@ -278,7 +278,7 @@ async def test_auto_reconnect_after_server_restart(server):
         await asyncio.sleep(1)
 
     # create point to point session
-    session_context = svc_alice.create_session(
+    session_context = await svc_alice.create_session(
         bob_name,
         slim_bindings.PySessionConfiguration.PointToPoint(),
     )
@@ -344,7 +344,7 @@ async def test_error_on_nonexistent_subscription(server):
     bob_name = slim_bindings.PyName("org", "default", "bob_nonsub")
 
     # create point to point session (Alice only)
-    session_context = svc_alice.create_session(
+    session_context = await svc_alice.create_session(
         bob_name,
         slim_bindings.PySessionConfiguration.PointToPoint(),
     )
@@ -437,7 +437,7 @@ async def test_get_message_timeout(server):
 
     # Create a session (with dummy peer for timeout testing)
     dummy_peer = slim_bindings.PyName("org", "default", "dummy_peer")
-    session_context = svc_alice.create_session(
+    session_context = await svc_alice.create_session(
         dummy_peer, slim_bindings.PySessionConfiguration.PointToPoint()
     )
 
@@ -498,7 +498,7 @@ async def test_publish_no_ack_timeout(server):
     bob_name = slim_bindings.PyName("org", "default", "bob_noack")
 
     # Create a reliable session from Alice to non-existent Bob
-    session_context = slim_alice.create_session(
+    session_context = await slim_alice.create_session(
         bob_name,
         slim_bindings.PySessionConfiguration.PointToPoint(
             max_retries=5,

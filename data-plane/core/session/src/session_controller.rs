@@ -385,6 +385,14 @@ impl SessionController {
             .map_err(|e| SessionError::Processing(e.to_string()))
     }
 
+    pub(crate) async fn invite_participant_internal(
+        &self,
+        destination: &Name,
+    ) -> Result<MessageDeliveryAck, SessionError> {
+        let msg = self.create_discovery_request(destination)?;
+        self.publish_message(msg).await
+    }
+
     pub async fn invite_participant(
         &self,
         destination: &Name,
@@ -399,8 +407,7 @@ impl SessionController {
                         "cannot invite participant to this session session".into(),
                     ));
                 }
-                let msg = self.create_discovery_request(destination)?;
-                self.publish_message(msg).await
+                self.invite_participant_internal(destination).await
             }
             _ => Err(SessionError::Processing("unexpected session type".into())),
         }

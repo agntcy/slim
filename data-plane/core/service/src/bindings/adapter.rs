@@ -140,12 +140,14 @@ where
     }
 
     /// Create a new session with the given configuration
-    pub fn create_session(
+    pub async fn create_session(
         &self,
         session_config: SessionConfig,
         destination: Name,
     ) -> Result<SessionContext, SessionError> {
-        self.app.create_session(session_config, destination, None)
+        self.app
+            .create_session(session_config, destination, None)
+            .await
     }
 
     /// Delete a session by its context and return a handle to wait on
@@ -467,6 +469,7 @@ mod tests {
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
             .create_session(session_config, dst)
+            .await
             .expect("Failed to create session");
 
         // Get the session reference and test delete
@@ -543,6 +546,7 @@ mod tests {
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
             .create_session(config, dst)
+            .await
             .expect("Failed to create session");
 
         // Convert to BindingsSessionContext for session operations

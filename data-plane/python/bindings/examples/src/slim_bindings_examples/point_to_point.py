@@ -106,7 +106,7 @@ async def run_client(
             timeout=datetime.timedelta(seconds=5),
             mls_enabled=enable_mls,
         )
-        session = local_app.create_session(remote_name, config)
+        session = await local_app.create_session(remote_name, config)
 
         # Iterate send->receive cycles.
         for i in range(iterations):

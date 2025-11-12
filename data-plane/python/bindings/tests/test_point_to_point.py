@@ -34,7 +34,7 @@ import slim_bindings
 @pytest.mark.parametrize(
     "server",
     [
-        # "127.0.0.1:22345",  # local service
+        "127.0.0.1:22345",  # local service
         None,  # global service
     ],
     indirect=True,
@@ -125,10 +125,10 @@ async def test_sticky_session(server, mls_enabled):
     # create a new session
     session_config = slim_bindings.PySessionConfiguration.PointToPoint(
         max_retries=5,
-        timeout=datetime.timedelta(seconds=5),
+        timeout=datetime.timedelta(milliseconds=500),
         mls_enabled=mls_enabled,
     )
-    sender_session = sender.create_session(receiver_name, session_config)
+    sender_session = await sender.create_session(receiver_name, session_config)
 
     payload_type = "hello message"
     metadata = {"sender": "hello"}

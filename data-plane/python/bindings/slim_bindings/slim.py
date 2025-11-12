@@ -1,6 +1,7 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
+import typing
 from datetime import timedelta
 
 from slim_bindings._slim_bindings import (  # type: ignore[attr-defined]
@@ -135,11 +136,11 @@ class Slim:
         """
         return self._app.name
 
-    def create_session(
+    async def create_session(
         self,
         destination: PyName,
         session_config: PySessionConfiguration,
-    ) -> PySession:
+    ) -> typing.Any:
         """Create a new session and return its high-level PySession wrapper.
 
         Args:
@@ -149,7 +150,9 @@ class Slim:
         Returns:
             PySession: Wrapper exposing high-level async operations for the session.
         """
-        ctx: PySessionContext = self._app.create_session(destination, session_config)
+        ctx: PySessionContext = await self._app.create_session(
+            destination, session_config
+        )
         return PySession(ctx)
 
     async def delete_session(self, session: PySession):

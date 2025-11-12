@@ -217,6 +217,7 @@ mod tests {
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
             .create_session(config, dst)
+            .await
             .expect("Failed to create session");
 
         let bindings_ctx = BindingsSessionContext::from(session_ctx);
@@ -239,6 +240,7 @@ mod tests {
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
             .create_session(config, dst)
+            .await
             .expect("Failed to create session");
         let bindings_ctx = BindingsSessionContext::from(session_ctx);
 
@@ -266,6 +268,7 @@ mod tests {
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
             .create_session(config, dst)
+            .await
             .expect("Failed to create session");
         let bindings_ctx = BindingsSessionContext::from(session_ctx);
 
@@ -295,6 +298,7 @@ mod tests {
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
             .create_session(config, dst)
+            .await
             .expect("Failed to create session");
         let bindings_ctx = BindingsSessionContext::from(session_ctx);
 
@@ -334,6 +338,7 @@ mod tests {
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
             .create_session(config, dst)
+            .await
             .expect("Failed to create session");
         let session_bindings = BindingsSessionContext::from(session_ctx);
 

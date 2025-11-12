@@ -287,6 +287,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let session_ctx = app
         .create_session(conf, channel_name.clone(), None)
+        .await
         .expect("error creating session");
 
     for c in &participants {

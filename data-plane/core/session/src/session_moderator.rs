@@ -86,40 +86,6 @@ where
             inner,
         }
     }
-
-    /// Sends the initial discovery request for P2P sessions
-    async fn send_initial_discovery_request(&mut self)
-    where
-        P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
-        V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
-    {
-        // send a discovery request
-        let payload = CommandPayload::builder()
-            .discovery_request(None)
-            .as_content();
-        let discovery = Message::builder()
-            .source(self.common.settings.source.clone())
-            .destination(self.common.settings.destination.clone())
-            .identity("")
-            .session_type(self.common.settings.config.session_type)
-            .session_message_type(ProtoSessionMessageType::DiscoveryRequest)
-            .session_id(self.common.settings.id)
-            .message_id(rand::random::<u32>())
-            .payload(payload)
-            .build_publish()
-            .unwrap();
-        let res = self
-            .on_message(SessionMessage::OnMessage {
-                message: discovery,
-                direction: MessageDirection::South,
-                ack_tx: None,
-            })
-            .await;
-
-        if let Err(e) = res {
-            tracing::error!(error=%e, "Error sending initial discovery request");
-        }
-    }
 }
 
 /// Implementation of MessageHandler trait for SessionModerator
@@ -132,12 +98,6 @@ where
     I: MessageHandler + Send + Sync + 'static,
 {
     async fn init(&mut self) -> Result<(), SessionError> {
-        // if the session is a p2p session and the session is created
-        // as initiator we need to invite the remote participant
-        if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
-            self.send_initial_discovery_request().await;
-        }
-
         // Initialize MLS
         self.mls_state = if self.common.settings.config.mls_enabled {
             let mls_state = MlsState::new(Arc::new(Mutex::new(Mls::new(
