@@ -260,7 +260,7 @@ impl SessionController {
     }
 
     /// Publish a message to a specific connection (forward_to)
-    pub fn publish_to(
+    pub async fn publish_to(
         &self,
         name: &Name,
         forward_to: u64,
@@ -275,10 +275,11 @@ impl SessionController {
             payload_type,
             metadata,
         )
+        .await
     }
 
     /// Publish a message to a specific app name
-    pub fn publish(
+    pub async fn publish(
         &self,
         name: &Name,
         blob: Vec<u8>,
@@ -292,10 +293,11 @@ impl SessionController {
             payload_type,
             metadata,
         )
+        .await
     }
 
     /// Publish a message with specific flags
-    pub fn publish_with_flags(
+    pub async fn publish_with_flags(
         &self,
         name: &Name,
         flags: SlimHeaderFlags,
@@ -324,7 +326,7 @@ impl SessionController {
         }
 
         // southbound=true means towards slim
-        self.publish_message(msg)
+        self.publish_message(msg).await
     }
 
     /// Creates a discovery request message with minimum required information
@@ -360,7 +362,7 @@ impl SessionController {
                     ));
                 }
                 let msg = self.create_discovery_request(destination)?;
-                self.publish_message(msg)
+                self.publish_message(msg).await
             }
             _ => Err(SessionError::Processing("unexpected session type".into())),
         }
@@ -391,7 +393,7 @@ impl SessionController {
                     .payload(CommandPayload::builder().leave_request(None).as_content())
                     .build_publish()
                     .map_err(|e| SessionError::Processing(e.to_string()))?;
-                self.publish_message(msg)
+                self.publish_message(msg).await
             }
             _ => Err(SessionError::Processing("unexpected session type".into())),
         }
@@ -731,6 +733,7 @@ mod tests {
                 Some("test-type".to_string()),
                 None,
             )
+            .await
             .expect("publish should succeed");
 
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -754,6 +757,7 @@ mod tests {
                 Some("test-type".to_string()),
                 None,
             )
+            .await
             .expect("publish_to should succeed");
 
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -778,6 +782,7 @@ mod tests {
                 Some("test-type".to_string()),
                 Some(metadata),
             )
+            .await
             .expect("publish with metadata should succeed");
 
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -793,6 +798,7 @@ mod tests {
 
         controller
             .invite_participant(&participant)
+            .await
             .expect("invite should succeed");
 
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -807,7 +813,7 @@ mod tests {
 
         let participant = Name::from_strings(["org", "ns", "new_participant"]);
 
-        let result = controller.invite_participant(&participant);
+        let result = controller.invite_participant(&participant).await;
         assert!(result.is_err());
         if let Err(SessionError::Processing(msg)) = result {
             assert!(msg.contains("cannot invite participant"));
@@ -824,7 +830,7 @@ mod tests {
 
         let participant = Name::from_strings(["org", "ns", "participant"]);
 
-        let result = controller.invite_participant(&participant);
+        let result = controller.invite_participant(&participant).await;
         assert!(result.is_err());
         if let Err(SessionError::Processing(msg)) = result {
             assert!(msg.contains("cannot invite participant to point-to-point"));
@@ -843,6 +849,7 @@ mod tests {
 
         controller
             .remove_participant(&participant)
+            .await
             .expect("remove should succeed");
 
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -857,7 +864,7 @@ mod tests {
 
         let participant = Name::from_strings(["org", "ns", "participant"]);
 
-        let result = controller.remove_participant(&participant);
+        let result = controller.remove_participant(&participant).await;
         assert!(result.is_err());
         if let Err(SessionError::Processing(msg)) = result {
             assert!(msg.contains("cannot remove participant"));
@@ -874,7 +881,7 @@ mod tests {
 
         let participant = Name::from_strings(["org", "ns", "participant"]);
 
-        let result = controller.remove_participant(&participant);
+        let result = controller.remove_participant(&participant).await;
         assert!(result.is_err());
         if let Err(SessionError::Processing(msg)) = result {
             assert!(msg.contains("cannot remove participant to point-to-point"));

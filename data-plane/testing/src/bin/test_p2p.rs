@@ -204,7 +204,7 @@ async fn run_client_task(name: Name) -> Result<(), String> {
                                                             if let Some(session_arc) = weak.upgrade() {
                                                                 let payload = val.into_bytes();
                                                                 println!("received message {} on app {}", msg.get_session_header().get_message_id(), name_clone_session);
-                                                                if session_arc.publish_to(&publisher, conn, payload, None, None).is_err() {
+                                                                if session_arc.publish_to(&publisher, conn, payload, None, None).await.is_err() {
                                                                     panic!("an error occurred sending publication from moderator");
                                                                 }
                                                             }
@@ -316,6 +316,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let session_ctx = app
         .create_session(conf, Name::from_strings(["org", "ns", "client"]), None)
+        .await
         .expect("error creating session");
 
     for c in &clients {
@@ -385,6 +386,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 None,
                 None,
             )
+            .await
             .is_err()
         {
             panic!("an error occurred sending publication from moderator",);

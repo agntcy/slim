@@ -25,7 +25,7 @@ fn spawn_session_receiver(
 
             if let Some(m) = message_clone {
                 if let Some(s) = session.upgrade() {
-                        if let Err(e) = s.publish(s.dst(), m.encode_to_vec(), None, None) {
+                        if let Err(e) = s.publish(s.dst(), m.encode_to_vec(), None, None).await {
                             error!("Failed to publish message to session: {:?}", e);
                         }
                 } else {
