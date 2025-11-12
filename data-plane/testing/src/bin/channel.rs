@@ -215,6 +215,7 @@ async fn main() {
         };
         let session_ctx = app
             .create_session(config, channel_name.clone(), Some(12345))
+            .await
             .expect("error creating session");
 
         // invite all participants
@@ -224,6 +225,7 @@ async fn main() {
                 .session_arc()
                 .unwrap()
                 .invite_participant(&p)
+                .await
                 .expect("error sending invite message");
         }
 
@@ -270,6 +272,7 @@ async fn main() {
 
             if session_arc
                 .publish_with_flags(&channel_name, flags, p, None, None)
+                .await
                 .is_err()
             {
                 panic!("an error occurred sending publication from moderator",);
@@ -332,7 +335,7 @@ async fn main() {
                                                 let flags = SlimHeaderFlags::new(10, None, None, None, None);
                                                 if let Some(session_arc) = weak.upgrade()
                                                     && session_arc
-                                                        .publish_with_flags(&channel_name_clone, flags, p, None, None)
+                                                        .publish_with_flags(&channel_name_clone, flags, p, None, None).await
                                                         .is_err()
                                                     {
                                                         panic!("an error occurred sending publication from moderator");

@@ -140,20 +140,14 @@ where
     }
 
     /// Create a new session with the given configuration
-    pub fn create_session(
+    pub async fn create_session(
         &self,
         session_config: SessionConfig,
         destination: Name,
     ) -> Result<SessionContext, SessionError> {
-        self.app.create_session(session_config, destination, None)
-    }
-
-    /// Delete a session by its context and return a handle to wait on
-    pub fn delete_session_handle(
-        &self,
-        session: &SessionController,
-    ) -> Result<tokio::task::JoinHandle<()>, SessionError> {
-        self.app.delete_session(session)
+        self.app
+            .create_session(session_config, destination, None)
+            .await
     }
 
     /// Delete a session by its context and wait for it to complete with default timeout
@@ -471,6 +465,7 @@ mod tests {
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
             .create_session(session_config, dst)
+            .await
             .expect("Failed to create session");
 
         // Get the session reference and test delete
@@ -549,6 +544,7 @@ mod tests {
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
             .create_session(config, dst)
+            .await
             .expect("Failed to create session");
 
         // Convert to BindingsSessionContext for session operations
@@ -575,11 +571,11 @@ mod tests {
 
         // Test invite/remove operations on session context
         let peer_name = Name::from_strings(["org", "peer", "service"]);
-        let invite_result = session_bindings.invite(&peer_name);
+        let invite_result = session_bindings.invite(&peer_name).await;
         // Note: This may fail in test environment, but we're testing the API structure
         assert!(invite_result.is_err() || invite_result.is_ok());
 
-        let remove_result = session_bindings.remove(&peer_name);
+        let remove_result = session_bindings.remove(&peer_name).await;
         assert!(remove_result.is_err() || remove_result.is_ok());
 
         // Verify adapter still handles app-level operations

@@ -97,7 +97,8 @@ impl PyApp {
         let ctx = self
             .internal
             .adapter
-            .create_session(session_config, destination)?;
+            .create_session(session_config, destination)
+            .await?;
         Ok(PySessionContext::from(ctx))
     }
 

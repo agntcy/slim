@@ -55,6 +55,7 @@ impl BindingsSessionContext {
 
         session
             .publish_with_flags(name, flags, blob, payload_type, metadata)
+            .await
             .map_err(|e| ServiceError::SessionError(e.to_string()))
     }
 
@@ -100,27 +101,28 @@ impl BindingsSessionContext {
                 payload_type,
                 metadata,
             )
+            .await
             .map_err(|e| ServiceError::SessionError(e.to_string()))
     }
 
     /// Invite a peer to join this session
-    pub fn invite(&self, destination: &Name) -> Result<(), SessionError> {
+    pub async fn invite(&self, destination: &Name) -> Result<(), SessionError> {
         let session = self
             .session
             .upgrade()
             .ok_or_else(|| SessionError::Processing("Session has been dropped".to_string()))?;
 
-        session.invite_participant(destination)
+        session.invite_participant(destination).await
     }
 
     /// Remove a peer from this session
-    pub fn remove(&self, destination: &Name) -> Result<(), SessionError> {
+    pub async fn remove(&self, destination: &Name) -> Result<(), SessionError> {
         let session = self
             .session
             .upgrade()
             .ok_or_else(|| SessionError::Processing("Session has been dropped".to_string()))?;
 
-        session.remove_participant(destination)
+        session.remove_participant(destination).await
     }
 
     /// Receive a message from this session with optional timeout
@@ -216,6 +218,7 @@ mod tests {
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
             .create_session(config, dst)
+            .await
             .expect("Failed to create session");
 
         let bindings_ctx = BindingsSessionContext::from(session_ctx);
@@ -239,6 +242,7 @@ mod tests {
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
             .create_session(config, dst)
+            .await
             .expect("Failed to create session");
         let bindings_ctx = BindingsSessionContext::from(session_ctx);
 
@@ -267,6 +271,7 @@ mod tests {
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
             .create_session(config, dst)
+            .await
             .expect("Failed to create session");
         let bindings_ctx = BindingsSessionContext::from(session_ctx);
 
@@ -297,6 +302,7 @@ mod tests {
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
             .create_session(config, dst)
+            .await
             .expect("Failed to create session");
         let bindings_ctx = BindingsSessionContext::from(session_ctx);
 
@@ -337,6 +343,7 @@ mod tests {
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
             .create_session(config, dst)
+            .await
             .expect("Failed to create session");
         let session_bindings = BindingsSessionContext::from(session_ctx);
 
