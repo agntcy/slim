@@ -150,14 +150,6 @@ where
             .await
     }
 
-    /// Delete a session by its context and return a handle to wait on
-    pub fn delete_session_handle(
-        &self,
-        session: &SessionController,
-    ) -> Result<tokio::task::JoinHandle<()>, SessionError> {
-        self.app.delete_session(session)
-    }
-
     /// Delete a session by its context and wait for it to complete with default timeout
     pub fn delete_session(
         &self,

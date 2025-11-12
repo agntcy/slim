@@ -121,6 +121,12 @@ where
         destination: Name,
         id: Option<u32>,
     ) -> Result<SessionContext, SessionError> {
+        if !session_config.initiator {
+            return Err(SessionError::ConfigurationError(
+                "Only initiator sessions can be created by the app".to_string(),
+            ));
+        }
+
         self.session_layer
             .create_session(session_config, self.app_name.clone(), destination, id)
             .await
@@ -407,11 +413,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_session() {
-        let (tx_slim, _) = tokio::sync::mpsc::channel(1);
-        let (tx_app, _) = tokio::sync::mpsc::channel(1);
+        let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(1);
+        let (tx_app, _rx_app) = tokio::sync::mpsc::channel(1);
         let name = Name::from_strings(["org", "ns", "type"]).with_id(0);
 
-        let session_layer = App::new(
+        let app = App::new(
             &name,
             SharedSecret::new("a", TEST_VALID_SECRET),
             SharedSecret::new("a", TEST_VALID_SECRET),
@@ -421,11 +427,22 @@ mod tests {
             std::path::PathBuf::from("/tmp/test_storage"),
         );
 
-        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
+        let config = SessionConfig {
+            session_type: ProtoSessionType::PointToPoint,
+            initiator: true,
+            ..Default::default()
+        };
         let dst = Name::from_strings(["org", "ns", "dst"]);
-        let res = session_layer.create_session(config, dst, None).await;
 
-        assert!(res.is_ok());
+        // Session creation should hang as there is no peer side to respond
+        let create_future = app.create_session(config.clone(), dst.clone(), None);
+
+        // Verify that session creation hangs (times out)
+        let timeout_result = tokio::time::timeout(
+            std::time::Duration::from_millis(100),
+            create_future
+        ).await;
+        assert!(timeout_result.is_err(), "Session creation should have timed out");
     }
 
     #[tokio::test]
@@ -434,7 +451,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
         let name = Name::from_strings(["org", "ns", "type"]).with_id(0);
 
-        let session_layer = App::new(
+        let app = App::new(
             &name,
             SharedSecret::new("a", TEST_VALID_SECRET),
             SharedSecret::new("a", TEST_VALID_SECRET),
@@ -444,15 +461,20 @@ mod tests {
             std::path::PathBuf::from("/tmp/test_storage"),
         );
 
-        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
+        let config = SessionConfig {
+            session_type: ProtoSessionType::PointToPoint,
+            initiator: true,
+            ..Default::default()
+        };
         let dst = Name::from_strings(["org", "ns", "dst"]);
-        let res = session_layer.create_session(config, dst, None).await;
+        let res = app.create_session(config, dst, None).await;
 
-        assert!(res.is_ok());
+        // Session error should fail as there is no peer to respond and the slim channel is closed
+        assert!(res.is_err());
 
-        session_layer
-            .delete_session(&res.unwrap().session().upgrade().unwrap())
-            .unwrap();
+        // Make sure the session pool is empty after the failed creation
+        let pool_empty = app.session_layer.as_ref().is_pool_empty();
+        assert!(pool_empty, "Session pool should be empty after failed creation");
     }
 
     #[tokio::test]
@@ -603,9 +625,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_message_from_app() {
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(16);
         let (tx_app, _) = tokio::sync::mpsc::channel(10);
         let dst = Name::from_strings(["cisco", "default", "remote"]).with_id(0);
+        let grp = Name::from_strings(["cisco", "default", "group"]).with_id(0);
         let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
         let identity = SharedSecret::new("a", TEST_VALID_SECRET);
@@ -621,14 +644,22 @@ mod tests {
         );
 
         let mut session_config =
-            SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
+            SessionConfig::default().with_session_type(ProtoSessionType::Multicast);
         session_config.initiator = true;
 
         // create a new session
         let res = app
-            .create_session(session_config, dst.clone(), Some(1))
+            .create_session(session_config, grp.clone(), Some(1))
             .await
             .unwrap();
+
+        // Invite a participant to the session
+        res.session()
+            .upgrade()
+            .unwrap()
+            .invite_participant(&dst)
+            .await
+            .expect("error inviting participant");
 
         // a discovery request should be generated by the session just created
         // try to read it on slim

@@ -173,24 +173,45 @@ where
         destination: Name,
         id: Option<u32>,
     ) -> Result<SessionContext, SessionError> {
+        // Sanity check
+        if !session_config.initiator {
+            return Err(SessionError::ConfigurationError(
+                "Only initiator sessions can be created by the app".to_string(),
+            ));
+        }
+
         // Store values before they are moved
         let is_p2p = session_config.session_type == ProtoSessionType::PointToPoint;
         let destination_clone = destination.clone();
 
-        let ret = self.create_session_internal(session_config, local_name, destination, id)?;
+        let session = self.create_session_internal(session_config, local_name, destination, id)?;
 
         // If session is p2p, initiate the discovery request now
         if is_p2p {
-            ret.session()
+            let invite_result = session.session()
                 .upgrade()
-                .ok_or_else(|| SessionError::SessionNotFound(ret.session_id()))?
+                .ok_or_else(|| SessionError::SessionNotFound(session.session_id()))?
                 .invite_participant_internal(&destination_clone)
-                .await?
-                .await?;
+                .await;
+
+            // If invite_participant_internal fails, remove the session from the pool
+            let ret = match invite_result {
+                Ok(receiver) => receiver.await,
+                Err(e) => {
+                    self.remove_session(session.session_id())?;
+                    return Err(e);
+                }
+            };
+
+            // If init fails, remove the session from the pool
+            if let Err(e) = ret {
+                self.remove_session(session.session_id())?;
+                return Err(e);
+            }
         }
 
         // return the session info
-        Ok(ret)
+        Ok(session)
     }
 
     /// Create a new session and add it to the pool
@@ -589,19 +610,16 @@ where
     }
 
     /// Check if the session pool is empty (for testing purposes)
-    #[cfg(test)]
     pub fn is_pool_empty(&self) -> bool {
         self.pool.read().is_empty()
     }
 
     /// Get the number of sessions in the pool (for testing purposes)
-    #[cfg(test)]
     pub fn pool_size(&self) -> usize {
         self.pool.read().len()
     }
 
     /// Get a session from the pool (for testing purposes)
-    #[cfg(test)]
     pub fn get_session(&self, id: u32) -> Option<Arc<SessionController>> {
         self.pool.read().get(&id).cloned()
     }
