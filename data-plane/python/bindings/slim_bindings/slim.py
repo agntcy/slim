@@ -12,7 +12,6 @@ from slim_bindings._slim_bindings import (  # type: ignore[attr-defined]
     PySessionContext,
 )
 
-
 from .session import PySession
 
 

@@ -19,10 +19,6 @@ Validated invariants:
   * session_type == PointToPoint for receiver-side context
   * dst == sender.local_name and src == receiver.local_name
   * Exactly one receiver_counts[i] == 1000 and total sum == 1000
-
-Notes:
-  The test uses simple sleeps for propagation; production-grade suites
-  might replace those with explicit readiness signaling.
 """
 
 import asyncio
@@ -125,7 +121,6 @@ async def test_sticky_session(server, mls_enabled):
     for i in range(10):
         t = asyncio.create_task(run_receiver(i))
         tasks.append(t)
-        await asyncio.sleep(0.1)
 
     # create a new session
     session_config = slim_bindings.PySessionConfiguration.PointToPoint(
@@ -134,9 +129,6 @@ async def test_sticky_session(server, mls_enabled):
         mls_enabled=mls_enabled,
     )
     sender_session = sender.create_session(receiver_name, session_config)
-
-    # Wait a moment
-    await asyncio.sleep(2)
 
     payload_type = "hello message"
     metadata = {"sender": "hello"}
@@ -149,7 +141,7 @@ async def test_sticky_session(server, mls_enabled):
     pub_results = []
     for _ in range(n_messages):
         pub_results.append(
-            sender_session.publish(
+            await sender_session.publish(
                 b"Hello from sender",
                 payload_type=payload_type,
                 metadata=metadata,
@@ -166,8 +158,6 @@ async def test_sticky_session(server, mls_enabled):
 
     # Delete sender_session
     await sender.delete_session(sender_session)
-
-    await asyncio.sleep(5)
 
     # Kill all tasks
     for t in tasks:

@@ -610,6 +610,7 @@ mod tests {
             .session_arc()
             .unwrap()
             .publish(&subscriber_name, message_blob.clone(), None, None)
+            .await
             .unwrap();
 
         // wait for the new session to arrive in the subscriber app

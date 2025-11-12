@@ -4,10 +4,7 @@
 use std::marker::PhantomData;
 
 use slim_auth::traits::{TokenProvider, Verifier};
-use slim_datapath::{
-    api::{CommandPayload, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType},
-    messages::Name,
-};
+use slim_datapath::messages::Name;
 
 use crate::{
     common::SessionMessage, errors::SessionError, session_config::SessionConfig,
@@ -308,29 +305,6 @@ where
             let (inner, tx, rx, settings) = self.build_session_stack(SessionParticipant::new)?;
             SessionController::from_parts(id, source, destination, config, settings, tx, rx, inner)
         };
-
-        // if the session is a p2p session and the session is created
-        // as initiator we need to invite the remote participant
-        if session_controller.is_initiator()
-            && session_controller.session_type() == ProtoSessionType::PointToPoint
-        {
-            // send a discovery request
-            let payload = CommandPayload::builder()
-                .discovery_request(None)
-                .as_content();
-            let discovery = Message::builder()
-                .source(session_controller.source().clone())
-                .destination(session_controller.dst().clone())
-                .identity("")
-                .session_type(session_controller.session_type())
-                .session_message_type(ProtoSessionMessageType::DiscoveryRequest)
-                .session_id(session_controller.id())
-                .message_id(rand::random::<u32>())
-                .payload(payload)
-                .build_publish()
-                .unwrap();
-            session_controller.on_message_from_app(discovery)?;
-        }
 
         Ok(session_controller)
     }

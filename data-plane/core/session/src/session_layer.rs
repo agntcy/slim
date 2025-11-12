@@ -389,9 +389,10 @@ where
         }
 
         // check if we have a session for the given session ID
-        if let Some(controller) = self.pool.read().get(&id) {
+        let session_controller = self.pool.read().get(&id).cloned();
+        if let Some(controller) = session_controller {
             // pass the message to the session
-            controller.on_message_from_slim(message)?;
+            controller.on_message_from_slim(message).await?;
             return Ok(());
         }
 
@@ -510,7 +511,8 @@ where
             .ok_or(SessionError::SessionClosed(
                 "newly created session already closed: this should not happen".to_string(),
             ))?
-            .on_message_from_slim(message)?;
+            .on_message_from_slim(message)
+            .await?;
 
         // send new session to the app
         self.tx_app
@@ -528,7 +530,8 @@ where
         session_message_type: ProtoSessionMessageType,
     ) -> Result<(), SessionError> {
         // received a discovery message
-        if let Some(controller) = self.pool.read().get(&id)
+        let controller = self.pool.read().get(&id).cloned();
+        if let Some(controller) = controller
             && controller.is_initiator()
             && message
                 .extract_discovery_request()
@@ -538,7 +541,7 @@ where
         {
             // Existing session where we are the initiator and payload includes a destination name:
             // controller is requesting to add a new participant to this session.
-            controller.on_message_from_slim(message)?;
+            controller.on_message_from_slim(message).await?;
             Ok(())
         } else {
             // Handle the discovery request without creating a local session.

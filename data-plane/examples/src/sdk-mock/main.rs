@@ -79,7 +79,7 @@ fn spawn_session_receiver(
                             if let Some(session_arc) = weak.upgrade() {
                                 let reply_bytes = reply.into_bytes();
                                 if let Err(e) = session_arc
-                                    .publish(&route, reply_bytes, None, None)
+                                    .publish(&route, reply_bytes, None, None).await
                                 {
                                     info!("error sending periodic reply: {}", e);
                                 }
@@ -184,6 +184,7 @@ async fn main() {
         // publish message using session context
         session
             .publish(&remote_app_name, msg.into(), None, None)
+            .await
             .unwrap();
 
         sessions.push(session);

@@ -569,11 +569,11 @@ mod tests {
 
         // Test invite/remove operations on session context
         let peer_name = Name::from_strings(["org", "peer", "service"]);
-        let invite_result = session_bindings.invite(&peer_name);
+        let invite_result = session_bindings.invite(&peer_name).await;
         // Note: This may fail in test environment, but we're testing the API structure
         assert!(invite_result.is_err() || invite_result.is_ok());
 
-        let remove_result = session_bindings.remove(&peer_name);
+        let remove_result = session_bindings.remove(&peer_name).await;
         assert!(remove_result.is_err() || remove_result.is_ok());
 
         // Verify adapter still handles app-level operations

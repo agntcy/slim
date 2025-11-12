@@ -93,8 +93,8 @@ impl PyApp {
         PyName::from(self.internal.adapter.name().clone())
     }
 
-    fn create_session<'a>(
-        &'a self,
+    fn create_session(
+        &self,
         destination: PyName,
         config: PySessionConfiguration,
     ) -> PyResult<PySessionContext> {
@@ -107,7 +107,7 @@ impl PyApp {
                 .map_err(|e| {
                     PyErr::new::<PyException, _>(format!("Failed to create session: {}", e))
                 })
-                .map(|ctx| PySessionContext::from(ctx))
+                .map(PySessionContext::from)
         })
     }
 
@@ -127,7 +127,7 @@ impl PyApp {
                 .map_err(|e| {
                     PyErr::new::<PyException, _>(format!("Failed to listen for session: {}", e))
                 })
-                .map(|ctx| PySessionContext::from(ctx))
+                .map(PySessionContext::from)
         })
     }
 

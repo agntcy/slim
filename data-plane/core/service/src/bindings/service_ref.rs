@@ -84,8 +84,7 @@ mod tests {
         assert!(!std::ptr::eq(global_service, local_service));
 
         // Test global service ref
-        let (_, global_ref) = BindingsAdapter::new(base_name, provider, verifier, false)
-            .unwrap();
+        let (_, global_ref) = BindingsAdapter::new(base_name, provider, verifier, false).unwrap();
 
         let local_service = global_ref.get_service();
         assert!(std::ptr::eq(global_service, local_service));

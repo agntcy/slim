@@ -76,6 +76,8 @@ pub enum SessionError {
     NoHandleAvailable,
     #[error("session error: {0}")]
     Generic(String),
+    #[error("error receiving ack for message: {0}")]
+    AckReception(String),
 
     // Channel Endpoint errors
     #[error("error initializing MLS: {0}")]

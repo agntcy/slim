@@ -2,18 +2,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use pyo3::exceptions::PyException;
+use pyo3::types::PyIterator;
 use slim_datapath::api::ProtoSessionType;
 use slim_session::session_controller::SessionController;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::sync::{Arc, Weak};
-use tokio::sync::oneshot;
 
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::gen_stub_pyclass;
 use pyo3_stub_gen::derive::gen_stub_pyclass_enum;
 
 use pyo3_stub_gen::derive::gen_stub_pymethods;
+use slim_session::session_controller::MessageDeliveryAck;
 use slim_session::{SessionConfig, SessionError};
 
 use crate::pyidentity::{IdentityProvider, IdentityVerifier};
@@ -24,6 +25,48 @@ use slim_service::{BindingsAdapter, BindingsSessionContext, MessageContext};
 pub use slim_session::SESSION_UNSPECIFIED;
 
 use slim_session::context::SessionContext;
+
+/// Acknowledgment for message delivery operations.
+/// This class wraps a `MessageDeliveryAck` future, allowing Python code
+/// to await the completion of message delivery operations such as publish,
+/// invite, and remove.
+///
+/// # Examples
+/// ````python
+/// ...
+/// # This will make sure the message is successfully handled to the session
+/// res_pub = await session_context.publish(msg)
+/// # This will make sure the message was successfully delivered to the peer(s)
+/// ack = await res_pub
+/// print("Message delivery acknowledged:", ack)
+/// ...
+/// ```
+#[gen_stub_pyclass]
+#[pyclass]
+pub(crate) struct PyMessageDeliveryAck {
+    pub(crate) ack: Option<MessageDeliveryAck>,
+}
+
+impl From<MessageDeliveryAck> for PyMessageDeliveryAck {
+    fn from(ack: MessageDeliveryAck) -> Self {
+        PyMessageDeliveryAck { ack: Some(ack) }
+    }
+}
+
+#[pymethods]
+impl PyMessageDeliveryAck {
+    fn __await__<'a>(&'a mut self, py: Python<'a>) -> PyResult<Bound<'a, PyIterator>> {
+        let ack = self.ack.take().ok_or_else(|| {
+            PyErr::new::<PyException, _>("No future found. Did you call await twice?")
+        })?;
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            ack.await
+                .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        })?
+        .try_iter()
+    }
+}
 
 /// Internal shared session context state.
 ///
@@ -159,9 +202,9 @@ impl PySessionContext {
             let ctx = PySessionContext {
                 internal: internal_clone,
             };
-            ctx.publish_internal(fanout, blob, message_ctx, name, payload_type, metadata)?
+            ctx.publish_internal(fanout, blob, message_ctx, name, payload_type, metadata)
                 .await
-                .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?
+                .map(PyMessageDeliveryAck::from)
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })
     }
@@ -184,9 +227,9 @@ impl PySessionContext {
                 let ctx = PySessionContext {
                     internal: internal_clone,
                 };
-                ctx.publish_to_internal(message_ctx, blob, payload_type, metadata)?
+                ctx.publish_to_internal(message_ctx, blob, payload_type, metadata)
                     .await
-                    .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?
+                    .map(PyMessageDeliveryAck::from)
                     .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
             },
         )
@@ -200,7 +243,10 @@ impl PySessionContext {
             let ctx = PySessionContext {
                 internal: internal_clone,
             };
-            ctx.invite_internal(name).await
+            ctx.invite_internal(name)
+                .await
+                .map(PyMessageDeliveryAck::from)
+                .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })
     }
 
@@ -213,6 +259,9 @@ impl PySessionContext {
                 internal: internal_clone,
             };
             ctx.remove_internal(name)
+                .await
+                .map(PyMessageDeliveryAck::from)
+                .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })
     }
 
@@ -254,7 +303,7 @@ impl PySessionContext {
     }
 
     /// Publish a message through this session
-    fn publish_internal(
+    async fn publish_internal(
         &self,
         fanout: u32,
         blob: Vec<u8>,
@@ -262,7 +311,7 @@ impl PySessionContext {
         name: Option<PyName>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> PyResult<oneshot::Receiver<Result<(), SessionError>>> {
+    ) -> PyResult<MessageDeliveryAck> {
         let session = self
             .internal
             .bindings_ctx
@@ -283,41 +332,43 @@ impl PySessionContext {
         self.internal
             .bindings_ctx
             .publish(&target_name, fanout, blob, conn_out, payload_type, metadata)
+            .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     }
 
     /// Publish a message as a reply to a received message
-    fn publish_to_internal(
+    async fn publish_to_internal(
         &self,
         message_ctx: PyMessageContext,
         blob: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> PyResult<oneshot::Receiver<Result<(), SessionError>>> {
+    ) -> PyResult<MessageDeliveryAck> {
         let ctx: MessageContext = message_ctx.into();
 
         self.internal
             .bindings_ctx
             .publish_to(&ctx, blob, payload_type, metadata)
+            .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     }
 
     /// Invite a participant to this session (multicast only)
-    async fn invite_internal(&self, name: PyName) -> PyResult<()> {
+    async fn invite_internal(&self, name: PyName) -> PyResult<MessageDeliveryAck> {
         self.internal
             .bindings_ctx
             .invite(&name.into())
-            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
-        Ok(())
+            .await
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     }
 
     /// Remove a participant from this session (multicast only)
-    fn remove_internal(&self, name: PyName) -> PyResult<()> {
+    async fn remove_internal(&self, name: PyName) -> PyResult<MessageDeliveryAck> {
         self.internal
             .bindings_ctx
             .remove(&name.into())
-            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
-        Ok(())
+            .await
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     }
 
     /// Delete this session

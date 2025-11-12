@@ -7,7 +7,7 @@ use slim_datapath::{
     messages::Name,
 };
 
-use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::{self};
 use tracing::debug;
 
 use crate::{
@@ -28,7 +28,7 @@ impl Session {
         session_config: SessionConfig,
         local_name: &Name,
         tx: SessionTransmitter,
-        tx_signals: Sender<SessionMessage>,
+        tx_signals: mpsc::Sender<SessionMessage>,
     ) -> Self {
         let timer_settings = if let Some(duration) = session_config.interval
             && let Some(max_retries) = session_config.max_retries

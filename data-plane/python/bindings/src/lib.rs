@@ -21,9 +21,7 @@ mod _slim_bindings {
     use pyapp::PyApp;
 
     #[pymodule_export]
-    use pysession::{
-        PySessionConfiguration, PySessionContext, PySessionType,
-    };
+    use pysession::{PySessionConfiguration, PySessionContext, PySessionType};
 
     #[pymodule_export]
     use pymessage::PyMessageContext;

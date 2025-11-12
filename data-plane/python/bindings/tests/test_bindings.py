@@ -72,15 +72,16 @@ async def test_end_to_end(server):
 
     # create point to point session
     session_context_alice = svc_alice.create_session(
-        bob_name, slim_bindings.PySessionConfiguration.PointToPoint(
+        bob_name,
+        slim_bindings.PySessionConfiguration.PointToPoint(
             max_retries=5,
             timeout=datetime.timedelta(seconds=5),
-        )
+        ),
     )
 
     # send msg from Alice to Bob
     msg = [1, 2, 3, 4, 5, 6, 7, 8, 9]
-    pub_result = session_context_alice.publish(1, msg, name=bob_name)
+    pub_result = await session_context_alice.publish(1, msg, name=bob_name)
 
     # receive session from Alice
     session_context_bob = await svc_bob.listen_for_session()
@@ -95,10 +96,14 @@ async def test_end_to_end(server):
     assert msg_rcv == bytes(msg)
 
     # make also sure the pub message was acknowledged
-    # await pub_result
+    await pub_result
+
+    # make sure if we await twice, we get an exception
+    with pytest.raises(Exception):
+        await pub_result
 
     # reply to Alice
-    pub_result = session_context_bob.publish(1, msg_rcv, message_ctx=message_ctx)
+    pub_result = await session_context_bob.publish(1, msg_rcv, message_ctx=message_ctx)
 
     # wait for message
     message_context, msg_rcv = await session_context_alice.get_message()
@@ -107,7 +112,11 @@ async def test_end_to_end(server):
     assert msg_rcv == bytes(msg)
 
     # make sure the pub message was acknowledged
-    # await pub_result
+    await pub_result
+
+    # make sure if we await twice, we get an exception
+    with pytest.raises(Exception):
+        await pub_result
 
     # delete sessions
     await svc_alice.delete_session(session_context_alice)
@@ -180,7 +189,7 @@ async def test_slim_wrapper(server):
 
     # publish message
     msg = [1, 2, 3, 4, 5, 6, 7, 8, 9]
-    pub_res = session_context.publish(msg)
+    pub_res = await session_context.publish(msg)
 
     # wait for a new session
     session_context_rec = await slim1.listen_for_session()
@@ -202,7 +211,7 @@ async def test_slim_wrapper(server):
     await pub_res
 
     # reply to Alice
-    res_pub = session_context_rec.publish_to(msg_ctx, msg_rcv)
+    res_pub = await session_context_rec.publish_to(msg_ctx, msg_rcv)
 
     # wait for message
     msg_ctx, msg_rcv = await session_context.get_message()
@@ -499,7 +508,7 @@ async def test_publish_no_ack_timeout(server):
 
     # Publish a message - there's no Bob to acknowledge receipt
     msg = [1, 2, 3, 4, 5, 6, 7, 8, 9]
-    pub_res = session_context.publish(msg)
+    pub_res = await session_context.publish(msg)
 
     # The await on pub_res should timeout because there's no receiver to send internal ack
     with pytest.raises(asyncio.TimeoutError):

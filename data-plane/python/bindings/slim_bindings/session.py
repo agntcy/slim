@@ -109,7 +109,7 @@ class PySession:
         msg: bytes,
         payload_type: str | None = None,
         metadata: dict | None = None,
-    ):
+    ) -> typing.Any:
         """
         Publish a message directly back to the originator associated with the
         supplied `message_ctx` (reply semantics).
@@ -129,14 +129,14 @@ class PySession:
             RuntimeError (wrapped) if sending fails or the session is closed.
         """
 
-        await self._ctx.publish_to(
+        return self._ctx.publish_to(
             message_ctx,
             msg,
             payload_type=payload_type,
             metadata=metadata,
         )
 
-    async def invite(self, name: PyName) -> None:
+    async def invite(self, name: PyName) -> typing.Any:
         """Invite (add) a participant to this session. Only works for Group.
 
         Args:
@@ -145,9 +145,9 @@ class PySession:
         Raises:
             RuntimeError (wrapped) if the invite fails.
         """
-        await self._ctx.invite(name)
+        return await self._ctx.invite(name)
 
-    async def remove(self, name: PyName) -> None:
+    async def remove(self, name: PyName) -> typing.Any:
         """Remove (eject) a participant from this session. Only works for Group.
 
         Args:
@@ -156,7 +156,7 @@ class PySession:
         Raises:
             RuntimeError (wrapped) if removal fails.
         """
-        await self._ctx.remove(name)
+        return await self._ctx.remove(name)
 
     async def get_message(
         self, timeout: datetime.timedelta | None = None

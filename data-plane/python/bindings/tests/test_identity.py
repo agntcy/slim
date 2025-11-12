@@ -188,7 +188,8 @@ async def test_identity_verification(server, audience):
         else:
             # expect an exception due to audience mismatch
             with pytest.raises(asyncio.TimeoutError):
-                await asyncio.wait_for(session_info.publish(pub_msg), timeout=3.0)
+                pub_res = await session_info.publish(pub_msg)
+                await asyncio.wait_for(pub_res, timeout=3.0)
 
             # cancel the background task
             t.cancel()

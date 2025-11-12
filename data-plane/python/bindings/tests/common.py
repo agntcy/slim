@@ -57,6 +57,4 @@ def create_slim(
     verifier = slim_bindings.PyIdentityVerifier.SharedSecret(  # type: ignore
         identity=f"{name}", shared_secret=secret
     )
-    return slim_bindings.Slim(
-        name, provider, verifier, local_service=local_service
-    )
+    return slim_bindings.Slim(name, provider, verifier, local_service=local_service)

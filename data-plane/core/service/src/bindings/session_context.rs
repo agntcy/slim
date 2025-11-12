@@ -1,9 +1,9 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use slim_session::session_controller::SessionController;
+use slim_session::session_controller::{MessageDeliveryAck, SessionController};
 use std::collections::HashMap;
-use tokio::sync::{RwLock, oneshot};
+use tokio::sync::RwLock;
 
 use slim_datapath::messages::Name;
 use slim_datapath::messages::utils::SlimHeaderFlags;
@@ -37,7 +37,7 @@ impl From<SessionContext> for BindingsSessionContext {
 
 impl BindingsSessionContext {
     /// Publish a message through this session
-    pub fn publish(
+    pub async fn publish(
         &self,
         name: &Name,
         fanout: u32,
@@ -45,7 +45,7 @@ impl BindingsSessionContext {
         conn_out: Option<u64>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<oneshot::Receiver<Result<(), SessionError>>, ServiceError> {
+    ) -> Result<MessageDeliveryAck, ServiceError> {
         let session = self
             .session
             .upgrade()
@@ -55,6 +55,7 @@ impl BindingsSessionContext {
 
         session
             .publish_with_flags(name, flags, blob, payload_type, metadata)
+            .await
             .map_err(|e| ServiceError::SessionError(e.to_string()))
     }
 
@@ -72,13 +73,13 @@ impl BindingsSessionContext {
     /// # Returns
     /// * `Ok(())` on success
     /// * `Err(ServiceError)` if publishing fails
-    pub fn publish_to(
+    pub async fn publish_to(
         &self,
         message_ctx: &MessageContext,
         blob: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<oneshot::Receiver<Result<(), SessionError>>, ServiceError> {
+    ) -> Result<MessageDeliveryAck, ServiceError> {
         let session = self
             .session
             .upgrade()
@@ -100,31 +101,28 @@ impl BindingsSessionContext {
                 payload_type,
                 metadata,
             )
+            .await
             .map_err(|e| ServiceError::SessionError(e.to_string()))
     }
 
     /// Invite a peer to join this session
-    pub fn invite(&self, destination: &Name) -> Result<(), SessionError> {
+    pub async fn invite(&self, destination: &Name) -> Result<MessageDeliveryAck, SessionError> {
         let session = self
             .session
             .upgrade()
             .ok_or_else(|| SessionError::Processing("Session has been dropped".to_string()))?;
 
-        session.invite_participant(destination)?;
-
-        Ok(())
+        session.invite_participant(destination).await
     }
 
     /// Remove a peer from this session
-    pub fn remove(&self, destination: &Name) -> Result<(), SessionError> {
+    pub async fn remove(&self, destination: &Name) -> Result<MessageDeliveryAck, SessionError> {
         let session = self
             .session
             .upgrade()
             .ok_or_else(|| SessionError::Processing("Session has been dropped".to_string()))?;
 
-        session.remove_participant(destination)?;
-
-        Ok(())
+        session.remove_participant(destination).await
     }
 
     /// Receive a message from this session with optional timeout

@@ -761,7 +761,8 @@ mod tests {
             .session()
             .upgrade()
             .unwrap()
-            .on_message_from_app(message.clone());
+            .on_message_from_app(message.clone())
+            .await;
 
         assert!(res.is_ok());
 
@@ -872,7 +873,10 @@ mod tests {
             // Send a message through the session to initiate the connection
             let session_arc = session_ctx.session_arc().unwrap();
             let test_message = format!("hello {}", config.test_name).into_bytes();
-            session_arc.publish(name, test_message, None, None).unwrap();
+            session_arc
+                .publish(name, test_message, None, None)
+                .await
+                .unwrap();
 
             sessions.push(session_ctx);
         }
@@ -1024,13 +1028,17 @@ mod tests {
 
         // Invite all participants to the multicast session
         for participant_name in &participant_names {
-            session_arc.invite_participant(participant_name).unwrap();
+            session_arc
+                .invite_participant(participant_name)
+                .await
+                .unwrap();
         }
 
         // Send a test message through the multicast session
         let test_message = format!("multicast hello {}", config.test_name).into_bytes();
         session_arc
             .publish(&channel_name, test_message, None, None)
+            .await
             .unwrap();
 
         // Give some time for messages to be processed
@@ -1169,6 +1177,7 @@ mod tests {
             .upgrade()
             .unwrap()
             .publish(&receiver_name, message_data.clone(), None, None)
+            .await
             .expect("failed to send message with ack");
 
         tracing::info!("Sender: Message sent, waiting for acknowledgment...");
@@ -1197,8 +1206,7 @@ mod tests {
         // Wait for acknowledgment from network
         let ack_result = tokio::time::timeout(std::time::Duration::from_secs(2), ack_rx)
             .await
-            .expect("timeout waiting for ack notification")
-            .expect("ack channel closed");
+            .expect("timeout waiting for ack notification");
 
         tracing::info!("Sender: Acknowledgment received from network!");
         assert!(
@@ -1218,6 +1226,7 @@ mod tests {
                 .upgrade()
                 .unwrap()
                 .publish(&receiver_name, msg, None, None)
+                .await
                 .expect("failed to send message with ack");
             ack_receivers.push(ack_rx);
 
@@ -1238,7 +1247,7 @@ mod tests {
             futures::future::join_all(ack_receivers)
                 .await
                 .into_iter()
-                .all(|r| r.is_ok() && r.unwrap().is_ok())
+                .all(|r| r.is_ok())
         );
 
         tracing::info!("All acknowledgment tests passed!");
@@ -1321,6 +1330,7 @@ mod tests {
         // Invite participant1 and wait for ack
         let invite_ack_rx1 = moderator_controller
             .invite_participant(&participant1_name)
+            .await
             .expect("failed to invite participant1");
 
         // Wait for participant1 to receive session notification
@@ -1336,8 +1346,7 @@ mod tests {
         let invite_result1 =
             tokio::time::timeout(std::time::Duration::from_secs(3), invite_ack_rx1)
                 .await
-                .expect("timeout waiting for invite ack")
-                .expect("invite ack channel closed");
+                .expect("timeout waiting for invite ack");
 
         assert!(
             invite_result1.is_ok(),
@@ -1350,6 +1359,7 @@ mod tests {
         // Invite participant2 and wait for ack
         let invite_ack_rx2 = moderator_controller
             .invite_participant(&participant2_name)
+            .await
             .expect("failed to invite participant2");
 
         // Wait for participant2 to receive session notification
@@ -1365,8 +1375,7 @@ mod tests {
         let invite_result2 =
             tokio::time::timeout(std::time::Duration::from_secs(3), invite_ack_rx2)
                 .await
-                .expect("timeout waiting for invite ack")
-                .expect("invite ack channel closed");
+                .expect("timeout waiting for invite ack");
 
         assert!(
             invite_result2.is_ok(),
@@ -1384,14 +1393,14 @@ mod tests {
 
         let invite_ghost_rx = moderator_controller
             .invite_participant(&nonexistent_participant)
+            .await
             .expect("failed to send invite to ghost");
 
         // This should fail since the participant doesn't exist
         // We do have a 3 sec timeout, but the invite should error out expire sooner (5 * 100ms)
         let ghost_result = tokio::time::timeout(std::time::Duration::from_secs(3), invite_ghost_rx)
             .await
-            .expect("timeout waiting for ghost invite ack")
-            .expect("ghost invite ack channel closed");
+            .expect("timeout waiting for ghost invite ack");
 
         assert!(
             ghost_result.is_err(),
@@ -1404,13 +1413,13 @@ mod tests {
 
         let remove_result_rx = moderator_controller
             .remove_participant(&participant1_name)
+            .await
             .expect("failed to send remove for participant1");
 
         let remove_result =
             tokio::time::timeout(std::time::Duration::from_secs(3), remove_result_rx)
                 .await
-                .expect("timeout waiting for remove ack")
-                .expect("remove ack channel closed");
+                .expect("timeout waiting for remove ack");
 
         assert!(
             remove_result.is_ok(),
@@ -1421,13 +1430,13 @@ mod tests {
         tracing::info!("TEST 3: Remove non-existent participant");
         let remove_nonexistent_rx = moderator_controller
             .remove_participant(&nonexistent_participant)
+            .await
             .expect("failed to send remove for ghost");
 
         let remove_ghost_result =
             tokio::time::timeout(std::time::Duration::from_secs(3), remove_nonexistent_rx)
                 .await
-                .expect("timeout waiting for remove ack")
-                .expect("remove ack channel closed");
+                .expect("timeout waiting for remove ack");
 
         assert!(
             remove_ghost_result.is_err(),

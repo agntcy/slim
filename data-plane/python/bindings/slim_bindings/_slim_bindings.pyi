@@ -91,6 +91,26 @@ class PyMessageContext:
         are created internally when messages are received from the service.
         """
 
+class PyMessageDeliveryAck:
+    r"""
+    Acknowledgment for message delivery operations.
+    This class wraps a `MessageDeliveryAck` future, allowing Python code
+    to await the completion of message delivery operations such as publish,
+    invite, and remove.
+    
+    # Examples
+    ````python
+    ...
+    # This will make sure the message is successfully handled to the session
+    res_pub = await session_context.publish(msg)
+    # This will make sure the message was successfully delivered to the peer(s)
+    ack = await res_pub
+    print("Message delivery acknowledged:", ack)
+    ...
+    ```
+    """
+    ...
+
 class PyName:
     r"""
     name class
