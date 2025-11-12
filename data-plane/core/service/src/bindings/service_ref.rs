@@ -78,7 +78,6 @@ mod tests {
         // Test local service ref
         let (_, local_ref) =
             BindingsAdapter::new(base_name.clone(), provider.clone(), verifier.clone(), true)
-                .await
                 .unwrap();
 
         let local_service = local_ref.get_service();
@@ -86,7 +85,6 @@ mod tests {
 
         // Test global service ref
         let (_, global_ref) = BindingsAdapter::new(base_name, provider, verifier, false)
-            .await
             .unwrap();
 
         let local_service = global_ref.get_service();

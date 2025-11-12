@@ -49,7 +49,7 @@ where
     }
 
     /// Create a new AppAdapter from the service
-    pub async fn new_with_service(
+    pub fn new_with_service(
         service: &Service,
         app_name: Name,
         identity_provider: P,
@@ -77,7 +77,7 @@ where
     /// # Returns
     /// * `Ok((BindingsAdapter, ServiceRef))` - The adapter and service reference
     /// * `Err(ServiceError)` - If creation fails
-    pub async fn new(
+    pub fn new(
         base_name: Name,
         identity_provider: P,
         identity_verifier: V,
@@ -119,7 +119,7 @@ where
 
         // Create the adapter
         let adapter =
-            Self::new_with_service(service, app_name, identity_provider, identity_verifier).await?;
+            Self::new_with_service(service, app_name, identity_provider, identity_verifier)?;
 
         Ok((adapter, service_ref))
     }
@@ -314,7 +314,6 @@ mod tests {
         let (provider, verifier) = create_test_auth();
 
         let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .await
             .expect("Failed to create adapter");
 
         assert!(adapter.id() > 0);
@@ -344,7 +343,6 @@ mod tests {
         let (provider, verifier) = create_test_auth();
 
         let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .await
             .expect("Failed to create adapter");
 
         let name = Name::from_strings(["org", "namespace", "subscription"]);
@@ -365,7 +363,6 @@ mod tests {
         let (provider, verifier) = create_test_auth();
 
         let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .await
             .expect("Failed to create adapter");
 
         let name = Name::from_strings(["org", "namespace", "route"]);
@@ -462,7 +459,6 @@ mod tests {
         let (provider, verifier) = create_test_auth();
 
         let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .await
             .expect("Failed to create adapter");
 
         // Create a session
@@ -491,7 +487,6 @@ mod tests {
         let (provider, verifier) = create_test_auth();
 
         let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .await
             .expect("Failed to create adapter");
 
         let name = Name::from_strings(["org", "namespace", "subscription"]);
@@ -510,7 +505,7 @@ mod tests {
         let base_name = create_test_name();
         let (provider, verifier) = create_test_auth();
 
-        let result = BindingsAdapter::new(base_name, provider, verifier, true).await;
+        let result = BindingsAdapter::new(base_name, provider, verifier, true);
         assert!(result.is_ok());
 
         let (adapter, service_ref) = result.unwrap();
@@ -523,7 +518,7 @@ mod tests {
         let base_name = create_test_name();
         let (provider, verifier) = create_test_auth();
 
-        let result = BindingsAdapter::new(base_name, provider, verifier, false).await;
+        let result = BindingsAdapter::new(base_name, provider, verifier, false);
         assert!(result.is_ok());
 
         let (adapter, service_ref) = result.unwrap();
@@ -541,7 +536,6 @@ mod tests {
         let (adapter, _service_ref) = BindingsAdapter::new(
             base_name, provider, verifier, false, // use global service
         )
-        .await
         .expect("Failed to create adapter");
 
         // Create a session
@@ -601,7 +595,7 @@ mod tests {
             hasher.finish()
         };
 
-        let result = BindingsAdapter::new(base_name, provider, verifier, false).await;
+        let result = BindingsAdapter::new(base_name, provider, verifier, false);
         assert!(result.is_ok());
 
         let (adapter, _service_ref) = result.unwrap();
@@ -621,12 +615,11 @@ mod tests {
 
         // Create two adapters with the same authentication (should produce same ID)
         let result1 =
-            BindingsAdapter::new(base_name.clone(), provider.clone(), verifier.clone(), false)
-                .await;
+            BindingsAdapter::new(base_name.clone(), provider.clone(), verifier.clone(), false);
         assert!(result1.is_ok());
         let (adapter1, _) = result1.unwrap();
 
-        let result2 = BindingsAdapter::new(base_name, provider, verifier, false).await;
+        let result2 = BindingsAdapter::new(base_name, provider, verifier, false);
         assert!(result2.is_ok());
         let (adapter2, _) = result2.unwrap();
 
@@ -646,11 +639,11 @@ mod tests {
         let provider2 = SharedSecret::new("app2", "secret2-shared-secret-value-0123456789abcdef");
         let verifier2 = SharedSecret::new("app2", "secret2-shared-secret-value-0123456789abcdef");
 
-        let result1 = BindingsAdapter::new(base_name.clone(), provider1, verifier1, false).await;
+        let result1 = BindingsAdapter::new(base_name.clone(), provider1, verifier1, false);
         assert!(result1.is_ok());
         let (adapter1, _) = result1.unwrap();
 
-        let result2 = BindingsAdapter::new(base_name, provider2, verifier2, false).await;
+        let result2 = BindingsAdapter::new(base_name, provider2, verifier2, false);
         assert!(result2.is_ok());
         let (adapter2, _) = result2.unwrap();
 
@@ -677,9 +670,8 @@ mod tests {
         };
 
         let result1 =
-            BindingsAdapter::new(base_name.clone(), provider.clone(), verifier.clone(), false)
-                .await;
-        let result2 = BindingsAdapter::new(base_name, provider, verifier, false).await;
+            BindingsAdapter::new(base_name.clone(), provider.clone(), verifier.clone(), false);
+        let result2 = BindingsAdapter::new(base_name, provider, verifier, false);
 
         assert!(result1.is_ok());
         assert!(result2.is_ok());
@@ -708,7 +700,7 @@ mod tests {
             hasher.finish()
         };
 
-        let result = BindingsAdapter::new(base_name, provider, verifier, false).await;
+        let result = BindingsAdapter::new(base_name, provider, verifier, false);
         assert!(result.is_ok());
 
         let (adapter, _) = result.unwrap();

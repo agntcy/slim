@@ -95,7 +95,7 @@ async def test_group(server, mls_enabled):  # noqa: C901
         # Use unique namespace per test to avoid collisions
         name = slim_bindings.PyName("org", f"test_{test_id}", part_name)
 
-        participant = await create_slim(name, local_service=server.local_service)
+        participant = create_slim(name, local_service=server.local_service)
 
         if server.endpoint is not None:
             # Connect to SLIM server
@@ -113,7 +113,7 @@ async def test_group(server, mls_enabled):  # noqa: C901
                 timeout=datetime.timedelta(seconds=5),
                 mls_enabled=mls_enabled,
             )
-            session = await participant.create_session(chat_name, session_config)
+            session = participant.create_session(chat_name, session_config)
 
             await asyncio.sleep(3)
 
@@ -149,7 +149,7 @@ async def test_group(server, mls_enabled):  # noqa: C901
 
             called = True
 
-            await session.publish(f"{msg}".encode())
+            session.publish(f"{msg}".encode())
 
         while True:
             try:
@@ -201,7 +201,7 @@ async def test_group(server, mls_enabled):  # noqa: C901
                     next_participant = (index + 1) % participants_count
                     next_participant_name = f"participant-{next_participant}"
                     print(f"{part_name} -> Calling out {next_participant_name}...")
-                    await recv_session.publish(
+                    recv_session.publish(
                         f"{message} - {next_participant_name}".encode()
                     )
                 else:
