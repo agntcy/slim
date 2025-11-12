@@ -14,6 +14,7 @@ func NewControllerCmd(cfg *cfg.ConfigData) *cobra.Command {
 		Aliases: []string{"c", "ctrl"},
 		Short:   "Controller Commands",
 		Long:    `Command group for operations communicating with the SLIM Controller`,
+		GroupID: "controller",
 	}
 
 	// Add subcommands

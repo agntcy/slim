@@ -16,6 +16,7 @@ func NewNodeCmd(opts *options.CommonOptions) *cobra.Command {
 		Short:   "Connect directly to the node to manage connections & routes.",
 		Long: `Connect directly to the node to manage connections & routes.
 In this case --server should point to the node controller endpoint.`,
+		GroupID: "node",
 	}
 
 	cmd.AddCommand(newRouteCmd(opts))

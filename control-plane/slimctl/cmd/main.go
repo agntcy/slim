@@ -165,6 +165,12 @@ func main() {
 	// add the node command tree
 	rootCmd.AddCommand(node.NewNodeCmd(conf.AppConfig.CommonOpts))
 
+	rootCmd.AddGroup(
+		&cobra.Group{"slimctl", "Commands for SLIM CLI configuration & version info"},
+		&cobra.Group{"node", "Commands to interact with SLIM nodes"},
+		&cobra.Group{"controller", "Commands to interact with the SLIM Control Plane"},
+	)
+
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "CLI error: %v", err)
 		os.Exit(1)
