@@ -380,8 +380,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &participants[to_remove], &participants[to_add]
             );
 
-            let _ = session_arc.remove_participant(&participants[to_remove]);
-            let _ = session_arc.invite_participant(&participants[to_add]);
+            let _ = session_arc
+                .remove_participant(&participants[to_remove])
+                .await;
+            let _ = session_arc.invite_participant(&participants[to_add]).await;
             to_remove = (to_remove + 1) % tot_participants;
             to_add = (to_add + 1) % tot_participants;
 
