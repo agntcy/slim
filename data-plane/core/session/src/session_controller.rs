@@ -3,16 +3,12 @@
 
 // Standard library imports
 use std::{
-    collections::HashMap,
-    pin::Pin,
-    task::{Context, Poll},
-    time::Duration,
+    collections::HashMap, time::Duration
 };
 
 use parking_lot::Mutex;
 use tokio::sync::{self, oneshot};
 // Third-party crates
-use std::future::Future;
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
@@ -29,38 +25,13 @@ use slim_datapath::{
 use crate::{
     MessageDirection, SessionError, Transmitter,
     common::SessionMessage,
+    completion_handle::CompletionHandle,
     controller_sender::ControllerSender,
     session_builder::{ForController, SessionBuilder},
     session_config::SessionConfig,
     session_settings::SessionSettings,
     traits::MessageHandler,
 };
-
-/// A handle to await the acknowledgment of a message being delivered.
-///
-/// This type wraps the internal oneshot channel and can be directly awaited
-/// to check if a message was successfully delivered.
-///
-/// # Example
-/// ```ignore
-/// let ack = session.publish(...).await?;
-/// ack.await?; // Wait for delivery confirmation
-/// ```
-pub struct MessageDeliveryAck {
-    ack_rx: oneshot::Receiver<Result<(), SessionError>>,
-}
-
-impl Future for MessageDeliveryAck {
-    type Output = Result<(), SessionError>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match Pin::new(&mut self.ack_rx).poll(cx) {
-            Poll::Ready(Ok(result)) => Poll::Ready(result),
-            Poll::Ready(Err(e)) => Poll::Ready(Err(SessionError::AckReception(e.to_string()))),
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
 
 pub struct SessionController {
     /// session id
@@ -268,11 +239,14 @@ impl SessionController {
     pub async fn on_message_from_app(
         &self,
         message: Message,
-    ) -> Result<MessageDeliveryAck, SessionError> {
+    ) -> Result<CompletionHandle, SessionError> {
         let (ack_tx, ack_rx) = oneshot::channel();
         self.on_message(message, MessageDirection::South, Some(ack_tx))
             .await?;
-        Ok(MessageDeliveryAck { ack_rx })
+
+        let ret = CompletionHandle::from_oneshot_receiver(ack_rx);
+
+        Ok(ret)
     }
 
     /// Send a message to the controller for processing
@@ -293,7 +267,7 @@ impl SessionController {
     pub async fn publish_message(
         &self,
         message: Message,
-    ) -> Result<MessageDeliveryAck, SessionError> {
+    ) -> Result<CompletionHandle, SessionError> {
         self.on_message_from_app(message).await
     }
 
@@ -305,7 +279,7 @@ impl SessionController {
         blob: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<MessageDeliveryAck, SessionError> {
+    ) -> Result<CompletionHandle, SessionError> {
         self.publish_with_flags(
             name,
             SlimHeaderFlags::default().with_forward_to(forward_to),
@@ -323,7 +297,7 @@ impl SessionController {
         blob: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<MessageDeliveryAck, SessionError> {
+    ) -> Result<CompletionHandle, SessionError> {
         self.publish_with_flags(
             name,
             SlimHeaderFlags::default(),
@@ -342,7 +316,7 @@ impl SessionController {
         blob: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<MessageDeliveryAck, SessionError> {
+    ) -> Result<CompletionHandle, SessionError> {
         let ct = payload_type.unwrap_or_else(|| "msg".to_string());
 
         let mut msg = Message::builder()
@@ -388,7 +362,7 @@ impl SessionController {
     pub(crate) async fn invite_participant_internal(
         &self,
         destination: &Name,
-    ) -> Result<MessageDeliveryAck, SessionError> {
+    ) -> Result<CompletionHandle, SessionError> {
         let msg = self.create_discovery_request(destination)?;
         self.publish_message(msg).await
     }
@@ -396,7 +370,7 @@ impl SessionController {
     pub async fn invite_participant(
         &self,
         destination: &Name,
-    ) -> Result<MessageDeliveryAck, SessionError> {
+    ) -> Result<CompletionHandle, SessionError> {
         match self.session_type() {
             ProtoSessionType::PointToPoint => Err(SessionError::Processing(
                 "cannot invite participant to point-to-point session".into(),
@@ -416,7 +390,7 @@ impl SessionController {
     pub async fn remove_participant(
         &self,
         destination: &Name,
-    ) -> Result<MessageDeliveryAck, SessionError> {
+    ) -> Result<CompletionHandle, SessionError> {
         match self.session_type() {
             ProtoSessionType::PointToPoint => Err(SessionError::Processing(
                 "cannot remove participant to point-to-point session".into(),

@@ -22,7 +22,7 @@ use crate::pyidentity::IdentityVerifier;
 use crate::pyidentity::PyIdentityProvider;
 use crate::pyidentity::PyIdentityVerifier;
 
-use crate::pysession::{PySessionConfiguration, PySessionContext};
+use crate::pysession::{PyCompletionHandle, PySessionConfiguration, PySessionContext};
 use crate::utils::PyName;
 use slim_config::grpc::client::ClientConfig as PyGrpcClientConfig;
 use slim_config::grpc::server::ServerConfig as PyGrpcServerConfig;
@@ -102,14 +102,18 @@ impl PyApp {
         let internal_clone = self.internal.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            internal_clone
+            let (session_ctx, init_ack) = internal_clone
                 .adapter
                 .create_session(SessionConfig::from(&config), destination.into())
                 .await
                 .map_err(|e| {
                     PyErr::new::<PyException, _>(format!("Failed to create session: {}", e))
-                })
-                .map(PySessionContext::from)
+                })?;
+            
+            let py_session_ctx = PySessionContext::from(session_ctx);
+            let py_init_ack = PyCompletionHandle::from(init_ack);
+            
+            Ok((py_session_ctx, py_init_ack))
         })
     }
 
@@ -266,6 +270,7 @@ impl PyApp {
             session_context
                 .delete(&internal_clone.adapter)
                 .await
+                .map(PyCompletionHandle::from)
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })
     }

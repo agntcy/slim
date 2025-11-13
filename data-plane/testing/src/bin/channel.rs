@@ -213,10 +213,14 @@ async fn main() {
             initiator: true,
             metadata: HashMap::new(),
         };
-        let session_ctx = app
+        let (session_ctx, completion_handle) = app
             .create_session(config, channel_name.clone(), Some(12345))
             .await
             .expect("error creating session");
+
+        completion_handle
+            .await
+            .expect("error establishing session");
 
         // invite all participants
         for p in participants {

@@ -14,7 +14,7 @@ use pyo3_stub_gen::derive::gen_stub_pyclass;
 use pyo3_stub_gen::derive::gen_stub_pyclass_enum;
 
 use pyo3_stub_gen::derive::gen_stub_pymethods;
-use slim_session::session_controller::MessageDeliveryAck;
+use slim_session::CompletionHandle;
 use slim_session::{SessionConfig, SessionError};
 
 use crate::pyidentity::{IdentityProvider, IdentityVerifier};
@@ -26,10 +26,13 @@ pub use slim_session::SESSION_UNSPECIFIED;
 
 use slim_session::context::SessionContext;
 
-/// Acknowledgment for message delivery operations.
-/// This class wraps a `MessageDeliveryAck` future, allowing Python code
-/// to await the completion of message delivery operations such as publish,
-/// invite, and remove.
+/// Handle for awaiting completion of asynchronous operations.
+/// This class wraps a `CompletionHandle` future, allowing Python code
+/// to await the completion of operations such as:
+/// - Message delivery (publish)
+/// - Session initialization (create_session)
+/// - Participant invitation (invite)
+/// - Participant removal (remove)
 ///
 /// # Examples
 /// ````python
@@ -38,30 +41,30 @@ use slim_session::context::SessionContext;
 /// res_pub = await session_context.publish(msg)
 /// # This will make sure the message was successfully delivered to the peer(s)
 /// ack = await res_pub
-/// print("Message delivery acknowledged:", ack)
+/// print("Operation completed:", ack)
 /// ...
 /// ```
 #[gen_stub_pyclass]
 #[pyclass]
-pub(crate) struct PyMessageDeliveryAck {
-    pub(crate) ack: Option<MessageDeliveryAck>,
+pub(crate) struct PyCompletionHandle {
+    pub(crate) handle: Option<CompletionHandle>,
 }
 
-impl From<MessageDeliveryAck> for PyMessageDeliveryAck {
-    fn from(ack: MessageDeliveryAck) -> Self {
-        PyMessageDeliveryAck { ack: Some(ack) }
+impl From<CompletionHandle> for PyCompletionHandle {
+    fn from(handle: CompletionHandle) -> Self {
+        PyCompletionHandle { handle: Some(handle) }
     }
 }
 
 #[pymethods]
-impl PyMessageDeliveryAck {
+impl PyCompletionHandle {
     fn __await__<'a>(&'a mut self, py: Python<'a>) -> PyResult<Bound<'a, PyIterator>> {
-        let ack = self.ack.take().ok_or_else(|| {
+        let handle = self.handle.take().ok_or_else(|| {
             PyErr::new::<PyException, _>("No future found. Did you call await twice?")
         })?;
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            ack.await
+            handle.await
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })?
         .try_iter()
@@ -204,7 +207,7 @@ impl PySessionContext {
             };
             ctx.publish_internal(fanout, blob, message_ctx, name, payload_type, metadata)
                 .await
-                .map(PyMessageDeliveryAck::from)
+                .map(PyCompletionHandle::from)
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })
     }
@@ -229,7 +232,7 @@ impl PySessionContext {
                 };
                 ctx.publish_to_internal(message_ctx, blob, payload_type, metadata)
                     .await
-                    .map(PyMessageDeliveryAck::from)
+                    .map(PyCompletionHandle::from)
                     .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
             },
         )
@@ -245,7 +248,7 @@ impl PySessionContext {
             };
             ctx.invite_internal(name)
                 .await
-                .map(PyMessageDeliveryAck::from)
+                .map(PyCompletionHandle::from)
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })
     }
@@ -260,7 +263,7 @@ impl PySessionContext {
             };
             ctx.remove_internal(name)
                 .await
-                .map(PyMessageDeliveryAck::from)
+                .map(PyCompletionHandle::from)
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })
     }
@@ -311,7 +314,7 @@ impl PySessionContext {
         name: Option<PyName>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> PyResult<MessageDeliveryAck> {
+    ) -> PyResult<CompletionHandle> {
         let session = self
             .internal
             .bindings_ctx
@@ -343,7 +346,7 @@ impl PySessionContext {
         blob: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> PyResult<MessageDeliveryAck> {
+    ) -> PyResult<CompletionHandle> {
         let ctx: MessageContext = message_ctx.into();
 
         self.internal
@@ -354,7 +357,7 @@ impl PySessionContext {
     }
 
     /// Invite a participant to this session (multicast only)
-    async fn invite_internal(&self, name: PyName) -> PyResult<MessageDeliveryAck> {
+    async fn invite_internal(&self, name: PyName) -> PyResult<CompletionHandle> {
         self.internal
             .bindings_ctx
             .invite(&name.into())
@@ -363,7 +366,7 @@ impl PySessionContext {
     }
 
     /// Remove a participant from this session (multicast only)
-    async fn remove_internal(&self, name: PyName) -> PyResult<MessageDeliveryAck> {
+    async fn remove_internal(&self, name: PyName) -> PyResult<CompletionHandle> {
         self.internal
             .bindings_ctx
             .remove(&name.into())
@@ -371,11 +374,11 @@ impl PySessionContext {
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     }
 
-    /// Delete this session
+    /// Delete this session and return a completion handle
     pub(crate) async fn delete(
         &self,
         adapter: &BindingsAdapter<IdentityProvider, IdentityVerifier>,
-    ) -> PyResult<()> {
+    ) -> PyResult<CompletionHandle> {
         let session = self
             .internal
             .bindings_ctx
@@ -385,8 +388,7 @@ impl PySessionContext {
 
         adapter
             .delete_session(&session)
-            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
-        Ok(())
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     }
 }
 

@@ -598,12 +598,14 @@ mod tests {
         let mut config = SessionConfig::default()
             .with_session_type(slim_datapath::api::ProtoSessionType::PointToPoint);
         config.initiator = true;
-        let send_session = pub_app
+        let (send_session, completion_handle) = pub_app
             .create_session(config, subscriber_name.clone(), None)
             .await
             .unwrap();
 
-        time::sleep(Duration::from_millis(100)).await;
+        completion_handle
+            .await
+            .expect("session creation failed");
 
         // publish a message
         let message_blob = "very complicated message".as_bytes().to_vec();
@@ -700,10 +702,15 @@ mod tests {
         let session_config = SessionConfig::default()
             .with_session_type(slim_datapath::api::ProtoSessionType::PointToPoint);
         let dst = Name::from_strings(["org", "ns", "dst"]);
-        let session_info = app
+        let (session_info, completion_handle) = app
             .create_session(session_config, dst, None)
             .await
             .expect("Failed to create session");
+
+        // wait for session to be established
+        completion_handle
+            .await
+            .expect("Session establishment failed");
 
         // check the configuration we get is the one we used to create the session
         let _session_config_ret = session_info.session_arc().unwrap();
