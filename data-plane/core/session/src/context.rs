@@ -73,8 +73,7 @@ impl SessionContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::SessionError;
-    use crate::common::AppChannelSender;
+   use crate::common::AppChannelSender;
     use crate::session_config::SessionConfig;
     use crate::session_controller::SessionController;
     use crate::transmitter::SessionTransmitter;
@@ -135,7 +134,6 @@ mod tests {
         app_tx: AppChannelSender,
     ) -> Arc<SessionController> {
         use crate::SlimChannelSender;
-        use crate::common::SessionMessage;
 
         let source = make_name(["a", "b", "c"]);
         let destination = make_name(["x", "y", "z"]);
@@ -154,10 +152,6 @@ mod tests {
         // Create a SessionTransmitter
         let session_tx = SessionTransmitter::new(slim_tx, app_tx.clone());
 
-        // Create channel for session layer communication
-        let (tx_session, _rx_session): (mpsc::Sender<Result<SessionMessage, SessionError>>, _) =
-            mpsc::channel(32);
-
         // Create a SessionController
         Arc::new(
             SessionController::builder()
@@ -169,7 +163,6 @@ mod tests {
                 .with_identity_verifier(DummyVerifier)
                 .with_storage_path(std::env::temp_dir())
                 .with_tx(session_tx)
-                .with_tx_to_session_layer(tx_session)
                 .ready()
                 .expect("Failed to prepare SessionController builder")
                 .build()

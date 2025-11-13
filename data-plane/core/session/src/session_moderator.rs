@@ -13,7 +13,10 @@ use slim_datapath::{
         CommandPayload, MlsPayload, ProtoMessage as Message, ProtoSessionMessageType,
         ProtoSessionType,
     },
-    messages::{Name, utils::DELETE_GROUP, utils::SlimHeaderFlags},
+    messages::{
+        Name,
+        utils::{DELETE_GROUP, SlimHeaderFlags, TRUE_VAL},
+    },
 };
 use tokio::sync::Mutex;
 
@@ -201,8 +204,32 @@ where
                         .await
                 }
             }
-            SessionMessage::StartDrain { grace_period_ms: _ } => todo!(),
-            SessionMessage::DeleteSession { session_id: _ } => todo!(),
+            SessionMessage::StartDrain {
+                grace_period: duration,
+            } => {
+                // Send drain to message to the inner to notify the beginnig of the drain
+                self.inner
+                    .on_message(SessionMessage::StartDrain {
+                        grace_period: duration,
+                    })
+                    .await?;
+                // We need to close the session for all the participants
+                // Crate the leave message
+                let p = CommandPayload::builder().leave_request(None).as_content();
+                let destination = self.common.settings.destination.clone();
+                let mut leave_msg = self.common.create_control_message(
+                    &destination,
+                    ProtoSessionMessageType::LeaveRequest,
+                    rand::random::<u32>(),
+                    p,
+                    false,
+                )?;
+
+                leave_msg.insert_metadata(DELETE_GROUP.to_string(), TRUE_VAL.to_string());
+
+                // send it to all the participants
+                self.delete_all(leave_msg).await
+            }
         }
     }
 
@@ -214,17 +241,19 @@ where
         self.inner.remove_endpoint(endpoint);
     }
 
+    fn needs_drain(&self) -> bool {
+        !(self.closing && self.common.sender.drain_complited() && self.inner.needs_drain())
+    }
+
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {
         // Moderator-specific cleanup
         self.subscribed = false;
-
-        // TODO: check when to call this
-        // if !self.closing {
-        //     self.send_close_signal().await;
-        // }
+        self.common.sender.close();
 
         // Shutdown inner layer
-        MessageHandler::on_shutdown(&mut self.inner).await
+        MessageHandler::on_shutdown(&mut self.inner).await?;
+
+        Ok(())
     }
 }
 
@@ -685,6 +714,8 @@ where
         self.mls_state = None;
         // clear all pending tasks
         self.tasks_todo.clear();
+        // clear all pending timers
+        self.common.sender.clear_timers();
 
         // Remove the local name from the participants list
         let mut local = self.common.settings.source.clone();
@@ -711,7 +742,9 @@ where
         match self.tasks_todo.pop_front() {
             Some(m) => self.on_leave_request(m).await,
             None => {
-                self.send_close_signal().await;
+                // try to close the local sender signaling to
+                // start the drain period
+                self.common.sender.start_drain();
                 Ok(())
             }
         }
@@ -823,7 +856,9 @@ where
 
                 // check if we need to close the session
                 if self.closing {
-                    self.send_close_signal().await;
+                    // try to close the local sender signaling to
+                    // start the drain period
+                    self.common.sender.start_drain();
                 }
 
                 // return
@@ -879,25 +914,6 @@ where
         Ok(())
     }
 
-    async fn send_close_signal(&mut self) {
-        // TODO check if the senders/receivers are happy as well
-        debug!("Signal session layer to close the session, all tasks are done");
-
-        // notify the session layer
-        let res = self
-            .common
-            .settings
-            .tx_to_session_layer
-            .send(Ok(SessionMessage::DeleteSession {
-                session_id: self.common.settings.id,
-            }))
-            .await;
-
-        if res.is_err() {
-            error!("an error occurred while signaling session close");
-        }
-    }
-
     #[allow(dead_code)]
     async fn ack_msl_proposal(&mut self, _msg: &Message) -> Result<(), SessionError> {
         todo!()
@@ -929,7 +945,6 @@ mod tests {
     fn setup_moderator() -> (
         SessionModerator<MockTokenProvider, MockVerifier, MockInnerHandler>,
         mpsc::Receiver<Result<Message, Status>>,
-        mpsc::Receiver<Result<SessionMessage, SessionError>>,
     ) {
         let source = make_name(&["local", "moderator", "v1"]).with_id(100);
         let destination = make_name(&["channel", "name", "v1"]).with_id(200);
@@ -940,7 +955,6 @@ mod tests {
         let (tx_slim, rx_slim) = mpsc::channel(16);
         let (tx_app, _rx_app) = mpsc::unbounded_channel();
         let (tx_session, _rx_session) = mpsc::channel(16);
-        let (tx_session_layer, rx_session_layer) = mpsc::channel(16);
 
         let tx = crate::transmitter::SessionTransmitter::new(tx_slim, tx_app);
 
@@ -962,7 +976,6 @@ mod tests {
             config,
             tx,
             tx_session,
-            tx_to_session_layer: tx_session_layer,
             identity_provider,
             identity_verifier,
             storage_path,
@@ -972,12 +985,12 @@ mod tests {
         let inner = MockInnerHandler::new();
         let moderator = SessionModerator::new(inner, settings);
 
-        (moderator, rx_slim, rx_session_layer)
+        (moderator, rx_slim)
     }
 
     #[tokio::test]
     async fn test_moderator_new() {
-        let (moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        let (moderator, _rx_slim) = setup_moderator();
 
         assert!(moderator.tasks_todo.is_empty());
         assert!(moderator.current_task.is_none());
@@ -990,7 +1003,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_moderator_init() {
-        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        let (mut moderator, _rx_slim) = setup_moderator();
 
         let result = moderator.init().await;
         assert!(result.is_ok());
@@ -999,7 +1012,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_moderator_discovery_request_starts_task() {
-        let (mut moderator, mut rx_slim, _rx_session_layer) = setup_moderator();
+        let (mut moderator, mut rx_slim) = setup_moderator();
         moderator.init().await.unwrap();
 
         let source = make_name(&["requester", "app", "v1"]).with_id(300);
@@ -1045,7 +1058,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_moderator_discovery_request_when_busy() {
-        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        let (mut moderator, _rx_slim) = setup_moderator();
         moderator.init().await.unwrap();
 
         // Set a current task to make moderator busy
@@ -1081,7 +1094,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_moderator_join_request_passthrough() {
-        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        let (mut moderator, _rx_slim) = setup_moderator();
         moderator.init().await.unwrap();
 
         let source = make_name(&["requester", "app", "v1"]).with_id(300);
@@ -1115,7 +1128,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_moderator_application_message_forwarding() {
-        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        let (mut moderator, _rx_slim) = setup_moderator();
         moderator.init().await.unwrap();
 
         let source = moderator.common.settings.source.clone();
@@ -1149,7 +1162,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_moderator_add_and_remove_endpoint() {
-        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        let (mut moderator, _rx_slim) = setup_moderator();
         moderator.init().await.unwrap();
 
         let endpoint = make_name(&["participant", "app", "v1"]).with_id(400);
@@ -1167,7 +1180,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_moderator_join_sets_subscribed() {
-        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        let (mut moderator, _rx_slim) = setup_moderator();
         moderator.init().await.unwrap();
 
         assert!(!moderator.subscribed);
@@ -1182,7 +1195,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_moderator_join_only_once() {
-        let (mut moderator, mut rx_slim, _rx_session_layer) = setup_moderator();
+        let (mut moderator, mut rx_slim) = setup_moderator();
         moderator.init().await.unwrap();
 
         let remote = make_name(&["remote", "app", "v1"]).with_id(200);
@@ -1200,7 +1213,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_moderator_on_shutdown() {
-        let (mut moderator, _rx_slim, mut _rx_session_layer) = setup_moderator();
+        let (mut moderator, _rx_slim) = setup_moderator();
         moderator.init().await.unwrap();
 
         let result = moderator.on_shutdown().await;
@@ -1219,7 +1232,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_moderator_delete_all_creates_leave_tasks() {
-        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        let (mut moderator, _rx_slim) = setup_moderator();
         moderator.init().await.unwrap();
 
         // Add some participants to group list
@@ -1255,7 +1268,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_moderator_timer_timeout_for_control_message() {
-        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        let (mut moderator, _rx_slim) = setup_moderator();
         moderator.init().await.unwrap();
 
         // Timer timeout for control messages requires sender to have pending messages
@@ -1275,7 +1288,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_moderator_timer_timeout_for_app_message() {
-        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        let (mut moderator, _rx_slim) = setup_moderator();
         moderator.init().await.unwrap();
 
         let result = moderator
@@ -1303,7 +1316,6 @@ mod tests {
         let (tx_slim, _rx_slim) = mpsc::channel(16);
         let (tx_app, _rx_app) = mpsc::unbounded_channel();
         let (tx_session, _rx_session) = mpsc::channel(16);
-        let (tx_session_layer, _rx_session_layer) = mpsc::channel(16);
 
         let tx = crate::transmitter::SessionTransmitter::new(tx_slim, tx_app);
 
@@ -1325,7 +1337,6 @@ mod tests {
             config,
             tx,
             tx_session,
-            tx_to_session_layer: tx_session_layer,
             identity_provider,
             identity_verifier,
             storage_path,

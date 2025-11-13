@@ -259,6 +259,13 @@ impl ControllerSender {
         self.pending_replies.remove(&id);
     }
 
+    pub fn clear_timers(&mut self) {
+        for (_, mut p) in self.pending_replies.drain() {
+            p.timer.stop();
+        }
+        self.pending_replies.clear();
+    }
+
     pub fn start_drain(&mut self) {
         if self.pending_replies.is_empty() {
             debug!("closing controller sender");
@@ -269,7 +276,7 @@ impl ControllerSender {
         }
     }
 
-    pub fn check_drain_completion(&self) -> bool {
+    pub fn drain_complited(&self) -> bool {
         // Drain is complete if we're draining and no pending acks remain
         if self.draining_state == ControllerSenderDrainStatus::Completed
             || self.draining_state == ControllerSenderDrainStatus::Initiated
@@ -281,11 +288,7 @@ impl ControllerSender {
     }
 
     pub fn close(&mut self) {
-        for (_, mut p) in self.pending_replies.drain() {
-            p.timer.stop();
-        }
-
-        self.pending_replies.clear();
+        self.clear_timers();
         self.draining_state = ControllerSenderDrainStatus::Completed;
     }
 }
