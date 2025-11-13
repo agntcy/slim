@@ -44,7 +44,11 @@ jobs:
           - runner: windows-latest
             os: windows
             target: x64
-          - runner: macos-13 # We use macos-13 as it is a x86_64 runner
+          # https://github.com/astral-sh/uv/issues/12906
+          # - runner: windows-11-arm
+          #   os: windows
+          #   target: aarch64
+          - runner: macos-15-intel
             os: macos
             target: x86_64
           - runner: macos-15
