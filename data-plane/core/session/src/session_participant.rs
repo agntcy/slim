@@ -150,8 +150,21 @@ where
                         .await
                 }
             }
-            SessionMessage::StartDrain { grace_period_ms: _ } => todo!(),
-            SessionMessage::DeleteSession { session_id: _ } => todo!(),
+            SessionMessage::StartDrain {
+                grace_period: duration,
+            } => {
+                // Send drain to message to the inner to notify the beginning of the drain
+                self.inner
+                    .on_message(SessionMessage::StartDrain {
+                        grace_period: duration,
+                    })
+                    .await?;
+                self.common.sender.start_drain();
+                Ok(())
+            }
+            _ => Err(SessionError::Processing(
+                "Unsupported session message for participant".into(),
+            )),
         }
     }
 
@@ -163,9 +176,15 @@ where
         self.inner.remove_endpoint(endpoint);
     }
 
+    fn needs_drain(&self) -> bool {
+        !(self.common.sender.drain_completed() && self.inner.needs_drain())
+    }
+
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {
         // Participant-specific cleanup
         self.subscribed = false;
+        self.common.sender.close();
+
         // Shutdown inner layer
         MessageHandler::on_shutdown(&mut self.inner).await
     }
@@ -371,16 +390,7 @@ where
 
         self.common.send_to_slim(reply).await?;
 
-        self.leave(&msg).await?;
-
-        self.common
-            .settings
-            .tx_to_session_layer
-            .send(Ok(SessionMessage::DeleteSession {
-                session_id: self.common.settings.id,
-            }))
-            .await
-            .map_err(|e| SessionError::Processing(format!("failed to notify session layer: {}", e)))
+        self.leave(&msg).await
     }
 
     async fn join(&mut self, msg: &Message) -> Result<(), SessionError> {
@@ -455,7 +465,6 @@ mod tests {
     ) -> (
         SessionParticipant<MockTokenProvider, MockVerifier, MockInnerHandler>,
         mpsc::Receiver<Result<Message, Status>>,
-        mpsc::Receiver<Result<SessionMessage, SessionError>>,
     ) {
         let source = make_name(&["local", "participant", "v1"]).with_id(100);
         let destination = make_name(&["channel", "name", "v1"]).with_id(200);
@@ -466,8 +475,6 @@ mod tests {
         let (tx_slim, rx_slim) = mpsc::channel(16);
         let (tx_app, _rx_app) = mpsc::unbounded_channel();
         let (tx_session, _rx_session) = mpsc::channel(16);
-        let (tx_session_layer, rx_session_layer) = mpsc::channel(16);
-
         let tx = crate::transmitter::SessionTransmitter::new(tx_slim, tx_app);
 
         let config = SessionConfig {
@@ -488,7 +495,6 @@ mod tests {
             config,
             tx,
             tx_session,
-            tx_to_session_layer: tx_session_layer,
             identity_provider,
             identity_verifier,
             storage_path,
@@ -498,13 +504,12 @@ mod tests {
         let inner = MockInnerHandler::new();
         let participant = SessionParticipant::new(inner, settings);
 
-        (participant, rx_slim, rx_session_layer)
+        (participant, rx_slim)
     }
 
     #[tokio::test]
     async fn test_participant_new() {
-        let (participant, _rx_slim, _rx_session_layer) =
-            setup_participant(ProtoSessionType::Multicast);
+        let (participant, _rx_slim) = setup_participant(ProtoSessionType::Multicast);
 
         assert!(participant.moderator_name.is_none());
         assert!(participant.group_list.is_empty());
@@ -514,8 +519,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_init() {
-        let (mut participant, _rx_slim, _rx_session_layer) =
-            setup_participant(ProtoSessionType::Multicast);
+        let (mut participant, _rx_slim) = setup_participant(ProtoSessionType::Multicast);
 
         let result = participant.init().await;
         assert!(result.is_ok());
@@ -524,8 +528,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_on_join_request() {
-        let (mut participant, mut rx_slim, _rx_session_layer) =
-            setup_participant(ProtoSessionType::Multicast);
+        let (mut participant, mut rx_slim) = setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
 
         let moderator = make_name(&["moderator", "app", "v1"]).with_id(300);
@@ -573,8 +576,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_on_welcome_multicast() {
-        let (mut participant, mut rx_slim, _rx_session_layer) =
-            setup_participant(ProtoSessionType::Multicast);
+        let (mut participant, mut rx_slim) = setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
 
         let moderator = make_name(&["moderator", "app", "v1"]).with_id(300);
@@ -626,8 +628,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_on_group_add_message() {
-        let (mut participant, mut rx_slim, _rx_session_layer) =
-            setup_participant(ProtoSessionType::Multicast);
+        let (mut participant, mut rx_slim) = setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
         participant.subscribed = true;
 
@@ -670,8 +671,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_on_group_remove_message() {
-        let (mut participant, mut rx_slim, _rx_session_layer) =
-            setup_participant(ProtoSessionType::Multicast);
+        let (mut participant, mut rx_slim) = setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
         participant.subscribed = true;
 
@@ -716,8 +716,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_on_leave_request() {
-        let (mut participant, mut rx_slim, mut rx_session_layer) =
-            setup_participant(ProtoSessionType::Multicast);
+        let (mut participant, mut rx_slim) = setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
         participant.subscribed = true;
 
@@ -749,21 +748,11 @@ mod tests {
             msg.get_session_header().session_message_type(),
             ProtoSessionMessageType::LeaveReply
         );
-
-        // Should have sent delete session message
-        let delete_msg = rx_session_layer.try_recv();
-        assert!(delete_msg.is_ok());
-        if let Ok(Ok(SessionMessage::DeleteSession { session_id })) = delete_msg {
-            assert_eq!(session_id, 1);
-        } else {
-            panic!("Expected DeleteSession message");
-        }
     }
 
     #[tokio::test]
     async fn test_participant_join_multicast() {
-        let (mut participant, mut rx_slim, _rx_session_layer) =
-            setup_participant(ProtoSessionType::Multicast);
+        let (mut participant, mut rx_slim) = setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
 
         let moderator = make_name(&["moderator", "app", "v1"]).with_id(300);
@@ -796,8 +785,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_join_point_to_point() {
-        let (mut participant, _rx_slim, _rx_session_layer) =
-            setup_participant(ProtoSessionType::PointToPoint);
+        let (mut participant, _rx_slim) = setup_participant(ProtoSessionType::PointToPoint);
         participant.init().await.unwrap();
 
         let moderator = make_name(&["moderator", "app", "v1"]).with_id(300);
@@ -832,8 +820,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_join_idempotent() {
-        let (mut participant, mut rx_slim, _rx_session_layer) =
-            setup_participant(ProtoSessionType::Multicast);
+        let (mut participant, mut rx_slim) = setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
 
         let moderator = make_name(&["moderator", "app", "v1"]).with_id(300);
@@ -876,8 +863,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_application_message_forwarding() {
-        let (mut participant, _rx_slim, _rx_session_layer) =
-            setup_participant(ProtoSessionType::Multicast);
+        let (mut participant, _rx_slim) = setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
 
         let source = participant.common.settings.source.clone();
@@ -912,8 +898,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_timer_timeout_control_message() {
-        let (mut participant, _rx_slim, _rx_session_layer) =
-            setup_participant(ProtoSessionType::Multicast);
+        let (mut participant, _rx_slim) = setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
 
         let result = participant
@@ -930,8 +915,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_timer_timeout_app_message() {
-        let (mut participant, _rx_slim, _rx_session_layer) =
-            setup_participant(ProtoSessionType::Multicast);
+        let (mut participant, _rx_slim) = setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
 
         let result = participant
@@ -950,8 +934,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_timer_failure_control_message() {
-        let (mut participant, _rx_slim, _rx_session_layer) =
-            setup_participant(ProtoSessionType::Multicast);
+        let (mut participant, _rx_slim) = setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
 
         let result = participant
@@ -968,8 +951,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_timer_failure_app_message() {
-        let (mut participant, _rx_slim, _rx_session_layer) =
-            setup_participant(ProtoSessionType::Multicast);
+        let (mut participant, _rx_slim) = setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
 
         let result = participant
@@ -988,8 +970,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_add_and_remove_endpoint() {
-        let (mut participant, _rx_slim, _rx_session_layer) =
-            setup_participant(ProtoSessionType::Multicast);
+        let (mut participant, _rx_slim) = setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
 
         let endpoint = make_name(&["endpoint", "app", "v1"]).with_id(400);
@@ -1007,8 +988,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_on_shutdown() {
-        let (mut participant, _rx_slim, _rx_session_layer) =
-            setup_participant(ProtoSessionType::Multicast);
+        let (mut participant, _rx_slim) = setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
         participant.subscribed = true;
 
@@ -1019,8 +999,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_unexpected_control_messages() {
-        let (mut participant, _rx_slim, _rx_session_layer) =
-            setup_participant(ProtoSessionType::Multicast);
+        let (mut participant, _rx_slim) = setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
 
         // Test DiscoveryRequest (unexpected for participant)
@@ -1047,8 +1026,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_leave_multicast_unsubscribes() {
-        let (mut participant, mut rx_slim, _rx_session_layer) =
-            setup_participant(ProtoSessionType::Multicast);
+        let (mut participant, mut rx_slim) = setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
         participant.subscribed = true;
 

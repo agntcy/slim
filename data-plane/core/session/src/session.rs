@@ -93,8 +93,15 @@ impl Session {
                 name,
                 timeouts: _,
             } => self.on_timer_failure(message_id, message_type, name).await,
-            SessionMessage::DeleteSession { session_id: _ } => todo!(),
-            SessionMessage::StartDrain { grace_period_ms: _ } => todo!(),
+            SessionMessage::StartDrain { grace_period: _ } => {
+                self.sender.start_drain();
+                self.receiver.start_drain();
+                Ok(())
+            }
+            _ => Err(SessionError::Processing(format!(
+                "Unexpected session message {:?}",
+                message
+            ))),
         }
     }
 
@@ -216,6 +223,10 @@ impl MessageHandler for Session {
 
     fn remove_endpoint(&mut self, endpoint: &slim_datapath::messages::Name) {
         self.remove_endpoint(endpoint);
+    }
+
+    fn needs_drain(&self) -> bool {
+        self.sender.drain_completed() && self.receiver.drain_completed()
     }
 
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {

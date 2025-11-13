@@ -4,16 +4,16 @@
 import typing
 from datetime import timedelta
 
-from slim_bindings._slim_bindings import (  # type: ignore[attr-defined]
-    PyApp,
-    PyIdentityProvider,
-    PyIdentityVerifier,
-    PyName,
-    PySessionConfiguration,
-    PySessionContext,
+from slim_bindings._slim_bindings import (
+    App,
+    IdentityProvider,
+    IdentityVerifier,
+    Name,
+    SessionConfiguration,
+    SessionContext,
 )
 
-from .session import PySession
+from .session import Session
 
 
 class Slim:
@@ -27,7 +27,7 @@ class Slim:
       * Session lifecycle (create_session / delete_session / listen_for_session)
 
     Core Concepts:
-      - PyName: Fully-qualified name of the app (org / namespace / app-or-channel). Used for
+      - Name: Fully-qualified name of the app (org / namespace / app-or-channel). Used for
         routing, subscriptions.
       - Session: Logical communication context. Types supported include:
           * PointToPoint  : Point-to-point with a fixed, stable destination (sticky).
@@ -39,7 +39,7 @@ class Slim:
       1. slim = await Slim.new(local_name, identity_provider, identity_verifier)
       2. await slim.connect({"endpoint": "...", "tls": {"insecure": True}})
       3. await slim.set_route(remote_name)
-      4. session = await slim.create_session(PySessionConfiguration.PointToPoint(peer_name=remote_name, ...))
+      4. session = await slim.create_session(SessionConfiguration.PointToPoint(peer_name=remote_name, ...))
       5. await session.publish(b"payload")
       6. await slim.delete_session(session)
       7. await slim.disconnect("endpoint-string")
@@ -72,9 +72,9 @@ class Slim:
 
     def __init__(
         self,
-        name: PyName,
-        provider: PyIdentityProvider,
-        verifier: PyIdentityVerifier,
+        name: Name,
+        provider: IdentityProvider,
+        verifier: IdentityVerifier,
         local_service: bool = False,
     ):
         """
@@ -93,7 +93,7 @@ class Slim:
         """
 
         # Initialize service
-        self._app = PyApp(
+        self._app = App(
             name,
             provider,
             verifier,
@@ -128,24 +128,24 @@ class Slim:
         return f"{components_string[0]}/{components_string[1]}/{components_string[2]}/{self._app.id}"
 
     @property
-    def local_name(self) -> PyName:
-        """Local fully-qualified PyName (org/namespace/app) for this app.
+    def local_name(self) -> Name:
+        """Local fully-qualified Name (org/namespace/app) for this app.
 
         Returns:
-            PyName: Immutable name used for routing, subscriptions, etc.
+            Name: Immutable name used for routing, subscriptions, etc.
         """
         return self._app.name
 
     async def create_session(
         self,
-        destination: PyName,
-        session_config: PySessionConfiguration,
+        destination: Name,
+        session_config: SessionConfiguration,
     ) -> typing.Any:
         """Create a new session and return its high-level PySession wrapper.
 
         Args:
-            destination (PyName): Target peer or channel name.
-            session_config (PySessionConfiguration): Parameters controlling creation.
+            destination (Name): Target peer or channel name.
+            session_config (SessionConfiguration): Parameters controlling creation.
 
         Returns:
             PySession: Wrapper exposing high-level async operations for the session.
@@ -153,9 +153,9 @@ class Slim:
         ctx, completion_handle = await self._app.create_session(
             destination, session_config
         )
-        return PySession(ctx), completion_handle
+        return Session(ctx), completion_handle
 
-    async def delete_session(self, session: PySession):
+    async def delete_session(self, session: Session)-> typing.Any:
         """
         Terminate and remove an existing session.
 
@@ -170,7 +170,7 @@ class Slim:
         """
 
         # Remove the session from SLIM
-        await self._app.delete_session(session._ctx)
+        return await self._app.delete_session(session._ctx)
 
     async def run_server(self, config: dict):
         """
@@ -245,13 +245,13 @@ class Slim:
 
     async def set_route(
         self,
-        name: PyName,
+        name: Name,
     ):
         """
         Add (or update) an explicit routing rule for outbound messages.
 
         Args:
-            name (PyName): Destination app/channel name to route traffic toward.
+            name (Name): Destination app/channel name to route traffic toward.
 
         Returns:
             None
@@ -267,13 +267,13 @@ class Slim:
 
     async def remove_route(
         self,
-        name: PyName,
+        name: Name,
     ):
         """
         Remove a previously established outbound routing rule.
 
         Args:
-            name (PyName): Destination app/channel whose route should be removed.
+            name (Name): Destination app/channel whose route should be removed.
 
         Returns:
             None
@@ -287,12 +287,12 @@ class Slim:
             self.conn_id,
         )
 
-    async def subscribe(self, name: PyName):
+    async def subscribe(self, name: Name):
         """
         Subscribe to inbound messages addressed to the specified name.
 
         Args:
-            name (PyName): App or channel name to subscribe for deliveries.
+            name (Name): App or channel name to subscribe for deliveries.
 
         Returns:
             None
@@ -300,12 +300,12 @@ class Slim:
 
         await self._app.subscribe(name, self.conn_id)
 
-    async def unsubscribe(self, name: PyName):
+    async def unsubscribe(self, name: Name):
         """
         Cancel a previous subscription for the specified name.
 
         Args:
-            name (PyName): App or channel name whose subscription is removed.
+            name (Name): App or channel name whose subscription is removed.
 
         Returns:
             None
@@ -313,7 +313,7 @@ class Slim:
 
         await self._app.unsubscribe(name, self.conn_id)
 
-    async def listen_for_session(self, timeout: timedelta | None = None) -> PySession:
+    async def listen_for_session(self, timeout: timedelta | None = None) -> Session:
         """
         Await the next inbound session (optionally bounded by timeout).
 
@@ -321,5 +321,5 @@ class Slim:
             PySession: Wrapper for the accepted session context.
         """
 
-        ctx: PySessionContext = await self._app.listen_for_session(timeout)
-        return PySession(ctx)
+        ctx: SessionContext = await self._app.listen_for_session(timeout)
+        return Session(ctx)

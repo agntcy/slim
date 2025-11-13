@@ -520,62 +520,6 @@ mod tests {
         assert!(matches!(service_ref, ServiceRef::Global(_)));
     }
 
-    // #[tokio::test]
-    // async fn test_reorganized_api_usage() {
-    //     // Test the new reorganized API where session operations are on BindingsSessionContext
-    //     let base_name = create_test_name();
-    //     let (provider, verifier) = create_test_auth();
-
-    //     // Create adapter using the complete creation method
-    //     let (adapter, _service_ref) = BindingsAdapter::new(
-    //         base_name, provider, verifier, false, // use global service
-    //     )
-    //     .expect("Failed to create adapter");
-
-    //     // Create a session
-    //     let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
-    //     let dst = Name::from_strings(["org", "ns", "dst"]);
-    //     let (session_ctx, completion_handle) = adapter
-    //         .create_session(config, dst)
-    //         .await
-    //         .expect("Failed to create session");
-
-    //     // Convert to BindingsSessionContext for session operations
-    //     let session_bindings = BindingsSessionContext::from(session_ctx);
-
-    //     // Test session-level operations on the session context (not the adapter)
-    //     let target_name = Name::from_strings(["org", "target", "service"]);
-    //     let message_data = b"hello from reorganized API".to_vec();
-    //     let mut metadata = HashMap::new();
-    //     metadata.insert("test".to_string(), "reorganized".to_string());
-
-    //     // Publish through session context
-    //     let result = session_bindings
-    //         .publish(
-    //             &target_name,
-    //             1, // fanout
-    //             message_data.clone(),
-    //             None, // conn_out
-    //             Some("text/plain".to_string()),
-    //             Some(metadata.clone()),
-    //         )
-    //         .await;
-    //     assert!(result.is_ok());
-
-    //     // Test invite/remove operations on session context
-    //     let peer_name = Name::from_strings(["org", "peer", "service"]);
-    //     let invite_result = session_bindings.invite(&peer_name).await;
-    //     // Note: This may fail in test environment, but we're testing the API structure
-    //     assert!(invite_result.is_err() || invite_result.is_ok());
-
-    //     let remove_result = session_bindings.remove(&peer_name).await;
-    //     assert!(remove_result.is_err() || remove_result.is_ok());
-
-    //     // Verify adapter still handles app-level operations
-    //     assert!(adapter.id() > 0);
-    //     assert!(!adapter.name().to_string().is_empty());
-    // }
-
     #[tokio::test]
     async fn test_new_uses_token_id_for_name_generation() {
         let base_name = create_test_name();

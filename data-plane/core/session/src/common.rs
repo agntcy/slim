@@ -1,6 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::time::Duration;
+
 // Third-party crates
 use tonic::Status;
 
@@ -101,5 +103,5 @@ pub enum SessionMessage {
     DeleteSession { session_id: u32 },
     /// message from session layer to the session controller
     /// to start to the close procedures of the session
-    StartDrain { grace_period_ms: u64 },
+    StartDrain { grace_period: Duration },
 }

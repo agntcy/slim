@@ -612,7 +612,6 @@ mod tests {
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(16);
         let (tx_app, _) = tokio::sync::mpsc::channel(10);
         let dst = Name::from_strings(["cisco", "default", "remote"]).with_id(0);
-        let grp = Name::from_strings(["cisco", "default", "group"]).with_id(0);
         let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
         let identity = SharedSecret::new("a", TEST_VALID_SECRET);
@@ -633,7 +632,7 @@ mod tests {
 
         // create a new session
         let (res, _completion_handle) = app
-            .create_session(session_config, grp.clone(), Some(1))
+            .create_session(session_config, dst.clone(), Some(1))
             .await
             .unwrap();
 

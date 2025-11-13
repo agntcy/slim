@@ -66,9 +66,6 @@ where
 
     /// Storage path for app data
     storage_path: std::path::PathBuf,
-
-    /// Channel to clone on session creation
-    tx_session: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
 }
 
 impl<P, V, T> SessionLayer<P, V, T>
@@ -89,9 +86,7 @@ where
         transmitter: T,
         storage_path: std::path::PathBuf,
     ) -> Self {
-        let (tx_session, rx_session) = tokio::sync::mpsc::channel(16);
-
-        let sl = SessionLayer {
+        SessionLayer {
             pool: Arc::new(SyncRwLock::new(HashMap::new())),
             app_id: app_name.id(),
             app_names: SyncRwLock::new(HashSet::from([app_name.with_id(Name::NULL_COMPONENT)])),
@@ -102,12 +97,7 @@ where
             tx_app,
             transmitter,
             storage_path,
-            tx_session,
-        };
-
-        sl.listen_from_sessions(rx_session);
-
-        sl
+        }
     }
 
     pub fn tx_slim(&self) -> SlimChannelSender {
@@ -269,7 +259,6 @@ where
                 .with_identity_verifier(self.identity_verifier.clone())
                 .with_storage_path(self.storage_path.clone())
                 .with_tx(tx)
-                .with_tx_to_session_layer(self.tx_session.clone())
                 .ready()?;
 
             // Perform the async build operation without holding any lock
@@ -311,18 +300,8 @@ where
         // close the session and get the join handle
         let join_handle = session.close()?;
 
-        // Spawn a task to await the join handle and send the result through a oneshot channel
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        tokio::spawn(async move {
-            let result = join_handle
-                .await
-                .map(|_| ())
-                .map_err(|e| SessionError::Processing(format!("Session cleanup failed: {}", e)));
-            let _ = tx.send(result);
-        });
-
         // Return a CompletionHandle wrapping the oneshot receiver
-        Ok(CompletionHandle::from_oneshot_receiver(rx))
+        Ok(CompletionHandle::from_join_handle(join_handle))
     }
 
     /// Clear all sessions and return completion handles to await on
@@ -460,6 +439,10 @@ where
         if let Some(controller) = session_controller {
             // pass the message to the session
             controller.on_message_from_slim(message).await?;
+
+            if session_message_type == ProtoSessionMessageType::LeaveRequest {
+                self.remove_session(id)?;
+            }
             return Ok(());
         }
 

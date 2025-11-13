@@ -135,6 +135,15 @@ impl SessionController {
                 _ = cancellation_token.cancelled(), if state == ProcessingState::Active => {
                     state = ProcessingState::Draining;
 
+                    // Update the timeout to the configured grace period
+                    let shutdown_timeout = settings.graceful_shutdown_timeout
+                        .unwrap_or(Duration::from_secs(60)); // Default 60 seconds if not configured
+
+                    // Send drain to message to the inner to notify the beginning of the drain
+                    if let Err(e) = inner.on_message(SessionMessage::StartDrain {grace_period: shutdown_timeout}).await {
+                        tracing::error!(error=%e, "Error during start drain");
+                    }
+
                     // First finish processing messages already in the queue, until we empty it
                     debug!("cancellation requested, entering draining state");
                     while let Ok(msg) = rx.try_recv() {
@@ -142,10 +151,6 @@ impl SessionController {
                             tracing::error!(error=%e, "Error processing message during draining");
                         }
                     }
-
-                    // Update the timeout to the configured grace period
-                    let shutdown_timeout = settings.graceful_shutdown_timeout
-                        .unwrap_or(Duration::from_secs(5)); // Default 5 seconds if not configured
 
                     debug!("entering graceful shutdown mode with timeout: {:?}", shutdown_timeout);
                     shutdown_deadline.as_mut().reset(tokio::time::Instant::now() + shutdown_timeout);
@@ -677,7 +682,6 @@ mod tests {
 
             let (tx_slim, rx_slim) = tokio::sync::mpsc::channel(10);
             let (tx_app, rx_app) = tokio::sync::mpsc::unbounded_channel();
-            let (tx_session_layer, _rx_session_layer) = tokio::sync::mpsc::channel(10);
 
             let tx = SessionTransmitter::new(tx_slim, tx_app);
 
@@ -693,7 +697,6 @@ mod tests {
                 .with_identity_verifier(SharedSecret::new("test", SHARED_SECRET))
                 .with_storage_path(storage_path)
                 .with_tx(tx)
-                .with_tx_to_session_layer(tx_session_layer)
                 .ready()
                 .expect("failed to validate builder")
                 .build()
@@ -1086,8 +1089,6 @@ mod tests {
         // create a SessionModerator
         let (tx_slim_moderator, mut rx_slim_moderator) = tokio::sync::mpsc::channel(10);
         let (tx_app_moderator, _rx_app_moderator) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_session_layer_moderator, _rx_session_layer_moderator) =
-            tokio::sync::mpsc::channel(10);
 
         let tx_moderator =
             SessionTransmitter::new(tx_slim_moderator.clone(), tx_app_moderator.clone());
@@ -1110,7 +1111,6 @@ mod tests {
             .with_identity_verifier(SharedSecret::new("moderator", SHARED_SECRET))
             .with_storage_path(storage_path_moderator.clone())
             .with_tx(tx_moderator.clone())
-            .with_tx_to_session_layer(tx_session_layer_moderator)
             .ready()
             .expect("failed to validate builder")
             .build()
@@ -1119,8 +1119,6 @@ mod tests {
         // create a SessionParticipant
         let (tx_slim_participant, mut rx_slim_participant) = tokio::sync::mpsc::channel(10);
         let (tx_app_participant, mut rx_app_participant) = tokio::sync::mpsc::unbounded_channel();
-        let (tx_session_layer_participant, _rx_session_layer_participant) =
-            tokio::sync::mpsc::channel(10);
 
         let tx_participant =
             SessionTransmitter::new(tx_slim_participant.clone(), tx_app_participant.clone());
@@ -1143,7 +1141,6 @@ mod tests {
             .with_identity_verifier(SharedSecret::new("participant", SHARED_SECRET))
             .with_storage_path(storage_path_participant.clone())
             .with_tx(tx_participant.clone())
-            .with_tx_to_session_layer(tx_session_layer_participant)
             .ready()
             .expect("failed to validate builder")
             .build()
@@ -1624,7 +1621,6 @@ mod tests {
         let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(10);
         let (tx_app, _rx_app) = tokio::sync::mpsc::unbounded_channel();
         let (tx_session, _rx_session) = tokio::sync::mpsc::channel(10);
-        let (tx_session_layer, _rx_session_layer) = tokio::sync::mpsc::channel(10);
 
         SessionSettings {
             id: 1,
@@ -1640,7 +1636,6 @@ mod tests {
             },
             tx: SessionTransmitter::new(tx_slim, tx_app),
             tx_session,
-            tx_to_session_layer: tx_session_layer,
             identity_provider: SharedSecret::new("test", SHARED_SECRET),
             identity_verifier: SharedSecret::new("test", SHARED_SECRET),
             storage_path: std::path::PathBuf::from("/tmp/test_draining"),
@@ -1666,6 +1661,14 @@ mod tests {
             direction: MessageDirection::South,
             ack_tx: None,
         }
+    }
+
+    async fn count_on_messages(messages: &Arc<tokio::sync::Mutex<Vec<SessionMessage>>>) -> usize {
+        let messages = messages.lock().await;
+        messages
+            .iter()
+            .filter(|msg| matches!(msg, SessionMessage::OnMessage { .. }))
+            .count()
     }
 
     /// Helper to spawn a processing loop and return the task handle
@@ -1720,9 +1723,9 @@ mod tests {
             .expect("processing loop panicked");
 
         // Verify all messages were processed
+        let processed_messages = count_on_messages(&messages_received).await;
         assert_eq!(
-            messages_received.lock().await.len(),
-            3,
+            processed_messages, 3,
             "All queued messages should be processed during draining"
         );
         assert!(
@@ -1761,11 +1764,8 @@ mod tests {
             .expect("processing loop panicked");
 
         // Verify message was processed and shutdown was called
-        assert_eq!(
-            messages_received.lock().await.len(),
-            1,
-            "Message should be processed"
-        );
+        let processed_messages = count_on_messages(&messages_received).await;
+        assert_eq!(processed_messages, 1, "Message should be processed");
         assert!(
             *shutdown_called.lock().await,
             "Shutdown should have been called after draining"
@@ -1806,11 +1806,8 @@ mod tests {
         let elapsed = start_time.elapsed();
 
         // Verify message was processed and shutdown was called quickly
-        assert_eq!(
-            messages_received.lock().await.len(),
-            1,
-            "Message should be processed"
-        );
+        let processed_messages = count_on_messages(&messages_received).await;
+        assert_eq!(processed_messages, 1, "Message should be processed");
         assert!(
             *shutdown_called.lock().await,
             "Shutdown should have been called"
@@ -1902,11 +1899,8 @@ mod tests {
             .expect("processing loop panicked");
 
         // Verify no messages were processed but shutdown was called
-        assert_eq!(
-            messages_received.lock().await.len(),
-            0,
-            "No messages should be processed"
-        );
+        let processed_messages = count_on_messages(&messages_received).await;
+        assert_eq!(processed_messages, 0, "No messages should be processed");
         assert!(
             *shutdown_called.lock().await,
             "Shutdown should still be called"
@@ -1951,9 +1945,9 @@ mod tests {
             .expect("processing loop panicked");
 
         // Verify messages in queue when cancellation happened were still processed
+        let processed_messages = count_on_messages(&messages_received).await;
         assert_eq!(
-            messages_received.lock().await.len(),
-            2,
+            processed_messages, 2,
             "Messages in queue during cancellation should be processed"
         );
     }

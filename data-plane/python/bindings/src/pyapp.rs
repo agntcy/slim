@@ -28,7 +28,7 @@ use slim_config::grpc::client::ClientConfig as PyGrpcClientConfig;
 use slim_config::grpc::server::ServerConfig as PyGrpcServerConfig;
 
 #[gen_stub_pyclass]
-#[pyclass]
+#[pyclass(name = "App")]
 #[derive(Clone)]
 pub struct PyApp {
     internal: Arc<PyAppInternal<IdentityProvider, IdentityVerifier>>,

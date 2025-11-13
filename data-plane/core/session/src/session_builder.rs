@@ -62,7 +62,6 @@ pub struct ForModerator;
 ///     .with_identity_verifier(verifier)
 ///     .with_storage_path(storage_path)
 ///     .with_tx(transmitter)
-///     .with_tx_to_session_layer(tx_channel)
 ///     .ready()?  // Validates all fields are set
 ///     .build()   // Constructs the SessionController
 ///     .await?;
@@ -80,7 +79,6 @@ pub struct ForModerator;
 ///     .with_identity_verifier(verifier)
 ///     .with_storage_path(path)
 ///     .with_tx(tx)
-///     .with_tx_to_session_layer(tx_layer)
 ///     .ready()?
 ///     .build()
 ///     .await;
@@ -98,7 +96,6 @@ pub struct ForModerator;
 ///     .with_identity_verifier(verifier)
 ///     .with_storage_path(storage_path)
 ///     .with_tx(tx)
-///     .with_tx_to_session_layer(tx_to_layer)
 ///     .ready()?
 ///     .build()
 ///     .await;
@@ -116,7 +113,6 @@ where
     identity_verifier: Option<V>,
     storage_path: Option<std::path::PathBuf>,
     tx: Option<SessionTransmitter>,
-    tx_to_session_layer: Option<tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>>,
     graceful_shutdown_timeout: Option<std::time::Duration>,
     _target: PhantomData<Target>,
     _state: PhantomData<State>,
@@ -138,7 +134,6 @@ where
             identity_verifier: None,
             storage_path: None,
             tx: None,
-            tx_to_session_layer: None,
             graceful_shutdown_timeout: None,
             _target: PhantomData,
             _state: PhantomData,
@@ -185,14 +180,6 @@ where
         self
     }
 
-    pub fn with_tx_to_session_layer(
-        mut self,
-        tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
-    ) -> Self {
-        self.tx_to_session_layer = Some(tx_to_session_layer);
-        self
-    }
-
     pub fn with_graceful_shutdown_timeout(mut self, timeout: std::time::Duration) -> Self {
         self.graceful_shutdown_timeout = Some(timeout);
         self
@@ -208,7 +195,6 @@ where
             || self.identity_verifier.is_none()
             || self.storage_path.is_none()
             || self.tx.is_none()
-            || self.tx_to_session_layer.is_none()
         {
             return Err(SessionError::ConfigurationError(
                 "Not all required fields are set in SessionBuilder".to_string(),
@@ -224,7 +210,6 @@ where
             identity_verifier: self.identity_verifier,
             storage_path: self.storage_path,
             tx: self.tx,
-            tx_to_session_layer: self.tx_to_session_layer,
             graceful_shutdown_timeout: self.graceful_shutdown_timeout,
             _target: PhantomData,
             _state: PhantomData,
@@ -344,7 +329,6 @@ where
             config: self.config.unwrap(),
             tx: self.tx.unwrap(),
             tx_session: tx_session.clone(),
-            tx_to_session_layer: self.tx_to_session_layer.unwrap(),
             identity_provider: self.identity_provider.unwrap(),
             identity_verifier: self.identity_verifier.unwrap(),
             storage_path: self.storage_path.unwrap(),
@@ -490,17 +474,7 @@ mod tests {
     }
 
     #[test]
-    fn test_builder_with_tx_to_session_layer() {
-        let (tx, _) = mpsc::channel(10);
-        let builder =
-            SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
-                .with_tx_to_session_layer(tx);
-        assert!(builder.tx_to_session_layer.is_some());
-    }
-
-    #[test]
     fn test_builder_ready_with_all_fields() {
-        let (tx_to_session, _) = mpsc::channel(10);
         let builder =
             SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
                 .with_id(1)
@@ -510,8 +484,7 @@ mod tests {
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(std::path::PathBuf::from("/tmp"))
-                .with_tx(create_test_transmitter())
-                .with_tx_to_session_layer(tx_to_session);
+                .with_tx(create_test_transmitter());
 
         let ready_result = builder.ready();
         assert!(ready_result.is_ok());
@@ -519,7 +492,6 @@ mod tests {
 
     #[test]
     fn test_builder_ready_missing_id() {
-        let (tx_to_session, _) = mpsc::channel(10);
         let builder =
             SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
                 .with_source(create_test_name("source"))
@@ -528,8 +500,7 @@ mod tests {
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(std::path::PathBuf::from("/tmp"))
-                .with_tx(create_test_transmitter())
-                .with_tx_to_session_layer(tx_to_session);
+                .with_tx(create_test_transmitter());
 
         let ready_result = builder.ready();
         assert!(ready_result.is_err());
@@ -543,136 +514,9 @@ mod tests {
 
     #[test]
     fn test_builder_ready_missing_source() {
-        let (tx_to_session, _) = mpsc::channel(10);
         let builder =
             SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
                 .with_id(1)
-                .with_destination(create_test_name("dest"))
-                .with_config(create_test_config(true))
-                .with_identity_provider(MockTokenProvider)
-                .with_identity_verifier(MockVerifier)
-                .with_storage_path(std::path::PathBuf::from("/tmp"))
-                .with_tx(create_test_transmitter())
-                .with_tx_to_session_layer(tx_to_session);
-
-        let ready_result = builder.ready();
-        assert!(ready_result.is_err());
-    }
-
-    #[test]
-    fn test_builder_ready_missing_destination() {
-        let (tx_to_session, _) = mpsc::channel(10);
-        let builder =
-            SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
-                .with_id(1)
-                .with_source(create_test_name("source"))
-                .with_config(create_test_config(true))
-                .with_identity_provider(MockTokenProvider)
-                .with_identity_verifier(MockVerifier)
-                .with_storage_path(std::path::PathBuf::from("/tmp"))
-                .with_tx(create_test_transmitter())
-                .with_tx_to_session_layer(tx_to_session);
-
-        let ready_result = builder.ready();
-        assert!(ready_result.is_err());
-    }
-
-    #[test]
-    fn test_builder_ready_missing_config() {
-        let (tx_to_session, _) = mpsc::channel(10);
-        let builder =
-            SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
-                .with_id(1)
-                .with_source(create_test_name("source"))
-                .with_destination(create_test_name("dest"))
-                .with_identity_provider(MockTokenProvider)
-                .with_identity_verifier(MockVerifier)
-                .with_storage_path(std::path::PathBuf::from("/tmp"))
-                .with_tx(create_test_transmitter())
-                .with_tx_to_session_layer(tx_to_session);
-
-        let ready_result = builder.ready();
-        assert!(ready_result.is_err());
-    }
-
-    #[test]
-    fn test_builder_ready_missing_identity_provider() {
-        let (tx_to_session, _) = mpsc::channel(10);
-        let builder =
-            SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
-                .with_id(1)
-                .with_source(create_test_name("source"))
-                .with_destination(create_test_name("dest"))
-                .with_config(create_test_config(true))
-                .with_identity_verifier(MockVerifier)
-                .with_storage_path(std::path::PathBuf::from("/tmp"))
-                .with_tx(create_test_transmitter())
-                .with_tx_to_session_layer(tx_to_session);
-
-        let ready_result = builder.ready();
-        assert!(ready_result.is_err());
-    }
-
-    #[test]
-    fn test_builder_ready_missing_identity_verifier() {
-        let (tx_to_session, _) = mpsc::channel(10);
-        let builder =
-            SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
-                .with_id(1)
-                .with_source(create_test_name("source"))
-                .with_destination(create_test_name("dest"))
-                .with_config(create_test_config(true))
-                .with_identity_provider(MockTokenProvider)
-                .with_storage_path(std::path::PathBuf::from("/tmp"))
-                .with_tx(create_test_transmitter())
-                .with_tx_to_session_layer(tx_to_session);
-
-        let ready_result = builder.ready();
-        assert!(ready_result.is_err());
-    }
-
-    #[test]
-    fn test_builder_ready_missing_storage_path() {
-        let (tx_to_session, _) = mpsc::channel(10);
-        let builder =
-            SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
-                .with_id(1)
-                .with_source(create_test_name("source"))
-                .with_destination(create_test_name("dest"))
-                .with_config(create_test_config(true))
-                .with_identity_provider(MockTokenProvider)
-                .with_identity_verifier(MockVerifier)
-                .with_tx(create_test_transmitter())
-                .with_tx_to_session_layer(tx_to_session);
-
-        let ready_result = builder.ready();
-        assert!(ready_result.is_err());
-    }
-
-    #[test]
-    fn test_builder_ready_missing_tx() {
-        let (tx_to_session, _) = mpsc::channel(10);
-        let builder =
-            SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
-                .with_id(1)
-                .with_source(create_test_name("source"))
-                .with_destination(create_test_name("dest"))
-                .with_config(create_test_config(true))
-                .with_identity_provider(MockTokenProvider)
-                .with_identity_verifier(MockVerifier)
-                .with_storage_path(std::path::PathBuf::from("/tmp"))
-                .with_tx_to_session_layer(tx_to_session);
-
-        let ready_result = builder.ready();
-        assert!(ready_result.is_err());
-    }
-
-    #[test]
-    fn test_builder_ready_missing_tx_to_session_layer() {
-        let builder =
-            SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
-                .with_id(1)
-                .with_source(create_test_name("source"))
                 .with_destination(create_test_name("dest"))
                 .with_config(create_test_config(true))
                 .with_identity_provider(MockTokenProvider)
@@ -685,8 +529,103 @@ mod tests {
     }
 
     #[test]
+    fn test_builder_ready_missing_destination() {
+        let builder =
+            SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
+                .with_id(1)
+                .with_source(create_test_name("source"))
+                .with_config(create_test_config(true))
+                .with_identity_provider(MockTokenProvider)
+                .with_identity_verifier(MockVerifier)
+                .with_storage_path(std::path::PathBuf::from("/tmp"))
+                .with_tx(create_test_transmitter());
+
+        let ready_result = builder.ready();
+        assert!(ready_result.is_err());
+    }
+
+    #[test]
+    fn test_builder_ready_missing_config() {
+        let builder =
+            SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
+                .with_id(1)
+                .with_source(create_test_name("source"))
+                .with_destination(create_test_name("dest"))
+                .with_identity_provider(MockTokenProvider)
+                .with_identity_verifier(MockVerifier)
+                .with_storage_path(std::path::PathBuf::from("/tmp"))
+                .with_tx(create_test_transmitter());
+
+        let ready_result = builder.ready();
+        assert!(ready_result.is_err());
+    }
+
+    #[test]
+    fn test_builder_ready_missing_identity_provider() {
+        let builder =
+            SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
+                .with_id(1)
+                .with_source(create_test_name("source"))
+                .with_destination(create_test_name("dest"))
+                .with_config(create_test_config(true))
+                .with_identity_verifier(MockVerifier)
+                .with_storage_path(std::path::PathBuf::from("/tmp"))
+                .with_tx(create_test_transmitter());
+
+        let ready_result = builder.ready();
+        assert!(ready_result.is_err());
+    }
+
+    #[test]
+    fn test_builder_ready_missing_identity_verifier() {
+        let builder =
+            SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
+                .with_id(1)
+                .with_source(create_test_name("source"))
+                .with_destination(create_test_name("dest"))
+                .with_config(create_test_config(true))
+                .with_identity_provider(MockTokenProvider)
+                .with_storage_path(std::path::PathBuf::from("/tmp"))
+                .with_tx(create_test_transmitter());
+
+        let ready_result = builder.ready();
+        assert!(ready_result.is_err());
+    }
+
+    #[test]
+    fn test_builder_ready_missing_storage_path() {
+        let builder =
+            SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
+                .with_id(1)
+                .with_source(create_test_name("source"))
+                .with_destination(create_test_name("dest"))
+                .with_config(create_test_config(true))
+                .with_identity_provider(MockTokenProvider)
+                .with_identity_verifier(MockVerifier)
+                .with_tx(create_test_transmitter());
+
+        let ready_result = builder.ready();
+        assert!(ready_result.is_err());
+    }
+
+    #[test]
+    fn test_builder_ready_missing_tx() {
+        let builder =
+            SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
+                .with_id(1)
+                .with_source(create_test_name("source"))
+                .with_destination(create_test_name("dest"))
+                .with_config(create_test_config(true))
+                .with_identity_provider(MockTokenProvider)
+                .with_identity_verifier(MockVerifier)
+                .with_storage_path(std::path::PathBuf::from("/tmp"));
+
+        let ready_result = builder.ready();
+        assert!(ready_result.is_err());
+    }
+
+    #[test]
     fn test_builder_chaining() {
-        let (tx_to_session, _) = mpsc::channel(10);
         let builder =
             SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
                 .with_id(123)
@@ -696,8 +635,7 @@ mod tests {
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(std::path::PathBuf::from("/test/path"))
-                .with_tx(create_test_transmitter())
-                .with_tx_to_session_layer(tx_to_session);
+                .with_tx(create_test_transmitter());
 
         assert_eq!(builder.id, Some(123));
         assert!(builder.source.is_some());
@@ -710,12 +648,10 @@ mod tests {
             Some(std::path::PathBuf::from("/test/path"))
         );
         assert!(builder.tx.is_some());
-        assert!(builder.tx_to_session_layer.is_some());
     }
 
     #[test]
     fn test_builder_ready_state_transition() {
-        let (tx_to_session, _) = mpsc::channel(10);
         let builder =
             SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
                 .with_id(1)
@@ -725,8 +661,7 @@ mod tests {
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(std::path::PathBuf::from("/tmp"))
-                .with_tx(create_test_transmitter())
-                .with_tx_to_session_layer(tx_to_session);
+                .with_tx(create_test_transmitter());
 
         let ready_builder = builder.ready().unwrap();
 
@@ -739,7 +674,6 @@ mod tests {
         assert!(ready_builder.identity_verifier.is_some());
         assert!(ready_builder.storage_path.is_some());
         assert!(ready_builder.tx.is_some());
-        assert!(ready_builder.tx_to_session_layer.is_some());
     }
 
     #[test]
@@ -881,7 +815,7 @@ mod tests {
         assert!(builder.source.is_none());
 
         // Continue building
-        let (tx_to_session, _) = mpsc::channel(10);
+
         let builder = builder
             .with_source(create_test_name("source"))
             .with_destination(create_test_name("dest"))
@@ -889,8 +823,7 @@ mod tests {
             .with_identity_provider(MockTokenProvider)
             .with_identity_verifier(MockVerifier)
             .with_storage_path(std::path::PathBuf::from("/tmp"))
-            .with_tx(create_test_transmitter())
-            .with_tx_to_session_layer(tx_to_session);
+            .with_tx(create_test_transmitter());
 
         assert!(builder.ready().is_ok());
     }
@@ -898,7 +831,6 @@ mod tests {
     #[test]
     fn test_builder_ready_validation_comprehensive() {
         // Test that ready() properly validates each field individually
-        let (tx_to_session, _) = mpsc::channel(10);
 
         // Create a fully configured builder
         let mut builder =
@@ -912,7 +844,6 @@ mod tests {
         builder.identity_verifier = Some(MockVerifier);
         builder.storage_path = Some(std::path::PathBuf::from("/tmp"));
         builder.tx = Some(create_test_transmitter());
-        builder.tx_to_session_layer = Some(tx_to_session);
 
         // This should succeed
         assert!(builder.ready().is_ok());
@@ -1096,7 +1027,6 @@ mod tests {
         let temp_dir = std::env::temp_dir().join(format!("test_session_{}", rand::random::<u32>()));
         std::fs::create_dir_all(&temp_dir).unwrap();
 
-        let (tx_to_session, _rx_from_session) = mpsc::channel(10);
         let config = create_test_config(false); // participant (not initiator)
 
         let builder =
@@ -1108,8 +1038,7 @@ mod tests {
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir.clone())
-                .with_tx(create_test_transmitter())
-                .with_tx_to_session_layer(tx_to_session);
+                .with_tx(create_test_transmitter());
 
         let controller = builder.ready().unwrap().build();
 
@@ -1130,7 +1059,6 @@ mod tests {
         let temp_dir = std::env::temp_dir().join(format!("test_session_{}", rand::random::<u32>()));
         std::fs::create_dir_all(&temp_dir).unwrap();
 
-        let (tx_to_session, _rx_from_session) = mpsc::channel(10);
         let (slim_tx, mut slim_rx) = mpsc::channel(10);
         let (app_tx, _app_rx) = mpsc::unbounded_channel();
         let tx = SessionTransmitter::new(slim_tx, app_tx);
@@ -1147,8 +1075,7 @@ mod tests {
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir.clone())
-                .with_tx(tx)
-                .with_tx_to_session_layer(tx_to_session);
+                .with_tx(tx);
 
         let controller = builder.ready().unwrap().build();
 
@@ -1175,7 +1102,6 @@ mod tests {
         let temp_dir = std::env::temp_dir().join(format!("test_session_{}", rand::random::<u32>()));
         std::fs::create_dir_all(&temp_dir).unwrap();
 
-        let (tx_to_session, _rx_from_session) = mpsc::channel(10);
         let (slim_tx, mut slim_rx) = mpsc::channel(10);
         let (app_tx, _app_rx) = mpsc::unbounded_channel();
         let tx = SessionTransmitter::new(slim_tx, app_tx);
@@ -1192,8 +1118,7 @@ mod tests {
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir.clone())
-                .with_tx(tx)
-                .with_tx_to_session_layer(tx_to_session);
+                .with_tx(tx);
 
         let controller = builder.ready().unwrap().build();
 
@@ -1220,7 +1145,6 @@ mod tests {
         let temp_dir = std::env::temp_dir().join(format!("test_session_{}", rand::random::<u32>()));
         std::fs::create_dir_all(&temp_dir).unwrap();
 
-        let (tx_to_session, _) = mpsc::channel(10);
         let mut config = create_test_config(false);
         config.mls_enabled = false;
 
@@ -1233,8 +1157,7 @@ mod tests {
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir.clone())
-                .with_tx(create_test_transmitter())
-                .with_tx_to_session_layer(tx_to_session);
+                .with_tx(create_test_transmitter());
 
         let controller = builder.ready().unwrap().build();
         assert!(controller.is_ok());
@@ -1249,7 +1172,6 @@ mod tests {
         let temp_dir = std::env::temp_dir().join(format!("test_session_{}", rand::random::<u32>()));
         std::fs::create_dir_all(&temp_dir).unwrap();
 
-        let (tx_to_session, _) = mpsc::channel(10);
         let mut config = create_test_config(true);
         config.max_retries = Some(5);
         config.interval = Some(std::time::Duration::from_millis(500));
@@ -1263,8 +1185,7 @@ mod tests {
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir.clone())
-                .with_tx(create_test_transmitter())
-                .with_tx_to_session_layer(tx_to_session);
+                .with_tx(create_test_transmitter());
 
         let controller = builder.ready().unwrap().build();
         assert!(controller.is_ok());
@@ -1287,7 +1208,6 @@ mod tests {
         let temp_dir = std::env::temp_dir().join(format!("test_session_{}", rand::random::<u32>()));
         std::fs::create_dir_all(&temp_dir).unwrap();
 
-        let (tx_to_session, _) = mpsc::channel(10);
         let mut config = create_test_config(false);
         let mut metadata = HashMap::new();
         metadata.insert("app_name".to_string(), "test_app".to_string());
@@ -1303,8 +1223,7 @@ mod tests {
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir.clone())
-                .with_tx(create_test_transmitter())
-                .with_tx_to_session_layer(tx_to_session);
+                .with_tx(create_test_transmitter());
 
         let controller = builder.ready().unwrap().build();
         assert!(controller.is_ok());
@@ -1327,7 +1246,6 @@ mod tests {
         let temp_dir = std::env::temp_dir().join(format!("test_session_{}", rand::random::<u32>()));
         std::fs::create_dir_all(&temp_dir).unwrap();
 
-        let (tx_to_session, _) = mpsc::channel(10);
         let source = create_test_name("my_source");
         let destination = create_test_name("my_dest");
 
@@ -1340,8 +1258,7 @@ mod tests {
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir.clone())
-                .with_tx(create_test_transmitter())
-                .with_tx_to_session_layer(tx_to_session);
+                .with_tx(create_test_transmitter());
 
         let controller = builder.ready().unwrap().build();
         assert!(controller.is_ok());
@@ -1364,9 +1281,6 @@ mod tests {
         std::fs::create_dir_all(&temp_dir1).unwrap();
         std::fs::create_dir_all(&temp_dir2).unwrap();
 
-        let (tx_to_session1, _) = mpsc::channel(10);
-        let (tx_to_session2, _) = mpsc::channel(10);
-
         let builder1 =
             SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
                 .with_id(100)
@@ -1376,8 +1290,7 @@ mod tests {
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir1.clone())
-                .with_tx(create_test_transmitter())
-                .with_tx_to_session_layer(tx_to_session1);
+                .with_tx(create_test_transmitter());
 
         let builder2 =
             SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
@@ -1388,8 +1301,7 @@ mod tests {
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir2.clone())
-                .with_tx(create_test_transmitter())
-                .with_tx_to_session_layer(tx_to_session2);
+                .with_tx(create_test_transmitter());
 
         let controller1 = builder1.ready().unwrap().build();
         let controller2 = builder2.ready().unwrap().build();
@@ -1416,7 +1328,6 @@ mod tests {
         let temp_dir = std::env::temp_dir().join(format!("test_session_{}", rand::random::<u32>()));
         std::fs::create_dir_all(&temp_dir).unwrap();
 
-        let (tx_to_session, _) = mpsc::channel(10);
         let mut config = create_test_config(false);
         config.session_type = ProtoSessionType::Unspecified;
 
@@ -1429,8 +1340,7 @@ mod tests {
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir.clone())
-                .with_tx(create_test_transmitter())
-                .with_tx_to_session_layer(tx_to_session);
+                .with_tx(create_test_transmitter());
 
         let controller = builder.ready().unwrap().build();
         assert!(controller.is_ok());

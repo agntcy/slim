@@ -17,7 +17,7 @@ enum CompletionFuture {
     /// A oneshot receiver for completion acknowledgments
     OneshotReceiver(oneshot::Receiver<Result<(), SessionError>>),
     /// A join handle for task-based completions
-    JoinHandle(tokio::task::JoinHandle<Result<(), SessionError>>),
+    JoinHandle(tokio::task::JoinHandle<()>),
 }
 
 /// A handle to await the completion of an asynchronous operation.
@@ -66,7 +66,7 @@ impl CompletionHandle {
     ///
     /// This is used for operations that spawn a task and need to await
     /// its completion.
-    pub fn from_join_handle(handle: tokio::task::JoinHandle<Result<(), SessionError>>) -> Self {
+    pub fn from_join_handle(handle: tokio::task::JoinHandle<()>) -> Self {
         Self {
             inner: CompletionFuture::JoinHandle(handle),
         }
@@ -86,7 +86,7 @@ impl Future for CompletionHandle {
                 Poll::Pending => Poll::Pending,
             },
             CompletionFuture::JoinHandle(handle) => match Pin::new(handle).poll(cx) {
-                Poll::Ready(Ok(result)) => Poll::Ready(result),
+                Poll::Ready(Ok(result)) => Poll::Ready(Ok(result)),
                 Poll::Ready(Err(e)) => Poll::Ready(Err(SessionError::AckReception(format!(
                     "Join handle error: {}",
                     e

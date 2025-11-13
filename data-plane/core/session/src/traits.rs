@@ -55,14 +55,10 @@ pub trait MessageHandler: Send + Sync {
     }
 
     /// Indicates whether the layer needs to drain messages before shutdown.
-    fn needs_drain(&self) -> bool {
-        false
-    }
+    fn needs_drain(&self) -> bool;
 
     /// Optional hook called before the layer is shut down.
-    async fn on_shutdown(&mut self) -> Result<(), SessionError> {
-        Ok(())
-    }
+    async fn on_shutdown(&mut self) -> Result<(), SessionError>;
 
     /// Optional hook for periodic ops (e.g. MLS key rotation)
     #[allow(dead_code)]

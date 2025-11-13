@@ -37,8 +37,8 @@ async def test_end_to_end(server):
     - Test error behavior after deleting session
     - Disconnect cleanup
     """
-    alice_name = slim_bindings.PyName("org", "default", "alice_e2e")
-    bob_name = slim_bindings.PyName("org", "default", "bob_e2e")
+    alice_name = slim_bindings.Name("org", "default", "alice_e2e")
+    bob_name = slim_bindings.Name("org", "default", "bob_e2e")
 
     # create 2 clients, Alice and Bob
     svc_alice = create_svc(alice_name, local_service=server.local_service)
@@ -54,10 +54,10 @@ async def test_end_to_end(server):
         )
 
         # subscribe alice and bob
-        alice_name = slim_bindings.PyName(
+        alice_name = slim_bindings.Name(
             "org", "default", "alice_e2e", id=svc_alice.id
         )
-        bob_name = slim_bindings.PyName("org", "default", "bob_e2e", id=svc_bob.id)
+        bob_name = slim_bindings.Name("org", "default", "bob_e2e", id=svc_bob.id)
         await svc_alice.subscribe(alice_name, conn_id_alice)
         await svc_bob.subscribe(bob_name, conn_id_bob)
 
@@ -73,7 +73,7 @@ async def test_end_to_end(server):
     # create point to point session
     session_context_alice, completion_handle = await svc_alice.create_session(
         bob_name,
-        slim_bindings.PySessionConfiguration.PointToPoint(
+        slim_bindings.SessionConfiguration.PointToPoint(
             max_retries=5,
             timeout=datetime.timedelta(seconds=5),
         ),
@@ -138,9 +138,9 @@ async def test_end_to_end(server):
         # disconnect bob
         await svc_bob.disconnect(conn_id_bob)
 
-    # try to delete a random session, we should get an exception
     try:
-        await svc_alice.delete_session(session_context_alice)
+        delete_handle = await svc_alice.delete_session(session_context_alice)
+        await delete_handle
     except Exception as e:
         assert "session closed" in str(e)
 
@@ -157,8 +157,8 @@ async def test_slim_wrapper(server):
     - Reply using publish_to helper
     - Ensure errors after session deletion are surfaced
     """
-    name1 = slim_bindings.PyName("org", "default", "slim1")
-    name2 = slim_bindings.PyName("org", "default", "slim2")
+    name1 = slim_bindings.Name("org", "default", "slim1")
+    name2 = slim_bindings.Name("org", "default", "slim2")
 
     # create new slim object
     slim1 = create_slim(name1, local_service=server.local_service)
@@ -187,7 +187,7 @@ async def test_slim_wrapper(server):
     # create session
     session_context, completion_handle = await slim2.create_session(
         name1,
-        slim_bindings.PySessionConfiguration.PointToPoint(),
+        slim_bindings.SessionConfiguration.PointToPoint(),
     )
 
     # wait for session to be fully established
@@ -202,7 +202,7 @@ async def test_slim_wrapper(server):
     msg_ctx, msg_rcv = await session_context_rec.get_message()
 
     # make sure the received session is PointToPoint as well
-    assert session_context_rec.session_type == slim_bindings.PySessionType.PointToPoint
+    assert session_context_rec.session_type == slim_bindings.SessionType.PointToPoint
 
     # Make sure the source is correct
     assert session_context_rec.src == slim1.local_name
@@ -229,8 +229,11 @@ async def test_slim_wrapper(server):
     await res_pub
 
     # delete sessions
-    await slim1.delete_session(session_context_rec)
-    await slim2.delete_session(session_context)
+    h1 = await slim1.delete_session(session_context_rec)
+    h2 = await slim2.delete_session(session_context)
+
+    await h1
+    await h2
 
     # try to send a message after deleting the session - this should raise an exception
     try:
@@ -255,8 +258,8 @@ async def test_auto_reconnect_after_server_restart(server):
     - Wait for automatic reconnection
     - Publish again and confirm continuity using original session context
     """
-    alice_name = slim_bindings.PyName("org", "default", "alice_res")
-    bob_name = slim_bindings.PyName("org", "default", "bob_res")
+    alice_name = slim_bindings.Name("org", "default", "alice_res")
+    bob_name = slim_bindings.Name("org", "default", "bob_res")
 
     svc_alice = create_svc(alice_name, local_service=server.local_service)
     svc_bob = create_svc(bob_name, local_service=server.local_service)
@@ -270,10 +273,10 @@ async def test_auto_reconnect_after_server_restart(server):
             {"endpoint": "http://127.0.0.1:12346", "tls": {"insecure": True}},
         )
 
-        alice_name = slim_bindings.PyName(
+        alice_name = slim_bindings.Name(
             "org", "default", "alice_res", id=svc_alice.id
         )
-        bob_name = slim_bindings.PyName("org", "default", "bob_res", id=svc_bob.id)
+        bob_name = slim_bindings.Name("org", "default", "bob_res", id=svc_bob.id)
         await svc_alice.subscribe(alice_name, conn_id_alice)
         await svc_bob.subscribe(bob_name, conn_id_bob)
 
@@ -286,7 +289,7 @@ async def test_auto_reconnect_after_server_restart(server):
     # create point to point session
     session_context, completion_handle = await svc_alice.create_session(
         bob_name,
-        slim_bindings.PySessionConfiguration.PointToPoint(),
+        slim_bindings.SessionConfiguration.PointToPoint(),
     )
 
     # wait for session to be fully established
@@ -319,8 +322,11 @@ async def test_auto_reconnect_after_server_restart(server):
     assert received == bytes(test_msg)
 
     # delete sessions
-    await svc_alice.delete_session(session_context)
-    await svc_bob.delete_session(bob_session_ctx)
+    h_alice = await svc_alice.delete_session(session_context)
+    h_bob = await svc_bob.delete_session(bob_session_ctx)
+
+    await h_alice
+    await h_bob
 
     # clean up
     await svc_alice.disconnect(conn_id_alice)
@@ -335,7 +341,7 @@ async def test_error_on_nonexistent_subscription(server):
     - Publish message addressed to Bob (not connected)
     - Expect an error surfaced (no matching subscription)
     """
-    name = slim_bindings.PyName("org", "default", "alice_nonsub")
+    name = slim_bindings.Name("org", "default", "alice_nonsub")
 
     svc_alice = create_svc(name, local_service=server.local_service)
 
@@ -344,18 +350,18 @@ async def test_error_on_nonexistent_subscription(server):
         conn_id_alice = await svc_alice.connect(
             {"endpoint": "http://127.0.0.1:12347", "tls": {"insecure": True}},
         )
-        alice_class = slim_bindings.PyName(
+        alice_class = slim_bindings.Name(
             "org", "default", "alice_nonsub", id=svc_alice.id
         )
         await svc_alice.subscribe(alice_class, conn_id_alice)
 
     # create Bob's name, but do not instantiate or subscribe Bob
-    bob_name = slim_bindings.PyName("org", "default", "bob_nonsub")
+    bob_name = slim_bindings.Name("org", "default", "bob_nonsub")
 
     # create point to point session (Alice only)
     session_context, completion_handle = await svc_alice.create_session(
         bob_name,
-        slim_bindings.PySessionConfiguration.PointToPoint(),
+        slim_bindings.SessionConfiguration.PointToPoint(),
     )
 
     # completion handle should not complete since Bob is not there
@@ -382,7 +388,8 @@ async def test_error_on_nonexistent_subscription(server):
         pytest.fail(f"Expected an exception, but received message: {received}")
 
     # delete session
-    await svc_alice.delete_session(session_context)
+    h = await svc_alice.delete_session(session_context)
+    await h
 
     # clean up
     await svc_alice.disconnect(conn_id_alice)
@@ -392,7 +399,7 @@ async def test_error_on_nonexistent_subscription(server):
 @pytest.mark.parametrize("server", ["127.0.0.1:12345", None], indirect=True)
 async def test_listen_for_session_timeout(server):
     """Test that listen_for_session times out appropriately when no session is available."""
-    alice_name = slim_bindings.PyName("org", "default", "alice_timeout")
+    alice_name = slim_bindings.Name("org", "default", "alice_timeout")
 
     svc_alice = create_svc(alice_name, local_service=server.local_service)
 
@@ -437,7 +444,7 @@ async def test_listen_for_session_timeout(server):
 @pytest.mark.parametrize("server", ["127.0.0.1:12346", None], indirect=True)
 async def test_get_message_timeout(server):
     """Test that get_message times out appropriately when no message is available."""
-    alice_name = slim_bindings.PyName("org", "default", "alice_msg_timeout")
+    alice_name = slim_bindings.Name("org", "default", "alice_msg_timeout")
 
     # Create service
     svc_alice = create_svc(alice_name, local_service=server.local_service)
@@ -451,9 +458,9 @@ async def test_get_message_timeout(server):
         )
 
     # Create a session (with dummy peer for timeout testing)
-    dummy_peer = slim_bindings.PyName("org", "default", "dummy_peer")
+    dummy_peer = slim_bindings.Name("org", "default", "dummy_peer")
     session_context, completion_handle = await svc_alice.create_session(
-        dummy_peer, slim_bindings.PySessionConfiguration.PointToPoint()
+        dummy_peer, slim_bindings.SessionConfiguration.PointToPoint()
     )
 
     # make sure the completion of the session creation hangs when awaited
@@ -488,7 +495,9 @@ async def test_get_message_timeout(server):
         )
 
     # Clean up
-    await svc_alice.delete_session(session_context)
+    h = await svc_alice.delete_session(session_context)
+    await h
+
     if conn_id_alice is not None:
         await svc_alice.disconnect(conn_id_alice)
 
@@ -504,7 +513,7 @@ async def test_publish_no_ack_timeout(server):
 
     The session should be reliable to require acknowledgments.
     """
-    alice_name = slim_bindings.PyName("org", "default", "alice_noack")
+    alice_name = slim_bindings.Name("org", "default", "alice_noack")
 
     # Create only Alice - no Bob to receive/acknowledge
     slim_alice = create_slim(alice_name, local_service=server.local_service)
@@ -516,12 +525,12 @@ async def test_publish_no_ack_timeout(server):
         )
 
     # Create Bob's name, but Bob doesn't exist/isn't listening
-    bob_name = slim_bindings.PyName("org", "default", "bob_noack")
+    bob_name = slim_bindings.Name("org", "default", "bob_noack")
 
     # Create a reliable session from Alice to non-existent Bob
     session_context, completion_handle = await slim_alice.create_session(
         bob_name,
-        slim_bindings.PySessionConfiguration.PointToPoint(
+        slim_bindings.SessionConfiguration.PointToPoint(
             max_retries=5,
             timeout=datetime.timedelta(seconds=5),
         ),
@@ -536,4 +545,5 @@ async def test_publish_no_ack_timeout(server):
         await asyncio.wait_for(pub_res, timeout=2.0)
 
     # Clean up
-    await slim_alice.delete_session(session_context)
+    h = await slim_alice.delete_session(session_context)
+    await h
