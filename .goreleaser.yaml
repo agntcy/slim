@@ -9,12 +9,12 @@ builds:
     dir: control-plane/slimctl
     goos:
       - darwin
-      - linux
-      - windows
+#      - linux
+#      - windows
     goarch:
-      - amd64
       - arm64
-      - 386
+#      - amd64
+#      - 386
 
     ldflags:
       - -X '{{.ModulePath}}/control-plane/slimctl/internal/cmd/version.semVersion={{.Version}}'
@@ -42,20 +42,31 @@ changelog:
 homebrew_casks:
   - name: slimctl
     description: "A CLI tool for managing SLIM Devices"
-    homepage: "https://github.com/agntcy/slim/control-plane/slimctl"
+    homepage: "https://github.com/lpuskas/slim/control-plane/slimctl"
     directory: Casks
+
+#    test:
+#      commands:
+#        - system "#{bin}/banzai --version"
+    hooks:
+      post:
+        install: |
+          system "chmod", "+x", "#{staged_path}/slimctl"
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/slimctl"]
+          end
 
     binaries:
       - slimctl
 
     url:
-      template: "https://github.com/agntcy/slim/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+      template: "https://github.com/lpuskas/slim/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
       using: ":homebrew_curl"
 
-    skip_upload: false
+    skip_upload: true
 
     repository:
-      owner: agntcy
+      owner: lpuskas
       name: "slim"
 
       branch: brew
