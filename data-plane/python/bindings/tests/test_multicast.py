@@ -6,7 +6,7 @@ Group integration test for Slim bindings.
 
 Scenario:
   - A configurable number of participants (participants_count) join a group
-    "chat" identified by a shared topic (PyName).
+    "chat" identified by a shared topic (Name).
   - Participant 0 (the "moderator") creates the group session, invites
     every other participant, and publishes the first message addressed to the
     next participant in a logical ring.
@@ -16,7 +16,7 @@ Scenario:
 
 What is validated implicitly:
   * Group session establishment (session_type == Group).
-  * dst equals the channel/topic PyName for non-creator participants.
+  * dst equals the channel/topic Name for non-creator participants.
   * src matches the participant's own local identity when receiving.
   * Message propagation across all participants without loss.
   * Optional MLS flag is parameterized.
@@ -73,7 +73,7 @@ async def test_group(server, mls_enabled):  # noqa: C901
     participants_count = 10
     participants = []
 
-    chat_name = slim_bindings.PyName("org", f"test_{test_id}", "chat")
+    chat_name = slim_bindings.Name("org", f"test_{test_id}", "chat")
 
     print(f"Test ID: {test_id}")
     print(f"Chat name: {chat_name}")
@@ -93,7 +93,7 @@ async def test_group(server, mls_enabled):  # noqa: C901
         print(f"Creating participant {part_name}...")
 
         # Use unique namespace per test to avoid collisions
-        name = slim_bindings.PyName("org", f"test_{test_id}", part_name)
+        name = slim_bindings.Name("org", f"test_{test_id}", part_name)
 
         participant = await create_slim(name, local_service=server.local_service)
 
@@ -108,7 +108,7 @@ async def test_group(server, mls_enabled):  # noqa: C901
             print(f"{part_name} -> Creating new group sessions...")
             # create a group session. index 0 is the moderator of the session
             # and it will invite all the other participants to the session
-            session_config = slim_bindings.PySessionConfiguration.Group(
+            session_config = slim_bindings.SessionConfiguration.Group(
                 max_retries=5,
                 timeout=datetime.timedelta(seconds=5),
                 mls_enabled=mls_enabled,
@@ -122,7 +122,7 @@ async def test_group(server, mls_enabled):  # noqa: C901
                 if i != 0:
                     name_to_add = f"participant-{i}"
                     # Use same unique namespace as above
-                    to_add = slim_bindings.PyName("org", f"test_{test_id}", name_to_add)
+                    to_add = slim_bindings.Name("org", f"test_{test_id}", name_to_add)
 
                     if server.endpoint is not None:
                         await participant.set_route(to_add)
@@ -162,8 +162,7 @@ async def test_group(server, mls_enabled):  # noqa: C901
 
                         # make sure the received session is group
                         assert (
-                            recv_session.session_type
-                            == slim_bindings.PySessionType.Group
+                            recv_session.session_type == slim_bindings.SessionType.Group
                         )
 
                         # Make sure the dst of the session is the channel name

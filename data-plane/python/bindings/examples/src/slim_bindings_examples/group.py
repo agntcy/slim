@@ -12,8 +12,8 @@ Purpose:
     * Interactively publish messages
 
 Key concepts:
-  - Group sessions are created with PySessionConfiguration.Group and
-    reference a 'topic' (channel) PyName.
+  - Group sessions are created with SessionConfiguration.Group and
+    reference a 'topic' (channel) Name.
   - Invites are explicit: the moderator invites each participant after
     creating the session.
   - Participants that did not create the session simply wait for
@@ -80,7 +80,7 @@ async def receive_loop(
         try:
             # Await next inbound message from the group session.
             # The returned parameters are a message context and the raw payload bytes.
-            # Check session.py for details on PyMessageContext contents.
+            # Check session.py for details on MessageContext contents.
             ctx, payload = await session.get_message()
             print_formatted_text(
                 f"{ctx.source_name} > {payload.decode()}",
@@ -197,7 +197,7 @@ async def run_client(
         format_message_print(
             f"Creating new group session (moderator)... {split_id(local)}"
         )
-        config = slim_bindings.PySessionConfiguration.Group(  # type: ignore
+        config = slim_bindings.SessionConfiguration.Group(
             max_retries=5,  # Max per-message resend attempts upon missing ack before reporting a delivery failure.
             timeout=datetime.timedelta(
                 seconds=5
@@ -206,7 +206,7 @@ async def run_client(
         )
 
         created_session = await local_app.create_session(
-            chat_channel,  # Logical group channel (PyName) all participants join; acts as group/topic identifier.
+            chat_channel,  # Logical group channel (Name) all participants join; acts as group/topic identifier.
             config,  # session configuration
         )
 

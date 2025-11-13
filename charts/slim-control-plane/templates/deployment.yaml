@@ -71,7 +71,11 @@ spec:
             - name: spire-agent-socket
               mountPath: /run/spire/agent-sockets
               readOnly: false
-{{- end}}              
+{{- end}}
+{{- if .Values.persistence.enabled }}
+            - name: db-storage
+              mountPath: /db
+{{- end }}
           {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
@@ -85,6 +89,11 @@ spec:
         - name: config-volume
           configMap:
             name: {{ include "control-plane.fullname" . }}
+{{- if .Values.persistence.enabled }}
+        - name: db-storage
+          persistentVolumeClaim:
+            claimName: {{ include "control-plane.pvcName" . }}
+{{- end }}
       {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
       {{- end }}

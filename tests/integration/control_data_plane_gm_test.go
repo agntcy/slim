@@ -27,7 +27,7 @@ var _ = Describe("Group management through control plane", func() {
 		// start control plane
 		var errCP error
 		controlPlaneSession, errCP = gexec.Start(
-			exec.Command(controlPlanePath),
+			exec.Command(controlPlanePath, "--config", "./testdata/control-plane-config.yaml"),
 			GinkgoWriter, GinkgoWriter,
 		)
 		Expect(errCP).NotTo(HaveOccurred())

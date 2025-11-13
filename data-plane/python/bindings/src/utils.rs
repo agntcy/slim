@@ -20,7 +20,7 @@ use slim_datapath::messages::encoder::Name;
 
 /// name class
 #[gen_stub_pyclass]
-#[pyclass(eq, str)]
+#[pyclass(name = "Name", eq, str)]
 #[derive(Clone, PartialEq)]
 pub struct PyName {
     name: Name,
