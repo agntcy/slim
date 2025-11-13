@@ -42,22 +42,22 @@ class TestStub:
 class TestServicer():
     """Server servicer for Test. Implement this class to provide your service logic."""
 
-    def ExampleUnaryUnary(self, request, context):
+    def ExampleUnaryUnary(self, request, msg_context, session_context):
         """Method for ExampleUnaryUnary. Implement your service logic here."""
         raise slimrpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
-    def ExampleUnaryStream(self, request, context):
+    def ExampleUnaryStream(self, request, msg_context, session_context):
         """Method for ExampleUnaryStream. Implement your service logic here."""
         raise slimrpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
-    def ExampleStreamUnary(self, request_iterator, context):
+    def ExampleStreamUnary(self, request_iterator, session_context):
         """Method for ExampleStreamUnary. Implement your service logic here."""
         raise slimrpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
-    def ExampleStreamStream(self, request_iterator, context):
+    def ExampleStreamStream(self, request_iterator, session_context):
         """Method for ExampleStreamStream. Implement your service logic here."""
         raise slimrpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"

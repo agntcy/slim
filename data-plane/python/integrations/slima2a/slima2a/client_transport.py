@@ -6,6 +6,7 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Callable
 
+import slim_bindings
 import slimrpc
 from a2a.client.client import ClientConfig as A2AClientConfig
 from a2a.client.middleware import ClientCallContext, ClientCallInterceptor
@@ -29,6 +30,15 @@ from a2a.utils.telemetry import SpanKind, trace_class
 from slima2a.types import a2a_pb2_slimrpc
 
 logger = logging.getLogger(__name__)
+
+
+def slimrpc_channel_factory(
+    local_app: slim_bindings.Slim,
+) -> Callable[[str], slimrpc.Channel]:
+    def factory(remote: str) -> slimrpc.Channel:
+        return slimrpc.Channel(local_app=local_app, remote=remote)
+
+    return factory
 
 
 @dataclass
@@ -198,5 +208,5 @@ class SRPCTransport(ClientTransport):
         return card
 
     async def close(self) -> None:
-        """Closes the gRPC channel."""
-        await self.channel.close()
+        """Closes the transport and releases any resources."""
+        pass

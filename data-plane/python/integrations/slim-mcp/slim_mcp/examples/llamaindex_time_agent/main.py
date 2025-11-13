@@ -43,7 +43,7 @@ async def amain(
 
     logger.info("Starting SLIM client")
     async with SLIMClient(
-        config,
+        [config],
         "org",
         "ns",
         "time-agent",
