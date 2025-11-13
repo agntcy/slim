@@ -24,6 +24,29 @@ class PyApp:
     def remove_route(self, name:PyName, conn:builtins.int) -> typing.Any: ...
     def delete_session(self, session_context:PySessionContext) -> typing.Any: ...
 
+class PyCompletionHandle:
+    r"""
+    Handle for awaiting completion of asynchronous operations.
+    This class wraps a `CompletionHandle` future, allowing Python code
+    to await the completion of operations such as:
+    - Message delivery (publish)
+    - Session initialization (create_session)
+    - Participant invitation (invite)
+    - Participant removal (remove)
+    
+    # Examples
+    ````python
+    ...
+    # This will make sure the message is successfully handled to the session
+    res_pub = await session_context.publish(msg)
+    # This will make sure the message was successfully delivered to the peer(s)
+    ack = await res_pub
+    print("Operation completed:", ack)
+    ...
+    ```
+    """
+    ...
+
 class PyKey:
     r"""
     Composite key description used for signing or verification.
@@ -90,26 +113,6 @@ class PyMessageContext:
         Prevent direct construction from Python. `PyMessageContext` instances
         are created internally when messages are received from the service.
         """
-
-class PyMessageDeliveryAck:
-    r"""
-    Acknowledgment for message delivery operations.
-    This class wraps a `MessageDeliveryAck` future, allowing Python code
-    to await the completion of message delivery operations such as publish,
-    invite, and remove.
-    
-    # Examples
-    ````python
-    ...
-    # This will make sure the message is successfully handled to the session
-    res_pub = await session_context.publish(msg)
-    # This will make sure the message was successfully delivered to the peer(s)
-    ack = await res_pub
-    print("Message delivery acknowledged:", ack)
-    ...
-    ```
-    """
-    ...
 
 class PyName:
     r"""

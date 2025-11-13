@@ -128,7 +128,12 @@ async def test_sticky_session(server, mls_enabled):
         timeout=datetime.timedelta(milliseconds=500),
         mls_enabled=mls_enabled,
     )
-    sender_session = await sender.create_session(receiver_name, session_config)
+    sender_session, completion_handle = await sender.create_session(
+        receiver_name, session_config
+    )
+
+    # wait for session establishment
+    await completion_handle
 
     payload_type = "hello message"
     metadata = {"sender": "hello"}

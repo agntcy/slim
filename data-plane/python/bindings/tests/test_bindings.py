@@ -71,13 +71,16 @@ async def test_end_to_end(server):
     print(bob_name)
 
     # create point to point session
-    session_context_alice = await svc_alice.create_session(
+    session_context_alice, completion_handle = await svc_alice.create_session(
         bob_name,
         slim_bindings.PySessionConfiguration.PointToPoint(
             max_retries=5,
             timeout=datetime.timedelta(seconds=5),
         ),
     )
+
+    # wait for session to be fully established
+    await completion_handle
 
     # send msg from Alice to Bob
     msg = [1, 2, 3, 4, 5, 6, 7, 8, 9]
@@ -182,10 +185,13 @@ async def test_slim_wrapper(server):
         await slim2.set_route(name1)
 
     # create session
-    session_context = await slim2.create_session(
+    session_context, completion_handle = await slim2.create_session(
         name1,
         slim_bindings.PySessionConfiguration.PointToPoint(),
     )
+
+    # wait for session to be fully established
+    await completion_handle
 
     # publish message
     msg = [1, 2, 3, 4, 5, 6, 7, 8, 9]
@@ -278,10 +284,13 @@ async def test_auto_reconnect_after_server_restart(server):
         await asyncio.sleep(1)
 
     # create point to point session
-    session_context = await svc_alice.create_session(
+    session_context, completion_handle = await svc_alice.create_session(
         bob_name,
         slim_bindings.PySessionConfiguration.PointToPoint(),
     )
+
+    # wait for session to be fully established
+    await completion_handle
 
     # send baseline message Alice -> Bob; Bob should first receive a new session then the message
     baseline_msg = [1, 2, 3]
@@ -344,10 +353,16 @@ async def test_error_on_nonexistent_subscription(server):
     bob_name = slim_bindings.PyName("org", "default", "bob_nonsub")
 
     # create point to point session (Alice only)
-    session_context = await svc_alice.create_session(
+    session_context, completion_handle = await svc_alice.create_session(
         bob_name,
         slim_bindings.PySessionConfiguration.PointToPoint(),
     )
+
+    # completion handle should not complete since Bob is not there
+    with pytest.raises(
+        asyncio.TimeoutError,
+    ):
+        await asyncio.wait_for(completion_handle, timeout=1)
 
     # publish a message from Alice intended for Bob (who is not there)
     msg = [7, 8, 9]
@@ -437,9 +452,15 @@ async def test_get_message_timeout(server):
 
     # Create a session (with dummy peer for timeout testing)
     dummy_peer = slim_bindings.PyName("org", "default", "dummy_peer")
-    session_context = await svc_alice.create_session(
+    session_context, completion_handle = await svc_alice.create_session(
         dummy_peer, slim_bindings.PySessionConfiguration.PointToPoint()
     )
+
+    # make sure the completion of the session creation hangs when awaited
+    with pytest.raises(
+        asyncio.TimeoutError,
+    ):
+        await asyncio.wait_for(completion_handle, timeout=0.5)
 
     # Test with a short timeout - should raise an exception
     start_time = asyncio.get_event_loop().time()
@@ -498,7 +519,7 @@ async def test_publish_no_ack_timeout(server):
     bob_name = slim_bindings.PyName("org", "default", "bob_noack")
 
     # Create a reliable session from Alice to non-existent Bob
-    session_context = await slim_alice.create_session(
+    session_context, completion_handle = await slim_alice.create_session(
         bob_name,
         slim_bindings.PySessionConfiguration.PointToPoint(
             max_retries=5,

@@ -10,7 +10,6 @@ use slim_session::context::SessionContext;
 use slim_session::{Notification, SessionError};
 use slim_session::{SessionConfig, session_controller::SessionController};
 
-
 use crate::app::App;
 use crate::bindings::builder::AppAdapterBuilder;
 use crate::bindings::service_ref::{ServiceRef, get_or_init_global_service};
@@ -453,16 +452,16 @@ mod tests {
             .expect("Failed to create adapter");
 
         // Create a session
-        let session_config =
-            SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
+        let session_config = SessionConfig {
+            session_type: ProtoSessionType::PointToPoint,
+            initiator: true,
+            ..Default::default()
+        };
         let dst = Name::from_strings(["org", "ns", "dst"]);
-        let (session_ctx, completion_handle) = adapter
+        let (session_ctx, _completion_handle) = adapter
             .create_session(session_config, dst)
             .await
             .expect("Failed to create session");
-
-        // Do not wait on completion handle here, just test delete
-        let _ = completion_handle;
 
         // Get the session reference and test delete
         let session_ref = session_ctx.session.upgrade();

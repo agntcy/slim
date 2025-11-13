@@ -2,9 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Standard library imports
-use std::{
-    collections::HashMap, time::Duration
-};
+use std::{collections::HashMap, time::Duration};
 
 use parking_lot::Mutex;
 use tokio::sync::{self, oneshot};
@@ -1151,8 +1149,11 @@ mod tests {
             .build()
             .unwrap();
 
-        // Discovery request message is automatically sent by the moderator on creation
-        // check that the request is received by slim on the moderator
+        let completion_handle = moderator
+            .invite_participant_internal(&participant_name)
+            .await
+            .expect("error inviting participant");
+
         let received_discovery_request =
             timeout(Duration::from_millis(100), rx_slim_moderator.recv())
                 .await
@@ -1325,6 +1326,9 @@ mod tests {
             no_more_participant.is_err(),
             "Expected no more messages on participant slim channel"
         );
+
+        // the completion handler should now be complete
+        completion_handle.await.expect("error in completion handle");
 
         // create an application message using the participant name
         let app_data = b"Hello from moderator to participant".to_vec();

@@ -137,7 +137,13 @@ async def test_identity_verification(server, audience):
         max_retries=3,
         timeout=datetime.timedelta(seconds=1),
     )
-    session_info = await slim_sender.create_session(receiver_name, session_config)
+    session_info, completion_handle = await slim_sender.create_session(
+        receiver_name, session_config
+    )
+
+    # wait for session establishment if the audience is valid
+    if audience == test_audience:
+        await completion_handle
 
     # messages
     pub_msg = str.encode("thisistherequest")

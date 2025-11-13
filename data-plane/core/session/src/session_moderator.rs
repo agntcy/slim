@@ -185,11 +185,14 @@ where
                             msg.to_string()
                         };
 
+                    let message = match &self.common.settings.config.session_type {
+                        ProtoSessionType::PointToPoint => "session handshake failed",
+                        ProtoSessionType::Multicast => "failed to add a participant to the group",
+                        _ => panic!("session type not specified"),
+                    };
+
                     match self.current_task.as_mut().unwrap() {
-                        ModeratorTask::Add(task) => signal_failure(
-                            &mut task.ack_tx,
-                            "failed to add a participant to the group",
-                        ),
+                        ModeratorTask::Add(task) => signal_failure(&mut task.ack_tx, message),
                         ModeratorTask::Remove(task) => signal_failure(
                             &mut task.ack_tx,
                             "failed to remove a participant from the group",

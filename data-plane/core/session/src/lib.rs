@@ -56,5 +56,5 @@ pub use session_layer::SessionLayer;
 pub use common::{AppChannelReceiver, SESSION_UNSPECIFIED};
 
 // Re-export specific items that need to be publicly accessible
-pub use notification::Notification;
 pub use completion_handle::CompletionHandle;
+pub use notification::Notification;

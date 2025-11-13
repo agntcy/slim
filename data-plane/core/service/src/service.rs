@@ -603,9 +603,7 @@ mod tests {
             .await
             .unwrap();
 
-        completion_handle
-            .await
-            .expect("session creation failed");
+        completion_handle.await.expect("session creation failed");
 
         // publish a message
         let message_blob = "very complicated message".as_bytes().to_vec();
@@ -699,24 +697,24 @@ mod tests {
             .expect("failed to create app");
 
         //////////////////////////// p2p session ////////////////////////////////////////////////////////////////////////
-        let session_config = SessionConfig::default()
-            .with_session_type(slim_datapath::api::ProtoSessionType::PointToPoint);
+        let session_config = SessionConfig {
+            session_type: slim_datapath::api::ProtoSessionType::PointToPoint,
+            max_retries: Some(3),
+            interval: Some(Duration::from_millis(500)),
+            mls_enabled: false,
+            initiator: true,
+            metadata: HashMap::new(),
+        };
         let dst = Name::from_strings(["org", "ns", "dst"]);
-        let (session_info, completion_handle) = app
-            .create_session(session_config, dst, None)
+        let (session_info, _completion_handle) = app
+            .create_session(session_config.clone(), dst, None)
             .await
             .expect("Failed to create session");
 
-        // wait for session to be established
-        completion_handle
-            .await
-            .expect("Session establishment failed");
-
         // check the configuration we get is the one we used to create the session
-        let _session_config_ret = session_info.session_arc().unwrap();
+        let session_config_ret = session_info.session().upgrade().unwrap().session_config();
 
-        // The session was created successfully, which is enough for this test
-        // Session configuration methods may have changed in the new API
+        assert_eq!(session_config_ret, session_config);
 
         ////////////// multicast session //////////////////////////////////////////////////////////////////////////////////
 
@@ -730,12 +728,15 @@ mod tests {
             initiator: true,
             metadata: HashMap::new(),
         };
-        let _session_info = app
-            .create_session(session_config, stream.clone(), None)
+        let (session_info, _completion_handle) = app
+            .create_session(session_config.clone(), stream.clone(), None)
             .await
             .expect("Failed to create session");
 
         // The multicast session was created successfully
-        ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+        let session_config_ret = session_info.session().upgrade().unwrap().session_config();
+
+        assert_eq!(session_config_ret, session_config);
     }
 }

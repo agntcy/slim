@@ -80,22 +80,19 @@ impl Future for CompletionHandle {
         let this = self.get_mut();
 
         match &mut this.inner {
-            CompletionFuture::OneshotReceiver(receiver) => {
-                match Pin::new(receiver).poll(cx) {
-                    Poll::Ready(Ok(result)) => Poll::Ready(result),
-                    Poll::Ready(Err(e)) => Poll::Ready(Err(SessionError::AckReception(e.to_string()))),
-                    Poll::Pending => Poll::Pending,
-                }
-            }
-            CompletionFuture::JoinHandle(handle) => {
-                match Pin::new(handle).poll(cx) {
-                    Poll::Ready(Ok(result)) => Poll::Ready(result),
-                    Poll::Ready(Err(e)) => Poll::Ready(Err(SessionError::AckReception(
-                        format!("Join handle error: {}", e)
-                    ))),
-                    Poll::Pending => Poll::Pending,
-                }
-            }
+            CompletionFuture::OneshotReceiver(receiver) => match Pin::new(receiver).poll(cx) {
+                Poll::Ready(Ok(result)) => Poll::Ready(result),
+                Poll::Ready(Err(e)) => Poll::Ready(Err(SessionError::AckReception(e.to_string()))),
+                Poll::Pending => Poll::Pending,
+            },
+            CompletionFuture::JoinHandle(handle) => match Pin::new(handle).poll(cx) {
+                Poll::Ready(Ok(result)) => Poll::Ready(result),
+                Poll::Ready(Err(e)) => Poll::Ready(Err(SessionError::AckReception(format!(
+                    "Join handle error: {}",
+                    e
+                )))),
+                Poll::Pending => Poll::Pending,
+            },
         }
     }
 }

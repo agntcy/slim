@@ -174,13 +174,13 @@ async fn main() {
 
         // Get the session and spawn receiver for handling responses
         let (session_ctx, init_ack) = session_ctx;
-        
+
         // Get session before spawning receiver
         let session = session_ctx.session_arc().unwrap();
-        
+
         // Spawn receiver to handle incoming messages
         spawn_session_receiver(session_ctx, local_name.to_string(), remote_app_name.clone());
-        
+
         // Await session initialization
         init_ack.await.expect("error initializing p2p session");
 
@@ -214,7 +214,7 @@ async fn main() {
 
                         // Get session before spawning receiver
                         let session_arc = session.session_arc().unwrap();
-                        
+
                         // Use the extracted spawn_session_receiver function
                         spawn_session_receiver(
                             session,

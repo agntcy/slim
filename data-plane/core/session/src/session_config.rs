@@ -7,7 +7,7 @@ use slim_datapath::api::{CommandPayload, ProtoSessionType};
 
 use crate::{SessionError, timer_factory::TimerSettings};
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug, PartialEq)]
 pub struct SessionConfig {
     /// session type
     pub session_type: ProtoSessionType,

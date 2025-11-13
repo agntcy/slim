@@ -169,17 +169,13 @@ where
     /// Public interface to create a new session
     pub async fn create_session(
         &self,
-        session_config: SessionConfig,
+        mut session_config: SessionConfig,
         local_name: Name,
         destination: Name,
         id: Option<u32>,
     ) -> Result<(SessionContext, CompletionHandle), SessionError> {
         // Sanity check
-        if !session_config.initiator {
-            return Err(SessionError::ConfigurationError(
-                "Only initiator sessions can be created by the app".to_string(),
-            ));
-        }
+        session_config.initiator = true;
 
         // Store values before they are moved
         let is_p2p = session_config.session_type == ProtoSessionType::PointToPoint;
@@ -190,15 +186,15 @@ where
         // If session is p2p, initiate the discovery request now and return the ack
         // Otherwise, return an immediately resolved future
         let init_ack = if is_p2p {
-            session.session()
+            session
+                .session()
                 .upgrade()
                 .ok_or_else(|| SessionError::SessionNotFound(session.session_id()))?
                 .invite_participant_internal(&destination_clone)
                 .await
-                .map_err(|e| {
+                .inspect_err(|_| {
                     // If invite_participant_internal fails, remove the session from the pool
                     let _ = self.remove_session(session.session_id());
-                    e
                 })?
         } else {
             // For non-P2P sessions, return an immediately resolved future
@@ -318,7 +314,8 @@ where
         // Spawn a task to await the join handle and send the result through a oneshot channel
         let (tx, rx) = tokio::sync::oneshot::channel();
         tokio::spawn(async move {
-            let result = join_handle.await
+            let result = join_handle
+                .await
                 .map(|_| ())
                 .map_err(|e| SessionError::Processing(format!("Session cleanup failed: {}", e)));
             let _ = tx.send(result);
@@ -329,9 +326,7 @@ where
     }
 
     /// Clear all sessions and return completion handles to await on
-    pub fn clear_all_sessions(
-        &self,
-    ) -> HashMap<u32, Result<CompletionHandle, SessionError>> {
+    pub fn clear_all_sessions(&self) -> HashMap<u32, Result<CompletionHandle, SessionError>> {
         let pool = {
             let mut pool = self.pool.write();
             let copy = pool.clone();
@@ -346,9 +341,9 @@ where
                     // Spawn a task to await the join handle and send the result through a oneshot channel
                     let (tx, rx) = tokio::sync::oneshot::channel();
                     tokio::spawn(async move {
-                        let result = join_handle.await
-                            .map(|_| ())
-                            .map_err(|e| SessionError::Processing(format!("Session cleanup failed: {}", e)));
+                        let result = join_handle.await.map(|_| ()).map_err(|e| {
+                            SessionError::Processing(format!("Session cleanup failed: {}", e))
+                        });
                         let _ = tx.send(result);
                     });
                     CompletionHandle::from_oneshot_receiver(rx)

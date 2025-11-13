@@ -4,6 +4,7 @@
 from slim_bindings._slim_bindings import (
     PyAlgorithm,
     PyApp,
+    PyCompletionHandle,
     PyIdentityProvider,
     PyIdentityVerifier,
     PyKey,
@@ -40,6 +41,7 @@ __all__ = [
     "PySessionConfiguration",
     "PySessionContext",
     "PySessionType",
+    "PyCompletionHandle",
     "SLIMTimeoutError",
     "Slim",
 ]

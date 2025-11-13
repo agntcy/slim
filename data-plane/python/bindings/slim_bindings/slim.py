@@ -150,10 +150,10 @@ class Slim:
         Returns:
             PySession: Wrapper exposing high-level async operations for the session.
         """
-        ctx: PySessionContext = await self._app.create_session(
+        ctx, completion_handle = await self._app.create_session(
             destination, session_config
         )
-        return PySession(ctx)
+        return PySession(ctx), completion_handle
 
     async def delete_session(self, session: PySession):
         """

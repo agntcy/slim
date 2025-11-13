@@ -121,12 +121,6 @@ where
         destination: Name,
         id: Option<u32>,
     ) -> Result<(SessionContext, slim_session::CompletionHandle), SessionError> {
-        if !session_config.initiator {
-            return Err(SessionError::ConfigurationError(
-                "Only initiator sessions can be created by the app".to_string(),
-            ));
-        }
-
         self.session_layer
             .create_session(session_config, self.app_name.clone(), destination, id)
             .await
@@ -385,32 +379,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_remove_session() {
-        let (tx_slim, _) = tokio::sync::mpsc::channel(1);
-        let (tx_app, _) = tokio::sync::mpsc::channel(1);
-        let name = Name::from_strings(["org", "ns", "type"]).with_id(0);
-
-        let app = App::new(
-            &name,
-            SharedSecret::new("a", TEST_VALID_SECRET),
-            SharedSecret::new("a", TEST_VALID_SECRET),
-            0,
-            tx_slim.clone(),
-            tx_app.clone(),
-            std::path::PathBuf::from("/tmp/test_storage"),
-        );
-
-        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
-        let dst = Name::from_strings(["org", "ns", "dst"]);
-
-        let (ret, _completion_handle) = app.create_session(config, dst, Some(1)).await.unwrap();
-
-        // Delete session without waiting for the completion handle to finish, as there is no peer to complete the handshake
-        app.delete_session(&ret.session().upgrade().unwrap())
-            .unwrap();
-    }
-
-    #[tokio::test]
     async fn test_create_session() {
         let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(1);
         let (tx_app, _rx_app) = tokio::sync::mpsc::channel(1);
@@ -434,14 +402,18 @@ mod tests {
         let dst = Name::from_strings(["org", "ns", "dst"]);
 
         // Session creation should hang as there is no peer side to respond
-        let (_session, completion_handle) = app.create_session(config.clone(), dst.clone(), None).await.unwrap();
+        let (_session, completion_handle) = app
+            .create_session(config.clone(), dst.clone(), None)
+            .await
+            .unwrap();
 
         // Session is created but completion shouhld hangs (times out)
-        let timeout_result = tokio::time::timeout(
-            std::time::Duration::from_millis(100),
-            completion_handle
-        ).await;
-        assert!(timeout_result.is_err(), "Session creation should have timed out");
+        let timeout_result =
+            tokio::time::timeout(std::time::Duration::from_millis(100), completion_handle).await;
+        assert!(
+            timeout_result.is_err(),
+            "Session creation should have timed out"
+        );
     }
 
     #[tokio::test]
@@ -463,17 +435,26 @@ mod tests {
         let config = SessionConfig {
             session_type: ProtoSessionType::PointToPoint,
             initiator: true,
+            interval: Some(std::time::Duration::from_millis(500)),
+            max_retries: Some(5),
             ..Default::default()
         };
         let dst = Name::from_strings(["org", "ns", "dst"]);
-        let res = app.create_session(config, dst, None).await;
+        let (res, completion_handle) = app.create_session(config, dst, None).await.unwrap();
 
-        // Session error should fail as there is no peer to respond and the slim channel is closed
-        assert!(res.is_err());
+        // The completion handle should fail, as the channel with SLIM is closed
+        assert!(
+            completion_handle.await.is_err(),
+            "Session creation should have failed due to closed channel"
+        );
 
-        // Make sure the session pool is empty after the failed creation
-        let pool_empty = app.session_layer.as_ref().is_pool_empty();
-        assert!(pool_empty, "Session pool should be empty after failed creation");
+        // Delete the session
+        let handle = app
+            .delete_session(&res.session().upgrade().unwrap())
+            .expect("failed to delete session");
+
+        // Completion handle should now complete
+        handle.await.expect("error during session deletion");
     }
 
     #[tokio::test]
@@ -492,7 +473,11 @@ mod tests {
             std::path::PathBuf::from("/tmp/test_storage"),
         );
 
-        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
+        let config = SessionConfig {
+            session_type: ProtoSessionType::PointToPoint,
+            initiator: true,
+            ..Default::default()
+        };
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let (session_ctx, _completion_error) = app
             .create_session(config, dst, Some(42))

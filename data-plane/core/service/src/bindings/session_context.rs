@@ -1,8 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use slim_session::session_controller::SessionController;
 use slim_session::CompletionHandle;
+use slim_session::session_controller::SessionController;
 use std::collections::HashMap;
 use tokio::sync::RwLock;
 
@@ -214,7 +214,11 @@ mod tests {
         let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
             .expect("Failed to create adapter");
 
-        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
+        let config = SessionConfig {
+            session_type: ProtoSessionType::PointToPoint,
+            initiator: true,
+            ..Default::default()
+        };
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let (session_ctx, _init_ack) = adapter
             .create_session(config, dst)

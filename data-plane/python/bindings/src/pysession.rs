@@ -52,7 +52,9 @@ pub(crate) struct PyCompletionHandle {
 
 impl From<CompletionHandle> for PyCompletionHandle {
     fn from(handle: CompletionHandle) -> Self {
-        PyCompletionHandle { handle: Some(handle) }
+        PyCompletionHandle {
+            handle: Some(handle),
+        }
     }
 }
 
@@ -64,7 +66,8 @@ impl PyCompletionHandle {
         })?;
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            handle.await
+            handle
+                .await
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })?
         .try_iter()

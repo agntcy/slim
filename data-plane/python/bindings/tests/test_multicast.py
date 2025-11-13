@@ -108,7 +108,12 @@ async def test_group(server, mls_enabled):  # noqa: C901
                 timeout=datetime.timedelta(seconds=5),
                 mls_enabled=mls_enabled,
             )
-            session = await participant.create_session(chat_name, session_config)
+            session, completion_handle = await participant.create_session(
+                chat_name, session_config
+            )
+
+            # wait for session establishment
+            await completion_handle
 
             # invite all participants
             for i in range(participants_count):

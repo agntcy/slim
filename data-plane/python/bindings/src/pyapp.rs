@@ -109,10 +109,10 @@ impl PyApp {
                 .map_err(|e| {
                     PyErr::new::<PyException, _>(format!("Failed to create session: {}", e))
                 })?;
-            
+
             let py_session_ctx = PySessionContext::from(session_ctx);
             let py_init_ack = PyCompletionHandle::from(init_ack);
-            
+
             Ok((py_session_ctx, py_init_ack))
         })
     }

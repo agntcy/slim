@@ -218,9 +218,7 @@ async fn main() {
             .await
             .expect("error creating session");
 
-        completion_handle
-            .await
-            .expect("error establishing session");
+        completion_handle.await.expect("error establishing session");
 
         // invite all participants
         for p in participants {
