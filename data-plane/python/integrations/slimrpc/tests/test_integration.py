@@ -2,11 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
+import contextlib
 from collections.abc import AsyncIterable, AsyncIterator
-from dataclasses import dataclass
-from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import slim_bindings
+from google.rpc import code_pb2
 
 from slimrpc import channel as channel_module
 from slimrpc import common as common_module
@@ -19,301 +21,65 @@ from slimrpc.rpc import (
 )
 
 
-class FakePyName:
-    # Lightweight replacement for slim_bindings.PyName used by the harness
-    def __init__(
-        self,
-        organization: str,
-        namespace: str,
-        application: str,
-        identifier: str | None = None,
-    ) -> None:
-        self._components = (organization, namespace, application)
-        self.id = identifier or f"{organization}-{namespace}-{application}"
-
-    def components_strings(self) -> list[str]:
-        return list(self._components)
-
-    def __str__(self) -> str:
-        return "/".join(self._components)
-
-    def __hash__(self) -> int:
-        return hash((self._components, self.id))
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, FakePyName):
-            return False
-        return self._components == other._components and self.id == other.id
+@pytest.fixture
+def mock_session_info() -> MagicMock:
+    """Create a mock session info object."""
+    session_info = MagicMock(spec=slim_bindings.PySessionInfo)
+    session_info.id = 1
+    session_info.source_name = slim_bindings.PyName("org", "ns", "client")
+    session_info.destination_name = slim_bindings.PyName("org", "ns", "server")
+    session_info.metadata = {common_module.DEADLINE_KEY: "5.0"}
+    return session_info
 
 
-@dataclass
-class FakePySessionInfo:
-    # Session metadata exchanged between fake client and server
-    id: int
-    source_name: FakePyName
-    destination_name: FakePyName
-    metadata: dict[str, str]
-    payload_type: str = "binary"
+@pytest.fixture
+def mock_server_app() -> AsyncMock:
+    """Create a mock server app."""
+    app = AsyncMock()
+    app.local_name = slim_bindings.PyName("org", "ns", "server")
+    app.get_id.return_value = "org/ns/server"
+    app.subscribe = AsyncMock()
+    app.publish_to = AsyncMock()
+    app.delete_session = AsyncMock()
+    return app
 
 
-class FakePySessionConfiguration:
-    class FireAndForget:  # noqa: D401 - mimic slim bindings configuration type
-        # Accepts arbitrary keyword arguments like the real bindings object
-        def __init__(self, **_: object) -> None:
-            return
+@pytest.fixture
+def mock_client_app() -> AsyncMock:
+    """Create a mock client app."""
+    app = AsyncMock()
+    app.local_name = slim_bindings.PyName("org", "ns", "client")
+    app.get_id.return_value = "org/ns/client"
+    app.set_route = AsyncMock()
+    app.create_session = AsyncMock()
+    app.publish = AsyncMock()
+    app.receive = AsyncMock()
+    app.delete_session = AsyncMock()
 
+    # Support async context manager
+    app.__aenter__ = AsyncMock(return_value=app)
+    app.__aexit__ = AsyncMock()
 
-@dataclass
-class _SessionData:
-    # Tracks delivery queues and routing info for a single fake session
-    session_id: int
-    client_name: FakePyName
-    destination: FakePyName
-    subscription: FakePyName
-    request_queue: asyncio.Queue[tuple[FakePySessionInfo, bytes]]
-    response_queue: asyncio.Queue[tuple[FakePySessionInfo, bytes]]
-    handshake_sent: bool = False
-
-
-class FakeTransport:
-    # In-memory message bus that mimics slim_bindings transport behaviour
-    def __init__(self) -> None:
-        self._session_counter = 0
-        self._sessions: dict[int, _SessionData] = {}
-        self._incoming_sessions: asyncio.Queue[tuple[FakePySessionInfo, bytes]] = (
-            asyncio.Queue()
-        )
-        self._subscription_map: dict[FakePyName, FakePyName] = {}
-
-    def register_subscription(self, base: FakePyName, clone: FakePyName) -> None:
-        # Remember mapping between canonical subscription and cloned target
-        self._subscription_map[base] = clone
-
-    def resolve_destination(self, base: FakePyName) -> FakePyName:
-        # Resolve a routed destination to the clone when present
-        return self._subscription_map.get(base, base)
-
-    async def create_session(
-        self, app: "FakeSlimApp", route: FakePyName
-    ) -> FakePySessionInfo:
-        # Create a new session record and enqueue handshake for server side
-        self._session_counter += 1
-        session_id = self._session_counter
-        subscription = self.resolve_destination(route)
-        session = _SessionData(
-            session_id=session_id,
-            client_name=app.local_name,
-            destination=route,
-            subscription=subscription,
-            request_queue=asyncio.Queue(),
-            response_queue=asyncio.Queue(),
-        )
-        self._sessions[session_id] = session
-        return FakePySessionInfo(
-            id=session_id,
-            source_name=app.local_name,
-            destination_name=route,
-            metadata={},
-        )
-
-    async def publish(
-        self,
-        app: "FakeSlimApp",
-        session_info: FakePySessionInfo,
-        payload: bytes,
-        dest: FakePyName,
-        metadata: dict[str, str],
-    ) -> None:
-        # Deliver client payloads to server queues and emit handshake once
-        session = self._sessions[session_info.id]
-        subscription = self.resolve_destination(dest)
-
-        if not session.handshake_sent:
-            session.handshake_sent = True
-            handshake = FakePySessionInfo(
-                id=session.session_id,
-                source_name=app.local_name,
-                destination_name=subscription,
-                metadata={},
-            )
-            await self._incoming_sessions.put((handshake, b""))
-
-        request_info = FakePySessionInfo(
-            id=session.session_id,
-            source_name=app.local_name,
-            destination_name=subscription,
-            metadata=dict(metadata),
-        )
-        await session.request_queue.put((request_info, payload))
-
-    async def receive(
-        self, app: "FakeSlimApp", session_id: int | None
-    ) -> tuple[FakePySessionInfo, bytes]:
-        # Provide queued handshake/request to server or response to client
-        if session_id is None:
-            return await self._incoming_sessions.get()
-
-        session = self._sessions[session_id]
-        if app.role == "server":
-            return await session.request_queue.get()
-        return await session.response_queue.get()
-
-    async def publish_to(
-        self,
-        app: "FakeSlimApp",
-        session_info: FakePySessionInfo,
-        payload: bytes,
-        metadata: dict[str, str],
-    ) -> None:
-        # Push server response bytes back to the originating client session
-        session = self._sessions[session_info.id]
-        response_info = FakePySessionInfo(
-            id=session.session_id,
-            source_name=app.local_name,
-            destination_name=session.client_name,
-            metadata=dict(metadata),
-        )
-        await session.response_queue.put((response_info, payload))
-
-    async def delete_session(self, session_id: int) -> None:
-        # Leave queues intact; channel drains them during shutdown
-        return
-
-
-class FakeSlimApp:
-    # Simplified SLIM app façade understood by channel and server modules
-    def __init__(
-        self, transport: FakeTransport, role: str, identity: FakePyName
-    ) -> None:
-        self.transport = transport
-        self.role = role
-        self.local_name = identity
-        self._route: FakePyName | None = None
-
-    async def __aenter__(self) -> "FakeSlimApp":
-        return self
-
-    async def __aexit__(self, *_: object) -> None:
-        return
-
-    async def set_route(self, route: FakePyName) -> None:
-        self._route = route
-
-    async def create_session(
-        self, _: FakePySessionConfiguration.FireAndForget
-    ) -> FakePySessionInfo:
-        assert self._route is not None
-        return await self.transport.create_session(self, self._route)
-
-    async def publish(
-        self,
-        session_info: FakePySessionInfo,
-        payload: bytes,
-        dest: FakePyName,
-        metadata: dict[str, str],
-    ) -> None:
-        await self.transport.publish(self, session_info, payload, dest, metadata)
-
-    async def receive(
-        self,
-        session: int | None = None,
-    ) -> tuple[FakePySessionInfo, bytes]:
-        return await self.transport.receive(self, session)
-
-    async def publish_to(
-        self,
-        session_info: FakePySessionInfo,
-        payload: bytes,
-        metadata: dict[str, str],
-    ) -> None:
-        await self.transport.publish_to(self, session_info, payload, metadata)
-
-    async def delete_session(self, session_id: int) -> None:
-        await self.transport.delete_session(session_id)
-
-    async def subscribe(self, _: FakePyName) -> None:
-        # Subscription handling delegated to FakeTransport
-        return
-
-    def get_id(self) -> str:
-        return str(self.local_name)
-
-
-async def _prepare_server(
-    server: server_module.Server,
-    local_app: FakeSlimApp,
-    transport: FakeTransport,
-) -> None:
-    # Register handlers and subscription clones for the fake transport
-    await local_app.subscribe(local_app.local_name)
-    server._pyname_to_handler = {}  # type: ignore[attr-defined]
-    for service_method, handler in server.handlers.items():
-        subscription_name = common_module.handler_name_to_pyname(
-            local_app.local_name,
-            service_method.service,
-            service_method.method,
-        )
-        components = subscription_name.components_strings()
-        clone = FakePyName(
-            components[0],
-            components[1],
-            components[2],
-            local_app.local_name.id,
-        )
-        transport.register_subscription(subscription_name, clone)
-        await local_app.subscribe(clone)
-        server._pyname_to_handler[subscription_name] = handler  # type: ignore[attr-defined]
-        server._pyname_to_handler[clone] = handler  # type: ignore[attr-defined]
-
-
-def _setup_fake_environment(
-    monkeypatch: pytest.MonkeyPatch,
-) -> tuple[
-    FakeTransport,
-    FakeSlimApp,
-    FakeSlimApp,
-    server_module.Server,
-    channel_module.ChannelFactory,
-]:
-    # Monkeypatch bindings and return fully wired fake transport/apps
-    fake_bindings = SimpleNamespace(
-        PyName=FakePyName,
-        PySessionInfo=FakePySessionInfo,
-        PySessionConfiguration=FakePySessionConfiguration,
-    )
-    monkeypatch.setattr(common_module, "slim_bindings", fake_bindings)
-    monkeypatch.setattr(channel_module, "slim_bindings", fake_bindings)
-    monkeypatch.setattr(server_module, "slim_bindings", fake_bindings)
-
-    transport = FakeTransport()
-    server_identity = FakePyName("org", "ns", "server", "server-instance")
-    client_identity = FakePyName("org", "ns", "client", "client-instance")
-    server_app = FakeSlimApp(transport, role="server", identity=server_identity)
-    client_app = FakeSlimApp(transport, role="client", identity=client_identity)
-
-    server = server_module.Server(local_app=server_app)
-    channel_factory = channel_module.ChannelFactory(local_app=client_app)
-    return transport, server_app, client_app, server, channel_factory
+    return app
 
 
 @pytest.mark.asyncio
-async def test_unary_unary_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Verify unary request/response works through the fake transport
-    (
-        transport,
-        server_app,
-        _client_app,
-        server,
-        channel_factory,
-    ) = _setup_fake_environment(monkeypatch)
+async def test_unary_unary_handler_execution(
+    mock_server_app: AsyncMock, mock_session_info: MagicMock
+) -> None:
+    """Test that unary-unary RPC handler is called correctly and response is sent."""
+    server = server_module.Server(local_app=mock_server_app)
+
+    # Create a test handler
+    handler_called = False
+    received_request = None
+    received_context = None
 
     async def behaviour(request: bytes, context: Context) -> bytes:
-        deadline = (
-            context.metadata.get(common_module.DEADLINE_KEY, "")
-            if context.metadata
-            else ""
-        )
-        assert deadline
+        nonlocal handler_called, received_request, received_context
+        handler_called = True
+        received_request = request
+        received_context = context
         return request.upper()
 
     handler = unary_unary_rpc_method_handler(
@@ -321,128 +87,342 @@ async def test_unary_unary_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
         request_deserializer=lambda payload: payload,
         response_serializer=lambda payload: payload,
     )
-    server.register_rpc("service", "Ping", handler)
-    await _prepare_server(server, server_app, transport)
 
-    channel = channel_factory.new_channel("org/ns/server")
-    call = channel.unary_unary(
-        "/service/Ping",
-        request_serializer=lambda value: value,
-        response_deserializer=lambda value: value,
-    )
+    server.register_rpc("TestService", "Echo", handler)
 
-    async def server_worker() -> None:
-        session_info, _ = await server_app.receive()
-        await server.handle_session(session_info, server_app)
+    # Set up handler mapping to simulate what _prepare_server does
+    # Map the destination_name directly to the handler
+    server._pyname_to_handler[mock_session_info.destination_name] = handler
 
-    worker = asyncio.create_task(server_worker())
-    response = await call(b"hello", timeout=5)
-    await worker
+    # Mock receiving the request
+    request_payload = b"hello"
+    mock_server_app.receive.side_effect = [
+        (mock_session_info, request_payload),
+        asyncio.CancelledError(),  # End the session
+    ]
 
-    assert response == b"HELLO"
+    # Handle the session
+    with contextlib.suppress(asyncio.CancelledError):
+        await server.handle_session(mock_session_info, mock_server_app)
+
+    # Verify handler was called with correct data
+    assert handler_called
+    assert received_request == request_payload
+    assert received_context is not None
+    assert received_context.metadata == mock_session_info.metadata
+
+    # Verify response was sent back
+    mock_server_app.publish_to.assert_called_once()
+    call_args = mock_server_app.publish_to.call_args
+    assert call_args[0][1] == b"HELLO"  # Response payload
 
 
 @pytest.mark.asyncio
-async def test_unary_stream_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Verify unary request yields a stream of responses to the client
-    (
-        transport,
-        server_app,
-        _client_app,
-        server,
-        channel_factory,
-    ) = _setup_fake_environment(monkeypatch)
+async def test_unary_stream_handler_execution(
+    mock_server_app: AsyncMock, mock_session_info: MagicMock
+) -> None:
+    """Test that unary-stream RPC handler streams multiple responses."""
+    server = server_module.Server(local_app=mock_server_app)
 
     async def behaviour(request: bytes, context: Context) -> AsyncIterator[bytes]:
-        deadline = (
-            context.metadata.get(common_module.DEADLINE_KEY, "")
-            if context.metadata
-            else ""
-        )
-        assert deadline
         assert request == b"hello"
-        for index in range(3):
-            yield request + f"-{index}".encode()
+        for i in range(3):
+            yield request + f"-{i}".encode()
 
     handler = unary_stream_rpc_method_handler(
         behaviour,
         request_deserializer=lambda payload: payload,
         response_serializer=lambda payload: payload,
     )
-    server.register_rpc("service", "PingStream", handler)
-    await _prepare_server(server, server_app, transport)
 
-    channel = channel_factory.new_channel("org/ns/server")
-    call = channel.unary_stream(
-        "/service/PingStream",
-        request_serializer=lambda value: value,
-        response_deserializer=lambda value: value,
-    )
+    server.register_rpc("TestService", "Stream", handler)
 
-    async def server_worker() -> None:
-        session_info, _ = await server_app.receive()
-        await server.handle_session(session_info, server_app)
+    # Set up handler mapping
+    server._pyname_to_handler[mock_session_info.destination_name] = handler
 
-    worker = asyncio.create_task(server_worker())
+    # Mock receiving the request
+    mock_server_app.receive.side_effect = [
+        (mock_session_info, b"hello"),
+        asyncio.CancelledError(),
+    ]
 
-    responses: list[bytes] = []
-    async for payload in call(b"hello", timeout=5):
-        responses.append(payload)
+    # Handle the session
+    with contextlib.suppress(asyncio.CancelledError):
+        await server.handle_session(mock_session_info, mock_server_app)
 
-    await worker
+    # Verify multiple responses were sent (3 data + 1 end-of-stream)
+    assert mock_server_app.publish_to.call_count == 4
 
-    assert responses == [b"hello-0", b"hello-1", b"hello-2"]
+    # Check each response (data payloads)
+    calls = mock_server_app.publish_to.call_args_list
+    assert calls[0][0][1] == b"hello-0"
+    assert calls[1][0][1] == b"hello-1"
+    assert calls[2][0][1] == b"hello-2"
+    # Fourth call is end-of-stream marker
+    assert calls[3][0][1] == b""
 
 
 @pytest.mark.asyncio
-async def test_stream_unary_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Verify streaming requests are aggregated into a single response
-    (
-        transport,
-        server_app,
-        _client_app,
-        server,
-        channel_factory,
-    ) = _setup_fake_environment(monkeypatch)
+async def test_stream_unary_handler_execution(
+    mock_server_app: AsyncMock, mock_session_info: MagicMock
+) -> None:
+    """Test that stream-unary RPC handler aggregates multiple requests."""
+    server = server_module.Server(local_app=mock_server_app)
+
+    received_chunks = []
 
     async def behaviour(
         request_iterator: AsyncIterable[tuple[bytes, Context]], context: Context
     ) -> bytes:
-        chunks: list[bytes] = []
-        deadlines: list[str] = []
-        async for chunk, chunk_context in request_iterator:
-            assert chunk_context.metadata
-            deadlines.append(chunk_context.metadata.get(common_module.DEADLINE_KEY, ""))
-            chunks.append(chunk)
-        assert all(deadlines)
-        return b"|".join(chunks)
+        async for chunk, _chunk_context in request_iterator:
+            received_chunks.append(chunk)
+        return b"|".join(received_chunks)
 
     handler = stream_unary_rpc_method_handler(
         behaviour,
         request_deserializer=lambda payload: payload,
         response_serializer=lambda payload: payload,
     )
-    server.register_rpc("service", "Aggregate", handler)
-    await _prepare_server(server, server_app, transport)
 
+    server.register_rpc("TestService", "Aggregate", handler)
+
+    # Set up handler mapping
+    server._pyname_to_handler[mock_session_info.destination_name] = handler
+
+    # Create a mock for the "code" metadata check
+    chunk_info1 = MagicMock()
+    chunk_info1.metadata = {"code": str(code_pb2.OK)}
+    chunk_info2 = MagicMock()
+    chunk_info2.metadata = {"code": str(code_pb2.OK)}
+    chunk_info3 = MagicMock()
+    chunk_info3.metadata = {"code": str(code_pb2.OK)}
+    end_of_stream_info = MagicMock()
+    end_of_stream_info.metadata = {"code": str(code_pb2.OK)}
+
+    # Mock receiving multiple request chunks + end-of-stream marker
+    mock_server_app.receive.side_effect = [
+        (chunk_info1, b"first"),
+        (chunk_info2, b"second"),
+        (chunk_info3, b"third"),
+        (end_of_stream_info, b""),  # End of stream marker
+    ]
+
+    # Handle the session
+    await server.handle_session(mock_session_info, mock_server_app)
+
+    # Verify all chunks were received
+    assert received_chunks == [b"first", b"second", b"third"]
+
+    # Verify aggregated response was sent
+    mock_server_app.publish_to.assert_called_once()
+    call_args = mock_server_app.publish_to.call_args
+    assert call_args[0][1] == b"first|second|third"
+
+
+@pytest.mark.asyncio
+async def test_channel_unary_unary_call(mock_client_app: AsyncMock) -> None:
+    """Test that channel correctly sends unary request and receives response."""
+    channel_factory = channel_module.ChannelFactory(local_app=mock_client_app)
     channel = channel_factory.new_channel("org/ns/server")
-    call = channel.stream_unary(
-        "/service/Aggregate",
-        request_serializer=lambda value: value,
-        response_deserializer=lambda value: value,
+
+    # Create mock session
+    mock_session_info = MagicMock()
+    mock_session_info.id = 1
+    mock_session_info.metadata = {}
+    mock_client_app.create_session.return_value = mock_session_info
+
+    # Mock receiving the response with proper code
+    response_session_info = MagicMock()
+    response_session_info.metadata = {"code": str(code_pb2.OK)}
+    mock_client_app.receive.return_value = (response_session_info, b"RESPONSE")
+
+    # Make the call
+    call = channel.unary_unary(
+        "/TestService/Echo",
+        request_serializer=lambda x: x,
+        response_deserializer=lambda x: x,
     )
 
-    async def server_worker() -> None:
-        session_info, _ = await server_app.receive()
-        await server.handle_session(session_info, server_app)
+    response = await call(b"request", timeout=5)
 
-    worker = asyncio.create_task(server_worker())
+    # Verify session was created
+    mock_client_app.create_session.assert_called_once()
+
+    # Verify request was published
+    mock_client_app.publish.assert_called_once()
+    publish_call = mock_client_app.publish.call_args
+    assert publish_call[0][1] == b"request"  # Payload
+    assert (
+        common_module.DEADLINE_KEY in publish_call[1]["metadata"]
+    )  # Metadata has deadline
+
+    # Verify response was received
+    assert response == b"RESPONSE"
+
+    # Verify session was deleted
+    mock_client_app.delete_session.assert_called_once_with(mock_session_info.id)
+
+
+@pytest.mark.asyncio
+async def test_channel_unary_stream_call(mock_client_app: AsyncMock) -> None:
+    """Test that channel correctly receives streaming responses."""
+    channel_factory = channel_module.ChannelFactory(local_app=mock_client_app)
+    channel = channel_factory.new_channel("org/ns/server")
+
+    # Create mock session
+    mock_session_info = MagicMock()
+    mock_session_info.id = 1
+    mock_session_info.metadata = {}
+    mock_client_app.create_session.return_value = mock_session_info
+
+    # Mock receiving multiple responses with proper code
+    response_metadata = {"code": str(code_pb2.OK)}
+    mock_client_app.receive.side_effect = [
+        (MagicMock(metadata=response_metadata), b"response-1"),
+        (MagicMock(metadata=response_metadata), b"response-2"),
+        (MagicMock(metadata=response_metadata), b"response-3"),
+        asyncio.CancelledError(),  # End stream
+    ]
+
+    # Make the call
+    call = channel.unary_stream(
+        "/TestService/Stream",
+        request_serializer=lambda x: x,
+        response_deserializer=lambda x: x,
+    )
+
+    responses = []
+    try:
+        async for response in call(b"request", timeout=5):
+            responses.append(response)
+    except asyncio.CancelledError:
+        pass
+
+    # Verify we received all responses
+    assert responses == [b"response-1", b"response-2", b"response-3"]
+
+    # Verify request was published
+    mock_client_app.publish.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_channel_stream_unary_call(mock_client_app: AsyncMock) -> None:
+    """Test that channel correctly sends streaming requests."""
+    channel_factory = channel_module.ChannelFactory(local_app=mock_client_app)
+    channel = channel_factory.new_channel("org/ns/server")
+
+    # Create mock session
+    mock_session_info = MagicMock()
+    mock_session_info.id = 1
+    mock_session_info.metadata = {}
+    mock_client_app.create_session.return_value = mock_session_info
+
+    # Mock receiving the final response with proper code
+    response_metadata = {"code": str(code_pb2.OK)}
+    mock_client_app.receive.return_value = (
+        MagicMock(metadata=response_metadata),
+        b"aggregated",
+    )
+
+    # Make the call with streaming requests
+    call = channel.stream_unary(
+        "/TestService/Aggregate",
+        request_serializer=lambda x: x,
+        response_deserializer=lambda x: x,
+    )
 
     async def request_stream() -> AsyncIterator[bytes]:
-        for chunk in [b"first", b"second", b"third"]:
+        for chunk in [b"chunk-1", b"chunk-2", b"chunk-3"]:
             yield chunk
 
     response = await call(request_stream(), timeout=5)
-    await worker
 
-    assert response == b"first|second|third"
+    # Verify multiple requests were published (3 data + 1 end-of-stream)
+    assert mock_client_app.publish.call_count == 4
+
+    # Check each request chunk
+    calls = mock_client_app.publish.call_args_list
+    assert calls[0][0][1] == b"chunk-1"
+    assert calls[1][0][1] == b"chunk-2"
+    assert calls[2][0][1] == b"chunk-3"
+    # Fourth call is end-of-stream marker
+    assert calls[3][0][1] == b""
+
+    # Verify final response
+    assert response == b"aggregated"
+
+
+@pytest.mark.asyncio
+async def test_server_registration_and_handler_lookup(
+    mock_server_app: AsyncMock,
+) -> None:
+    """Test that handlers are correctly registered and can be looked up."""
+    server = server_module.Server(local_app=mock_server_app)
+
+    async def handler1(request: bytes, context: Context) -> bytes:
+        return request
+
+    async def handler2(request: bytes, context: Context) -> bytes:
+        return request
+
+    rpc_handler1 = unary_unary_rpc_method_handler(
+        handler1,
+        request_deserializer=lambda x: x,
+        response_serializer=lambda x: x,
+    )
+
+    rpc_handler2 = unary_unary_rpc_method_handler(
+        handler2,
+        request_deserializer=lambda x: x,
+        response_serializer=lambda x: x,
+    )
+
+    # Register multiple handlers
+    server.register_rpc("Service1", "Method1", rpc_handler1)
+    server.register_rpc("Service2", "Method2", rpc_handler2)
+
+    # Verify handlers are stored correctly
+    assert len(server.handlers) == 2
+    assert any(
+        sm.service == "Service1" and sm.method == "Method1" for sm in server.handlers
+    )
+    assert any(
+        sm.service == "Service2" and sm.method == "Method2" for sm in server.handlers
+    )
+
+
+@pytest.mark.asyncio
+async def test_channel_timeout_metadata(mock_client_app: AsyncMock) -> None:
+    """Test that timeout is correctly added to request metadata."""
+    channel_factory = channel_module.ChannelFactory(local_app=mock_client_app)
+    channel = channel_factory.new_channel("org/ns/server")
+
+    mock_session_info = MagicMock()
+    mock_session_info.id = 1
+    mock_session_info.metadata = {}
+    mock_client_app.create_session.return_value = mock_session_info
+
+    response_metadata = {"code": str(code_pb2.OK)}
+    mock_client_app.receive.return_value = (
+        MagicMock(metadata=response_metadata),
+        b"response",
+    )
+
+    call = channel.unary_unary(
+        "/Service/Method",
+        request_serializer=lambda x: x,
+        response_deserializer=lambda x: x,
+    )
+
+    # Make call with specific timeout
+    await call(b"request", timeout=10)
+
+    # Verify timeout was added to metadata
+    publish_call = mock_client_app.publish.call_args
+    metadata = publish_call[1]["metadata"]
+
+    assert common_module.DEADLINE_KEY in metadata
+    # Deadline should be a timestamp (current time + timeout)
+    # Just verify it exists and is a reasonable value
+    deadline = float(metadata[common_module.DEADLINE_KEY])
+    assert deadline > 0  # Should be a positive timestamp
