@@ -1606,6 +1606,16 @@ mod tests {
         }
     }
 
+    async fn count_on_messages(
+        messages: &Arc<tokio::sync::Mutex<Vec<SessionMessage>>>,
+    ) -> usize {
+        let messages = messages.lock().await;
+        messages
+            .iter()
+            .filter(|msg| matches!(msg, SessionMessage::OnMessage { .. }))
+            .count()
+    }
+
     /// Helper to spawn a processing loop and return the task handle
     fn spawn_processing_loop(
         handler: DrainableHandler,
@@ -1658,8 +1668,9 @@ mod tests {
             .expect("processing loop panicked");
 
         // Verify all messages were processed
+        let processed_messages = count_on_messages(&messages_received).await;
         assert_eq!(
-            messages_received.lock().await.len(),
+            processed_messages,
             3,
             "All queued messages should be processed during draining"
         );
@@ -1699,8 +1710,9 @@ mod tests {
             .expect("processing loop panicked");
 
         // Verify message was processed and shutdown was called
+        let processed_messages = count_on_messages(&messages_received).await;
         assert_eq!(
-            messages_received.lock().await.len(),
+            processed_messages,
             1,
             "Message should be processed"
         );
@@ -1744,8 +1756,9 @@ mod tests {
         let elapsed = start_time.elapsed();
 
         // Verify message was processed and shutdown was called quickly
+        let processed_messages = count_on_messages(&messages_received).await;
         assert_eq!(
-            messages_received.lock().await.len(),
+            processed_messages,
             1,
             "Message should be processed"
         );
@@ -1840,8 +1853,9 @@ mod tests {
             .expect("processing loop panicked");
 
         // Verify no messages were processed but shutdown was called
+        let processed_messages = count_on_messages(&messages_received).await;
         assert_eq!(
-            messages_received.lock().await.len(),
+            processed_messages,
             0,
             "No messages should be processed"
         );
@@ -1889,8 +1903,9 @@ mod tests {
             .expect("processing loop panicked");
 
         // Verify messages in queue when cancellation happened were still processed
+        let processed_messages = count_on_messages(&messages_received).await;
         assert_eq!(
-            messages_received.lock().await.len(),
+            processed_messages,
             2,
             "Messages in queue during cancellation should be processed"
         );
