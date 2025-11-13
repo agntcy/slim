@@ -1390,15 +1390,13 @@ impl ControllerService {
                     tx.clone(),
                     cancellation_token.clone(),
                 );
-                return Ok(tx);
+                Ok(tx)
             }
 
-            Err(e) => {
-                return Err(ControllerError::ConfigError(format!(
-                    "failed to connect to control plane: {}",
-                    e
-                )));
-            }
+            Err(e) => Err(ControllerError::ConfigError(format!(
+                "failed to connect to control plane: {}",
+                e
+            ))),
         }
     }
 
