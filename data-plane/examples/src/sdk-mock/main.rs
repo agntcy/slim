@@ -10,7 +10,7 @@ use tracing::info;
 use slim::config;
 use slim_auth::shared_secret::SharedSecret;
 use slim_datapath::{api::ProtoSessionType, messages::Name};
-use slim_session::{SessionConfig, session_controller::SessionController};
+use slim_session::SessionConfig;
 use slim_testing::utils::TEST_VALID_SECRET;
 
 mod args;
@@ -20,9 +20,8 @@ fn spawn_session_receiver(
     session_ctx: slim_session::context::SessionContext,
     local_name: String,
     route: Name,
-) -> std::sync::Arc<SessionController> {
-    session_ctx
-        .spawn_receiver(|mut rx, weak| async move {
+) {
+    session_ctx.spawn_receiver(|mut rx, weak| async move {
             info!("Session handler task started");
 
             // Local deque for queuing reply messages
@@ -79,7 +78,7 @@ fn spawn_session_receiver(
                             if let Some(session_arc) = weak.upgrade() {
                                 let reply_bytes = reply.into_bytes();
                                 if let Err(e) = session_arc
-                                    .publish(&route, reply_bytes, None, None)
+                                    .publish(&route, reply_bytes, None, None).await
                                 {
                                     info!("error sending periodic reply: {}", e);
                                 }
@@ -92,9 +91,7 @@ fn spawn_session_receiver(
                 }
             }
             info!("Session handler task ended");
-        })
-        .upgrade()
-        .unwrap()
+        });
 }
 
 #[tokio::main]
@@ -172,18 +169,27 @@ async fn main() {
         };
         let session_ctx = app
             .create_session(config, remote_app_name.clone(), None)
+            .await
             .expect("error creating p2p session");
 
         // Get the session and spawn receiver for handling responses
-        let session =
-            spawn_session_receiver(session_ctx, local_name.to_string(), remote_app_name.clone());
-        // let session = session_ctx.session_arc().unwrap();
+        let (session_ctx, init_ack) = session_ctx;
+
+        // Get session before spawning receiver
+        let session = session_ctx.session_arc().unwrap();
+
+        // Spawn receiver to handle incoming messages
+        spawn_session_receiver(session_ctx, local_name.to_string(), remote_app_name.clone());
+
+        // Await session initialization
+        init_ack.await.expect("error initializing p2p session");
 
         info!("Sending message to {}", remote_app_name);
 
         // publish message using session context
         session
             .publish(&remote_app_name, msg.into(), None, None)
+            .await
             .unwrap();
 
         sessions.push(session);
@@ -206,15 +212,18 @@ async fn main() {
                     slim_session::notification::Notification::NewSession(session) => {
                         info!("New session created");
 
+                        // Get session before spawning receiver
+                        let session_arc = session.session_arc().unwrap();
+
                         // Use the extracted spawn_session_receiver function
-                        let session = spawn_session_receiver(
+                        spawn_session_receiver(
                             session,
                             local_name.to_string(),
                             remote_app_name.clone(),
                         );
 
                         // Save the session
-                        sessions.push(session);
+                        sessions.push(session_arc);
                     }
                     _ => {
                         info!("Unexpected notification type");

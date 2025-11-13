@@ -17,6 +17,7 @@ use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType, Proto
 use slim_datapath::messages::Name;
 
 use crate::common::SessionMessage;
+use crate::completion_handle::CompletionHandle;
 use crate::notification::Notification;
 use crate::session_config::SessionConfig;
 use crate::session_controller::SessionController;
@@ -165,7 +166,49 @@ where
             .map_err(|e| e.to_string())
     }
 
-    pub fn create_session(
+    /// Public interface to create a new session
+    pub async fn create_session(
+        &self,
+        mut session_config: SessionConfig,
+        local_name: Name,
+        destination: Name,
+        id: Option<u32>,
+    ) -> Result<(SessionContext, CompletionHandle), SessionError> {
+        // Sanity check
+        session_config.initiator = true;
+
+        // Store values before they are moved
+        let is_p2p = session_config.session_type == ProtoSessionType::PointToPoint;
+        let destination_clone = destination.clone();
+
+        let session = self.create_session_internal(session_config, local_name, destination, id)?;
+
+        // If session is p2p, initiate the discovery request now and return the ack
+        // Otherwise, return an immediately resolved future
+        let init_ack = if is_p2p {
+            session
+                .session()
+                .upgrade()
+                .ok_or_else(|| SessionError::SessionNotFound(session.session_id()))?
+                .invite_participant_internal(&destination_clone)
+                .await
+                .inspect_err(|_| {
+                    // If invite_participant_internal fails, remove the session from the pool
+                    let _ = self.remove_session(session.session_id());
+                })?
+        } else {
+            // For non-P2P sessions, return an immediately resolved future
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            let _ = tx.send(Ok(()));
+            CompletionHandle::from_oneshot_receiver(rx)
+        };
+
+        // return the session info and initialization ack
+        Ok((session, init_ack))
+    }
+
+    /// Create a new session and add it to the pool
+    fn create_session_internal(
         &self,
         session_config: SessionConfig,
         local_name: Name,
@@ -256,8 +299,8 @@ where
         }
     }
 
-    /// Remove a session from the pool and return a handle to optionally wait on
-    pub fn remove_session(&self, id: u32) -> Result<tokio::task::JoinHandle<()>, SessionError> {
+    /// Remove a session from the pool and return a completion handle to await on
+    pub fn remove_session(&self, id: u32) -> Result<CompletionHandle, SessionError> {
         // get the write lock
         let session = self
             .pool
@@ -265,14 +308,25 @@ where
             .remove(&id)
             .ok_or(SessionError::SessionNotFound(id))?;
 
-        // close the session and return the handle
-        session.close()
+        // close the session and get the join handle
+        let join_handle = session.close()?;
+
+        // Spawn a task to await the join handle and send the result through a oneshot channel
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            let result = join_handle
+                .await
+                .map(|_| ())
+                .map_err(|e| SessionError::Processing(format!("Session cleanup failed: {}", e)));
+            let _ = tx.send(result);
+        });
+
+        // Return a CompletionHandle wrapping the oneshot receiver
+        Ok(CompletionHandle::from_oneshot_receiver(rx))
     }
 
-    /// Clear all sessions and return handles to wait on
-    pub fn clear_all_sessions(
-        &self,
-    ) -> HashMap<u32, Result<tokio::task::JoinHandle<()>, SessionError>> {
+    /// Clear all sessions and return completion handles to await on
+    pub fn clear_all_sessions(&self) -> HashMap<u32, Result<CompletionHandle, SessionError>> {
         let pool = {
             let mut pool = self.pool.write();
             let copy = pool.clone();
@@ -280,9 +334,22 @@ where
             copy
         };
 
-        // Close all sessions and return handles
+        // Close all sessions and return completion handles
         pool.iter()
-            .map(|(id, session)| (*id, session.close()))
+            .map(|(id, session)| {
+                let result = session.close().map(|join_handle| {
+                    // Spawn a task to await the join handle and send the result through a oneshot channel
+                    let (tx, rx) = tokio::sync::oneshot::channel();
+                    tokio::spawn(async move {
+                        let result = join_handle.await.map(|_| ()).map_err(|e| {
+                            SessionError::Processing(format!("Session cleanup failed: {}", e))
+                        });
+                        let _ = tx.send(result);
+                    });
+                    CompletionHandle::from_oneshot_receiver(rx)
+                });
+                (*id, result)
+            })
             .collect()
     }
 
@@ -389,9 +456,10 @@ where
         }
 
         // check if we have a session for the given session ID
-        if let Some(controller) = self.pool.read().get(&id) {
+        let session_controller = self.pool.read().get(&id).cloned();
+        if let Some(controller) = session_controller {
             // pass the message to the session
-            controller.on_message_from_slim(message)?;
+            controller.on_message_from_slim(message).await?;
             return Ok(());
         }
 
@@ -414,7 +482,7 @@ where
                             false,
                         )?;
 
-                        self.create_session(
+                        self.create_session_internal(
                             conf,
                             local_name,
                             message.get_source(),
@@ -458,7 +526,7 @@ where
                             initiator,
                         )?;
 
-                        self.create_session(
+                        self.create_session_internal(
                             conf,
                             local_name,
                             channel,
@@ -510,7 +578,8 @@ where
             .ok_or(SessionError::SessionClosed(
                 "newly created session already closed: this should not happen".to_string(),
             ))?
-            .on_message_from_slim(message)?;
+            .on_message_from_slim(message)
+            .await?;
 
         // send new session to the app
         self.tx_app
@@ -528,7 +597,8 @@ where
         session_message_type: ProtoSessionMessageType,
     ) -> Result<(), SessionError> {
         // received a discovery message
-        if let Some(controller) = self.pool.read().get(&id)
+        let controller = self.pool.read().get(&id).cloned();
+        if let Some(controller) = controller
             && controller.is_initiator()
             && message
                 .extract_discovery_request()
@@ -538,7 +608,7 @@ where
         {
             // Existing session where we are the initiator and payload includes a destination name:
             // controller is requesting to add a new participant to this session.
-            controller.on_message_from_slim(message)?;
+            controller.on_message_from_slim(message).await?;
             Ok(())
         } else {
             // Handle the discovery request without creating a local session.
@@ -557,19 +627,16 @@ where
     }
 
     /// Check if the session pool is empty (for testing purposes)
-    #[cfg(test)]
     pub fn is_pool_empty(&self) -> bool {
         self.pool.read().is_empty()
     }
 
     /// Get the number of sessions in the pool (for testing purposes)
-    #[cfg(test)]
     pub fn pool_size(&self) -> usize {
         self.pool.read().len()
     }
 
     /// Get a session from the pool (for testing purposes)
-    #[cfg(test)]
     pub fn get_session(&self, id: u32) -> Option<Arc<SessionController>> {
         self.pool.read().get(&id).cloned()
     }
@@ -684,7 +751,7 @@ mod tests {
             metadata: Default::default(),
         };
 
-        let result = session_layer.create_session(config, local_name, destination, None);
+        let result = session_layer.create_session_internal(config, local_name, destination, None);
 
         assert!(result.is_ok());
         assert_eq!(session_layer.pool_size(), 1);
@@ -706,8 +773,12 @@ mod tests {
         };
 
         let session_id = 100u32;
-        let result =
-            session_layer.create_session(config, local_name, destination, Some(session_id));
+        let result = session_layer.create_session_internal(
+            config,
+            local_name,
+            destination,
+            Some(session_id),
+        );
 
         assert!(result.is_ok());
         assert_eq!(session_layer.pool_size(), 1);
@@ -733,8 +804,12 @@ mod tests {
 
         // Use an ID outside the SESSION_RANGE (SESSION_RANGE is 0..u32::MAX-1000)
         let invalid_id = u32::MAX - 500; // This is outside SESSION_RANGE
-        let result =
-            session_layer.create_session(config, local_name, destination, Some(invalid_id));
+        let result = session_layer.create_session_internal(
+            config,
+            local_name,
+            destination,
+            Some(invalid_id),
+        );
 
         assert!(result.is_err());
         match result {
@@ -761,7 +836,7 @@ mod tests {
         let session_id = 100u32;
 
         // Create first session
-        let result1 = session_layer.create_session(
+        let result1 = session_layer.create_session_internal(
             config.clone(),
             local_name.clone(),
             destination.clone(),
@@ -770,8 +845,12 @@ mod tests {
         assert!(result1.is_ok());
 
         // Try to create second session with same ID
-        let result2 =
-            session_layer.create_session(config, local_name, destination, Some(session_id));
+        let result2 = session_layer.create_session_internal(
+            config,
+            local_name,
+            destination,
+            Some(session_id),
+        );
 
         assert!(result2.is_err());
         match result2 {
@@ -797,7 +876,7 @@ mod tests {
 
         let session_id = 100u32;
         let _context = session_layer
-            .create_session(config, local_name, destination, Some(session_id))
+            .create_session_internal(config, local_name, destination, Some(session_id))
             .unwrap();
 
         assert_eq!(session_layer.pool_size(), 1);
@@ -946,8 +1025,12 @@ mod tests {
         // Create multiple sessions
         for i in 0..5 {
             let destination = make_name(&["remote", &format!("app{}", i), "v1"]);
-            let result =
-                session_layer.create_session(config.clone(), local_name.clone(), destination, None);
+            let result = session_layer.create_session_internal(
+                config.clone(),
+                local_name.clone(),
+                destination,
+                None,
+            );
             assert!(result.is_ok());
         }
 

@@ -23,23 +23,10 @@ import pytest
 from common import create_slim, create_svc
 
 import slim_bindings
-from slim_bindings._slim_bindings import (
-    connect,
-    create_session,
-    delete_session,
-    disconnect,
-    get_message,
-    listen_for_session,
-    publish,
-    run_server,
-    set_route,
-    stop_server,
-    subscribe,
-)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("server", ["127.0.0.1:12344", None], indirect=True)
+@pytest.mark.parametrize("server", [None], indirect=True)
 async def test_end_to_end(server):
     """Full round-trip:
     - Two services connect (Alice, Bob)
@@ -54,17 +41,15 @@ async def test_end_to_end(server):
     bob_name = slim_bindings.PyName("org", "default", "bob_e2e")
 
     # create 2 clients, Alice and Bob
-    svc_alice = await create_svc(alice_name, local_service=server.local_service)
-    svc_bob = await create_svc(bob_name, local_service=server.local_service)
+    svc_alice = create_svc(alice_name, local_service=server.local_service)
+    svc_bob = create_svc(bob_name, local_service=server.local_service)
 
     # connect to the service
     if server.local_service:
-        conn_id_alice = await connect(
-            svc_alice,
+        conn_id_alice = await svc_alice.connect(
             {"endpoint": "http://127.0.0.1:12344", "tls": {"insecure": True}},
         )
-        conn_id_bob = await connect(
-            svc_bob,
+        conn_id_bob = await svc_bob.connect(
             {"endpoint": "http://127.0.0.1:12344", "tls": {"insecure": True}},
         )
 
@@ -73,32 +58,39 @@ async def test_end_to_end(server):
             "org", "default", "alice_e2e", id=svc_alice.id
         )
         bob_name = slim_bindings.PyName("org", "default", "bob_e2e", id=svc_bob.id)
-        await subscribe(svc_alice, alice_name, conn_id_alice)
-        await subscribe(svc_bob, bob_name, conn_id_bob)
+        await svc_alice.subscribe(alice_name, conn_id_alice)
+        await svc_bob.subscribe(bob_name, conn_id_bob)
 
         await asyncio.sleep(1)
 
         # set routes
-        await set_route(svc_alice, bob_name, conn_id_alice)
+        await svc_alice.set_route(bob_name, conn_id_alice)
 
     await asyncio.sleep(1)
     print(alice_name)
     print(bob_name)
 
     # create point to point session
-    session_context_alice = await create_session(
-        svc_alice, bob_name, slim_bindings.PySessionConfiguration.PointToPoint()
+    session_context_alice, completion_handle = await svc_alice.create_session(
+        bob_name,
+        slim_bindings.PySessionConfiguration.PointToPoint(
+            max_retries=5,
+            timeout=datetime.timedelta(seconds=5),
+        ),
     )
+
+    # wait for session to be fully established
+    await completion_handle
 
     # send msg from Alice to Bob
     msg = [1, 2, 3, 4, 5, 6, 7, 8, 9]
-    await publish(session_context_alice, 1, msg, name=bob_name)
+    pub_result = await session_context_alice.publish(1, msg, name=bob_name)
 
     # receive session from Alice
-    session_context_bob = await listen_for_session(svc_bob)
+    session_context_bob = await svc_bob.listen_for_session()
 
     # Receive message from Alice
-    message_ctx, msg_rcv = await get_message(session_context_bob)
+    message_ctx, msg_rcv = await session_context_bob.get_message()
 
     # make sure the session id corresponds
     assert session_context_bob.id == session_context_alice.id
@@ -106,35 +98,49 @@ async def test_end_to_end(server):
     # check if the message is correct
     assert msg_rcv == bytes(msg)
 
+    # make also sure the pub message was acknowledged
+    await pub_result
+
+    # make sure if we await twice, we get an exception
+    with pytest.raises(Exception):
+        await pub_result
+
     # reply to Alice
-    await publish(session_context_bob, 1, msg_rcv, message_ctx=message_ctx)
+    pub_result = await session_context_bob.publish(1, msg_rcv, message_ctx=message_ctx)
 
     # wait for message
-    message_context, msg_rcv = await get_message(session_context_alice)
+    message_context, msg_rcv = await session_context_alice.get_message()
 
     # check if the message is correct
     assert msg_rcv == bytes(msg)
 
+    # make sure the pub message was acknowledged
+    await pub_result
+
+    # make sure if we await twice, we get an exception
+    with pytest.raises(Exception):
+        await pub_result
+
     # delete sessions
-    await delete_session(svc_alice, session_context_alice)
-    await delete_session(svc_bob, session_context_bob)
+    await svc_alice.delete_session(session_context_alice)
+    await svc_bob.delete_session(session_context_bob)
 
     # try to send a message after deleting the session - this should raise an exception
     try:
-        await publish(session_context_alice, 1, msg, name=bob_name)
+        await session_context_alice.publish(1, msg, name=bob_name)
     except Exception as e:
         assert "session closed" in str(e), f"Unexpected error message: {str(e)}"
 
     if server.local_service:
         # disconnect alice
-        await disconnect(svc_alice, conn_id_alice)
+        await svc_alice.disconnect(conn_id_alice)
 
         # disconnect bob
-        await disconnect(svc_bob, conn_id_bob)
+        await svc_bob.disconnect(conn_id_bob)
 
     # try to delete a random session, we should get an exception
     try:
-        await delete_session(svc_alice, session_context_alice)
+        await svc_alice.delete_session(session_context_alice)
     except Exception as e:
         assert "session closed" in str(e)
 
@@ -155,7 +161,7 @@ async def test_slim_wrapper(server):
     name2 = slim_bindings.PyName("org", "default", "slim2")
 
     # create new slim object
-    slim1 = await create_slim(name1, local_service=server.local_service)
+    slim1 = create_slim(name1, local_service=server.local_service)
 
     if server.local_service:
         # Connect to the service and subscribe for the local name
@@ -164,7 +170,7 @@ async def test_slim_wrapper(server):
         )
 
     # create second local app
-    slim2 = await create_slim(name2, local_service=server.local_service)
+    slim2 = create_slim(name2, local_service=server.local_service)
 
     if server.local_service:
         # Connect to SLIM server
@@ -179,14 +185,17 @@ async def test_slim_wrapper(server):
         await slim2.set_route(name1)
 
     # create session
-    session_context = await slim2.create_session(
+    session_context, completion_handle = await slim2.create_session(
         name1,
         slim_bindings.PySessionConfiguration.PointToPoint(),
     )
 
+    # wait for session to be fully established
+    await completion_handle
+
     # publish message
     msg = [1, 2, 3, 4, 5, 6, 7, 8, 9]
-    await session_context.publish(msg)
+    pub_res = await session_context.publish(msg)
 
     # wait for a new session
     session_context_rec = await slim1.listen_for_session()
@@ -204,14 +213,20 @@ async def test_slim_wrapper(server):
     # make sure the session id is correct
     assert session_context.id == session_context_rec.id
 
+    # make sure the publish was acknowledged
+    await pub_res
+
     # reply to Alice
-    await session_context_rec.publish_to(msg_ctx, msg_rcv)
+    res_pub = await session_context_rec.publish_to(msg_ctx, msg_rcv)
 
     # wait for message
     msg_ctx, msg_rcv = await session_context.get_message()
 
     # check if the message is correct
     assert msg_rcv == bytes(msg)
+
+    # make sure the publish was acknowledged
+    await res_pub
 
     # delete sessions
     await slim1.delete_session(session_context_rec)
@@ -243,17 +258,15 @@ async def test_auto_reconnect_after_server_restart(server):
     alice_name = slim_bindings.PyName("org", "default", "alice_res")
     bob_name = slim_bindings.PyName("org", "default", "bob_res")
 
-    svc_alice = await create_svc(alice_name, local_service=server.local_service)
-    svc_bob = await create_svc(bob_name, local_service=server.local_service)
+    svc_alice = create_svc(alice_name, local_service=server.local_service)
+    svc_bob = create_svc(bob_name, local_service=server.local_service)
 
     if server.local_service:
         # connect clients and subscribe for messages
-        conn_id_alice = await connect(
-            svc_alice,
+        conn_id_alice = await svc_alice.connect(
             {"endpoint": "http://127.0.0.1:12346", "tls": {"insecure": True}},
         )
-        conn_id_bob = await connect(
-            svc_bob,
+        conn_id_bob = await svc_bob.connect(
             {"endpoint": "http://127.0.0.1:12346", "tls": {"insecure": True}},
         )
 
@@ -261,55 +274,57 @@ async def test_auto_reconnect_after_server_restart(server):
             "org", "default", "alice_res", id=svc_alice.id
         )
         bob_name = slim_bindings.PyName("org", "default", "bob_res", id=svc_bob.id)
-        await subscribe(svc_alice, alice_name, conn_id_alice)
-        await subscribe(svc_bob, bob_name, conn_id_bob)
+        await svc_alice.subscribe(alice_name, conn_id_alice)
+        await svc_bob.subscribe(bob_name, conn_id_bob)
 
         # set routing from Alice to Bob
-        await set_route(svc_alice, bob_name, conn_id_alice)
+        await svc_alice.set_route(bob_name, conn_id_alice)
 
         # Wait for routes to propagate
         await asyncio.sleep(1)
 
     # create point to point session
-    session_context = await create_session(
-        svc_alice,
+    session_context, completion_handle = await svc_alice.create_session(
         bob_name,
         slim_bindings.PySessionConfiguration.PointToPoint(),
     )
 
+    # wait for session to be fully established
+    await completion_handle
+
     # send baseline message Alice -> Bob; Bob should first receive a new session then the message
     baseline_msg = [1, 2, 3]
-    await publish(session_context, 1, baseline_msg, name=bob_name)
+    await session_context.publish(1, baseline_msg, name=bob_name)
 
     # Bob waits for new session
-    bob_session_ctx = await listen_for_session(svc_bob)
-    msg_ctx, received = await get_message(bob_session_ctx)
+    bob_session_ctx = await svc_bob.listen_for_session()
+    msg_ctx, received = await bob_session_ctx.get_message()
     assert received == bytes(baseline_msg)
     # session ids should match
     assert bob_session_ctx.id == session_context.id
 
     # restart the server
-    await stop_server(server.service, "127.0.0.1:12346")
+    await server.service.stop_server("127.0.0.1:12346")
     await asyncio.sleep(3)  # allow time for the server to fully shut down
-    await run_server(
-        server.service, {"endpoint": "127.0.0.1:12346", "tls": {"insecure": True}}
+    await server.service.run_server(
+        {"endpoint": "127.0.0.1:12346", "tls": {"insecure": True}}
     )
     await asyncio.sleep(2)  # allow time for automatic reconnection
 
     # test that the message exchange resumes normally after the simulated restart
     test_msg = [4, 5, 6]
-    await publish(session_context, 1, test_msg, name=bob_name)
+    await session_context.publish(1, test_msg, name=bob_name)
     # Bob should still use the existing session context; just receive next message
-    msg_ctx, received = await get_message(bob_session_ctx)
+    msg_ctx, received = await bob_session_ctx.get_message()
     assert received == bytes(test_msg)
 
     # delete sessions
-    await delete_session(svc_alice, session_context)
-    await delete_session(svc_bob, bob_session_ctx)
+    await svc_alice.delete_session(session_context)
+    await svc_bob.delete_session(bob_session_ctx)
 
     # clean up
-    await disconnect(svc_alice, conn_id_alice)
-    await disconnect(svc_bob, conn_id_bob)
+    await svc_alice.disconnect(conn_id_alice)
+    await svc_bob.disconnect(conn_id_bob)
 
 
 @pytest.mark.asyncio
@@ -322,38 +337,42 @@ async def test_error_on_nonexistent_subscription(server):
     """
     name = slim_bindings.PyName("org", "default", "alice_nonsub")
 
-    svc_alice = await create_svc(name, local_service=server.local_service)
+    svc_alice = create_svc(name, local_service=server.local_service)
 
     if server.local_service:
         # connect client and subscribe for messages
-        conn_id_alice = await connect(
-            svc_alice,
+        conn_id_alice = await svc_alice.connect(
             {"endpoint": "http://127.0.0.1:12347", "tls": {"insecure": True}},
         )
         alice_class = slim_bindings.PyName(
             "org", "default", "alice_nonsub", id=svc_alice.id
         )
-        await subscribe(svc_alice, alice_class, conn_id_alice)
+        await svc_alice.subscribe(alice_class, conn_id_alice)
 
     # create Bob's name, but do not instantiate or subscribe Bob
     bob_name = slim_bindings.PyName("org", "default", "bob_nonsub")
 
     # create point to point session (Alice only)
-    session_context = await create_session(
-        svc_alice,
+    session_context, completion_handle = await svc_alice.create_session(
         bob_name,
         slim_bindings.PySessionConfiguration.PointToPoint(),
     )
 
+    # completion handle should not complete since Bob is not there
+    with pytest.raises(
+        asyncio.TimeoutError,
+    ):
+        await asyncio.wait_for(completion_handle, timeout=1)
+
     # publish a message from Alice intended for Bob (who is not there)
     msg = [7, 8, 9]
-    await publish(session_context, 1, msg, name=bob_name)
+    await session_context.publish(1, msg, name=bob_name)
 
     # attempt to receive on Alice's session context; since Bob does not exist, no message should arrive
     # and we shohuld also get an error coming from SLIM
     try:
         _, src, received = await asyncio.wait_for(
-            listen_for_session(svc_alice), timeout=5
+            svc_alice.listen_for_session(), timeout=5
         )
     except asyncio.TimeoutError:
         pytest.fail("timed out waiting for error message on receive channel")
@@ -363,10 +382,10 @@ async def test_error_on_nonexistent_subscription(server):
         pytest.fail(f"Expected an exception, but received message: {received}")
 
     # delete session
-    await delete_session(svc_alice, session_context)
+    await svc_alice.delete_session(session_context)
 
     # clean up
-    await disconnect(svc_alice, conn_id_alice)
+    await svc_alice.disconnect(conn_id_alice)
 
 
 @pytest.mark.asyncio
@@ -375,13 +394,12 @@ async def test_listen_for_session_timeout(server):
     """Test that listen_for_session times out appropriately when no session is available."""
     alice_name = slim_bindings.PyName("org", "default", "alice_timeout")
 
-    svc_alice = await create_svc(alice_name, local_service=server.local_service)
+    svc_alice = create_svc(alice_name, local_service=server.local_service)
 
     conn_id_alice = None
     if server.local_service:
         # Connect to the service to get connection ID
-        conn_id_alice = await connect(
-            svc_alice,
+        conn_id_alice = await svc_alice.connect(
             {"endpoint": "http://127.0.0.1:12345", "tls": {"insecure": True}},
         )
 
@@ -390,7 +408,7 @@ async def test_listen_for_session_timeout(server):
     timeout_duration = datetime.timedelta(milliseconds=100)
 
     with pytest.raises(Exception) as exc_info:
-        await listen_for_session(svc_alice, timeout_duration)
+        await svc_alice.listen_for_session(timeout_duration)
 
     elapsed_time = asyncio.get_event_loop().time() - start_time
 
@@ -406,13 +424,13 @@ async def test_listen_for_session_timeout(server):
     # Test with None timeout - should wait indefinitely (we'll interrupt it)
     with pytest.raises(asyncio.TimeoutError):
         await asyncio.wait_for(
-            listen_for_session(svc_alice, None),
+            svc_alice.listen_for_session(None),
             timeout=0.1,  # Our own timeout to prevent hanging
         )
 
     # Clean up
     if conn_id_alice is not None:
-        await disconnect(svc_alice, conn_id_alice)
+        await svc_alice.disconnect(conn_id_alice)
 
 
 @pytest.mark.asyncio
@@ -422,29 +440,34 @@ async def test_get_message_timeout(server):
     alice_name = slim_bindings.PyName("org", "default", "alice_msg_timeout")
 
     # Create service
-    svc_alice = await create_svc(alice_name, local_service=server.local_service)
+    svc_alice = create_svc(alice_name, local_service=server.local_service)
 
     conn_id_alice = None
 
     if server.local_service:
         # Connect to the service to get connection ID
-        conn_id_alice = await connect(
-            svc_alice,
+        conn_id_alice = await svc_alice.connect(
             {"endpoint": "http://127.0.0.1:12346", "tls": {"insecure": True}},
         )
 
     # Create a session (with dummy peer for timeout testing)
     dummy_peer = slim_bindings.PyName("org", "default", "dummy_peer")
-    session_context = await create_session(
-        svc_alice, dummy_peer, slim_bindings.PySessionConfiguration.PointToPoint()
+    session_context, completion_handle = await svc_alice.create_session(
+        dummy_peer, slim_bindings.PySessionConfiguration.PointToPoint()
     )
+
+    # make sure the completion of the session creation hangs when awaited
+    with pytest.raises(
+        asyncio.TimeoutError,
+    ):
+        await asyncio.wait_for(completion_handle, timeout=0.5)
 
     # Test with a short timeout - should raise an exception
     start_time = asyncio.get_event_loop().time()
     timeout_duration = datetime.timedelta(milliseconds=100)
 
     with pytest.raises(Exception) as exc_info:
-        await get_message(session_context, timeout_duration)
+        await session_context.get_message(timeout_duration)
 
     elapsed_time = asyncio.get_event_loop().time() - start_time
 
@@ -460,11 +483,57 @@ async def test_get_message_timeout(server):
     # Test with None timeout - should wait indefinitely (we'll interrupt it)
     with pytest.raises(asyncio.TimeoutError):
         await asyncio.wait_for(
-            get_message(session_context, None),
+            session_context.get_message(None),
             timeout=0.1,  # Our own timeout to prevent hanging
         )
 
     # Clean up
-    await delete_session(svc_alice, session_context)
+    await svc_alice.delete_session(session_context)
     if conn_id_alice is not None:
-        await disconnect(svc_alice, conn_id_alice)
+        await svc_alice.disconnect(conn_id_alice)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("server", ["127.0.0.1:12348", None], indirect=True)
+async def test_publish_no_ack_timeout(server):
+    """Test that awaiting publish result times out when there's no receiver to acknowledge.
+
+    This test verifies that when a message is published to a non-existent peer,
+    the internal acknowledgment (that the message was received by the other side)
+    never arrives, causing the publish await to timeout.
+
+    The session should be reliable to require acknowledgments.
+    """
+    alice_name = slim_bindings.PyName("org", "default", "alice_noack")
+
+    # Create only Alice - no Bob to receive/acknowledge
+    slim_alice = create_slim(alice_name, local_service=server.local_service)
+
+    if server.local_service:
+        # Connect to the service and subscribe for the local name
+        _ = await slim_alice.connect(
+            {"endpoint": "http://127.0.0.1:12348", "tls": {"insecure": True}}
+        )
+
+    # Create Bob's name, but Bob doesn't exist/isn't listening
+    bob_name = slim_bindings.PyName("org", "default", "bob_noack")
+
+    # Create a reliable session from Alice to non-existent Bob
+    session_context, completion_handle = await slim_alice.create_session(
+        bob_name,
+        slim_bindings.PySessionConfiguration.PointToPoint(
+            max_retries=5,
+            timeout=datetime.timedelta(seconds=5),
+        ),
+    )
+
+    # Publish a message - there's no Bob to acknowledge receipt
+    msg = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    pub_res = await session_context.publish(msg)
+
+    # The await on pub_res should timeout because there's no receiver to send internal ack
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(pub_res, timeout=2.0)
+
+    # Clean up
+    await slim_alice.delete_session(session_context)

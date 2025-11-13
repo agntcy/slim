@@ -180,7 +180,7 @@ async fn run_participant_task(name: Name) -> Result<(), String> {
                                                             let payload = msg_id.to_ne_bytes().to_vec();
                                                             let flags = SlimHeaderFlags::new(10, None, None, None, None);
                                                             if let Some(session_arc) = weak.upgrade() &&
-                                                                session_arc.publish_with_flags(&session_channel_name_clone, flags, payload, None, None).is_err() {
+                                                                session_arc.publish_with_flags(&session_channel_name_clone, flags, payload, None, None).await.is_err() {
                                                                 panic!("an error occurred sending publication from moderator");
                                                             }
                                                         }
@@ -285,9 +285,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         initiator: true,
         metadata: HashMap::new(),
     };
-    let session_ctx = app
+    let (session_ctx, completion_handle) = app
         .create_session(conf, channel_name.clone(), None)
+        .await
         .expect("error creating session");
+
+    // Await the completion of the session establishment
+    completion_handle.await.expect("error establishing session");
 
     for c in &participants {
         // add routes
@@ -303,6 +307,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .session_arc()
             .unwrap()
             .invite_participant(c)
+            .await
             .expect("error sending invite message");
     }
 
@@ -364,6 +369,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         if session_arc
             .publish_with_flags(&channel_name, flags, p.clone(), None, None)
+            .await
             .is_err()
         {
             panic!("an error occurred sending publication from moderator",);
@@ -377,8 +383,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &participants[to_remove], &participants[to_add]
             );
 
-            let _ = session_arc.remove_participant(&participants[to_remove]);
-            let _ = session_arc.invite_participant(&participants[to_add]);
+            let _ = session_arc
+                .remove_participant(&participants[to_remove])
+                .await;
+            let _ = session_arc.invite_participant(&participants[to_add]).await;
             to_remove = (to_remove + 1) % tot_participants;
             to_add = (to_add + 1) % tot_participants;
 

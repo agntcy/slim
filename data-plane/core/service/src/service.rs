@@ -598,11 +598,12 @@ mod tests {
         let mut config = SessionConfig::default()
             .with_session_type(slim_datapath::api::ProtoSessionType::PointToPoint);
         config.initiator = true;
-        let send_session = pub_app
+        let (send_session, completion_handle) = pub_app
             .create_session(config, subscriber_name.clone(), None)
+            .await
             .unwrap();
 
-        time::sleep(Duration::from_millis(100)).await;
+        completion_handle.await.expect("session creation failed");
 
         // publish a message
         let message_blob = "very complicated message".as_bytes().to_vec();
@@ -610,6 +611,7 @@ mod tests {
             .session_arc()
             .unwrap()
             .publish(&subscriber_name, message_blob.clone(), None, None)
+            .await
             .unwrap();
 
         // wait for the new session to arrive in the subscriber app
@@ -695,18 +697,24 @@ mod tests {
             .expect("failed to create app");
 
         //////////////////////////// p2p session ////////////////////////////////////////////////////////////////////////
-        let session_config = SessionConfig::default()
-            .with_session_type(slim_datapath::api::ProtoSessionType::PointToPoint);
+        let session_config = SessionConfig {
+            session_type: slim_datapath::api::ProtoSessionType::PointToPoint,
+            max_retries: Some(3),
+            interval: Some(Duration::from_millis(500)),
+            mls_enabled: false,
+            initiator: true,
+            metadata: HashMap::new(),
+        };
         let dst = Name::from_strings(["org", "ns", "dst"]);
-        let session_info = app
-            .create_session(session_config, dst, None)
-            .expect("failed to create session");
+        let (session_info, _completion_handle) = app
+            .create_session(session_config.clone(), dst, None)
+            .await
+            .expect("Failed to create session");
 
         // check the configuration we get is the one we used to create the session
-        let _session_config_ret = session_info.session_arc().unwrap();
+        let session_config_ret = session_info.session().upgrade().unwrap().session_config();
 
-        // The session was created successfully, which is enough for this test
-        // Session configuration methods may have changed in the new API
+        assert_eq!(session_config_ret, session_config);
 
         ////////////// multicast session //////////////////////////////////////////////////////////////////////////////////
 
@@ -720,11 +728,15 @@ mod tests {
             initiator: true,
             metadata: HashMap::new(),
         };
-        let _session_info = app
-            .create_session(session_config, stream.clone(), None)
-            .expect("failed to create session");
+        let (session_info, _completion_handle) = app
+            .create_session(session_config.clone(), stream.clone(), None)
+            .await
+            .expect("Failed to create session");
 
         // The multicast session was created successfully
-        ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+        let session_config_ret = session_info.session().upgrade().unwrap().session_config();
+
+        assert_eq!(session_config_ret, session_config);
     }
 }

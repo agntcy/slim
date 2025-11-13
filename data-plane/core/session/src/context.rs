@@ -37,7 +37,7 @@ impl SessionContext {
         self.session().upgrade()
     }
 
-    /// Consume the context returning session, receiver and optional metadata.
+    /// Consume the context returning session and receiver.
     pub fn into_parts(self) -> (Weak<SessionController>, AppChannelReceiver) {
         (self.session, self.rx)
     }

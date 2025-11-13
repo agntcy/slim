@@ -11,119 +11,40 @@ class PyApp:
     def id(self) -> builtins.int: ...
     @property
     def name(self) -> PyName: ...
+    def __new__(cls, name:PyName, provider:PyIdentityProvider, verifier:PyIdentityVerifier, local_service:builtins.bool) -> PyApp: ...
+    def create_session(self, destination:PyName, config:PySessionConfiguration) -> typing.Any: ...
+    def listen_for_session(self, timeout:typing.Optional[datetime.timedelta]=None) -> typing.Any: ...
+    def run_server(self, config:dict) -> typing.Any: ...
+    def stop_server(self, endpoint:builtins.str) -> typing.Any: ...
+    def connect(self, config:dict) -> typing.Any: ...
+    def disconnect(self, conn:builtins.int) -> typing.Any: ...
+    def subscribe(self, name:PyName, conn:typing.Optional[builtins.int]=None) -> typing.Any: ...
+    def unsubscribe(self, name:PyName, conn:typing.Optional[builtins.int]=None) -> typing.Any: ...
+    def set_route(self, name:PyName, conn:builtins.int) -> typing.Any: ...
+    def remove_route(self, name:PyName, conn:builtins.int) -> typing.Any: ...
+    def delete_session(self, session_context:PySessionContext) -> typing.Any: ...
 
-class PyIdentityProvider:
+class PyCompletionHandle:
     r"""
-    Python-facing identity provider definitions.
+    Handle for awaiting completion of asynchronous operations.
+    This class wraps a `CompletionHandle` future, allowing Python code
+    to await the completion of operations such as:
+    - Message delivery (publish)
+    - Session initialization (create_session)
+    - Participant invitation (invite)
+    - Participant removal (remove)
     
-    Variants:
-    * StaticJwt { path }: Load a token from a file (cached, static).
-    * Jwt { private_key, duration, issuer?, audience?, subject? }:
-        Dynamically sign tokens using provided private key with optional
-        standard JWT claims (iss, aud, sub) and a token validity duration.
-    * SharedSecret { identity, shared_secret }:
-        Symmetric token provider using a shared secret. Used mainly for testing.
-    
-    Examples (Python):
-    
-    Static (pre-issued) JWT token loaded from a file:
-    ```python
-    from slim_bindings import PyIdentityProvider
-    
-    provider = PyIdentityProvider.StaticJwt(path="service.token")
-    # 'provider.get_token()' (internally) will manage reloading of the file if it changes.
-    ```
-    
-    Dynamically signed JWT using a private key (claims + duration):
-    ```python
-    from slim_bindings import (
-        PyIdentityProvider, PyKey, PyAlgorithm, PyKeyFormat, PyKeyData
-    )
-    import datetime
-    
-    signing_key = PyKey(
-        algorithm=PyAlgorithm.RS256,
-        format=PyKeyFormat.Pem,
-        key=PyKeyData.File("private_key.pem"),
-    )
-    
-    provider = PyIdentityProvider.Jwt(
-        private_key=signing_key,
-        duration=datetime.timedelta(minutes=30),
-        issuer="my-issuer",
-        audience=["downstream-svc"],
-        subject="svc-a",
-    )
-    ```
-    
-    Shared secret token provider for tests / local development:
-    ```python
-    from slim_bindings import PyIdentityProvider
-    
-    provider = PyIdentityProvider.SharedSecret(
-        identity="svc-a",
-        shared_secret="not-for-production",
-    )
-    ```
-    
-    End-to-end example pairing with a verifier:
-    ```python
-    # For a simple shared-secret flow:
-    from slim_bindings import PyIdentityProvider, PyIdentityVerifier
-    
-    provider = PyIdentityProvider.SharedSecret(identity="svc-a", shared_secret="dev-secret")
-    verifier = PyIdentityVerifier.SharedSecret(identity="svc-a", shared_secret="dev-secret")
-    
-    # Pass both into Slim.new(local_name, provider, verifier)
-    ```
-    
-    Jwt variant quick start (full):
-    ```python
-    import datetime
-    from slim_bindings import (
-        PyIdentityProvider, PyIdentityVerifier,
-        PyKey, PyAlgorithm, PyKeyFormat, PyKeyData
-    )
-    
-    key = PyKey(PyAlgorithm.RS256, PyKeyFormat.Pem, PyKeyData.File("private_key.pem"))
-    provider = PyIdentityProvider.Jwt(
-        private_key=key,
-        duration=datetime.timedelta(hours=1),
-        issuer="my-issuer",
-        audience=["svc-b"],
-        subject="svc-a"
-    )
-    # Verifier would normally use the corresponding public key (PyIdentityVerifier.Jwt).
+    # Examples
+    ````python
+    ...
+    # This will make sure the message is successfully handled to the session
+    res_pub = await session_context.publish(msg)
+    # This will make sure the message was successfully delivered to the peer(s)
+    ack = await res_pub
+    print("Operation completed:", ack)
+    ...
     ```
     """
-    class StaticJwt(PyIdentityProvider):
-        __match_args__ = ("path",)
-        @property
-        def path(self) -> builtins.str: ...
-        def __new__(cls, path:builtins.str) -> PyIdentityProvider.StaticJwt: ...
-    
-    class Jwt(PyIdentityProvider):
-        __match_args__ = ("private_key", "duration", "issuer", "audience", "subject",)
-        @property
-        def private_key(self) -> PyKey: ...
-        @property
-        def duration(self) -> datetime.timedelta: ...
-        @property
-        def issuer(self) -> typing.Optional[builtins.str]: ...
-        @property
-        def audience(self) -> typing.Optional[builtins.list[builtins.str]]: ...
-        @property
-        def subject(self) -> typing.Optional[builtins.str]: ...
-        def __new__(cls, private_key:PyKey, duration:datetime.timedelta, issuer:typing.Optional[builtins.str]=None, audience:typing.Optional[typing.Sequence[builtins.str]]=None, subject:typing.Optional[builtins.str]=None) -> PyIdentityProvider.Jwt: ...
-    
-    class SharedSecret(PyIdentityProvider):
-        __match_args__ = ("identity", "shared_secret",)
-        @property
-        def identity(self) -> builtins.str: ...
-        @property
-        def shared_secret(self) -> builtins.str: ...
-        def __new__(cls, identity:builtins.str, shared_secret:builtins.str) -> PyIdentityProvider.SharedSecret: ...
-    
     ...
 
 class PyKey:
@@ -322,6 +243,26 @@ class PySessionContext:
     def dst(self) -> typing.Optional[PyName]: ...
     @property
     def session_config(self) -> PySessionConfiguration: ...
+    def publish(self, fanout:builtins.int, blob:typing.Sequence[builtins.int], message_ctx:typing.Optional[PyMessageContext]=None, name:typing.Optional[PyName]=None, payload_type:typing.Optional[builtins.str]=None, metadata:typing.Optional[typing.Mapping[builtins.str, builtins.str]]=None) -> typing.Any:
+        r"""
+        Publish a message through the specified session.
+        """
+    def publish_to(self, message_ctx:PyMessageContext, blob:typing.Sequence[builtins.int], payload_type:typing.Optional[builtins.str]=None, metadata:typing.Optional[typing.Mapping[builtins.str, builtins.str]]=None) -> typing.Any:
+        r"""
+        Publish a message as a reply to a received message through the specified session.
+        """
+    def invite(self, name:PyName) -> typing.Any:
+        r"""
+        Invite a participant to the specified session (group only).
+        """
+    def remove(self, name:PyName) -> typing.Any:
+        r"""
+        Remove a participant from the specified session (group only).
+        """
+    def get_message(self, timeout:typing.Optional[datetime.timedelta]=None) -> typing.Any:
+        r"""
+        Get a message from the specified session.
+        """
 
 class PyAlgorithm(Enum):
     r"""
@@ -342,6 +283,94 @@ class PyAlgorithm(Enum):
     ES256 = ...
     ES384 = ...
     EdDSA = ...
+
+class PyIdentityProvider(Enum):
+    r"""
+    Python-facing identity provider definitions.
+    
+    Variants:
+    * StaticJwt { path }: Load a token from a file (cached, static).
+    * Jwt { private_key, duration, issuer?, audience?, subject? }:
+        Dynamically sign tokens using provided private key with optional
+        standard JWT claims (iss, aud, sub) and a token validity duration.
+    * SharedSecret { identity, shared_secret }:
+        Symmetric token provider using a shared secret. Used mainly for testing.
+    
+    Examples (Python):
+    
+    Static (pre-issued) JWT token loaded from a file:
+    ```python
+    from slim_bindings import PyIdentityProvider
+    
+    provider = PyIdentityProvider.StaticJwt(path="service.token")
+    # 'provider.get_token()' (internally) will manage reloading of the file if it changes.
+    ```
+    
+    Dynamically signed JWT using a private key (claims + duration):
+    ```python
+    from slim_bindings import (
+        PyIdentityProvider, PyKey, PyAlgorithm, PyKeyFormat, PyKeyData
+    )
+    import datetime
+    
+    signing_key = PyKey(
+        algorithm=PyAlgorithm.RS256,
+        format=PyKeyFormat.Pem,
+        key=PyKeyData.File("private_key.pem"),
+    )
+    
+    provider = PyIdentityProvider.Jwt(
+        private_key=signing_key,
+        duration=datetime.timedelta(minutes=30),
+        issuer="my-issuer",
+        audience=["downstream-svc"],
+        subject="svc-a",
+    )
+    ```
+    
+    Shared secret token provider for tests / local development:
+    ```python
+    from slim_bindings import PyIdentityProvider
+    
+    provider = PyIdentityProvider.SharedSecret(
+        identity="svc-a",
+        shared_secret="not-for-production",
+    )
+    ```
+    
+    End-to-end example pairing with a verifier:
+    ```python
+    # For a simple shared-secret flow:
+    from slim_bindings import PyIdentityProvider, PyIdentityVerifier
+    
+    provider = PyIdentityProvider.SharedSecret(identity="svc-a", shared_secret="dev-secret")
+    verifier = PyIdentityVerifier.SharedSecret(identity="svc-a", shared_secret="dev-secret")
+    
+    # Pass both into Slim.new(local_name, provider, verifier)
+    ```
+    
+    Jwt variant quick start (full):
+    ```python
+    import datetime
+    from slim_bindings import (
+        PyIdentityProvider, PyIdentityVerifier,
+        PyKey, PyAlgorithm, PyKeyFormat, PyKeyData
+    )
+    
+    key = PyKey(PyAlgorithm.RS256, PyKeyFormat.Pem, PyKeyData.File("private_key.pem"))
+    provider = PyIdentityProvider.Jwt(
+        private_key=key,
+        duration=datetime.timedelta(hours=1),
+        issuer="my-issuer",
+        audience=["svc-b"],
+        subject="svc-a"
+    )
+    # Verifier would normally use the corresponding public key (PyIdentityVerifier.Jwt).
+    ```
+    """
+    StaticJwt = ...
+    Jwt = ...
+    SharedSecret = ...
 
 class PyIdentityVerifier(Enum):
     r"""
@@ -481,54 +510,5 @@ class PySessionType(Enum):
     Many-to-many distribution via a group channel_name.
     """
 
-def connect(svc:PyApp, config:dict) -> typing.Any: ...
-
-def create_pyapp(name:PyName, provider:PyIdentityProvider, verifier:PyIdentityVerifier, local_service:builtins.bool=False) -> typing.Any: ...
-
-def create_session(svc:PyApp, destination:PyName, config:PySessionConfiguration) -> typing.Any: ...
-
-def delete_session(svc:PyApp, session_context:PySessionContext) -> typing.Any: ...
-
-def disconnect(svc:PyApp, conn:builtins.int) -> typing.Any: ...
-
-def get_message(session_context:PySessionContext, timeout:typing.Optional[datetime.timedelta]=None) -> typing.Any:
-    r"""
-    Get a message from the specified session.
-    """
-
 def init_tracing(config:dict) -> typing.Any: ...
-
-def invite(session_context:PySessionContext, name:PyName) -> typing.Any:
-    r"""
-    Invite a participant to the specified session (group only).
-    """
-
-def listen_for_session(svc:PyApp, timeout:typing.Optional[datetime.timedelta]=None) -> typing.Any: ...
-
-def publish(session_context:PySessionContext, fanout:builtins.int, blob:typing.Sequence[builtins.int], message_ctx:typing.Optional[PyMessageContext]=None, name:typing.Optional[PyName]=None, payload_type:typing.Optional[builtins.str]=None, metadata:typing.Optional[typing.Mapping[builtins.str, builtins.str]]=None) -> typing.Any:
-    r"""
-    Publish a message through the specified session.
-    """
-
-def publish_to(session_context:PySessionContext, message_ctx:PyMessageContext, blob:typing.Sequence[builtins.int], payload_type:typing.Optional[builtins.str]=None, metadata:typing.Optional[typing.Mapping[builtins.str, builtins.str]]=None) -> typing.Any:
-    r"""
-    Publish a message as a reply to a received message through the specified session.
-    """
-
-def remove(session_context:PySessionContext, name:PyName) -> typing.Any:
-    r"""
-    Remove a participant from the specified session (group only).
-    """
-
-def remove_route(svc:PyApp, name:PyName, conn:builtins.int) -> typing.Any: ...
-
-def run_server(svc:PyApp, config:dict) -> typing.Any: ...
-
-def set_route(svc:PyApp, name:PyName, conn:builtins.int) -> typing.Any: ...
-
-def stop_server(svc:PyApp, endpoint:builtins.str) -> typing.Any: ...
-
-def subscribe(svc:PyApp, name:PyName, conn:typing.Optional[builtins.int]=None) -> typing.Any: ...
-
-def unsubscribe(svc:PyApp, name:PyName, conn:typing.Optional[builtins.int]=None) -> typing.Any: ...
 

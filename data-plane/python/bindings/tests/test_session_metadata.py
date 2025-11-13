@@ -53,15 +53,20 @@ async def test_session_metadata_merge_roundtrip(server):
     receiver_name = PyName("org", "ns", "session_receiver")
 
     # Instantiate Slim instances with shared-secret auth
-    sender = await create_slim(sender_name, local_service=False)
-    receiver = await create_slim(receiver_name, local_service=False)
+    sender = create_slim(sender_name, local_service=False)
+    receiver = create_slim(receiver_name, local_service=False)
 
     # Metadata we want to propagate with the session creation
     metadata = {"a": "1", "k": "session"}
 
     # Create PointToPoint session
     sess_cfg = PySessionConfiguration.PointToPoint(metadata=metadata)
-    session_sender = await sender.create_session(receiver_name, sess_cfg)
+    session_sender, completion_handle = await sender.create_session(
+        receiver_name, sess_cfg
+    )
+
+    # wait for session establishment to complete
+    await completion_handle
 
     await session_sender.publish(b"hello")
 

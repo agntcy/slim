@@ -19,10 +19,6 @@ Validated invariants:
   * session_type == PointToPoint for receiver-side context
   * dst == sender.local_name and src == receiver.local_name
   * Exactly one receiver_counts[i] == 1000 and total sum == 1000
-
-Notes:
-  The test uses simple sleeps for propagation; production-grade suites
-  might replace those with explicit readiness signaling.
 """
 
 import asyncio
@@ -68,7 +64,7 @@ async def test_sticky_session(server, mls_enabled):
     print(f"Receiver name: {receiver_name}")
 
     # create new slim object
-    sender = await create_slim(sender_name, local_service=server.local_service)
+    sender = create_slim(sender_name, local_service=server.local_service)
 
     if server.local_service:
         # Connect to the service and subscribe for the local name
@@ -88,7 +84,7 @@ async def test_sticky_session(server, mls_enabled):
         - Counts messages matching expected routing + metadata.
         - Continues until sender finishes publishing (loop ends by external cancel or test end).
         """
-        receiver = await create_slim(receiver_name, local_service=server.local_service)
+        receiver = create_slim(receiver_name, local_service=server.local_service)
 
         if server.local_service:
             # Connect to the service and subscribe for the local name
@@ -125,18 +121,19 @@ async def test_sticky_session(server, mls_enabled):
     for i in range(10):
         t = asyncio.create_task(run_receiver(i))
         tasks.append(t)
-        await asyncio.sleep(0.1)
 
     # create a new session
     session_config = slim_bindings.PySessionConfiguration.PointToPoint(
         max_retries=5,
-        timeout=datetime.timedelta(seconds=5),
+        timeout=datetime.timedelta(milliseconds=500),
         mls_enabled=mls_enabled,
     )
-    sender_session = await sender.create_session(receiver_name, session_config)
+    sender_session, completion_handle = await sender.create_session(
+        receiver_name, session_config
+    )
 
-    # Wait a moment
-    await asyncio.sleep(2)
+    # wait for session establishment
+    await completion_handle
 
     payload_type = "hello message"
     metadata = {"sender": "hello"}
@@ -144,26 +141,28 @@ async def test_sticky_session(server, mls_enabled):
     # Flood the established p2s session with messages.
     # Stickiness requirement: every one of these 1000 publishes should be delivered
     # to exactly the same receiver instance (affinity).
-    for _ in range(1000):
-        await sender_session.publish(
-            b"Hello from sender",
-            payload_type=payload_type,
-            metadata=metadata,
+    n_messages = 1000
+
+    pub_results = []
+    for _ in range(n_messages):
+        pub_results.append(
+            await sender_session.publish(
+                b"Hello from sender",
+                payload_type=payload_type,
+                metadata=metadata,
+            )
         )
 
-    # Wait for all receivers to finish
-    await asyncio.sleep(1)
+    await asyncio.gather(*pub_results)
 
     # Affinity assertions:
     #  * Sum of all per-receiver counts == total sent (1000)
     #  * Exactly one bucket contains 1000 (the sticky peer)
-    assert sum(receiver_counts.values()) == 1000
-    assert 1000 in receiver_counts.values()
+    assert sum(receiver_counts.values()) == n_messages
+    assert n_messages in receiver_counts.values()
 
     # Delete sender_session
     await sender.delete_session(sender_session)
-
-    await asyncio.sleep(5)
 
     # Kill all tasks
     for t in tasks:

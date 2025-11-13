@@ -204,7 +204,7 @@ async fn run_client_task(name: Name) -> Result<(), String> {
                                                             if let Some(session_arc) = weak.upgrade() {
                                                                 let payload = val.into_bytes();
                                                                 println!("received message {} on app {}", msg.get_session_header().get_message_id(), name_clone_session);
-                                                                if session_arc.publish_to(&publisher, conn, payload, None, None).is_err() {
+                                                                if session_arc.publish_to(&publisher, conn, payload, None, None).await.is_err() {
                                                                     panic!("an error occurred sending publication from moderator");
                                                                 }
                                                             }
@@ -268,9 +268,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    // wait for all the processes to start
-    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-
     // start moderator
     let name = Name::from_strings(["org", "ns", "main"]).with_id(1);
 
@@ -314,9 +311,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         initiator: true,
         metadata: HashMap::new(),
     };
-    let session_ctx = app
-        .create_session(conf, Name::from_strings(["org", "ns", "client"]), None)
-        .expect("error creating session");
 
     for c in &clients {
         // add routes
@@ -325,7 +319,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("an error occurred while adding a route");
     }
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(10000)).await;
+    let (session_ctx, completion_handle) = app
+        .create_session(conf, Name::from_strings(["org", "ns", "client"]), None)
+        .await
+        .expect("error creating session");
+
+    // Wait for session to be established
+    completion_handle.await.expect("error establishing session");
 
     // listen for messages
     let max_packets = 50;
@@ -335,7 +335,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Clone the Arc to session for later use
     let session_arc = session_ctx.session_arc().unwrap();
 
+    // Create a channel to signal when all messages are received
+    let (all_received_tx, all_received_rx) = tokio::sync::oneshot::channel();
+
     session_ctx.spawn_receiver(move |mut rx, _weak| async move {
+        let mut all_received_tx = Some(all_received_tx);
         loop {
             match rx.recv().await {
                 None => {
@@ -355,11 +359,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 println!("received a corrupted reply");
                                 continue;
                             }
-                            let mut lock = recv_msgs_clone.write();
-                            match lock.get_mut(&sender) {
-                                Some(x) => *x += 1,
-                                None => {
-                                    lock.insert(sender, 1);
+                            recv_msgs_clone
+                                .write()
+                                .entry(sender)
+                                .and_modify(|v| *v += 1)
+                                .or_insert(1);
+
+                            // Check if we've received all expected messages
+                            let total: u32 = recv_msgs_clone.read().values().sum();
+                            if total >= max_packets {
+                                println!(
+                                    "Received all {} messages, signaling completion",
+                                    max_packets
+                                );
+                                if let Some(tx) = all_received_tx.take() {
+                                    let _ = tx.send(());
                                 }
                             }
                         }
@@ -375,25 +389,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let msg_payload_str = "hello there";
     let p = msg_payload_str.as_bytes().to_vec();
+    let mut completion_handlers = vec![];
     for i in 0..max_packets {
         println!("main: send message {}", i);
 
-        if session_arc
+        let completion_handler = session_arc
             .publish(
                 &Name::from_strings(["org", "ns", "client"]),
                 p.clone(),
                 None,
                 None,
             )
-            .is_err()
-        {
-            panic!("an error occurred sending publication from moderator",);
-        }
+            .await
+            .expect("an error occurred sending publication from moderator");
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        completion_handlers.push(completion_handler);
     }
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+    // wait for all messages to be sent
+    futures::future::try_join_all(completion_handlers)
+        .await
+        .expect("an error occurred waiting for publication completion from moderator");
+
+    // Wait for all messages to be received with a timeout
+    tokio::select! {
+        _ = all_received_rx => {
+            println!("All messages received successfully");
+        }
+        _ = tokio::time::sleep(Duration::from_secs(30)) => {
+            println!("Timeout waiting for all messages to be received");
+        }
+    }
 
     // the total number of packets received must be max_packets
     let mut sum = 0;

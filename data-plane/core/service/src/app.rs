@@ -115,28 +115,22 @@ where
     }
 
     /// Create a new session with the given configuration
-    pub fn create_session(
+    pub async fn create_session(
         &self,
         session_config: SessionConfig,
         destination: Name,
         id: Option<u32>,
-    ) -> Result<SessionContext, SessionError> {
-        let ret = self.session_layer.create_session(
-            session_config,
-            self.app_name.clone(),
-            destination,
-            id,
-        )?;
-
-        // return the session info
-        Ok(ret)
+    ) -> Result<(SessionContext, slim_session::CompletionHandle), SessionError> {
+        self.session_layer
+            .create_session(session_config, self.app_name.clone(), destination, id)
+            .await
     }
 
-    /// Delete a session and return a handle to wait on
+    /// Delete a session and return a completion handle to await on
     pub fn delete_session(
         &self,
         session: &SessionController,
-    ) -> Result<tokio::task::JoinHandle<()>, SessionError> {
+    ) -> Result<slim_session::CompletionHandle, SessionError> {
         self.session_layer.remove_session(session.id())
     }
 
@@ -261,10 +255,10 @@ where
         self.send_message_without_context(msg).await
     }
 
-    /// Close all sessions and return handles to wait on
+    /// Close all sessions and return completion handles to await on
     pub fn clear_all_sessions(
         &self,
-    ) -> HashMap<u32, Result<tokio::task::JoinHandle<()>, SessionError>> {
+    ) -> HashMap<u32, Result<slim_session::CompletionHandle, SessionError>> {
         debug!(
             "clearing all sessions for app {} (returning handles)",
             self.app_name
@@ -385,7 +379,45 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_remove_session() {
+    async fn test_create_session() {
+        let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(1);
+        let (tx_app, _rx_app) = tokio::sync::mpsc::channel(1);
+        let name = Name::from_strings(["org", "ns", "type"]).with_id(0);
+
+        let app = App::new(
+            &name,
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            0,
+            tx_slim.clone(),
+            tx_app.clone(),
+            std::path::PathBuf::from("/tmp/test_storage"),
+        );
+
+        let config = SessionConfig {
+            session_type: ProtoSessionType::PointToPoint,
+            initiator: true,
+            ..Default::default()
+        };
+        let dst = Name::from_strings(["org", "ns", "dst"]);
+
+        // Session creation should hang as there is no peer side to respond
+        let (_session, completion_handle) = app
+            .create_session(config.clone(), dst.clone(), None)
+            .await
+            .unwrap();
+
+        // Session is created but completion shouhld hangs (times out)
+        let timeout_result =
+            tokio::time::timeout(std::time::Duration::from_millis(100), completion_handle).await;
+        assert!(
+            timeout_result.is_err(),
+            "Session creation should have timed out"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_delete_session() {
         let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, _) = tokio::sync::mpsc::channel(1);
         let name = Name::from_strings(["org", "ns", "type"]).with_id(0);
@@ -400,65 +432,29 @@ mod tests {
             std::path::PathBuf::from("/tmp/test_storage"),
         );
 
-        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
+        let config = SessionConfig {
+            session_type: ProtoSessionType::PointToPoint,
+            initiator: true,
+            interval: Some(std::time::Duration::from_millis(500)),
+            max_retries: Some(5),
+            ..Default::default()
+        };
         let dst = Name::from_strings(["org", "ns", "dst"]);
+        let (res, completion_handle) = app.create_session(config, dst, None).await.unwrap();
 
-        let ret = app.create_session(config, dst, Some(1));
-
-        assert!(ret.is_ok());
-
-        app.delete_session(&ret.unwrap().session().upgrade().unwrap())
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_create_session() {
-        let (tx_slim, _) = tokio::sync::mpsc::channel(1);
-        let (tx_app, _) = tokio::sync::mpsc::channel(1);
-        let name = Name::from_strings(["org", "ns", "type"]).with_id(0);
-
-        let session_layer = App::new(
-            &name,
-            SharedSecret::new("a", TEST_VALID_SECRET),
-            SharedSecret::new("a", TEST_VALID_SECRET),
-            0,
-            tx_slim.clone(),
-            tx_app.clone(),
-            std::path::PathBuf::from("/tmp/test_storage"),
+        // The completion handle should fail, as the channel with SLIM is closed
+        assert!(
+            completion_handle.await.is_err(),
+            "Session creation should have failed due to closed channel"
         );
 
-        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
-        let dst = Name::from_strings(["org", "ns", "dst"]);
-        let res = session_layer.create_session(config, dst, None);
+        // Delete the session
+        let handle = app
+            .delete_session(&res.session().upgrade().unwrap())
+            .expect("failed to delete session");
 
-        assert!(res.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_delete_session() {
-        let (tx_slim, _) = tokio::sync::mpsc::channel(1);
-        let (tx_app, _) = tokio::sync::mpsc::channel(1);
-        let name = Name::from_strings(["org", "ns", "type"]).with_id(0);
-
-        let session_layer = App::new(
-            &name,
-            SharedSecret::new("a", TEST_VALID_SECRET),
-            SharedSecret::new("a", TEST_VALID_SECRET),
-            0,
-            tx_slim.clone(),
-            tx_app.clone(),
-            std::path::PathBuf::from("/tmp/test_storage"),
-        );
-
-        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
-        let dst = Name::from_strings(["org", "ns", "dst"]);
-        let res = session_layer.create_session(config, dst, None);
-
-        assert!(res.is_ok());
-
-        session_layer
-            .delete_session(&res.unwrap().session().upgrade().unwrap())
-            .unwrap();
+        // Completion handle should now complete
+        handle.await.expect("error during session deletion");
     }
 
     #[tokio::test]
@@ -477,10 +473,15 @@ mod tests {
             std::path::PathBuf::from("/tmp/test_storage"),
         );
 
-        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
+        let config = SessionConfig {
+            session_type: ProtoSessionType::PointToPoint,
+            initiator: true,
+            ..Default::default()
+        };
         let dst = Name::from_strings(["org", "ns", "dst"]);
-        let session_ctx = app
+        let (session_ctx, _completion_error) = app
             .create_session(config, dst, Some(42))
+            .await
             .expect("failed to create session");
 
         // Obtain a strong reference to delete it explicitly
@@ -608,9 +609,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_message_from_app() {
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(16);
         let (tx_app, _) = tokio::sync::mpsc::channel(10);
         let dst = Name::from_strings(["cisco", "default", "remote"]).with_id(0);
+        let grp = Name::from_strings(["cisco", "default", "group"]).with_id(0);
         let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
         let identity = SharedSecret::new("a", TEST_VALID_SECRET);
@@ -630,9 +632,12 @@ mod tests {
         session_config.initiator = true;
 
         // create a new session
-        let res = app
-            .create_session(session_config, dst.clone(), Some(1))
+        let (res, _completion_handle) = app
+            .create_session(session_config, grp.clone(), Some(1))
+            .await
             .unwrap();
+
+        // Do not await on the completion error as there is no peer to complete the handshake
 
         // a discovery request should be generated by the session just created
         // try to read it on slim
@@ -761,7 +766,8 @@ mod tests {
             .session()
             .upgrade()
             .unwrap()
-            .on_message_from_app(message.clone());
+            .on_message_from_app(message.clone())
+            .await;
 
         assert!(res.is_ok());
 
@@ -865,14 +871,21 @@ mod tests {
             let mut session_config =
                 SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
             session_config.initiator = true;
-            let session_ctx = publisher_app
+            let (session_ctx, completion_error) = publisher_app
                 .create_session(session_config, name.clone(), None)
+                .await
                 .unwrap();
+
+            // Wait for session establishment
+            completion_error.await.unwrap();
 
             // Send a message through the session to initiate the connection
             let session_arc = session_ctx.session_arc().unwrap();
             let test_message = format!("hello {}", config.test_name).into_bytes();
-            session_arc.publish(name, test_message, None, None).unwrap();
+            session_arc
+                .publish(name, test_message, None, None)
+                .await
+                .unwrap();
 
             sessions.push(session_ctx);
         }
@@ -1016,21 +1029,29 @@ mod tests {
             metadata: HashMap::new(),
         };
 
-        let session_ctx = moderator_app
+        let (session_ctx, completion_handle) = moderator_app
             .create_session(session_config, channel_name.clone(), None)
+            .await
             .unwrap();
+
+        // Wait for session establishment
+        completion_handle.await.unwrap();
 
         let session_arc = session_ctx.session_arc().unwrap();
 
         // Invite all participants to the multicast session
         for participant_name in &participant_names {
-            session_arc.invite_participant(participant_name).unwrap();
+            session_arc
+                .invite_participant(participant_name)
+                .await
+                .unwrap();
         }
 
         // Send a test message through the multicast session
         let test_message = format!("multicast hello {}", config.test_name).into_bytes();
         session_arc
             .publish(&channel_name, test_message, None, None)
+            .await
             .unwrap();
 
         // Give some time for messages to be processed
@@ -1128,7 +1149,7 @@ mod tests {
 
         tracing::info!("SETUP: Creating sender and receiver sessions");
         // Create sessions
-        let sender_session = sender_app
+        let (sender_session, sender_completion_handle) = sender_app
             .create_session(
                 SessionConfig {
                     session_type: slim_datapath::api::ProtoSessionType::PointToPoint,
@@ -1141,7 +1162,8 @@ mod tests {
                 receiver_name.clone(),
                 None,
             )
-            .expect("failed to create subscriber session");
+            .await
+            .expect("failed to create sender session");
 
         // Wait for session on receiver side
         let receiver_session = tokio::time::timeout(
@@ -1152,6 +1174,11 @@ mod tests {
         .expect("timeout waiting for session at receiver")
         .expect("receiver channel closed")
         .expect("error receiving session notification");
+
+        // The sender session should complete successfully
+        sender_completion_handle
+            .await
+            .expect("sender session failed to establish");
 
         let mut receiver_session = match receiver_session {
             slim_session::notification::Notification::NewSession(ctx) => ctx,
@@ -1169,6 +1196,7 @@ mod tests {
             .upgrade()
             .unwrap()
             .publish(&receiver_name, message_data.clone(), None, None)
+            .await
             .expect("failed to send message with ack");
 
         tracing::info!("Sender: Message sent, waiting for acknowledgment...");
@@ -1197,8 +1225,7 @@ mod tests {
         // Wait for acknowledgment from network
         let ack_result = tokio::time::timeout(std::time::Duration::from_secs(2), ack_rx)
             .await
-            .expect("timeout waiting for ack notification")
-            .expect("ack channel closed");
+            .expect("timeout waiting for ack notification");
 
         tracing::info!("Sender: Acknowledgment received from network!");
         assert!(
@@ -1218,6 +1245,7 @@ mod tests {
                 .upgrade()
                 .unwrap()
                 .publish(&receiver_name, msg, None, None)
+                .await
                 .expect("failed to send message with ack");
             ack_receivers.push(ack_rx);
 
@@ -1238,7 +1266,7 @@ mod tests {
             futures::future::join_all(ack_receivers)
                 .await
                 .into_iter()
-                .all(|r| r.is_ok() && r.unwrap().is_ok())
+                .all(|r| r.is_ok())
         );
 
         tracing::info!("All acknowledgment tests passed!");
@@ -1299,7 +1327,7 @@ mod tests {
 
         tracing::info!("SETUP: Creating moderator session");
         // Create moderator session (multicast)
-        let moderator_session = moderator_app
+        let (moderator_session, completion_handle) = moderator_app
             .create_session(
                 SessionConfig {
                     session_type: slim_datapath::api::ProtoSessionType::Multicast,
@@ -1312,7 +1340,13 @@ mod tests {
                 channel_name.clone(),
                 None,
             )
+            .await
             .expect("failed to create moderator session");
+
+        // Wait for session establishment
+        completion_handle
+            .await
+            .expect("moderator session failed to establish");
 
         // Extract the session controller
         let moderator_controller = moderator_session.session().upgrade().unwrap();
@@ -1321,6 +1355,7 @@ mod tests {
         // Invite participant1 and wait for ack
         let invite_ack_rx1 = moderator_controller
             .invite_participant(&participant1_name)
+            .await
             .expect("failed to invite participant1");
 
         // Wait for participant1 to receive session notification
@@ -1336,8 +1371,7 @@ mod tests {
         let invite_result1 =
             tokio::time::timeout(std::time::Duration::from_secs(3), invite_ack_rx1)
                 .await
-                .expect("timeout waiting for invite ack")
-                .expect("invite ack channel closed");
+                .expect("timeout waiting for invite ack");
 
         assert!(
             invite_result1.is_ok(),
@@ -1350,6 +1384,7 @@ mod tests {
         // Invite participant2 and wait for ack
         let invite_ack_rx2 = moderator_controller
             .invite_participant(&participant2_name)
+            .await
             .expect("failed to invite participant2");
 
         // Wait for participant2 to receive session notification
@@ -1365,8 +1400,7 @@ mod tests {
         let invite_result2 =
             tokio::time::timeout(std::time::Duration::from_secs(3), invite_ack_rx2)
                 .await
-                .expect("timeout waiting for invite ack")
-                .expect("invite ack channel closed");
+                .expect("timeout waiting for invite ack");
 
         assert!(
             invite_result2.is_ok(),
@@ -1384,14 +1418,14 @@ mod tests {
 
         let invite_ghost_rx = moderator_controller
             .invite_participant(&nonexistent_participant)
+            .await
             .expect("failed to send invite to ghost");
 
         // This should fail since the participant doesn't exist
         // We do have a 3 sec timeout, but the invite should error out expire sooner (5 * 100ms)
         let ghost_result = tokio::time::timeout(std::time::Duration::from_secs(3), invite_ghost_rx)
             .await
-            .expect("timeout waiting for ghost invite ack")
-            .expect("ghost invite ack channel closed");
+            .expect("timeout waiting for ghost invite ack");
 
         assert!(
             ghost_result.is_err(),
@@ -1404,13 +1438,13 @@ mod tests {
 
         let remove_result_rx = moderator_controller
             .remove_participant(&participant1_name)
+            .await
             .expect("failed to send remove for participant1");
 
         let remove_result =
             tokio::time::timeout(std::time::Duration::from_secs(3), remove_result_rx)
                 .await
-                .expect("timeout waiting for remove ack")
-                .expect("remove ack channel closed");
+                .expect("timeout waiting for remove ack");
 
         assert!(
             remove_result.is_ok(),
@@ -1421,13 +1455,13 @@ mod tests {
         tracing::info!("TEST 3: Remove non-existent participant");
         let remove_nonexistent_rx = moderator_controller
             .remove_participant(&nonexistent_participant)
+            .await
             .expect("failed to send remove for ghost");
 
         let remove_ghost_result =
             tokio::time::timeout(std::time::Duration::from_secs(3), remove_nonexistent_rx)
                 .await
-                .expect("timeout waiting for remove ack")
-                .expect("remove ack channel closed");
+                .expect("timeout waiting for remove ack");
 
         assert!(
             remove_ghost_result.is_err(),

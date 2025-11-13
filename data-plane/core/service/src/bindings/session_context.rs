@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use slim_session::CompletionHandle;
 use slim_session::session_controller::SessionController;
 use std::collections::HashMap;
 use tokio::sync::RwLock;
@@ -45,7 +46,7 @@ impl BindingsSessionContext {
         conn_out: Option<u64>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<(), ServiceError> {
+    ) -> Result<CompletionHandle, ServiceError> {
         let session = self
             .session
             .upgrade()
@@ -55,9 +56,8 @@ impl BindingsSessionContext {
 
         session
             .publish_with_flags(name, flags, blob, payload_type, metadata)
-            .map_err(|e| ServiceError::SessionError(e.to_string()))?;
-
-        Ok(())
+            .await
+            .map_err(|e| ServiceError::SessionError(e.to_string()))
     }
 
     /// Publish a message as a reply to a received message (reply semantics)
@@ -80,7 +80,7 @@ impl BindingsSessionContext {
         blob: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<(), ServiceError> {
+    ) -> Result<CompletionHandle, ServiceError> {
         let session = self
             .session
             .upgrade()
@@ -102,33 +102,28 @@ impl BindingsSessionContext {
                 payload_type,
                 metadata,
             )
-            .map_err(|e| ServiceError::SessionError(e.to_string()))?;
-
-        Ok(())
+            .await
+            .map_err(|e| ServiceError::SessionError(e.to_string()))
     }
 
     /// Invite a peer to join this session
-    pub fn invite(&self, destination: &Name) -> Result<(), SessionError> {
+    pub async fn invite(&self, destination: &Name) -> Result<CompletionHandle, SessionError> {
         let session = self
             .session
             .upgrade()
             .ok_or_else(|| SessionError::Processing("Session has been dropped".to_string()))?;
 
-        session.invite_participant(destination)?;
-
-        Ok(())
+        session.invite_participant(destination).await
     }
 
     /// Remove a peer from this session
-    pub fn remove(&self, destination: &Name) -> Result<(), SessionError> {
+    pub async fn remove(&self, destination: &Name) -> Result<CompletionHandle, SessionError> {
         let session = self
             .session
             .upgrade()
             .ok_or_else(|| SessionError::Processing("Session has been dropped".to_string()))?;
 
-        session.remove_participant(destination)?;
-
-        Ok(())
+        session.remove_participant(destination).await
     }
 
     /// Receive a message from this session with optional timeout
@@ -217,13 +212,17 @@ mod tests {
         let (provider, verifier) = create_test_auth();
 
         let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .await
             .expect("Failed to create adapter");
 
-        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
+        let config = SessionConfig {
+            session_type: ProtoSessionType::PointToPoint,
+            initiator: true,
+            ..Default::default()
+        };
         let dst = Name::from_strings(["org", "ns", "dst"]);
-        let session_ctx = adapter
+        let (session_ctx, _init_ack) = adapter
             .create_session(config, dst)
+            .await
             .expect("Failed to create session");
 
         let bindings_ctx = BindingsSessionContext::from(session_ctx);
@@ -239,15 +238,16 @@ mod tests {
         let (provider, verifier) = create_test_auth();
 
         let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .await
             .expect("Failed to create adapter");
 
         // Create a session and convert to BindingsSessionContext
         let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
         let dst = Name::from_strings(["org", "ns", "dst"]);
-        let session_ctx = adapter
+        let (session_ctx, _init_ack) = adapter
             .create_session(config, dst)
+            .await
             .expect("Failed to create session");
+
         let bindings_ctx = BindingsSessionContext::from(session_ctx);
 
         // Test that get_session_message times out when no messages are sent
@@ -267,15 +267,16 @@ mod tests {
         let (provider, verifier) = create_test_auth();
 
         let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .await
             .expect("Failed to create adapter");
 
         // Create a session and convert to BindingsSessionContext
         let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
         let dst = Name::from_strings(["org", "ns", "dst"]);
-        let session_ctx = adapter
+        let (session_ctx, _init_ack) = adapter
             .create_session(config, dst)
+            .await
             .expect("Failed to create session");
+
         let bindings_ctx = BindingsSessionContext::from(session_ctx);
 
         // Test with None timeout - should wait indefinitely until channel is closed
@@ -297,15 +298,16 @@ mod tests {
         let (provider, verifier) = create_test_auth();
 
         let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .await
             .expect("Failed to create adapter");
 
         // Create a session and convert to BindingsSessionContext
         let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
         let dst = Name::from_strings(["org", "ns", "dst"]);
-        let session_ctx = adapter
+        let (session_ctx, _init_ack) = adapter
             .create_session(config, dst)
+            .await
             .expect("Failed to create session");
+
         let bindings_ctx = BindingsSessionContext::from(session_ctx);
 
         // Test very short timeout
@@ -337,16 +339,18 @@ mod tests {
         let (provider, verifier) = create_test_auth();
 
         let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .await
             .expect("Failed to create adapter");
 
         // Create a session first
+        // Create a session and convert to BindingsSessionContext
         let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
         let dst = Name::from_strings(["org", "ns", "dst"]);
-        let session_ctx = adapter
+        let (session_ctx, _init_ack) = adapter
             .create_session(config, dst)
+            .await
             .expect("Failed to create session");
-        let session_bindings = BindingsSessionContext::from(session_ctx);
+
+        let bindings_ctx = BindingsSessionContext::from(session_ctx);
 
         // Create a message context (simulating a received message)
         let source_name = Name::from_strings(["sender", "org", "service"]);
@@ -367,7 +371,7 @@ mod tests {
         let reply_metadata = metadata;
 
         // Test publish_to - this should work without errors
-        let result = session_bindings
+        let result = bindings_ctx
             .publish_to(
                 &message_ctx,
                 reply_message,

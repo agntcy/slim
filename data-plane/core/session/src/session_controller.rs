@@ -23,6 +23,7 @@ use slim_datapath::{
 use crate::{
     MessageDirection, SessionError, Transmitter,
     common::SessionMessage,
+    completion_handle::CompletionHandle,
     controller_sender::ControllerSender,
     session_builder::{ForController, SessionBuilder},
     session_config::SessionConfig,
@@ -211,36 +212,45 @@ impl SessionController {
         self.config.initiator
     }
 
-    fn on_message(
+    async fn on_message(
         &self,
         message: Message,
         direction: MessageDirection,
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
     ) -> Result<(), SessionError> {
         self.tx_controller
-            .try_send(SessionMessage::OnMessage {
+            .send(SessionMessage::OnMessage {
                 message,
                 direction,
                 ack_tx,
             })
+            .await
             .map_err(|e| {
-                SessionError::Processing(format!("failed to send message to session: {}", e))
+                SessionError::Processing(format!(
+                    "Failed to send message to session controller: {}",
+                    e
+                ))
             })
     }
 
     /// Send a message to the controller for processing
-    pub fn on_message_from_app(
+    pub async fn on_message_from_app(
         &self,
         message: Message,
-    ) -> Result<oneshot::Receiver<Result<(), SessionError>>, SessionError> {
+    ) -> Result<CompletionHandle, SessionError> {
         let (ack_tx, ack_rx) = oneshot::channel();
-        self.on_message(message, MessageDirection::South, Some(ack_tx))?;
-        Ok(ack_rx)
+        self.on_message(message, MessageDirection::South, Some(ack_tx))
+            .await?;
+
+        let ret = CompletionHandle::from_oneshot_receiver(ack_rx);
+
+        Ok(ret)
     }
 
     /// Send a message to the controller for processing
-    pub fn on_message_from_slim(&self, message: Message) -> Result<(), SessionError> {
+    pub async fn on_message_from_slim(&self, message: Message) -> Result<(), SessionError> {
         self.on_message(message, MessageDirection::North, None)
+            .await
     }
 
     pub fn close(&self) -> Result<tokio::task::JoinHandle<()>, SessionError> {
@@ -252,22 +262,22 @@ impl SessionController {
             .ok_or(SessionError::Generic("Session already closed".to_string()))
     }
 
-    pub fn publish_message(
+    pub async fn publish_message(
         &self,
         message: Message,
-    ) -> Result<oneshot::Receiver<Result<(), SessionError>>, SessionError> {
-        self.on_message_from_app(message)
+    ) -> Result<CompletionHandle, SessionError> {
+        self.on_message_from_app(message).await
     }
 
     /// Publish a message to a specific connection (forward_to)
-    pub fn publish_to(
+    pub async fn publish_to(
         &self,
         name: &Name,
         forward_to: u64,
         blob: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<oneshot::Receiver<Result<(), SessionError>>, SessionError> {
+    ) -> Result<CompletionHandle, SessionError> {
         self.publish_with_flags(
             name,
             SlimHeaderFlags::default().with_forward_to(forward_to),
@@ -275,16 +285,17 @@ impl SessionController {
             payload_type,
             metadata,
         )
+        .await
     }
 
     /// Publish a message to a specific app name
-    pub fn publish(
+    pub async fn publish(
         &self,
         name: &Name,
         blob: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<oneshot::Receiver<Result<(), SessionError>>, SessionError> {
+    ) -> Result<CompletionHandle, SessionError> {
         self.publish_with_flags(
             name,
             SlimHeaderFlags::default(),
@@ -292,17 +303,18 @@ impl SessionController {
             payload_type,
             metadata,
         )
+        .await
     }
 
     /// Publish a message with specific flags
-    pub fn publish_with_flags(
+    pub async fn publish_with_flags(
         &self,
         name: &Name,
         flags: SlimHeaderFlags,
         blob: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<oneshot::Receiver<Result<(), SessionError>>, SessionError> {
+    ) -> Result<CompletionHandle, SessionError> {
         let ct = payload_type.unwrap_or_else(|| "msg".to_string());
 
         let mut msg = Message::builder()
@@ -324,7 +336,7 @@ impl SessionController {
         }
 
         // southbound=true means towards slim
-        self.publish_message(msg)
+        self.publish_message(msg).await
     }
 
     /// Creates a discovery request message with minimum required information
@@ -345,10 +357,18 @@ impl SessionController {
             .map_err(|e| SessionError::Processing(e.to_string()))
     }
 
-    pub fn invite_participant(
+    pub(crate) async fn invite_participant_internal(
         &self,
         destination: &Name,
-    ) -> Result<oneshot::Receiver<Result<(), SessionError>>, SessionError> {
+    ) -> Result<CompletionHandle, SessionError> {
+        let msg = self.create_discovery_request(destination)?;
+        self.publish_message(msg).await
+    }
+
+    pub async fn invite_participant(
+        &self,
+        destination: &Name,
+    ) -> Result<CompletionHandle, SessionError> {
         match self.session_type() {
             ProtoSessionType::PointToPoint => Err(SessionError::Processing(
                 "cannot invite participant to point-to-point session".into(),
@@ -359,17 +379,16 @@ impl SessionController {
                         "cannot invite participant to this session session".into(),
                     ));
                 }
-                let msg = self.create_discovery_request(destination)?;
-                self.publish_message(msg)
+                self.invite_participant_internal(destination).await
             }
             _ => Err(SessionError::Processing("unexpected session type".into())),
         }
     }
 
-    pub fn remove_participant(
+    pub async fn remove_participant(
         &self,
         destination: &Name,
-    ) -> Result<oneshot::Receiver<Result<(), SessionError>>, SessionError> {
+    ) -> Result<CompletionHandle, SessionError> {
         match self.session_type() {
             ProtoSessionType::PointToPoint => Err(SessionError::Processing(
                 "cannot remove participant to point-to-point session".into(),
@@ -391,7 +410,7 @@ impl SessionController {
                     .payload(CommandPayload::builder().leave_request(None).as_content())
                     .build_publish()
                     .map_err(|e| SessionError::Processing(e.to_string()))?;
-                self.publish_message(msg)
+                self.publish_message(msg).await
             }
             _ => Err(SessionError::Processing("unexpected session type".into())),
         }
@@ -731,6 +750,7 @@ mod tests {
                 Some("test-type".to_string()),
                 None,
             )
+            .await
             .expect("publish should succeed");
 
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -754,6 +774,7 @@ mod tests {
                 Some("test-type".to_string()),
                 None,
             )
+            .await
             .expect("publish_to should succeed");
 
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -778,6 +799,7 @@ mod tests {
                 Some("test-type".to_string()),
                 Some(metadata),
             )
+            .await
             .expect("publish with metadata should succeed");
 
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -793,6 +815,7 @@ mod tests {
 
         controller
             .invite_participant(&participant)
+            .await
             .expect("invite should succeed");
 
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -807,7 +830,7 @@ mod tests {
 
         let participant = Name::from_strings(["org", "ns", "new_participant"]);
 
-        let result = controller.invite_participant(&participant);
+        let result = controller.invite_participant(&participant).await;
         assert!(result.is_err());
         if let Err(SessionError::Processing(msg)) = result {
             assert!(msg.contains("cannot invite participant"));
@@ -824,7 +847,7 @@ mod tests {
 
         let participant = Name::from_strings(["org", "ns", "participant"]);
 
-        let result = controller.invite_participant(&participant);
+        let result = controller.invite_participant(&participant).await;
         assert!(result.is_err());
         if let Err(SessionError::Processing(msg)) = result {
             assert!(msg.contains("cannot invite participant to point-to-point"));
@@ -843,6 +866,7 @@ mod tests {
 
         controller
             .remove_participant(&participant)
+            .await
             .expect("remove should succeed");
 
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -857,7 +881,7 @@ mod tests {
 
         let participant = Name::from_strings(["org", "ns", "participant"]);
 
-        let result = controller.remove_participant(&participant);
+        let result = controller.remove_participant(&participant).await;
         assert!(result.is_err());
         if let Err(SessionError::Processing(msg)) = result {
             assert!(msg.contains("cannot remove participant"));
@@ -874,7 +898,7 @@ mod tests {
 
         let participant = Name::from_strings(["org", "ns", "participant"]);
 
-        let result = controller.remove_participant(&participant);
+        let result = controller.remove_participant(&participant).await;
         assert!(result.is_err());
         if let Err(SessionError::Processing(msg)) = result {
             assert!(msg.contains("cannot remove participant to point-to-point"));
@@ -1018,7 +1042,7 @@ mod tests {
             .build_publish()
             .unwrap();
 
-        let result = controller.on_message_from_slim(test_message);
+        let result = controller.on_message_from_slim(test_message).await;
         assert!(result.is_ok());
     }
 
@@ -1125,8 +1149,11 @@ mod tests {
             .build()
             .unwrap();
 
-        // Discovery request message is automatically sent by the moderator on creation
-        // check that the request is received by slim on the moderator
+        let completion_handle = moderator
+            .invite_participant_internal(&participant_name)
+            .await
+            .expect("error inviting participant");
+
         let received_discovery_request =
             timeout(Duration::from_millis(100), rx_slim_moderator.recv())
                 .await
@@ -1160,6 +1187,7 @@ mod tests {
 
         moderator
             .on_message_from_slim(discovery_reply)
+            .await
             .expect("error processing discovery reply on moderator");
 
         // check that we get a route for the remote endpoint on slim
@@ -1195,6 +1223,7 @@ mod tests {
 
         participant
             .on_message_from_slim(join_request_to_participant)
+            .await
             .expect("error processing join request on participant");
 
         // check that a route for the moderator is generated
@@ -1229,6 +1258,7 @@ mod tests {
 
         moderator
             .on_message_from_slim(join_reply_to_moderator)
+            .await
             .expect("error processing join reply on moderator");
 
         // check that a welcome message is received by slim on the moderator
@@ -1252,6 +1282,7 @@ mod tests {
 
         participant
             .on_message_from_slim(welcome_to_participant)
+            .await
             .expect("error processing welcome message on participant");
 
         // check that an ack group is received by slim on the participant
@@ -1275,7 +1306,8 @@ mod tests {
 
         moderator
             .on_message_from_slim(ack_to_moderator)
-            .expect("error processing ack on moderator");
+            .await
+            .expect("error processing ack group on moderator");
 
         // no other message should be sent
         let no_more_moderator = timeout(Duration::from_millis(100), rx_slim_moderator.recv()).await;
@@ -1295,6 +1327,9 @@ mod tests {
             "Expected no more messages on participant slim channel"
         );
 
+        // the completion handler should now be complete
+        completion_handle.await.expect("error in completion handle");
+
         // create an application message using the participant name
         let app_data = b"Hello from moderator to participant".to_vec();
         let app_message = Message::builder()
@@ -1312,6 +1347,7 @@ mod tests {
         // call on message on the moderator (direction south)
         moderator
             .on_message_from_app(app_message)
+            .await
             .expect("error sending application message from moderator");
 
         // check that message is received from slim with destination equal to participant name id
@@ -1337,6 +1373,7 @@ mod tests {
 
         participant
             .on_message_from_slim(app_msg_to_participant)
+            .await
             .expect("error processing application message on participant");
 
         // check that the message is received by the application
@@ -1384,6 +1421,7 @@ mod tests {
 
         moderator
             .on_message_from_slim(ack_to_moderator)
+            .await
             .expect("error processing ack on moderator");
 
         // check that no other message is generated
@@ -1416,6 +1454,7 @@ mod tests {
 
         moderator
             .on_message_from_app(leave_request)
+            .await
             .expect("error sending leave request");
 
         // check that the request is received by slim on the moderator
@@ -1439,6 +1478,7 @@ mod tests {
 
         participant
             .on_message_from_slim(leave_request_to_participant)
+            .await
             .expect("error processing leave request on participant");
 
         // get the leave reply on the participant slim
@@ -1475,6 +1515,7 @@ mod tests {
 
         moderator
             .on_message_from_slim(leave_reply_to_moderator)
+            .await
             .expect("error processing leave reply on moderator");
 
         // expect a remove route for the participant name
