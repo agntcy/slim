@@ -31,6 +31,32 @@ The DaemonSet deployment strategy deploys SLIM components with node-centric conf
 
 This approach deploys SLIM as a DaemonSet, which guarantees that every node in the cluster runs a SLIM instance. The deployment is driven by the `daemonset-values.yaml` file, which contains specific configuration parameters optimized for node-local deployments.
 
+```mermaid
+graph TD
+    subgraph "Kubernetes Cluster"
+        BOB[Bob Sender]
+        SLIM_SVC[SLIM ClusterIP]
+        subgraph ControlPlane
+            CONTROLLER[SLIM Controller]
+        end    
+        subgraph WorkerNode1
+            SLIM1[SLIM Node]
+            Alice_Receiver1[Alice Receiver]
+            Alice_Receiver1 ---> SLIM1
+        end
+        subgraph WorkerNode2
+            SLIM2[SLIM Node]
+            Alice_Receiver2[Alice Receiver]
+            Alice_Receiver2 ---> SLIM2
+        end
+        BOB ---> SLIM_SVC
+        SLIM_SVC ---> SLIM1
+        SLIM_SVC ---> SLIM2
+        SLIM1 ---> CONTROLLER
+        SLIM2 ---> CONTROLLER
+    end
+```
+
 **Key Features:**
 
 - One SLIM instance per cluster node.
@@ -94,8 +120,8 @@ Follow these steps to deploy SLIM using the DaemonSet deployment strategy:
 1. Check client logs
 
     ```bash
-    kubectl logs alice client
-    kubectl logs bob client
+    kubectl logs daemonset/alice
+    kubectl logs bob
     ```
 
     You should see 10 messages sent and received.

@@ -70,6 +70,13 @@ Follow these steps to deploy SLIM using the naive deployment strategy:
     task test:sender:deploy
     ```
 
+1. Check client logs:
+
+    ```bash
+    kubectl logs alice
+    kubectl logs bob
+    ```    
+
 1. Clean up when done.
 
     ```bash

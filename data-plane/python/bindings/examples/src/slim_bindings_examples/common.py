@@ -60,7 +60,7 @@ def format_message_print(message1: str, message2: str = "") -> None:
     print(format_message(message1, message2))
 
 
-def split_id(id: str) -> slim_bindings.PyName:
+def split_id(id: str) -> slim_bindings.Name:
     """
     Split an ID of form organization/namespace/application (or channel).
 
@@ -71,7 +71,7 @@ def split_id(id: str) -> slim_bindings.PyName:
         ValueError: If the id cannot be split into exactly three segments.
 
     Returns:
-        PyName: Constructed identity object.
+        Name: Constructed identity object.
     """
     try:
         organization, namespace, app = id.split("/")
@@ -79,7 +79,7 @@ def split_id(id: str) -> slim_bindings.PyName:
         print("Error: IDs must be in the format organization/namespace/app-or-stream.")
         raise e
 
-    return slim_bindings.PyName(organization, namespace, app)
+    return slim_bindings.Name(organization, namespace, app)
 
 
 def shared_secret_identity(identity: str, secret: str):
@@ -87,16 +87,16 @@ def shared_secret_identity(identity: str, secret: str):
     Create a provider & verifier pair for shared-secret (symmetric) authentication.
 
     Args:
-        identity: Logical identity string (often same as PyName string form).
+        identity: Logical identity string (often same as Name string form).
         secret: Shared secret used to sign / verify tokens (not for production).
 
     Returns:
-        (provider, verifier): Tuple of PyIdentityProvider & PyIdentityVerifier.
+        (provider, verifier): Tuple of IdentityProvider & IdentityVerifier.
     """
-    provider = slim_bindings.PyIdentityProvider.SharedSecret(  # type: ignore
+    provider = slim_bindings.IdentityProvider.SharedSecret(
         identity=identity, shared_secret=secret
     )
-    verifier = slim_bindings.PyIdentityVerifier.SharedSecret(  # type: ignore
+    verifier = slim_bindings.IdentityVerifier.SharedSecret(
         identity=identity, shared_secret=secret
     )
     return provider, verifier
@@ -119,7 +119,7 @@ def jwt_identity(
          value to obtain a JWKS JSON string and create a new JWKS JSON containing all keys
          from all trust domains.
       3. Create a StaticJwt identity provider pointing at a local JWT file.
-      4. Wrap the JWKS JSON as PyKey with RS256 & JWKS format.
+      4. Wrap the JWKS JSON as Key with RS256 & JWKS format.
       5. Build a Jwt verifier using the JWKS-derived public key.
 
     Args:
@@ -131,7 +131,7 @@ def jwt_identity(
         aud: Optional audience list.
 
     Returns:
-        (provider, verifier): Configured PyIdentityProvider & PyIdentityVerifier.
+        (provider, verifier): Configured IdentityProvider & IdentityVerifier.
     """
     print(f"Using SPIRE bundle file: {spire_bundle_path}")
 
@@ -168,22 +168,22 @@ def jwt_identity(
     )
 
     # Static provider returns the same token each request (demo usage).
-    provider = slim_bindings.PyIdentityProvider.StaticJwt(  # type: ignore
+    provider = slim_bindings.IdentityProvider.StaticJwt(
         path=jwt_path,
     )
 
-    # Wrap decoded JWKS JSON string into a PyKey for the verifier.
-    pykey = slim_bindings.PyKey(
-        algorithm=slim_bindings.PyAlgorithm.RS256,  # Hard-coded for example clarity.
-        format=slim_bindings.PyKeyFormat.Jwks,
-        key=slim_bindings.PyKeyData.Content(content=spire_jwks),  # type: ignore
+    # Wrap decoded JWKS JSON string into a Key for the verifier.
+    pykey = slim_bindings.Key(
+        algorithm=slim_bindings.Algorithm.RS256,  # Hard-coded for example clarity.
+        format=slim_bindings.KeyFormat.Jwks,
+        key=slim_bindings.KeyData.Content(content=spire_jwks),
     )
 
     # Build verifier. We nest audience list in list to preserve shape.
-    verifier = slim_bindings.PyIdentityVerifier.Jwt(  # type: ignore
+    verifier = slim_bindings.IdentityVerifier.Jwt(
         public_key=pykey,
         issuer=iss,
-        audience=[aud],
+        audience=aud,
         subject=sub,
     )
 
@@ -366,7 +366,7 @@ async def create_local_app(
             secret=shared_secret,
         )
 
-    # Convert local identifier to a strongly typed PyName.
+    # Convert local identifier to a strongly typed Name.
     local_name = split_id(local)
 
     # Instantiate Slim (async constructor prepares underlying PyService).

@@ -55,7 +55,7 @@ By default, the service listens on ports defined in `config/config.yaml`. You ca
 ### Configuration
 
 The Control Plane is configured via a YAML file, where you can configure API ports and log levels.
-Example configuration can be found in `config/config.yaml` or below:
+Example default configuration can be found in `config/config.yaml` or below:
 
 ```yaml
 northbound:
@@ -69,6 +69,16 @@ southbound:
   httpPort: 50052
   logging:
     level: DEBUG
+
+reconciler:
+  maxRequeues: 15
+  maxNumOfParallelReconciles: 1000
+
+logging:
+  level: DEBUG
+
+database:
+  filePath: db/controlplane.db
 ```
 
 ## Examples

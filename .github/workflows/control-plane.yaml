@@ -24,7 +24,7 @@ jobs:
     uses: ./.github/workflows/reusable-go-build-and-test.yaml
 
     with:
-      go-version: 1.23.6
+      go-version: 1.25.4
       working-directory: ./control-plane
 
   control-plane-docker-build:

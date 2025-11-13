@@ -49,7 +49,7 @@ async def server(request):
     endpoint = request.param
     local_service = endpoint is not None
 
-    name = slim_bindings.PyName("agntcy", "default", "server")
+    name = slim_bindings.Name("agntcy", "default", "server")
     svc_server = await create_svc(name, local_service=local_service)
 
     # init tracing

@@ -50,8 +50,8 @@ async def test_end_to_end(server):
     - Test error behavior after deleting session
     - Disconnect cleanup
     """
-    alice_name = slim_bindings.PyName("org", "default", "alice_e2e")
-    bob_name = slim_bindings.PyName("org", "default", "bob_e2e")
+    alice_name = slim_bindings.Name("org", "default", "alice_e2e")
+    bob_name = slim_bindings.Name("org", "default", "bob_e2e")
 
     # create 2 clients, Alice and Bob
     svc_alice = await create_svc(alice_name, local_service=server.local_service)
@@ -69,10 +69,8 @@ async def test_end_to_end(server):
         )
 
         # subscribe alice and bob
-        alice_name = slim_bindings.PyName(
-            "org", "default", "alice_e2e", id=svc_alice.id
-        )
-        bob_name = slim_bindings.PyName("org", "default", "bob_e2e", id=svc_bob.id)
+        alice_name = slim_bindings.Name("org", "default", "alice_e2e", id=svc_alice.id)
+        bob_name = slim_bindings.Name("org", "default", "bob_e2e", id=svc_bob.id)
         await subscribe(svc_alice, alice_name, conn_id_alice)
         await subscribe(svc_bob, bob_name, conn_id_bob)
 
@@ -87,7 +85,7 @@ async def test_end_to_end(server):
 
     # create point to point session
     session_context_alice = await create_session(
-        svc_alice, bob_name, slim_bindings.PySessionConfiguration.PointToPoint()
+        svc_alice, bob_name, slim_bindings.SessionConfiguration.PointToPoint()
     )
 
     # send msg from Alice to Bob
@@ -151,8 +149,8 @@ async def test_slim_wrapper(server):
     - Reply using publish_to helper
     - Ensure errors after session deletion are surfaced
     """
-    name1 = slim_bindings.PyName("org", "default", "slim1")
-    name2 = slim_bindings.PyName("org", "default", "slim2")
+    name1 = slim_bindings.Name("org", "default", "slim1")
+    name2 = slim_bindings.Name("org", "default", "slim2")
 
     # create new slim object
     slim1 = await create_slim(name1, local_service=server.local_service)
@@ -181,7 +179,7 @@ async def test_slim_wrapper(server):
     # create session
     session_context = await slim2.create_session(
         name1,
-        slim_bindings.PySessionConfiguration.PointToPoint(),
+        slim_bindings.SessionConfiguration.PointToPoint(),
     )
 
     # publish message
@@ -193,7 +191,7 @@ async def test_slim_wrapper(server):
     msg_ctx, msg_rcv = await session_context_rec.get_message()
 
     # make sure the received session is PointToPoint as well
-    assert session_context_rec.session_type == slim_bindings.PySessionType.PointToPoint
+    assert session_context_rec.session_type == slim_bindings.SessionType.PointToPoint
 
     # Make sure the source is correct
     assert session_context_rec.src == slim1.local_name
@@ -240,8 +238,8 @@ async def test_auto_reconnect_after_server_restart(server):
     - Wait for automatic reconnection
     - Publish again and confirm continuity using original session context
     """
-    alice_name = slim_bindings.PyName("org", "default", "alice_res")
-    bob_name = slim_bindings.PyName("org", "default", "bob_res")
+    alice_name = slim_bindings.Name("org", "default", "alice_res")
+    bob_name = slim_bindings.Name("org", "default", "bob_res")
 
     svc_alice = await create_svc(alice_name, local_service=server.local_service)
     svc_bob = await create_svc(bob_name, local_service=server.local_service)
@@ -257,10 +255,8 @@ async def test_auto_reconnect_after_server_restart(server):
             {"endpoint": "http://127.0.0.1:12346", "tls": {"insecure": True}},
         )
 
-        alice_name = slim_bindings.PyName(
-            "org", "default", "alice_res", id=svc_alice.id
-        )
-        bob_name = slim_bindings.PyName("org", "default", "bob_res", id=svc_bob.id)
+        alice_name = slim_bindings.Name("org", "default", "alice_res", id=svc_alice.id)
+        bob_name = slim_bindings.Name("org", "default", "bob_res", id=svc_bob.id)
         await subscribe(svc_alice, alice_name, conn_id_alice)
         await subscribe(svc_bob, bob_name, conn_id_bob)
 
@@ -274,7 +270,7 @@ async def test_auto_reconnect_after_server_restart(server):
     session_context = await create_session(
         svc_alice,
         bob_name,
-        slim_bindings.PySessionConfiguration.PointToPoint(),
+        slim_bindings.SessionConfiguration.PointToPoint(),
     )
 
     # send baseline message Alice -> Bob; Bob should first receive a new session then the message
@@ -320,7 +316,7 @@ async def test_error_on_nonexistent_subscription(server):
     - Publish message addressed to Bob (not connected)
     - Expect an error surfaced (no matching subscription)
     """
-    name = slim_bindings.PyName("org", "default", "alice_nonsub")
+    name = slim_bindings.Name("org", "default", "alice_nonsub")
 
     svc_alice = await create_svc(name, local_service=server.local_service)
 
@@ -330,19 +326,19 @@ async def test_error_on_nonexistent_subscription(server):
             svc_alice,
             {"endpoint": "http://127.0.0.1:12347", "tls": {"insecure": True}},
         )
-        alice_class = slim_bindings.PyName(
+        alice_class = slim_bindings.Name(
             "org", "default", "alice_nonsub", id=svc_alice.id
         )
         await subscribe(svc_alice, alice_class, conn_id_alice)
 
     # create Bob's name, but do not instantiate or subscribe Bob
-    bob_name = slim_bindings.PyName("org", "default", "bob_nonsub")
+    bob_name = slim_bindings.Name("org", "default", "bob_nonsub")
 
     # create point to point session (Alice only)
     session_context = await create_session(
         svc_alice,
         bob_name,
-        slim_bindings.PySessionConfiguration.PointToPoint(),
+        slim_bindings.SessionConfiguration.PointToPoint(),
     )
 
     # publish a message from Alice intended for Bob (who is not there)
@@ -373,7 +369,7 @@ async def test_error_on_nonexistent_subscription(server):
 @pytest.mark.parametrize("server", ["127.0.0.1:12345", None], indirect=True)
 async def test_listen_for_session_timeout(server):
     """Test that listen_for_session times out appropriately when no session is available."""
-    alice_name = slim_bindings.PyName("org", "default", "alice_timeout")
+    alice_name = slim_bindings.Name("org", "default", "alice_timeout")
 
     svc_alice = await create_svc(alice_name, local_service=server.local_service)
 
@@ -419,7 +415,7 @@ async def test_listen_for_session_timeout(server):
 @pytest.mark.parametrize("server", ["127.0.0.1:12346", None], indirect=True)
 async def test_get_message_timeout(server):
     """Test that get_message times out appropriately when no message is available."""
-    alice_name = slim_bindings.PyName("org", "default", "alice_msg_timeout")
+    alice_name = slim_bindings.Name("org", "default", "alice_msg_timeout")
 
     # Create service
     svc_alice = await create_svc(alice_name, local_service=server.local_service)
@@ -434,9 +430,9 @@ async def test_get_message_timeout(server):
         )
 
     # Create a session (with dummy peer for timeout testing)
-    dummy_peer = slim_bindings.PyName("org", "default", "dummy_peer")
+    dummy_peer = slim_bindings.Name("org", "default", "dummy_peer")
     session_context = await create_session(
-        svc_alice, dummy_peer, slim_bindings.PySessionConfiguration.PointToPoint()
+        svc_alice, dummy_peer, slim_bindings.SessionConfiguration.PointToPoint()
     )
 
     # Test with a short timeout - should raise an exception

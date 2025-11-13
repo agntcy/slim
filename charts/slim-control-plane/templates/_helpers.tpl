@@ -65,3 +65,11 @@ Create the name of the service account to use
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{- define "control-plane.pvcName" -}}
+{{- if .Values.persistence.existingClaim }}
+{{- .Values.persistence.existingClaim }}
+{{- else }}
+{{- printf "%s-db" (include "control-plane.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- end }}
