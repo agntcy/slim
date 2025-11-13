@@ -11,7 +11,7 @@ The following deployment strategies are described:
 - [Daemonset Deployment Strategy](daemonset/daemonset_strategy.md)
 - [Multi-cluster Deployment Strategy](multicluster/multi_cluster_strategy.md)
 
-For each identified deployment strategy we provide the followings:
+For each identified deployment strategy we provide the following:
 
 - The description of the strategy, target audience and sample use cases
 - A set of values files for the different components
@@ -22,7 +22,7 @@ For each identified deployment strategy we provide the followings:
 
 To mimic the real life deployments of SLIM, deployment strategies are executed in Kubernetes clusters using the publicly available SLIM Helm charts.
 
-In order for the strategy examples to be executed locally through the provided taskfile, the following prerequisites are needed:
+The following prerequisites must be met to execute the strategy examples locally via the provided taskfile:
 
 - [Task](https://taskfile.dev/) available
 - Docker engine available locally ([Docker Desktop](https://docs.docker.com/desktop/) or [Rancher Desktop](https://rancherdesktop.io/))
