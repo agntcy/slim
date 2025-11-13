@@ -283,7 +283,7 @@ def common_options(function):
     # Audience to assert for JWT verification.
     function = click.option(
         "--audience",
-        type=str,
+        type=list[str],
         help="Audience for the JWT.",
     )(function)
 
