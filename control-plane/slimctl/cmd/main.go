@@ -166,9 +166,9 @@ func main() {
 	rootCmd.AddCommand(node.NewNodeCmd(conf.AppConfig.CommonOpts))
 
 	rootCmd.AddGroup(
-		&cobra.Group{"slimctl", "Commands for SLIM CLI configuration & version info"},
-		&cobra.Group{"node", "Commands to interact with SLIM nodes"},
-		&cobra.Group{"controller", "Commands to interact with the SLIM Control Plane"},
+		&cobra.Group{ID: "slimctl", Title: "Commands for SLIM CLI configuration & version info"},
+		&cobra.Group{ID: "node", Title: "Commands to interact with SLIM nodes"},
+		&cobra.Group{ID: "controller", Title: "Commands to interact with the SLIM Control Plane"},
 	)
 
 	if err := rootCmd.Execute(); err != nil {
