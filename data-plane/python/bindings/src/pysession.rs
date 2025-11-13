@@ -34,7 +34,7 @@ use slim_session::context::SessionContext;
 ///   protected by an async `RwLock` to allow concurrent access patterns
 ///
 /// This struct is not exposed directly to Python; it is wrapped by
-/// `PySessionContext`.
+/// `SessionContext`.
 pub(crate) struct PySessionCtxInternal {
     pub(crate) bindings_ctx: BindingsSessionContext,
 }
@@ -52,17 +52,17 @@ pub(crate) struct PySessionCtxInternal {
 /// - metadata -> dict[str,str]: Arbitrary key/value metadata copied from the
 ///   current SessionConfig. A cloned map is returned so Python can mutate
 ///   without racing the underlying config.
-/// - session_type -> PySessionType: High-level transport classification
+/// - session_type -> SessionType: High-level transport classification
 ///   (PointToPoint, Group), inferred from internal kind + destination.
-/// - src -> PyName: Fully qualified source identity that originated / owns
+/// - src -> Name: Fully qualified source identity that originated / owns
 ///   the session.
-/// - dst -> PyName: Destination name:
-///     * PyName of the peer for PointToPoint
-///     * PyName of the channel for Group
-/// - session_config -> PySessionConfiguration: Current effective configuration
+/// - dst -> Name: Destination name:
+///     * Name of the peer for PointToPoint
+///     * Name of the channel for Group
+/// - session_config -> SessionConfiguration: Current effective configuration
 ///   converted to the Python-facing enum variant.
 #[gen_stub_pyclass]
-#[pyclass]
+#[pyclass(name = "SessionContext")]
 #[derive(Clone)]
 pub(crate) struct PySessionContext {
     pub(crate) internal: Arc<PySessionCtxInternal>,
@@ -252,7 +252,7 @@ impl PySessionContext {
 
 /// High-level session classification presented to Python.
 #[gen_stub_pyclass_enum]
-#[pyclass(eq, eq_int)]
+#[pyclass(name = "SessionType", eq, eq_int)]
 #[derive(PartialEq, Clone)]
 pub enum PySessionType {
     /// Point-to-point with a single, explicit destination name.
@@ -292,11 +292,11 @@ impl From<ProtoSessionType> for PySessionType {
 ///
 /// ## Python: Create different session configs
 /// ```python
-/// from slim_bindings import PySessionConfiguration, PyName
+/// from slim_bindings import SessionConfiguration, Name
 ///
 /// # PointToPoint session - direct peer communication
-/// p2p_cfg = PySessionConfiguration.PointToPoint(
-///     peer_name=PyName("org", "namespace", "service"), # target peer
+/// p2p_cfg = SessionConfiguration.PointToPoint(
+///     peer_name=Name("org", "namespace", "service"), # target peer
 ///     timeout=datetime.timedelta(seconds=2), # wait 2 seconds for an ack
 ///     max_retries=5, # retry up to 5 times
 ///     mls_enabled=True, # enable MLS
@@ -304,8 +304,8 @@ impl From<ProtoSessionType> for PySessionType {
 /// )
 ///
 /// # Group session (channel-based)
-/// channel = PyName("org", "namespace", "channel")
-/// group_cfg = PySessionConfiguration.Group(
+/// channel = Name("org", "namespace", "channel")
+/// group_cfg = SessionConfiguration.Group(
 ///     channel_name=channel, # group channel_name
 ///     max_retries=2, # retry up to 2 times
 ///     timeout=datetime.timedelta(seconds=2), # wait 2 seconds for an ack
@@ -326,8 +326,8 @@ impl From<ProtoSessionType> for PySessionType {
 /// ## Python: Updating configuration after creation
 /// ```python
 /// # Adjust retries & metadata dynamically
-/// new_cfg = PySessionConfiguration.PointToPoint(
-///     peer_name=PyName("org", "namespace", "service"),
+/// new_cfg = SessionConfiguration.PointToPoint(
+///     peer_name=Name("org", "namespace", "service"),
 ///     timeout=None,
 ///     max_retries=10,
 ///     mls_enabled=True,
@@ -341,11 +341,11 @@ impl From<ProtoSessionType> for PySessionType {
 /// ```
 /// // Example conversion (pseudo-code):
 /// // let core: SessionConfig = py_cfg.clone().into();
-/// // let roundtrip: PySessionConfiguration = core.into();
+/// // let roundtrip: SessionConfiguration = core.into();
 /// // assert_eq!(py_cfg, roundtrip);
 /// ```
 #[gen_stub_pyclass]
-#[pyclass]
+#[pyclass(name = "SessionConfiguration")]
 #[derive(Clone)]
 pub struct PySessionConfiguration {
     /// session type

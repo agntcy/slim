@@ -6,13 +6,13 @@ import datetime
 import typing
 from enum import Enum
 
-class PyApp:
+class App:
     @property
     def id(self) -> builtins.int: ...
     @property
-    def name(self) -> PyName: ...
+    def name(self) -> Name: ...
 
-class PyIdentityProvider:
+class IdentityProvider:
     r"""
     Python-facing identity provider definitions.
     
@@ -28,26 +28,26 @@ class PyIdentityProvider:
     
     Static (pre-issued) JWT token loaded from a file:
     ```python
-    from slim_bindings import PyIdentityProvider
+    from slim_bindings import IdentityProvider
     
-    provider = PyIdentityProvider.StaticJwt(path="service.token")
+    provider = IdentityProvider.StaticJwt(path="service.token")
     # 'provider.get_token()' (internally) will manage reloading of the file if it changes.
     ```
     
     Dynamically signed JWT using a private key (claims + duration):
     ```python
     from slim_bindings import (
-        PyIdentityProvider, PyKey, PyAlgorithm, PyKeyFormat, PyKeyData
+        IdentityProvider, Key, Algorithm, KeyFormat, KeyData
     )
     import datetime
     
-    signing_key = PyKey(
-        algorithm=PyAlgorithm.RS256,
-        format=PyKeyFormat.Pem,
-        key=PyKeyData.File("private_key.pem"),
+    signing_key = Key(
+        algorithm=Algorithm.RS256,
+        format=KeyFormat.Pem,
+        key=KeyData.File("private_key.pem"),
     )
     
-    provider = PyIdentityProvider.Jwt(
+    provider = IdentityProvider.Jwt(
         private_key=signing_key,
         duration=datetime.timedelta(minutes=30),
         issuer="my-issuer",
@@ -58,9 +58,9 @@ class PyIdentityProvider:
     
     Shared secret token provider for tests / local development:
     ```python
-    from slim_bindings import PyIdentityProvider
+    from slim_bindings import IdentityProvider
     
-    provider = PyIdentityProvider.SharedSecret(
+    provider = IdentityProvider.SharedSecret(
         identity="svc-a",
         shared_secret="not-for-production",
     )
@@ -69,10 +69,10 @@ class PyIdentityProvider:
     End-to-end example pairing with a verifier:
     ```python
     # For a simple shared-secret flow:
-    from slim_bindings import PyIdentityProvider, PyIdentityVerifier
+    from slim_bindings import IdentityProvider, IdentityVerifier
     
-    provider = PyIdentityProvider.SharedSecret(identity="svc-a", shared_secret="dev-secret")
-    verifier = PyIdentityVerifier.SharedSecret(identity="svc-a", shared_secret="dev-secret")
+    provider = IdentityProvider.SharedSecret(identity="svc-a", shared_secret="dev-secret")
+    verifier = IdentityVerifier.SharedSecret(identity="svc-a", shared_secret="dev-secret")
     
     # Pass both into Slim.new(local_name, provider, verifier)
     ```
@@ -81,31 +81,31 @@ class PyIdentityProvider:
     ```python
     import datetime
     from slim_bindings import (
-        PyIdentityProvider, PyIdentityVerifier,
-        PyKey, PyAlgorithm, PyKeyFormat, PyKeyData
+        IdentityProvider, IdentityVerifier,
+        Key, Algorithm, KeyFormat, KeyData
     )
     
-    key = PyKey(PyAlgorithm.RS256, PyKeyFormat.Pem, PyKeyData.File("private_key.pem"))
-    provider = PyIdentityProvider.Jwt(
+    key = Key(Algorithm.RS256, KeyFormat.Pem, KeyData.File("private_key.pem"))
+    provider = IdentityProvider.Jwt(
         private_key=key,
         duration=datetime.timedelta(hours=1),
         issuer="my-issuer",
         audience=["svc-b"],
         subject="svc-a"
     )
-    # Verifier would normally use the corresponding public key (PyIdentityVerifier.Jwt).
+    # Verifier would normally use the corresponding public key (IdentityVerifier.Jwt).
     ```
     """
-    class StaticJwt(PyIdentityProvider):
+    class StaticJwt(IdentityProvider):
         __match_args__ = ("path",)
         @property
         def path(self) -> builtins.str: ...
-        def __new__(cls, path:builtins.str) -> PyIdentityProvider.StaticJwt: ...
+        def __new__(cls, path:builtins.str) -> IdentityProvider.StaticJwt: ...
     
-    class Jwt(PyIdentityProvider):
+    class Jwt(IdentityProvider):
         __match_args__ = ("private_key", "duration", "issuer", "audience", "subject",)
         @property
-        def private_key(self) -> PyKey: ...
+        def private_key(self) -> Key: ...
         @property
         def duration(self) -> datetime.timedelta: ...
         @property
@@ -114,19 +114,19 @@ class PyIdentityProvider:
         def audience(self) -> typing.Optional[builtins.list[builtins.str]]: ...
         @property
         def subject(self) -> typing.Optional[builtins.str]: ...
-        def __new__(cls, private_key:PyKey, duration:datetime.timedelta, issuer:typing.Optional[builtins.str]=None, audience:typing.Optional[typing.Sequence[builtins.str]]=None, subject:typing.Optional[builtins.str]=None) -> PyIdentityProvider.Jwt: ...
+        def __new__(cls, private_key:Key, duration:datetime.timedelta, issuer:typing.Optional[builtins.str]=None, audience:typing.Optional[typing.Sequence[builtins.str]]=None, subject:typing.Optional[builtins.str]=None) -> IdentityProvider.Jwt: ...
     
-    class SharedSecret(PyIdentityProvider):
+    class SharedSecret(IdentityProvider):
         __match_args__ = ("identity", "shared_secret",)
         @property
         def identity(self) -> builtins.str: ...
         @property
         def shared_secret(self) -> builtins.str: ...
-        def __new__(cls, identity:builtins.str, shared_secret:builtins.str) -> PyIdentityProvider.SharedSecret: ...
+        def __new__(cls, identity:builtins.str, shared_secret:builtins.str) -> IdentityProvider.SharedSecret: ...
     
     ...
 
-class PyIdentityVerifier:
+class IdentityVerifier:
     r"""
     Python-facing identity verifier definitions.
     
@@ -164,12 +164,12 @@ class PyIdentityVerifier:
     
     Basic JWT verification with explicit public key:
     ```python
-    pub_key = PyKey(
-        PyAlgorithm.RS256,
-        PyKeyFormat.Pem,
-        PyKeyData.File("public_key.pem"),
+    pub_key = Key(
+        Algorithm.RS256,
+        KeyFormat.Pem,
+        KeyData.File("public_key.pem"),
     )
-    verifier = PyIdentityVerifier.Jwt(
+    verifier = IdentityVerifier.Jwt(
         public_key=pub_key,
         autoresolve=False,
         issuer="my-issuer",
@@ -184,7 +184,7 @@ class PyIdentityVerifier:
     Auto-resolving JWKS (no public key provided):
     ```python
     # The underlying implementation must know how / where to resolve JWKS.
-    verifier = PyIdentityVerifier.Jwt(
+    verifier = IdentityVerifier.Jwt(
         public_key=None,
         autoresolve=True,
         issuer="https://auth.example.com",
@@ -198,7 +198,7 @@ class PyIdentityVerifier:
     
     Shared secret verifier (symmetric):
     ```python
-    verifier = PyIdentityVerifier.SharedSecret(
+    verifier = IdentityVerifier.SharedSecret(
         identity="service-a",
         shared_secret="super-secret-value",
     )
@@ -206,7 +206,7 @@ class PyIdentityVerifier:
     
     Pairing with a provider when constructing Slim:
     ```python
-    provider = PyIdentityProvider.SharedSecret(
+    provider = IdentityProvider.SharedSecret(
         identity="service-a",
         shared_secret="super-secret-value",
     )
@@ -215,7 +215,7 @@ class PyIdentityVerifier:
     
     Enforcing strict claims (reject tokens missing aud/sub):
     ```python
-    strict_verifier = PyIdentityVerifier.Jwt(
+    strict_verifier = IdentityVerifier.Jwt(
         public_key=pub_key,
         autoresolve=False,
         issuer="my-issuer",
@@ -227,10 +227,10 @@ class PyIdentityVerifier:
     )
     ```
     """
-    class Jwt(PyIdentityVerifier):
+    class Jwt(IdentityVerifier):
         __match_args__ = ("public_key", "autoresolve", "issuer", "audience", "subject", "require_iss", "require_aud", "require_sub",)
         @property
-        def public_key(self) -> typing.Optional[PyKey]: ...
+        def public_key(self) -> typing.Optional[Key]: ...
         @property
         def autoresolve(self) -> builtins.bool: ...
         @property
@@ -245,42 +245,42 @@ class PyIdentityVerifier:
         def require_aud(self) -> builtins.bool: ...
         @property
         def require_sub(self) -> builtins.bool: ...
-        def __new__(cls, public_key:typing.Optional[PyKey]=None, autoresolve:builtins.bool=False, issuer:typing.Optional[builtins.str]=None, audience:typing.Optional[typing.Sequence[builtins.str]]=None, subject:typing.Optional[builtins.str]=None, require_iss:builtins.bool=False, require_aud:builtins.bool=False, require_sub:builtins.bool=False) -> PyIdentityVerifier.Jwt: ...
+        def __new__(cls, public_key:typing.Optional[Key]=None, autoresolve:builtins.bool=False, issuer:typing.Optional[builtins.str]=None, audience:typing.Optional[typing.Sequence[builtins.str]]=None, subject:typing.Optional[builtins.str]=None, require_iss:builtins.bool=False, require_aud:builtins.bool=False, require_sub:builtins.bool=False) -> IdentityVerifier.Jwt: ...
     
-    class SharedSecret(PyIdentityVerifier):
+    class SharedSecret(IdentityVerifier):
         __match_args__ = ("identity", "shared_secret",)
         @property
         def identity(self) -> builtins.str: ...
         @property
         def shared_secret(self) -> builtins.str: ...
-        def __new__(cls, identity:builtins.str, shared_secret:builtins.str) -> PyIdentityVerifier.SharedSecret: ...
+        def __new__(cls, identity:builtins.str, shared_secret:builtins.str) -> IdentityVerifier.SharedSecret: ...
     
     ...
 
-class PyKey:
+class Key:
     r"""
     Composite key description used for signing or verification.
     
     Fields:
-    * algorithm: `PyAlgorithm` to apply
-    * format: `PyKeyFormat` describing encoding
-    * key: `PyKeyData` where the actual bytes originate
+    * algorithm: `Algorithm` to apply
+    * format: `KeyFormat` describing encoding
+    * key: `KeyData` where the actual bytes originate
     """
     @property
-    def algorithm(self) -> PyAlgorithm: ...
+    def algorithm(self) -> Algorithm: ...
     @algorithm.setter
-    def algorithm(self, value: PyAlgorithm) -> None: ...
+    def algorithm(self, value: Algorithm) -> None: ...
     @property
-    def format(self) -> PyKeyFormat: ...
+    def format(self) -> KeyFormat: ...
     @format.setter
-    def format(self, value: PyKeyFormat) -> None: ...
+    def format(self, value: KeyFormat) -> None: ...
     @property
-    def key(self) -> PyKeyData: ...
+    def key(self) -> KeyData: ...
     @key.setter
-    def key(self, value: PyKeyData) -> None: ...
-    def __new__(cls, algorithm:PyAlgorithm, format:PyKeyFormat, key:PyKeyData) -> PyKey:
+    def key(self, value: KeyData) -> None: ...
+    def __new__(cls, algorithm:Algorithm, format:KeyFormat, key:KeyData) -> Key:
         r"""
-        Construct a new `PyKey`.
+        Construct a new `Key`.
         
         Args:
           algorithm: Algorithm used for signing / verification.
@@ -288,29 +288,29 @@ class PyKey:
           key: Source (file vs inline content).
         """
 
-class PyKeyData:
+class KeyData:
     r"""
     Key material origin.
     
     Either a path on disk (`File`) or inline string content (`Content`)
     containing the encoded key. The interpretation depends on the
-    accompanying `PyKeyFormat`.
+    accompanying `KeyFormat`.
     """
-    class File(PyKeyData):
+    class File(KeyData):
         __match_args__ = ("path",)
         @property
         def path(self) -> builtins.str: ...
-        def __new__(cls, path:builtins.str) -> PyKeyData.File: ...
+        def __new__(cls, path:builtins.str) -> KeyData.File: ...
     
-    class Content(PyKeyData):
+    class Content(KeyData):
         __match_args__ = ("content",)
         @property
         def content(self) -> builtins.str: ...
-        def __new__(cls, content:builtins.str) -> PyKeyData.Content: ...
+        def __new__(cls, content:builtins.str) -> KeyData.Content: ...
     
     ...
 
-class PyMessageContext:
+class MessageContext:
     r"""
     Python-visible context accompanying every received message.
     
@@ -329,9 +329,9 @@ class PyMessageContext:
     * `input_connection`: Numeric identifier of the inbound connection carrying the message.
     """
     @property
-    def source_name(self) -> PyName: ...
+    def source_name(self) -> Name: ...
     @property
-    def destination_name(self) -> PyName: ...
+    def destination_name(self) -> Name: ...
     @property
     def payload_type(self) -> builtins.str: ...
     @property
@@ -340,13 +340,13 @@ class PyMessageContext:
     def input_connection(self) -> builtins.int: ...
     @property
     def identity(self) -> builtins.str: ...
-    def __new__(cls) -> PyMessageContext:
+    def __new__(cls) -> MessageContext:
         r"""
-        Prevent direct construction from Python. `PyMessageContext` instances
+        Prevent direct construction from Python. `MessageContext` instances
         are created internally when messages are received from the service.
         """
 
-class PyName:
+class Name:
     r"""
     name class
     """
@@ -356,13 +356,13 @@ class PyName:
     def id(self, value: builtins.int) -> None: ...
     def __eq__(self, other:builtins.object) -> builtins.bool: ...
     def __str__(self) -> builtins.str: ...
-    def __new__(cls, component0:builtins.str, component1:builtins.str, component2:builtins.str, id:typing.Optional[builtins.int]=None) -> PyName: ...
+    def __new__(cls, component0:builtins.str, component1:builtins.str, component2:builtins.str, id:typing.Optional[builtins.int]=None) -> Name: ...
     def components(self) -> builtins.list[builtins.int]: ...
     def components_strings(self) -> builtins.list[builtins.str]: ...
-    def equal_without_id(self, name:PyName) -> builtins.bool: ...
+    def equal_without_id(self, name:Name) -> builtins.bool: ...
     def __hash__(self) -> builtins.int: ...
 
-class PySessionConfiguration:
+class SessionConfiguration:
     r"""
     User-facing configuration for establishing and tuning sessions.
     
@@ -383,11 +383,11 @@ class PySessionConfiguration:
     
     ## Python: Create different session configs
     ```python
-    from slim_bindings import PySessionConfiguration, PyName
+    from slim_bindings import SessionConfiguration, Name
     
     # PointToPoint session - direct peer communication
-    p2p_cfg = PySessionConfiguration.PointToPoint(
-        peer_name=PyName("org", "namespace", "service"), # target peer
+    p2p_cfg = SessionConfiguration.PointToPoint(
+        peer_name=Name("org", "namespace", "service"), # target peer
         timeout=datetime.timedelta(seconds=2), # wait 2 seconds for an ack
         max_retries=5, # retry up to 5 times
         mls_enabled=True, # enable MLS
@@ -395,8 +395,8 @@ class PySessionConfiguration:
     )
     
     # Group session (channel-based)
-    channel = PyName("org", "namespace", "channel")
-    group_cfg = PySessionConfiguration.Group(
+    channel = Name("org", "namespace", "channel")
+    group_cfg = SessionConfiguration.Group(
         channel_name=channel, # group channel_name
         max_retries=2, # retry up to 2 times
         timeout=datetime.timedelta(seconds=2), # wait 2 seconds for an ack
@@ -417,8 +417,8 @@ class PySessionConfiguration:
     ## Python: Updating configuration after creation
     ```python
     # Adjust retries & metadata dynamically
-    new_cfg = PySessionConfiguration.PointToPoint(
-        peer_name=PyName("org", "namespace", "service"),
+    new_cfg = SessionConfiguration.PointToPoint(
+        peer_name=Name("org", "namespace", "service"),
         timeout=None,
         max_retries=10,
         mls_enabled=True,
@@ -432,12 +432,12 @@ class PySessionConfiguration:
     ```
     // Example conversion (pseudo-code):
     // let core: SessionConfig = py_cfg.clone().into();
-    // let roundtrip: PySessionConfiguration = core.into();
+    // let roundtrip: SessionConfiguration = core.into();
     // assert_eq!(py_cfg, roundtrip);
     ```
     """
     @property
-    def session_type(self) -> PySessionType:
+    def session_type(self) -> SessionType:
         r"""
         Return the session type.
         """
@@ -462,7 +462,7 @@ class PySessionConfiguration:
         Return the maximum number of retries (if any).
         """
     @staticmethod
-    def PointToPoint(timeout:typing.Optional[datetime.timedelta]=None, max_retries:typing.Optional[builtins.int]=None, mls_enabled:builtins.bool=False, metadata:typing.Optional[typing.Mapping[builtins.str, builtins.str]]=None) -> PySessionConfiguration:
+    def PointToPoint(timeout:typing.Optional[datetime.timedelta]=None, max_retries:typing.Optional[builtins.int]=None, mls_enabled:builtins.bool=False, metadata:typing.Optional[typing.Mapping[builtins.str, builtins.str]]=None) -> SessionConfiguration:
         r"""
         Create a PointToPoint session configuration.
         
@@ -473,7 +473,7 @@ class PySessionConfiguration:
             metadata: Optional metadata dictionary
         """
     @staticmethod
-    def Group(timeout:typing.Optional[datetime.timedelta]=None, max_retries:typing.Optional[builtins.int]=None, mls_enabled:builtins.bool=False, metadata:typing.Optional[typing.Mapping[builtins.str, builtins.str]]=None) -> PySessionConfiguration:
+    def Group(timeout:typing.Optional[datetime.timedelta]=None, max_retries:typing.Optional[builtins.int]=None, mls_enabled:builtins.bool=False, metadata:typing.Optional[typing.Mapping[builtins.str, builtins.str]]=None) -> SessionConfiguration:
         r"""
         Create a Group session configuration.
         
@@ -484,7 +484,7 @@ class PySessionConfiguration:
             metadata: Optional metadata dictionary
         """
 
-class PySessionContext:
+class SessionContext:
     r"""
     Python-exposed session context wrapper.
     
@@ -499,14 +499,14 @@ class PySessionContext:
     - metadata -> dict[str,str]: Arbitrary key/value metadata copied from the
       current SessionConfig. A cloned map is returned so Python can mutate
       without racing the underlying config.
-    - session_type -> PySessionType: High-level transport classification
+    - session_type -> SessionType: High-level transport classification
       (PointToPoint, Group), inferred from internal kind + destination.
-    - src -> PyName: Fully qualified source identity that originated / owns
+    - src -> Name: Fully qualified source identity that originated / owns
       the session.
-    - dst -> PyName: Destination name:
-        * PyName of the peer for PointToPoint
-        * PyName of the channel for Group
-    - session_config -> PySessionConfiguration: Current effective configuration
+    - dst -> Name: Destination name:
+        * Name of the peer for PointToPoint
+        * Name of the channel for Group
+    - session_config -> SessionConfiguration: Current effective configuration
       converted to the Python-facing enum variant.
     """
     @property
@@ -514,15 +514,15 @@ class PySessionContext:
     @property
     def metadata(self) -> builtins.dict[builtins.str, builtins.str]: ...
     @property
-    def session_type(self) -> PySessionType: ...
+    def session_type(self) -> SessionType: ...
     @property
-    def src(self) -> PyName: ...
+    def src(self) -> Name: ...
     @property
-    def dst(self) -> typing.Optional[PyName]: ...
+    def dst(self) -> typing.Optional[Name]: ...
     @property
-    def session_config(self) -> PySessionConfiguration: ...
+    def session_config(self) -> SessionConfiguration: ...
 
-class PyAlgorithm(Enum):
+class Algorithm(Enum):
     r"""
     JWT / signature algorithms exposed to Python.
     
@@ -542,7 +542,7 @@ class PyAlgorithm(Enum):
     ES384 = ...
     EdDSA = ...
 
-class PyKeyFormat(Enum):
+class KeyFormat(Enum):
     r"""
     Supported key encoding formats.
     
@@ -552,7 +552,7 @@ class PyKeyFormat(Enum):
     Jwk = ...
     Jwks = ...
 
-class PySessionType(Enum):
+class SessionType(Enum):
     r"""
     High-level session classification presented to Python.
     """
@@ -565,54 +565,54 @@ class PySessionType(Enum):
     Many-to-many distribution via a group channel_name.
     """
 
-def connect(svc:PyApp, config:dict) -> typing.Any: ...
+def connect(svc:App, config:dict) -> typing.Any: ...
 
-def create_pyapp(name:PyName, provider:PyIdentityProvider, verifier:PyIdentityVerifier, local_service:builtins.bool=False) -> typing.Any: ...
+def create_app(name:Name, provider:IdentityProvider, verifier:IdentityVerifier, local_service:builtins.bool=False) -> typing.Any: ...
 
-def create_session(svc:PyApp, destination:PyName, config:PySessionConfiguration) -> typing.Any: ...
+def create_session(svc:App, destination:Name, config:SessionConfiguration) -> typing.Any: ...
 
-def delete_session(svc:PyApp, session_context:PySessionContext) -> typing.Any: ...
+def delete_session(svc:App, session_context:SessionContext) -> typing.Any: ...
 
-def disconnect(svc:PyApp, conn:builtins.int) -> typing.Any: ...
+def disconnect(svc:App, conn:builtins.int) -> typing.Any: ...
 
-def get_message(session_context:PySessionContext, timeout:typing.Optional[datetime.timedelta]=None) -> typing.Any:
+def get_message(session_context:SessionContext, timeout:typing.Optional[datetime.timedelta]=None) -> typing.Any:
     r"""
     Get a message from the specified session.
     """
 
 def init_tracing(config:dict) -> typing.Any: ...
 
-def invite(session_context:PySessionContext, name:PyName) -> typing.Any:
+def invite(session_context:SessionContext, name:Name) -> typing.Any:
     r"""
     Invite a participant to the specified session (group only).
     """
 
-def listen_for_session(svc:PyApp, timeout:typing.Optional[datetime.timedelta]=None) -> typing.Any: ...
+def listen_for_session(svc:App, timeout:typing.Optional[datetime.timedelta]=None) -> typing.Any: ...
 
-def publish(session_context:PySessionContext, fanout:builtins.int, blob:typing.Sequence[builtins.int], message_ctx:typing.Optional[PyMessageContext]=None, name:typing.Optional[PyName]=None, payload_type:typing.Optional[builtins.str]=None, metadata:typing.Optional[typing.Mapping[builtins.str, builtins.str]]=None) -> typing.Any:
+def publish(session_context:SessionContext, fanout:builtins.int, blob:typing.Sequence[builtins.int], message_ctx:typing.Optional[MessageContext]=None, name:typing.Optional[Name]=None, payload_type:typing.Optional[builtins.str]=None, metadata:typing.Optional[typing.Mapping[builtins.str, builtins.str]]=None) -> typing.Any:
     r"""
     Publish a message through the specified session.
     """
 
-def publish_to(session_context:PySessionContext, message_ctx:PyMessageContext, blob:typing.Sequence[builtins.int], payload_type:typing.Optional[builtins.str]=None, metadata:typing.Optional[typing.Mapping[builtins.str, builtins.str]]=None) -> typing.Any:
+def publish_to(session_context:SessionContext, message_ctx:MessageContext, blob:typing.Sequence[builtins.int], payload_type:typing.Optional[builtins.str]=None, metadata:typing.Optional[typing.Mapping[builtins.str, builtins.str]]=None) -> typing.Any:
     r"""
     Publish a message as a reply to a received message through the specified session.
     """
 
-def remove(session_context:PySessionContext, name:PyName) -> typing.Any:
+def remove(session_context:SessionContext, name:Name) -> typing.Any:
     r"""
     Remove a participant from the specified session (group only).
     """
 
-def remove_route(svc:PyApp, name:PyName, conn:builtins.int) -> typing.Any: ...
+def remove_route(svc:App, name:Name, conn:builtins.int) -> typing.Any: ...
 
-def run_server(svc:PyApp, config:dict) -> typing.Any: ...
+def run_server(svc:App, config:dict) -> typing.Any: ...
 
-def set_route(svc:PyApp, name:PyName, conn:builtins.int) -> typing.Any: ...
+def set_route(svc:App, name:Name, conn:builtins.int) -> typing.Any: ...
 
-def stop_server(svc:PyApp, endpoint:builtins.str) -> typing.Any: ...
+def stop_server(svc:App, endpoint:builtins.str) -> typing.Any: ...
 
-def subscribe(svc:PyApp, name:PyName, conn:typing.Optional[builtins.int]=None) -> typing.Any: ...
+def subscribe(svc:App, name:Name, conn:typing.Optional[builtins.int]=None) -> typing.Any: ...
 
-def unsubscribe(svc:PyApp, name:PyName, conn:typing.Optional[builtins.int]=None) -> typing.Any: ...
+def unsubscribe(svc:App, name:Name, conn:typing.Optional[builtins.int]=None) -> typing.Any: ...
 

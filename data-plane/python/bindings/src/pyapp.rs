@@ -29,7 +29,7 @@ use slim_config::grpc::client::ClientConfig as PyGrpcClientConfig;
 use slim_config::grpc::server::ServerConfig as PyGrpcServerConfig;
 
 #[gen_stub_pyclass]
-#[pyclass]
+#[pyclass(name = "App")]
 #[derive(Clone)]
 pub struct PyApp {
     internal: Arc<PyAppInternal<IdentityProvider, IdentityVerifier>>,
@@ -313,7 +313,7 @@ pub fn listen_for_session(
 }
 
 #[gen_stub_pyfunction]
-#[pyfunction]
+#[pyfunction(name = "create_app")]
 #[pyo3(signature = (name, provider, verifier, local_service=false))]
 pub fn create_pyapp(
     py: Python,
