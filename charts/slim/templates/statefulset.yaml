@@ -45,22 +45,6 @@ spec:
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
-       {{- if eq .Values.spire.enabled true }}
-        - name: spiffe-helper
-          image: {{ .Values.spire.helperImage.repository }}:{{ .Values.spire.helperImage.tag | default "0.10.0" }}
-          imagePullPolicy: {{ .Values.spire.helperImage.pullPolicy }}
-          args: [ "-config", "config/helper.conf" ]
-          volumeMounts:
-            - name: config-volume
-              mountPath: /config/helper.conf
-              subPath: helper.conf
-            - name: spire-agent-socket
-              mountPath: /run/spire/agent-sockets
-              readOnly: false
-            - name: svids-volume
-              mountPath: /svids
-              readOnly: false
-        {{- end }}
         - name: {{ .Chart.Name }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
@@ -94,9 +78,9 @@ spec:
               mountPath: /config.yaml
               subPath: config.yaml
 {{- if eq .Values.spire.enabled true }}
-            - name: svids-volume
-              mountPath: /svids
-              readOnly: false
+            - name: spire-agent-socket
+              mountPath: /tmp/spire-agent/public/
+              readOnly: true              
 {{- end }}
 {{- with .Values.slim.extraVolumeMounts }}
 {{ toYaml . | nindent 12 }}
@@ -113,8 +97,6 @@ spec:
           hostPath:
             path: /run/spire/agent-sockets
             type: Directory
-        - name: svids-volume
-          emptyDir: {}
 {{- end}}
       {{- with .Values.nodeSelector }}
       nodeSelector:
