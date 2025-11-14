@@ -283,8 +283,9 @@ def common_options(function):
     # Audience to assert for JWT verification.
     function = click.option(
         "--audience",
-        type=list[str],
-        help="Audience for the JWT.",
+        type=str,
+        multiple=True,
+        help="Audience for the JWT. Can be specified multiple times.",
     )(function)
 
     # Invite multiple participants to a group session.
@@ -313,7 +314,7 @@ async def create_local_app(
     shared_secret: str = "abcde-12345-fedcb-67890-deadc",
     jwt: str | None = None,
     spire_trust_bundle: str | None = None,
-    audience: list[str] | None = None,
+    audience: tuple[str, ...] | list[str] | None = None,
 ):
     """
     Build and connect a Slim application instance given user CLI parameters.
@@ -351,10 +352,12 @@ async def create_local_app(
     # Derive identity provider & verifier using JWT/JWKS if all pieces supplied.
     if jwt and spire_trust_bundle and audience:
         print("Using JWT + JWKS authentication.")
+        # Convert tuple from Click's multiple=True to list
+        audience_list = list(audience) if isinstance(audience, tuple) else audience
         provider, verifier = jwt_identity(
             jwt,
             spire_trust_bundle,
-            aud=audience,
+            aud=audience_list,
         )
     else:
         print(
