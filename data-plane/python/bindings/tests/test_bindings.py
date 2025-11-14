@@ -54,9 +54,7 @@ async def test_end_to_end(server):
         )
 
         # subscribe alice and bob
-        alice_name = slim_bindings.Name(
-            "org", "default", "alice_e2e", id=svc_alice.id
-        )
+        alice_name = slim_bindings.Name("org", "default", "alice_e2e", id=svc_alice.id)
         bob_name = slim_bindings.Name("org", "default", "bob_e2e", id=svc_bob.id)
         await svc_alice.subscribe(alice_name, conn_id_alice)
         await svc_bob.subscribe(bob_name, conn_id_bob)
@@ -271,9 +269,7 @@ async def test_auto_reconnect_after_server_restart(server):
             {"endpoint": "http://127.0.0.1:12346", "tls": {"insecure": True}},
         )
 
-        alice_name = slim_bindings.Name(
-            "org", "default", "alice_res", id=svc_alice.id
-        )
+        alice_name = slim_bindings.Name("org", "default", "alice_res", id=svc_alice.id)
         bob_name = slim_bindings.Name("org", "default", "bob_res", id=svc_bob.id)
         await svc_alice.subscribe(alice_name, conn_id_alice)
         await svc_bob.subscribe(bob_name, conn_id_bob)

@@ -155,7 +155,7 @@ class Slim:
         )
         return Session(ctx), completion_handle
 
-    async def delete_session(self, session: Session)-> typing.Any:
+    async def delete_session(self, session: Session) -> typing.Any:
         """
         Terminate and remove an existing session.
 

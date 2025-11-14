@@ -491,7 +491,8 @@ mod tests {
         assert_eq!(strong.id(), 42);
 
         // Delete the session from the app (removes it from the pool)
-        let handler = app.delete_session(&strong)
+        let handler = app
+            .delete_session(&strong)
             .expect("failed to delete session");
 
         // Drop the last strong reference
