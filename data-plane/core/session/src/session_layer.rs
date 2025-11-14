@@ -334,7 +334,7 @@ where
     }
 
     /// Remove a session from the pool and return a handle to optionally wait on
-    pub fn remove_session(&self, id: u32) -> Result<tokio::task::JoinHandle<()>, SessionError> {
+    pub fn remove_session(&self, id: u32) -> Result<CompletionHandle, SessionError> {
         tracing::info!("remove session {}", id);
         // get the write lock
         let session = self
@@ -376,40 +376,6 @@ where
                 (*id, result)
             })
             .collect()
-    }
-
-    pub fn listen_from_sessions(
-        &self,
-        mut rx_session: tokio::sync::mpsc::Receiver<Result<SessionMessage, SessionError>>,
-    ) {
-        let pool_clone = self.pool.clone();
-
-        tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    next = rx_session.recv() => {
-                        match next {
-                            Some(Ok(SessionMessage::DeleteSession { session_id })) => {
-                                debug!("received closing signal from session {}, cancel it from the pool", session_id);
-                                if pool_clone.write().remove(&session_id).is_none() {
-                                    warn!("requested to delete unknown session id {}", session_id);
-                                }
-                            }
-                            Some(Ok(_)) => {
-                                error!("received unexpected message");
-                            }
-                            Some(Err(e)) => {
-                                warn!("error from session: {:?}", e);
-                            }
-                            None => {
-                                // All senders dropped; exit loop.
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        });
     }
 
     /// Handle session from slim without creating a session
@@ -485,13 +451,7 @@ where
         let session_controller = self.pool.read().get(&id).cloned();
         if let Some(controller) = session_controller {
             // pass the message to the session
-            controller.on_message_from_slim(message).await?;
-
-            //if session_message_type == ProtoSessionMessageType::LeaveRequest {
-            //    tracing::info!("recevied leave request message, close the session");
-            //    self.remove_session(id)?;
-            //}
-            // return Ok(());
+            return controller.on_message_from_slim(message).await;
         }
 
         // get local name for the session
@@ -588,7 +548,7 @@ where
             | ProtoSessionMessageType::MsgAck
             | ProtoSessionMessageType::RtxRequest
             | ProtoSessionMessageType::RtxReply => {
-                tracing::info!(
+                tracing::debug!(
                     "received channel message with unknown session id {:?} ",
                     message
                 );

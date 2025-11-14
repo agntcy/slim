@@ -247,11 +247,7 @@ where
                 self.delete_all(leave_msg).await
             }
             _ => Err(SessionError::Processing(format!(
-<<<<<<< HEAD
-                "unexpected session message {:?}",
-=======
                 "Unexpected message type {:?}",
->>>>>>> origin/feat/graceful-dsession-raining
                 message
             ))),
         }
@@ -1026,7 +1022,7 @@ where
             .await;
 
         if res.is_err() {
-            error!("an error occurred while signaling session close");
+            tracing::error!("an error occurred while signaling session close");
         }
     }
 }
