@@ -108,7 +108,7 @@ macro_rules! create_auth_service_with_init {
             .layer(SetRequestHeaderLayer::new($header_map))
             .layer(auth_layer)
             .service($channel)
-            .boxed())
+            .boxed_clone())
     }};
 }
 
