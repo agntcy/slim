@@ -109,7 +109,7 @@ async def run_client(
         session = await local_app.create_session(remote_name, config)
 
         # Iterate send->receive cycles.
-        for i in range(iterations):
+        for i in range(3):
             try:
                 await session.publish(message.encode())
                 format_message_print(
@@ -127,6 +127,9 @@ async def run_client(
                 format_message_print(f"{instance}", f"error: {e}")
             # Basic pacing so output remains readable.
             await asyncio.sleep(1)
+
+        await local_app.delete_session(session)
+        await asyncio.sleep(1)
 
     # PASSIVE MODE (listen for inbound sessions)
     else:

@@ -93,6 +93,10 @@ impl Session {
                 self.receiver.start_drain();
                 Ok(())
             }
+            _ => Err(SessionError::Processing(format!(
+                "Unexpected message type {:?}",
+                message
+            ))),
         }
     }
 

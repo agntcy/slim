@@ -132,6 +132,7 @@ impl SessionController {
         loop {
             tokio::select! {
                 _ = cancellation_token.cancelled(), if state == ProcessingState::Active => {
+                    tracing::info!("cancellation token! start drain");
                     state = ProcessingState::Draining;
 
                     // Update the timeout to the configured grace period
@@ -643,6 +644,7 @@ mod tests {
 
             let (tx_slim, rx_slim) = tokio::sync::mpsc::channel(10);
             let (tx_app, rx_app) = tokio::sync::mpsc::unbounded_channel();
+            let (tx_session_layer, _rx_session_layer) = tokio::sync::mpsc::channel(10);
 
             let tx = SessionTransmitter::new(tx_slim, tx_app);
 
@@ -658,6 +660,7 @@ mod tests {
                 .with_identity_verifier(SharedSecret::new("test", SHARED_SECRET))
                 .with_storage_path(storage_path)
                 .with_tx(tx)
+                .with_tx_to_session_layer(tx_session_layer)
                 .ready()
                 .expect("failed to validate builder")
                 .build()
@@ -1050,6 +1053,8 @@ mod tests {
         // create a SessionModerator
         let (tx_slim_moderator, mut rx_slim_moderator) = tokio::sync::mpsc::channel(10);
         let (tx_app_moderator, _rx_app_moderator) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_session_layer_moderator, _rx_session_layer_moderator) =
+            tokio::sync::mpsc::channel(10);
 
         let tx_moderator =
             SessionTransmitter::new(tx_slim_moderator.clone(), tx_app_moderator.clone());
@@ -1072,6 +1077,7 @@ mod tests {
             .with_identity_verifier(SharedSecret::new("moderator", SHARED_SECRET))
             .with_storage_path(storage_path_moderator.clone())
             .with_tx(tx_moderator.clone())
+            .with_tx_to_session_layer(tx_session_layer_moderator)
             .ready()
             .expect("failed to validate builder")
             .build()
@@ -1080,6 +1086,8 @@ mod tests {
         // create a SessionParticipant
         let (tx_slim_participant, mut rx_slim_participant) = tokio::sync::mpsc::channel(10);
         let (tx_app_participant, mut rx_app_participant) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_session_layer_participant, _rx_session_layer_participant) =
+            tokio::sync::mpsc::channel(10);
 
         let tx_participant =
             SessionTransmitter::new(tx_slim_participant.clone(), tx_app_participant.clone());
@@ -1102,6 +1110,7 @@ mod tests {
             .with_identity_verifier(SharedSecret::new("participant", SHARED_SECRET))
             .with_storage_path(storage_path_participant.clone())
             .with_tx(tx_participant.clone())
+            .with_tx_to_session_layer(tx_session_layer_participant)
             .ready()
             .expect("failed to validate builder")
             .build()
@@ -1565,6 +1574,7 @@ mod tests {
         let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(10);
         let (tx_app, _rx_app) = tokio::sync::mpsc::unbounded_channel();
         let (tx_session, _rx_session) = tokio::sync::mpsc::channel(10);
+        let (tx_session_layer, _rx_session_layer) = tokio::sync::mpsc::channel(10);
 
         SessionSettings {
             id: 1,
@@ -1580,6 +1590,7 @@ mod tests {
             },
             tx: SessionTransmitter::new(tx_slim, tx_app),
             tx_session,
+            tx_to_session_layer: tx_session_layer,
             identity_provider: SharedSecret::new("test", SHARED_SECRET),
             identity_verifier: SharedSecret::new("test", SHARED_SECRET),
             storage_path: std::path::PathBuf::from("/tmp/test_draining"),
@@ -1606,9 +1617,7 @@ mod tests {
         }
     }
 
-    async fn count_on_messages(
-        messages: &Arc<tokio::sync::Mutex<Vec<SessionMessage>>>,
-    ) -> usize {
+    async fn count_on_messages(messages: &Arc<tokio::sync::Mutex<Vec<SessionMessage>>>) -> usize {
         let messages = messages.lock().await;
         messages
             .iter()
@@ -1670,8 +1679,7 @@ mod tests {
         // Verify all messages were processed
         let processed_messages = count_on_messages(&messages_received).await;
         assert_eq!(
-            processed_messages,
-            3,
+            processed_messages, 3,
             "All queued messages should be processed during draining"
         );
         assert!(
@@ -1711,11 +1719,7 @@ mod tests {
 
         // Verify message was processed and shutdown was called
         let processed_messages = count_on_messages(&messages_received).await;
-        assert_eq!(
-            processed_messages,
-            1,
-            "Message should be processed"
-        );
+        assert_eq!(processed_messages, 1, "Message should be processed");
         assert!(
             *shutdown_called.lock().await,
             "Shutdown should have been called after draining"
@@ -1757,11 +1761,7 @@ mod tests {
 
         // Verify message was processed and shutdown was called quickly
         let processed_messages = count_on_messages(&messages_received).await;
-        assert_eq!(
-            processed_messages,
-            1,
-            "Message should be processed"
-        );
+        assert_eq!(processed_messages, 1, "Message should be processed");
         assert!(
             *shutdown_called.lock().await,
             "Shutdown should have been called"
@@ -1854,11 +1854,7 @@ mod tests {
 
         // Verify no messages were processed but shutdown was called
         let processed_messages = count_on_messages(&messages_received).await;
-        assert_eq!(
-            processed_messages,
-            0,
-            "No messages should be processed"
-        );
+        assert_eq!(processed_messages, 0, "No messages should be processed");
         assert!(
             *shutdown_called.lock().await,
             "Shutdown should still be called"
@@ -1905,8 +1901,7 @@ mod tests {
         // Verify messages in queue when cancellation happened were still processed
         let processed_messages = count_on_messages(&messages_received).await;
         assert_eq!(
-            processed_messages,
-            2,
+            processed_messages, 2,
             "Messages in queue during cancellation should be processed"
         );
     }

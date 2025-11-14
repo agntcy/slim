@@ -99,4 +99,7 @@ pub enum SessionMessage {
     /// message from session layer to the session controller
     /// to start to the close procedures of the session
     StartDrain { grace_period: Duration },
+    /// message from session controller to session layer
+    /// to notify that the session can be removed safely
+    DeleteSession { session_id: u32 },
 }

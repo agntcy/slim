@@ -10,12 +10,13 @@ use parking_lot::RwLock as SyncRwLock;
 use rand::Rng;
 use slim_datapath::messages::utils::IS_MODERATOR;
 use tokio::sync::mpsc::Sender;
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType};
 use slim_datapath::messages::Name;
 
+use crate::common::SessionMessage;
 use crate::notification::Notification;
 use crate::session_config::SessionConfig;
 use crate::session_controller::SessionController;
@@ -64,6 +65,9 @@ where
 
     /// Storage path for app data
     storage_path: std::path::PathBuf,
+
+    /// Channel to clone on session creation
+    tx_session: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
 }
 
 impl<P, V, T> SessionLayer<P, V, T>
@@ -84,7 +88,9 @@ where
         transmitter: T,
         storage_path: std::path::PathBuf,
     ) -> Self {
-        SessionLayer {
+        let (tx_session, rx_session) = tokio::sync::mpsc::channel(16);
+
+        let sl = SessionLayer {
             pool: Arc::new(SyncRwLock::new(HashMap::new())),
             app_id: app_name.id(),
             app_names: SyncRwLock::new(HashSet::from([app_name.with_id(Name::NULL_COMPONENT)])),
@@ -95,7 +101,12 @@ where
             tx_app,
             transmitter,
             storage_path,
-        }
+            tx_session,
+        };
+
+        sl.listen_from_sessions(rx_session);
+
+        sl
     }
 
     pub fn tx_slim(&self) -> SlimChannelSender {
@@ -215,6 +226,7 @@ where
                 .with_identity_verifier(self.identity_verifier.clone())
                 .with_storage_path(self.storage_path.clone())
                 .with_tx(tx)
+                .with_tx_to_session_layer(self.tx_session.clone())
                 .ready()?;
 
             // Perform the async build operation without holding any lock
@@ -244,8 +256,43 @@ where
         }
     }
 
+    pub fn listen_from_sessions(
+        &self,
+        mut rx_session: tokio::sync::mpsc::Receiver<Result<SessionMessage, SessionError>>,
+    ) {
+        let pool_clone = self.pool.clone();
+
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    next = rx_session.recv() => {
+                        match next {
+                            Some(Ok(SessionMessage::DeleteSession { session_id })) => {
+                                debug!("received closing signal from session {}, cancel it from the pool", session_id);
+                                if pool_clone.write().remove(&session_id).is_none() {
+                                    warn!("requested to delete unknown session id {}", session_id);
+                                }
+                            }
+                            Some(Ok(_)) => {
+                                error!("received unexpected message");
+                            }
+                            Some(Err(e)) => {
+                                warn!("error from session: {:?}", e);
+                            }
+                            None => {
+                                // All senders dropped; exit loop.
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
     /// Remove a session from the pool and return a handle to optionally wait on
     pub fn remove_session(&self, id: u32) -> Result<tokio::task::JoinHandle<()>, SessionError> {
+        tracing::info!("remove session {}", id);
         // get the write lock
         let session = self
             .pool
@@ -320,6 +367,7 @@ where
     /// Handle a message from the message processor, and pass it to the
     /// corresponding session
     pub async fn handle_message_from_slim(&self, mut message: Message) -> Result<(), SessionError> {
+        tracing::info!("message from slim");
         // Pass message to interceptors in the transmitter
         self.transmitter
             .on_msg_from_slim_interceptors(&mut message)
@@ -357,12 +405,13 @@ where
         // check if we have a session for the given session ID
         if let Some(controller) = self.pool.read().get(&id) {
             // pass the message to the session
-            controller.on_message(message, MessageDirection::North)?;
+            return controller.on_message(message, MessageDirection::North);
 
-            if session_message_type == ProtoSessionMessageType::LeaveRequest {
-                self.remove_session(id)?;
-            }
-            return Ok(());
+            //if session_message_type == ProtoSessionMessageType::LeaveRequest {
+            //    tracing::info!("recevied leave request message, close the session");
+            //    self.remove_session(id)?;
+            //}
+            // return Ok(());
         }
 
         // get local name for the session
@@ -459,7 +508,7 @@ where
             | ProtoSessionMessageType::MsgAck
             | ProtoSessionMessageType::RtxRequest
             | ProtoSessionMessageType::RtxReply => {
-                debug!(
+                tracing::info!(
                     "received channel message with unknown session id {:?} ",
                     message
                 );
