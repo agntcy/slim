@@ -292,7 +292,11 @@ where
 
             // This should never happen, but just in case
             if ret.is_some() {
-                panic!("session already exists: {}", ret.is_some());
+                error!(
+                    "session ID {} was taken during insertion: this should not happen",
+                    session_id
+                );
+                return Err(SessionError::SessionIdAlreadyUsed(session_id.to_string()));
             }
 
             return Ok(SessionContext::new(session_controller, app_rx));

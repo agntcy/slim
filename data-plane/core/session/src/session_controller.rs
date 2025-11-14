@@ -142,6 +142,7 @@ impl SessionController {
                     // Send drain to message to the inner to notify the beginning of the drain
                     if let Err(e) = inner.on_message(SessionMessage::StartDrain {grace_period: shutdown_timeout}).await {
                         tracing::error!(error=%e, "Error during start drain");
+                        break;
                     }
 
                     // First finish processing messages already in the queue, until we empty it
@@ -149,6 +150,7 @@ impl SessionController {
                     while let Ok(msg) = rx.try_recv() {
                         if let Err(e) = inner.on_message(msg).await {
                             tracing::error!(error=%e, "Error processing message during draining");
+                            break;
                         }
                     }
 
@@ -163,8 +165,17 @@ impl SessionController {
                     match msg {
                         Some(session_message) => {
                             if let Err(e) = inner.on_message(session_message).await {
-                                let state_str = if state == ProcessingState::Draining { " during graceful shutdown" } else { "" };
-                                tracing::error!(error=%e, "Error processing message{}", state_str);
+                                let draining = state == ProcessingState::Draining;
+                                tracing::error!(
+                                    error=%e,
+                                    "Error processing message{}",
+                                    if draining { " during graceful shutdown" } else { "" }
+                                );
+                                if draining {
+                                    debug!("Exiting processing loop due to error while draining");
+                                    break;
+                                }
+
                             }
                         }
                         None => {
