@@ -153,7 +153,7 @@ where
             SessionMessage::StartDrain {
                 grace_period: duration,
             } => {
-                // Send drain to message to the inner to notify the beginnig of the drain
+                // Send drain to message to the inner to notify the beginning of the drain
                 debug!("received drain signal");
                 self.inner
                     .on_message(SessionMessage::StartDrain {
@@ -179,7 +179,7 @@ where
     }
 
     fn needs_drain(&self) -> bool {
-        !(self.common.sender.drain_completed() && !self.inner.needs_drain())
+        !self.common.sender.drain_completed() || self.inner.needs_drain()
     }
 
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {

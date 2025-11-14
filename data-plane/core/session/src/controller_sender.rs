@@ -86,8 +86,10 @@ impl ControllerSender {
             | slim_datapath::api::ProtoSessionMessageType::JoinRequest
             | slim_datapath::api::ProtoSessionMessageType::LeaveRequest
             | slim_datapath::api::ProtoSessionMessageType::GroupWelcome => {
-                if self.draining_state == ControllerSenderDrainStatus::Initiated && 
-                    message.get_session_message_type() != slim_datapath::api::ProtoSessionMessageType::LeaveRequest {
+                if self.draining_state == ControllerSenderDrainStatus::Initiated
+                    && message.get_session_message_type()
+                        != slim_datapath::api::ProtoSessionMessageType::LeaveRequest
+                {
                     // draining period is started, do no accept any new message
                     return Err(SessionError::Processing(
                         "draining period started, do not accept new messages".to_string(),
@@ -267,7 +269,7 @@ impl ControllerSender {
     }
 
     pub fn start_drain(&mut self) {
-        // set only initated to true because we may need send request leave
+        // set only initiated to true because we may need send request leave
         debug!("controller sender drain initiated");
         self.draining_state = ControllerSenderDrainStatus::Initiated;
     }

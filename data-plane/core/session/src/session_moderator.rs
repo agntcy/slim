@@ -3,7 +3,8 @@
 
 use std::{
     collections::{HashMap, VecDeque},
-    sync::Arc, time::Duration,
+    sync::Arc,
+    time::Duration,
 };
 
 use async_trait::async_trait;
@@ -220,9 +221,7 @@ where
                         .await
                 }
             }
-            SessionMessage::StartDrain {
-                grace_period: _,
-            } => {
+            SessionMessage::StartDrain { grace_period: _ } => {
                 debug!("start draining by calling delete_all");
                 // We need to close the session for all the participants
                 // Crate the leave message
@@ -257,7 +256,10 @@ where
     }
 
     fn needs_drain(&self) -> bool {
-        !(self.closing && self.common.sender.drain_completed() && !self.inner.needs_drain() && self.tasks_todo.is_empty())
+        !(self.closing
+            && self.common.sender.drain_completed()
+            && !self.inner.needs_drain()
+            && self.tasks_todo.is_empty())
     }
 
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {

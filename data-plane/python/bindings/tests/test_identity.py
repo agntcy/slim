@@ -173,11 +173,7 @@ async def test_identity_verification(server, audience):
                 # reply to the session
                 await recv_session.publish_to(_ctx, res_msg)
             except Exception as e:
-                print("Error receiving message on slim1:", e)
-            finally:
-                if recv_session is not None:
-                    h = await slim_receiver.delete_session(recv_session)
-                    await h
+                print("Error receiving message on slim:", e)
 
         t = asyncio.create_task(background_task())
 

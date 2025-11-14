@@ -337,12 +337,8 @@ where
     pub fn remove_session(&self, id: u32) -> Result<CompletionHandle, SessionError> {
         debug!("try to remove session {}", id);
         // get the read lock
-        let binding = self
-            .pool
-            .read();
-        let session = binding
-            .get(&id)
-            .ok_or(SessionError::SessionNotFound(id))?;
+        let binding = self.pool.read();
+        let session = binding.get(&id).ok_or(SessionError::SessionNotFound(id))?;
 
         // close the session and get the join handle
         let join_handle = session.close()?;
