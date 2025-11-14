@@ -71,8 +71,7 @@ where
             .remove_connection(conn_index, is_local)
             .unwrap_or_else(|e| {
                 error!(
-                    "failed to remove local subscriptions for connection {}: {}",
-                    conn_index, e
+                    %conn_index, %is_local, %e, "failed to remove local subscriptions for connection",
                 );
                 HashSet::new()
             });

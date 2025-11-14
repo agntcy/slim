@@ -5,6 +5,7 @@
 use std::{collections::HashMap, time::Duration};
 
 use parking_lot::Mutex;
+use tokio::sync::{self, oneshot};
 // Third-party crates
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
@@ -22,11 +23,11 @@ use slim_datapath::{
 use crate::{
     MessageDirection, SessionError, Transmitter,
     common::SessionMessage,
+    completion_handle::CompletionHandle,
     controller_sender::ControllerSender,
     session_builder::{ForController, SessionBuilder},
     session_config::SessionConfig,
     session_settings::SessionSettings,
-    timer_factory::TimerSettings,
     traits::MessageHandler,
 };
 
@@ -44,7 +45,7 @@ pub struct SessionController {
     pub(crate) config: SessionConfig,
 
     /// channel to send messages to the processing loop
-    tx_controller: tokio::sync::mpsc::Sender<SessionMessage>,
+    tx_controller: sync::mpsc::Sender<SessionMessage>,
 
     /// use in drop implementation to gracefully close the processing loop
     pub(crate) cancellation_token: CancellationToken,
@@ -71,8 +72,8 @@ impl SessionController {
         destination: Name,
         config: SessionConfig,
         settings: SessionSettings<P, V>,
-        tx: tokio::sync::mpsc::Sender<SessionMessage>,
-        rx: tokio::sync::mpsc::Receiver<SessionMessage>,
+        tx: sync::mpsc::Sender<SessionMessage>,
+        rx: sync::mpsc::Receiver<SessionMessage>,
         inner: I,
     ) -> Self
     where
@@ -103,7 +104,7 @@ impl SessionController {
     /// Internal processing loop that handles messages with mutable access
     async fn processing_loop<P, V>(
         mut inner: impl MessageHandler + 'static,
-        mut rx: tokio::sync::mpsc::Receiver<SessionMessage>,
+        mut rx: sync::mpsc::Receiver<SessionMessage>,
         cancellation_token: CancellationToken,
         settings: SessionSettings<P, V>,
     ) where
@@ -139,7 +140,7 @@ impl SessionController {
                     let shutdown_timeout = settings.graceful_shutdown_timeout
                         .unwrap_or(Duration::from_secs(60)); // Default 60 seconds if not configured
 
-                    // Send drain to message to the inner to notify the beginnig of the drain
+                    // Send drain to message to the inner to notify the beginning of the drain
                     if let Err(e) = inner.on_message(SessionMessage::StartDrain {grace_period: shutdown_timeout}).await {
                         tracing::error!(error=%e, "Error during start drain");
                     }
@@ -162,13 +163,9 @@ impl SessionController {
                 msg = rx.recv() => {
                     match msg {
                         Some(session_message) => {
-                            // Check if we should process this message based on current state
-                            // Process all messages in both Active and Draining states
-                            {
-                                if let Err(e) = inner.on_message(session_message).await {
-                                    let state_str = if state == ProcessingState::Draining { " during graceful shutdown" } else { "" };
-                                    tracing::error!(error=%e, "Error processing message{}", state_str);
-                                }
+                            if let Err(e) = inner.on_message(session_message).await {
+                                let state_str = if state == ProcessingState::Draining { " during graceful shutdown" } else { "" };
+                                tracing::error!(error=%e, "Error processing message{}", state_str);
                             }
                         }
                         None => {
@@ -221,17 +218,45 @@ impl SessionController {
         self.config.initiator
     }
 
-    /// Send a message to the controller for processing
-    pub fn on_message(
+    async fn on_message(
         &self,
         message: Message,
         direction: MessageDirection,
+        ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
     ) -> Result<(), SessionError> {
         self.tx_controller
-            .try_send(SessionMessage::OnMessage { message, direction })
-            .map_err(|e| {
-                SessionError::Processing(format!("failed to send message to session: {}", e))
+            .send(SessionMessage::OnMessage {
+                message,
+                direction,
+                ack_tx,
             })
+            .await
+            .map_err(|e| {
+                SessionError::Processing(format!(
+                    "Failed to send message to session controller: {}",
+                    e
+                ))
+            })
+    }
+
+    /// Send a message to the controller for processing
+    pub async fn on_message_from_app(
+        &self,
+        message: Message,
+    ) -> Result<CompletionHandle, SessionError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.on_message(message, MessageDirection::South, Some(ack_tx))
+            .await?;
+
+        let ret = CompletionHandle::from_oneshot_receiver(ack_rx);
+
+        Ok(ret)
+    }
+
+    /// Send a message to the controller for processing
+    pub async fn on_message_from_slim(&self, message: Message) -> Result<(), SessionError> {
+        self.on_message(message, MessageDirection::North, None)
+            .await
     }
 
     pub fn close(&self) -> Result<tokio::task::JoinHandle<()>, SessionError> {
@@ -243,8 +268,11 @@ impl SessionController {
             .ok_or(SessionError::Generic("Session already closed".to_string()))
     }
 
-    pub async fn publish_message(&self, message: Message) -> Result<(), SessionError> {
-        self.on_message(message, MessageDirection::South)
+    pub async fn publish_message(
+        &self,
+        message: Message,
+    ) -> Result<CompletionHandle, SessionError> {
+        self.on_message_from_app(message).await
     }
 
     /// Publish a message to a specific connection (forward_to)
@@ -255,7 +283,7 @@ impl SessionController {
         blob: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<(), SessionError> {
+    ) -> Result<CompletionHandle, SessionError> {
         self.publish_with_flags(
             name,
             SlimHeaderFlags::default().with_forward_to(forward_to),
@@ -273,7 +301,7 @@ impl SessionController {
         blob: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<(), SessionError> {
+    ) -> Result<CompletionHandle, SessionError> {
         self.publish_with_flags(
             name,
             SlimHeaderFlags::default(),
@@ -292,7 +320,7 @@ impl SessionController {
         blob: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<(), SessionError> {
+    ) -> Result<CompletionHandle, SessionError> {
         let ct = payload_type.unwrap_or_else(|| "msg".to_string());
 
         let mut msg = Message::builder()
@@ -335,7 +363,18 @@ impl SessionController {
             .map_err(|e| SessionError::Processing(e.to_string()))
     }
 
-    pub async fn invite_participant(&self, destination: &Name) -> Result<(), SessionError> {
+    pub(crate) async fn invite_participant_internal(
+        &self,
+        destination: &Name,
+    ) -> Result<CompletionHandle, SessionError> {
+        let msg = self.create_discovery_request(destination)?;
+        self.publish_message(msg).await
+    }
+
+    pub async fn invite_participant(
+        &self,
+        destination: &Name,
+    ) -> Result<CompletionHandle, SessionError> {
         match self.session_type() {
             ProtoSessionType::PointToPoint => Err(SessionError::Processing(
                 "cannot invite participant to point-to-point session".into(),
@@ -346,14 +385,16 @@ impl SessionController {
                         "cannot invite participant to this session session".into(),
                     ));
                 }
-                let msg = self.create_discovery_request(destination)?;
-                self.publish_message(msg).await
+                self.invite_participant_internal(destination).await
             }
             _ => Err(SessionError::Processing("unexpected session type".into())),
         }
     }
 
-    pub async fn remove_participant(&self, destination: &Name) -> Result<(), SessionError> {
+    pub async fn remove_participant(
+        &self,
+        destination: &Name,
+    ) -> Result<CompletionHandle, SessionError> {
         match self.session_type() {
             ProtoSessionType::PointToPoint => Err(SessionError::Processing(
                 "cannot remove participant to point-to-point session".into(),
@@ -366,7 +407,7 @@ impl SessionController {
                 }
                 let msg = Message::builder()
                     .source(self.source().clone())
-                    .destination(destination.clone())
+                    .destination(destination.clone().with_id(Name::NULL_COMPONENT))
                     .identity("")
                     .session_type(ProtoSessionType::Multicast)
                     .session_message_type(ProtoSessionMessageType::LeaveRequest)
@@ -443,13 +484,9 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     pub(crate) fn new(settings: SessionSettings<P, V>) -> Self {
-        // timers settings for the controller
-        let controller_timer_settings =
-            TimerSettings::constant(Duration::from_secs(1)).with_max_retries(10);
-
         // create the controller sender
         let controller_sender = ControllerSender::new(
-            controller_timer_settings,
+            settings.config.get_timer_settings(),
             settings.source.clone(),
             // send messages to slim/app
             settings.tx.clone(),
@@ -468,6 +505,7 @@ where
         self.settings.tx.send_to_slim(Ok(message)).await
     }
 
+    /// Send control message without creating ack channel (for internal use by moderator)
     pub(crate) async fn send_with_timer(&mut self, message: Message) -> Result<(), SessionError> {
         self.sender.on_message(&message).await
     }
@@ -521,6 +559,7 @@ where
             .map_err(|e| SessionError::Processing(e.to_string()))
     }
 
+    /// Send control message without creating ack channel (for internal use by moderator)
     pub(crate) async fn send_control_message(
         &mut self,
         dst: &Name,
@@ -1009,7 +1048,7 @@ mod tests {
             .build_publish()
             .unwrap();
 
-        let result = controller.on_message(test_message, MessageDirection::North);
+        let result = controller.on_message_from_slim(test_message).await;
         assert!(result.is_ok());
     }
 
@@ -1116,8 +1155,11 @@ mod tests {
             .build()
             .unwrap();
 
-        // Discovery request message is automatically sent by the moderator on creation
-        // check that the request is received by slim on the moderator
+        let completion_handle = moderator
+            .invite_participant_internal(&participant_name)
+            .await
+            .expect("error inviting participant");
+
         let received_discovery_request =
             timeout(Duration::from_millis(100), rx_slim_moderator.recv())
                 .await
@@ -1150,7 +1192,8 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         moderator
-            .on_message(discovery_reply, MessageDirection::North)
+            .on_message_from_slim(discovery_reply)
+            .await
             .expect("error processing discovery reply on moderator");
 
         // check that we get a route for the remote endpoint on slim
@@ -1185,7 +1228,8 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         participant
-            .on_message(join_request_to_participant, MessageDirection::North)
+            .on_message_from_slim(join_request_to_participant)
+            .await
             .expect("error processing join request on participant");
 
         // check that a route for the moderator is generated
@@ -1219,7 +1263,8 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         moderator
-            .on_message(join_reply_to_moderator, MessageDirection::North)
+            .on_message_from_slim(join_reply_to_moderator)
+            .await
             .expect("error processing join reply on moderator");
 
         // check that a welcome message is received by slim on the moderator
@@ -1242,7 +1287,8 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         participant
-            .on_message(welcome_to_participant, MessageDirection::North)
+            .on_message_from_slim(welcome_to_participant)
+            .await
             .expect("error processing welcome message on participant");
 
         // check that an ack group is received by slim on the participant
@@ -1265,8 +1311,9 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         moderator
-            .on_message(ack_to_moderator, MessageDirection::North)
-            .expect("error processing ack on moderator");
+            .on_message_from_slim(ack_to_moderator)
+            .await
+            .expect("error processing ack group on moderator");
 
         // no other message should be sent
         let no_more_moderator = timeout(Duration::from_millis(100), rx_slim_moderator.recv()).await;
@@ -1286,6 +1333,9 @@ mod tests {
             "Expected no more messages on participant slim channel"
         );
 
+        // the completion handler should now be complete
+        completion_handle.await.expect("error in completion handle");
+
         // create an application message using the participant name
         let app_data = b"Hello from moderator to participant".to_vec();
         let app_message = Message::builder()
@@ -1302,7 +1352,8 @@ mod tests {
 
         // call on message on the moderator (direction south)
         moderator
-            .on_message(app_message, MessageDirection::South)
+            .on_message_from_app(app_message)
+            .await
             .expect("error sending application message from moderator");
 
         // check that message is received from slim with destination equal to participant name id
@@ -1327,7 +1378,8 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         participant
-            .on_message(app_msg_to_participant, MessageDirection::North)
+            .on_message_from_slim(app_msg_to_participant)
+            .await
             .expect("error processing application message on participant");
 
         // check that the message is received by the application
@@ -1374,7 +1426,8 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         moderator
-            .on_message(ack_to_moderator, MessageDirection::North)
+            .on_message_from_slim(ack_to_moderator)
+            .await
             .expect("error processing ack on moderator");
 
         // check that no other message is generated
@@ -1406,7 +1459,8 @@ mod tests {
             .unwrap();
 
         moderator
-            .on_message(leave_request, MessageDirection::South)
+            .on_message_from_app(leave_request)
+            .await
             .expect("error sending leave request");
 
         // check that the request is received by slim on the moderator
@@ -1429,7 +1483,8 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         participant
-            .on_message(leave_request_to_participant, MessageDirection::North)
+            .on_message_from_slim(leave_request_to_participant)
+            .await
             .expect("error processing leave request on participant");
 
         // get the leave reply on the participant slim
@@ -1465,7 +1520,8 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         moderator
-            .on_message(leave_reply_to_moderator, MessageDirection::North)
+            .on_message_from_slim(leave_reply_to_moderator)
+            .await
             .expect("error processing leave reply on moderator");
 
         // expect a remove route for the participant name
@@ -1614,6 +1670,7 @@ mod tests {
                 .build_publish()
                 .unwrap(),
             direction: MessageDirection::South,
+            ack_tx: None,
         }
     }
 

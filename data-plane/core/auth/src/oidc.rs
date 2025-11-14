@@ -207,7 +207,7 @@ impl OidcTokenProvider {
 
         // Fetch initial token to populate cache
         if let Err(e) = self.fetch_new_token().await {
-            eprintln!("Warning: Failed to fetch initial token: {}", e);
+            tracing::warn!("Warning: Failed to fetch initial token: {}", e);
             // Don't fail initialization, let background task handle it
         }
         Ok(())
@@ -330,7 +330,7 @@ impl OidcTokenProvider {
                             if cache_key == current_cache_key
                                 && let Err(e) = provider_clone.refresh_token_background().await
                             {
-                                eprintln!("Failed to refresh token in background: {}", e);
+                                tracing::error!("Failed to refresh token in background: {}", e);
                             }
                         }
                     }
@@ -349,7 +349,7 @@ impl OidcTokenProvider {
         match self.fetch_new_token().await {
             Ok(_) => Ok(()),
             Err(e) => {
-                eprintln!("Background token refresh failed: {}", e);
+                tracing::error!("Background token refresh failed: {}", e);
                 Err(e)
             }
         }
@@ -911,7 +911,7 @@ mod tests {
                 provider.initialize().await.unwrap();
             }
             Err(e) => {
-                eprintln!("Provider creation failed: {:?}", e);
+                tracing::error!("Provider creation failed: {:?}", e);
                 panic!("Provider creation should have succeeded");
             }
         }

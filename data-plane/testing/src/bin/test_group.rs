@@ -285,10 +285,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         initiator: true,
         metadata: HashMap::new(),
     };
-    let session_ctx = app
+    let (session_ctx, completion_handle) = app
         .create_session(conf, channel_name.clone(), None)
         .await
         .expect("error creating session");
+
+    // Await the completion of the session establishment
+    completion_handle.await.expect("error establishing session");
 
     for c in &participants {
         // add routes

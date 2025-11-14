@@ -197,7 +197,6 @@ impl ControllerSender {
         };
 
         self.pending_replies.insert(id, pending);
-
         self.tx
             .send_to_slim(Ok(message.clone()))
             .await
@@ -273,7 +272,7 @@ impl ControllerSender {
         self.draining_state = ControllerSenderDrainStatus::Initiated;
     }
 
-    pub fn drain_complited(&self) -> bool {
+    pub fn drain_completed(&self) -> bool {
         // Drain is complete if we're draining and no pending acks remain
         tracing::info!("drain complete controller sender state {:?}  pending empty? {}", self.draining_state,  self.pending_replies.is_empty());
         if self.draining_state == ControllerSenderDrainStatus::Completed
@@ -407,7 +406,7 @@ mod tests {
         sender
             .on_message(&reply)
             .await
-            .expect("error sending message");
+            .expect("error sending reply");
 
         // this should stop the timer so we should not get any other message in slim
         let res = timeout(Duration::from_millis(400), rx_slim.recv()).await;
@@ -856,10 +855,7 @@ mod tests {
             .unwrap();
 
         // Send the first ack using on_message function
-        sender
-            .on_message(&ack1)
-            .await
-            .expect("error sending first ack");
+        sender.on_message(&ack1).await.expect("error sending ack");
 
         // Verify the message is still pending (timer should NOT stop yet with only 1/2 acks)
         assert!(
@@ -883,10 +879,7 @@ mod tests {
             .unwrap();
 
         // Send the second ack using on_message function
-        sender
-            .on_message(&ack2)
-            .await
-            .expect("error sending second ack");
+        sender.on_message(&ack2).await.expect("error sending ack");
 
         // Now the timer should be stopped - verify no more messages in slim
         let res = timeout(Duration::from_millis(400), rx_slim.recv()).await;
@@ -1001,10 +994,7 @@ mod tests {
             .unwrap();
 
         // Send the first ack using on_message function
-        sender
-            .on_message(&ack1)
-            .await
-            .expect("error sending first ack");
+        sender.on_message(&ack1).await.expect("error sending ack");
 
         // Verify the message is still pending (timer should NOT stop yet with only 1/2 acks)
         assert!(
@@ -1059,10 +1049,7 @@ mod tests {
             .unwrap();
 
         // Send the second ack from participant2
-        sender
-            .on_message(&ack2)
-            .await
-            .expect("error sending second ack");
+        sender.on_message(&ack2).await.expect("error sending ack");
 
         // NOW the timer should be stopped - verify no more messages in slim
         let res = timeout(Duration::from_millis(400), rx_slim.recv()).await;

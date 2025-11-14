@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Third-party crates
+use tokio::sync::oneshot;
 use tracing::debug;
 
 // Local crate
@@ -128,6 +129,20 @@ pub struct AddParticipant {
     join: State,
     welcome: State,
     commit: State,
+    /// Optional ack notifier to signal when the invite operation completes (after JoinReply)
+    pub(crate) ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
+}
+
+impl AddParticipant {
+    pub(crate) fn new(ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>) -> Self {
+        Self {
+            discovery: Default::default(),
+            join: Default::default(),
+            welcome: Default::default(),
+            commit: Default::default(),
+            ack_tx,
+        }
+    }
 }
 
 impl TaskUpdate for AddParticipant {
@@ -170,6 +185,12 @@ impl TaskUpdate for AddParticipant {
                 "join completed on AddParticipan task, timer id {}",
                 timer_id
             );
+
+            // Signal success to the ack notifier if present (invite operation complete)
+            if let Some(tx) = self.ack_tx.take() {
+                let _ = tx.send(Ok(()));
+            }
+
             Ok(())
         } else {
             Err(SessionError::ModeratorTask(
@@ -238,6 +259,18 @@ impl TaskUpdate for AddParticipant {
 pub struct RemoveParticipant {
     commit: State,
     leave: State,
+    /// Optional ack notifier to signal when the remove operation completes (after LeaveReply)
+    pub(crate) ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
+}
+
+impl RemoveParticipant {
+    pub(crate) fn new(ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>) -> Self {
+        Self {
+            commit: Default::default(),
+            leave: Default::default(),
+            ack_tx,
+        }
+    }
 }
 
 impl TaskUpdate for RemoveParticipant {
@@ -274,6 +307,12 @@ impl TaskUpdate for RemoveParticipant {
                 "leave completed on RemoveParticipant task, timer id {}",
                 timer_id
             );
+
+            // Signal success to the ack notifier if present (remove operation complete)
+            if let Some(tx) = self.ack_tx.take() {
+                let _ = tx.send(Ok(()));
+            }
+
             Ok(())
         } else {
             Err(SessionError::ModeratorTask(
@@ -324,6 +363,8 @@ impl TaskUpdate for RemoveParticipant {
 pub struct UpdateParticipant {
     proposal: State,
     commit: State,
+    /// Optional ack notifier to signal when the update operation completes
+    pub(crate) ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
 }
 
 impl TaskUpdate for UpdateParticipant {

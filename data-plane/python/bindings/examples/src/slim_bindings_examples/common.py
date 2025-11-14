@@ -370,7 +370,7 @@ async def create_local_app(
     local_name = split_id(local)
 
     # Instantiate Slim (async constructor prepares underlying PyService).
-    local_app = await slim_bindings.Slim.new(local_name, provider, verifier)
+    local_app = slim_bindings.Slim(local_name, provider, verifier)
 
     # Provide feedback to user (instance numeric id).
     format_message_print(f"{local_app.id_str}", "Created app")

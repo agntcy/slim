@@ -141,7 +141,7 @@ async def run_client(
             session = await local_app.listen_for_session()
             format_message_print(f"{instance}", f"new session {session.id}")
 
-            async def session_loop(sess: slim_bindings.PySession):
+            async def session_loop(sess: slim_bindings.Session):
                 """
                 Inner loop for a single inbound session:
                   * Receive messages until the session is closed or an error occurs.

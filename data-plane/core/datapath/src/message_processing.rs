@@ -305,12 +305,12 @@ impl MessageProcessor {
         tokio::sync::mpsc::Receiver<Result<Message, Status>>,
     ) {
         // create a pair tx, rx to be able to send messages with the standard processing loop
-        let (tx1, rx1) = mpsc::channel(128);
+        let (tx1, rx1) = mpsc::channel(512);
 
         debug!("establishing new local app connection");
 
         // create a pair tx, rx to be able to receive messages and insert it into the connection table
-        let (tx2, rx2) = mpsc::channel(128);
+        let (tx2, rx2) = mpsc::channel(512);
 
         // if the call is coming from the control plane set the tx channel
         // we assume to talk to a single control plane so set the channel only once

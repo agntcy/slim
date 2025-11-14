@@ -202,6 +202,7 @@ dependencies = [
  "agntcy-slim-session",
  "dirs",
  "drain",
+ "futures",
  "parking_lot",
  "serde",
  "thiserror 2.0.17",

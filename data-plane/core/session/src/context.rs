@@ -37,7 +37,7 @@ impl SessionContext {
         self.session().upgrade()
     }
 
-    /// Consume the context returning session, receiver and optional metadata.
+    /// Consume the context returning session and receiver.
     pub fn into_parts(self) -> (Weak<SessionController>, AppChannelReceiver) {
         (self.session, self.rx)
     }
@@ -67,6 +67,11 @@ impl SessionContext {
             f(rx, session_clone).await;
         });
         session
+    }
+
+    /// Get the session ID
+    pub fn session_id(&self) -> u32 {
+        self.session_arc().map(|s| s.id()).unwrap_or(0)
     }
 }
 

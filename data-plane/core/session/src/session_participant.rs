@@ -94,12 +94,20 @@ where
 
     async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
         match message {
-            SessionMessage::OnMessage { message, direction } => {
+            SessionMessage::OnMessage {
+                message,
+                direction,
+                ack_tx,
+            } => {
                 if message.get_session_message_type().is_command_message() {
                     self.process_control_message(message).await
                 } else {
                     self.inner
-                        .on_message(SessionMessage::OnMessage { message, direction })
+                        .on_message(SessionMessage::OnMessage {
+                            message,
+                            direction,
+                            ack_tx,
+                        })
                         .await
                 }
             }
@@ -171,7 +179,7 @@ where
     }
 
     fn needs_drain(&self) -> bool {
-        !(self.common.sender.drain_complited() && !self.inner.needs_drain())
+        !(self.common.sender.drain_completed() && !self.inner.needs_drain())
     }
 
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {
@@ -913,6 +921,7 @@ mod tests {
             .on_message(SessionMessage::OnMessage {
                 message: app_msg,
                 direction: crate::MessageDirection::South,
+                ack_tx: None,
             })
             .await;
 

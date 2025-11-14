@@ -327,7 +327,7 @@ impl SessionReceiver {
         }
     }
 
-    pub fn drain_complited(&self) -> bool {
+    pub fn drain_completed(&self) -> bool {
         // Drain is complete if we're draining and no pending rtx remain
         if self.draining_state == ReceiverDrainStatus::Completed
             || self.draining_state == ReceiverDrainStatus::Initiated && self.pending_rtxs.is_empty()
