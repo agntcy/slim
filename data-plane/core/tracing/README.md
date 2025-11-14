@@ -70,7 +70,6 @@ When users specify only targeted `module=level` directives, they usually intend 
 - To see everything quickly: `export RUST_LOG=trace`
 - To focus on a single crate: `export RUST_LOG=slim_session=debug`
 - To combine focused and general logging: `export RUST_LOG=warn,slim_auth=debug`
-- To silence everything except one crate: `export RUST_LOG=slim_controller=info`
 
 ### Interaction With OpenTelemetry
 
