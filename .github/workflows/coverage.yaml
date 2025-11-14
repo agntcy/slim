@@ -44,7 +44,7 @@ jobs:
       - name: Upload combined coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
-          files: data-plane/lcov.info,data-plane/python/bindings/coverage.lcov,control-plane/*-coverage.out
+          files: data-plane/lcov.info,data-plane/python/bindings/coverage.lcov,data-plane/python/integrations/slimrpc/coverage.lcov,control-plane/*-coverage.out
           flags: rust,python,go
           name: combined-coverage
           fail_ci_if_error: true
