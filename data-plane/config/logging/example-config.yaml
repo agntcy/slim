@@ -6,8 +6,10 @@ tracing:
   display_thread_names: true
   display_thread_ids: true
   filter:
-    - slim_service=debug
-    - slim_datapath=debug
+    # Filter to set debug level logging for slim service and datapath
+    # If no level is specified, it will default to log_level (info)
+    - slim_service::service=debug
+    - slim_datapath
 
 runtime:
   n_cores: 0

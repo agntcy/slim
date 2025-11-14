@@ -98,6 +98,8 @@ pub fn build(config: &RuntimeConfiguration) -> Result<SlimRuntime, Configuration
     let n_cpu = num_cpus::get();
     debug_assert!(n_cpu > 0, "failed to get number of CPUs");
 
+    tracing::debug!(%n_cpu, "Number of available CPU cores");
+
     let cores = if config.n_cores > n_cpu {
         warn!(
             "Requested number of cores ({}) is greater than available cores ({}). Using all available cores",

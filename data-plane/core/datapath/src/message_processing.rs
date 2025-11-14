@@ -752,6 +752,7 @@ impl MessageProcessor {
                                             }
                                         }
 
+                                        tracing::error!(?msg, "error");
                                         if let Err(e) = self_clone.handle_new_message(conn_index, is_local, msg).await {
                                             error!(%conn_index, %e, "error processing incoming message");
                                             // If the message is coming from a local app, notify it
