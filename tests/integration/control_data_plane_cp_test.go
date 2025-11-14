@@ -122,7 +122,7 @@ var _ = Describe("Routing", func() {
 			// test listing routes for node a
 			routeListOutA, err := exec.Command(
 				slimctlPath,
-				"route", "list",
+				"controller", "route", "list",
 				"-s", "127.0.0.1:50051",
 				"-n", "slim/a",
 			).CombinedOutput()
@@ -135,7 +135,7 @@ var _ = Describe("Routing", func() {
 			// test listing connections for node a
 			connectionListOutA, err := exec.Command(
 				slimctlPath,
-				"connection", "list",
+				"controller", "connection", "list",
 				"-s", "127.0.0.1:50051",
 				"-n", "slim/a",
 			).CombinedOutput()
@@ -147,7 +147,7 @@ var _ = Describe("Routing", func() {
 			// test listing routes for node b
 			routeListOutB, err := exec.Command(
 				slimctlPath,
-				"route", "list",
+				"controller", "route", "list",
 				"-s", "127.0.0.1:50051",
 				"-n", "slim/b",
 			).CombinedOutput()
@@ -159,7 +159,7 @@ var _ = Describe("Routing", func() {
 			// test listing connections for node a
 			connectionListOutB, err := exec.Command(
 				slimctlPath,
-				"connection", "list",
+				"controller", "connection", "list",
 				"-s", "127.0.0.1:50051",
 				"-n", "slim/b",
 			).CombinedOutput()
@@ -178,7 +178,7 @@ var _ = Describe("Routing", func() {
 			// test listing routes for node a
 			routeListOutA, err = exec.Command(
 				slimctlPath,
-				"route", "list",
+				"controller", "route", "list",
 				"-s", "127.0.0.1:50051",
 				"-n", "slim/a",
 			).CombinedOutput()
@@ -189,7 +189,7 @@ var _ = Describe("Routing", func() {
 			// test listing routes for node b
 			routeListOutB, err = exec.Command(
 				slimctlPath,
-				"route", "list",
+				"controller", "route", "list",
 				"-s", "127.0.0.1:50051",
 				"-n", "slim/b",
 			).CombinedOutput()

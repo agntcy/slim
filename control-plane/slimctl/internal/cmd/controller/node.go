@@ -16,9 +16,10 @@ import (
 
 func NewNodeCmd(opts *options.CommonOptions) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "node",
-		Short: "Manage SLIM nodes",
-		Long:  `Manage SLIM nodes`,
+		Use:     "node",
+		Aliases: []string{"n", "nodes", "instance"},
+		Short:   "Access node information through the control plane",
+		Long:    `Access information about nodes connected to the control plane`,
 	}
 	cmd.AddCommand(newListNodesCmd(opts))
 

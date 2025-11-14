@@ -110,7 +110,7 @@ var _ = Describe("Group management through control plane", func() {
 		It("SLIM node creates channel, adds participant, removes participant and deletes channel", func() {
 			addChannelOutput, err := exec.Command(
 				slimctlPath,
-				"channel", "create",
+				"c", "channel", "create",
 				"moderators=org/default/moderator1/0",
 				"-s", "127.0.0.1:50051",
 			).CombinedOutput()
@@ -136,7 +136,7 @@ var _ = Describe("Group management through control plane", func() {
 			// Invite clientA to the channel
 			addClientAOutput, errA := exec.Command(
 				slimctlPath,
-				"participant", "add",
+				"c", "participant", "add",
 				participantA,
 				"--channel-id", channelName,
 				"-s", "127.0.0.1:50051",
@@ -153,7 +153,7 @@ var _ = Describe("Group management through control plane", func() {
 			// Invite clientC to the channel
 			addClientCOutput, errB := exec.Command(
 				slimctlPath,
-				"participant", "add",
+				"c", "participant", "add",
 				participantC,
 				"--channel-id", channelName,
 				"-s", "127.0.0.1:50051",
@@ -177,7 +177,7 @@ var _ = Describe("Group management through control plane", func() {
 			// Remove participant c from the channel
 			deleteParticipantOutput, errP := exec.Command(
 				slimctlPath,
-				"participant", "delete",
+				"c", "participant", "delete",
 				participantC,
 				"--channel-id", channelName,
 				"-s", "127.0.0.1:50051",
@@ -193,7 +193,7 @@ var _ = Describe("Group management through control plane", func() {
 
 			deleteChannelOutput, errC := exec.Command(
 				slimctlPath,
-				"channel", "delete",
+				"c", "channel", "delete",
 				channelName,
 				"-s", "127.0.0.1:50051",
 			).CombinedOutput()
