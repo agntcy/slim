@@ -868,8 +868,9 @@ mod tests {
 
         assert_eq!(session_layer.pool_size(), 1);
 
-        let removed = session_layer.remove_session(session_id);
-        assert!(removed.is_ok());
+        let removed = session_layer.remove_session(session_id).expect("error removing connection");
+        // await for the handler
+        removed.await.expect("error awaiting the handler");
         assert!(session_layer.is_pool_empty());
 
         // Try to remove non-existent session

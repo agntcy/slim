@@ -491,11 +491,14 @@ mod tests {
         assert_eq!(strong.id(), 42);
 
         // Delete the session from the app (removes it from the pool)
-        app.delete_session(&strong)
+        let handler = app.delete_session(&strong)
             .expect("failed to delete session");
 
         // Drop the last strong reference
         drop(strong);
+
+        // awiat for the session to be closed
+        handler.await.expect("error while waiting for the handler");
 
         // After deletion and dropping strong refs, Weak should no longer upgrade
         assert!(
