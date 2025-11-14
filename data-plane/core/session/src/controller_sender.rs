@@ -86,7 +86,8 @@ impl ControllerSender {
             | slim_datapath::api::ProtoSessionMessageType::JoinRequest
             | slim_datapath::api::ProtoSessionMessageType::LeaveRequest
             | slim_datapath::api::ProtoSessionMessageType::GroupWelcome => {
-                if self.draining_state == ControllerSenderDrainStatus::Initiated {
+                if self.draining_state == ControllerSenderDrainStatus::Initiated && 
+                    message.get_session_message_type() != slim_datapath::api::ProtoSessionMessageType::LeaveRequest {
                     // draining period is started, do no accept any new message
                     return Err(SessionError::Processing(
                         "draining period started, do not accept new messages".to_string(),
@@ -267,17 +268,14 @@ impl ControllerSender {
     }
 
     pub fn start_drain(&mut self) {
-        if self.pending_replies.is_empty() {
-            debug!("closing controller sender");
-            self.draining_state = ControllerSenderDrainStatus::Completed;
-        } else {
-            debug!("controller sender drain initiated");
-            self.draining_state = ControllerSenderDrainStatus::Initiated;
-        }
+        // set only initated to true because we may need send request leave
+        debug!("controller sender drain initiated");
+        self.draining_state = ControllerSenderDrainStatus::Initiated;
     }
 
     pub fn drain_complited(&self) -> bool {
         // Drain is complete if we're draining and no pending acks remain
+        tracing::info!("drain complete controller sender state {:?}  pending empty? {}", self.draining_state,  self.pending_replies.is_empty());
         if self.draining_state == ControllerSenderDrainStatus::Completed
             || self.draining_state == ControllerSenderDrainStatus::Initiated
                 && self.pending_replies.is_empty()

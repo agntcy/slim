@@ -181,7 +181,7 @@ impl SessionController {
 
             // If we are in draining state and the inner component does not require drain, exit
             if state == ProcessingState::Draining && !inner.needs_drain() {
-                debug!("draining complete, exiting processing loop");
+                tracing::info!("!!!draining complete, exiting processing loop");
                 break;
             }
         }

@@ -268,9 +268,11 @@ where
                     next = rx_session.recv() => {
                         match next {
                             Some(Ok(SessionMessage::DeleteSession { session_id })) => {
-                                debug!("received closing signal from session {}, cancel it from the pool", session_id);
+                                tracing::info!("received closing signal from session {}, cancel it from the pool", session_id);
                                 if pool_clone.write().remove(&session_id).is_none() {
                                     warn!("requested to delete unknown session id {}", session_id);
+                                } else {
+                                    tracing::info!("removed session!");
                                 }
                             }
                             Some(Ok(_)) => {
@@ -292,12 +294,13 @@ where
 
     /// Remove a session from the pool and return a handle to optionally wait on
     pub fn remove_session(&self, id: u32) -> Result<tokio::task::JoinHandle<()>, SessionError> {
-        tracing::info!("remove session {}", id);
-        // get the write lock
-        let session = self
+        tracing::info!("try to remove session {}", id);
+        // get the read lock
+        let binding = self
             .pool
-            .write()
-            .remove(&id)
+            .read();
+        let session = binding
+            .get(&id)
             .ok_or(SessionError::SessionNotFound(id))?;
 
         // close the session and return the handle

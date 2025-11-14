@@ -3,7 +3,7 @@
 
 use std::{
     collections::{HashMap, VecDeque},
-    sync::Arc,
+    sync::Arc, time::Duration,
 };
 
 use async_trait::async_trait;
@@ -205,15 +205,10 @@ where
                 }
             }
             SessionMessage::StartDrain {
-                grace_period: duration,
+                grace_period: _,
             } => {
-                // Send drain to message to the inner to notify the beginnig of the drain
-                tracing::info!("start draining");
-                self.inner
-                    .on_message(SessionMessage::StartDrain {
-                        grace_period: duration,
-                    })
-                    .await?;
+                tracing::info!("start draining by calling delete_all");
+
                 // We need to close the session for all the participants
                 // Crate the leave message
                 let p = CommandPayload::builder().leave_request(None).as_content();
@@ -247,10 +242,12 @@ where
     }
 
     fn needs_drain(&self) -> bool {
-        !(self.closing && self.common.sender.drain_complited() && self.inner.needs_drain())
+        tracing::info!("call needs drain: {} {} {} {}", self.closing, self.common.sender.drain_complited(), !self.inner.needs_drain(), self.tasks_todo.is_empty());
+        !(self.closing && self.common.sender.drain_complited() && !self.inner.needs_drain() && self.tasks_todo.is_empty())
     }
 
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {
+        tracing::info!("in on shutdown");
         // Moderator-specific cleanup
         self.subscribed = false;
         self.common.sender.close();
@@ -726,6 +723,13 @@ where
         self.tasks_todo.clear();
         // clear all pending timers
         self.common.sender.clear_timers();
+        // signal start drain everywhere
+        self.inner
+            .on_message(SessionMessage::StartDrain {
+                grace_period: Duration::from_secs(60), // not used in session
+            })
+            .await?;
+        self.common.sender.start_drain();
 
         // Remove the local name from the participants list
         let mut local = self.common.settings.source.clone();
@@ -752,8 +756,7 @@ where
         match self.tasks_todo.pop_front() {
             Some(m) => self.on_leave_request(m).await,
             None => {
-                // nothing left to do, close the session
-                self.on_shutdown().await?;
+                // nothing left to do here
                 Ok(())
             }
         }
@@ -868,11 +871,15 @@ where
                 // nothing else to do
                 debug!("No tasks left to perform");
 
-                // check if we need to close the session
-                if self.closing {
-                    // close the session
-                    return self.on_shutdown().await;
-                }
+                // No need to close the session here. If we are in
+                // closing state the moderator will be closed in
+                // the controller loop
+
+                //if self.closing {
+                //    // close the session
+                //    tracing::info!("called on shutdown at line 876");
+                //    return self.on_shutdown().await;
+                //}
 
                 // return
                 return Ok(());
