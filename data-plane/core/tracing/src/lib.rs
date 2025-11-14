@@ -15,9 +15,7 @@ use serde::Deserialize;
 use thiserror::Error;
 use tracing::Level;
 use tracing_opentelemetry::{MetricsLayer, OpenTelemetryLayer};
-use tracing_subscriber::{
-    EnvFilter, Layer, fmt, layer::SubscriberExt, util::SubscriberInitExt,
-};
+use tracing_subscriber::{EnvFilter, Layer, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 use slim_config::{grpc::client::ClientConfig, tls::client::TlsClientConfig};
 
@@ -342,7 +340,10 @@ impl TracingConfiguration {
     }
 
     pub fn with_filter(self, filter: Vec<String>) -> Self {
-        TracingConfiguration { filters: filter, ..self }
+        TracingConfiguration {
+            filters: filter,
+            ..self
+        }
     }
 
     pub fn with_opentelemetry_config(mut self, config: OpenTelemetryConfig) -> Self {
@@ -412,12 +413,9 @@ impl TracingConfiguration {
                     .map(|t| t.trim())
                     .filter(|t| !t.is_empty())
                     .collect();
-                let bare_level_present = tokens.iter().any(|t| {
-                    matches!(
-                        *t,
-                        "trace" | "debug" | "info" | "warn" | "error" | "off"
-                    )
-                });
+                let bare_level_present = tokens
+                    .iter()
+                    .any(|t| matches!(*t, "trace" | "debug" | "info" | "warn" | "error" | "off"));
                 !bare_level_present
             };
             let augmented = if needs_global_off {
@@ -431,7 +429,7 @@ impl TracingConfiguration {
 
             // Always set a fallback directive using the configured log_level.
             let builder =
-                EnvFilter::builder().with_default_directive(resolve_level(&self.log_level()).into());
+                EnvFilter::builder().with_default_directive(resolve_level(self.log_level()).into());
 
             let filter_string = if is_default {
                 // Apply the configured log_level to each default module.
