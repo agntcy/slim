@@ -144,11 +144,15 @@ async def test_multiple_requests_have_different_deadlines(
 
     # Make first call with 5 second timeout
     await call(b"request1", timeout=5)
-    first_deadline = float(mock_client_app.publish.call_args[1]["metadata"][common_module.DEADLINE_KEY])
+    first_deadline = float(
+        mock_client_app.publish.call_args[1]["metadata"][common_module.DEADLINE_KEY]
+    )
 
     # Make second call with 10 second timeout
     await call(b"request2", timeout=10)
-    second_deadline = float(mock_client_app.publish.call_args[1]["metadata"][common_module.DEADLINE_KEY])
+    second_deadline = float(
+        mock_client_app.publish.call_args[1]["metadata"][common_module.DEADLINE_KEY]
+    )
 
     # Verify deadlines are different and correct
     assert first_deadline == frozen_timestamp + 5
