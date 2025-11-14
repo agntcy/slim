@@ -121,9 +121,9 @@ async def test_end_to_end(server):
     with pytest.raises(Exception):
         await pub_result
 
-    # delete sessions
-    await svc_alice.delete_session(session_context_alice)
-    await svc_bob.delete_session(session_context_bob)
+    # delete both sessions by deleting bob
+    h = await svc_alice.delete_session(session_context_alice)
+    await h
 
     # try to send a message after deleting the session - this should raise an exception
     try:
@@ -228,11 +228,9 @@ async def test_slim_wrapper(server):
     # make sure the publish was acknowledged
     await res_pub
 
-    # delete sessions
-    h1 = await slim1.delete_session(session_context_rec)
+    # delete sessions by delete the session on slim2 (initiator)
     h2 = await slim2.delete_session(session_context)
 
-    await h1
     await h2
 
     # try to send a message after deleting the session - this should raise an exception
@@ -321,12 +319,10 @@ async def test_auto_reconnect_after_server_restart(server):
     msg_ctx, received = await bob_session_ctx.get_message()
     assert received == bytes(test_msg)
 
-    # delete sessions
+    # delete sessions by deleting alice session
     h_alice = await svc_alice.delete_session(session_context)
-    h_bob = await svc_bob.delete_session(bob_session_ctx)
 
     await h_alice
-    await h_bob
 
     # clean up
     await svc_alice.disconnect(conn_id_alice)
