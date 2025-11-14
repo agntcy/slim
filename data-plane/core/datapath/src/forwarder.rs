@@ -11,7 +11,7 @@ use super::tables::{SubscriptionTable, errors::SubscriptionTableError};
 use crate::messages::Name;
 use crate::tables::remote_subscription_table::SubscriptionInfo;
 
-use tracing::error;
+use tracing::debug;
 
 #[derive(Debug)]
 pub struct Forwarder<T>
@@ -70,7 +70,7 @@ where
             .subscription_table
             .remove_connection(conn_index, is_local)
             .unwrap_or_else(|e| {
-                error!(
+                debug!(
                     %conn_index, %is_local, %e, "failed to remove local subscriptions for connection",
                 );
                 HashSet::new()
