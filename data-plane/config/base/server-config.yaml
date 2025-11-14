@@ -5,9 +5,6 @@ tracing:
   log_level: info
   display_thread_names: true
   display_thread_ids: true
-  filter:
-    - slim_service=debug
-    - slim_datapath=debug
 
 runtime:
   n_cores: 0
