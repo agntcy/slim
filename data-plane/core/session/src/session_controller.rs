@@ -133,7 +133,6 @@ impl SessionController {
         loop {
             tokio::select! {
                 _ = cancellation_token.cancelled(), if state == ProcessingState::Active => {
-                    tracing::info!("cancellation token! start drain");
                     state = ProcessingState::Draining;
 
                     // Update the timeout to the configured grace period
@@ -178,7 +177,6 @@ impl SessionController {
 
             // If we are in draining state and the inner component does not require drain, exit
             if state == ProcessingState::Draining && !inner.needs_drain() {
-                tracing::info!("!!!draining complete, exiting processing loop");
                 break;
             }
         }

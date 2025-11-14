@@ -154,7 +154,7 @@ where
                 grace_period: duration,
             } => {
                 // Send drain to message to the inner to notify the beginnig of the drain
-                tracing::info!("received drain");
+                debug!("received drain signal");
                 self.inner
                     .on_message(SessionMessage::StartDrain {
                         grace_period: duration,
@@ -382,7 +382,6 @@ where
     }
 
     async fn on_leave_request(&mut self, msg: Message) -> Result<(), SessionError> {
-        tracing::info!("on leave request, send reply");
         let reply = self.common.create_control_message(
             &msg.get_source(),
             ProtoSessionMessageType::LeaveReply,

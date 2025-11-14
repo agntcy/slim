@@ -223,7 +223,7 @@ where
             SessionMessage::StartDrain {
                 grace_period: _,
             } => {
-                tracing::info!("start draining by calling delete_all");
+                debug!("start draining by calling delete_all");
                 // We need to close the session for all the participants
                 // Crate the leave message
                 let p = CommandPayload::builder().leave_request(None).as_content();
@@ -257,12 +257,10 @@ where
     }
 
     fn needs_drain(&self) -> bool {
-        tracing::info!("call needs drain: {} {} {} {}", self.closing, self.common.sender.drain_completed(), !self.inner.needs_drain(), self.tasks_todo.is_empty());
         !(self.closing && self.common.sender.drain_completed() && !self.inner.needs_drain() && self.tasks_todo.is_empty())
     }
 
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {
-        tracing::info!("in on shutdown");
         // Moderator-specific cleanup
         self.subscribed = false;
         self.common.sender.close();
@@ -757,7 +755,6 @@ where
             // see on_group_ack for postponed_message handling
             self.postponed_message = Some(leave_message);
         } else {
-            tracing::info!("on else, send leave message");
             // no commit message will be sent so update the task state to consider the commit as received
             // the timer id is not important here, it just need to be consistent
             self.current_task.as_mut().unwrap().commit_start(12345)?;
@@ -779,7 +776,6 @@ where
     }
 
     async fn delete_all(&mut self, _msg: Message) -> Result<(), SessionError> {
-        tracing::info!("delete all");
         debug!("receive a close channel message, send signals to all participants");
         // create tasks to remove each participant from the group
         // even if mls is enable we just send the leave message
@@ -833,11 +829,6 @@ where
 
     async fn on_leave_reply(&mut self, msg: Message) -> Result<(), SessionError> {
         debug!(
-            "received leave reply from {} with id {}",
-            msg.get_source(),
-            msg.get_id()
-        );
-        tracing::info!(
             "received leave reply from {} with id {}",
             msg.get_source(),
             msg.get_id()
@@ -943,14 +934,6 @@ where
                 // No need to close the session here. If we are in
                 // closing state the moderator will be closed in
                 // the controller loop
-
-                //if self.closing {
-                //    // close the session
-                //    tracing::info!("called on shutdown at line 876");
-                //    return self.on_shutdown().await;
-                //}
-
-                // return
                 return Ok(());
             }
         };

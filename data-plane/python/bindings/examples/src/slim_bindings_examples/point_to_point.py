@@ -106,7 +106,8 @@ async def run_client(
             timeout=datetime.timedelta(seconds=5),
             mls_enabled=enable_mls,
         )
-        session = await local_app.create_session(remote_name, config)
+        session, handle = await local_app.create_session(remote_name, config)
+        await handle
 
         # Iterate send->receive cycles.
         for i in range(3):
@@ -128,8 +129,8 @@ async def run_client(
             # Basic pacing so output remains readable.
             await asyncio.sleep(1)
 
-        await local_app.delete_session(session)
-        await asyncio.sleep(1)
+        handle = await local_app.delete_session(session)
+        await handle
 
     # PASSIVE MODE (listen for inbound sessions)
     else:

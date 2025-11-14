@@ -274,7 +274,6 @@ impl ControllerSender {
 
     pub fn drain_completed(&self) -> bool {
         // Drain is complete if we're draining and no pending acks remain
-        tracing::info!("drain complete controller sender state {:?}  pending empty? {}", self.draining_state,  self.pending_replies.is_empty());
         if self.draining_state == ControllerSenderDrainStatus::Completed
             || self.draining_state == ControllerSenderDrainStatus::Initiated
                 && self.pending_replies.is_empty()

@@ -226,7 +226,7 @@ impl MessageHandler for Session {
     }
 
     fn needs_drain(&self) -> bool {
-       !(self.sender.drain_complited() && self.receiver.drain_complited())
+       !(self.sender.drain_completed() && self.receiver.drain_completed())
     }
 
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {

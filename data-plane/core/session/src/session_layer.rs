@@ -311,11 +311,9 @@ where
                     next = rx_session.recv() => {
                         match next {
                             Some(Ok(SessionMessage::DeleteSession { session_id })) => {
-                                tracing::info!("received closing signal from session {}, cancel it from the pool", session_id);
+                                debug!("received closing signal from session {}, cancel it from the pool", session_id);
                                 if pool_clone.write().remove(&session_id).is_none() {
                                     warn!("requested to delete unknown session id {}", session_id);
-                                } else {
-                                    tracing::info!("removed session!");
                                 }
                             }
                             Some(Ok(_)) => {
@@ -336,8 +334,8 @@ where
     }
 
     /// Remove a session from the pool and return a handle to optionally wait on
-    pub fn remove_session(&self, id: u32) -> Result<tokio::task::JoinHandle<()>, SessionError> {
-        tracing::info!("try to remove session {}", id);
+    pub fn remove_session(&self, id: u32) -> Result<CompletionHandle, SessionError> {
+        debug!("try to remove session {}", id);
         // get the read lock
         let binding = self
             .pool
@@ -415,7 +413,6 @@ where
     /// Handle a message from the message processor, and pass it to the
     /// corresponding session
     pub async fn handle_message_from_slim(&self, mut message: Message) -> Result<(), SessionError> {
-        tracing::info!("message from slim");
         // Pass message to interceptors in the transmitter
         self.transmitter
             .on_msg_from_slim_interceptors(&mut message)
