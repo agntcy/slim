@@ -99,7 +99,7 @@ impl Session {
                 Ok(())
             }
             _ => Err(SessionError::Processing(format!(
-                "Unexpected session message {:?}",
+                "Unexpected message type {:?}",
                 message
             ))),
         }

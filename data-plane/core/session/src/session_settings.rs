@@ -5,7 +5,8 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::messages::Name;
 
 use crate::{
-    common::SessionMessage, session_config::SessionConfig, transmitter::SessionTransmitter,
+    SessionError, common::SessionMessage, session_config::SessionConfig,
+    transmitter::SessionTransmitter,
 };
 
 /// Settings struct for constructing session components.
@@ -42,6 +43,9 @@ where
 
     /// Tx channel for sending messages to session queue
     pub(crate) tx_session: tokio::sync::mpsc::Sender<SessionMessage>,
+
+    /// Channel to send messages to the session layer
+    pub(crate) tx_to_session_layer: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
 
     /// Identity token provider
     pub(crate) identity_provider: P,

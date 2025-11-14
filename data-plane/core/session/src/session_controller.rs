@@ -133,6 +133,7 @@ impl SessionController {
         loop {
             tokio::select! {
                 _ = cancellation_token.cancelled(), if state == ProcessingState::Active => {
+                    tracing::info!("cancellation token! start drain");
                     state = ProcessingState::Draining;
 
                     // Update the timeout to the configured grace period
@@ -682,6 +683,7 @@ mod tests {
 
             let (tx_slim, rx_slim) = tokio::sync::mpsc::channel(10);
             let (tx_app, rx_app) = tokio::sync::mpsc::unbounded_channel();
+            let (tx_session_layer, _rx_session_layer) = tokio::sync::mpsc::channel(10);
 
             let tx = SessionTransmitter::new(tx_slim, tx_app);
 
@@ -697,6 +699,7 @@ mod tests {
                 .with_identity_verifier(SharedSecret::new("test", SHARED_SECRET))
                 .with_storage_path(storage_path)
                 .with_tx(tx)
+                .with_tx_to_session_layer(tx_session_layer)
                 .ready()
                 .expect("failed to validate builder")
                 .build()
@@ -1089,6 +1092,8 @@ mod tests {
         // create a SessionModerator
         let (tx_slim_moderator, mut rx_slim_moderator) = tokio::sync::mpsc::channel(10);
         let (tx_app_moderator, _rx_app_moderator) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_session_layer_moderator, _rx_session_layer_moderator) =
+            tokio::sync::mpsc::channel(10);
 
         let tx_moderator =
             SessionTransmitter::new(tx_slim_moderator.clone(), tx_app_moderator.clone());
@@ -1111,6 +1116,7 @@ mod tests {
             .with_identity_verifier(SharedSecret::new("moderator", SHARED_SECRET))
             .with_storage_path(storage_path_moderator.clone())
             .with_tx(tx_moderator.clone())
+            .with_tx_to_session_layer(tx_session_layer_moderator)
             .ready()
             .expect("failed to validate builder")
             .build()
@@ -1119,6 +1125,8 @@ mod tests {
         // create a SessionParticipant
         let (tx_slim_participant, mut rx_slim_participant) = tokio::sync::mpsc::channel(10);
         let (tx_app_participant, mut rx_app_participant) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_session_layer_participant, _rx_session_layer_participant) =
+            tokio::sync::mpsc::channel(10);
 
         let tx_participant =
             SessionTransmitter::new(tx_slim_participant.clone(), tx_app_participant.clone());
@@ -1141,6 +1149,7 @@ mod tests {
             .with_identity_verifier(SharedSecret::new("participant", SHARED_SECRET))
             .with_storage_path(storage_path_participant.clone())
             .with_tx(tx_participant.clone())
+            .with_tx_to_session_layer(tx_session_layer_participant)
             .ready()
             .expect("failed to validate builder")
             .build()
@@ -1621,6 +1630,7 @@ mod tests {
         let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(10);
         let (tx_app, _rx_app) = tokio::sync::mpsc::unbounded_channel();
         let (tx_session, _rx_session) = tokio::sync::mpsc::channel(10);
+        let (tx_session_layer, _rx_session_layer) = tokio::sync::mpsc::channel(10);
 
         SessionSettings {
             id: 1,
@@ -1636,6 +1646,7 @@ mod tests {
             },
             tx: SessionTransmitter::new(tx_slim, tx_app),
             tx_session,
+            tx_to_session_layer: tx_session_layer,
             identity_provider: SharedSecret::new("test", SHARED_SECRET),
             identity_verifier: SharedSecret::new("test", SHARED_SECRET),
             storage_path: std::path::PathBuf::from("/tmp/test_draining"),
