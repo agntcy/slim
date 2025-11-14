@@ -46,7 +46,7 @@ pub struct TracingConfiguration {
     display_thread_ids: bool,
 
     #[serde(default = "default_filter")]
-    filter: Vec<String>,
+    filters: Vec<String>,
 
     #[serde(default)]
     opentelemetry: OpenTelemetryConfig,
@@ -59,7 +59,7 @@ impl Default for TracingConfiguration {
             log_level: default_log_level(),
             display_thread_names: default_display_thread_names(),
             display_thread_ids: default_display_thread_ids(),
-            filter: default_filter(),
+            filters: default_filter(),
             opentelemetry: OpenTelemetryConfig::default(),
         }
     }
@@ -342,7 +342,7 @@ impl TracingConfiguration {
     }
 
     pub fn with_filter(self, filter: Vec<String>) -> Self {
-        TracingConfiguration { filter, ..self }
+        TracingConfiguration { filters: filter, ..self }
     }
 
     pub fn with_opentelemetry_config(mut self, config: OpenTelemetryConfig) -> Self {
@@ -373,7 +373,7 @@ impl TracingConfiguration {
     }
 
     pub fn filter(&self) -> &Vec<String> {
-        &self.filter
+        &self.filters
     }
 
     /// Set up a subscriber
@@ -427,7 +427,7 @@ impl TracingConfiguration {
             };
             EnvFilter::new(augmented)
         } else {
-            let is_default = self.filter == default_filter();
+            let is_default = self.filters == default_filter();
 
             // Always set a fallback directive using the configured log_level.
             let builder =
@@ -435,7 +435,7 @@ impl TracingConfiguration {
 
             let filter_string = if is_default {
                 // Apply the configured log_level to each default module.
-                self.filter
+                self.filters
                     .iter()
                     .map(|m| {
                         // In case a module accidentally already contains a level (e.g. "foo=debug"),
@@ -449,7 +449,7 @@ impl TracingConfiguration {
                 // Custom filter provided: treat entries as authoritative.
                 // They may include levels (module=level) or just modules.
                 // For entries without explicit level, append the configured log_level.
-                self.filter
+                self.filters
                     .iter()
                     .map(|d| {
                         if d.contains('=') {
@@ -568,7 +568,7 @@ mod tests {
         assert_eq!(config.log_level, default_log_level());
         assert_eq!(config.display_thread_names, default_display_thread_names());
         assert_eq!(config.display_thread_ids, default_display_thread_ids());
-        assert_eq!(config.filter, default_filter());
+        assert_eq!(config.filters, default_filter());
     }
 
     #[test]

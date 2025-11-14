@@ -26,16 +26,16 @@ observability, allowing developers to diagnose issues across the SLIM ecosystem.
 Logging behavior is controlled by three sources, in order of precedence (highest first):
 
 1. Environment variable: RUST_LOG
-2. Programmatic / file configuration: `TracingConfiguration { log_level, filter, ... }`
-3. Built-in defaults: default `log_level = "info"` and default module `filter` list
+2. Programmatic / file configuration: `TracingConfiguration { log_level, filters, ... }`
+3. Built-in defaults: default `log_level = "info"` and default module `filters` list
 
 ### Base Concepts
 
 - `log_level` (string): The default verbosity applied to all modules (unless overridden).
-- `filter` (`Vec<String>`): A list of module directives. Each entry may be either:
+- `filters` (`Vec<String>`): A list of module directives. Each entry may be either:
   - A module name (e.g. `slim_service`)
   - A module with explicit level (e.g. `slim_service=debug`)
-- Default `filter` contains only module names (no `=level`). They all inherit `log_level`.
+- Default `filters` contains only module names (no `=level`). They all inherit `log_level`.
 
 ### Precedence & Resolution Rules
 
@@ -43,8 +43,8 @@ Logging behavior is controlled by three sources, in order of precedence (highest
    - If it contains ONLY `module=level` directives (e.g. `slim=debug,slim_auth=trace`) and no global (bare) level, an implicit `,off` is appended internally so that all unspecified modules are silenced.
    - If it includes a bare/global level (e.g. `info` or `info,slim=debug`) it is used as-is.
 2. If `RUST_LOG` is NOT set:
-   - If the configured `filter` equals the default list, every module in that list is assigned the configured `log_level`.
-   - If the configured `filter` differs from the default:
+   - If the configured `filters` equals the default list, every module in that list is assigned the configured `log_level`.
+   - If the configured `filters` differs from the default:
      - Entries with `=level` keep their specified level.
      - Entries without `=level` inherit the configured `log_level`.
 3. A global fallback directive is always installed using `log_level` so that unmentioned modules do not become overly verbose.
@@ -54,7 +54,7 @@ Logging behavior is controlled by three sources, in order of precedence (highest
 | Input Source | Value | Effective Behavior |
 |--------------|-------|--------------------|
 | (no env), defaults | log_level=info | All default slim* modules log at info |
-| (no env), config.filter = ["slim_service", "slim_auth=trace"] and log_level=warn | `slim_service=warn`, `slim_auth=trace` |
+| (no env), config.filters = ["slim_service", "slim_auth=trace"] and log_level=warn | `slim_service=warn`, `slim_auth=trace` |
 | RUST_LOG=slim=debug | Augmented to `slim=debug,off` — only `slim` module at debug |
 | RUST_LOG=slim=debug,slim_auth=trace | Augmented to `slim=debug,slim_auth=trace,off` |
 | RUST_LOG=debug | Global debug level for all modules |
