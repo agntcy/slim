@@ -267,6 +267,8 @@ fn default_filter() -> Vec<String> {
         "slim_testing".to_string(),
         "slim".to_string(),
         "slim_examples".to_string(),
+        "sdk_mock".to_string(),
+        "client".to_string(),
     ]
 }
 
