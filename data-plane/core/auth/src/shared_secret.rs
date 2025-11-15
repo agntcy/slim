@@ -444,6 +444,11 @@ impl SharedSecret {
 
 #[async_trait]
 impl TokenProvider for SharedSecret {
+    async fn initialize(&mut self) -> Result<(), AuthError> {
+        // SharedSecret has no async initialization steps.
+        Ok(())
+    }
+
     fn get_token(&self) -> Result<String, AuthError> {
         if self.0.shared_secret.is_empty() {
             return Err(AuthError::TokenInvalid(
@@ -497,8 +502,12 @@ impl TokenProvider for SharedSecret {
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl Verifier for SharedSecret {
+    async fn initialize(&mut self) -> Result<(), AuthError> {
+        Ok(())
+    }
+
     async fn verify(&self, token: impl Into<String> + Send) -> Result<(), AuthError> {
         self.try_verify(token)
     }

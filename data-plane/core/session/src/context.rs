@@ -95,7 +95,12 @@ mod tests {
     // Lightweight provider / verifier used to satisfy generic bounds of sessions.
     #[derive(Clone, Default)]
     struct DummyProvider;
+
+    #[async_trait]
     impl TokenProvider for DummyProvider {
+        async fn initialize(&mut self) -> Result<(), AuthError> {
+            Ok(())
+        }
         fn get_token(&self) -> Result<String, AuthError> {
             Ok("t".into())
         }
@@ -108,6 +113,9 @@ mod tests {
     struct DummyVerifier;
     #[async_trait]
     impl Verifier for DummyVerifier {
+        async fn initialize(&mut self) -> Result<(), AuthError> {
+            Ok(())
+        }
         async fn verify(&self, _t: impl Into<String> + Send) -> Result<(), AuthError> {
             Ok(())
         }

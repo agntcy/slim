@@ -36,6 +36,16 @@ impl<T: TokenProvider + Clone> AddJwtLayer<T> {
             duration,
         }
     }
+    /// Asynchronously initialize the underlying `TokenProvider` before
+    /// the layer is used to construct services. This must be called for
+    /// providers that perform network or other async setup (e.g. OIDC,
+    /// SPIFFE) because `Layer::layer` and `TokenProvider::get_token` are
+    /// both synchronous.
+    ///
+    /// If the provider does not need initialization this will be a no-op.
+    pub async fn initialize(&mut self) -> Result<(), AuthError> {
+        self.provider.initialize().await
+    }
 }
 
 /// Layer implementation for `SignJwtLayer` that adds JWT tokens to requests
@@ -140,6 +150,14 @@ impl<Claim: Clone, V: Verifier + Clone> ValidateJwtLayer<Claim, V> {
             verifier,
             _claims: claims,
         }
+    }
+
+    /// Asynchronously initialize the underlying `Verifier` before
+    /// constructing services. Call this during application startup.
+    /// Safe to call multiple times; subsequent calls should be cheap
+    /// as implementors may simply return `Ok(())` if already initialized.
+    pub async fn initialize(&mut self) -> Result<(), AuthError> {
+        self.verifier.initialize().await
     }
 }
 

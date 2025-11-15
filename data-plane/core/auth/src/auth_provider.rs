@@ -193,6 +193,14 @@ impl std::fmt::Debug for AuthVerifier {
 
 #[async_trait]
 impl TokenProvider for AuthProvider {
+    async fn initialize(&mut self) -> Result<(), AuthError> {
+        match self {
+            AuthProvider::JwtSigner(signer) => signer.initialize().await,
+            AuthProvider::StaticToken(provider) => provider.initialize().await,
+            AuthProvider::SharedSecret(secret) => TokenProvider::initialize(secret).await,
+        }
+    }
+
     fn get_token(&self) -> Result<String, AuthError> {
         match self {
             AuthProvider::JwtSigner(signer) => signer.get_token(),
@@ -222,6 +230,13 @@ impl TokenProvider for AuthProvider {
 
 #[async_trait]
 impl Verifier for AuthVerifier {
+    async fn initialize(&mut self) -> Result<(), AuthError> {
+        match self {
+            AuthVerifier::JwtVerifier(signer) => signer.initialize().await,
+            AuthVerifier::SharedSecret(secret) => Verifier::initialize(secret).await,
+        }
+    }
+
     async fn verify(&self, token: impl Into<String> + Send) -> Result<(), AuthError> {
         match self {
             AuthVerifier::JwtVerifier(verifier) => verifier.verify(token).await,
@@ -438,6 +453,8 @@ pub enum TokenVerifierType {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::builder::JwtBuilder;
+    use crate::jwt::{Algorithm, Key, KeyData, KeyFormat};
 
     const TEST_SECRET: &str = "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas";
 
@@ -522,5 +539,29 @@ mod tests {
         let debug_str = format!("{:?}", verifier);
         assert!(debug_str.contains("SharedSecret"));
         assert!(debug_str.contains("test-id"));
+    }
+
+    #[tokio::test]
+    async fn initialize_auth_provider_variants() -> Result<(), AuthError> {
+        // SharedSecret variant
+        let mut shared =
+            AuthProvider::shared_secret_from_str("svc", "abcdefghijklmnopqrstuvwxyz012345");
+        shared.initialize().await?;
+
+        // JwtSigner variant
+        let signer = JwtBuilder::new()
+            .issuer("test-issuer")
+            .audience(&["aud"])
+            .subject("sub")
+            .private_key(&Key {
+                algorithm: Algorithm::HS256,
+                format: KeyFormat::Pem,
+                key: KeyData::Data("secret-key".into()),
+            })
+            .build()?;
+        let mut auth_signer = AuthProvider::jwt_signer(signer);
+        auth_signer.initialize().await?;
+
+        Ok(())
     }
 }
