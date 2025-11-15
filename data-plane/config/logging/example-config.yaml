@@ -1,0 +1,26 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+tracing:
+  log_level: info
+  display_thread_names: true
+  display_thread_ids: true
+  filters:
+    # Filter to set debug level logging for slim service and datapath
+    # If no level is specified, it will default to log_level (info)
+    - slim_service::service=debug
+    - slim_datapath
+
+runtime:
+  n_cores: 0
+  thread_name: "slim-data-plane"
+  drain_timeout: 10s
+
+services:
+  slim/0:
+    dataplane:
+      servers:
+        - endpoint: "0.0.0.0:46357"
+          tls:
+            insecure: true
+      clients: []
