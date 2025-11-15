@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.1](https://github.com/agntcy/slim/compare/slim-bindings-examples-v0.6.0...slim-bindings-examples-v0.6.1) (2025-11-15)
+
+
+### Features
+
+* add gha cache for docker builds ([#908](https://github.com/agntcy/slim/issues/908)) ([53195ec](https://github.com/agntcy/slim/commit/53195ec9dca54b6cfb74f4f6f2faf23f2e74e0de))
+* expand SharedSecret Auth from simple secret:id to HMAC tokens ([#858](https://github.com/agntcy/slim/issues/858)) ([1d0c6e8](https://github.com/agntcy/slim/commit/1d0c6e8f694ee15ac437564fe6400b4d7bd4dde1))
+* **python-bindings:** Remove Py prefix from the python names ([#931](https://github.com/agntcy/slim/issues/931)) ([5ffb2cc](https://github.com/agntcy/slim/commit/5ffb2cca4bcb3c9c2f6985e8bff8e8e223266585))
+
+
+### Bug Fixes
+
+* **bindings:** Make sure type hinting is working ([#920](https://github.com/agntcy/slim/issues/920)) ([380030e](https://github.com/agntcy/slim/commit/380030e4f3b7b2d2c3ac2a07c4c269fc4a98920e))
+
 ## [0.6.0](https://github.com/agntcy/slim/compare/slim-bindings-examples-v0.1.1...slim-bindings-examples-v0.6.0) (2025-10-09)
 
 
