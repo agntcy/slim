@@ -7,7 +7,7 @@ use std::{collections::HashMap, time::Duration};
 use tracing::debug;
 
 use super::encoder::Name;
-use crate::api::proto::dataplane::v1::GroupNackPayload;
+use crate::api::proto::dataplane::v1::{GroupClosePayload, GroupNackPayload};
 use crate::api::{
     Content, MessageType, ProtoMessage, ProtoName, ProtoPublish, ProtoPublishType,
     ProtoSessionType, ProtoSubscribe, ProtoSubscribeType, ProtoUnsubscribe, ProtoUnsubscribeType,
@@ -356,6 +356,7 @@ impl SessionMessageType {
                 | SessionMessageType::GroupAdd
                 | SessionMessageType::GroupRemove
                 | SessionMessageType::GroupWelcome
+                | SessionMessageType::GroupClose
                 | SessionMessageType::GroupProposal
                 | SessionMessageType::GroupAck
                 | SessionMessageType::GroupNack
@@ -801,6 +802,7 @@ impl ProtoMessage {
         extract_group_add => as_group_add_payload(GroupAddPayload),
         extract_group_remove => as_group_remove_payload(GroupRemovePayload),
         extract_group_welcome => as_welcome_payload(GroupWelcomePayload),
+        extract_group_close => as_group_close_payload(GroupClosePayload),
         extract_group_proposal => as_group_proposal_payload(GroupProposalPayload),
         extract_group_ack => as_group_ack_payload(GroupAckPayload),
         extract_group_nack => as_group_nack_payload(GroupNackPayload),
@@ -881,6 +883,7 @@ impl CommandPayload {
         as_group_add_payload => GroupAdd(GroupAddPayload),
         as_group_remove_payload => GroupRemove(GroupRemovePayload),
         as_welcome_payload => GroupWelcome(GroupWelcomePayload),
+        as_group_close_payload => GroupClose(GroupClosePayload),
         as_group_proposal_payload => GroupProposal(GroupProposalPayload),
         as_group_ack_payload => GroupAck(GroupAckPayload),
         as_group_nack_payload => GroupNack(GroupNackPayload),
@@ -1079,6 +1082,18 @@ impl CommandPayloadBuilder {
         };
         CommandPayload {
             command_payload_type: Some(CommandPayloadType::GroupWelcome(payload)),
+        }
+    }
+
+    /// Creates a group close payload
+    pub fn group_close(self, participants: Vec<Name>) -> CommandPayload {
+        let proto_participants = participants.iter().map(ProtoName::from).collect();
+
+        let payload = GroupClosePayload {
+            participants: proto_participants,
+        };
+        CommandPayload {
+            command_payload_type: Some(CommandPayloadType::GroupClose(payload)),
         }
     }
 

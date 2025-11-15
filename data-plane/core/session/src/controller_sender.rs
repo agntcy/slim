@@ -86,10 +86,7 @@ impl ControllerSender {
             | slim_datapath::api::ProtoSessionMessageType::JoinRequest
             | slim_datapath::api::ProtoSessionMessageType::LeaveRequest
             | slim_datapath::api::ProtoSessionMessageType::GroupWelcome => {
-                if self.draining_state == ControllerSenderDrainStatus::Initiated
-                    && message.get_session_message_type()
-                        != slim_datapath::api::ProtoSessionMessageType::LeaveRequest
-                {
+                if self.draining_state == ControllerSenderDrainStatus::Initiated {
                     // draining period is started, do no accept any new message
                     return Err(SessionError::Processing(
                         "draining period started, do not accept new messages".to_string(),
@@ -99,6 +96,20 @@ impl ControllerSender {
                 let mut name = message.get_dst();
                 name.reset_id();
                 missing_replies.insert(name);
+                self.on_send_message(message, missing_replies).await?;
+            }
+            slim_datapath::api::ProtoSessionMessageType::GroupClose => {
+                let payload = message.extract_group_close().map_err(|e| {
+                    SessionError::Processing(format!(
+                        "failed to extract group close payload: {}",
+                        e
+                    ))
+                })?;
+                let mut missing_replies = HashSet::new();
+                for n in &payload.participants {
+                    let name = Name::from(n);
+                    missing_replies.insert(name);
+                }
                 self.on_send_message(message, missing_replies).await?;
             }
             slim_datapath::api::ProtoSessionMessageType::DiscoveryReply

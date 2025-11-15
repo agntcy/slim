@@ -331,9 +331,10 @@ where
 
                                         // if internal error, forward it to application
                                         let tx_app = session_layer.tx_app();
-                                        tx_app.send(Err(SessionError::Forward(e.to_string())))
-                                            .await
-                                            .expect("error sending error to application");
+                                        if let Err(send_err) = tx_app.send(Err(SessionError::Forward(e.to_string()))).await {
+                                            // Channel closed, likely during shutdown - log but don't panic
+                                            debug!("failed to send error to application (channel closed): {:?}", send_err);
+                                        }
                                     }
                                 }
                             }

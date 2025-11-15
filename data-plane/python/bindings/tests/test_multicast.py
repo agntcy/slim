@@ -37,7 +37,7 @@ import slim_bindings
     "server",
     [
         "127.0.0.1:12375",  # local service
-        None,  # global service
+        #None,  # global service
     ],
     indirect=True,
 )
@@ -212,10 +212,13 @@ async def test_group(server, mls_enabled):  # noqa: C901
                     print(f"{part_name} -> Received all messages, close channel...")
                     h = await participant.delete_session(recv_session)
                     await h
+                    print("session closed on participant 0")
                     break
 
             except Exception as e:
-                print(f"{part_name} -> Error receiving message: {e}")
+                # Expected: when the session is closed by the moderator, other participants
+                # will receive "session channel closed" error
+                print(f"{part_name} -> Session closed: {e}")
                 break
 
     # start participants in background

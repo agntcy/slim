@@ -84,6 +84,5 @@ async def test_session_metadata_merge_roundtrip(server):
 
     # Delete sessions
     h1 = await sender.delete_session(session_sender)
-    h2 = await receiver.delete_session(session_receiver)
 
-    await asyncio.gather(h1, h2)
+    await asyncio.gather(h1)

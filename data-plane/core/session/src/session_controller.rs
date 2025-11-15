@@ -1110,7 +1110,7 @@ mod tests {
         let moderator_config = SessionConfig {
             session_type: slim_datapath::api::ProtoSessionType::PointToPoint,
             max_retries: Some(5),
-            interval: Some(Duration::from_millis(200)),
+            interval: Some(Duration::from_millis(1000)),
             mls_enabled: true,
             initiator: true,
             metadata: std::collections::HashMap::new(),
@@ -1510,7 +1510,7 @@ mod tests {
         assert_eq!(leave_reply.get_dst(), moderator_name);
 
         // get the delete route on the participant slim
-        let delete_route = timeout(Duration::from_millis(100), rx_slim_participant.recv())
+        let delete_route = timeout(Duration::from_millis(600), rx_slim_participant.recv())
             .await
             .expect("timeout waiting for delete route on participant slim channel")
             .expect("channel closed")
@@ -1534,7 +1534,7 @@ mod tests {
             .expect("error processing leave reply on moderator");
 
         // expect a remove route for the participant name
-        let delete_route = timeout(Duration::from_millis(100), rx_slim_moderator.recv())
+        let delete_route = timeout(Duration::from_millis(600), rx_slim_moderator.recv())
             .await
             .expect("timeout waiting for delete route on participant slim channel")
             .expect("channel closed")

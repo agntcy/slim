@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashSet, sync::Arc};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use slim_auth::traits::{TokenProvider, Verifier};
@@ -206,7 +206,9 @@ where
             ProtoSessionMessageType::GroupRemove => {
                 self.on_group_update_message(message, false).await
             }
-            ProtoSessionMessageType::LeaveRequest => self.on_leave_request(message).await,
+            ProtoSessionMessageType::LeaveRequest | ProtoSessionMessageType::GroupClose => {
+                self.on_leave_request(message).await
+            }
             ProtoSessionMessageType::GroupProposal
             | ProtoSessionMessageType::GroupAck
             | ProtoSessionMessageType::GroupNack => todo!(),
@@ -382,15 +384,37 @@ where
     }
 
     async fn on_leave_request(&mut self, msg: Message) -> Result<(), SessionError> {
-        let reply = self.common.create_control_message(
-            &msg.get_source(),
-            ProtoSessionMessageType::LeaveReply,
-            msg.get_id(),
-            CommandPayload::builder().leave_reply().as_content(),
-            false,
-        )?;
+        debug!("close the session");
+        self.inner
+            .on_message(SessionMessage::StartDrain {
+                grace_period: Duration::from_secs(60), // not used in session
+            })
+            .await?;
+        self.common.sender.start_drain();
+
+        let reply = if msg.get_session_message_type() == ProtoSessionMessageType::LeaveRequest {
+            self.common.create_control_message(
+                &msg.get_source(),
+                ProtoSessionMessageType::LeaveReply,
+                msg.get_id(),
+                CommandPayload::builder().leave_reply().as_content(),
+                false,
+            )?
+        } else {
+            self.common.create_control_message(
+                &msg.get_source(),
+                ProtoSessionMessageType::GroupAck,
+                msg.get_id(),
+                CommandPayload::builder().group_ack().as_content(),
+                false,
+            )?
+        };
 
         self.common.send_to_slim(reply).await?;
+
+        // Add a small delay before cleaning up routes to allow the ack to be delivered
+        // and processed by the moderator, reducing race conditions during shutdown.
+        tokio::time::sleep(Duration::from_millis(500)).await;
 
         self.leave(&msg).await?;
 
