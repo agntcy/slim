@@ -210,7 +210,7 @@ You can use pre-built images if available; here we build and push fresh ones to 
 REPO_ROOT=$(git rev-parse --show-toplevel)
 pushd "${REPO_ROOT}"
 IMAGE_REPO=localhost:5001 docker buildx bake slim --load && docker push localhost:5001/slim:latest
-IMAGE_REPO=localhost:5001 docker buildx bake bindings-examples && docker push localhost:5001/bindings-examples:latest
+IMAGE_REPO=localhost:5001 docker buildx bake bindings-examples --load && docker push localhost:5001/bindings-examples:latest
 popd
 ```
 
