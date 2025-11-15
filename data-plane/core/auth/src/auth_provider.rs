@@ -194,7 +194,11 @@ impl std::fmt::Debug for AuthVerifier {
 #[async_trait]
 impl TokenProvider for AuthProvider {
     async fn initialize(&mut self) -> Result<(), AuthError> {
-        Ok(())
+        match self {
+            AuthProvider::JwtSigner(signer) => signer.initialize().await,
+            AuthProvider::StaticToken(provider) => provider.initialize().await,
+            AuthProvider::SharedSecret(secret) => TokenProvider::initialize(secret).await,
+        }
     }
 
     fn get_token(&self) -> Result<String, AuthError> {
@@ -227,7 +231,10 @@ impl TokenProvider for AuthProvider {
 #[async_trait]
 impl Verifier for AuthVerifier {
     async fn initialize(&mut self) -> Result<(), AuthError> {
-        Ok(())
+        match self {
+            AuthVerifier::JwtVerifier(signer) => signer.initialize().await,
+            AuthVerifier::SharedSecret(secret) => Verifier::initialize(secret).await,
+        }
     }
 
     async fn verify(&self, token: impl Into<String> + Send) -> Result<(), AuthError> {
