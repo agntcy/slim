@@ -352,9 +352,7 @@ async def create_local_app(
             jwt_audiences=spire_jwt_audience,
         )
     else:
-        print(
-            "Using shared-secret authentication."
-        )
+        print("Using shared-secret authentication.")
         # Fall back to shared secret.
         provider, verifier = shared_secret_identity(
             identity=local,
