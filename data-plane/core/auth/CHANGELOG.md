@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1](https://github.com/agntcy/slim/compare/slim-auth-v0.4.0...slim-auth-v0.4.1) - 2025-11-15
+
+### Added
+
+- add async initialize func in the provider/verifier traits ([#917](https://github.com/agntcy/slim/pull/917))
+- Integrate SPIRE-based mTLS & identity, unify TLS sources, enhance gRPC config, and add flexible metadata support ([#892](https://github.com/agntcy/slim/pull/892))
+- *(mls)* identity claims integration, strengthened validation, and PoP enforcement ([#885](https://github.com/agntcy/slim/pull/885))
+- *(auth)* add support for setting custom claims while getting the token ([#879](https://github.com/agntcy/slim/pull/879))
+- expand SharedSecret Auth from simple secret:id to HMAC tokens ([#858](https://github.com/agntcy/slim/pull/858))
+- derive name ID part from identity token ([#851](https://github.com/agntcy/slim/pull/851))x
+- implementation of Spire for fetching the certificates/token directly from SPIFFE Workload API ([#646](https://github.com/agntcy/slim/pull/646))
+
+### Fixed
+
+- handle verifier.try_verify() block call properly ([#865](https://github.com/agntcy/slim/pull/865))
+
+### Other
+
+- unify multicast and P2P session handling ([#904](https://github.com/agntcy/slim/pull/904))
+- *(data-plane)* update project dependencies ([#861](https://github.com/agntcy/slim/pull/861))
+
 ## [0.4.0](https://github.com/agntcy/slim/compare/slim-auth-v0.3.1...slim-auth-v0.4.0) - 2025-10-17
 
 ### Added
