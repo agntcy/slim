@@ -77,6 +77,8 @@ async def test_sticky_session(server, mls_enabled):
 
     receiver_counts = {i: 0 for i in range(10)}
 
+    n_messages = 1000
+
     async def run_receiver(i: int):
         """Receiver task:
         - Creates its own Slim instance using the shared receiver Name.
@@ -117,6 +119,14 @@ async def test_sticky_session(server, mls_enabled):
                 # store the count in dictionary
                 receiver_counts[i] += 1
 
+                if receiver_counts[i] == n_messages:
+                    # send back application acknowledgment
+                    h = await session.publish(
+                        f"All messages received: {i}".encode(),
+                    )
+
+                    await h
+
     tasks = []
     for i in range(10):
         t = asyncio.create_task(run_receiver(i))
@@ -141,7 +151,6 @@ async def test_sticky_session(server, mls_enabled):
     # Flood the established p2s session with messages.
     # Stickiness requirement: every one of these 1000 publishes should be delivered
     # to exactly the same receiver instance (affinity).
-    n_messages = 1000
 
     pub_results = []
     for _ in range(n_messages):
@@ -155,6 +164,23 @@ async def test_sticky_session(server, mls_enabled):
 
     await asyncio.gather(*pub_results)
 
+    # wait a moment for all messages to be processed
+    _, msg = await sender_session.get_message()
+
+    ack_text = msg.decode()
+    print(f"Sender received ack from receiver: {ack_text}")
+
+    # Parse winning receiver index from ack: format "All messages received: {i}"
+    try:
+        winner_id = int(ack_text.rsplit(":", 1)[1].strip())
+    except Exception as e:
+        raise AssertionError(f"Unexpected ack format '{ack_text}': {e}")
+
+    # Cancel all non-winning receiver tasks
+    for idx, t in enumerate(tasks):
+        if idx != winner_id and not t.done():
+            t.cancel()
+
     # Affinity assertions:
     #  * Sum of all per-receiver counts == total sent (1000)
     #  * Exactly one bucket contains 1000 (the sticky peer)
@@ -165,6 +191,5 @@ async def test_sticky_session(server, mls_enabled):
     h = await sender.delete_session(sender_session)
     await h
 
-    # Kill all tasks
-    for t in tasks:
-        t.cancel()
+    # Await only the winning receiver task (others were cancelled)
+    await tasks[winner_id]

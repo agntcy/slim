@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
-import contextlib
 import datetime
 import pathlib
 
@@ -144,6 +143,10 @@ async def test_identity_verification(server, audience):
     # wait for session establishment if the audience is valid
     if audience == test_audience:
         await completion_handle
+    else:
+        # session establishment should timeout due to invalid audience
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(completion_handle, timeout=3.0)
 
     # messages
     pub_msg = str.encode("thisistherequest")
@@ -188,16 +191,6 @@ async def test_identity_verification(server, audience):
 
             # Wait for task to finish
             await t
-        else:
-            # expect an exception due to audience mismatch
-            with pytest.raises(asyncio.TimeoutError):
-                pub_res = await session_info.publish(pub_msg)
-                await asyncio.wait_for(pub_res, timeout=3.0)
-
-            # cancel the background task
-            t.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await t
     finally:
         # delete sessions
         h = await slim_sender.delete_session(session_info)
