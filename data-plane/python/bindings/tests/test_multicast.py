@@ -37,7 +37,7 @@ import slim_bindings
     "server",
     [
         "127.0.0.1:12375",  # local service
-        #None,  # global service
+        # None,  # global service
     ],
     indirect=True,
 )
