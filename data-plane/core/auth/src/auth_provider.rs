@@ -215,7 +215,7 @@ impl TokenProvider for AuthProvider {
         match self {
             AuthProvider::JwtSigner(signer) => signer.initialize().await,
             AuthProvider::StaticToken(provider) => provider.initialize().await,
-            AuthProvider::SharedSecret(secret) => secret.initialize().await,
+            AuthProvider::SharedSecret(secret) => TokenProvider::initialize(secret).await,
             #[cfg(not(target_family = "windows"))]
             AuthProvider::Spire(spire) => spire.initialize().await,
         }
@@ -257,7 +257,12 @@ impl TokenProvider for AuthProvider {
 #[async_trait]
 impl Verifier for AuthVerifier {
     async fn initialize(&mut self) -> Result<(), AuthError> {
-        Ok(())
+        match self {
+            AuthVerifier::JwtVerifier(signer) => signer.initialize().await,
+            AuthVerifier::SharedSecret(secret) => Verifier::initialize(secret).await,
+            #[cfg(not(target_family = "windows"))]
+            AuthVerifier::Spire(spire) => spire.initialize().await,
+        }
     }
 
     async fn verify(&self, token: impl Into<String> + Send) -> Result<(), AuthError> {
