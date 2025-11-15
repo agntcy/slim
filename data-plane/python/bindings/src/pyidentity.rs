@@ -306,8 +306,6 @@ pub(crate) enum PyIdentityProvider {
         socket_path: Option<String>,
         target_spiffe_id: Option<String>,
         jwt_audiences: Option<Vec<String>>,
-        /// Internal initialized manager (set after .init()).
-        _manager: Option<slim_auth::spire::SpireIdentityManager>,
     },
 }
 
@@ -353,25 +351,20 @@ impl From<PyIdentityProvider> for IdentityProvider {
                 socket_path,
                 target_spiffe_id,
                 jwt_audiences,
-                _manager,
             } => {
-                if let Some(mgr) = _manager.clone() {
-                    AuthProvider::Spire(mgr)
-                } else {
-                    let mut builder = slim_auth::spire::SpireIdentityManager::builder();
-                    if let Some(sp) = socket_path {
-                        builder = builder.with_socket_path(sp);
-                    }
-                    if let Some(id) = target_spiffe_id {
-                        builder = builder.with_target_spiffe_id(id);
-                    }
-                    if let Some(auds) = jwt_audiences {
-                        builder = builder.with_jwt_audiences(auds);
-                    }
-                    let mgr = builder.build();
-                    // Not initialized yet; caller may invoke .init() before use.
-                    AuthProvider::Spire(mgr)
+                let mut builder = slim_auth::spire::SpireIdentityManager::builder();
+                if let Some(sp) = socket_path {
+                    builder = builder.with_socket_path(sp);
                 }
+                if let Some(id) = target_spiffe_id {
+                    builder = builder.with_target_spiffe_id(id);
+                }
+                if let Some(auds) = jwt_audiences {
+                    builder = builder.with_jwt_audiences(auds);
+                }
+                let mgr = builder.build();
+                // Not initialized yet; caller may invoke .init() before use.
+                AuthProvider::Spire(mgr)
             }
         }
     }
@@ -511,8 +504,6 @@ pub(crate) enum PyIdentityVerifier {
         socket_path: Option<String>,
         target_spiffe_id: Option<String>,
         jwt_audiences: Option<Vec<String>>,
-        /// Internal initialized manager (set after .init()).
-        _manager: Option<slim_auth::spire::SpireIdentityManager>,
     },
 }
 
@@ -574,25 +565,20 @@ impl From<PyIdentityVerifier> for IdentityVerifier {
                 socket_path,
                 target_spiffe_id,
                 jwt_audiences,
-                _manager,
             } => {
-                if let Some(mgr) = _manager.clone() {
-                    AuthVerifier::Spire(mgr)
-                } else {
-                    let mut builder = slim_auth::spire::SpireIdentityManager::builder();
-                    if let Some(sp) = socket_path {
-                        builder = builder.with_socket_path(sp);
-                    }
-                    if let Some(id) = target_spiffe_id {
-                        builder = builder.with_target_spiffe_id(id);
-                    }
-                    if let Some(auds) = jwt_audiences {
-                        builder = builder.with_jwt_audiences(auds);
-                    }
-                    let mgr = builder.build();
-                    // Not initialized yet; caller may invoke .init() before use.
-                    AuthVerifier::Spire(mgr)
+                let mut builder = slim_auth::spire::SpireIdentityManager::builder();
+                if let Some(sp) = socket_path {
+                    builder = builder.with_socket_path(sp);
                 }
+                if let Some(id) = target_spiffe_id {
+                    builder = builder.with_target_spiffe_id(id);
+                }
+                if let Some(auds) = jwt_audiences {
+                    builder = builder.with_jwt_audiences(auds);
+                }
+                let mgr = builder.build();
+                // Not initialized yet; caller may invoke .init() before use.
+                AuthVerifier::Spire(mgr)
             }
         }
     }

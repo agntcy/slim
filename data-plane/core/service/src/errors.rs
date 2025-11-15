@@ -1,12 +1,15 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use slim_auth::errors::AuthError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum ServiceError {
     #[error("configuration error {0}")]
     ConfigError(String),
+    #[error("auth error: {0}")]
+    AuthError(#[from] AuthError),
     #[error("app already registered")]
     AppAlreadyRegistered,
     #[error("app not found: {0}")]

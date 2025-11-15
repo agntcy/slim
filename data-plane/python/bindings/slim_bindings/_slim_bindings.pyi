@@ -58,6 +58,8 @@ class IdentityProvider:
         standard JWT claims (iss, aud, sub) and a token validity duration.
     * SharedSecret { identity, shared_secret }:
         Symmetric token provider using a shared secret. Used mainly for testing.
+    * Spire { socket_path=None, target_spiffe_id=None, jwt_audiences=None }:
+        SPIRE-based provider retrieving SPIFFE JWT SVIDs (non-Windows only; requires SPIRE agent socket).
 
     Examples (Python):
 
@@ -159,6 +161,16 @@ class IdentityProvider:
         def shared_secret(self) -> builtins.str: ...
         def __new__(cls, identity:builtins.str, shared_secret:builtins.str) -> IdentityProvider.SharedSecret: ...
 
+    class Spire(IdentityProvider):
+        __match_args__ = ("socket_path", "target_spiffe_id", "jwt_audiences",)
+        @property
+        def socket_path(self) -> typing.Optional[builtins.str]: ...
+        @property
+        def target_spiffe_id(self) -> typing.Optional[builtins.str]: ...
+        @property
+        def jwt_audiences(self) -> typing.Optional[builtins.list[builtins.str]]: ...
+        def __new__(cls, socket_path:typing.Optional[builtins.str]=None, target_spiffe_id:typing.Optional[builtins.str]=None, jwt_audiences:typing.Optional[typing.Sequence[builtins.str]]=None) -> IdentityProvider.Spire: ...
+
     ...
 
 class IdentityVerifier:
@@ -173,6 +185,10 @@ class IdentityVerifier:
         (public_key must be omitted in that case).
     * SharedSecret { identity, shared_secret }:
         Verifies tokens generated with the same shared secret.
+    * Spire { socket_path=None, target_spiffe_id=None, jwt_audiences=None }:
+        SPIRE-based JWT SVID verifier (non-Windows only). Uses SPIRE Workload API
+        bundles to validate SPIFFE JWT SVIDs. Requires an initialized SPIRE
+        identity manager. (Underlying AuthVerifier support must exist.)
 
     JWKS Auto-Resolve:
       When `autoresolve=True`, the verifier will attempt to resolve keys
@@ -289,6 +305,16 @@ class IdentityVerifier:
         @property
         def shared_secret(self) -> builtins.str: ...
         def __new__(cls, identity:builtins.str, shared_secret:builtins.str) -> IdentityVerifier.SharedSecret: ...
+
+    class Spire(IdentityVerifier):
+        __match_args__ = ("socket_path", "target_spiffe_id", "jwt_audiences",)
+        @property
+        def socket_path(self) -> typing.Optional[builtins.str]: ...
+        @property
+        def target_spiffe_id(self) -> typing.Optional[builtins.str]: ...
+        @property
+        def jwt_audiences(self) -> typing.Optional[builtins.list[builtins.str]]: ...
+        def __new__(cls, socket_path:typing.Optional[builtins.str]=None, target_spiffe_id:typing.Optional[builtins.str]=None, jwt_audiences:typing.Optional[typing.Sequence[builtins.str]]=None) -> IdentityVerifier.Spire: ...
 
     ...
 

@@ -59,26 +59,16 @@ impl PyApp {
         let (adapter, service_ref) = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(async move {
                 // Convert the PyIdentityProvider into IdentityProvider
-                let provider: IdentityProvider = provider.into();
+                let mut provider: IdentityProvider = provider.into();
 
-                // Initialize the identity provider
-                provider.initialize().await.map_err(|e| {
-                    PyErr::new::<PyException, _>(format!(
-                        "Failed to initialize IdentityProvider: {}",
-                        e
-                    ))
-                })?;
+                // Initialize the idsntity provider
+                provider.initialize().await?;
 
                 // Convert the PyIdentityVerifier into IdentityVerifier
-                let verifier: IdentityVerifier = verifier.into();
+                let mut verifier: IdentityVerifier = verifier.into();
 
                 // Initialize the identity verifier
-                verifier.initialize().await.map_err(|e| {
-                    PyErr::new::<PyException, _>(format!(
-                        "Failed to initialize IdentityVerifier: {}",
-                        e
-                    ))
-                })?;
+                verifier.initialize().await?;
 
                 // Convert PyName into Name
                 let base_name: Name = name.into();

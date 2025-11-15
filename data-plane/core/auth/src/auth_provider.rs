@@ -67,7 +67,6 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use serde::de::DeserializeOwned;
 
 use crate::errors::AuthError;
 use crate::jwt::{SignerJwt, StaticTokenProvider, VerifierJwt};

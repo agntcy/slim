@@ -229,7 +229,11 @@ impl SpireIdentityManagerBuilder {
     }
 
     pub fn with_socket_path(mut self, socket_path: impl Into<String>) -> Self {
-        self.socket_path = Some(socket_path.into());
+        let mut path = socket_path.into();
+        if !path.starts_with("unix:") {
+            path = format!("unix:{}", path);
+        }
+        self.socket_path = Some(path);
         self
     }
 

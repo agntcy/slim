@@ -3,11 +3,12 @@
 This directory contains runnable example programs that demonstrate how to use the SLIM Python bindings for different communication patterns:
 
 - Point2Point: Selects one of many eligible receivers when the session is created,
-               and sends all the messages to the same specific peer
+  and sends all the messages to the same specific peer
 - Group: Send to a group (moderator-driven membership)
 - With or without MLS (Messaging Layer Security) for end-to-end encryption
 
 You can run these examples:
+
 1. Locally (standalone) using a shared secret for establishing trust
 2. In a Kubernetes cluster using static JWTs issued by SPIRE
 
@@ -18,9 +19,9 @@ You can run these examples:
 - [Prerequisites](#prerequisites)
 - [Concepts at a Glance](#concepts-at-a-glance)
 - [Quick Start (Standalone)](#quick-start-standalone)
-  - [Step 1: Start the SLIM node](#step-1-start-the-slim-node)
-  - [Step 2: Point2Point Example (MLS and non-MLS)](#step-2-p2p-example-mls-and-non-mls)
-  - [Step 3: Group Example](#step-3-group-example)
+    - [Step 1: Start the SLIM node](#step-1-start-the-slim-node)
+    - [Step 2: Point2Point Example (MLS and non-MLS)](#step-2-p2p-example-mls-and-non-mls)
+    - [Step 3: Group Example](#step-3-group-example)
 - [Interpreting the Output](#interpreting-the-output)
 - [Modifying the Examples](#modifying-the-examples)
 - [Running in Kubernetes (SPIRE / JWT)](#running-in-kubernetes-spire--jwt)
@@ -38,6 +39,7 @@ You can run these examples:
 - Helm and kubectl (for the Kubernetes section)
 
 To view the underlying command a task executes, add `-v`:
+
 ```bash
 task -v python:example:server
 ```
@@ -46,10 +48,10 @@ task -v python:example:server
 
 ## Concepts at a Glance
 
-| Pattern       | Delivery Semantics                                   | Typical Use Case                       | MLS Support |
-|---------------|-------------------------------------------------------|----------------------------------------|-------------|
-| Point2Point   | Selects one of many eligible receivers when the session is created, and sends all the messages to the same specific peer                            | Direct messaging / RPC-like flows      | Present    |
-| Group         | All members of a moderator-defined group             | Group coordination / pub-sub-like      | Present |
+| Pattern     | Delivery Semantics                                                                                                       | Typical Use Case                  | MLS Support |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------ | --------------------------------- | ----------- |
+| Point2Point | Selects one of many eligible receivers when the session is created, and sends all the messages to the same specific peer | Direct messaging / RPC-like flows | Present     |
+| Group       | All members of a moderator-defined group                                                                                 | Group coordination / pub-sub-like | Present     |
 
 MLS (Messaging Layer Security) provides end-to-end encryption and group state management. Non-MLS modes may still use channel protection in the links between SLIM nodes, but are not full E2E group cryptographic sessions.
 
@@ -156,6 +158,7 @@ and all participants can send messages on the shared channel (see [Modifying the
 ## Running in Kubernetes (SPIRE / JWT)
 
 This section shows how to run the examples inside a Kubernetes cluster where workload identity is provided by SPIRE. You will:
+
 1. Create a local KIND cluster (with an in-cluster image registry).
 2. Install SPIRE (server + agents).
 3. Build and push SLIM images to the local registry.
@@ -206,12 +209,13 @@ You can use pre-built images if available; here we build and push fresh ones to 
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)
 pushd "${REPO_ROOT}"
-IMAGE_REPO=localhost:5001 docker bake slim && docker push localhost:5001/slim:latest
-IMAGE_REPO=localhost:5001 docker bake bindings-examples && docker push localhost:5001/bindings-examples:latest
+IMAGE_REPO=localhost:5001 docker buildx bake slim --load && docker push localhost:5001/slim:latest
+IMAGE_REPO=localhost:5001 docker buildx bake bindings-examples && docker push localhost:5001/bindings-examples:latest
 popd
 ```
 
 Verify they are present (optional):
+
 ```bash
 crane ls localhost:5001 | grep slim
 ```
@@ -230,49 +234,15 @@ helm install \
 ```
 
 Confirm the pod is running:
+
 ```bash
 kubectl get pods -n slim
-```
-
-### Deploy client configuration (ConfigMap)
-
-We first provide a config for `spiffe-helper`, which retrieves SVIDs/JWTs from the SPIRE agent and writes them to disk. Key fields:
-- `agent_address`: Path to the SPIRE agent API socket.
-- `cert_dir`: Where artifacts (cert/key/bundles/JWTs) are written.
-- `jwt_svids`: Audience + output filename for requested JWT SVIDs.
-- `daemon_mode = true`: Run continuously to renew material.
-
-```bash
-kubectl apply -f - <<EOF
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: spire-helper-slim-client
-  labels:
-    app.kubernetes.io/name: slim-client
-data:
-  helper.conf: |
-    agent_address =  "/run/spire/agent-sockets/api.sock"
-    cmd = ""
-    cmd_args = ""
-    cert_dir = "/svids"
-    renew_signal = ""
-    svid_file_name = "tls.crt"
-    svid_key_file_name = "tls.key"
-    svid_bundle_file_name = "svid_bundle.pem"
-    jwt_bundle_file_name = "key.jwt"
-    cert_file_mode = 0600
-    key_file_mode = 0600
-    jwt_svid_file_mode = 0600
-    jwt_bundle_file_mode = 0600
-    jwt_svids = [{jwt_audience="slim-demo", jwt_svid_file_name="jwt_svid.token"}]
-    daemon_mode = true
-EOF
 ```
 
 ### Deploy two distinct clients (separate ServiceAccounts = separate SPIFFE IDs)
 
 Each Deployment:
+
 - Has its own ServiceAccount (`slim-client-a`, `slim-client-b`).
 - Mounts the SPIRE agent socket from the host (in KIND, agent runs as a DaemonSet).
 - Runs `spiffe-helper` sidecar to continuously refresh identities.
@@ -318,20 +288,6 @@ spec:
       serviceAccountName: slim-client-a
       securityContext: {}
       containers:
-        - name: spiffe-helper
-          image: ghcr.io/spiffe/spiffe-helper:0.10.0
-          imagePullPolicy: IfNotPresent
-          args: [ "-config", "config/helper.conf" ]
-          volumeMounts:
-            - name: config-volume
-              mountPath: /config/helper.conf
-              subPath: helper.conf
-            - name: spire-agent-socket
-              mountPath: /run/spire/agent-sockets
-              readOnly: false
-            - name: svids-volume
-              mountPath: /svids
-              readOnly: false
         - name: slim-client
           securityContext: {}
           image: "localhost:5001/bindings-examples:latest"
@@ -340,22 +296,14 @@ spec:
           args: ["infinity"]
           resources: {}
           volumeMounts:
-            - name: svids-volume
-              mountPath: /svids
+            - name: spire-agent-socket
+              mountPath: /run/spire/agent-sockets
               readOnly: false
-            - name: config-volume
-              mountPath: /config/helper.conf
-              subPath: helper.conf
       volumes:
         - name: spire-agent-socket
           hostPath:
             path: /run/spire/agent-sockets
             type: Directory
-        - name: config-volume
-          configMap:
-            name: spire-helper-slim-client
-        - name: svids-volume
-          emptyDir: {}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -379,20 +327,6 @@ spec:
       serviceAccountName: slim-client-b
       securityContext: {}
       containers:
-        - name: spiffe-helper
-          image: ghcr.io/spiffe/spiffe-helper:0.10.0
-          imagePullPolicy: IfNotPresent
-          args: [ "-config", "config/helper.conf" ]
-          volumeMounts:
-            - name: config-volume
-              mountPath: /config/helper.conf
-              subPath: helper.conf
-            - name: spire-agent-socket
-              mountPath: /run/spire/agent-sockets
-              readOnly: false
-            - name: svids-volume
-              mountPath: /svids
-              readOnly: false
         - name: slim-client
           securityContext: {}
           image: "localhost:5001/bindings-examples:latest"
@@ -401,31 +335,25 @@ spec:
           args: ["infinity"]
           resources: {}
           volumeMounts:
-            - name: svids-volume
-              mountPath: /svids
+            - name: spire-agent-socket
+              mountPath: /run/spire/agent-sockets
               readOnly: false
-            - name: config-volume
-              mountPath: /config/helper.conf
-              subPath: helper.conf
       volumes:
         - name: spire-agent-socket
           hostPath:
             path: /run/spire/agent-sockets
             type: Directory
-        - name: config-volume
-          configMap:
-            name: spire-helper-slim-client
-        - name: svids-volume
-          emptyDir: {}
 EOF
 ```
 
 Check that both pods are running:
+
 ```bash
 kubectl get pods -l app.kubernetes.io/name=slim-client -o wide
 ```
 
 You can inspect each pod’s SPIFFE ID with:
+
 ```bash
 POD_NAME=$(kubectl get pods -l app.kubernetes.io/component=client-a -o jsonpath="{.items[0].metadata.name}")
 kubectl exec -c slim-client -it ${POD_NAME} -- ls -l /svids
@@ -449,10 +377,9 @@ Run the receiver:
 
 ```bash
 /app/bin/p2p --slim '{"endpoint": "http://slim.slim:46357", "tls": {"insecure": true}}' \
-  --jwt /svids/jwt_svid.token \
-  --spire-trust-bundle /svids/key.jwt \
+  --spire-socket-path /run/spire/agent-sockets/api.sock \
+  --spire-jwt-audience slim-demo \
   --local agntcy/example/receiver \
-  --audience slim-demo
 ```
 
 Open a second shell for the sender:
@@ -465,9 +392,8 @@ Run the sender:
 
 ```bash
 /app/bin/p2p --slim '{"endpoint": "http://slim.slim:46357", "tls": {"insecure": true}}' \
-  --jwt /svids/jwt_svid.token \
-  --spire-trust-bundle /svids/key.jwt \
-  --audience slim-demo \
+  --spire-socket-path /run/spire/agent-sockets/api.sock \
+  --spire-jwt-audience slim-demo \
   --local agntcy/example/sender \
   --remote agntcy/example/receiver \
   --enable-mls \
