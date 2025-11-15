@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/glebarez/sqlite"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/wrapperspb"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 

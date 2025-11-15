@@ -93,16 +93,19 @@ spec:
     - slim-demo
     - --enable-mls
     - --slim
-    - '{"endpoint":"https://slim.slim.svc.cluster.local:46357","tls":{"insecure_skip_verify": false, "cert_file":"/svids/tls.crt","key_file":"/svids/tls.key","ca_file":"/svids/svid_bundle.pem"}}'
+    - '{"endpoint":"https://slim.slim.svc.cluster.local:46357","tls":{"source":{"type":"spire","socket_path":"unix:/tmp/spire-agent/public/api.sock"},"ca_source":{"type":"spire","socket_path":"unix:/tmp/spire-agent/public/api.sock","trust_domains":["example.local"]}}}'    
     env:
     - name: PYTHONUNBUFFERED
       value: "1"
-    image: ghcr.io/agntcy/slim/bindings-examples:0.6.0
+    image: ghcr.io/agntcy/slim/bindings-examples:0.7.0-dev.2
     imagePullPolicy: Always
     name: client
     volumeMounts:
+    - name: spire-agent-socket
+      mountPath: /tmp/spire-agent/public/
+      readOnly: true
     - mountPath: /svids
-      name: svids-volume
+      name: svids-volume          
   restartPolicy: OnFailure
   serviceAccountName: bob
   volumes:
