@@ -4,6 +4,7 @@
 use std::{
     collections::{HashMap, VecDeque},
     sync::Arc,
+    time::Duration,
 };
 
 use async_trait::async_trait;
@@ -13,12 +14,15 @@ use slim_datapath::{
         CommandPayload, MlsPayload, ProtoMessage as Message, ProtoSessionMessageType,
         ProtoSessionType,
     },
-    messages::{Name, utils::DELETE_GROUP, utils::SlimHeaderFlags},
+    messages::{
+        Name,
+        utils::{DELETE_GROUP, SlimHeaderFlags, TRUE_VAL},
+    },
 };
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, oneshot};
 
 use slim_mls::mls::Mls;
-use tracing::{debug, error};
+use tracing::debug;
 
 use crate::{
     common::{MessageDirection, SessionMessage},
@@ -27,7 +31,7 @@ use crate::{
     moderator_task::{AddParticipant, ModeratorTask, RemoveParticipant, TaskUpdate},
     session_controller::SessionControllerCommon,
     session_settings::SessionSettings,
-    traits::{MessageHandler, Transmitter},
+    traits::MessageHandler,
 };
 
 pub struct SessionModerator<P, V, I>
@@ -37,7 +41,8 @@ where
     I: MessageHandler + Send + Sync + 'static,
 {
     /// Queue of tasks to be performed by the moderator
-    tasks_todo: VecDeque<Message>,
+    /// Each task contains a message and an optional ack channel
+    tasks_todo: VecDeque<(Message, Option<oneshot::Sender<Result<(), SessionError>>>)>,
 
     /// Current task being processed by the moderator
     current_task: Option<ModeratorTask>,
@@ -120,9 +125,10 @@ where
             SessionMessage::OnMessage {
                 mut message,
                 direction,
+                ack_tx,
             } => {
                 if message.get_session_message_type().is_command_message() {
-                    self.process_control_message(message).await
+                    self.process_control_message(message, ack_tx).await
                 } else {
                     // this is a application message. if direction (needs to go to the remote endpoint) and
                     // the session is p2p, update the destination of the message with the destination in
@@ -136,7 +142,11 @@ where
                             .set_destination(&self.common.settings.destination);
                     }
                     self.inner
-                        .on_message(SessionMessage::OnMessage { message, direction })
+                        .on_message(SessionMessage::OnMessage {
+                            message,
+                            direction,
+                            ack_tx,
+                        })
                         .await
                 }
             }
@@ -168,26 +178,36 @@ where
                 if message_type.is_command_message() {
                     self.common.sender.on_timer_failure(message_id).await;
                     // the current task failed:
-                    // 1. create the right error message
-                    let error_message = match self.current_task.as_ref().unwrap() {
-                        ModeratorTask::Add(_) => "failed to add a participant to the group",
-                        ModeratorTask::Remove(_) => "failed to remove a participant from the group",
-                        ModeratorTask::Update(_) => "failed to update state of the participant",
+                    // 1. create the right error message and notify via ack_tx if present
+                    // Helper to signal failure and return error message
+                    let signal_failure =
+                        |task_ack_tx: &mut Option<oneshot::Sender<Result<(), SessionError>>>,
+                         msg: &str| {
+                            if let Some(tx) = task_ack_tx.take() {
+                                let _ = tx.send(Err(SessionError::ModeratorTask(msg.to_string())));
+                            }
+                            msg.to_string()
+                        };
+
+                    let message = match &self.common.settings.config.session_type {
+                        ProtoSessionType::PointToPoint => "session handshake failed",
+                        ProtoSessionType::Multicast => "failed to add a participant to the group",
+                        _ => panic!("session type not specified"),
                     };
 
-                    // 2. notify the application
-                    // TODO: revisit this part
-                    if let Err(e) = self
-                        .common
-                        .settings
-                        .tx
-                        .send_to_app(Err(SessionError::ModeratorTask(error_message.to_string())))
-                        .await
-                    {
-                        error!("failed to notify application: {}", e);
-                    }
+                    match self.current_task.as_mut().unwrap() {
+                        ModeratorTask::Add(task) => signal_failure(&mut task.ack_tx, message),
+                        ModeratorTask::Remove(task) => signal_failure(
+                            &mut task.ack_tx,
+                            "failed to remove a participant from the group",
+                        ),
+                        ModeratorTask::Update(task) => signal_failure(
+                            &mut task.ack_tx,
+                            "failed to update state of the participant",
+                        ),
+                    };
 
-                    // 3. delete current task and pick a new one
+                    // 2. delete current task and pick a new one
                     self.current_task = None;
                     self.pop_task().await
                 } else {
@@ -201,8 +221,29 @@ where
                         .await
                 }
             }
-            SessionMessage::StartDrain { grace_period_ms: _ } => todo!(),
-            SessionMessage::DeleteSession { session_id: _ } => todo!(),
+            SessionMessage::StartDrain { grace_period: _ } => {
+                debug!("start draining by calling delete_all");
+                // We need to close the session for all the participants
+                // Crate the leave message
+                let p = CommandPayload::builder().leave_request(None).as_content();
+                let destination = self.common.settings.destination.clone();
+                let mut leave_msg = self.common.create_control_message(
+                    &destination,
+                    ProtoSessionMessageType::LeaveRequest,
+                    rand::random::<u32>(),
+                    p,
+                    false,
+                )?;
+
+                leave_msg.insert_metadata(DELETE_GROUP.to_string(), TRUE_VAL.to_string());
+
+                // send it to all the participants
+                self.delete_all(leave_msg).await
+            }
+            _ => Err(SessionError::Processing(format!(
+                "Unexpected message type {:?}",
+                message
+            ))),
         }
     }
 
@@ -214,17 +255,24 @@ where
         self.inner.remove_endpoint(endpoint);
     }
 
+    fn needs_drain(&self) -> bool {
+        !(self.closing
+            && self.common.sender.drain_completed()
+            && !self.inner.needs_drain()
+            && self.tasks_todo.is_empty())
+    }
+
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {
         // Moderator-specific cleanup
         self.subscribed = false;
-
-        // TODO: check when to call this
-        // if !self.closing {
-        //     self.send_close_signal().await;
-        // }
+        self.common.sender.close();
 
         // Shutdown inner layer
-        MessageHandler::on_shutdown(&mut self.inner).await
+        MessageHandler::on_shutdown(&mut self.inner).await?;
+
+        self.send_close_signal().await;
+
+        Ok(())
     }
 }
 
@@ -234,9 +282,35 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
     I: MessageHandler + Send + Sync + 'static,
 {
-    async fn process_control_message(&mut self, message: Message) -> Result<(), SessionError> {
+    /// Helper method to handle errors after task creation
+    /// Extracts ack_tx from current_task and sends the error
+    fn handle_task_error(&mut self, error: SessionError) -> SessionError {
+        if let Some(task) = self.current_task.take() {
+            let ack_tx = match task {
+                ModeratorTask::Add(t) => t.ack_tx,
+                ModeratorTask::Remove(t) => t.ack_tx,
+                ModeratorTask::Update(t) => t.ack_tx,
+            };
+            if let Some(tx) = ack_tx {
+                let _ = tx.send(Err(SessionError::Processing(error.to_string())));
+            }
+        }
+
+        // Remove task
+        self.current_task = None;
+
+        error
+    }
+
+    async fn process_control_message(
+        &mut self,
+        message: Message,
+        ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
+    ) -> Result<(), SessionError> {
         match message.get_session_message_type() {
-            ProtoSessionMessageType::DiscoveryRequest => self.on_discovery_request(message).await,
+            ProtoSessionMessageType::DiscoveryRequest => {
+                self.on_discovery_request(message, ack_tx).await
+            }
             ProtoSessionMessageType::DiscoveryReply => self.on_discovery_reply(message).await,
             ProtoSessionMessageType::JoinRequest => {
                 // this message should arrive only from the control plane
@@ -256,9 +330,11 @@ where
                 // local one, call the delete all anyway
                 if let Some(n) = message
                     .get_payload()
-                    .unwrap()
-                    .as_command_payload()?
-                    .as_leave_request_payload()?
+                    .ok_or_else(|| SessionError::Processing("Missing payload".to_string()))?
+                    .as_command_payload()
+                    .map_err(SessionError::from)?
+                    .as_leave_request_payload()
+                    .map_err(SessionError::from)?
                     .destination
                     .as_ref()
                     && Name::from(n) == self.common.settings.source
@@ -267,7 +343,7 @@ where
                 }
 
                 // otherwise start the leave process
-                self.on_leave_request(message).await
+                self.on_leave_request(message, ack_tx).await
             }
             ProtoSessionMessageType::LeaveReply => self.on_leave_reply(message).await,
             ProtoSessionMessageType::GroupAck => self.on_group_ack(message).await,
@@ -287,7 +363,11 @@ where
     }
 
     /// message processing functions
-    async fn on_discovery_request(&mut self, mut msg: Message) -> Result<(), SessionError> {
+    async fn on_discovery_request(
+        &mut self,
+        mut msg: Message,
+        ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
+    ) -> Result<(), SessionError> {
         debug!(%self.common.settings.id, "received discovery request");
         // the channel discovery starts a new participant invite.
         // process the request only if not busy
@@ -295,22 +375,23 @@ where
             debug!(
                 "Moderator is busy. Add invite participant task to the list and process it later"
             );
-            // if busy postpone the task and add it to the todo list
-            self.tasks_todo.push_back(msg);
+            // if busy postpone the task and add it to the todo list with its ack_tx
+            self.tasks_todo.push_back((msg, ack_tx));
             return Ok(());
         }
 
-        // now the moderator is busy
-        debug!("Create AddParticipantMls task");
-        self.current_task = Some(ModeratorTask::Add(AddParticipant::default()));
+        // now the moderator is busy - create the task first
+        debug!("Create AddParticipant task with ack_tx");
+        self.current_task = Some(ModeratorTask::Add(AddParticipant::new(ack_tx)));
 
         // check if there is a destination name in the payload. If yes recreate the message
         // with the right destination and send it out
         let payload = msg.extract_discovery_request().map_err(|e| {
-            SessionError::Processing(format!(
+            let err = SessionError::Processing(format!(
                 "failed to extract discovery request payload: {}",
                 e
-            ))
+            ));
+            self.handle_task_error(err)
         })?;
 
         let mut discovery = match &payload.destination {
@@ -319,7 +400,10 @@ where
                 // here we assume that the destination is reachable from the
                 // same connection from where we got the message from the controller
                 let dst = Name::from(dst_name);
-                self.common.set_route(&dst, msg.get_incoming_conn()).await?;
+                self.common
+                    .set_route(&dst, msg.get_incoming_conn())
+                    .await
+                    .map_err(|e| self.handle_task_error(e))?;
 
                 // create a new empty payload and change the message destination
                 let p = CommandPayload::builder()
@@ -340,15 +424,21 @@ where
         // start the current task
         let id = rand::random::<u32>();
         discovery.get_session_header_mut().set_message_id(id);
-        self.current_task.as_mut().unwrap().discovery_start(id)?;
+        self.current_task
+            .as_mut()
+            .unwrap()
+            .discovery_start(id)
+            .map_err(|e| self.handle_task_error(e))?;
 
         debug!(
             "send discovery request to {} with id {}",
             discovery.get_dst(),
             discovery.get_id()
         );
-        // send the message
-        self.common.send_with_timer(discovery).await
+        self.common
+            .send_with_timer(discovery)
+            .await
+            .map_err(|e| self.handle_task_error(e))
     }
 
     async fn on_discovery_reply(&mut self, msg: Message) -> Result<(), SessionError> {
@@ -549,15 +639,20 @@ where
         Ok(())
     }
 
-    async fn on_leave_request(&mut self, mut msg: Message) -> Result<(), SessionError> {
+    async fn on_leave_request(
+        &mut self,
+        mut msg: Message,
+        ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
+    ) -> Result<(), SessionError> {
         if self.current_task.is_some() {
-            // if busy postpone the task and add it to the todo list
+            // if busy postpone the task and add it to the todo list with its ack_tx
             debug!("Moderator is busy. Add  leave request task to the list and process it later");
-            self.tasks_todo.push_back(msg);
+            self.tasks_todo.push_back((msg, ack_tx));
             return Ok(());
         }
 
-        self.current_task = Some(ModeratorTask::Remove(RemoveParticipant::default()));
+        debug!("Create RemoveParticipant task with ack_tx");
+        self.current_task = Some(ModeratorTask::Remove(RemoveParticipant::new(ack_tx)));
 
         // adjust the message according to the sender:
         // - if coming from the controller (destination in the payload) we need to modify source and destination
@@ -565,24 +660,29 @@ where
         let payload_destination = msg
             .extract_leave_request()
             .map_err(|e| {
-                SessionError::Processing(format!("failed to extract leave request payload: {}", e))
+                let err = SessionError::Processing(format!(
+                    "failed to extract leave request payload: {}",
+                    e
+                ));
+                self.handle_task_error(err)
             })?
             .destination
-            .clone();
+            .as_ref();
 
         // Determine the destination name (without ID) based on payload
         let dst_without_id = match payload_destination {
-            Some(ref dst_name) => Name::from(dst_name),
+            Some(dst_name) => Name::from(dst_name),
             None => msg.get_dst(),
         };
 
         // Look up participant ID in group list
-        let id = *self
-            .group_list
-            .get(&dst_without_id)
-            .ok_or(SessionError::RemoveParticipant(
-                "participant not found".to_string(),
-            ))?;
+        let id = match self.group_list.get(&dst_without_id) {
+            Some(id) => *id,
+            None => {
+                let err = SessionError::RemoveParticipant("participant not found".to_string());
+                return Err(self.handle_task_error(err));
+            }
+        };
 
         // Update message based on whether destination was provided in payload
         if payload_destination.is_some() {
@@ -622,7 +722,10 @@ where
             // in this case we need to send first the group update and later the leave message
             let mls_payload = match self.mls_state.as_mut() {
                 Some(state) => {
-                    let mls_content = state.remove_participant(&leave_message).await?;
+                    let mls_content = state
+                        .remove_participant(&leave_message)
+                        .await
+                        .map_err(|e| self.handle_task_error(e))?;
                     let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
                     Some(MlsPayload {
                         commit_id,
@@ -685,6 +788,15 @@ where
         self.mls_state = None;
         // clear all pending tasks
         self.tasks_todo.clear();
+        // clear all pending timers
+        self.common.sender.clear_timers();
+        // signal start drain everywhere
+        self.inner
+            .on_message(SessionMessage::StartDrain {
+                grace_period: Duration::from_secs(60), // not used in session
+            })
+            .await?;
+        self.common.sender.start_drain();
 
         // Remove the local name from the participants list
         let mut local = self.common.settings.source.clone();
@@ -703,15 +815,15 @@ where
                 CommandPayload::builder().leave_request(None).as_content(),
                 false,
             )?;
-            // append the task to the list
-            self.tasks_todo.push_back(leave);
+            // append the task to the list with None ack_tx
+            self.tasks_todo.push_back((leave, None));
         }
 
         // try to pickup the first task
         match self.tasks_todo.pop_front() {
-            Some(m) => self.on_leave_request(m).await,
+            Some((msg, ack_tx)) => self.on_leave_request(msg, ack_tx).await,
             None => {
-                self.send_close_signal().await;
+                // nothing left to do here
                 Ok(())
             }
         }
@@ -815,18 +927,15 @@ where
         }
 
         // check if there is a pending task to process
-        let msg = match self.tasks_todo.pop_front() {
-            Some(m) => m,
+        let (msg, ack_tx) = match self.tasks_todo.pop_front() {
+            Some(task) => task,
             None => {
                 // nothing else to do
                 debug!("No tasks left to perform");
 
-                // check if we need to close the session
-                if self.closing {
-                    self.send_close_signal().await;
-                }
-
-                // return
+                // No need to close the session here. If we are in
+                // closing state the moderator will be closed in
+                // the controller loop
                 return Ok(());
             }
         };
@@ -835,9 +944,11 @@ where
         // Process the control message by calling on_message
         // Since this is a control message coming from our internal queue,
         // we use MessageDirection::North (coming from network/control plane)
+        // The ack_tx that was stored with the task is now used
         self.on_message(SessionMessage::OnMessage {
             message: msg,
             direction: MessageDirection::North,
+            ack_tx,
         })
         .await
     }
@@ -879,8 +990,17 @@ where
         Ok(())
     }
 
+    #[allow(dead_code)]
+    async fn ack_msl_proposal(&mut self, _msg: &Message) -> Result<(), SessionError> {
+        todo!()
+    }
+
+    #[allow(dead_code)]
+    async fn on_mls_proposal(&mut self, _msg: Message) -> Result<(), SessionError> {
+        todo!()
+    }
+
     async fn send_close_signal(&mut self) {
-        // TODO check if the senders/receivers are happy as well
         debug!("Signal session layer to close the session, all tasks are done");
 
         // notify the session layer
@@ -894,18 +1014,8 @@ where
             .await;
 
         if res.is_err() {
-            error!("an error occurred while signaling session close");
+            tracing::error!("an error occurred while signaling session close");
         }
-    }
-
-    #[allow(dead_code)]
-    async fn ack_msl_proposal(&mut self, _msg: &Message) -> Result<(), SessionError> {
-        todo!()
-    }
-
-    #[allow(dead_code)]
-    async fn on_mls_proposal(&mut self, _msg: Message) -> Result<(), SessionError> {
-        todo!()
     }
 }
 
@@ -966,6 +1076,7 @@ mod tests {
             identity_provider,
             identity_verifier,
             storage_path,
+            graceful_shutdown_timeout: None,
         };
 
         let inner = MockInnerHandler::new();
@@ -1022,7 +1133,7 @@ mod tests {
             .build_publish()
             .unwrap();
 
-        let result = moderator.on_discovery_request(discovery_msg).await;
+        let result = moderator.on_discovery_request(discovery_msg, None).await;
         assert!(result.is_ok());
 
         // Should have created an Add task
@@ -1048,7 +1159,7 @@ mod tests {
         moderator.init().await.unwrap();
 
         // Set a current task to make moderator busy
-        moderator.current_task = Some(ModeratorTask::Add(AddParticipant::default()));
+        moderator.current_task = Some(ModeratorTask::Add(AddParticipant::new(None)));
 
         let source = make_name(&["requester", "app", "v1"]).with_id(300);
         let destination = moderator.common.settings.source.clone();
@@ -1071,7 +1182,7 @@ mod tests {
             .build_publish()
             .unwrap();
 
-        let result = moderator.on_discovery_request(discovery_msg).await;
+        let result = moderator.on_discovery_request(discovery_msg, None).await;
         assert!(result.is_ok());
 
         // Should have added task to todo list
@@ -1108,7 +1219,7 @@ mod tests {
             .build_publish()
             .unwrap();
 
-        let result = moderator.process_control_message(join_msg).await;
+        let result = moderator.process_control_message(join_msg, None).await;
         assert!(result.is_ok());
     }
 
@@ -1137,6 +1248,7 @@ mod tests {
             .on_message(SessionMessage::OnMessage {
                 message: app_msg,
                 direction: MessageDirection::South,
+                ack_tx: None,
             })
             .await;
 
@@ -1328,6 +1440,7 @@ mod tests {
             identity_provider,
             identity_verifier,
             storage_path,
+            graceful_shutdown_timeout: None,
         };
 
         let inner = MockInnerHandler::new();
@@ -1353,6 +1466,7 @@ mod tests {
             .on_message(SessionMessage::OnMessage {
                 message: app_msg,
                 direction: MessageDirection::South,
+                ack_tx: None,
             })
             .await;
 

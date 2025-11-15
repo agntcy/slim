@@ -4,6 +4,8 @@
 // Standard library imports
 use std::{collections::HashMap, time::Duration};
 
+use parking_lot::Mutex;
+use tokio::sync::{self, oneshot};
 // Third-party crates
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
@@ -21,11 +23,11 @@ use slim_datapath::{
 use crate::{
     MessageDirection, SessionError, Transmitter,
     common::SessionMessage,
+    completion_handle::CompletionHandle,
     controller_sender::ControllerSender,
     session_builder::{ForController, SessionBuilder},
     session_config::SessionConfig,
     session_settings::SessionSettings,
-    timer_factory::TimerSettings,
     traits::MessageHandler,
 };
 
@@ -43,11 +45,13 @@ pub struct SessionController {
     pub(crate) config: SessionConfig,
 
     /// channel to send messages to the processing loop
-    tx_controller: tokio::sync::mpsc::Sender<SessionMessage>,
+    tx_controller: sync::mpsc::Sender<SessionMessage>,
 
-    /// use in drop implementation to close immediately
-    /// the session processor loop
+    /// use in drop implementation to gracefully close the processing loop
     pub(crate) cancellation_token: CancellationToken,
+
+    /// handle for the processing loop
+    handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl SessionController {
@@ -61,21 +65,30 @@ impl SessionController {
     }
 
     /// Internal constructor for the builder to use
-    pub(crate) fn from_parts<I>(
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn from_parts<I, P, V>(
         id: u32,
         source: Name,
         destination: Name,
         config: SessionConfig,
-        tx: tokio::sync::mpsc::Sender<SessionMessage>,
-        rx: tokio::sync::mpsc::Receiver<SessionMessage>,
+        settings: SessionSettings<P, V>,
+        tx: sync::mpsc::Sender<SessionMessage>,
+        rx: sync::mpsc::Receiver<SessionMessage>,
         inner: I,
     ) -> Self
     where
         I: MessageHandler + Send + Sync + 'static,
+        P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
+        V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
     {
         // Spawn the processing loop
         let cancellation_token = CancellationToken::new();
-        tokio::spawn(Self::processing_loop(inner, rx, cancellation_token.clone()));
+        let handle = tokio::spawn(Self::processing_loop(
+            inner,
+            rx,
+            cancellation_token.clone(),
+            settings,
+        ));
 
         Self {
             id,
@@ -84,38 +97,102 @@ impl SessionController {
             config,
             tx_controller: tx,
             cancellation_token,
+            handle: Mutex::new(Some(handle)),
         }
     }
 
     /// Internal processing loop that handles messages with mutable access
-    async fn processing_loop(
+    async fn processing_loop<P, V>(
         mut inner: impl MessageHandler + 'static,
-        mut rx: tokio::sync::mpsc::Receiver<SessionMessage>,
+        mut rx: sync::mpsc::Receiver<SessionMessage>,
         cancellation_token: CancellationToken,
-    ) {
+        settings: SessionSettings<P, V>,
+    ) where
+        P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
+        V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
+    {
+        // State for tracking graceful shutdown
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        enum ProcessingState {
+            Active,
+            Draining,
+        }
+
+        let mut state = ProcessingState::Active;
+
+        // Start with an infinite timeout (will be updated on graceful shutdown)
+        let mut shutdown_deadline = std::pin::pin!(tokio::time::sleep(Duration::MAX));
+        // Pin the cancellation token
+        // let mut cancellation_token = std::pin::pin!(cancellation_token.cancelled());
+
+        // Init the inner components
+        if let Err(e) = inner.init().await {
+            tracing::error!(error=%e, "Error during initialization of session");
+        }
+
         loop {
             tokio::select! {
-                _ = cancellation_token.cancelled() => {
-                    debug!("Processing loop cancelled");
+                _ = cancellation_token.cancelled(), if state == ProcessingState::Active => {
+                    state = ProcessingState::Draining;
+
+                    // Update the timeout to the configured grace period
+                    let shutdown_timeout = settings.graceful_shutdown_timeout
+                        .unwrap_or(Duration::from_secs(60)); // Default 60 seconds if not configured
+
+                    // Send drain to message to the inner to notify the beginning of the drain
+                    if let Err(e) = inner.on_message(SessionMessage::StartDrain {grace_period: shutdown_timeout}).await {
+                        tracing::error!(error=%e, "Error during start drain");
+                        break;
+                    }
+
+                    // First finish processing messages already in the queue, until we empty it
+                    debug!("cancellation requested, entering draining state");
+                    while let Ok(msg) = rx.try_recv() {
+                        if let Err(e) = inner.on_message(msg).await {
+                            tracing::error!(error=%e, "Error processing message during draining");
+                            break;
+                        }
+                    }
+
+                    debug!("entering graceful shutdown mode with timeout: {:?}", shutdown_timeout);
+                    shutdown_deadline.as_mut().reset(tokio::time::Instant::now() + shutdown_timeout);
+                }
+                _ = &mut shutdown_deadline => {
+                    debug!("graceful shutdown timeout reached, forcing exit");
                     break;
                 }
                 msg = rx.recv() => {
                     match msg {
                         Some(session_message) => {
                             if let Err(e) = inner.on_message(session_message).await {
-                                tracing::error!(error=%e, "Error processing message in session");
+                                let draining = state == ProcessingState::Draining;
+                                tracing::error!(
+                                    error=%e,
+                                    "Error processing message{}",
+                                    if draining { " during graceful shutdown" } else { "" }
+                                );
+                                if draining {
+                                    debug!("Exiting processing loop due to error while draining");
+                                    break;
+                                }
+
                             }
                         }
                         None => {
-                            debug!("Controller channel closed, exiting processing loop");
+                            debug!("Session channel closed, no more messages can arrive - exiting processing loop");
                             break;
                         }
                     }
                 }
             }
+
+            // If we are in draining state and the inner component does not require drain, exit
+            if state == ProcessingState::Draining && !inner.needs_drain() {
+                break;
+            }
         }
 
-        // Perform shutdown
+        // Perform final shutdown
         if let Err(e) = inner.on_shutdown().await {
             tracing::error!(error=%e, "Error during shutdown of session");
         }
@@ -150,27 +227,61 @@ impl SessionController {
         self.config.initiator
     }
 
-    /// Send a message to the controller for processing
-    pub async fn on_message(
+    async fn on_message(
         &self,
         message: Message,
         direction: MessageDirection,
+        ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
     ) -> Result<(), SessionError> {
         self.tx_controller
-            .send(SessionMessage::OnMessage { message, direction })
+            .send(SessionMessage::OnMessage {
+                message,
+                direction,
+                ack_tx,
+            })
             .await
             .map_err(|e| {
-                SessionError::Processing(format!("Failed to send message to controller: {}", e))
+                SessionError::Processing(format!(
+                    "Failed to send message to session controller: {}",
+                    e
+                ))
             })
     }
 
-    pub fn close(&mut self) {
-        todo!()
-        // still needed?
+    /// Send a message to the controller for processing
+    pub async fn on_message_from_app(
+        &self,
+        message: Message,
+    ) -> Result<CompletionHandle, SessionError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.on_message(message, MessageDirection::South, Some(ack_tx))
+            .await?;
+
+        let ret = CompletionHandle::from_oneshot_receiver(ack_rx);
+
+        Ok(ret)
     }
 
-    pub async fn publish_message(&self, message: Message) -> Result<(), SessionError> {
-        self.on_message(message, MessageDirection::South).await
+    /// Send a message to the controller for processing
+    pub async fn on_message_from_slim(&self, message: Message) -> Result<(), SessionError> {
+        self.on_message(message, MessageDirection::North, None)
+            .await
+    }
+
+    pub fn close(&self) -> Result<tokio::task::JoinHandle<()>, SessionError> {
+        self.cancellation_token.cancel();
+
+        self.handle
+            .lock()
+            .take()
+            .ok_or(SessionError::Generic("Session already closed".to_string()))
+    }
+
+    pub async fn publish_message(
+        &self,
+        message: Message,
+    ) -> Result<CompletionHandle, SessionError> {
+        self.on_message_from_app(message).await
     }
 
     /// Publish a message to a specific connection (forward_to)
@@ -181,7 +292,7 @@ impl SessionController {
         blob: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<(), SessionError> {
+    ) -> Result<CompletionHandle, SessionError> {
         self.publish_with_flags(
             name,
             SlimHeaderFlags::default().with_forward_to(forward_to),
@@ -199,7 +310,7 @@ impl SessionController {
         blob: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<(), SessionError> {
+    ) -> Result<CompletionHandle, SessionError> {
         self.publish_with_flags(
             name,
             SlimHeaderFlags::default(),
@@ -218,7 +329,7 @@ impl SessionController {
         blob: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<(), SessionError> {
+    ) -> Result<CompletionHandle, SessionError> {
         let ct = payload_type.unwrap_or_else(|| "msg".to_string());
 
         let mut msg = Message::builder()
@@ -261,7 +372,18 @@ impl SessionController {
             .map_err(|e| SessionError::Processing(e.to_string()))
     }
 
-    pub async fn invite_participant(&self, destination: &Name) -> Result<(), SessionError> {
+    pub(crate) async fn invite_participant_internal(
+        &self,
+        destination: &Name,
+    ) -> Result<CompletionHandle, SessionError> {
+        let msg = self.create_discovery_request(destination)?;
+        self.publish_message(msg).await
+    }
+
+    pub async fn invite_participant(
+        &self,
+        destination: &Name,
+    ) -> Result<CompletionHandle, SessionError> {
         match self.session_type() {
             ProtoSessionType::PointToPoint => Err(SessionError::Processing(
                 "cannot invite participant to point-to-point session".into(),
@@ -272,14 +394,16 @@ impl SessionController {
                         "cannot invite participant to this session session".into(),
                     ));
                 }
-                let msg = self.create_discovery_request(destination)?;
-                self.publish_message(msg).await
+                self.invite_participant_internal(destination).await
             }
             _ => Err(SessionError::Processing("unexpected session type".into())),
         }
     }
 
-    pub async fn remove_participant(&self, destination: &Name) -> Result<(), SessionError> {
+    pub async fn remove_participant(
+        &self,
+        destination: &Name,
+    ) -> Result<CompletionHandle, SessionError> {
         match self.session_type() {
             ProtoSessionType::PointToPoint => Err(SessionError::Processing(
                 "cannot remove participant to point-to-point session".into(),
@@ -292,7 +416,7 @@ impl SessionController {
                 }
                 let msg = Message::builder()
                     .source(self.source().clone())
-                    .destination(destination.clone())
+                    .destination(destination.clone().with_id(Name::NULL_COMPONENT))
                     .identity("")
                     .session_type(ProtoSessionType::Multicast)
                     .session_message_type(ProtoSessionMessageType::LeaveRequest)
@@ -369,13 +493,9 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     pub(crate) fn new(settings: SessionSettings<P, V>) -> Self {
-        // timers settings for the controller
-        let controller_timer_settings =
-            TimerSettings::constant(Duration::from_secs(1)).with_max_retries(10);
-
         // create the controller sender
         let controller_sender = ControllerSender::new(
-            controller_timer_settings,
+            settings.config.get_timer_settings(),
             settings.source.clone(),
             // send messages to slim/app
             settings.tx.clone(),
@@ -394,6 +514,7 @@ where
         self.settings.tx.send_to_slim(Ok(message)).await
     }
 
+    /// Send control message without creating ack channel (for internal use by moderator)
     pub(crate) async fn send_with_timer(&mut self, message: Message) -> Result<(), SessionError> {
         self.sender.on_message(&message).await
     }
@@ -447,6 +568,7 @@ where
             .map_err(|e| SessionError::Processing(e.to_string()))
     }
 
+    /// Send control message without creating ack channel (for internal use by moderator)
     pub(crate) async fn send_control_message(
         &mut self,
         dst: &Name,
@@ -467,33 +589,12 @@ where
 
 #[cfg(test)]
 mod tests {
-    //! Test coverage for SessionController
-    //!
-    //! This test suite provides comprehensive coverage for the SessionController including:
-    //!
-    //! ## Integration Tests
-    //! - `test_end_to_end_p2p`: Complete point-to-point session lifecycle with MLS
-    //!   (discovery, join, welcome, messaging, leave)
-    //!
-    //! ## Unit Tests
-    //! - **Getters**: All getter methods (id, source, dst, session_type, metadata, etc.)
-    //! - **Publishing**: Basic publish, publish_to specific connection, publish with metadata
-    //! - **Participant Management**:
-    //!   - Invite participant in multicast (success and error cases)
-    //!   - Remove participant in multicast (success and error cases)
-    //!   - Error handling for non-initiators
-    //!   - Error handling for P2P sessions
-    //! - **Message Handling**: Discovery message handling, on_message with different directions
-    //! - **Lifecycle**: Drop implementation and cancellation token behavior
-    //! - **Internal Methods**: create_discovery_request validation
-    //!
-    //! Coverage: 15 unit tests + 1 comprehensive integration test
-
     use crate::transmitter::SessionTransmitter;
 
     use super::*;
     use slim_auth::shared_secret::SharedSecret;
 
+    use std::sync::Arc;
     use std::time::Duration;
     use tokio::time::timeout;
     use tracing_test::traced_test;
@@ -511,6 +612,7 @@ mod tests {
         max_retries: Option<u32>,
         interval: Option<Duration>,
         metadata: HashMap<String, String>,
+        graceful_shutdown_timeout: Option<Duration>,
     }
 
     impl SessionControllerTestBuilder {
@@ -526,6 +628,7 @@ mod tests {
                 max_retries: Some(5),
                 interval: Some(Duration::from_millis(200)),
                 metadata: HashMap::new(),
+                graceful_shutdown_timeout: Some(Duration::from_secs(10)),
             }
         }
 
@@ -566,7 +669,12 @@ mod tests {
             self
         }
 
-        async fn build(
+        fn with_graceful_shutdown_timeout(mut self, timeout: Duration) -> Self {
+            self.graceful_shutdown_timeout = Some(timeout);
+            self
+        }
+
+        fn build(
             self,
         ) -> (
             SessionController,
@@ -604,7 +712,6 @@ mod tests {
                 .ready()
                 .expect("failed to validate builder")
                 .build()
-                .await
                 .expect("failed to build controller");
 
             (controller, rx_slim, rx_app)
@@ -621,8 +728,7 @@ mod tests {
             .with_session_type(ProtoSessionType::Multicast)
             .with_mls_enabled(true)
             .with_metadata(metadata)
-            .build()
-            .await;
+            .build();
 
         assert_eq!(controller.id(), 42);
         assert_eq!(
@@ -647,7 +753,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_publish_basic() {
-        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build().await;
+        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build();
 
         let target_name = Name::from_strings(["org", "ns", "target"]);
         let payload = b"Hello World".to_vec();
@@ -669,8 +775,7 @@ mod tests {
     async fn test_publish_to_specific_connection() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
             .with_session_type(ProtoSessionType::Multicast)
-            .build()
-            .await;
+            .build();
 
         let target_name = Name::from_strings(["org", "ns", "target"]);
         let payload = b"Hello to specific connection".to_vec();
@@ -694,8 +799,7 @@ mod tests {
     async fn test_publish_with_metadata() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
             .with_session_type(ProtoSessionType::Multicast)
-            .build()
-            .await;
+            .build();
 
         let target_name = Name::from_strings(["org", "ns", "target"]);
         let payload = b"Hello with metadata".to_vec();
@@ -720,8 +824,7 @@ mod tests {
     async fn test_invite_participant_in_multicast() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
             .with_session_type(ProtoSessionType::Multicast)
-            .build()
-            .await;
+            .build();
 
         let participant = Name::from_strings(["org", "ns", "participant"]);
 
@@ -738,8 +841,7 @@ mod tests {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
             .with_session_type(ProtoSessionType::Multicast)
             .with_initiator(false)
-            .build()
-            .await;
+            .build();
 
         let participant = Name::from_strings(["org", "ns", "new_participant"]);
 
@@ -756,8 +858,7 @@ mod tests {
     async fn test_invite_participant_p2p_error() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
             .with_session_type(ProtoSessionType::PointToPoint)
-            .build()
-            .await;
+            .build();
 
         let participant = Name::from_strings(["org", "ns", "participant"]);
 
@@ -774,8 +875,7 @@ mod tests {
     async fn test_remove_participant_in_multicast() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
             .with_session_type(ProtoSessionType::Multicast)
-            .build()
-            .await;
+            .build();
 
         let participant = Name::from_strings(["org", "ns", "participant"]);
 
@@ -792,8 +892,7 @@ mod tests {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
             .with_session_type(ProtoSessionType::Multicast)
             .with_initiator(false)
-            .build()
-            .await;
+            .build();
 
         let participant = Name::from_strings(["org", "ns", "participant"]);
 
@@ -810,8 +909,7 @@ mod tests {
     async fn test_remove_participant_p2p_error() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
             .with_session_type(ProtoSessionType::PointToPoint)
-            .build()
-            .await;
+            .build();
 
         let participant = Name::from_strings(["org", "ns", "participant"]);
 
@@ -869,20 +967,83 @@ mod tests {
 
     #[tokio::test]
     async fn test_controller_drop_cancels_processing() {
-        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build().await;
+        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build();
 
         let token = controller.cancellation_token.clone();
         assert!(!token.is_cancelled());
 
         drop(controller);
 
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
         assert!(token.is_cancelled());
     }
 
     #[tokio::test]
+    async fn test_close_success() {
+        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
+            .with_graceful_shutdown_timeout(std::time::Duration::from_secs(2))
+            .build();
+
+        let token = controller.cancellation_token.clone();
+        assert!(!token.is_cancelled());
+
+        let handle = controller.close();
+        assert!(handle.is_ok(), "got error {}", handle.unwrap_err());
+        assert!(token.is_cancelled());
+
+        // Wait for the handle to complete
+        handle
+            .unwrap()
+            .await
+            .expect("processing task should complete");
+    }
+
+    #[tokio::test]
+    async fn test_close_already_closed() {
+        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build();
+
+        // Close once - should succeed
+        let handle = controller.close();
+        assert!(handle.is_ok());
+        handle
+            .unwrap()
+            .await
+            .expect("processing task should complete");
+
+        // Close again - should fail with appropriate error
+        let result = controller.close();
+        assert!(result.is_err());
+        match result {
+            Err(SessionError::Generic(msg)) => {
+                assert_eq!(msg, "Session already closed");
+            }
+            _ => panic!("Expected SessionError::Generic with 'Session already closed' message"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_close_cancels_token_immediately() {
+        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build();
+
+        let token = controller.cancellation_token.clone();
+
+        // Verify token is not cancelled before close
+        assert!(!token.is_cancelled());
+
+        // Close returns immediately after cancelling token
+        let handle = controller.close();
+        assert!(handle.is_ok());
+
+        // Token should be cancelled immediately
+        assert!(token.is_cancelled());
+
+        // Wait for processing to complete
+        handle.unwrap().await.expect("processing should complete");
+    }
+
+    #[tokio::test]
     async fn test_on_message_direction_north() {
-        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build().await;
+        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build();
 
         let test_message = Message::builder()
             .source(controller.dst().clone())
@@ -896,9 +1057,7 @@ mod tests {
             .build_publish()
             .unwrap();
 
-        let result = controller
-            .on_message(test_message, MessageDirection::North)
-            .await;
+        let result = controller.on_message_from_slim(test_message).await;
         assert!(result.is_ok());
     }
 
@@ -906,8 +1065,7 @@ mod tests {
     async fn test_create_discovery_request() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
             .with_session_type(ProtoSessionType::Multicast)
-            .build()
-            .await;
+            .build();
 
         let target = Name::from_strings(["org", "ns", "target"]);
         let discovery_msg = controller
@@ -971,7 +1129,6 @@ mod tests {
             .ready()
             .expect("failed to validate builder")
             .build()
-            .await
             .unwrap();
 
         // create a SessionParticipant
@@ -1005,11 +1162,13 @@ mod tests {
             .ready()
             .expect("failed to validate builder")
             .build()
-            .await
             .unwrap();
 
-        // Discovery request message is automatically sent by the moderator on creation
-        // check that the request is received by slim on the moderator
+        let completion_handle = moderator
+            .invite_participant_internal(&participant_name)
+            .await
+            .expect("error inviting participant");
+
         let received_discovery_request =
             timeout(Duration::from_millis(100), rx_slim_moderator.recv())
                 .await
@@ -1042,7 +1201,7 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         moderator
-            .on_message(discovery_reply, MessageDirection::North)
+            .on_message_from_slim(discovery_reply)
             .await
             .expect("error processing discovery reply on moderator");
 
@@ -1078,7 +1237,7 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         participant
-            .on_message(join_request_to_participant, MessageDirection::North)
+            .on_message_from_slim(join_request_to_participant)
             .await
             .expect("error processing join request on participant");
 
@@ -1113,7 +1272,7 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         moderator
-            .on_message(join_reply_to_moderator, MessageDirection::North)
+            .on_message_from_slim(join_reply_to_moderator)
             .await
             .expect("error processing join reply on moderator");
 
@@ -1137,7 +1296,7 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         participant
-            .on_message(welcome_to_participant, MessageDirection::North)
+            .on_message_from_slim(welcome_to_participant)
             .await
             .expect("error processing welcome message on participant");
 
@@ -1161,9 +1320,9 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         moderator
-            .on_message(ack_to_moderator, MessageDirection::North)
+            .on_message_from_slim(ack_to_moderator)
             .await
-            .expect("error processing ack on moderator");
+            .expect("error processing ack group on moderator");
 
         // no other message should be sent
         let no_more_moderator = timeout(Duration::from_millis(100), rx_slim_moderator.recv()).await;
@@ -1183,6 +1342,9 @@ mod tests {
             "Expected no more messages on participant slim channel"
         );
 
+        // the completion handler should now be complete
+        completion_handle.await.expect("error in completion handle");
+
         // create an application message using the participant name
         let app_data = b"Hello from moderator to participant".to_vec();
         let app_message = Message::builder()
@@ -1199,7 +1361,7 @@ mod tests {
 
         // call on message on the moderator (direction south)
         moderator
-            .on_message(app_message, MessageDirection::South)
+            .on_message_from_app(app_message)
             .await
             .expect("error sending application message from moderator");
 
@@ -1225,7 +1387,7 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         participant
-            .on_message(app_msg_to_participant, MessageDirection::North)
+            .on_message_from_slim(app_msg_to_participant)
             .await
             .expect("error processing application message on participant");
 
@@ -1273,7 +1435,7 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         moderator
-            .on_message(ack_to_moderator, MessageDirection::North)
+            .on_message_from_slim(ack_to_moderator)
             .await
             .expect("error processing ack on moderator");
 
@@ -1306,7 +1468,7 @@ mod tests {
             .unwrap();
 
         moderator
-            .on_message(leave_request, MessageDirection::South)
+            .on_message_from_app(leave_request)
             .await
             .expect("error sending leave request");
 
@@ -1330,7 +1492,7 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         participant
-            .on_message(leave_request_to_participant, MessageDirection::North)
+            .on_message_from_slim(leave_request_to_participant)
             .await
             .expect("error processing leave request on participant");
 
@@ -1367,7 +1529,7 @@ mod tests {
             .set_incoming_conn(Some(1));
 
         moderator
-            .on_message(leave_reply_to_moderator, MessageDirection::North)
+            .on_message_from_slim(leave_reply_to_moderator)
             .await
             .expect("error processing leave reply on moderator");
 
@@ -1398,6 +1560,415 @@ mod tests {
         assert!(
             no_more_participant_final.is_err(),
             "Expected no more messages on participant slim channel after leave"
+        );
+    }
+
+    // ============================================================================
+    // Draining Tests
+    // ============================================================================
+
+    /// Mock handler that tracks draining behavior
+    struct DrainableHandler {
+        messages_received: Arc<tokio::sync::Mutex<Vec<SessionMessage>>>,
+        needs_drain: Arc<std::sync::atomic::AtomicBool>,
+        shutdown_called: Arc<tokio::sync::Mutex<bool>>,
+        drain_delay: Option<Duration>,
+    }
+
+    impl DrainableHandler {
+        fn new() -> Self {
+            Self {
+                messages_received: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+                needs_drain: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                shutdown_called: Arc::new(tokio::sync::Mutex::new(false)),
+                drain_delay: None,
+            }
+        }
+
+        fn with_needs_drain(self, needs_drain: bool) -> Self {
+            self.needs_drain
+                .store(needs_drain, std::sync::atomic::Ordering::SeqCst);
+            self
+        }
+
+        #[allow(dead_code)]
+        fn with_drain_delay(mut self, delay: Duration) -> Self {
+            self.drain_delay = Some(delay);
+            self
+        }
+
+        #[allow(dead_code)]
+        async fn get_messages_count(&self) -> usize {
+            self.messages_received.lock().await.len()
+        }
+
+        #[allow(dead_code)]
+        async fn was_shutdown_called(&self) -> bool {
+            *self.shutdown_called.lock().await
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl MessageHandler for DrainableHandler {
+        async fn init(&mut self) -> Result<(), SessionError> {
+            Ok(())
+        }
+
+        async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
+            self.messages_received.lock().await.push(message);
+            Ok(())
+        }
+
+        fn needs_drain(&self) -> bool {
+            self.needs_drain.load(std::sync::atomic::Ordering::SeqCst)
+        }
+
+        async fn on_shutdown(&mut self) -> Result<(), SessionError> {
+            if let Some(delay) = self.drain_delay {
+                tokio::time::sleep(delay).await;
+            }
+            *self.shutdown_called.lock().await = true;
+            Ok(())
+        }
+    }
+
+    /// Helper to create test SessionSettings
+    fn create_test_settings(
+        graceful_shutdown_timeout: Option<Duration>,
+    ) -> SessionSettings<SharedSecret, SharedSecret> {
+        let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, _rx_app) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_session, _rx_session) = tokio::sync::mpsc::channel(10);
+        let (tx_session_layer, _rx_session_layer) = tokio::sync::mpsc::channel(10);
+
+        SessionSettings {
+            id: 1,
+            source: Name::from_strings(["org", "ns", "test"]).with_id(1),
+            destination: Name::from_strings(["org", "ns", "test"]).with_id(2),
+            config: SessionConfig {
+                session_type: ProtoSessionType::PointToPoint,
+                max_retries: Some(5),
+                interval: Some(Duration::from_millis(200)),
+                mls_enabled: false,
+                initiator: true,
+                metadata: HashMap::new(),
+            },
+            tx: SessionTransmitter::new(tx_slim, tx_app),
+            tx_session,
+            tx_to_session_layer: tx_session_layer,
+            identity_provider: SharedSecret::new("test", SHARED_SECRET),
+            identity_verifier: SharedSecret::new("test", SHARED_SECRET),
+            storage_path: std::path::PathBuf::from("/tmp/test_draining"),
+            graceful_shutdown_timeout,
+        }
+    }
+
+    /// Helper to create a test message
+    fn create_test_message(message_id: u32, payload: Vec<u8>) -> SessionMessage {
+        SessionMessage::OnMessage {
+            message: Message::builder()
+                .source(Name::from_strings(["org", "ns", "test"]).with_id(1))
+                .destination(Name::from_strings(["org", "ns", "test"]).with_id(2))
+                .identity("")
+                .forward_to(1)
+                .session_type(ProtoSessionType::PointToPoint)
+                .session_message_type(ProtoSessionMessageType::Msg)
+                .session_id(1)
+                .message_id(message_id)
+                .application_payload("test", payload)
+                .build_publish()
+                .unwrap(),
+            direction: MessageDirection::South,
+            ack_tx: None,
+        }
+    }
+
+    async fn count_on_messages(messages: &Arc<tokio::sync::Mutex<Vec<SessionMessage>>>) -> usize {
+        let messages = messages.lock().await;
+        messages
+            .iter()
+            .filter(|msg| matches!(msg, SessionMessage::OnMessage { .. }))
+            .count()
+    }
+
+    /// Helper to spawn a processing loop and return the task handle
+    fn spawn_processing_loop(
+        handler: DrainableHandler,
+        rx: tokio::sync::mpsc::Receiver<SessionMessage>,
+        cancellation_token: CancellationToken,
+        settings: SessionSettings<SharedSecret, SharedSecret>,
+    ) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            SessionController::processing_loop(handler, rx, cancellation_token, settings).await;
+        })
+    }
+
+    #[tokio::test]
+    async fn test_draining_processes_queued_messages() {
+        let handler = DrainableHandler::new();
+        let messages_received = handler.messages_received.clone();
+        let shutdown_called = handler.shutdown_called.clone();
+
+        let (tx, rx) = tokio::sync::mpsc::channel(10);
+        let cancellation_token = CancellationToken::new();
+        let token_clone = cancellation_token.clone();
+
+        let settings = create_test_settings(Some(Duration::from_secs(2)));
+        let processing_task = spawn_processing_loop(handler, rx, cancellation_token, settings);
+
+        // Send multiple messages before cancellation
+        tx.send(create_test_message(1, vec![1, 2, 3]))
+            .await
+            .unwrap();
+        tx.send(create_test_message(2, vec![4, 5, 6]))
+            .await
+            .unwrap();
+        tx.send(create_test_message(3, vec![7, 8, 9]))
+            .await
+            .unwrap();
+
+        // Give some time for messages to be queued
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Trigger cancellation
+        token_clone.cancel();
+
+        // Close the channel to signal no more messages
+        drop(tx);
+
+        // Wait for processing to complete
+        timeout(Duration::from_secs(3), processing_task)
+            .await
+            .expect("timeout waiting for processing loop")
+            .expect("processing loop panicked");
+
+        // Verify all messages were processed
+        let processed_messages = count_on_messages(&messages_received).await;
+        assert_eq!(
+            processed_messages, 3,
+            "All queued messages should be processed during draining"
+        );
+        assert!(
+            *shutdown_called.lock().await,
+            "Shutdown should have been called"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_draining_with_needs_drain_true() {
+        let handler = DrainableHandler::new().with_needs_drain(true);
+        let messages_received = handler.messages_received.clone();
+        let shutdown_called = handler.shutdown_called.clone();
+
+        let (tx, rx) = tokio::sync::mpsc::channel(10);
+        let cancellation_token = CancellationToken::new();
+        let token_clone = cancellation_token.clone();
+
+        let settings = create_test_settings(Some(Duration::from_secs(2)));
+        let processing_task = spawn_processing_loop(handler, rx, cancellation_token, settings);
+
+        // Send a message
+        tx.send(create_test_message(1, vec![1, 2, 3]))
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Trigger cancellation and close channel
+        token_clone.cancel();
+        drop(tx);
+
+        // Wait for processing to complete (should wait for drain timeout)
+        timeout(Duration::from_secs(3), processing_task)
+            .await
+            .expect("timeout waiting for processing loop")
+            .expect("processing loop panicked");
+
+        // Verify message was processed and shutdown was called
+        let processed_messages = count_on_messages(&messages_received).await;
+        assert_eq!(processed_messages, 1, "Message should be processed");
+        assert!(
+            *shutdown_called.lock().await,
+            "Shutdown should have been called after draining"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_draining_with_needs_drain_false() {
+        let handler = DrainableHandler::new().with_needs_drain(false);
+        let messages_received = handler.messages_received.clone();
+        let shutdown_called = handler.shutdown_called.clone();
+
+        let (tx, rx) = tokio::sync::mpsc::channel(10);
+        let cancellation_token = CancellationToken::new();
+        let token_clone = cancellation_token.clone();
+
+        let settings = create_test_settings(Some(Duration::from_secs(2)));
+
+        let start_time = tokio::time::Instant::now();
+        let processing_task = spawn_processing_loop(handler, rx, cancellation_token, settings);
+
+        // Send a message
+        tx.send(create_test_message(1, vec![1, 2, 3]))
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Trigger cancellation and close channel
+        token_clone.cancel();
+        drop(tx);
+
+        // Wait for processing to complete (should exit quickly)
+        timeout(Duration::from_secs(1), processing_task)
+            .await
+            .expect("timeout waiting for processing loop")
+            .expect("processing loop panicked");
+
+        let elapsed = start_time.elapsed();
+
+        // Verify message was processed and shutdown was called quickly
+        let processed_messages = count_on_messages(&messages_received).await;
+        assert_eq!(processed_messages, 1, "Message should be processed");
+        assert!(
+            *shutdown_called.lock().await,
+            "Shutdown should have been called"
+        );
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "Should exit quickly when no draining needed"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_draining_timeout_enforced() {
+        // Test that the timeout fires when draining takes too long with needs_drain=true
+        let handler = DrainableHandler::new().with_needs_drain(true);
+
+        let (tx, rx) = tokio::sync::mpsc::channel(10);
+        let cancellation_token = CancellationToken::new();
+        let token_clone = cancellation_token.clone();
+
+        let settings = create_test_settings(Some(Duration::from_millis(500)));
+        let processing_task = spawn_processing_loop(handler, rx, cancellation_token, settings);
+
+        // Give the processing loop a moment to start
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let start_time = tokio::time::Instant::now();
+
+        // Trigger cancellation - this starts draining
+        token_clone.cancel();
+
+        // Keep sending messages to prevent channel from closing
+        // This simulates a scenario where messages keep arriving during drain period
+        let send_task = tokio::spawn(async move {
+            for i in 0..10 {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                if tx
+                    .send(create_test_message(i, vec![i as u8]))
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+
+        // Wait for processing to complete - should timeout after 500ms
+        timeout(Duration::from_secs(2), processing_task)
+            .await
+            .expect("timeout waiting for processing loop")
+            .expect("processing loop panicked");
+
+        let elapsed = start_time.elapsed();
+
+        // Verify timeout was enforced (should be around 500ms)
+        assert!(
+            elapsed >= Duration::from_millis(400),
+            "Should wait at least close to the timeout period"
+        );
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "Should respect the timeout and exit, not wait forever"
+        );
+
+        // Clean up the send task
+        send_task.abort();
+    }
+
+    #[tokio::test]
+    async fn test_draining_no_messages_in_queue() {
+        let handler = DrainableHandler::new().with_needs_drain(true);
+        let messages_received = handler.messages_received.clone();
+        let shutdown_called = handler.shutdown_called.clone();
+
+        let (tx, rx) = tokio::sync::mpsc::channel(10);
+        let cancellation_token = CancellationToken::new();
+        let token_clone = cancellation_token.clone();
+
+        let settings = create_test_settings(Some(Duration::from_secs(1)));
+        let processing_task = spawn_processing_loop(handler, rx, cancellation_token, settings);
+
+        // Trigger cancellation immediately without sending messages
+        token_clone.cancel();
+        drop(tx);
+
+        // Wait for processing to complete
+        timeout(Duration::from_secs(2), processing_task)
+            .await
+            .expect("timeout waiting for processing loop")
+            .expect("processing loop panicked");
+
+        // Verify no messages were processed but shutdown was called
+        let processed_messages = count_on_messages(&messages_received).await;
+        assert_eq!(processed_messages, 0, "No messages should be processed");
+        assert!(
+            *shutdown_called.lock().await,
+            "Shutdown should still be called"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_draining_messages_after_cancellation_processed() {
+        let handler = DrainableHandler::new();
+        let messages_received = handler.messages_received.clone();
+
+        let (tx, rx) = tokio::sync::mpsc::channel(10);
+        let cancellation_token = CancellationToken::new();
+        let token_clone = cancellation_token.clone();
+
+        let settings = create_test_settings(Some(Duration::from_secs(2)));
+
+        // Send messages before cancellation
+        tx.send(create_test_message(1, vec![1, 2, 3]))
+            .await
+            .unwrap();
+        tx.send(create_test_message(2, vec![4, 5, 6]))
+            .await
+            .unwrap();
+
+        // Spawn the processing loop after messages are queued
+        let processing_task = spawn_processing_loop(handler, rx, cancellation_token, settings);
+
+        // Give a moment for processing to start
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Trigger cancellation while messages are in queue
+        token_clone.cancel();
+
+        // Close channel
+        drop(tx);
+
+        // Wait for processing to complete
+        timeout(Duration::from_secs(3), processing_task)
+            .await
+            .expect("timeout waiting for processing loop")
+            .expect("processing loop panicked");
+
+        // Verify messages in queue when cancellation happened were still processed
+        let processed_messages = count_on_messages(&messages_received).await;
+        assert_eq!(
+            processed_messages, 2,
+            "Messages in queue during cancellation should be processed"
         );
     }
 }

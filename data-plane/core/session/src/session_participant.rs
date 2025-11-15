@@ -94,12 +94,20 @@ where
 
     async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
         match message {
-            SessionMessage::OnMessage { message, direction } => {
+            SessionMessage::OnMessage {
+                message,
+                direction,
+                ack_tx,
+            } => {
                 if message.get_session_message_type().is_command_message() {
                     self.process_control_message(message).await
                 } else {
                     self.inner
-                        .on_message(SessionMessage::OnMessage { message, direction })
+                        .on_message(SessionMessage::OnMessage {
+                            message,
+                            direction,
+                            ack_tx,
+                        })
                         .await
                 }
             }
@@ -142,8 +150,23 @@ where
                         .await
                 }
             }
-            SessionMessage::StartDrain { grace_period_ms: _ } => todo!(),
-            SessionMessage::DeleteSession { session_id: _ } => todo!(),
+            SessionMessage::StartDrain {
+                grace_period: duration,
+            } => {
+                // Send drain to message to the inner to notify the beginning of the drain
+                debug!("received drain signal");
+                self.inner
+                    .on_message(SessionMessage::StartDrain {
+                        grace_period: duration,
+                    })
+                    .await?;
+                self.common.sender.start_drain();
+                Ok(())
+            }
+            _ => Err(SessionError::Processing(format!(
+                "Unexpected message type {:?}",
+                message
+            ))),
         }
     }
 
@@ -155,9 +178,15 @@ where
         self.inner.remove_endpoint(endpoint);
     }
 
+    fn needs_drain(&self) -> bool {
+        !self.common.sender.drain_completed() || self.inner.needs_drain()
+    }
+
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {
         // Participant-specific cleanup
         self.subscribed = false;
+        self.common.sender.close();
+
         // Shutdown inner layer
         MessageHandler::on_shutdown(&mut self.inner).await
     }
@@ -458,9 +487,8 @@ mod tests {
         let (tx_slim, rx_slim) = mpsc::channel(16);
         let (tx_app, _rx_app) = mpsc::unbounded_channel();
         let (tx_session, _rx_session) = mpsc::channel(16);
-        let (tx_session_layer, rx_session_layer) = mpsc::channel(16);
-
         let tx = crate::transmitter::SessionTransmitter::new(tx_slim, tx_app);
+        let (tx_session_layer, rx_session_layer) = mpsc::channel(16);
 
         let config = SessionConfig {
             session_type,
@@ -484,6 +512,7 @@ mod tests {
             identity_provider,
             identity_verifier,
             storage_path,
+            graceful_shutdown_timeout: None,
         };
 
         let inner = MockInnerHandler::new();
@@ -891,6 +920,7 @@ mod tests {
             .on_message(SessionMessage::OnMessage {
                 message: app_msg,
                 direction: crate::MessageDirection::South,
+                ack_tx: None,
             })
             .await;
 

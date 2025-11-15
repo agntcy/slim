@@ -66,7 +66,7 @@ def create_slim(
         require_aud=True,
     )
 
-    return slim_bindings.Slim.new(name, provider, verifier, local_service=False)
+    return slim_bindings.Slim(name, provider, verifier, local_service=False)
 
 
 @pytest.mark.asyncio
@@ -113,7 +113,7 @@ async def test_identity_verification(server, audience):
 
     # create new slim object. note that the verifier will use the public key of the receiver
     # to verify the JWT of the reply message
-    slim_sender = await create_slim(
+    slim_sender = create_slim(
         sender_name,
         private_key_sender,
         algorithm_sender,
@@ -123,7 +123,7 @@ async def test_identity_verification(server, audience):
 
     # create second local app. note that the receiver will use the public key of the sender
     # to verify the JWT of the request message
-    slim_receiver = await create_slim(
+    slim_receiver = create_slim(
         receiver_name,
         private_key_receiver,
         algorithm_receiver,
@@ -137,7 +137,13 @@ async def test_identity_verification(server, audience):
         max_retries=3,
         timeout=datetime.timedelta(seconds=1),
     )
-    session_info = await slim_sender.create_session(receiver_name, session_config)
+    session_info, completion_handle = await slim_sender.create_session(
+        receiver_name, session_config
+    )
+
+    # wait for session establishment if the audience is valid
+    if audience == test_audience:
+        await completion_handle
 
     # messages
     pub_msg = str.encode("thisistherequest")
@@ -167,10 +173,7 @@ async def test_identity_verification(server, audience):
                 # reply to the session
                 await recv_session.publish_to(_ctx, res_msg)
             except Exception as e:
-                print("Error receiving message on slim1:", e)
-            finally:
-                if recv_session is not None:
-                    await slim_receiver.delete_session(recv_session)
+                print("Error receiving message on slim:", e)
 
         t = asyncio.create_task(background_task())
 
@@ -188,9 +191,8 @@ async def test_identity_verification(server, audience):
         else:
             # expect an exception due to audience mismatch
             with pytest.raises(asyncio.TimeoutError):
-                # As audience matches, we expect a successful request/reply
-                await session_info.publish(pub_msg)
-                await asyncio.wait_for(session_info.get_message(), timeout=3.0)
+                pub_res = await session_info.publish(pub_msg)
+                await asyncio.wait_for(pub_res, timeout=3.0)
 
             # cancel the background task
             t.cancel()
@@ -198,4 +200,5 @@ async def test_identity_verification(server, audience):
                 await t
     finally:
         # delete sessions
-        await slim_sender.delete_session(session_info)
+        h = await slim_sender.delete_session(session_info)
+        await h
