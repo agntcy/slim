@@ -10,7 +10,7 @@ shopt: [globstar]
 
 verbose: false
 
-env: 
+env:
   SHARED_SECRET: "jasfhuejasdfhays3wtkrktasdhfsadu2rtkdhsfgeht"
 
 tasks:

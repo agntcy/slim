@@ -324,6 +324,7 @@ async def test_auto_reconnect_after_server_restart(server):
     await svc_alice.disconnect(conn_id_alice)
     await svc_bob.disconnect(conn_id_bob)
 
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("server", ["127.0.0.1:12347"], indirect=True)
 async def test_error_on_nonexistent_subscription(server):
@@ -368,9 +369,7 @@ async def test_error_on_nonexistent_subscription(server):
     # attempt to receive on Alice's session context; since Bob does not exist, no message should arrive
     # and we should also get an error coming from SLIM
     try:
-        session = await asyncio.wait_for(
-            svc_alice.listen_for_session(), timeout=5
-        )
+        session = await asyncio.wait_for(svc_alice.listen_for_session(), timeout=5)
     except asyncio.TimeoutError:
         pytest.fail("timed out waiting for error message on receive channel")
     except Exception as e:
@@ -384,6 +383,7 @@ async def test_error_on_nonexistent_subscription(server):
 
     # clean up
     await svc_alice.disconnect(conn_id_alice)
+
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("server", ["127.0.0.1:12345", None], indirect=True)
