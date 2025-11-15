@@ -42,6 +42,7 @@ target "_common" {
     "type=image",
   ]
   platforms = [
+    "linux/arm64",
     "linux/amd64",
   ]
 }
