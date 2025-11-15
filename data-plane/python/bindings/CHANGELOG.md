@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.6.2](https://github.com/agntcy/slim/compare/slim-bindings-v0.6.1...slim-bindings-v0.6.2) (2025-11-15)
+
+
+### Features
+
+* expand SharedSecret Auth from simple secret:id to HMAC tokens ([#858](https://github.com/agntcy/slim/issues/858)) ([1d0c6e8](https://github.com/agntcy/slim/commit/1d0c6e8f694ee15ac437564fe6400b4d7bd4dde1))
+* Integrate SPIRE-based mTLS & identity, unify TLS sources, enhance gRPC config, and add flexible metadata support ([#892](https://github.com/agntcy/slim/issues/892)) ([a86bfd6](https://github.com/agntcy/slim/commit/a86bfd64a75d7f5aba2b440d58fa8f3d5bd3a8a0))
+* **python-bindings:** Remove Py prefix from the python names ([#931](https://github.com/agntcy/slim/issues/931)) ([5ffb2cc](https://github.com/agntcy/slim/commit/5ffb2cca4bcb3c9c2f6985e8bff8e8e223266585))
+* Update task files to generate coverage for python bindings ([#849](https://github.com/agntcy/slim/issues/849)) ([e45ad47](https://github.com/agntcy/slim/commit/e45ad47357b1008938edee3a7decb78f84bee5a4))
+
+
+### Bug Fixes
+
+* **app.rs:** get app name from local property ([#859](https://github.com/agntcy/slim/issues/859)) ([5918912](https://github.com/agntcy/slim/commit/591891219ebea0605a22abdbb292c29aa486073c))
+* **bindings:** Make sure type hinting is working ([#920](https://github.com/agntcy/slim/issues/920)) ([380030e](https://github.com/agntcy/slim/commit/380030e4f3b7b2d2c3ac2a07c4c269fc4a98920e))
+* **service:** disconnect API ([#890](https://github.com/agntcy/slim/issues/890)) ([4308cc4](https://github.com/agntcy/slim/commit/4308cc4d1bcd4a97bb4d6461d9286cc3b2a21e00))
+* **session:** prevent session queue saturation ([#903](https://github.com/agntcy/slim/issues/903)) ([3ba44eb](https://github.com/agntcy/slim/commit/3ba44eb7d15f129efdb9499806c544d829f25409))
+
 ## [0.6.1](https://github.com/agntcy/slim/compare/slim-bindings-v0.6.0...slim-bindings-v0.6.1) (2025-10-17)
 
 
