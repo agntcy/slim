@@ -28,7 +28,7 @@ use crate::{
     common::{MessageDirection, SessionMessage},
     errors::SessionError,
     mls_state::{MlsModeratorState, MlsState},
-    moderator_task::{AddParticipant, ModeratorTask, RemoveParticipant, TaskUpdate},
+    moderator_task::{AddParticipant, CloseGroup, ModeratorTask, RemoveParticipant, TaskUpdate},
     session_controller::SessionControllerCommon,
     session_settings::SessionSettings,
     traits::MessageHandler,
@@ -205,6 +205,9 @@ where
                             &mut task.ack_tx,
                             "failed to update state of the participant",
                         ),
+                        ModeratorTask::Close(task) => {
+                            signal_failure(&mut task.ack_tx, "failed to close the session")
+                        }
                     };
 
                     // 2. delete current task and pick a new one
@@ -238,7 +241,7 @@ where
                 leave_msg.insert_metadata(DELETE_GROUP.to_string(), TRUE_VAL.to_string());
 
                 // send it to all the participants
-                self.delete_all(leave_msg).await
+                self.delete_all(leave_msg, None).await
             }
             _ => Err(SessionError::Processing(format!(
                 "Unexpected message type {:?}",
@@ -290,6 +293,7 @@ where
                 ModeratorTask::Add(t) => t.ack_tx,
                 ModeratorTask::Remove(t) => t.ack_tx,
                 ModeratorTask::Update(t) => t.ack_tx,
+                ModeratorTask::Close(t) => t.ack_tx,
             };
             if let Some(tx) = ack_tx {
                 let _ = tx.send(Err(SessionError::Processing(error.to_string())));
@@ -323,7 +327,7 @@ where
                 // if the metadata contains the key "DELETE_GROUP" remove all the participants
                 // and close the session when all task are completed
                 if message.contains_metadata(DELETE_GROUP) {
-                    return self.delete_all(message).await;
+                    return self.delete_all(message, ack_tx).await;
                 }
 
                 // if the message contains a payload and the name is the same as the
@@ -339,7 +343,7 @@ where
                     .as_ref()
                     && Name::from(n) == self.common.settings.source
                 {
-                    return self.delete_all(message).await;
+                    return self.delete_all(message, ack_tx).await;
                 }
 
                 // otherwise start the leave process
@@ -351,6 +355,7 @@ where
             ProtoSessionMessageType::GroupAdd
             | ProtoSessionMessageType::GroupRemove
             | ProtoSessionMessageType::GroupWelcome
+            | ProtoSessionMessageType::GroupClose
             | ProtoSessionMessageType::GroupNack => Err(SessionError::Processing(format!(
                 "Unexpected control message type {:?}",
                 message.get_session_message_type()
@@ -777,12 +782,13 @@ where
         Ok(())
     }
 
-    async fn delete_all(&mut self, _msg: Message) -> Result<(), SessionError> {
+    async fn delete_all(
+        &mut self,
+        _msg: Message,
+        ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
+    ) -> Result<(), SessionError> {
         debug!("receive a close channel message, send signals to all participants");
-        // create tasks to remove each participant from the group
-        // even if mls is enable we just send the leave message
-        // in any case the group will be deleted so there is no need to
-        // update the mls state, this will speed up the process
+        // create tasks to close the session
         self.closing = true;
         // remove mls state
         self.mls_state = None;
@@ -802,31 +808,33 @@ where
         let mut local = self.common.settings.source.clone();
         local.reset_id();
         self.group_list.remove(&local);
-        // Collect the participants first to avoid borrowing conflicts
-        let participants: Vec<Name> = self.group_list.keys().cloned().collect();
 
-        for p in participants {
-            // here we use only p as destination name, the id will be
-            // added later in the on_leave_request message
-            let leave = self.common.create_control_message(
-                &p,
-                ProtoSessionMessageType::LeaveRequest,
-                rand::random::<u32>(),
-                CommandPayload::builder().leave_request(None).as_content(),
-                false,
-            )?;
-            // append the task to the list with None ack_tx
-            self.tasks_todo.push_back((leave, None));
-        }
+        // Collect the participants and create the close message
+        //let mut participants = vec![];
+        //for (k, v) in self.group_list.iter() {
+        //    let name = k.clone().with_id(*v);
+        //    participants.push(name);
+        //}
+        let participants = self.group_list.keys().cloned().collect();
 
-        // try to pickup the first task
-        match self.tasks_todo.pop_front() {
-            Some((msg, ack_tx)) => self.on_leave_request(msg, ack_tx).await,
-            None => {
-                // nothing left to do here
-                Ok(())
-            }
-        }
+        let destination = self.common.settings.destination.clone();
+        let close_id = rand::random::<u32>();
+        let close = self.common.create_control_message(
+            &destination,
+            ProtoSessionMessageType::GroupClose,
+            close_id,
+            CommandPayload::builder()
+                .group_close(participants)
+                .as_content(),
+            true,
+        )?;
+
+        // create the close task
+        self.current_task = Some(ModeratorTask::Close(CloseGroup::new(ack_tx)));
+        self.current_task.as_mut().unwrap().leave_start(close_id)?;
+
+        // sent the message
+        self.common.sender.on_message(&close).await
     }
 
     async fn on_leave_reply(&mut self, msg: Message) -> Result<(), SessionError> {
@@ -1357,7 +1365,7 @@ mod tests {
             .build_publish()
             .unwrap();
 
-        let result = moderator.delete_all(delete_msg).await;
+        let result = moderator.delete_all(delete_msg, None).await;
         assert!(result.is_ok() || result.is_err()); // May error due to missing routes
 
         assert!(moderator.closing);

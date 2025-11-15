@@ -406,6 +406,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::process::exit(1);
         }
     }
+
+    // close session
+    let handle = session_arc.close().expect("error closing session");
+    handle.await.expect("error waiting the handler");
     println!("test succeeded");
     Ok(())
+
 }
