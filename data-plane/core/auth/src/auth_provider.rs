@@ -212,7 +212,13 @@ impl std::fmt::Debug for AuthVerifier {
 #[async_trait]
 impl TokenProvider for AuthProvider {
     async fn initialize(&mut self) -> Result<(), AuthError> {
-        Ok(())
+        match self {
+            AuthProvider::JwtSigner(signer) => signer.initialize().await,
+            AuthProvider::StaticToken(provider) => provider.initialize().await,
+            AuthProvider::SharedSecret(secret) => secret.initialize().await,
+            #[cfg(not(target_family = "windows"))]
+            AuthProvider::Spire(spire) => spire.initialize().await,
+        }
     }
 
     fn get_token(&self) -> Result<String, AuthError> {

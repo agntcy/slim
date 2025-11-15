@@ -61,8 +61,24 @@ impl PyApp {
                 // Convert the PyIdentityProvider into IdentityProvider
                 let provider: IdentityProvider = provider.into();
 
+                // Initialize the identity provider
+                provider.initialize().await.map_err(|e| {
+                    PyErr::new::<PyException, _>(format!(
+                        "Failed to initialize IdentityProvider: {}",
+                        e
+                    ))
+                })?;
+
                 // Convert the PyIdentityVerifier into IdentityVerifier
                 let verifier: IdentityVerifier = verifier.into();
+
+                // Initialize the identity verifier
+                verifier.initialize().await.map_err(|e| {
+                    PyErr::new::<PyException, _>(format!(
+                        "Failed to initialize IdentityVerifier: {}",
+                        e
+                    ))
+                })?;
 
                 // Convert PyName into Name
                 let base_name: Name = name.into();
