@@ -157,6 +157,7 @@ pub enum AuthProvider {
 /// # });
 /// ```
 #[derive(Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum AuthVerifier {
     /// JWT-based token verifier using verification keys
     JwtVerifier(VerifierJwt),
