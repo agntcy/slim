@@ -207,6 +207,8 @@ pub(crate) type IdentityProvider = AuthProvider;
 ///     standard JWT claims (iss, aud, sub) and a token validity duration.
 /// * SharedSecret { identity, shared_secret }:
 ///     Symmetric token provider using a shared secret. Used mainly for testing.
+/// * Spire { socket_path=None, target_spiffe_id=None, jwt_audiences=None }:
+///     SPIRE-based provider retrieving SPIFFE JWT SVIDs (non-Windows only; requires SPIRE agent socket).
 ///
 /// Examples (Python):
 ///
@@ -298,6 +300,15 @@ pub(crate) enum PyIdentityProvider {
         identity: String,
         shared_secret: String,
     },
+    #[cfg(not(target_family = "windows"))]
+    #[pyo3(constructor = (socket_path=None, target_spiffe_id=None, jwt_audiences=None))]
+    Spire {
+        socket_path: Option<String>,
+        target_spiffe_id: Option<String>,
+        jwt_audiences: Option<Vec<String>>,
+        /// Internal initialized manager (set after .init()).
+        _manager: Option<slim_auth::spire::SpireIdentityManager>,
+    },
 }
 
 impl From<PyIdentityProvider> for IdentityProvider {
@@ -337,6 +348,31 @@ impl From<PyIdentityProvider> for IdentityProvider {
                 identity,
                 shared_secret,
             } => AuthProvider::SharedSecret(SharedSecret::new(&identity, &shared_secret)),
+            #[cfg(not(target_family = "windows"))]
+            PyIdentityProvider::Spire {
+                socket_path,
+                target_spiffe_id,
+                jwt_audiences,
+                _manager,
+            } => {
+                if let Some(mgr) = _manager.clone() {
+                    AuthProvider::Spire(mgr)
+                } else {
+                    let mut builder = slim_auth::spire::SpireIdentityManager::builder();
+                    if let Some(sp) = socket_path {
+                        builder = builder.with_socket_path(sp);
+                    }
+                    if let Some(id) = target_spiffe_id {
+                        builder = builder.with_target_spiffe_id(id);
+                    }
+                    if let Some(auds) = jwt_audiences {
+                        builder = builder.with_jwt_audiences(auds);
+                    }
+                    let mgr = builder.build();
+                    // Not initialized yet; caller may invoke .init() before use.
+                    AuthProvider::Spire(mgr)
+                }
+            }
         }
     }
 }
@@ -357,6 +393,10 @@ pub(crate) type IdentityVerifier = AuthVerifier;
 ///     (public_key must be omitted in that case).
 /// * SharedSecret { identity, shared_secret }:
 ///     Verifies tokens generated with the same shared secret.
+/// * Spire { socket_path=None, target_spiffe_id=None, jwt_audiences=None }:
+///     SPIRE-based JWT SVID verifier (non-Windows only). Uses SPIRE Workload API
+///     bundles to validate SPIFFE JWT SVIDs. Requires an initialized SPIRE
+///     identity manager. (Underlying AuthVerifier support must exist.)
 ///
 /// JWKS Auto-Resolve:
 ///   When `autoresolve=True`, the verifier will attempt to resolve keys
@@ -465,6 +505,15 @@ pub(crate) enum PyIdentityVerifier {
         identity: String,
         shared_secret: String,
     },
+    #[cfg(not(target_family = "windows"))]
+    #[pyo3(constructor = (socket_path=None, target_spiffe_id=None, jwt_audiences=None))]
+    Spire {
+        socket_path: Option<String>,
+        target_spiffe_id: Option<String>,
+        jwt_audiences: Option<Vec<String>>,
+        /// Internal initialized manager (set after .init()).
+        _manager: Option<slim_auth::spire::SpireIdentityManager>,
+    },
 }
 
 impl From<PyIdentityVerifier> for IdentityVerifier {
@@ -520,6 +569,31 @@ impl From<PyIdentityVerifier> for IdentityVerifier {
                 identity,
                 shared_secret,
             } => AuthVerifier::SharedSecret(SharedSecret::new(&identity, &shared_secret)),
+            #[cfg(not(target_family = "windows"))]
+            PyIdentityVerifier::Spire {
+                socket_path,
+                target_spiffe_id,
+                jwt_audiences,
+                _manager,
+            } => {
+                if let Some(mgr) = _manager.clone() {
+                    AuthVerifier::Spire(mgr)
+                } else {
+                    let mut builder = slim_auth::spire::SpireIdentityManager::builder();
+                    if let Some(sp) = socket_path {
+                        builder = builder.with_socket_path(sp);
+                    }
+                    if let Some(id) = target_spiffe_id {
+                        builder = builder.with_target_spiffe_id(id);
+                    }
+                    if let Some(auds) = jwt_audiences {
+                        builder = builder.with_jwt_audiences(auds);
+                    }
+                    let mgr = builder.build();
+                    // Not initialized yet; caller may invoke .init() before use.
+                    AuthVerifier::Spire(mgr)
+                }
+            }
         }
     }
 }
