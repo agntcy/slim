@@ -434,6 +434,10 @@ impl SpireIdentityManager {
 
 #[async_trait]
 impl TokenProvider for SpireIdentityManager {
+    async fn initialize(&mut self) -> Result<(), AuthError> {
+        self.initialize().await
+    }
+
     fn get_token(&self) -> Result<String, AuthError> {
         let jwt_svid = self.get_jwt_svid()?;
         Ok(jwt_svid.token().to_string())
@@ -1035,6 +1039,10 @@ fn calculate_refresh_interval<T: JwtLike>(jwt: &T) -> Result<Duration, AuthError
 
 #[async_trait]
 impl Verifier for SpireIdentityManager {
+    async fn initialize(&mut self) -> Result<(), AuthError> {
+        self.initialize().await
+    }
+
     async fn verify(&self, token: impl Into<String> + Send) -> Result<(), AuthError> {
         self.try_verify(token)
     }
