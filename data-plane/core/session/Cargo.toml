@@ -12,7 +12,6 @@ name = "slim_session"
 agntcy-slim-auth = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-mls = { workspace = true }
-
 async-trait = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }

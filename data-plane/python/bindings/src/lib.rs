@@ -18,17 +18,10 @@ mod _slim_bindings {
     use super::*;
 
     #[pymodule_export]
-    use pyapp::{
-        PyApp, connect, create_pyapp, create_session, delete_session, disconnect,
-        listen_for_session, remove_route, run_server, set_route, stop_server, subscribe,
-        unsubscribe,
-    };
+    use pyapp::PyApp;
 
     #[pymodule_export]
-    use pysession::{
-        PySessionConfiguration, PySessionContext, PySessionType, get_message, invite, publish,
-        publish_to, remove,
-    };
+    use pysession::{PyCompletionHandle, PySessionConfiguration, PySessionContext, PySessionType};
 
     #[pymodule_export]
     use pymessage::PyMessageContext;

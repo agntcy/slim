@@ -167,7 +167,6 @@ async fn main() {
             SharedSecret::new(&local_name_str, slim_testing::utils::TEST_VALID_SECRET),
             SharedSecret::new(&local_name_str, slim_testing::utils::TEST_VALID_SECRET),
         )
-        .await
         .expect("failed to create app");
 
     // run the service - this will create all the connections provided via the config file.
@@ -214,10 +213,12 @@ async fn main() {
             initiator: true,
             metadata: HashMap::new(),
         };
-        let session_ctx = app
+        let (session_ctx, completion_handle) = app
             .create_session(config, channel_name.clone(), Some(12345))
             .await
             .expect("error creating session");
+
+        completion_handle.await.expect("error establishing session");
 
         // invite all participants
         for p in participants {

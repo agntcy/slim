@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use slim_session::CompletionHandle;
 use slim_session::session_controller::SessionController;
 use std::collections::HashMap;
 use tokio::sync::RwLock;
@@ -45,7 +46,7 @@ impl BindingsSessionContext {
         conn_out: Option<u64>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<(), ServiceError> {
+    ) -> Result<CompletionHandle, ServiceError> {
         let session = self
             .session
             .upgrade()
@@ -79,7 +80,7 @@ impl BindingsSessionContext {
         blob: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<(), ServiceError> {
+    ) -> Result<CompletionHandle, ServiceError> {
         let session = self
             .session
             .upgrade()
@@ -106,7 +107,7 @@ impl BindingsSessionContext {
     }
 
     /// Invite a peer to join this session
-    pub async fn invite(&self, destination: &Name) -> Result<(), SessionError> {
+    pub async fn invite(&self, destination: &Name) -> Result<CompletionHandle, SessionError> {
         let session = self
             .session
             .upgrade()
@@ -116,7 +117,7 @@ impl BindingsSessionContext {
     }
 
     /// Remove a peer from this session
-    pub async fn remove(&self, destination: &Name) -> Result<(), SessionError> {
+    pub async fn remove(&self, destination: &Name) -> Result<CompletionHandle, SessionError> {
         let session = self
             .session
             .upgrade()
@@ -211,12 +212,15 @@ mod tests {
         let (provider, verifier) = create_test_auth();
 
         let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .await
             .expect("Failed to create adapter");
 
-        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
+        let config = SessionConfig {
+            session_type: ProtoSessionType::PointToPoint,
+            initiator: true,
+            ..Default::default()
+        };
         let dst = Name::from_strings(["org", "ns", "dst"]);
-        let session_ctx = adapter
+        let (session_ctx, _init_ack) = adapter
             .create_session(config, dst)
             .await
             .expect("Failed to create session");
@@ -234,16 +238,16 @@ mod tests {
         let (provider, verifier) = create_test_auth();
 
         let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .await
             .expect("Failed to create adapter");
 
         // Create a session and convert to BindingsSessionContext
         let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
         let dst = Name::from_strings(["org", "ns", "dst"]);
-        let session_ctx = adapter
+        let (session_ctx, _init_ack) = adapter
             .create_session(config, dst)
             .await
             .expect("Failed to create session");
+
         let bindings_ctx = BindingsSessionContext::from(session_ctx);
 
         // Test that get_session_message times out when no messages are sent
@@ -263,16 +267,16 @@ mod tests {
         let (provider, verifier) = create_test_auth();
 
         let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .await
             .expect("Failed to create adapter");
 
         // Create a session and convert to BindingsSessionContext
         let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
         let dst = Name::from_strings(["org", "ns", "dst"]);
-        let session_ctx = adapter
+        let (session_ctx, _init_ack) = adapter
             .create_session(config, dst)
             .await
             .expect("Failed to create session");
+
         let bindings_ctx = BindingsSessionContext::from(session_ctx);
 
         // Test with None timeout - should wait indefinitely until channel is closed
@@ -294,16 +298,16 @@ mod tests {
         let (provider, verifier) = create_test_auth();
 
         let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .await
             .expect("Failed to create adapter");
 
         // Create a session and convert to BindingsSessionContext
         let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
         let dst = Name::from_strings(["org", "ns", "dst"]);
-        let session_ctx = adapter
+        let (session_ctx, _init_ack) = adapter
             .create_session(config, dst)
             .await
             .expect("Failed to create session");
+
         let bindings_ctx = BindingsSessionContext::from(session_ctx);
 
         // Test very short timeout
@@ -335,17 +339,18 @@ mod tests {
         let (provider, verifier) = create_test_auth();
 
         let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .await
             .expect("Failed to create adapter");
 
         // Create a session first
+        // Create a session and convert to BindingsSessionContext
         let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
         let dst = Name::from_strings(["org", "ns", "dst"]);
-        let session_ctx = adapter
+        let (session_ctx, _init_ack) = adapter
             .create_session(config, dst)
             .await
             .expect("Failed to create session");
-        let session_bindings = BindingsSessionContext::from(session_ctx);
+
+        let bindings_ctx = BindingsSessionContext::from(session_ctx);
 
         // Create a message context (simulating a received message)
         let source_name = Name::from_strings(["sender", "org", "service"]);
@@ -366,7 +371,7 @@ mod tests {
         let reply_metadata = metadata;
 
         // Test publish_to - this should work without errors
-        let result = session_bindings
+        let result = bindings_ctx
             .publish_to(
                 &message_ctx,
                 reply_message,

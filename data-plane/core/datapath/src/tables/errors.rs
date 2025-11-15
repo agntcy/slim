@@ -7,10 +7,10 @@ use thiserror::Error;
 pub enum SubscriptionTableError {
     #[error("no matching found for {0}")]
     NoMatch(String),
-    #[error("subscription not fund")]
+    #[error("subscription not found")]
     SubscriptionNotFound,
-    #[error("id not fund")]
+    #[error("id not found")]
     IdNotFound,
-    #[error("connection id not fund")]
+    #[error("connection id not found")]
     ConnectionIdNotFound,
 }

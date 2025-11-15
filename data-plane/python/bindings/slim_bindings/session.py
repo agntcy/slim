@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import datetime
+import typing
 
 from ._slim_bindings import (
     MessageContext,
@@ -12,24 +13,9 @@ from ._slim_bindings import (
     SessionContext,
     SessionType,
 )
-from ._slim_bindings import (
-    get_message as _get_message,
-)
-from ._slim_bindings import (
-    invite as _invite,
-)
-from ._slim_bindings import (
-    publish as _publish,
-)
-from ._slim_bindings import (
-    publish_to as _publish_to,
-)
-from ._slim_bindings import (
-    remove as _remove,
-)
 
 
-class PySession:
+class Session:
     """High level Python wrapper around a `SessionContext`.
 
     This object provides a Pythonic façade over the lower-level Rust session
@@ -89,12 +75,12 @@ class PySession:
         """Return the destination name"""
         return self._ctx.dst
 
-    async def publish(
+    def publish(
         self,
         msg: bytes,
         payload_type: str | None = None,
         metadata: dict | None = None,
-    ) -> None:
+    ) -> typing.Any:
         """
         Publish a message on the current session.
 
@@ -108,8 +94,7 @@ class PySession:
             None
         """
 
-        await _publish(
-            self._ctx,
+        return self._ctx.publish(
             1,
             msg,
             message_ctx=None,
@@ -124,7 +109,7 @@ class PySession:
         msg: bytes,
         payload_type: str | None = None,
         metadata: dict | None = None,
-    ):
+    ) -> typing.Any:
         """
         Publish a message directly back to the originator associated with the
         supplied `message_ctx` (reply semantics).
@@ -144,15 +129,14 @@ class PySession:
             RuntimeError (wrapped) if sending fails or the session is closed.
         """
 
-        await _publish_to(
-            self._ctx,
+        return self._ctx.publish_to(
             message_ctx,
             msg,
             payload_type=payload_type,
             metadata=metadata,
         )
 
-    async def invite(self, name: Name) -> None:
+    async def invite(self, name: Name) -> typing.Any:
         """Invite (add) a participant to this session. Only works for Group.
 
         Args:
@@ -161,9 +145,9 @@ class PySession:
         Raises:
             RuntimeError (wrapped) if the invite fails.
         """
-        await _invite(self._ctx, name)
+        return await self._ctx.invite(name)
 
-    async def remove(self, name: Name) -> None:
+    async def remove(self, name: Name) -> typing.Any:
         """Remove (eject) a participant from this session. Only works for Group.
 
         Args:
@@ -172,7 +156,7 @@ class PySession:
         Raises:
             RuntimeError (wrapped) if removal fails.
         """
-        await _remove(self._ctx, name)
+        return await self._ctx.remove(name)
 
     async def get_message(
         self, timeout: datetime.timedelta | None = None
@@ -186,9 +170,9 @@ class PySession:
         Raises:
             RuntimeError (wrapped) if the session is closed or receive fails.
         """
-        return await _get_message(self._ctx, timeout)
+        return await self._ctx.get_message(timeout)
 
 
 __all__ = [
-    "PySession",
+    "Session",
 ]

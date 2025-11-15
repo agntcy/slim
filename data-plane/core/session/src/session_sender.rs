@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 use slim_datapath::api::ProtoSessionType;
 use slim_datapath::{api::ProtoMessage as Message, messages::Name};
 use tokio::sync::mpsc::Sender;
+use tokio::sync::oneshot;
 use tracing::debug;
 
 use crate::common::new_message_from_session_fields;
@@ -72,6 +73,9 @@ pub struct SessionSender {
 
     /// drain state - when true, no new messages from app are accepted
     draining_state: SenderDrainStatus,
+
+    /// oneshot senders to signal when network acks are received for each message
+    ack_notifiers: HashMap<u32, oneshot::Sender<Result<(), SessionError>>>,
 }
 
 #[allow(dead_code)]
@@ -105,11 +109,22 @@ impl SessionSender {
             tx,
             to_flush: false,
             draining_state: SenderDrainStatus::NotDraining,
+            ack_notifiers: HashMap::new(),
         }
     }
 
-    pub async fn on_message(&mut self, message: Message) -> Result<(), SessionError> {
+    /// Send a message with optional acknowledgment notification
+    pub async fn on_message(
+        &mut self,
+        message: Message,
+        ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
+    ) -> Result<(), SessionError> {
         if self.draining_state == SenderDrainStatus::Completed {
+            if let Some(tx) = ack_tx {
+                let _ = tx.send(Err(SessionError::Processing(
+                    "sender closed, drop message".to_string(),
+                )));
+            }
             return Err(SessionError::Processing(
                 "sender closed, drop message".to_string(),
             ));
@@ -119,45 +134,54 @@ impl SessionSender {
             slim_datapath::api::ProtoSessionMessageType::Msg => {
                 debug!("received message");
                 if self.draining_state == SenderDrainStatus::Initiated {
-                    // draining period is started, do no accept any new message
+                    if let Some(tx) = ack_tx {
+                        let _ = tx.send(Err(SessionError::Processing(
+                            "drain started do no accept new messages".to_string(),
+                        )));
+                    }
                     return Err(SessionError::Processing(
                         "drain started do no accept new messages".to_string(),
                     ));
                 }
-                self.on_publish_message(message).await?;
+                self.on_publish_message(message, ack_tx).await?;
             }
             slim_datapath::api::ProtoSessionMessageType::MsgAck => {
                 debug!("received ack message");
+                if let Some(tx) = ack_tx {
+                    let _ = tx.send(Ok(()));
+                }
                 if self.timer_factory.is_none() {
-                    // drop the message
                     return Ok(());
                 }
                 self.on_ack_message(&message);
             }
             slim_datapath::api::ProtoSessionMessageType::RtxRequest => {
                 debug!("received rtx message");
+                if let Some(tx) = ack_tx {
+                    let _ = tx.send(Ok(()));
+                }
                 if self.timer_factory.is_none() {
-                    // drop the message
                     return Ok(());
                 }
-                // receiving an rtx request for a message we stop the
-                // corresponding ack timer. For this point on if the
-                // message is not delivered the receiver side will keep
-                // asking for it
                 self.on_ack_message(&message);
-                // after the ack removal, process the rtx request
                 self.on_rtx_message(message).await?;
             }
             _ => {
                 debug!("unexpected message type");
+                if let Some(tx) = ack_tx {
+                    let _ = tx.send(Ok(()));
+                }
             }
         }
 
-        // return the right state
         Ok(())
     }
 
-    async fn on_publish_message(&mut self, mut message: Message) -> Result<(), SessionError> {
+    async fn on_publish_message(
+        &mut self,
+        mut message: Message,
+        ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
+    ) -> Result<(), SessionError> {
         // compute message id
         // by increasing next_id before assign it to message_id
         // we always skip message 0 (used as drain timer id)
@@ -180,6 +204,17 @@ impl SessionSender {
 
         // add the message to the producer buffer.
         self.buffer.push(message.clone());
+
+        // Store the ack notifier if provided
+        if let Some(tx) = ack_tx {
+            // In unreliable mode (no timer_factory), signal success immediately
+            // since we don't wait for network acks
+            if self.timer_factory.is_none() {
+                let _ = tx.send(Ok(()));
+            } else {
+                self.ack_notifiers.insert(message_id, tx);
+            }
+        }
 
         if self.endpoints_list.is_empty() {
             debug!(
@@ -249,6 +284,11 @@ impl SessionSender {
                 // all acks received. stop the timer and remove the entry
                 gt.timer.stop();
                 delete = true;
+
+                // Signal success to the ack notifier if present
+                if let Some(tx) = self.ack_notifiers.remove(&message_id) {
+                    let _ = tx.send(Ok(()));
+                }
             }
         }
 
@@ -365,6 +405,14 @@ impl SessionSender {
 
         self.pending_acks.remove(&id);
 
+        // Signal failure to the ack notifier if present
+        if let Some(tx) = self.ack_notifiers.remove(&id) {
+            let _ = tx.send(Err(SessionError::Processing(format!(
+                "error send message {}. stop retrying",
+                id
+            ))));
+        }
+
         // notify the application that the message was not delivered correctly
         self.tx
             .send_to_app(Err(SessionError::Processing(format!(
@@ -433,7 +481,14 @@ impl SessionSender {
         debug!("new list size {}", self.endpoints_list.len());
     }
 
-    pub fn check_drain_completion(&self) -> bool {
+    pub fn start_drain(&mut self) {
+        self.draining_state = SenderDrainStatus::Initiated;
+        if self.pending_acks.is_empty() {
+            self.draining_state = SenderDrainStatus::Completed;
+        }
+    }
+
+    pub fn drain_completed(&self) -> bool {
         // Drain is complete if we're draining and no pending acks remain
         if self.draining_state == SenderDrainStatus::Completed
             || self.draining_state == SenderDrainStatus::Initiated && self.pending_acks.is_empty()
@@ -450,6 +505,12 @@ impl SessionSender {
 
         self.pending_acks.clear();
         self.pending_acks_per_endpoint.clear();
+
+        // Notify all pending ack notifiers that the sender is closed
+        for (_, tx) in self.ack_notifiers.drain() {
+            let _ = tx.send(Err(SessionError::Processing("sender closed".to_string())));
+        }
+
         self.draining_state = SenderDrainStatus::Completed;
     }
 }
@@ -503,7 +564,7 @@ mod tests {
 
         // Send the message using on_message function
         sender
-            .on_message(message.clone())
+            .on_message(message.clone(), None)
             .await
             .expect("error sending message");
 
@@ -523,7 +584,7 @@ mod tests {
 
         // Send the message using on_message function
         sender
-            .on_message(message.clone())
+            .on_message(message.clone(), None)
             .await
             .expect("error sending message");
 
@@ -582,7 +643,7 @@ mod tests {
 
         // Send the message using on_message function
         sender
-            .on_message(message.clone())
+            .on_message(message.clone(), None)
             .await
             .expect("error sending message");
 
@@ -734,7 +795,7 @@ mod tests {
 
         // Send the message using on_message function
         sender
-            .on_message(message.clone())
+            .on_message(message.clone(), None)
             .await
             .expect("error sending message");
 
@@ -764,7 +825,10 @@ mod tests {
         ack.get_session_header_mut()
             .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
 
-        sender.on_message(ack).await.expect("error sending message");
+        sender
+            .on_message(ack, None)
+            .await
+            .expect("error sending message");
 
         // wait for timeout - should timeout since no timer should trigger after the ack
         let res = timeout(Duration::from_millis(800), rx_slim.recv()).await;
@@ -822,7 +886,7 @@ mod tests {
 
         // Send the message using on_message function
         sender
-            .on_message(message.clone())
+            .on_message(message.clone(), None)
             .await
             .expect("error sending message");
 
@@ -872,9 +936,18 @@ mod tests {
             .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
 
         // Send all 3 acks
-        sender.on_message(ack1).await.expect("error sending ack1");
-        sender.on_message(ack2).await.expect("error sending ack2");
-        sender.on_message(ack3).await.expect("error sending ack3");
+        sender
+            .on_message(ack1, None)
+            .await
+            .expect("error sending ack1");
+        sender
+            .on_message(ack2, None)
+            .await
+            .expect("error sending ack2");
+        sender
+            .on_message(ack3, None)
+            .await
+            .expect("error sending ack3");
 
         // wait for timeout - should timeout since no timer should trigger after all acks are received
         let res = timeout(Duration::from_millis(800), rx_slim.recv()).await;
@@ -932,7 +1005,7 @@ mod tests {
 
         // Send the message using on_message function
         sender
-            .on_message(message.clone())
+            .on_message(message.clone(), None)
             .await
             .expect("error sending message");
 
@@ -972,8 +1045,14 @@ mod tests {
             .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
 
         // Send only 2 out of 3 acks (missing ack2)
-        sender.on_message(ack1).await.expect("error sending ack1");
-        sender.on_message(ack3).await.expect("error sending ack3");
+        sender
+            .on_message(ack1, None)
+            .await
+            .expect("error sending ack1");
+        sender
+            .on_message(ack3, None)
+            .await
+            .expect("error sending ack3");
 
         // Wait for first timeout signal and handle it
         let signal = timeout(Duration::from_millis(800), rx_signal.recv())
@@ -1108,7 +1187,7 @@ mod tests {
 
         // Send the message using on_message function
         sender
-            .on_message(message.clone())
+            .on_message(message.clone(), None)
             .await
             .expect("error sending message");
 
@@ -1148,8 +1227,14 @@ mod tests {
             .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
 
         // Send only 2 out of 3 acks (missing ack2)
-        sender.on_message(ack1).await.expect("error sending ack1");
-        sender.on_message(ack3).await.expect("error sending ack3");
+        sender
+            .on_message(ack1, None)
+            .await
+            .expect("error sending ack1");
+        sender
+            .on_message(ack3, None)
+            .await
+            .expect("error sending ack3");
 
         // remove endpoint 2
         sender.remove_endpoint(&remote2);
@@ -1211,7 +1296,7 @@ mod tests {
 
         // Send the message using on_message function
         sender
-            .on_message(message.clone())
+            .on_message(message.clone(), None)
             .await
             .expect("error sending message");
 
@@ -1251,8 +1336,14 @@ mod tests {
             .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
 
         // Send only 2 out of 3 acks (missing ack from remote2)
-        sender.on_message(ack1).await.expect("error sending ack1");
-        sender.on_message(ack3).await.expect("error sending ack3");
+        sender
+            .on_message(ack1, None)
+            .await
+            .expect("error sending ack1");
+        sender
+            .on_message(ack3, None)
+            .await
+            .expect("error sending ack3");
 
         // Send RTX request from endpoint 2 instead of removing it
         let mut rtx_request = Message::builder()
@@ -1268,9 +1359,9 @@ mod tests {
         rtx_request.get_slim_header_mut().set_incoming_conn(Some(1));
 
         sender
-            .on_message(rtx_request)
+            .on_message(rtx_request, None)
             .await
-            .expect("error sending rtx request");
+            .expect("error sending rtx_request");
 
         // Wait for the retransmission (RTX reply) to arrive at rx_slim
         let rtx_reply = timeout(Duration::from_millis(100), rx_slim.recv())
@@ -1331,7 +1422,7 @@ mod tests {
 
         // Send the message using on_message function
         sender
-            .on_message(message.clone())
+            .on_message(message.clone(), None)
             .await
             .expect("error sending message");
 
@@ -1396,9 +1487,9 @@ mod tests {
 
         // Send the RTX request
         sender
-            .on_message(rtx_request)
+            .on_message(rtx_request, None)
             .await
-            .expect("error sending rtx request");
+            .expect("error sending rtx_request");
 
         // Wait for the RTX reply to arrive at rx_slim
         let rtx_reply = timeout(Duration::from_millis(100), rx_slim.recv())
@@ -1427,7 +1518,10 @@ mod tests {
         ack.get_session_header_mut()
             .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
 
-        sender.on_message(ack).await.expect("error sending ack");
+        sender
+            .on_message(ack, None)
+            .await
+            .expect("error sending ack");
 
         // wait for timeout - should timeout since timer should be stopped after ack
         let res = timeout(Duration::from_millis(800), rx_slim.recv()).await;
@@ -1470,7 +1564,7 @@ mod tests {
         message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
 
         // Send the message using on_message function - this should succeed but buffer the message
-        let result = sender.on_message(message.clone()).await;
+        let result = sender.on_message(message.clone(), None).await;
 
         // result should be ok
         assert!(result.is_ok(), "Expected Ok result, got: {:?}", result);

@@ -128,7 +128,6 @@ async fn run_participant_task(name: Name) -> Result<(), String> {
             SharedSecret::new(&name.to_string(), TEST_VALID_SECRET),
             SharedSecret::new(&name.to_string(), TEST_VALID_SECRET),
         )
-        .await
         .map_err(|_| format!("Failed to create participant {}", name))?;
 
     svc.run()
@@ -261,7 +260,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             SharedSecret::new(&name.to_string(), TEST_VALID_SECRET),
             SharedSecret::new(&name.to_string(), TEST_VALID_SECRET),
         )
-        .await
         .map_err(|_| format!("Failed to create moderator {}", name))?;
 
     svc.run()
@@ -287,10 +285,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         initiator: true,
         metadata: HashMap::new(),
     };
-    let session_ctx = app
+    let (session_ctx, completion_handle) = app
         .create_session(conf, channel_name.clone(), None)
         .await
         .expect("error creating session");
+
+    // Await the completion of the session establishment
+    completion_handle.await.expect("error establishing session");
 
     for c in &participants {
         // add routes
@@ -405,6 +406,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::process::exit(1);
         }
     }
+
+    // close session
+    let handle = session_arc.close().expect("error closing session");
+    handle.await.expect("error waiting the handler");
     println!("test succeeded");
     Ok(())
 }

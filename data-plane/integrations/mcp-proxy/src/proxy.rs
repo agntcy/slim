@@ -237,7 +237,6 @@ impl Proxy {
                 SharedSecret::new("id", SECRET),
                 SharedSecret::new("id", SECRET),
             )
-            .await
             .expect("failed to create app");
 
         // run the service - this will create all the connections provided via the config file.

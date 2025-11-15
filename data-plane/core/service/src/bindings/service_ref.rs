@@ -78,16 +78,13 @@ mod tests {
         // Test local service ref
         let (_, local_ref) =
             BindingsAdapter::new(base_name.clone(), provider.clone(), verifier.clone(), true)
-                .await
                 .unwrap();
 
         let local_service = local_ref.get_service();
         assert!(!std::ptr::eq(global_service, local_service));
 
         // Test global service ref
-        let (_, global_ref) = BindingsAdapter::new(base_name, provider, verifier, false)
-            .await
-            .unwrap();
+        let (_, global_ref) = BindingsAdapter::new(base_name, provider, verifier, false).unwrap();
 
         let local_service = global_ref.get_service();
         assert!(std::ptr::eq(global_service, local_service));

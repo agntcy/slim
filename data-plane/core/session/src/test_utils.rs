@@ -167,6 +167,10 @@ impl MessageHandler for MockInnerHandler {
         });
     }
 
+    fn needs_drain(&self) -> bool {
+        false
+    }
+
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {
         Ok(())
     }
