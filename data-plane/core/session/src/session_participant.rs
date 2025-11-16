@@ -15,9 +15,12 @@ use tokio::sync::Mutex;
 use tracing::debug;
 
 use crate::{
-    common::SessionMessage, errors::SessionError, mls_state::MlsState,
-    session_controller::SessionControllerCommon, session_settings::SessionSettings,
-    traits::MessageHandler,
+    common::SessionMessage,
+    errors::SessionError,
+    mls_state::MlsState,
+    session_controller::SessionControllerCommon,
+    session_settings::SessionSettings,
+    traits::{MessageHandler, ProcessingState},
 };
 
 pub struct SessionParticipant<P, V, I>
@@ -153,8 +156,9 @@ where
             SessionMessage::StartDrain {
                 grace_period: duration,
             } => {
-                // Send drain to message to the inner to notify the beginning of the drain
                 debug!("received drain signal");
+                // propagate draining state
+                self.common.processing_state = ProcessingState::Draining;
                 self.inner
                     .on_message(SessionMessage::StartDrain {
                         grace_period: duration,
@@ -180,6 +184,10 @@ where
 
     fn needs_drain(&self) -> bool {
         !self.common.sender.drain_completed() || self.inner.needs_drain()
+    }
+
+    fn processing_state(&self) -> ProcessingState {
+        self.common.processing_state
     }
 
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {
@@ -385,6 +393,7 @@ where
 
     async fn on_leave_request(&mut self, msg: Message) -> Result<(), SessionError> {
         debug!("close the session");
+        self.common.processing_state = ProcessingState::Draining;
         self.inner
             .on_message(SessionMessage::StartDrain {
                 grace_period: Duration::from_secs(60), // not used in session

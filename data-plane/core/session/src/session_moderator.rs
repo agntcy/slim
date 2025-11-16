@@ -31,7 +31,7 @@ use crate::{
     moderator_task::{AddParticipant, CloseGroup, ModeratorTask, RemoveParticipant, TaskUpdate},
     session_controller::SessionControllerCommon,
     session_settings::SessionSettings,
-    traits::MessageHandler,
+    traits::{MessageHandler, ProcessingState},
 };
 
 pub struct SessionModerator<P, V, I>
@@ -62,9 +62,6 @@ where
     /// Subscription status
     subscribed: bool,
 
-    /// Closing status
-    closing: bool,
-
     /// Inner message handler
     inner: I,
 }
@@ -86,7 +83,6 @@ where
             common,
             postponed_message: None,
             subscribed: false,
-            closing: false,
             inner,
         }
     }
@@ -226,6 +222,8 @@ where
             }
             SessionMessage::StartDrain { grace_period: _ } => {
                 debug!("start draining by calling delete_all");
+                // Set processing state to draining
+                self.common.processing_state = ProcessingState::Draining;
                 // We need to close the session for all the participants
                 // Crate the leave message
                 let p = CommandPayload::builder().leave_request(None).as_content();
@@ -237,7 +235,6 @@ where
                     p,
                     false,
                 )?;
-
                 leave_msg.insert_metadata(DELETE_GROUP.to_string(), TRUE_VAL.to_string());
 
                 // send it to all the participants
@@ -259,10 +256,12 @@ where
     }
 
     fn needs_drain(&self) -> bool {
-        !(self.closing
-            && self.common.sender.drain_completed()
+        !(self.common.sender.drain_completed()
             && !self.inner.needs_drain()
             && self.tasks_todo.is_empty())
+    }
+    fn processing_state(&self) -> ProcessingState {
+        self.common.processing_state
     }
 
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {
@@ -788,8 +787,8 @@ where
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
     ) -> Result<(), SessionError> {
         debug!("receive a close channel message, send signals to all participants");
-        // create tasks to close the session
-        self.closing = true;
+        // set the processing state to draining
+        self.common.processing_state = ProcessingState::Draining;
         // remove mls state
         self.mls_state = None;
         // clear all pending tasks
@@ -930,7 +929,7 @@ where
 
     async fn pop_task(&mut self) -> Result<(), SessionError> {
         if self.current_task.is_some() {
-            // moderator is busy, nothing to do
+            // moderator is busy, nothing else to do
             return Ok(());
         }
 
@@ -1103,7 +1102,6 @@ mod tests {
         assert!(moderator.group_list.is_empty());
         assert!(moderator.postponed_message.is_none());
         assert!(!moderator.subscribed);
-        assert!(!moderator.closing);
     }
 
     #[tokio::test]
@@ -1368,7 +1366,6 @@ mod tests {
         let result = moderator.delete_all(delete_msg, None).await;
         assert!(result.is_ok() || result.is_err()); // May error due to missing routes
 
-        assert!(moderator.closing);
         assert!(moderator.mls_state.is_none());
     }
 

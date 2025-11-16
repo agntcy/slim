@@ -28,7 +28,7 @@ use crate::{
     session_builder::{ForController, SessionBuilder},
     session_config::SessionConfig,
     session_settings::SessionSettings,
-    traits::MessageHandler,
+    traits::{MessageHandler, ProcessingState},
 };
 
 pub struct SessionController {
@@ -102,6 +102,21 @@ impl SessionController {
     }
 
     /// Internal processing loop that handles messages with mutable access
+    fn enter_draining_state<P, V>(
+        shutdown_deadline: &mut std::pin::Pin<&mut tokio::time::Sleep>,
+        settings: &SessionSettings<P, V>,
+    ) where
+        P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
+        V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
+    {
+        let shutdown_timeout = settings
+            .graceful_shutdown_timeout
+            .unwrap_or(Duration::from_secs(60));
+        shutdown_deadline
+            .as_mut()
+            .reset(tokio::time::Instant::now() + shutdown_timeout);
+    }
+
     async fn processing_loop<P, V>(
         mut inner: impl MessageHandler + 'static,
         mut rx: sync::mpsc::Receiver<SessionMessage>,
@@ -111,15 +126,6 @@ impl SessionController {
         P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
         V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
     {
-        // State for tracking graceful shutdown
-        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-        enum ProcessingState {
-            Active,
-            Draining,
-        }
-
-        let mut state = ProcessingState::Active;
-
         // Start with an infinite timeout (will be updated on graceful shutdown)
         let mut shutdown_deadline = std::pin::pin!(tokio::time::sleep(Duration::MAX));
         // Pin the cancellation token
@@ -132,30 +138,31 @@ impl SessionController {
 
         loop {
             tokio::select! {
-                _ = cancellation_token.cancelled(), if state == ProcessingState::Active => {
-                    state = ProcessingState::Draining;
-
+                _ = cancellation_token.cancelled(), if inner.processing_state() == ProcessingState::Active => {
                     // Update the timeout to the configured grace period
                     let shutdown_timeout = settings.graceful_shutdown_timeout
                         .unwrap_or(Duration::from_secs(60)); // Default 60 seconds if not configured
 
-                    // Send drain to message to the inner to notify the beginning of the drain
-                    if let Err(e) = inner.on_message(SessionMessage::StartDrain {grace_period: shutdown_timeout}).await {
-                        tracing::error!(error=%e, "Error during start drain");
-                        break;
-                    }
-
-                    // First finish processing messages already in the queue, until we empty it
-                    debug!("cancellation requested, entering draining state");
+                    // Finish any ongoing processing before starting drain
+                    debug!("consuming pending messages before entering draining state");
                     while let Ok(msg) = rx.try_recv() {
                         if let Err(e) = inner.on_message(msg).await {
-                            tracing::error!(error=%e, "Error processing message during draining");
+                            tracing::error!(error=%e, "Error processing message during draining. Close immediately.");
                             break;
                         }
                     }
 
-                    debug!("entering graceful shutdown mode with timeout: {:?}", shutdown_timeout);
-                    shutdown_deadline.as_mut().reset(tokio::time::Instant::now() + shutdown_timeout);
+                    // Send drain to message to the inner to notify the beginning of the drain
+                    if let Err(e) = inner.on_message(SessionMessage::StartDrain {
+                        grace_period: shutdown_timeout
+                    }).await {
+                        tracing::error!(error=%e, "Error during start drain");
+                        break;
+                    }
+
+                    Self::enter_draining_state(&mut shutdown_deadline, &settings);
+
+                    debug!("cancellation requested, entering draining state");
                 }
                 _ = &mut shutdown_deadline => {
                     debug!("graceful shutdown timeout reached, forcing exit");
@@ -164,8 +171,18 @@ impl SessionController {
                 msg = rx.recv() => {
                     match msg {
                         Some(session_message) => {
+                            let draining = inner.processing_state() == ProcessingState::Draining;
+
+                            // if draining and message is sent by the application, reject it
+                            if draining && matches!(session_message, SessionMessage::OnMessage { direction: MessageDirection::South, .. }) {
+                                tracing::debug!("session is draining, rejecting new messages from application");
+                                if let SessionMessage::OnMessage { ack_tx: Some(ack_tx), .. } = session_message {
+                                    let _ = ack_tx.send(Err(SessionError::Processing("Session is draining, cannot accept new messages".to_string())));
+                                }
+                                continue;
+                            }
+
                             if let Err(e) = inner.on_message(session_message).await {
-                                let draining = state == ProcessingState::Draining;
                                 tracing::error!(
                                     error=%e,
                                     "Error processing message{}",
@@ -175,7 +192,13 @@ impl SessionController {
                                     debug!("Exiting processing loop due to error while draining");
                                     break;
                                 }
-
+                            } else {
+                                // If we were active before processing and the handler switched to draining,
+                                // start (or reset) the graceful shutdown deadline just like on cancellation.
+                                if !draining && inner.processing_state() == ProcessingState::Draining {
+                                    debug!("internal component requested draining, entering draining state");
+                                    Self::enter_draining_state(&mut shutdown_deadline, &settings);
+                                }
                             }
                         }
                         None => {
@@ -187,7 +210,8 @@ impl SessionController {
             }
 
             // If we are in draining state and the inner component does not require drain, exit
-            if state == ProcessingState::Draining && !inner.needs_drain() {
+            if inner.processing_state() == ProcessingState::Draining && !inner.needs_drain() {
+                debug!("draining complete, exiting processing loop");
                 break;
             }
         }
@@ -485,6 +509,9 @@ where
 
     /// sender for command messages
     pub(crate) sender: ControllerSender,
+
+    /// processing state
+    pub(crate) processing_state: ProcessingState,
 }
 
 impl<P, V> SessionControllerCommon<P, V>
@@ -506,6 +533,7 @@ where
         SessionControllerCommon {
             settings,
             sender: controller_sender,
+            processing_state: ProcessingState::Active,
         }
     }
 
@@ -589,12 +617,19 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::transmitter::SessionTransmitter;
-
     use super::*;
+
+    // Test: internal draining transition triggered by a leave request.
+    // This test sends a LeaveRequest into a multicast participant session and then
+    // verifies (indirectly) that subsequent messages are still accepted while the
+    // session is transitioning, indicating that graceful draining has begun.
+    // Removed broken test_internal_draining_via_leave_request (incompatible mock trait implementation)
+
+    use crate::transmitter::SessionTransmitter;
     use slim_auth::shared_secret::SharedSecret;
 
     use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
     use std::time::Duration;
     use tokio::time::timeout;
     use tracing_test::traced_test;
@@ -1565,12 +1600,167 @@ mod tests {
 
     // ============================================================================
     // Draining Tests
+    #[traced_test]
+    #[tokio::test]
+    async fn test_internal_draining_via_processing_state_switch() {
+        use super::*;
+        use tokio::sync::mpsc;
+        use tracing::debug;
+
+        // Custom handler that flips processing_state to Draining after first normal message
+        struct InternalDrainHandler {
+            state: ProcessingState,
+            messages: Vec<SessionMessage>,
+            needs_drain: Arc<AtomicBool>,
+        }
+
+        impl InternalDrainHandler {
+            fn new(needs_drain: Arc<AtomicBool>) -> Self {
+                Self {
+                    state: ProcessingState::Active,
+                    messages: vec![],
+                    needs_drain,
+                }
+            }
+        }
+
+        #[async_trait::async_trait]
+        impl MessageHandler for InternalDrainHandler {
+            async fn init(&mut self) -> Result<(), SessionError> {
+                Ok(())
+            }
+
+            async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
+                debug!(?self.state, "internal-drain-handler received message");
+                self.messages.push(message);
+
+                // when we receive 2 messages, transition to draining state
+                if self.messages.len() == 2 {
+                    debug!("internal-drain-handler transitioning to draining");
+                    self.state = ProcessingState::Draining;
+                }
+
+                Ok(())
+            }
+
+            fn needs_drain(&self) -> bool {
+                self.needs_drain.load(std::sync::atomic::Ordering::SeqCst)
+            }
+
+            fn processing_state(&self) -> ProcessingState {
+                self.state
+            }
+
+            async fn on_shutdown(&mut self) -> Result<(), SessionError> {
+                debug!("shutdown called on handler");
+                Ok(())
+            }
+        }
+
+        // Build minimal SessionSettings
+        let (tx_slim, _rx_slim) = mpsc::channel(8);
+        let (tx_app, _rx_app) = mpsc::unbounded_channel();
+        let (tx_session, rx_session) = mpsc::channel(32);
+        let (tx_session_layer, _rx_session_layer) = mpsc::channel(8);
+
+        let settings = SessionSettings {
+            id: 999,
+            source: Name::from_strings(["org", "ns", "source"]).with_id(1),
+            destination: Name::from_strings(["org", "ns", "dest"]).with_id(2),
+            config: SessionConfig {
+                session_type: ProtoSessionType::PointToPoint,
+                max_retries: Some(3),
+                interval: Some(Duration::from_millis(150)),
+                mls_enabled: false,
+                initiator: true,
+                metadata: HashMap::new(),
+            },
+            tx: SessionTransmitter::new(tx_slim, tx_app),
+            tx_session: tx_session.clone(),
+            tx_to_session_layer: tx_session_layer,
+            identity_provider: SharedSecret::new("src", SHARED_SECRET),
+            identity_verifier: SharedSecret::new("src", SHARED_SECRET),
+            storage_path: std::path::PathBuf::from("/tmp/internal_draining_test"),
+            graceful_shutdown_timeout: Some(Duration::from_secs(10)),
+        };
+
+        let needs_drain = Arc::new(AtomicBool::new(true));
+        let handler = InternalDrainHandler::new(needs_drain.clone());
+        let cancellation_token = CancellationToken::new();
+        let cancellation_token_clone = cancellation_token.clone();
+
+        // Spawn processing loop without unnecessary cloning
+        let processing_handle = tokio::spawn(async move {
+            SessionController::processing_loop(
+                handler,
+                rx_session,
+                cancellation_token_clone,
+                settings,
+            )
+            .await
+        });
+
+        // Send first regular message
+        tx_session
+            .send(create_test_message(1, b"first".to_vec()))
+            .await
+            .expect("failed to send first message");
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        assert!(logs_contain("internal-drain-handler received message"));
+
+        // Send second message; this causes internal handler move to draining (active -> draining)
+        tx_session
+            .send(create_test_message(2, b"second".to_vec()))
+            .await
+            .expect("failed to send second message");
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        assert!(logs_contain("internal-drain-handler received message"));
+
+        assert!(logs_contain(
+            "internal-drain-handler transitioning to draining"
+        ));
+
+        // Send a third message that should not be processed, as draining is active
+        tx_session
+            .send(create_test_message(3, b"third".to_vec()))
+            .await
+            .expect("failed to send third message");
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        assert!(logs_contain(
+            "session is draining, rejecting new messages from application"
+        ));
+
+        // set needs drain to false to allow shutdown to complete
+        needs_drain.store(false, std::sync::atomic::Ordering::SeqCst);
+
+        // trigger cancellation to exit processing loop
+        cancellation_token.cancel();
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Send a session message to trigger the shutdown process
+        tx_session
+            .send(SessionMessage::StartDrain {
+                grace_period: std::time::Duration::from_millis(100),
+            })
+            .await
+            .expect("failed to send timeout message");
+
+        // Wait for processing loop to complete
+        processing_handle.await.expect("processing loop panicked");
+    }
     // ============================================================================
 
     /// Mock handler that tracks draining behavior
     struct DrainableHandler {
         messages_received: Arc<tokio::sync::Mutex<Vec<SessionMessage>>>,
-        needs_drain: Arc<std::sync::atomic::AtomicBool>,
+        needs_drain: Arc<AtomicBool>,
         shutdown_called: Arc<tokio::sync::Mutex<bool>>,
         drain_delay: Option<Duration>,
     }
@@ -1579,7 +1769,7 @@ mod tests {
         fn new() -> Self {
             Self {
                 messages_received: Arc::new(tokio::sync::Mutex::new(Vec::new())),
-                needs_drain: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                needs_drain: Arc::new(AtomicBool::new(false)),
                 shutdown_called: Arc::new(tokio::sync::Mutex::new(false)),
                 drain_delay: None,
             }

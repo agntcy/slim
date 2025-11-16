@@ -10,6 +10,12 @@ use slim_datapath::api::ProtoMessage as Message;
 use super::SessionInterceptorProvider;
 use crate::{common::SessionMessage, errors::SessionError};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessingState {
+    Active,
+    Draining,
+}
+
 /// Session transmitter trait
 #[async_trait]
 pub trait Transmitter: SessionInterceptorProvider {
@@ -56,6 +62,12 @@ pub trait MessageHandler: Send + Sync {
 
     /// Indicates whether the layer needs to drain messages before shutdown.
     fn needs_drain(&self) -> bool;
+
+    /// Returns the current processing state (Active or Draining).
+    /// Default implementation returns Active.
+    fn processing_state(&self) -> ProcessingState {
+        ProcessingState::Active
+    }
 
     /// Optional hook called before the layer is shut down.
     async fn on_shutdown(&mut self) -> Result<(), SessionError>;
