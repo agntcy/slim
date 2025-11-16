@@ -494,12 +494,12 @@ func generateConfigData(detail db.ConnectionDetails, localConnection bool) (stri
 			Source: &TLSSource{
 				Type:       "spire",
 				SocketPath: stringPtr("unix:/tmp/spire-agent/public/api.sock"),
-				TargetSpiffeID: stringPtr("spiffe://example.local/ns/slim/sa/slim"),
+				//TargetSpiffeID: stringPtr("spiffe://example.local/ns/slim/sa/slim"),
 			},
 			CaSource: &CaSource{
 				Type:         "spire",
 				SocketPath:   stringPtr("unix:/tmp/spire-agent/public/api.sock"),
-				TrustDomains: &[]string{"example.org"},
+				//TrustDomains: &[]string{"example.org"},
 			},
 		}
 	}

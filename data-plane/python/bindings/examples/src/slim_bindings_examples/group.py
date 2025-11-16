@@ -148,6 +148,9 @@ async def run_client(
     jwt: str | None = None,
     spire_trust_bundle: str | None = None,
     audience: list[str] | None = None,
+    spire_socket: str | None = None,
+    spire_target_id: str | None = None,
+    spire_audience: tuple[str, ...] | list[str] | None = None,
     invites: list[str] | None = None,
 ):
     """
@@ -167,6 +170,9 @@ async def run_client(
         jwt: Path to static JWT token (if using JWT auth).
         spire_trust_bundle: SPIRE trust bundle file path.
         audience: Audience list for JWT verification.
+        spire_socket: Path to SPIRE Workload API socket (optional).
+        spire_target_id: Target SPIFFE ID for JWT SVID requests (optional).
+        spire_audience: JWT audiences for SPIRE authentication (optional).
         invites: List of participant IDs to invite (moderator only).
     """
     # Create & connect the local Slim instance (auth derived from args).
@@ -178,6 +184,9 @@ async def run_client(
         jwt=jwt,
         spire_trust_bundle=spire_trust_bundle,
         audience=audience,
+        spire_socket=spire_socket,
+        spire_target_id=spire_target_id,
+        spire_audience=spire_audience,
     )
 
     # Parse the remote channel/topic if provided; else None triggers passive mode.
@@ -271,6 +280,9 @@ def group_main(
     jwt: str | None = None,
     spire_trust_bundle: str | None = None,
     audience: list[str] | None = None,
+    spire_socket: str | None = None,
+    spire_target_id: str | None = None,
+    spire_audience: tuple[str, ...] | list[str] | None = None,
     invites: list[str] | None = None,
 ):
     """
@@ -290,6 +302,9 @@ def group_main(
                 jwt=jwt,
                 spire_trust_bundle=spire_trust_bundle,
                 audience=audience,
+                spire_socket=spire_socket,
+                spire_target_id=spire_target_id,
+                spire_audience=spire_audience,
                 invites=invites,
             )
         )

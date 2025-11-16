@@ -43,6 +43,10 @@ use slim_auth::jwt::StaticTokenProvider;
 
 use slim_auth::jwt::{Algorithm, KeyData};
 use slim_auth::shared_secret::SharedSecret;
+#[cfg(not(target_family = "windows"))]
+use slim_auth::spire::SpireIdentityManager;
+#[cfg(not(target_family = "windows"))]
+use tokio::runtime::Handle;
 
 /// JWT / signature algorithms exposed to Python.
 ///
@@ -337,6 +341,37 @@ impl From<PyIdentityProvider> for IdentityProvider {
                 identity,
                 shared_secret,
             } => AuthProvider::SharedSecret(SharedSecret::new(&identity, &shared_secret)),
+            #[cfg(not(target_family = "windows"))]
+            PyIdentityProvider::Spire {
+                socket_path,
+                target_spiffe_id,
+                jwt_audiences,
+            } => {
+                let audiences = jwt_audiences.unwrap_or_else(|| vec!["slim".to_string()]);
+                let mut builder = SpireIdentityManager::builder().with_jwt_audiences(audiences);
+                
+                if let Some(socket) = socket_path {
+                    builder = builder.with_socket_path(socket);
+                }
+                
+                if let Some(target_id) = target_spiffe_id {
+                    builder = builder.with_target_spiffe_id(target_id);
+                }
+                
+                let mut spire = builder.build();
+                // Initialize SpireIdentityManager using the current tokio runtime
+                // This is safe because we're in an async context when this is called
+                if let Ok(handle) = Handle::try_current() {
+                    handle.block_on(spire.initialize()).map_err(|e| {
+                        panic!("Failed to initialize SPIRE provider: {}", e);
+                    })?;
+                } else {
+                    // If we're not in a tokio context, we can't initialize here
+                    // This should not happen in normal usage, but we'll leave it uninitialized
+                    // and it will fail when first used
+                }
+                AuthProvider::Spire(spire)
+            }
         }
     }
 }
@@ -465,6 +500,13 @@ pub(crate) enum PyIdentityVerifier {
         identity: String,
         shared_secret: String,
     },
+    #[cfg(not(target_family = "windows"))]
+    #[pyo3(constructor = (socket_path=None, target_spiffe_id=None, jwt_audiences=None))]
+    Spire {
+        socket_path: Option<String>,
+        target_spiffe_id: Option<String>,
+        jwt_audiences: Option<Vec<String>>,
+    },
 }
 
 impl From<PyIdentityVerifier> for IdentityVerifier {
@@ -520,6 +562,38 @@ impl From<PyIdentityVerifier> for IdentityVerifier {
                 identity,
                 shared_secret,
             } => AuthVerifier::SharedSecret(SharedSecret::new(&identity, &shared_secret)),
+            #[cfg(not(target_family = "windows"))]
+            PyIdentityVerifier::Spire {
+                socket_path,
+                target_spiffe_id,
+                jwt_audiences,
+            } => {
+                let audiences = jwt_audiences.unwrap_or_else(|| vec!["slim".to_string()]);
+                let mut builder = SpireIdentityManager::builder().with_jwt_audiences(audiences);
+                
+                if let Some(socket) = socket_path {
+                    builder = builder.with_socket_path(socket);
+                }
+                
+                if let Some(target_id) = target_spiffe_id {
+                    builder = builder.with_target_spiffe_id(target_id);
+                }
+                
+                let mut spire = builder.build();
+                // Initialize SpireIdentityManager using the current tokio runtime
+                // This is safe because we're in an async context when this is called
+                if let Ok(handle) = Handle::try_current() {
+                    handle.block_on(spire.initialize()).map_err(|e| {
+                        panic!("Failed to initialize SPIRE verifier: {}", e);
+                    })?;
+                } else {
+                    // If we're not in a tokio context, we can't initialize here
+                    // This should not happen in normal usage, but we'll leave it uninitialized
+                    // and it will fail when first used
+                }
+                AuthVerifier::Spire(spire)
+            }
         }
     }
 }
+

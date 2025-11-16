@@ -102,6 +102,50 @@ def shared_secret_identity(identity: str, secret: str):
     return provider, verifier
 
 
+async def spire_identity(
+    socket_path: str | None = None,
+    target_spiffe_id: str | None = None,
+    jwt_audiences: list[str] | None = None,
+):
+    """
+    Create a provider & verifier pair for SPIRE-based authentication.
+
+    This function creates and initializes a SPIRE identity manager that can be used
+    for both token generation and verification. The SPIRE Workload API is used to
+    automatically rotate X.509 SVIDs and JWT SVIDs.
+
+    Args:
+        socket_path: Optional path to the SPIRE Workload API socket. If None, uses
+                    the SPIFFE_ENDPOINT_SOCKET environment variable.
+        target_spiffe_id: Optional target SPIFFE ID for JWT SVID requests.
+        jwt_audiences: Optional list of JWT audiences. Defaults to ["slim"] if not provided.
+
+    Returns:
+        (provider, verifier): Tuple of IdentityProvider & IdentityVerifier using SPIRE.
+
+    Raises:
+        RuntimeError: If SPIRE initialization fails.
+    """
+    # Default audiences if not provided
+    audiences = jwt_audiences if jwt_audiences is not None else ["slim"]
+
+    # Create SPIRE provider and verifier
+    provider = slim_bindings.IdentityProvider.Spire(
+        socket_path=socket_path,
+        target_spiffe_id=target_spiffe_id,
+        jwt_audiences=audiences,
+    )
+    verifier = slim_bindings.IdentityVerifier.Spire(
+        socket_path=socket_path,
+        target_spiffe_id=target_spiffe_id,
+        jwt_audiences=audiences,
+    )
+
+    # SpireIdentityManager is automatically initialized during conversion from
+    # Python enum to Rust type in the bindings layer.
+    return provider, verifier
+
+
 def jwt_identity(
     jwt_path: str,
     spire_bundle_path: str,
@@ -303,6 +347,28 @@ def common_options(function):
         help="Enable MLS (Message Layer Security) for the session.",
     )(function)
 
+    # SPIRE Workload API socket path.
+    function = click.option(
+        "--spire-socket",
+        type=str,
+        help="Path to SPIRE Workload API socket. If not provided, uses SPIFFE_ENDPOINT_SOCKET environment variable.",
+    )(function)
+
+    # SPIRE target SPIFFE ID for JWT SVID requests.
+    function = click.option(
+        "--spire-target-id",
+        type=str,
+        help="Target SPIFFE ID for JWT SVID requests (optional).",
+    )(function)
+
+    # SPIRE JWT audiences.
+    function = click.option(
+        "--spire-audience",
+        type=str,
+        multiple=True,
+        help="JWT audiences for SPIRE authentication. Can be specified multiple times. Defaults to 'slim' if not provided.",
+    )(function)
+
     return function
 
 
@@ -315,13 +381,17 @@ async def create_local_app(
     jwt: str | None = None,
     spire_trust_bundle: str | None = None,
     audience: tuple[str, ...] | list[str] | None = None,
+    spire_socket: str | None = None,
+    spire_target_id: str | None = None,
+    spire_audience: tuple[str, ...] | list[str] | None = None,
 ):
     """
     Build and connect a Slim application instance given user CLI parameters.
 
     Resolution precedence for auth:
-      1. If jwt + bundle + audience provided -> JWT/JWKS flow.
-      2. Else -> shared secret (must be provided, raises if missing).
+      1. If spire_socket or spire_audience provided -> SPIRE flow.
+      2. Else if jwt + bundle + audience provided -> JWT/JWKS flow.
+      3. Else -> shared secret (must be provided, raises if missing).
 
     Args:
         local: Local identity string (org/ns/app).
@@ -332,6 +402,9 @@ async def create_local_app(
         jwt: Path to static JWT token (for StaticJwt provider).
         spire_trust_bundle: Path to a spire trust bundle file (containing the JWKs for each trust domain).
         audience: Audience list for JWT verification.
+        spire_socket: Path to SPIRE Workload API socket (optional, uses SPIFFE_ENDPOINT_SOCKET env var if not provided).
+        spire_target_id: Target SPIFFE ID for JWT SVID requests (optional).
+        spire_audience: JWT audiences for SPIRE authentication (optional, defaults to ["slim"]).
 
     Returns:
         Slim: Connected high-level Slim instance.
@@ -349,8 +422,20 @@ async def create_local_app(
         }
     )
 
+    # Derive identity provider & verifier using SPIRE if configured.
+    if spire_socket or spire_audience:
+        print("Using SPIRE authentication.")
+        # Convert tuple from Click's multiple=True to list
+        audience_list = (
+            list(spire_audience) if isinstance(spire_audience, tuple) else spire_audience
+        )
+        provider, verifier = await spire_identity(
+            socket_path=spire_socket,
+            target_spiffe_id=spire_target_id,
+            jwt_audiences=audience_list,
+        )
     # Derive identity provider & verifier using JWT/JWKS if all pieces supplied.
-    if jwt and spire_trust_bundle and audience:
+    elif jwt and spire_trust_bundle and audience:
         print("Using JWT + JWKS authentication.")
         # Convert tuple from Click's multiple=True to list
         audience_list = list(audience) if isinstance(audience, tuple) else audience

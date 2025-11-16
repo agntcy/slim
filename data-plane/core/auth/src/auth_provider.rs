@@ -73,6 +73,8 @@ use crate::jwt::{SignerJwt, StaticTokenProvider, VerifierJwt};
 use crate::metadata::MetadataMap;
 use crate::shared_secret::SharedSecret;
 use crate::traits::{TokenProvider, Verifier};
+#[cfg(not(target_family = "windows"))]
+use crate::spire::SpireIdentityManager;
 
 /// Unified enum for all authentication token providers
 ///
@@ -84,6 +86,7 @@ use crate::traits::{TokenProvider, Verifier};
 /// - `JwtSigner`: Uses JWT signing keys to generate cryptographically secure tokens
 /// - `StaticToken`: Reads pre-generated tokens from files with optional file watching
 /// - `SharedSecret`: Generates simple tokens based on shared secrets
+/// - `Spire`: Uses SPIRE Workload API for automatic credential rotation (non-Windows only)
 ///
 /// # Thread Safety
 ///
@@ -114,6 +117,10 @@ pub enum AuthProvider {
 
     /// Shared secret-based token provider
     SharedSecret(SharedSecret),
+
+    /// SPIRE identity manager for automatic credential rotation (non-Windows only)
+    #[cfg(not(target_family = "windows"))]
+    Spire(SpireIdentityManager),
 }
 
 /// Unified enum for all authentication token verifiers
@@ -125,6 +132,7 @@ pub enum AuthProvider {
 ///
 /// - `JwtVerifier`: Uses JWT verification keys to validate cryptographically signed tokens
 /// - `SharedSecret`: Validates tokens based on shared secrets
+/// - `Spire`: Uses SPIRE Workload API for JWT verification (non-Windows only)
 ///
 /// # Thread Safety
 ///
@@ -160,6 +168,10 @@ pub enum AuthVerifier {
 
     /// Shared secret-based token verifier
     SharedSecret(SharedSecret),
+
+    /// SPIRE identity manager for JWT verification (non-Windows only)
+    #[cfg(not(target_family = "windows"))]
+    Spire(SpireIdentityManager),
 }
 
 impl std::fmt::Debug for AuthProvider {
@@ -172,6 +184,10 @@ impl std::fmt::Debug for AuthProvider {
                 .finish(),
             AuthProvider::SharedSecret(secret) => {
                 f.debug_tuple("SharedSecret").field(secret).finish()
+            }
+            #[cfg(not(target_family = "windows"))]
+            AuthProvider::Spire(_) => {
+                f.debug_tuple("Spire").field(&"<SpireIdentityManager>").finish()
             }
         }
     }
@@ -187,6 +203,10 @@ impl std::fmt::Debug for AuthVerifier {
             AuthVerifier::SharedSecret(secret) => {
                 f.debug_tuple("SharedSecret").field(secret).finish()
             }
+            #[cfg(not(target_family = "windows"))]
+            AuthVerifier::Spire(_) => {
+                f.debug_tuple("Spire").field(&"<SpireIdentityManager>").finish()
+            }
         }
     }
 }
@@ -198,6 +218,8 @@ impl TokenProvider for AuthProvider {
             AuthProvider::JwtSigner(signer) => signer.get_token(),
             AuthProvider::StaticToken(provider) => provider.get_token(),
             AuthProvider::SharedSecret(secret) => secret.get_token(),
+            #[cfg(not(target_family = "windows"))]
+            AuthProvider::Spire(spire) => spire.get_token(),
         }
     }
 
@@ -208,6 +230,8 @@ impl TokenProvider for AuthProvider {
                 provider.get_token_with_claims(custom_claims).await
             }
             AuthProvider::SharedSecret(secret) => secret.get_token_with_claims(custom_claims).await,
+            #[cfg(not(target_family = "windows"))]
+            AuthProvider::Spire(spire) => spire.get_token_with_claims(custom_claims).await,
         }
     }
 
@@ -216,6 +240,8 @@ impl TokenProvider for AuthProvider {
             AuthProvider::JwtSigner(signer) => signer.get_id(),
             AuthProvider::StaticToken(provider) => provider.get_id(),
             AuthProvider::SharedSecret(secret) => secret.get_id(),
+            #[cfg(not(target_family = "windows"))]
+            AuthProvider::Spire(spire) => spire.get_id(),
         }
     }
 }
@@ -226,6 +252,8 @@ impl Verifier for AuthVerifier {
         match self {
             AuthVerifier::JwtVerifier(verifier) => verifier.verify(token).await,
             AuthVerifier::SharedSecret(secret) => secret.verify(token).await,
+            #[cfg(not(target_family = "windows"))]
+            AuthVerifier::Spire(spire) => spire.verify(token).await,
         }
     }
 
@@ -233,6 +261,8 @@ impl Verifier for AuthVerifier {
         match self {
             AuthVerifier::JwtVerifier(verifier) => verifier.try_verify(token),
             AuthVerifier::SharedSecret(secret) => secret.try_verify(token),
+            #[cfg(not(target_family = "windows"))]
+            AuthVerifier::Spire(spire) => spire.try_verify(token),
         }
     }
 
@@ -243,6 +273,8 @@ impl Verifier for AuthVerifier {
         match self {
             AuthVerifier::JwtVerifier(verifier) => verifier.get_claims(token).await,
             AuthVerifier::SharedSecret(secret) => secret.get_claims(token).await,
+            #[cfg(not(target_family = "windows"))]
+            AuthVerifier::Spire(spire) => spire.get_claims(token).await,
         }
     }
 
@@ -253,6 +285,8 @@ impl Verifier for AuthVerifier {
         match self {
             AuthVerifier::JwtVerifier(verifier) => verifier.try_get_claims(token),
             AuthVerifier::SharedSecret(secret) => secret.try_get_claims(token),
+            #[cfg(not(target_family = "windows"))]
+            AuthVerifier::Spire(spire) => spire.try_get_claims(token),
         }
     }
 }
@@ -333,6 +367,52 @@ impl AuthProvider {
     pub fn shared_secret_from_str(id: &str, secret: &str) -> Self {
         AuthProvider::SharedSecret(SharedSecret::new(id, secret))
     }
+
+    /// Create a new SPIRE identity manager provider
+    ///
+    /// # Arguments
+    /// * `spire` - A configured and initialized SPIRE identity manager instance
+    ///
+    /// # Examples
+    /// ```rust,ignore
+    /// use slim_auth::auth_provider::AuthProvider;
+    /// use slim_auth::spire::SpireIdentityManager;
+    ///
+    /// let mut spire = SpireIdentityManager::builder()
+    ///     .with_jwt_audiences(vec!["my-app".to_string()])
+    ///     .build();
+    /// spire.initialize().await?;
+    /// let provider = AuthProvider::spire(spire);
+    /// ```
+    #[cfg(not(target_family = "windows"))]
+    pub fn spire(spire: SpireIdentityManager) -> Self {
+        AuthProvider::Spire(spire)
+    }
+
+    /// Initialize the provider if it requires initialization
+    ///
+    /// Currently, only the Spire variant requires initialization. This method is a no-op
+    /// for other variants.
+    ///
+    /// # Returns
+    /// * `Ok(())` if initialization succeeded or if this variant doesn't require initialization
+    /// * `Err(AuthError)` if initialization failed
+    ///
+    /// # Examples
+    /// ```rust,ignore
+    /// use slim_auth::auth_provider::AuthProvider;
+    ///
+    /// let mut provider = AuthProvider::spire(/* ... */);
+    /// provider.initialize().await?;
+    /// ```
+    #[cfg(not(target_family = "windows"))]
+    pub async fn initialize(&mut self) -> Result<(), AuthError> {
+        if let AuthProvider::Spire(ref mut spire) = self {
+            spire.initialize().await
+        } else {
+            Ok(())
+        }
+    }
 }
 
 /// Convenience constructors and utility methods for [`AuthVerifier`]
@@ -395,6 +475,52 @@ impl AuthVerifier {
     /// ```
     pub fn shared_secret_from_str(id: &str, secret: &str) -> Self {
         AuthVerifier::SharedSecret(SharedSecret::new(id, secret))
+    }
+
+    /// Create a new SPIRE identity manager verifier
+    ///
+    /// # Arguments
+    /// * `spire` - A configured and initialized SPIRE identity manager instance
+    ///
+    /// # Examples
+    /// ```rust,ignore
+    /// use slim_auth::auth_provider::AuthVerifier;
+    /// use slim_auth::spire::SpireIdentityManager;
+    ///
+    /// let mut spire = SpireIdentityManager::builder()
+    ///     .with_jwt_audiences(vec!["my-app".to_string()])
+    ///     .build();
+    /// spire.initialize().await?;
+    /// let verifier = AuthVerifier::spire(spire);
+    /// ```
+    #[cfg(not(target_family = "windows"))]
+    pub fn spire(spire: SpireIdentityManager) -> Self {
+        AuthVerifier::Spire(spire)
+    }
+
+    /// Initialize the verifier if it requires initialization
+    ///
+    /// Currently, only the Spire variant requires initialization. This method is a no-op
+    /// for other variants.
+    ///
+    /// # Returns
+    /// * `Ok(())` if initialization succeeded or if this variant doesn't require initialization
+    /// * `Err(AuthError)` if initialization failed
+    ///
+    /// # Examples
+    /// ```rust,ignore
+    /// use slim_auth::auth_provider::AuthVerifier;
+    ///
+    /// let mut verifier = AuthVerifier::spire(/* ... */);
+    /// verifier.initialize().await?;
+    /// ```
+    #[cfg(not(target_family = "windows"))]
+    pub async fn initialize(&mut self) -> Result<(), AuthError> {
+        if let AuthVerifier::Spire(ref mut spire) = self {
+            spire.initialize().await
+        } else {
+            Ok(())
+        }
     }
 }
 

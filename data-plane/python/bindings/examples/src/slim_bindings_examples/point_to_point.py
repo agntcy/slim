@@ -52,6 +52,9 @@ async def run_client(
     jwt: str | None = None,
     spire_trust_bundle: str | None = None,
     audience: list[str] | None = None,
+    spire_socket: str | None = None,
+    spire_target_id: str | None = None,
+    spire_audience: tuple[str, ...] | list[str] | None = None,
     message: str | None = None,
     iterations: int = 1,
 ):
@@ -68,6 +71,9 @@ async def run_client(
         jwt: Path to static JWT token (if JWT auth path chosen).
         spire_trust_bundle: SPIRE trust bundle file path.
         audience: Audience claim(s) for JWT verification.
+        spire_socket: Path to SPIRE Workload API socket (optional).
+        spire_target_id: Target SPIFFE ID for JWT SVID requests (optional).
+        spire_audience: JWT audiences for SPIRE authentication (optional).
         message: If provided, run in active mode sending this payload.
         iterations: Number of request/reply cycles in active mode.
 
@@ -85,6 +91,9 @@ async def run_client(
         jwt=jwt,
         spire_trust_bundle=spire_trust_bundle,
         audience=audience,
+        spire_socket=spire_socket,
+        spire_target_id=spire_target_id,
+        spire_audience=spire_audience,
     )
 
     # Numeric unique instance ID (useful for distinguishing multiple processes).
@@ -195,6 +204,9 @@ def p2p_main(
     jwt: str | None = None,
     spire_trust_bundle: str | None = None,
     audience: list[str] | None = None,
+    spire_socket: str | None = None,
+    spire_target_id: str | None = None,
+    spire_audience: tuple[str, ...] | list[str] | None = None,
     invites: list[str] | None = None,
     message: str | None = None,
     iterations: int = 1,
@@ -219,6 +231,9 @@ def p2p_main(
                 jwt=jwt,
                 spire_trust_bundle=spire_trust_bundle,
                 audience=audience,
+                spire_socket=spire_socket,
+                spire_target_id=spire_target_id,
+                spire_audience=spire_audience,
                 message=message,
                 iterations=iterations,
             )
