@@ -6,7 +6,7 @@ use std::{collections::HashMap, time::Duration};
 
 // Third-party crates
 use tokio_util::sync::CancellationToken;
-use tracing::debug;
+use tracing::{Instrument, debug};
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
@@ -75,7 +75,17 @@ impl SessionController {
     {
         // Spawn the processing loop
         let cancellation_token = CancellationToken::new();
-        tokio::spawn(Self::processing_loop(inner, rx, cancellation_token.clone()));
+
+        // setup tracing context
+        let span = tracing::debug_span!(
+            "session_controller_processing_loop",
+            session_id = id,
+            source = %source,
+            destination = %destination,
+            session_type = ?config.session_type
+        );
+
+        tokio::spawn(Self::processing_loop(inner, rx, cancellation_token.clone()).instrument(span));
 
         Self {
             id,
