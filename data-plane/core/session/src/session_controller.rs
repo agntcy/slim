@@ -187,7 +187,7 @@ impl SessionController {
             }
 
             // If we are in draining state and the inner component does not require drain, exit
-            if !inner.needs_drain() {
+            if state == ProcessingState::Draining && !inner.needs_drain() {
                 break;
             }
         }
