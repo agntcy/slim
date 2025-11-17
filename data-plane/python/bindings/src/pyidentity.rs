@@ -300,7 +300,6 @@ pub(crate) enum PyIdentityProvider {
         identity: String,
         shared_secret: String,
     },
-    #[cfg(not(target_family = "windows"))]
     #[pyo3(constructor = (socket_path=None, target_spiffe_id=None, jwt_audiences=None))]
     Spire {
         socket_path: Option<String>,
@@ -346,25 +345,34 @@ impl From<PyIdentityProvider> for IdentityProvider {
                 identity,
                 shared_secret,
             } => AuthProvider::SharedSecret(SharedSecret::new(&identity, &shared_secret)),
-            #[cfg(not(target_family = "windows"))]
             PyIdentityProvider::Spire {
                 socket_path,
                 target_spiffe_id,
                 jwt_audiences,
             } => {
-                let mut builder = slim_auth::spire::SpireIdentityManager::builder();
-                if let Some(sp) = socket_path {
-                    builder = builder.with_socket_path(sp);
+                #[cfg(not(target_family = "windows"))]
+                {
+                    let mut builder = slim_auth::spire::SpireIdentityManager::builder();
+                    if let Some(sp) = socket_path {
+                        builder = builder.with_socket_path(sp);
+                    }
+                    if let Some(id) = target_spiffe_id {
+                        builder = builder.with_target_spiffe_id(id);
+                    }
+                    if let Some(auds) = jwt_audiences {
+                        builder = builder.with_jwt_audiences(auds);
+                    }
+                    let mgr = builder.build();
+                    // Not initialized yet; caller may invoke .init() before use.
+                    AuthProvider::Spire(mgr)
                 }
-                if let Some(id) = target_spiffe_id {
-                    builder = builder.with_target_spiffe_id(id);
+                #[cfg(target_family = "windows")]
+                {
+                    let _ = (socket_path, target_spiffe_id, jwt_audiences);
+                    panic!(
+                        "SPIRE identity provider is not supported on Windows. SPIRE requires Unix domain sockets which are not available on Windows platforms."
+                    );
                 }
-                if let Some(auds) = jwt_audiences {
-                    builder = builder.with_jwt_audiences(auds);
-                }
-                let mgr = builder.build();
-                // Not initialized yet; caller may invoke .init() before use.
-                AuthProvider::Spire(mgr)
             }
         }
     }
@@ -498,7 +506,6 @@ pub(crate) enum PyIdentityVerifier {
         identity: String,
         shared_secret: String,
     },
-    #[cfg(not(target_family = "windows"))]
     #[pyo3(constructor = (socket_path=None, target_spiffe_id=None, jwt_audiences=None))]
     Spire {
         socket_path: Option<String>,
@@ -560,25 +567,34 @@ impl From<PyIdentityVerifier> for IdentityVerifier {
                 identity,
                 shared_secret,
             } => AuthVerifier::SharedSecret(SharedSecret::new(&identity, &shared_secret)),
-            #[cfg(not(target_family = "windows"))]
             PyIdentityVerifier::Spire {
                 socket_path,
                 target_spiffe_id,
                 jwt_audiences,
             } => {
-                let mut builder = slim_auth::spire::SpireIdentityManager::builder();
-                if let Some(sp) = socket_path {
-                    builder = builder.with_socket_path(sp);
+                #[cfg(not(target_family = "windows"))]
+                {
+                    let mut builder = slim_auth::spire::SpireIdentityManager::builder();
+                    if let Some(sp) = socket_path {
+                        builder = builder.with_socket_path(sp);
+                    }
+                    if let Some(id) = target_spiffe_id {
+                        builder = builder.with_target_spiffe_id(id);
+                    }
+                    if let Some(auds) = jwt_audiences {
+                        builder = builder.with_jwt_audiences(auds);
+                    }
+                    let mgr = builder.build();
+                    // Not initialized yet; caller may invoke .init() before use.
+                    AuthVerifier::Spire(mgr)
                 }
-                if let Some(id) = target_spiffe_id {
-                    builder = builder.with_target_spiffe_id(id);
+                #[cfg(target_family = "windows")]
+                {
+                    let _ = (socket_path, target_spiffe_id, jwt_audiences);
+                    panic!(
+                        "SPIRE identity verifier is not supported on Windows. SPIRE requires Unix domain sockets which are not available on Windows platforms."
+                    );
                 }
-                if let Some(auds) = jwt_audiences {
-                    builder = builder.with_jwt_audiences(auds);
-                }
-                let mgr = builder.build();
-                // Not initialized yet; caller may invoke .init() before use.
-                AuthVerifier::Spire(mgr)
             }
         }
     }
