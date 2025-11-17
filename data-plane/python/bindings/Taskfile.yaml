@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-version: '3'
+version: "3"
 
 silent: true
 set: [pipefail]
@@ -42,6 +42,15 @@ tasks:
       - python:bindings:build
     cmds:
       - uv run pytest -s {{.TESTS}}
+    vars:
+      TARGET: '{{.TESTS | default ""}}'
+
+  python:bindings:test:coverage:
+    desc: "Test the Python bindings with coverage"
+    deps:
+      - python:bindings:build
+    cmds:
+      - uv run pytest --cov=slim_bindings --cov-report=lcov:coverage.lcov --cov-report=html --cov-report=term -s {{.TESTS}}
     vars:
       TARGET: '{{.TESTS | default ""}}'
 
@@ -88,5 +97,7 @@ tasks:
 
   python:bindings:generate-stub:
     desc: "Generate stub file for the Python bindings"
-    cmds:
-      - cargo run --bin stub_gen
+    cmds: 
+      - cmd: |
+          export PYTHONHOME="$(dirname $(dirname $(realpath $(which .venv/bin/python))))"
+          uv run cargo run --bin stub_gen

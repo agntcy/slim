@@ -7,7 +7,6 @@ use std::sync::Arc;
 // Third-party crates
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::ProtoMessage as Message;
-use slim_datapath::messages::utils::SLIM_IDENTITY;
 
 // Local crate
 use crate::errors::SessionError;
@@ -90,36 +89,31 @@ where
             .map_err(|e| SessionError::IdentityPushError(e.to_string()))?;
 
         // Add the identity to the message metadata
-        msg.insert_metadata(SLIM_IDENTITY.to_string(), identity);
+        msg.get_slim_header_mut().set_identity(identity);
 
         Ok(())
     }
 
     async fn on_msg_from_slim(&self, msg: &mut Message) -> Result<(), SessionError> {
         // Extract the identity from the message metadata
-        if let Some(identity) = msg.metadata.get(SLIM_IDENTITY) {
-            // Verify the identity using the verifier
-            match self.verifier.try_verify(identity) {
-                Ok(_) => {
-                    // Identity is valid, we can proceed
-                    Ok(())
-                }
-                Err(_e) => {
-                    // Try async verification if the sync one fails
-                    self.verifier
-                        .verify(identity)
-                        .await
-                        .map_err(|e| SessionError::IdentityError(e.to_string()))?;
-
-                    // TODO(msardara): do something with the claims if needed
-
-                    Ok(())
-                }
+        let identity = msg.get_slim_header().get_identity();
+        // Verify the identity using the verifier
+        match self.verifier.try_verify(&identity) {
+            Ok(_) => {
+                // Identity is valid, we can proceed
+                Ok(())
             }
-        } else {
-            return Err(SessionError::IdentityError(
-                "identity not found in message metadata".to_string(),
-            ));
+            Err(_e) => {
+                // Try async verification if the sync one fails
+                self.verifier
+                    .verify(&identity)
+                    .await
+                    .map_err(|e| SessionError::IdentityError(e.to_string()))?;
+
+                // TODO(msardara): do something with the claims if needed
+
+                Ok(())
+            }
         }
     }
 }

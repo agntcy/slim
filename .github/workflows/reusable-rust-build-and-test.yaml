@@ -57,38 +57,6 @@ on:
         default: data-plane
 
 jobs:
-  setup-environment:
-    runs-on: ${{ inputs.runner }}
-    defaults:
-      run:
-        shell: bash
-        working-directory: ${{ inputs.working-directory }}
-
-    steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: ./.github/actions/setup-rust
-
-      - name: Get components hash
-        id: get_hash
-        run: |
-          COMPONENTS_HASH=$(task ${{ inputs.task-prefix }}:tools:hash)
-          echo "components_hash=$COMPONENTS_HASH" >> $GITHUB_OUTPUT
-
-      - name: Setup Rust Caching
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: ${{ inputs.working-directory }}
-          cache-on-failure: false
-          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{ steps.get_hash.outputs.components_hash }}
-
-      - name: Install dependencies
-        run: |
-          task ${{ inputs.task-prefix }}:fetch
-          task ${{ inputs.task-prefix }}:tools:fetch
-
   lint:
     runs-on: ${{ inputs.runner }}
     defaults:
@@ -97,26 +65,14 @@ jobs:
         working-directory: ${{ inputs.working-directory }}
 
     if: ${{ inputs.rust-lint }}
-    needs: [setup-environment]
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v4
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
-
-      - name: Get components hash
-        id: get_hash
-        run: |
-          COMPONENTS_HASH=$(task ${{ inputs.task-prefix }}:tools:hash)
-          echo "components_hash=$COMPONENTS_HASH" >> $GITHUB_OUTPUT
-
-      - name: Setup Rust Caching
-        uses: Swatinem/rust-cache@v2
         with:
-          workspaces: ${{ inputs.working-directory }}
-          cache-on-failure: false
-          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{ steps.get_hash.outputs.components_hash }}
+          workspace: ${{ inputs.working-directory }}
 
       - name: Setup Python
         uses: ./.github/actions/setup-python
@@ -130,42 +86,6 @@ jobs:
         run: |
           task ${{ inputs.task-prefix }}:lint
 
-  rustvulncheck:
-    runs-on: ${{ inputs.runner }}
-    defaults:
-      run:
-        shell: bash
-        working-directory: ${{ inputs.working-directory }}
-
-    if: ${{ inputs.rust-vuln }}
-    needs: [setup-environment]
-    timeout-minutes: 30
-    steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Rust
-        uses: ./.github/actions/setup-rust
-
-      - name: Get components hash
-        id: get_hash
-        run: |
-          COMPONENTS_HASH=$(task ${{ inputs.task-prefix }}:tools:hash)
-          echo "components_hash=$COMPONENTS_HASH" >> $GITHUB_OUTPUT
-
-      - name: Setup Rust Caching
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: ${{ inputs.working-directory }}
-          cache-on-failure: false
-          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{ steps.get_hash.outputs.components_hash }}
-
-      - name: Run `vuln`
-        run: |
-          task ${{ inputs.task-prefix }}:vuln
-
   test-coverage:
     runs-on: ${{ inputs.runner }}
     defaults:
@@ -174,7 +94,7 @@ jobs:
         working-directory: ${{ inputs.working-directory }}
 
     if: ${{ inputs.rust-test-coverage }}
-    needs: [setup-environment]
+    needs: [lint]
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v4
@@ -183,19 +103,8 @@ jobs:
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
-
-      - name: Get components hash
-        id: get_hash
-        run: |
-          COMPONENTS_HASH=$(task ${{ inputs.task-prefix }}:tools:hash)
-          echo "components_hash=$COMPONENTS_HASH" >> $GITHUB_OUTPUT
-
-      - name: Setup Rust Caching
-        uses: Swatinem/rust-cache@v2
         with:
-          workspaces: ${{ inputs.working-directory }}
-          cache-on-failure: false
-          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{ steps.get_hash.outputs.components_hash }}
+          workspace: ${{ inputs.working-directory }}
 
       - name: Run `coverage`
         run: |
@@ -209,7 +118,7 @@ jobs:
         working-directory: ${{ inputs.working-directory }}
 
     if: ${{ inputs.rust-test }}
-    needs: [setup-environment]
+    needs: [lint]
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v4
@@ -218,19 +127,8 @@ jobs:
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
-
-      - name: Get components hash
-        id: get_hash
-        run: |
-          COMPONENTS_HASH=$(task ${{ inputs.task-prefix }}:tools:hash)
-          echo "components_hash=$COMPONENTS_HASH" >> $GITHUB_OUTPUT
-
-      - name: Setup Rust Caching
-        uses: Swatinem/rust-cache@v2
         with:
-          workspaces: ${{ inputs.working-directory }}
-          cache-on-failure: false
-          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{ steps.get_hash.outputs.components_hash }}
+          workspace: ${{ inputs.working-directory }}
 
       - name: Setup Python
         uses: ./.github/actions/setup-python
@@ -249,7 +147,7 @@ jobs:
 
     if: ${{ inputs.rust-test }}
 
-    needs: [setup-environment, unittest-matrix]
+    needs: [lint, unittest-matrix]
     steps:
       - name: Print result
         run: echo ${{ needs.unittest-matrix.result }}
@@ -270,11 +168,11 @@ jobs:
         shell: bash
         working-directory: ${{ inputs.working-directory }}
 
-    needs: [setup-environment]
+    needs: [lint]
 
     if: ${{ inputs.rust-cross-build }}
 
-    timeout-minutes: 10
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -290,19 +188,8 @@ jobs:
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
-
-      - name: Get components hash
-        id: get_hash
-        run: |
-          COMPONENTS_HASH=$(task ${{ inputs.task-prefix }}:tools:hash)
-          echo "components_hash=$COMPONENTS_HASH" >> $GITHUB_OUTPUT
-
-      - name: Setup Rust Caching
-        uses: Swatinem/rust-cache@v2
         with:
-          workspaces: ${{ inputs.working-directory }}
-          cache-on-failure: false
-          shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}-${{ steps.get_hash.outputs.components_hash }}
+          workspace: ${{ inputs.working-directory }}
 
       - name: Build
         run: |

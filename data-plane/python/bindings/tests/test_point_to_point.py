@@ -7,7 +7,7 @@ Point-to-point sticky session integration test.
 Scenario:
   - One logical sender creates a PointToPoint session and sends 1000 messages
     to a shared logical receiver identity.
-  - Ten receiver instances (same PyName) concurrently listen for an
+  - Ten receiver instances (same Name) concurrently listen for an
     inbound session. Only one should become the bound peer for the
     PointToPoint session (stickiness).
   - All 1000 messages must arrive at exactly one receiver (verifying
@@ -52,7 +52,7 @@ async def test_sticky_session(server, mls_enabled):
         mls_enabled (bool): Whether to enable MLS for the created session.
 
     Flow:
-        1. Spawn 10 receiver tasks (same logical PyName).
+        1. Spawn 10 receiver tasks (same logical Name).
         2. Sender establishes PointToPoint session.
         3. Sender publishes 1000 messages with consistent metadata + payload_type.
         4. Each receiver tallies only messages addressed to the logical receiver name.
@@ -61,16 +61,14 @@ async def test_sticky_session(server, mls_enabled):
     Expectation:
         Sticky routing pins all messages to the first receiver that accepted the session.
     """
-    sender_name = slim_bindings.PyName("org", "default", "p2p_sender")
-    receiver_name = slim_bindings.PyName("org", "default", "p2p_receiver")
+    sender_name = slim_bindings.Name("org", "default", "p2p_sender")
+    receiver_name = slim_bindings.Name("org", "default", "p2p_receiver")
 
     print(f"Sender name: {sender_name}")
     print(f"Receiver name: {receiver_name}")
 
     # create new slim object
-    sender = await create_slim(
-        sender_name, "secret", local_service=server.local_service
-    )
+    sender = await create_slim(sender_name, local_service=server.local_service)
 
     if server.local_service:
         # Connect to the service and subscribe for the local name
@@ -85,14 +83,12 @@ async def test_sticky_session(server, mls_enabled):
 
     async def run_receiver(i: int):
         """Receiver task:
-        - Creates its own Slim instance using the shared receiver PyName.
+        - Creates its own Slim instance using the shared receiver Name.
         - Awaits the inbound PointToPoint session (only one task should get bound).
         - Counts messages matching expected routing + metadata.
         - Continues until sender finishes publishing (loop ends by external cancel or test end).
         """
-        receiver = await create_slim(
-            receiver_name, "secret", local_service=server.local_service
-        )
+        receiver = await create_slim(receiver_name, local_service=server.local_service)
 
         if server.local_service:
             # Connect to the service and subscribe for the local name
@@ -103,7 +99,7 @@ async def test_sticky_session(server, mls_enabled):
         session = await receiver.listen_for_session()
 
         # make sure the received session is PointToPoint
-        assert session.session_type == slim_bindings.PySessionType.PointToPoint
+        assert session.session_type == slim_bindings.SessionType.PointToPoint
 
         # Make sure the dst of the session is the receiver name
         assert session.dst == sender.local_name
@@ -132,14 +128,12 @@ async def test_sticky_session(server, mls_enabled):
         await asyncio.sleep(0.1)
 
     # create a new session
-    sender_session = await sender.create_session(
-        slim_bindings.PySessionConfiguration.PointToPoint(
-            peer_name=receiver_name,
-            max_retries=5,
-            timeout=datetime.timedelta(seconds=5),
-            mls_enabled=mls_enabled,
-        ),
+    session_config = slim_bindings.SessionConfiguration.PointToPoint(
+        max_retries=5,
+        timeout=datetime.timedelta(seconds=5),
+        mls_enabled=mls_enabled,
     )
+    sender_session = await sender.create_session(receiver_name, session_config)
 
     # Wait a moment
     await asyncio.sleep(2)

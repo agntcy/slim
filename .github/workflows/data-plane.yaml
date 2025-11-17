@@ -47,7 +47,6 @@ jobs:
 
   data-plane-bindings-examples-docker-build:
     name: Build Python examples docker image
-    if:
     uses: ./.github/workflows/reusable-docker-build-push.yaml
     with:
       bake-targets: bindings-examples

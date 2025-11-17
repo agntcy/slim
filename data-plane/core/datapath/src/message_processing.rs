@@ -22,12 +22,14 @@ use crate::api::ProtoPublishType as PublishType;
 use crate::api::ProtoSubscribeType as SubscribeType;
 use crate::api::ProtoUnsubscribeType as UnsubscribeType;
 use crate::api::proto::dataplane::v1::Message;
+
 use crate::api::proto::dataplane::v1::data_plane_service_client::DataPlaneServiceClient;
 use crate::api::proto::dataplane::v1::data_plane_service_server::DataPlaneService;
 use crate::connection::{Channel, Connection, Type as ConnectionType};
 use crate::errors::DataPathError;
 use crate::forwarder::Forwarder;
 use crate::messages::Name;
+use crate::messages::utils::SlimHeaderFlags;
 use crate::tables::connection_table::ConnectionTable;
 use crate::tables::subscription_table::SubscriptionTableImpl;
 
@@ -262,30 +264,36 @@ impl MessageProcessor {
             .await
     }
 
-    pub fn disconnect(&self, conn: u64) -> Result<(), DataPathError> {
-        match self.forwarder().get_connection(conn) {
+    pub fn disconnect(&self, conn: u64) -> Result<ClientConfig, DataPathError> {
+        let connection = match self.forwarder().get_connection(conn) {
+            Some(c) => c,
             None => {
                 error!("error handling disconnect: connection unknown");
                 return Err(DataPathError::DisconnectionError(
                     "connection not found".to_string(),
                 ));
             }
-            Some(c) => {
-                match c.cancellation_token() {
-                    None => {
-                        error!("error handling disconnect: missing cancellation token");
-                    }
-                    Some(t) => {
-                        // here token cancel will stop the receiving loop on
-                        // conn and this will cause the delition of the state
-                        // for this connection
-                        t.cancel();
-                    }
-                }
-            }
-        }
+        };
 
-        Ok(())
+        let token = match connection.cancellation_token() {
+            Some(t) => t,
+            None => {
+                error!("error handling disconnect: missing cancellation token");
+                return Err(DataPathError::DisconnectionError(
+                    "missing cancellation token".to_string(),
+                ));
+            }
+        };
+
+        // Cancel receiving loop; this triggers deletion of connection state.
+        token.cancel();
+
+        connection
+            .config_data()
+            .cloned()
+            .ok_or(DataPathError::DisconnectionError(
+                "missing client config data".to_string(),
+            ))
     }
 
     pub fn register_local_connection(
@@ -514,14 +522,15 @@ impl MessageProcessor {
             Some(out_conn) => {
                 debug!("forward subscription (add = {}) to {}", add, out_conn);
 
-                // get source name
+                // get source name and identity
                 let source = msg.get_source();
+                let identity = msg.get_identity();
 
                 // send message
                 match self.send_msg(msg, out_conn).await {
                     Ok(_) => {
                         self.forwarder()
-                            .on_forwarded_subscription(source, dst, out_conn, add);
+                            .on_forwarded_subscription(source, dst, identity, out_conn, add);
                         Ok(())
                     }
                     Err(e) => Err(DataPathError::UnsubscriptionError(e.to_string())),
@@ -646,7 +655,7 @@ impl MessageProcessor {
         cancellation_token: &CancellationToken,
     ) -> bool {
         let config = client_conf.unwrap();
-        match config.to_channel() {
+        match config.to_channel().await {
             Err(e) => {
                 error!(
                     "cannot parse connection config, unable to reconnect {:?}",
@@ -679,11 +688,12 @@ impl MessageProcessor {
                                 info!("connection re-established");
                                 // the subscription table should be ok already
                                 for r in remote_subscriptions.iter() {
-                                    let sub_msg = Message::new_subscribe(
-                                        r.source(),
-                                        r.name(),
-                                        None,
-                                    );
+                                    let sub_msg = Message::builder()
+                                        .source(r.source().clone())
+                                        .destination(r.name().clone())
+                                        .identity(r.source_identity())
+                                        .build_subscribe()
+                                        .unwrap();
                                     if self.send_msg(sub_msg, conn_index).await.is_err() {
                                         error!("error restoring subscription on remote node");
                                     }
@@ -798,10 +808,32 @@ impl MessageProcessor {
             }
 
             if !connected {
-                // delete connection state
-                self_clone
+                //delete connection state
+                let (local_subs, _remote_subs) = self_clone
                     .forwarder()
                     .on_connection_drop(conn_index, is_local);
+
+                // if connection is not local and controller exists, notify about lost subscriptions on the connection
+                if let (false, Some(tx)) = (is_local, tx_cp) {
+                    for local_sub in local_subs {
+                        debug!(
+                            "notify control plane about lost subscription: {}",
+                            local_sub
+                        );
+                        let msg = Message::builder()
+                            .source(local_sub.clone())
+                            .destination(local_sub.clone())
+                            .flags(SlimHeaderFlags::default().with_recv_from(conn_index))
+                            .build_unsubscribe()
+                            .unwrap();
+                        if let Err(e) = tx.send(Ok(msg)).await {
+                            error!(
+                                "failed to send unsubscribe message to control plane for subscription {}: {}",
+                                local_sub, e
+                            );
+                        }
+                    }
+                }
 
                 info!(telemetry = true, counter.num_active_connections = -1);
             }

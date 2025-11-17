@@ -5,11 +5,10 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use base64::Engine;
 // Third-party crates
 use parking_lot::RwLock as SyncRwLock;
 use rand::Rng;
-use slim_datapath::messages::utils::SLIM_IDENTITY;
+use slim_datapath::messages::utils::IS_MODERATOR;
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, warn};
@@ -18,33 +17,30 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType};
 use slim_datapath::messages::Name;
 
-use crate::MessageHandler;
 use crate::common::SessionMessage;
 use crate::notification::Notification;
+use crate::session_config::SessionConfig;
+use crate::session_controller::SessionController;
+
 use crate::transmitter::{AppTransmitter, SessionTransmitter};
 
 // Local crate
 use super::context::SessionContext;
-use super::interceptor::{IdentityInterceptor, SessionInterceptor};
-use super::interceptor_mls::METADATA_MLS_ENABLED;
-use super::multicast::{self, MulticastConfiguration};
-use super::point_to_point::PointToPointConfiguration;
-use super::{
-    Id, MessageDirection, SESSION_RANGE, Session, SessionConfig, SessionConfigTrait, SessionType,
-    SlimChannelSender, Transmitter,
-};
-use super::{SessionError, channel_endpoint::handle_channel_discovery_message};
-use crate::interceptor::SessionInterceptorProvider; // needed for add_interceptor
+use super::interceptor::IdentityInterceptor;
+use super::{MessageDirection, SESSION_RANGE, SlimChannelSender};
+use super::{SessionError, session_controller::handle_channel_discovery_message};
+use crate::interceptor::SessionInterceptorProvider;
+use crate::traits::Transmitter; // needed for add_interceptor
 
 /// SessionLayer manages sessions and their lifecycle
-pub struct SessionLayer<P, V, T = AppTransmitter<P, V>>
+pub struct SessionLayer<P, V, T = AppTransmitter>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
     T: Transmitter + Send + Sync + Clone + 'static,
 {
     /// Session pool
-    pool: Arc<AsyncRwLock<HashMap<Id, Arc<Session<P, V>>>>>,
+    pool: Arc<AsyncRwLock<HashMap<u32, Arc<SessionController>>>>,
 
     /// Default name of the local app
     app_id: u64,
@@ -63,14 +59,10 @@ where
 
     /// Tx channels
     tx_slim: SlimChannelSender,
-    tx_app: Sender<Result<Notification<P, V>, SessionError>>,
+    tx_app: Sender<Result<Notification, SessionError>>,
 
     // Transmitter to bypass sessions
     transmitter: T,
-
-    /// Default configuration for the session
-    default_p2p_conf: SyncRwLock<PointToPointConfiguration>,
-    default_multicast_conf: SyncRwLock<MulticastConfiguration>,
 
     /// Storage path for app data
     storage_path: std::path::PathBuf,
@@ -93,13 +85,10 @@ where
         identity_verifier: V,
         conn_id: u64,
         tx_slim: SlimChannelSender,
-        tx_app: Sender<Result<Notification<P, V>, SessionError>>,
+        tx_app: Sender<Result<Notification, SessionError>>,
         transmitter: T,
         storage_path: std::path::PathBuf,
     ) -> Self {
-        // Create default configurations
-        let default_p2p_conf = SyncRwLock::new(PointToPointConfiguration::default());
-        let default_multicast_conf = SyncRwLock::new(MulticastConfiguration::default());
         let (tx_session, rx_session) = tokio::sync::mpsc::channel(16);
 
         let sl = SessionLayer {
@@ -112,8 +101,6 @@ where
             tx_slim,
             tx_app,
             transmitter,
-            default_p2p_conf,
-            default_multicast_conf,
             storage_path,
             tx_session,
         };
@@ -127,7 +114,7 @@ where
         self.tx_slim.clone()
     }
 
-    pub fn tx_app(&self) -> Sender<Result<Notification<P, V>, SessionError>> {
+    pub fn tx_app(&self) -> Sender<Result<Notification, SessionError>> {
         self.tx_app.clone()
     }
 
@@ -183,11 +170,9 @@ where
         &self,
         session_config: SessionConfig,
         local_name: Name,
-        id: Option<Id>,
-    ) -> Result<SessionContext<P, V>, SessionError> {
-        // TODO(msardara): the session identifier should be a combination of the
-        // session ID and the app ID, to prevent collisions.
-
+        destination: Name,
+        id: Option<u32>,
+    ) -> Result<SessionContext, SessionError> {
         // get a lock on the session pool
         let mut pool = self.pool.write().await;
 
@@ -218,7 +203,7 @@ where
         };
 
         // Create a new transmitter with identity interceptors
-        let (app_tx, app_rx) = tokio::sync::mpsc::channel(128);
+        let (app_tx, app_rx) = tokio::sync::mpsc::unbounded_channel();
         let tx = SessionTransmitter::new(self.tx_slim.clone(), app_tx);
 
         let identity_interceptor = Arc::new(IdentityInterceptor::new(
@@ -228,46 +213,34 @@ where
 
         tx.add_interceptor(identity_interceptor);
 
-        // create a new session
-        let session = match session_config {
-            SessionConfig::PointToPoint(conf) => Arc::new(Session::from_point_to_point(
-                super::point_to_point::PointToPoint::new(
-                    id,
-                    conf,
-                    local_name,
-                    tx,
-                    self.identity_provider.clone(),
-                    self.identity_verifier.clone(),
-                    self.storage_path.clone(),
-                ),
-            )),
-            SessionConfig::Multicast(conf) => {
-                Arc::new(Session::from_multicast(multicast::Multicast::new(
-                    id,
-                    conf,
-                    local_name,
-                    tx,
-                    self.identity_provider.clone(),
-                    self.identity_verifier.clone(),
-                    self.storage_path.clone(),
-                    self.tx_session.clone(),
-                )))
-            }
-        };
+        let session_controller = Arc::new(
+            SessionController::builder()
+                .with_id(id)
+                .with_source(local_name)
+                .with_destination(destination)
+                .with_config(session_config)
+                .with_identity_provider(self.identity_provider.clone())
+                .with_identity_verifier(self.identity_verifier.clone())
+                .with_storage_path(self.storage_path.clone())
+                .with_tx(tx)
+                .with_tx_to_session_layer(self.tx_session.clone())
+                .ready()?
+                .build()
+                .await?,
+        );
 
-        // insert the session into the pool
-        let ret = pool.insert(id, session.clone());
+        let ret = pool.insert(id, session_controller.clone());
 
         // This should never happen, but just in case
         if ret.is_some() {
             panic!("session already exists: {}", ret.is_some());
         }
 
-        Ok(SessionContext::new(session, app_rx))
+        Ok(SessionContext::new(session_controller, app_rx))
     }
 
     /// Remove a session from the pool
-    pub async fn remove_session(&self, id: Id) -> bool {
+    pub async fn remove_session(&self, id: u32) -> bool {
         // get the write lock
         let mut pool = self.pool.write().await;
         pool.remove(&id).is_some()
@@ -311,13 +284,13 @@ where
     pub async fn handle_message_from_app(
         &self,
         message: Message,
-        context: &SessionContext<P, V>,
+        context: &SessionContext,
     ) -> Result<(), SessionError> {
         context
             .session()
             .upgrade()
             .ok_or(SessionError::SessionNotFound(0))?
-            .publish_message(message)
+            .on_message(message, MessageDirection::South)
             .await
     }
 
@@ -331,25 +304,24 @@ where
         session_type: ProtoSessionType,
         session_message_type: ProtoSessionMessageType,
         session_id: u32,
-    ) -> Result<bool, SessionError> {
+    ) -> Result<(), SessionError> {
         match session_message_type {
-            ProtoSessionMessageType::ChannelDiscoveryRequest => {
+            ProtoSessionMessageType::DiscoveryRequest => {
                 // reply directly without creating any new Session
-                let msg =
-                    handle_channel_discovery_message(message, local_name, session_id, session_type);
+                let msg = handle_channel_discovery_message(
+                    message,
+                    local_name,
+                    session_id,
+                    session_type,
+                )?;
 
-                self.transmitter
-                    .send_to_slim(Ok(msg))
-                    .await
-                    .map(|_| true)
-                    .map_err(|e| {
-                        SessionError::SlimTransmission(format!(
-                            "error sending discovery reply: {}",
-                            e
-                        ))
-                    })
+                self.transmitter.send_to_slim(Ok(msg)).await.map_err(|e| {
+                    SessionError::SlimTransmission(format!("error sending discovery reply: {}", e))
+                })
             }
-            _ => Ok(false),
+            _ => Err(SessionError::SlimTransmission(
+                "unexpected message type".to_string(),
+            )),
         }
     }
 
@@ -383,177 +355,92 @@ where
             (id, session_type, session_message_type)
         };
 
-        if session_message_type == ProtoSessionMessageType::ChannelDiscoveryRequest {
-            // received a discovery message
-            if let Some(session) = self.pool.read().await.get(&id)
-                && session.session_config().initiator()
-            {
-                // if the message is for a session that already exists and the local app
-                // is the initiator of the session this message is coming from the controller
-                // that wants to add new participant to the session
-                return session.on_message(message, MessageDirection::North).await;
-            } else {
-                // in this case we handle the message without creating a new local session
-
-                let local_name =
-                    self.get_local_name_for_session(message.get_slim_header().get_dst())?;
-
-                match self
-                    .handle_message_from_slim_without_session(
-                        &local_name,
-                        &message,
-                        session_type,
-                        session_message_type,
-                        id,
-                    )
-                    .await
-                {
-                    Ok(done) => {
-                        if done {
-                            // message process concluded
-                            return Ok(());
-                        }
-                    }
-                    Err(e) => {
-                        // return an error
-                        return Err(SessionError::SlimReception(format!(
-                            "error processing packets from slim {}",
-                            e
-                        )));
-                    }
-                }
-            }
+        // special handling for discovery request messages
+        if session_message_type == ProtoSessionMessageType::DiscoveryRequest {
+            return self
+                .handle_discovery_request(message, id, session_type, session_message_type)
+                .await;
         }
 
-        if session_message_type == ProtoSessionMessageType::ChannelLeaveRequest {
-            let mut drop_session = true;
-            // send message to the session and delete it after
-            if let Some(session) = self.pool.read().await.get(&id) {
-                if message.get_session_type() == ProtoSessionType::SessionMulticast {
-                    if let Some(string_name) = message.get_metadata("PARTICIPANT_NAME") {
-                        debug!(
-                            "received a Leave Request message on multicast session with PARTICIPANT_NAME"
-                        );
-
-                        let participant_vec = base64::engine::general_purpose::STANDARD
-                            .decode(string_name)
-                            .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?;
-
-                        let participant: Name = bincode::decode_from_slice(
-                            &participant_vec,
-                            bincode::config::standard(),
-                        )
-                        .map_err(|e| SessionError::ParseProposalMessage(e.to_string()))?
-                        .0;
-
-                        if &participant == session.source() {
-                            // the controller want to delete the session on the moderator.
-                            // this is equivalent to delete the full group.
-                            // TODO (micpapal/msardara): move the moderator role
-                            // to another participant and keep the group alive
-                            message.remove_metadata("PARTICIPANT_NAME");
-                            message.insert_metadata("DELETE_GROUP".to_string(), "true".to_string());
-
-                            debug!("try to remove the moderator, close the session");
-                        }
-
-                        drop_session = false;
-                    } else if message.contains_metadata("DELETE_GROUP") {
-                        debug!(
-                            "received a Leave Request message on multicast session with DELETE GROUP"
-                        );
-                        drop_session = false;
-                    }
-                }
-                session.on_message(message, MessageDirection::North).await?;
-            } else {
-                warn!(
-                    "received Channel Leave Request message with unknown session id, drop the message"
-                );
-                return Err(SessionError::SessionUnknown(
-                    session_type.as_str_name().to_string(),
-                ));
-            }
-
-            if drop_session {
-                // remove the session
-                self.remove_session(id).await;
-            }
-            return Ok(());
-        }
-
-        if let Some(session) = self.pool.read().await.get(&id) {
+        // check if we have a session for the given session ID
+        if let Some(controller) = self.pool.read().await.get(&id) {
             // pass the message to the session
-            return session.on_message(message, MessageDirection::North).await;
+            return controller
+                .on_message(message, MessageDirection::North)
+                .await;
         }
 
         // get local name for the session
         let local_name = self.get_local_name_for_session(message.get_slim_header().get_dst())?;
 
         let new_session = match session_message_type {
-            ProtoSessionMessageType::P2PMsg | ProtoSessionMessageType::P2PReliable => {
-                let mut conf = self.default_p2p_conf.read().clone();
-
-                // Set that the session was initiated by another app
-                conf.initiator = false;
-
-                // If other session is reliable, set the timeout
-                if session_message_type == ProtoSessionMessageType::P2PReliable {
-                    if conf.timeout.is_none() {
-                        conf.timeout = Some(std::time::Duration::from_secs(5));
-                    }
-
-                    if conf.max_retries.is_none() {
-                        conf.max_retries = Some(5);
-                    }
-                }
-
-                self.create_session(SessionConfig::PointToPoint(conf), local_name, Some(id))
-                    .await?
-            }
-            ProtoSessionMessageType::ChannelJoinRequest => {
-                // Create a new session based on the SessionType contained in the message
+            ProtoSessionMessageType::JoinRequest => {
                 match message.get_session_header().session_type() {
-                    ProtoSessionType::SessionPointToPoint => {
-                        let mut conf = self.default_p2p_conf.read().clone();
-                        conf.initiator = false;
+                    ProtoSessionType::PointToPoint => {
+                        let conf = crate::SessionConfig::from_join_request(
+                            ProtoSessionType::PointToPoint,
+                            message.extract_command_payload().map_err(|e| {
+                                SessionError::Processing(format!(
+                                    "failed to extract command payload: {}",
+                                    e
+                                ))
+                            })?,
+                            message.get_metadata_map(),
+                            false,
+                        )?;
 
-                        // TODO (micpapal): this timer should be part of the session context
-                        // to be added in the JoinRequest
-                        if conf.timeout.is_none() {
-                            conf.timeout = Some(std::time::Duration::from_secs(5));
-                        }
-
-                        if conf.max_retries.is_none() {
-                            conf.max_retries = Some(5);
-                        }
-
-                        conf.peer_name = Some(message.get_source());
-                        conf.mls_enabled = message.contains_metadata(METADATA_MLS_ENABLED);
-                        conf.metadata = message.get_metadata_map();
-
-                        self.create_session(SessionConfig::PointToPoint(conf), local_name, Some(id))
-                            .await?
+                        self.create_session(
+                            conf,
+                            local_name,
+                            message.get_source(),
+                            Some(message.get_session_header().session_id),
+                        )
+                        .await?
                     }
-                    ProtoSessionType::SessionMulticast => {
-                        let mut conf = self.default_multicast_conf.read().clone();
-                        conf.mls_enabled = message.contains_metadata(METADATA_MLS_ENABLED);
+                    ProtoSessionType::Multicast => {
+                        // Multicast sessions require timer settings; reject if missing.
+                        let payload = message.extract_join_request().map_err(|e| {
+                            SessionError::Processing(format!(
+                                "failed to extract join request payload: {}",
+                                e
+                            ))
+                        })?;
 
-                        // the metadata of the first received message are copied in the metadata of the session
-                        // and then added to the messages sent by this session. so we need to erase the entries
-                        // the we want to keep local: IS_MODERATOR and SLIM_IDENTITY
-                        conf.initiator = message.remove_metadata("IS_MODERATOR").is_some();
-                        message.remove_metadata(SLIM_IDENTITY);
+                        if payload.timer_settings.is_none() {
+                            return Err(SessionError::Processing(
+                                "missing timer options".to_string(),
+                            ));
+                        }
 
-                        conf.metadata = message.get_metadata_map();
+                        let channel = if let Some(c) = &payload.channel {
+                            Name::from(c)
+                        } else {
+                            return Err(SessionError::Processing(
+                                "missing channel name".to_string(),
+                            ));
+                        };
 
-                        conf.channel_name = message
-                            .get_session_header()
-                            .get_destination()
-                            .ok_or(SessionError::MissingChannelName)?;
+                        // Determine initiator (moderator) before building metadata snapshot.
+                        let initiator = message.remove_metadata(IS_MODERATOR).is_some();
+                        let conf = crate::SessionConfig::from_join_request(
+                            ProtoSessionType::Multicast,
+                            message.extract_command_payload().map_err(|e| {
+                                SessionError::Processing(format!(
+                                    "failed to extract command payload: {}",
+                                    e
+                                ))
+                            })?,
+                            message.get_metadata_map(),
+                            initiator,
+                        )?;
 
-                        self.create_session(SessionConfig::Multicast(conf), local_name, Some(id))
-                            .await?
+                        self.create_session(
+                            conf,
+                            local_name,
+                            channel,
+                            Some(message.get_session_header().session_id),
+                        )
+                        .await?
                     }
                     _ => {
                         warn!(
@@ -566,19 +453,19 @@ where
                     }
                 }
             }
-            ProtoSessionMessageType::ChannelDiscoveryRequest
-            | ProtoSessionMessageType::ChannelDiscoveryReply
-            | ProtoSessionMessageType::ChannelJoinReply
-            | ProtoSessionMessageType::ChannelLeaveRequest
-            | ProtoSessionMessageType::ChannelLeaveReply
-            | ProtoSessionMessageType::ChannelMlsCommit
-            | ProtoSessionMessageType::ChannelMlsWelcome
-            | ProtoSessionMessageType::ChannelMlsAck
-            | ProtoSessionMessageType::P2PAck
+            ProtoSessionMessageType::DiscoveryRequest
+            | ProtoSessionMessageType::DiscoveryReply
+            | ProtoSessionMessageType::JoinReply
+            | ProtoSessionMessageType::LeaveRequest
+            | ProtoSessionMessageType::LeaveReply
+            | ProtoSessionMessageType::GroupAdd
+            | ProtoSessionMessageType::GroupRemove
+            | ProtoSessionMessageType::GroupWelcome
+            | ProtoSessionMessageType::GroupAck
+            | ProtoSessionMessageType::Msg
+            | ProtoSessionMessageType::MsgAck
             | ProtoSessionMessageType::RtxRequest
-            | ProtoSessionMessageType::RtxReply
-            | ProtoSessionMessageType::MulticastMsg
-            | ProtoSessionMessageType::BeaconMulticast => {
+            | ProtoSessionMessageType::RtxReply => {
                 debug!(
                     "received channel message with unknown session id {:?} ",
                     message
@@ -592,8 +479,6 @@ where
                 ));
             }
         };
-
-        debug_assert!(new_session.session().upgrade().unwrap().id() == id);
 
         // process the message
         new_session
@@ -612,49 +497,41 @@ where
             .map_err(|e| SessionError::AppTransmission(format!("error sending new session: {}", e)))
     }
 
-    /// Set the configuration of a session
-    pub fn set_default_session_config(
+    /// Handle a discovery request message.
+    async fn handle_discovery_request(
         &self,
-        session_config: &SessionConfig,
+        message: Message,
+        id: u32,
+        session_type: ProtoSessionType,
+        session_message_type: ProtoSessionMessageType,
     ) -> Result<(), SessionError> {
-        // If no session ID is provided, modify the default session
-        match session_config {
-            SessionConfig::PointToPoint(_) => self.default_p2p_conf.write().replace(session_config),
-            SessionConfig::Multicast(_) => {
-                self.default_multicast_conf.write().replace(session_config)
-            }
-        }
-    }
-
-    /// Get the session configuration
-    pub fn get_default_session_config(
-        &self,
-        session_type: SessionType,
-    ) -> Result<SessionConfig, SessionError> {
-        match session_type {
-            SessionType::PointToPoint => Ok(SessionConfig::PointToPoint(
-                self.default_p2p_conf.read().clone(),
-            )),
-            SessionType::Multicast => Ok(SessionConfig::Multicast(
-                self.default_multicast_conf.read().clone(),
-            )),
-        }
-    }
-
-    /// Add an interceptor to a session
-    #[allow(dead_code)]
-    pub async fn add_session_interceptor(
-        &self,
-        session_id: Id,
-        interceptor: Arc<dyn SessionInterceptor + Send + Sync>,
-    ) -> Result<(), SessionError> {
-        let mut pool = self.pool.write().await;
-
-        if let Some(session) = pool.get_mut(&session_id) {
-            session.tx_ref().add_interceptor(interceptor);
-            Ok(())
+        // received a discovery message
+        if let Some(controller) = self.pool.read().await.get(&id)
+            && controller.is_initiator()
+            && message
+                .extract_discovery_request()
+                .ok()
+                .and_then(|p| p.destination.as_ref())
+                .is_some()
+        {
+            // Existing session where we are the initiator and payload includes a destination name:
+            // controller is requesting to add a new participant to this session.
+            controller
+                .on_message(message, MessageDirection::North)
+                .await
         } else {
-            Err(SessionError::SessionNotFound(session_id))
+            // Handle the discovery request without creating a local session.
+            let local_name =
+                self.get_local_name_for_session(message.get_slim_header().get_dst())?;
+
+            self.handle_message_from_slim_without_session(
+                &local_name,
+                &message,
+                session_type,
+                session_message_type,
+                id,
+            )
+            .await
         }
     }
 
@@ -662,5 +539,421 @@ where
     #[cfg(test)]
     pub async fn is_pool_empty(&self) -> bool {
         self.pool.read().await.is_empty()
+    }
+
+    /// Get the number of sessions in the pool (for testing purposes)
+    #[cfg(test)]
+    pub async fn pool_size(&self) -> usize {
+        self.pool.read().await.len()
+    }
+
+    /// Get a session from the pool (for testing purposes)
+    #[cfg(test)]
+    pub async fn get_session(&self, id: u32) -> Option<Arc<SessionController>> {
+        self.pool.read().await.get(&id).cloned()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_utils::{MockTokenProvider, MockTransmitter, MockVerifier};
+    use slim_datapath::Status;
+    use slim_datapath::api::ProtoSessionType;
+    use slim_datapath::messages::Name;
+    use tokio::sync::mpsc;
+
+    // --- Test Mocks -----------------------------------------------------------------------
+
+    fn make_name(parts: &[&str; 3]) -> Name {
+        Name::from_strings([parts[0], parts[1], parts[2]]).with_id(0)
+    }
+
+    type TestSessionLayer = SessionLayer<MockTokenProvider, MockVerifier, MockTransmitter>;
+    type SlimReceiver = mpsc::Receiver<Result<Message, Status>>;
+    type AppReceiver = mpsc::Receiver<Result<Notification, SessionError>>;
+    type TransmitterReceiver = mpsc::UnboundedReceiver<Result<Message, Status>>;
+
+    fn setup_session_layer() -> (
+        TestSessionLayer,
+        SlimReceiver,
+        AppReceiver,
+        TransmitterReceiver,
+    ) {
+        let app_name = make_name(&["test", "app", "v1"]);
+        let identity_provider = MockTokenProvider;
+        let identity_verifier = MockVerifier;
+        let conn_id = 12345u64;
+
+        let (tx_slim, rx_slim) = mpsc::channel(16);
+        let (tx_app, rx_app) = mpsc::channel(16);
+        let (tx_transmitter, rx_transmitter) = mpsc::unbounded_channel();
+
+        let transmitter = MockTransmitter {
+            slim_tx: tx_transmitter,
+            interceptors: Arc::new(parking_lot::Mutex::new(vec![])),
+        };
+
+        let storage_path = std::path::PathBuf::from("/tmp/test");
+
+        let session_layer = SessionLayer::new(
+            app_name,
+            identity_provider,
+            identity_verifier,
+            conn_id,
+            tx_slim,
+            tx_app,
+            transmitter,
+            storage_path,
+        );
+
+        (session_layer, rx_slim, rx_app, rx_transmitter)
+    }
+
+    #[tokio::test]
+    async fn test_new_session_layer() {
+        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+
+        assert_eq!(session_layer.app_id(), 0);
+        assert_eq!(session_layer.conn_id(), 12345);
+        assert!(session_layer.is_pool_empty().await);
+    }
+
+    #[tokio::test]
+    async fn test_add_and_remove_app_name() {
+        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+
+        let name1 = make_name(&["service", "v1", "api"]);
+        let name2 = make_name(&["service", "v2", "api"]);
+
+        session_layer.add_app_name(name1.clone());
+        session_layer.add_app_name(name2.clone());
+
+        // Verify names are added
+        assert_eq!(session_layer.app_names.read().len(), 3); // initial + 2 added
+
+        session_layer.remove_app_name(&name1);
+        assert_eq!(session_layer.app_names.read().len(), 2);
+
+        session_layer.remove_app_name(&name2);
+        assert_eq!(session_layer.app_names.read().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_identity_token() {
+        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+
+        let token = session_layer.get_identity_token();
+        assert!(token.is_ok());
+        assert_eq!(token.unwrap(), "mock_token");
+    }
+
+    #[tokio::test]
+    async fn test_create_session_with_auto_id() {
+        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+
+        let local_name = make_name(&["local", "app", "v1"]);
+        let destination = make_name(&["remote", "app", "v1"]);
+        let config = SessionConfig {
+            session_type: ProtoSessionType::PointToPoint,
+            max_retries: Some(3),
+            interval: Some(std::time::Duration::from_secs(1)),
+            mls_enabled: false,
+            initiator: true,
+            metadata: Default::default(),
+        };
+
+        let result = session_layer
+            .create_session(config, local_name, destination, None)
+            .await;
+
+        assert!(result.is_ok());
+        assert_eq!(session_layer.pool_size().await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_create_session_with_specific_id() {
+        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+
+        let local_name = make_name(&["local", "app", "v1"]);
+        let destination = make_name(&["remote", "app", "v1"]);
+        let config = SessionConfig {
+            session_type: ProtoSessionType::PointToPoint,
+            max_retries: Some(3),
+            interval: Some(std::time::Duration::from_secs(1)),
+            mls_enabled: false,
+            initiator: true,
+            metadata: Default::default(),
+        };
+
+        let session_id = 100u32;
+        let result = session_layer
+            .create_session(config, local_name, destination, Some(session_id))
+            .await;
+
+        assert!(result.is_ok());
+        assert_eq!(session_layer.pool_size().await, 1);
+
+        let session = session_layer.get_session(session_id).await;
+        assert!(session.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_create_session_with_invalid_id() {
+        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+
+        let local_name = make_name(&["local", "app", "v1"]);
+        let destination = make_name(&["remote", "app", "v1"]);
+        let config = SessionConfig {
+            session_type: ProtoSessionType::PointToPoint,
+            max_retries: Some(3),
+            interval: Some(std::time::Duration::from_secs(1)),
+            mls_enabled: false,
+            initiator: true,
+            metadata: Default::default(),
+        };
+
+        // Use an ID outside the SESSION_RANGE (SESSION_RANGE is 0..u32::MAX-1000)
+        let invalid_id = u32::MAX - 500; // This is outside SESSION_RANGE
+        let result = session_layer
+            .create_session(config, local_name, destination, Some(invalid_id))
+            .await;
+
+        assert!(result.is_err());
+        match result {
+            Err(SessionError::InvalidSessionId(_)) => {}
+            _ => panic!("Expected InvalidSessionId error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_create_session_with_duplicate_id() {
+        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+
+        let local_name = make_name(&["local", "app", "v1"]);
+        let destination = make_name(&["remote", "app", "v1"]);
+        let config = SessionConfig {
+            session_type: ProtoSessionType::PointToPoint,
+            max_retries: Some(3),
+            interval: Some(std::time::Duration::from_secs(1)),
+            mls_enabled: false,
+            initiator: true,
+            metadata: Default::default(),
+        };
+
+        let session_id = 100u32;
+
+        // Create first session
+        let result1 = session_layer
+            .create_session(
+                config.clone(),
+                local_name.clone(),
+                destination.clone(),
+                Some(session_id),
+            )
+            .await;
+        assert!(result1.is_ok());
+
+        // Try to create second session with same ID
+        let result2 = session_layer
+            .create_session(config, local_name, destination, Some(session_id))
+            .await;
+
+        assert!(result2.is_err());
+        match result2 {
+            Err(SessionError::SessionIdAlreadyUsed(_)) => {}
+            _ => panic!("Expected SessionIdAlreadyUsed error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_remove_session() {
+        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+
+        let local_name = make_name(&["local", "app", "v1"]);
+        let destination = make_name(&["remote", "app", "v1"]);
+        let config = SessionConfig {
+            session_type: ProtoSessionType::PointToPoint,
+            max_retries: Some(3),
+            interval: Some(std::time::Duration::from_secs(1)),
+            mls_enabled: false,
+            initiator: true,
+            metadata: Default::default(),
+        };
+
+        let session_id = 100u32;
+        let _context = session_layer
+            .create_session(config, local_name, destination, Some(session_id))
+            .await
+            .unwrap();
+
+        assert_eq!(session_layer.pool_size().await, 1);
+
+        let removed = session_layer.remove_session(session_id).await;
+        assert!(removed);
+        assert!(session_layer.is_pool_empty().await);
+
+        // Try to remove non-existent session
+        let removed_again = session_layer.remove_session(session_id).await;
+        assert!(!removed_again);
+    }
+
+    #[tokio::test]
+    async fn test_get_local_name_for_session() {
+        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+
+        let name = make_name(&["service", "api", "v1"]);
+        session_layer.add_app_name(name.clone());
+
+        let dst = name.with_id(123);
+        let result = session_layer.get_local_name_for_session(dst);
+
+        assert!(result.is_ok());
+        let local_name = result.unwrap();
+        assert_eq!(local_name.id(), session_layer.app_id());
+    }
+
+    #[tokio::test]
+    async fn test_get_local_name_for_session_not_found() {
+        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+
+        let unknown_name = make_name(&["unknown", "service", "v1"]);
+        let result = session_layer.get_local_name_for_session(unknown_name);
+
+        assert!(result.is_err());
+        match result {
+            Err(SessionError::SubscriptionNotFound(_)) => {}
+            _ => panic!("Expected SubscriptionNotFound error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_tx_slim_and_tx_app_cloning() {
+        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+
+        let tx_slim = session_layer.tx_slim();
+        let tx_app = session_layer.tx_app();
+
+        // Just verify that we can clone these channels
+        let _tx_slim2 = tx_slim.clone();
+        let _tx_app2 = tx_app.clone();
+    }
+
+    #[tokio::test]
+    async fn test_handle_discovery_request_without_session() {
+        let (session_layer, _rx_slim, _rx_app, mut rx_transmitter) = setup_session_layer();
+
+        let local_name = make_name(&["local", "app", "v1"]);
+        session_layer.add_app_name(local_name.clone());
+
+        let source = make_name(&["remote", "app", "v1"]);
+        let message = Message::builder()
+            .source(source)
+            .destination(local_name.clone().with_id(session_layer.app_id()))
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::PointToPoint)
+            .session_message_type(ProtoSessionMessageType::DiscoveryRequest)
+            .session_id(100)
+            .message_id(0)
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
+
+        let result = session_layer
+            .handle_message_from_slim_without_session(
+                &local_name,
+                &message,
+                ProtoSessionType::PointToPoint,
+                ProtoSessionMessageType::DiscoveryRequest,
+                100,
+            )
+            .await;
+
+        assert!(result.is_ok());
+
+        // Verify that a discovery reply was sent
+        let sent_message = rx_transmitter.try_recv();
+        assert!(
+            sent_message.is_ok(),
+            "Expected a message to be sent to transmitter"
+        );
+        let msg = sent_message.unwrap().unwrap();
+        assert_eq!(
+            msg.get_session_header().session_message_type(),
+            ProtoSessionMessageType::DiscoveryReply
+        );
+    }
+
+    #[tokio::test]
+    async fn test_handle_message_from_slim_without_session_invalid_type() {
+        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+
+        let local_name = make_name(&["local", "app", "v1"]);
+        let source = make_name(&["remote", "app", "v1"]);
+        let message = Message::builder()
+            .source(source)
+            .destination(local_name.clone().with_id(session_layer.app_id()))
+            .application_payload("application/octet-stream", vec![])
+            .build_publish()
+            .unwrap();
+
+        let result = session_layer
+            .handle_message_from_slim_without_session(
+                &local_name,
+                &message,
+                ProtoSessionType::PointToPoint,
+                ProtoSessionMessageType::Msg, // Not a DiscoveryRequest
+                100,
+            )
+            .await;
+
+        assert!(result.is_err());
+        match result {
+            Err(SessionError::SlimTransmission(_)) => {}
+            _ => panic!("Expected SlimTransmission error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_multiple_sessions_in_pool() {
+        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+
+        let local_name = make_name(&["local", "app", "v1"]);
+        let config = SessionConfig {
+            session_type: ProtoSessionType::PointToPoint,
+            max_retries: Some(3),
+            interval: Some(std::time::Duration::from_secs(1)),
+            mls_enabled: false,
+            initiator: true,
+            metadata: Default::default(),
+        };
+
+        // Create multiple sessions
+        for i in 0..5 {
+            let destination = make_name(&["remote", &format!("app{}", i), "v1"]);
+            let result = session_layer
+                .create_session(config.clone(), local_name.clone(), destination, None)
+                .await;
+            assert!(result.is_ok());
+        }
+
+        assert_eq!(session_layer.pool_size().await, 5);
+    }
+
+    #[tokio::test]
+    async fn test_remove_app_name_with_null_component() {
+        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+
+        let name = make_name(&["service", "v1", "api"]).with_id(123);
+        session_layer.add_app_name(name.clone());
+
+        // Remove with specific ID (should normalize to NULL_COMPONENT)
+        session_layer.remove_app_name(&name);
+
+        // The name with NULL_COMPONENT should be removed
+        let name_null = name.with_id(Name::NULL_COMPONENT);
+        assert!(!session_layer.app_names.read().contains(&name_null));
     }
 }

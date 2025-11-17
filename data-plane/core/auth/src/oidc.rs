@@ -3,6 +3,7 @@
 
 use crate::errors::AuthError;
 use crate::jwt::extract_sub_claim_unsafe;
+use crate::metadata::MetadataMap;
 use crate::resolver::JwksCache;
 use crate::traits::{TokenProvider, Verifier};
 use async_trait::async_trait;
@@ -21,8 +22,6 @@ use url::Url;
 
 // Default token refresh buffer (60 seconds before expiry)
 const REFRESH_BUFFER_SECONDS: u64 = 60;
-// Refresh tokens at 2/3 of their lifetime
-const REFRESH_RATIO: f64 = 2.0 / 3.0;
 
 /// Cache entry for OIDC access tokens
 #[derive(Debug, Clone)]
@@ -193,7 +192,7 @@ impl OidcTokenProvider {
     }
 
     /// Initialize the provider asynchronously - starts background tasks and fetches initial token
-    pub async fn initialize(&self) -> Result<(), AuthError> {
+    async fn initialize(&mut self) -> Result<(), AuthError> {
         // Check if already initialized
         if self.refresh_task.lock().is_some() {
             return Ok(());
@@ -300,8 +299,8 @@ impl OidcTokenProvider {
             .as_secs();
         let expiry = now + expires_in;
 
-        // Calculate refresh time (2/3 of token lifetime)
-        let refresh_at = now + ((expires_in as f64 * REFRESH_RATIO) as u64);
+        // Calculate refresh time (2/3 of token lifetime) using integer math to avoid float casting
+        let refresh_at = now + (expires_in * 2 / 3);
 
         // Cache the token using the structured cache
         let cache_key = self.get_cache_key();
@@ -365,7 +364,12 @@ impl OidcTokenProvider {
     }
 }
 
+#[async_trait]
 impl TokenProvider for OidcTokenProvider {
+    async fn initialize(&mut self) -> Result<(), AuthError> {
+        OidcTokenProvider::initialize(self).await
+    }
+
     fn get_token(&self) -> Result<String, AuthError> {
         let cache_key = self.get_cache_key();
         if let Some(cached_token) = self.token_cache.get(&cache_key) {
@@ -380,6 +384,16 @@ impl TokenProvider for OidcTokenProvider {
     fn get_id(&self) -> Result<String, AuthError> {
         let token = self.get_token()?;
         extract_sub_claim_unsafe(&token)
+    }
+
+    async fn get_token_with_claims(
+        &self,
+        _custom_claims: MetadataMap,
+    ) -> Result<String, AuthError> {
+        // This provider does not support custom claims in the token
+        Err(AuthError::UnsupportedOperation(
+            "OIDC Token Provider does not support custom claims".to_string(),
+        ))
     }
 }
 
@@ -532,6 +546,10 @@ impl OidcVerifier {
 
 #[async_trait]
 impl Verifier for OidcVerifier {
+    async fn initialize(&mut self) -> Result<(), AuthError> {
+        Ok(()) // no-op
+    }
+
     async fn verify(&self, token: impl Into<String> + Send) -> Result<(), AuthError> {
         // Verify the token structure is valid - this will fetch JWKS if needed
         let _: serde_json::Value = self.verify_token(&token.into()).await?;
@@ -577,12 +595,12 @@ mod tests {
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     // Use the test utilities from the testutils module
-    use crate::testutils::{TestClaims, setup_oidc_mock_server, setup_test_jwt_resolver};
+    use slim_testing::utils::{TestClaims, setup_oidc_mock_server, setup_test_jwt_resolver};
 
     #[tokio::test]
     async fn test_oidc_token_provider_client_credentials_flow() {
         // Initialize crypto provider for tests
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        slim_config::tls::provider::initialize_crypto_provider();
 
         let (_mock_server, issuer_url, expected_token) = setup_oidc_mock_server().await;
 
@@ -593,7 +611,7 @@ mod tests {
             scope: Some("api:read".to_string()),
             timeout: None,
         };
-        let provider = OidcTokenProvider::new(config).unwrap();
+        let mut provider = OidcTokenProvider::new(config).unwrap();
         provider.initialize().await.unwrap();
 
         // Test token retrieval
@@ -604,7 +622,7 @@ mod tests {
     #[tokio::test]
     async fn test_oidc_token_provider_caching() {
         // Initialize crypto provider for tests
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        slim_config::tls::provider::initialize_crypto_provider();
 
         let (_mock_server, issuer_url, expected_token) = setup_oidc_mock_server().await;
 
@@ -615,7 +633,7 @@ mod tests {
             scope: None,
             timeout: None,
         };
-        let provider = OidcTokenProvider::new(config).unwrap();
+        let mut provider = OidcTokenProvider::new(config).unwrap();
         provider.initialize().await.unwrap();
 
         // First call - should fetch token
@@ -895,7 +913,7 @@ mod tests {
 
         // Test that the provider can be created successfully with proper OIDC server
         match provider_result {
-            Ok(provider) => {
+            Ok(mut provider) => {
                 assert_eq!(provider.config.scope, Some("scope".to_string()));
                 // Test that initialization works
                 provider.initialize().await.unwrap();
@@ -953,7 +971,7 @@ mod tests {
             scope: None,
             timeout: None,
         };
-        let provider = OidcTokenProvider::new(config).unwrap();
+        let mut provider = OidcTokenProvider::new(config).unwrap();
         provider.initialize().await.unwrap();
 
         let now = 1000;
@@ -967,7 +985,7 @@ mod tests {
     #[tokio::test]
     async fn test_oidc_token_provider_error_handling() {
         // Initialize crypto provider for tests
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        slim_config::tls::provider::initialize_crypto_provider();
 
         let mock_server = MockServer::start().await;
         let issuer_url = mock_server.uri();
@@ -1023,7 +1041,7 @@ mod tests {
     #[tokio::test]
     async fn test_oidc_token_provider_invalid_token_response() {
         // Initialize crypto provider for tests
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        slim_config::tls::provider::initialize_crypto_provider();
 
         let mock_server = MockServer::start().await;
         let issuer_url = mock_server.uri();

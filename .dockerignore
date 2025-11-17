@@ -3,3 +3,4 @@
 .tools
 .dist
 **/target
+.github

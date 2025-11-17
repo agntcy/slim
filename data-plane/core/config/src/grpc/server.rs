@@ -9,6 +9,7 @@ use std::{net::SocketAddr, str::FromStr, time::Duration};
 
 use duration_string::DurationString;
 use futures::{FutureExt, TryStreamExt};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 use tonic::transport::server::TcpIncoming;
@@ -18,37 +19,42 @@ use super::errors::ConfigError;
 use crate::auth::ServerAuthenticator;
 use crate::auth::basic::Config as BasicAuthenticationConfig;
 use crate::auth::jwt::Config as JwtAuthenticationConfig;
+use slim_auth::metadata::MetadataMap;
 
 use crate::component::configuration::{Configuration, ConfigurationError};
-use crate::metadata::MetadataMap;
 use crate::tls::{common::RustlsConfigLoader, server::TlsServerConfig as TLSSetting};
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
 pub struct KeepaliveServerParameters {
     /// max_connection_idle sets the time after which an idle connection is closed.
     #[serde(default = "default_max_connection_idle")]
+    #[schemars(with = "String")]
     max_connection_idle: DurationString,
 
     /// max_connection_age sets the maximum amount of time a connection may exist before it will be closed.
     #[serde(default = "default_max_connection_age")]
+    #[schemars(with = "String")]
     max_connection_age: DurationString,
 
     /// max_connection_age_grace is an additional time given after MaxConnectionAge before closing the connection.
     #[serde(default = "default_max_connection_age_grace")]
+    #[schemars(with = "String")]
     max_connection_age_grace: DurationString,
 
     /// Time sets the frequency of the keepalive ping.
     #[serde(default = "default_time")]
+    #[schemars(with = "String")]
     time: DurationString,
 
     /// Timeout sets the amount of time the server waits for a keepalive ping ack.
     #[serde(default = "default_timeout")]
+    #[schemars(with = "String")]
     timeout: DurationString,
 }
 
 /// Enum holding one configuration for the client.
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub enum AuthenticationConfig {
     /// Basic authentication configuration.
     Basic(BasicAuthenticationConfig),
@@ -64,7 +70,7 @@ impl Default for AuthenticationConfig {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
 pub struct ServerConfig {
     /// Endpoint is the address to listen on.
     pub endpoint: String,
@@ -100,7 +106,6 @@ pub struct ServerConfig {
 
     /// Auth for this receiver.
     #[serde(default)]
-    #[serde(with = "serde_yaml::with::singleton_map")]
     pub auth: AuthenticationConfig,
 
     /// Arbitrary user-provided metadata.
@@ -286,7 +291,7 @@ impl ServerConfig {
         Self { auth, ..self }
     }
 
-    pub fn to_server_future<S>(&self, svc: &[S]) -> Result<ServerFuture, ConfigError>
+    pub async fn to_server_future<S>(&self, svc: &[S]) -> Result<ServerFuture, ConfigError>
     where
         S: tower_service::Service<
                 http::Request<tonic::body::Body>,
@@ -300,29 +305,23 @@ impl ServerConfig {
             + Sync,
         S::Future: Send + 'static,
     {
-        // Make sure at least one service is provided
         if svc.is_empty() {
             return Err(ConfigError::MissingServices);
         }
 
-        // Check if the endpoint is missing
         if self.endpoint.is_empty() {
             return Err(ConfigError::MissingEndpoint);
         }
 
-        // make sure endpoint is valid
         let addr = SocketAddr::from_str(self.endpoint.as_str())
             .map_err(|e| ConfigError::EndpointParseError(e.to_string()))?;
 
-        // create a new TcpIncoming
         let incoming =
             TcpIncoming::bind(addr).map_err(|e| ConfigError::TcpIncomingError(e.to_string()))?;
 
-        // Create initial server config
         let builder: tonic::transport::Server =
             tonic::transport::Server::builder().accept_http1(false);
 
-        // Set max number of concurrent streams per connection
         let builder = match self.max_concurrent_streams {
             Some(max_concurrent_streams) => {
                 builder.concurrency_limit_per_connection(max_concurrent_streams as usize)
@@ -330,27 +329,26 @@ impl ServerConfig {
             None => builder,
         };
 
-        // Set max size of messages accepted by the server
         let builder = match self.max_frame_size {
             Some(max_frame_size) => builder.max_frame_size(max_frame_size * 1024 * 1024),
             None => builder,
         };
 
-        // Set max header list size
         let builder = match self.max_header_list_size {
             Some(max_header_list_size) => builder.http2_max_header_list_size(max_header_list_size),
             None => builder,
         };
 
-        // Set keepalive parameters
         let builder = builder.http2_keepalive_interval(Some(self.keepalive.time.into()));
         let builder = builder.http2_keepalive_timeout(Some(self.keepalive.timeout.into()));
 
-        // Set max connection age
         let mut builder = builder.max_connection_age(self.keepalive.max_connection_age.into());
 
-        // TLS configuration
-        let tls_config = TLSSetting::load_rustls_config(&self.tls_setting)
+        // Async TLS configuration load (may involve SPIFFE operations)
+        let tls_config = self
+            .tls_setting
+            .load_rustls_config()
+            .await
             .map_err(|e| ConfigError::TLSSettingError(e.to_string()))?;
 
         match &self.auth {
@@ -371,17 +369,24 @@ impl ServerConfig {
                         tonic_tls::rustls::TlsIncoming::new(incoming, Arc::new(tls_config))
                             .map_err(|e| ConfigError::TcpIncomingError(e.to_string()));
 
-                    // Return the server future with the TLS configuration
                     return Ok(router.serve_with_incoming(incoming).boxed());
                 };
 
                 Ok(router.serve_with_incoming(incoming).boxed())
             }
             AuthenticationConfig::Jwt(jwt) => {
-                let auth_layer = <JwtAuthenticationConfig as ServerAuthenticator<
+                // Build the authentication layer and perform its async initialization
+                // before adding it to the server stack. This ensures any dynamic key
+                // resolution or background tasks are ready prior to handling requests.
+                let mut auth_layer = <JwtAuthenticationConfig as ServerAuthenticator<
                     http::Response<tonic::body::Body>,
                 >>::get_server_layer(jwt)
                 .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;
+
+                auth_layer
+                    .initialize()
+                    .await
+                    .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;
 
                 let mut builder = builder.layer(auth_layer);
 
@@ -395,7 +400,6 @@ impl ServerConfig {
                         tonic_tls::rustls::TlsIncoming::new(incoming, Arc::new(tls_config))
                             .map_err(|e| ConfigError::TcpIncomingError(e.to_string()));
 
-                    // Return the server future with the TLS configuration
                     return Ok(router.serve_with_incoming(incoming).boxed());
                 };
 
@@ -412,7 +416,6 @@ impl ServerConfig {
                         tonic_tls::rustls::TlsIncoming::new(incoming, Arc::new(tls_config))
                             .map_err(|e| ConfigError::TcpIncomingError(e.to_string()));
 
-                    // Return the server future with the TLS configuration
                     return Ok(router.serve_with_incoming(incoming).boxed());
                 };
 
@@ -421,7 +424,7 @@ impl ServerConfig {
         }
     }
 
-    pub fn run_server<S>(
+    pub async fn run_server<S>(
         &self,
         svc: &[S],
         drain_rx: drain::Watch,
@@ -440,7 +443,7 @@ impl ServerConfig {
         S::Future: Send + 'static,
     {
         info!(%self, "server configured: setting it up");
-        let server_future = self.to_server_future(svc)?;
+        let server_future = self.to_server_future(svc).await?;
 
         // create a new cancellation token
         let token = CancellationToken::new();
@@ -480,6 +483,7 @@ impl ServerConfig {
 mod tests {
     use super::*;
     use crate::testutils::{Empty, helloworld::greeter_server::GreeterServer};
+    use crate::tls::common::TlsSource;
     use serde_json;
 
     static TEST_DATA_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/grpc");
@@ -521,33 +525,45 @@ mod tests {
         let empty_service = Arc::new(Empty::new());
 
         // no endpoint - should return an error
-        let ret = server_config.to_server_future(&[GreeterServer::from_arc(empty_service.clone())]);
+        let ret = server_config
+            .to_server_future(&[GreeterServer::from_arc(empty_service.clone())])
+            .await;
         // Make sure the error is a ConfigError::MissingEndpoint
         assert!(ret.is_err_and(|e| { e.to_string().contains("missing grpc endpoint") }));
 
         // set the endpoint in the config. Now it shouhld fail because of the invalid endpoint
         server_config.endpoint = "0.0.0.0:123456".to_string();
-        let ret = server_config.to_server_future(&[GreeterServer::from_arc(empty_service.clone())]);
+        let ret = server_config
+            .to_server_future(&[GreeterServer::from_arc(empty_service.clone())])
+            .await;
         assert!(ret.is_err_and(|e| { e.to_string().contains("error parsing grpc endpoint") }));
 
         // set a valid endpoint in the config. Now it should fail because of the missing cert/key files for tls
         server_config.endpoint = "0.0.0.0:12345".to_string();
-        let ret = server_config.to_server_future(&[GreeterServer::from_arc(empty_service.clone())]);
+        let ret = server_config
+            .to_server_future(&[GreeterServer::from_arc(empty_service.clone())])
+            .await;
         assert!(ret.is_err_and(|e| { e.to_string().contains("tls setting error") }));
 
         // set the tls setting to insecure. Now it should return a server future
         server_config.tls_setting.insecure = true;
-        let ret = server_config.to_server_future(&[GreeterServer::from_arc(empty_service.clone())]);
+        let ret = server_config
+            .to_server_future(&[GreeterServer::from_arc(empty_service.clone())])
+            .await;
         assert!(ret.is_ok());
 
         // drop it, as we have a server listening on the port now
         drop(ret.unwrap());
 
-        // Set insecure to false and set the path to the cert and key files
+        // Set insecure to false and configure certificate/key via TlsSource::File (updated API)
         server_config.tls_setting.insecure = false;
-        server_config.tls_setting.config.cert_file = Some(format!("{}/server.crt", TEST_DATA_PATH));
-        server_config.tls_setting.config.key_file = Some(format!("{}/server.key", TEST_DATA_PATH));
-        let ret = server_config.to_server_future(&[GreeterServer::from_arc(empty_service.clone())]);
+        server_config.tls_setting.config.source = TlsSource::File {
+            cert: format!("{}/server.crt", TEST_DATA_PATH),
+            key: format!("{}/server.key", TEST_DATA_PATH),
+        };
+        let ret = server_config
+            .to_server_future(&[GreeterServer::from_arc(empty_service.clone())])
+            .await;
         assert!(ret.is_ok());
     }
 

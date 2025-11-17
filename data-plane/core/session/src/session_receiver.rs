@@ -10,6 +10,7 @@ use tokio::sync::mpsc::Sender;
 use tracing::debug;
 
 use crate::common::new_message_from_session_fields;
+use crate::transmitter::SessionTransmitter;
 use crate::{
     SessionError, Transmitter,
     common::SessionMessage,
@@ -53,10 +54,7 @@ enum ReceiverDrainStatus {
 }
 
 #[allow(dead_code)]
-struct SessionReceiver<T>
-where
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
+pub struct SessionReceiver {
     /// buffer with received packets one per endpoint
     buffer: HashMap<Name, ReceiverBuffer>,
 
@@ -79,31 +77,24 @@ where
     /// session type
     session_type: ProtoSessionType,
 
-    /// if true send acks for each received message
-    send_acks: bool,
-
     /// send to slim/app
-    tx: T,
+    tx: SessionTransmitter,
 
     /// drain state - when true, no new messages from app are accepted
     draining_state: ReceiverDrainStatus,
 }
 
 #[allow(dead_code)]
-impl<T> SessionReceiver<T>
-where
-    T: Transmitter + Send + Sync + Clone + 'static,
-{
+impl SessionReceiver {
     /// to create the timer factory and send rtx messages
     /// timer_settings and tx_timer must be not null
     #[allow(clippy::too_many_arguments)]
-    fn new(
+    pub fn new(
         timer_settings: Option<TimerSettings>,
         session_id: u32,
         local_name: Name,
         session_type: ProtoSessionType,
-        send_acks: bool,
-        tx: T,
+        tx: SessionTransmitter,
         tx_signals: Option<Sender<SessionMessage>>,
     ) -> Self {
         let factory = if let Some(settings) = timer_settings
@@ -121,13 +112,12 @@ where
             session_id,
             session_type,
             local_name,
-            send_acks,
             tx,
             draining_state: ReceiverDrainStatus::NotDraining,
         }
     }
 
-    async fn on_message(&mut self, message: Message) -> Result<ReceiverDrainStatus, SessionError> {
+    pub async fn on_message(&mut self, message: Message) -> Result<(), SessionError> {
         if self.draining_state == ReceiverDrainStatus::Completed {
             return Err(SessionError::Processing(
                 "receiver closed, drop message".to_string(),
@@ -135,45 +125,16 @@ where
         }
 
         match message.get_session_message_type() {
-            slim_datapath::api::ProtoSessionMessageType::P2PMsg => {
-                debug!("received P2P message");
+            slim_datapath::api::ProtoSessionMessageType::Msg => {
+                debug!("received message");
                 if self.draining_state == ReceiverDrainStatus::Initiated {
                     // draining period is started, do no accept any new message
-                    debug!("draining period started, do not accept new messages");
-                    return Ok(ReceiverDrainStatus::Initiated);
+                    return Err(SessionError::Processing(
+                        "drain started do no accept new messages".to_string(),
+                    ));
                 }
                 if self.timer_factory.is_some() {
-                    // this receiver is reliable but got an unreliable messages
-                    // drop the message
-                    return Err(SessionError::Processing(
-                        "received an unreliable message on a reliable receiver".to_string(),
-                    ));
-                }
-                self.on_publish_message(message).await?;
-            }
-            slim_datapath::api::ProtoSessionMessageType::P2PReliable => {
-                debug!("received P2P reliable message");
-                if self.draining_state == ReceiverDrainStatus::Initiated {
-                    // draining period is started, do no accept any new message
-                    debug!("draining period started, do not accept new messages");
-                    return Ok(ReceiverDrainStatus::Initiated);
-                }
-                if self.timer_factory.is_none() {
-                    // this receiver is unreliable but got an reliable messages
-                    // drop the message
-                    return Err(SessionError::Processing(
-                        "received a reliable message on an unreliable receiver".to_string(),
-                    ));
-                }
-                self.send_ack(&message).await?;
-                self.on_publish_message(message).await?;
-            }
-            slim_datapath::api::ProtoSessionMessageType::MulticastMsg => {
-                debug!("received multicast message");
-                if self.draining_state == ReceiverDrainStatus::Initiated {
-                    // draining period is started, do no accept any new message
-                    debug!("draining period started, do not accept new messages");
-                    return Ok(ReceiverDrainStatus::Initiated);
+                    self.send_ack(&message).await?;
                 }
                 self.on_publish_message(message).await?;
             }
@@ -186,16 +147,10 @@ where
                 debug!("unexpected message type");
             }
         }
-
-        // return the right state
-        if self.check_drain_completion() {
-            return Ok(ReceiverDrainStatus::Completed);
-        }
-
-        Ok(self.draining_state.clone())
+        Ok(())
     }
 
-    async fn on_publish_message(&mut self, message: Message) -> Result<(), SessionError> {
+    pub async fn on_publish_message(&mut self, message: Message) -> Result<(), SessionError> {
         if self.timer_factory.is_none() {
             debug!(
                 "received message {} from {}, send it to the app without reordering",
@@ -214,27 +169,23 @@ where
             .await
     }
 
-    async fn send_ack(&mut self, message: &Message) -> Result<(), SessionError> {
-        if !self.send_acks {
-            // nothing to do
-            return Ok(());
-        }
-
+    pub async fn send_ack(&mut self, message: &Message) -> Result<(), SessionError> {
         let ack = new_message_from_session_fields(
             &self.local_name,
             &message.get_source(),
             message.get_incoming_conn(),
             false,
             self.session_type,
-            slim_datapath::api::ProtoSessionMessageType::P2PAck,
+            slim_datapath::api::ProtoSessionMessageType::MsgAck,
             message.get_session_header().session_id,
             message.get_id(),
-        );
+        )
+        .map_err(|e| SessionError::Processing(e.to_string()))?;
 
         self.tx.send_to_slim(Ok(ack)).await
     }
 
-    async fn on_rtx_message(&mut self, message: Message) -> Result<(), SessionError> {
+    pub async fn on_rtx_message(&mut self, message: Message) -> Result<(), SessionError> {
         // in case we get the and RTX reply the session must be reliable
         let source = message.get_source();
         let id = message.get_id();
@@ -306,16 +257,17 @@ where
                 slim_datapath::api::ProtoSessionMessageType::RtxRequest,
                 self.session_id,
                 rtx_id,
-            );
+            )
+            .map_err(|e| SessionError::Processing(e.to_string()))?;
 
             // for each RTX start a timer
             debug!("create rtx timer for message {} form {}", rtx_id, source);
 
-            let timer = self
-                .timer_factory
-                .as_ref()
-                .unwrap()
-                .create_and_start_timer(rtx_id, Some(source.clone()));
+            let timer = self.timer_factory.as_ref().unwrap().create_and_start_timer(
+                rtx_id,
+                slim_datapath::api::ProtoSessionMessageType::RtxRequest,
+                Some(source.clone()),
+            );
 
             let key = PendingRtxKey {
                 name: source.clone(),
@@ -335,7 +287,7 @@ where
         Ok(())
     }
 
-    async fn on_timer_timeout(&mut self, id: u32, name: Name) -> Result<(), SessionError> {
+    pub async fn on_timer_timeout(&mut self, id: u32, name: Name) -> Result<(), SessionError> {
         debug!("timeout for message {} from {}", id, name);
         let key = PendingRtxKey { name, id };
         let pending = self.pending_rtxs.get(&key).ok_or_else(|| {
@@ -346,7 +298,7 @@ where
         self.tx.send_to_slim(Ok(pending.message.clone())).await
     }
 
-    async fn on_timer_failure(&mut self, id: u32, name: Name) -> Result<(), SessionError> {
+    pub async fn on_timer_failure(&mut self, id: u32, name: Name) -> Result<(), SessionError> {
         debug!(
             "timer failure for message {} from {}, clear state",
             id, name
@@ -368,18 +320,7 @@ where
             .await
     }
 
-    fn start_drain(&mut self) -> ReceiverDrainStatus {
-        if self.pending_rtxs.is_empty() {
-            debug!("closing receiver");
-            self.draining_state = ReceiverDrainStatus::Completed;
-        } else {
-            debug!("receiver drain initiated");
-            self.draining_state = ReceiverDrainStatus::Initiated;
-        }
-        self.draining_state.clone()
-    }
-
-    fn check_drain_completion(&self) -> bool {
+    pub fn check_drain_completion(&self) -> bool {
         // Drain is complete if we're draining and no pending rtx remain
         if self.draining_state == ReceiverDrainStatus::Completed
             || self.draining_state == ReceiverDrainStatus::Initiated && self.pending_rtxs.is_empty()
@@ -387,6 +328,14 @@ where
             return true;
         }
         false
+    }
+
+    pub fn close(&mut self) {
+        for (_, mut p) in self.pending_rtxs.drain() {
+            p.timer.stop();
+        }
+        self.pending_rtxs.clear();
+        self.draining_state = ReceiverDrainStatus::Completed;
     }
 }
 
@@ -406,7 +355,7 @@ mod tests {
         let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
 
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(10);
+        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
@@ -417,21 +366,19 @@ mod tests {
             Some(settings),
             10,
             local_name.clone(),
-            ProtoSessionType::SessionPointToPoint,
-            true,
+            ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
         );
 
         // Create test message 1
-        let mut message1 = Message::new_publish(
-            &remote_name,
-            &local_name,
-            None,
-            "test_payload_1",
-            vec![1, 2, 3, 4],
-        );
-        message1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        let mut message1 = Message::builder()
+            .source(remote_name.clone())
+            .destination(local_name.clone())
+            .application_payload("test_payload_1", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
+        message1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message1.get_session_header_mut().set_message_id(1);
         message1.get_session_header_mut().set_session_id(10);
         message1.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -464,19 +411,18 @@ mod tests {
         assert_eq!(ack1.get_dst(), remote_name);
         assert_eq!(
             ack1.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::P2PAck
+            slim_datapath::api::ProtoSessionMessageType::MsgAck
         );
         assert_eq!(ack1.get_session_header().get_message_id(), 1);
 
         // Create test message 2
-        let mut message2 = Message::new_publish(
-            &remote_name,
-            &local_name,
-            None,
-            "test_payload_2",
-            vec![5, 6, 7, 8],
-        );
-        message2.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        let mut message2 = Message::builder()
+            .source(remote_name.clone())
+            .destination(local_name.clone())
+            .application_payload("test_payload_2", vec![5, 6, 7, 8])
+            .build_publish()
+            .unwrap();
+        message2.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message2.get_session_header_mut().set_message_id(2);
         message2.get_session_header_mut().set_session_id(10);
         message2.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -509,7 +455,7 @@ mod tests {
         assert_eq!(ack2.get_dst(), remote_name);
         assert_eq!(
             ack2.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::P2PAck
+            slim_datapath::api::ProtoSessionMessageType::MsgAck
         );
         assert_eq!(ack2.get_session_header().get_message_id(), 2);
     }
@@ -521,7 +467,7 @@ mod tests {
         let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
 
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(10);
+        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
@@ -532,21 +478,19 @@ mod tests {
             Some(settings),
             10,
             local_name.clone(),
-            ProtoSessionType::SessionPointToPoint,
-            true,
+            ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
         );
 
         // Create test message 1
-        let mut message1 = Message::new_publish(
-            &remote_name,
-            &local_name,
-            None,
-            "test_payload_1",
-            vec![1, 2, 3, 4],
-        );
-        message1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        let mut message1 = Message::builder()
+            .source(remote_name.clone())
+            .destination(local_name.clone())
+            .application_payload("test_payload_2", vec![5, 6, 7, 8])
+            .build_publish()
+            .unwrap();
+        message1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message1.get_session_header_mut().set_message_id(1);
         message1.get_session_header_mut().set_session_id(10);
         message1.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -577,19 +521,18 @@ mod tests {
         assert_eq!(ack1.get_dst(), remote_name);
         assert_eq!(
             ack1.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::P2PAck
+            slim_datapath::api::ProtoSessionMessageType::MsgAck
         );
         assert_eq!(ack1.get_session_header().get_message_id(), 1);
 
         // Create test message 3 (message 2 is missing)
-        let mut message3 = Message::new_publish(
-            &remote_name,
-            &local_name,
-            None,
-            "test_payload_3",
-            vec![9, 10, 11, 12],
-        );
-        message3.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        let mut message3 = Message::builder()
+            .source(remote_name.clone())
+            .destination(local_name.clone())
+            .application_payload("test_payload_3", vec![9, 10, 11, 12])
+            .build_publish()
+            .unwrap();
+        message3.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message3.get_session_header_mut().set_message_id(3);
         message3.get_session_header_mut().set_session_id(10);
         message3.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -611,7 +554,7 @@ mod tests {
         assert_eq!(ack3.get_dst(), remote_name);
         assert_eq!(
             ack3.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::P2PAck
+            slim_datapath::api::ProtoSessionMessageType::MsgAck
         );
         assert_eq!(ack3.get_session_header().get_message_id(), 3);
 
@@ -624,8 +567,9 @@ mod tests {
         match signal_msg {
             SessionMessage::TimerTimeout {
                 message_id,
-                timeouts: _,
+                message_type: _,
                 name,
+                timeouts: _,
             } => {
                 receiver
                     .on_timer_timeout(message_id, name.unwrap())
@@ -659,8 +603,9 @@ mod tests {
         match signal_msg {
             SessionMessage::TimerTimeout {
                 message_id,
-                timeouts: _,
+                message_type: _,
                 name,
+                timeouts: _,
             } => {
                 receiver
                     .on_timer_timeout(message_id, name.unwrap())
@@ -693,8 +638,9 @@ mod tests {
         match signal_msg {
             SessionMessage::TimerFailure {
                 message_id,
-                timeouts: _,
+                message_type: _,
                 name,
+                timeouts: _,
             } => {
                 receiver
                     .on_timer_failure(message_id, name.unwrap())
@@ -748,7 +694,7 @@ mod tests {
         let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
 
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(10);
+        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
@@ -759,21 +705,19 @@ mod tests {
             Some(settings),
             10,
             local_name.clone(),
-            ProtoSessionType::SessionPointToPoint,
-            true,
+            ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
         );
 
         // Create test message 1
-        let mut message1 = Message::new_publish(
-            &remote_name,
-            &local_name,
-            None,
-            "test_payload_1",
-            vec![1, 2, 3, 4],
-        );
-        message1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        let mut message1 = Message::builder()
+            .source(remote_name.clone())
+            .destination(local_name.clone())
+            .application_payload("test_payload_1", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
+        message1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message1.get_session_header_mut().set_message_id(1);
         message1.get_session_header_mut().set_session_id(10);
         message1.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -804,19 +748,18 @@ mod tests {
         assert_eq!(ack1.get_dst(), remote_name);
         assert_eq!(
             ack1.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::P2PAck
+            slim_datapath::api::ProtoSessionMessageType::MsgAck
         );
         assert_eq!(ack1.get_session_header().get_message_id(), 1);
 
         // Create test message 3 (message 2 is missing)
-        let mut message3 = Message::new_publish(
-            &remote_name,
-            &local_name,
-            None,
-            "test_payload_3",
-            vec![9, 10, 11, 12],
-        );
-        message3.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        let mut message3 = Message::builder()
+            .source(remote_name.clone())
+            .destination(local_name.clone())
+            .application_payload("test_payload_3", vec![9, 10, 11, 12])
+            .build_publish()
+            .unwrap();
+        message3.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message3.get_session_header_mut().set_message_id(3);
         message3.get_session_header_mut().set_session_id(10);
         message3.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -830,15 +773,15 @@ mod tests {
         // Verify ack arriving at rx_slim
         let ack3 = timeout(Duration::from_millis(100), rx_slim.recv())
             .await
-            .expect("timeout waiting for ack1")
+            .expect("timeout waiting for ack3")
             .expect("channel closed")
-            .expect("error in received ack1");
+            .expect("error in received ack3");
 
         // Verify the ack was sent correctly
         assert_eq!(ack3.get_dst(), remote_name);
         assert_eq!(
             ack3.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::P2PAck
+            slim_datapath::api::ProtoSessionMessageType::MsgAck
         );
         assert_eq!(ack3.get_session_header().get_message_id(), 3);
 
@@ -857,13 +800,12 @@ mod tests {
         assert_eq!(rtx_request.get_id(), 2);
 
         // Create RTX reply with the missing message 2
-        let mut rtx_reply = Message::new_publish(
-            &remote_name,
-            &local_name,
-            None,
-            "test_payload_2",
-            vec![5, 6, 7, 8],
-        );
+        let mut rtx_reply = Message::builder()
+            .source(remote_name.clone())
+            .destination(local_name.clone())
+            .application_payload("test_payload_2", vec![5, 6, 7, 8])
+            .build_publish()
+            .unwrap();
         rtx_reply.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxReply);
         rtx_reply.get_session_header_mut().set_message_id(2);
         rtx_reply.get_session_header_mut().set_session_id(10);
@@ -910,7 +852,7 @@ mod tests {
         let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
 
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(10);
+        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
@@ -921,21 +863,19 @@ mod tests {
             Some(settings),
             10,
             local_name.clone(),
-            ProtoSessionType::SessionPointToPoint,
-            true,
+            ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
         );
 
         // Create test message 1
-        let mut message1 = Message::new_publish(
-            &remote_name,
-            &local_name,
-            None,
-            "test_payload_1",
-            vec![1, 2, 3, 4],
-        );
-        message1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        let mut message1 = Message::builder()
+            .source(remote_name.clone())
+            .destination(local_name.clone())
+            .application_payload("test_payload_1", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
+        message1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message1.get_session_header_mut().set_message_id(1);
         message1.get_session_header_mut().set_session_id(10);
         message1.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -966,19 +906,18 @@ mod tests {
         assert_eq!(ack1.get_dst(), remote_name);
         assert_eq!(
             ack1.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::P2PAck
+            slim_datapath::api::ProtoSessionMessageType::MsgAck
         );
         assert_eq!(ack1.get_session_header().get_message_id(), 1);
 
         // Create test message 3 (message 2 is missing)
-        let mut message3 = Message::new_publish(
-            &remote_name,
-            &local_name,
-            None,
-            "test_payload_3",
-            vec![9, 10, 11, 12],
-        );
-        message3.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        let mut message3 = Message::builder()
+            .source(remote_name.clone())
+            .destination(local_name.clone())
+            .application_payload("test_payload_3", vec![9, 10, 11, 12])
+            .build_publish()
+            .unwrap();
+        message3.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message3.get_session_header_mut().set_message_id(3);
         message3.get_session_header_mut().set_session_id(10);
         message3.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -1000,7 +939,7 @@ mod tests {
         assert_eq!(ack3.get_dst(), remote_name);
         assert_eq!(
             ack3.get_session_message_type(),
-            slim_datapath::api::ProtoSessionMessageType::P2PAck
+            slim_datapath::api::ProtoSessionMessageType::MsgAck
         );
         assert_eq!(ack3.get_session_header().get_message_id(), 3);
 
@@ -1019,7 +958,12 @@ mod tests {
         assert_eq!(rtx_request.get_id(), 2);
 
         // Create RTX reply with an error for message 2
-        let mut rtx_reply = Message::new_publish(&remote_name, &local_name, None, "", vec![]);
+        let mut rtx_reply = Message::builder()
+            .source(remote_name.clone())
+            .destination(local_name.clone())
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
         rtx_reply.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxReply);
         rtx_reply.get_session_header_mut().set_message_id(2);
         rtx_reply.get_session_header_mut().set_session_id(10);
@@ -1075,7 +1019,7 @@ mod tests {
         let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
 
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(10);
+        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
@@ -1088,22 +1032,19 @@ mod tests {
             Some(settings),
             10,
             local_name.clone(),
-            ProtoSessionType::SessionPointToPoint,
-            true,
+            ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
         );
 
         // Create and send message 1 from remote1
-        let mut message1_r1 = Message::new_publish(
-            &remote1_name,
-            &group_name,
-            None,
-            "payload_1_r1",
-            vec![1, 2, 3, 4],
-        );
-        message1_r1
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        let mut message1_r1 = Message::builder()
+            .source(remote1_name.clone())
+            .destination(group_name.clone())
+            .application_payload("payload_1_r1", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
+        message1_r1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message1_r1.get_session_header_mut().set_message_id(1);
         message1_r1.get_session_header_mut().set_session_id(10);
         message1_r1.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -1114,15 +1055,13 @@ mod tests {
             .expect("error sending message1_r1");
 
         // Create and send message 1 from remote2
-        let mut message1_r2 = Message::new_publish(
-            &remote2_name,
-            &group_name,
-            None,
-            "payload_1_r2",
-            vec![5, 6, 7, 8],
-        );
-        message1_r2
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        let mut message1_r2 = Message::builder()
+            .source(remote2_name.clone())
+            .destination(group_name.clone())
+            .application_payload("payload_1_r2", vec![5, 6, 7, 8])
+            .build_publish()
+            .unwrap();
+        message1_r2.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message1_r2.get_session_header_mut().set_message_id(1);
         message1_r2.get_session_header_mut().set_session_id(10);
         message1_r2.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -1133,15 +1072,13 @@ mod tests {
             .expect("error sending message1_r2");
 
         // Create and send message 2 from remote1
-        let mut message2_r1 = Message::new_publish(
-            &remote1_name,
-            &group_name,
-            None,
-            "payload_2_r1",
-            vec![9, 10, 11, 12],
-        );
-        message2_r1
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        let mut message2_r1 = Message::builder()
+            .source(remote1_name.clone())
+            .destination(group_name.clone())
+            .application_payload("payload_2_r1", vec![9, 10, 11, 12])
+            .build_publish()
+            .unwrap();
+        message2_r1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message2_r1.get_session_header_mut().set_message_id(2);
         message2_r1.get_session_header_mut().set_session_id(10);
         message2_r1.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -1152,15 +1089,13 @@ mod tests {
             .expect("error sending message2_r1");
 
         // Create and send message 2 from remote2
-        let mut message2_r2 = Message::new_publish(
-            &remote2_name,
-            &group_name,
-            None,
-            "payload_2_r2",
-            vec![13, 14, 15, 16],
-        );
-        message2_r2
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        let mut message2_r2 = Message::builder()
+            .source(remote2_name.clone())
+            .destination(group_name.clone())
+            .application_payload("payload_2_r2", vec![13, 14, 15, 16])
+            .build_publish()
+            .unwrap();
+        message2_r2.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message2_r2.get_session_header_mut().set_message_id(2);
         message2_r2.get_session_header_mut().set_session_id(10);
         message2_r2.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -1219,7 +1154,7 @@ mod tests {
         let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
 
         let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(10);
+        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
@@ -1232,22 +1167,19 @@ mod tests {
             Some(settings),
             10,
             local_name.clone(),
-            ProtoSessionType::SessionPointToPoint,
-            true,
+            ProtoSessionType::PointToPoint,
             tx,
             Some(tx_signal),
         );
 
         // Send messages 1, 2, 3 from remote1 (complete sequence)
-        let mut message1_r1 = Message::new_publish(
-            &remote1_name,
-            &group_name,
-            None,
-            "payload_1_r1",
-            vec![1, 2, 3, 4],
-        );
-        message1_r1
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        let mut message1_r1 = Message::builder()
+            .source(remote1_name.clone())
+            .destination(group_name.clone())
+            .application_payload("payload_1_r1", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
+        message1_r1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message1_r1.get_session_header_mut().set_message_id(1);
         message1_r1.get_session_header_mut().set_session_id(10);
         message1_r1.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -1257,15 +1189,13 @@ mod tests {
             .await
             .expect("error sending message1_r1");
 
-        let mut message2_r1 = Message::new_publish(
-            &remote1_name,
-            &group_name,
-            None,
-            "payload_2_r1",
-            vec![5, 6, 7, 8],
-        );
-        message2_r1
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        let mut message2_r1 = Message::builder()
+            .source(remote1_name.clone())
+            .destination(group_name.clone())
+            .application_payload("payload_2_r1", vec![5, 6, 7, 8])
+            .build_publish()
+            .unwrap();
+        message2_r1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message2_r1.get_session_header_mut().set_message_id(2);
         message2_r1.get_session_header_mut().set_session_id(10);
         message2_r1.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -1275,15 +1205,13 @@ mod tests {
             .await
             .expect("error sending message2_r1");
 
-        let mut message3_r1 = Message::new_publish(
-            &remote1_name,
-            &group_name,
-            None,
-            "payload_3_r1",
-            vec![9, 10, 11, 12],
-        );
-        message3_r1
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        let mut message3_r1 = Message::builder()
+            .source(remote1_name.clone())
+            .destination(group_name.clone())
+            .application_payload("payload_3_r1", vec![9, 10, 11, 12])
+            .build_publish()
+            .unwrap();
+        message3_r1.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message3_r1.get_session_header_mut().set_message_id(3);
         message3_r1.get_session_header_mut().set_session_id(10);
         message3_r1.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -1294,15 +1222,13 @@ mod tests {
             .expect("error sending message3_r1");
 
         // Send messages 1 and 3 from remote2 (missing message 2)
-        let mut message1_r2 = Message::new_publish(
-            &remote2_name,
-            &group_name,
-            None,
-            "payload_1_r2",
-            vec![13, 14, 15, 16],
-        );
-        message1_r2
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        let mut message1_r2 = Message::builder()
+            .source(remote2_name.clone())
+            .destination(group_name.clone())
+            .application_payload("payload_1_r2", vec![13, 14, 15, 16])
+            .build_publish()
+            .unwrap();
+        message1_r2.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message1_r2.get_session_header_mut().set_message_id(1);
         message1_r2.get_session_header_mut().set_session_id(10);
         message1_r2.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -1312,15 +1238,13 @@ mod tests {
             .await
             .expect("error sending message1_r2");
 
-        let mut message3_r2 = Message::new_publish(
-            &remote2_name,
-            &group_name,
-            None,
-            "payload_3_r2",
-            vec![17, 18, 19, 20],
-        );
-        message3_r2
-            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::P2PReliable);
+        let mut message3_r2 = Message::builder()
+            .source(remote2_name.clone())
+            .destination(group_name.clone())
+            .application_payload("payload_3_r2", vec![17, 18, 19, 20])
+            .build_publish()
+            .unwrap();
+        message3_r2.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
         message3_r2.get_session_header_mut().set_message_id(3);
         message3_r2.get_session_header_mut().set_session_id(10);
         message3_r2.get_slim_header_mut().set_incoming_conn(Some(1));
@@ -1390,13 +1314,12 @@ mod tests {
         assert_eq!(rtx_request.get_dst(), remote2_name);
 
         // Create and send RTX reply with the missing message 2 from remote2
-        let mut rtx_reply = Message::new_publish(
-            &remote2_name,
-            &local_name,
-            None,
-            "payload_2_r2",
-            vec![21, 22, 23, 24],
-        );
+        let mut rtx_reply = Message::builder()
+            .source(remote2_name.clone())
+            .destination(local_name.clone())
+            .application_payload("payload_2_r2", vec![21, 22, 23, 24])
+            .build_publish()
+            .unwrap();
         rtx_reply.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxReply);
         rtx_reply.get_session_header_mut().set_message_id(2);
         rtx_reply.get_session_header_mut().set_session_id(10);

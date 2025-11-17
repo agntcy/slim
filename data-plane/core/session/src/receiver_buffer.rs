@@ -57,12 +57,14 @@ impl ReceiverBuffer {
     }
 
     // returns a list of lost messages for which RTX needs to be sent
+    #[allow(dead_code)]
     pub fn on_beacon_message(&mut self, msg_id: u32) -> Vec<u32> {
         debug!("received beacon for msg {}", msg_id);
         let (_recv, rtx) = self.internal_on_received_message(msg_id as usize, None);
         rtx
     }
 
+    #[allow(dead_code)]
     pub fn message_already_received(&self, msg_id: usize) -> bool {
         if self.last_sent == usize::MAX {
             // no message received yet
@@ -300,65 +302,84 @@ mod tests {
     #[traced_test]
     fn test_receiver_buffer() {
         let src = Name::from_strings(["org", "ns", "type"]).with_id(0);
+        let src_id = src.to_string();
         let name_type = Name::from_strings(["org", "ns", "type"]).with_id(1);
 
-        let slim_header = SlimHeader::new(&src, &name_type, None);
+        let slim_header = SlimHeader::new(&src, &name_type, &src_id, None);
 
         let h0 = SessionHeader::new(
-            ProtoSessionType::SessionPointToPoint.into(),
-            ProtoSessionMessageType::P2PMsg.into(),
+            ProtoSessionType::PointToPoint.into(),
+            ProtoSessionMessageType::Msg.into(),
             0,
             0,
-            &None,
-            &None,
         );
         let h1 = SessionHeader::new(
-            ProtoSessionType::SessionPointToPoint.into(),
-            ProtoSessionMessageType::P2PMsg.into(),
+            ProtoSessionType::PointToPoint.into(),
+            ProtoSessionMessageType::Msg.into(),
             0,
             1,
-            &None,
-            &None,
         );
         let h2 = SessionHeader::new(
-            ProtoSessionType::SessionPointToPoint.into(),
-            ProtoSessionMessageType::P2PMsg.into(),
+            ProtoSessionType::PointToPoint.into(),
+            ProtoSessionMessageType::Msg.into(),
             0,
             2,
-            &None,
-            &None,
         );
         let h3 = SessionHeader::new(
-            ProtoSessionType::SessionPointToPoint.into(),
-            ProtoSessionMessageType::P2PMsg.into(),
+            ProtoSessionType::PointToPoint.into(),
+            ProtoSessionMessageType::Msg.into(),
             0,
             3,
-            &None,
-            &None,
         );
         let h4 = SessionHeader::new(
-            ProtoSessionType::SessionPointToPoint.into(),
-            ProtoSessionMessageType::P2PMsg.into(),
+            ProtoSessionType::PointToPoint.into(),
+            ProtoSessionMessageType::Msg.into(),
             0,
             4,
-            &None,
-            &None,
         );
         let h5 = SessionHeader::new(
-            ProtoSessionType::SessionPointToPoint.into(),
-            ProtoSessionMessageType::P2PMsg.into(),
+            ProtoSessionType::PointToPoint.into(),
+            ProtoSessionMessageType::Msg.into(),
             0,
             5,
-            &None,
-            &None,
         );
 
-        let p0 = Message::new_publish_with_headers(Some(slim_header), Some(h0), "", vec![]);
-        let p1 = Message::new_publish_with_headers(Some(slim_header), Some(h1), "", vec![]);
-        let p2 = Message::new_publish_with_headers(Some(slim_header), Some(h2), "", vec![]);
-        let p3 = Message::new_publish_with_headers(Some(slim_header), Some(h3), "", vec![]);
-        let p4 = Message::new_publish_with_headers(Some(slim_header), Some(h4), "", vec![]);
-        let p5 = Message::new_publish_with_headers(Some(slim_header), Some(h5), "", vec![]);
+        let p0 = Message::builder()
+            .with_slim_header(slim_header.clone())
+            .with_session_header(h0)
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
+        let p1 = Message::builder()
+            .with_slim_header(slim_header.clone())
+            .with_session_header(h1)
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
+        let p2 = Message::builder()
+            .with_slim_header(slim_header.clone())
+            .with_session_header(h2)
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
+        let p3 = Message::builder()
+            .with_slim_header(slim_header.clone())
+            .with_session_header(h3)
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
+        let p4 = Message::builder()
+            .with_slim_header(slim_header.clone())
+            .with_session_header(h4)
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
+        let p5 = Message::builder()
+            .with_slim_header(slim_header.clone())
+            .with_session_header(h5)
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
 
         // insert in order
         let mut buffer = ReceiverBuffer::default();

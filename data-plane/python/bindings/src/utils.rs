@@ -20,7 +20,7 @@ use slim_datapath::messages::encoder::Name;
 
 /// name class
 #[gen_stub_pyclass]
-#[pyclass(eq, str)]
+#[pyclass(name = "Name", eq, str)]
 #[derive(Clone, PartialEq)]
 pub struct PyName {
     name: Name,
@@ -86,8 +86,7 @@ impl PyName {
     }
 
     pub fn components_strings(&self) -> Vec<String> {
-        let default = ["".into(), "".into(), "".into()];
-        self.name.components_strings().unwrap_or(&default).to_vec()
+        self.name.components_strings().to_vec()
     }
 
     pub fn equal_without_id(&self, name: &PyName) -> bool {

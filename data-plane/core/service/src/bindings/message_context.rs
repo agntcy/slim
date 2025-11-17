@@ -5,7 +5,6 @@ use std::collections::HashMap;
 
 use slim_datapath::api::{ProtoMessage, ProtoPublishType};
 use slim_datapath::messages::Name;
-use slim_datapath::messages::utils::SLIM_IDENTITY;
 
 use crate::errors::ServiceError;
 
@@ -71,24 +70,23 @@ impl MessageContext {
         let payload_bytes = publish
             .msg
             .as_ref()
-            .map(|c| c.blob.clone())
+            .and_then(|c| c.as_application_payload().ok())
+            .map(|p| p.blob.clone())
             .unwrap_or_default();
         let payload_type = publish
             .msg
             .as_ref()
-            .map(|c| {
-                if c.content_type.is_empty() {
+            .and_then(|c| c.as_application_payload().ok())
+            .map(|p| {
+                if p.payload_type.is_empty() {
                     "msg".to_string()
                 } else {
-                    c.content_type.clone()
+                    p.payload_type.clone()
                 }
             })
             .unwrap_or_else(|| "msg".to_string());
         let metadata = msg.get_metadata_map();
-        let identity = metadata
-            .get(SLIM_IDENTITY)
-            .cloned()
-            .unwrap_or("".to_string());
+        let identity = msg.get_identity();
 
         let ctx = Self::new(
             source,
@@ -106,7 +104,7 @@ impl MessageContext {
 mod tests {
     use super::*;
     use slim_datapath::api::{
-        Content, ProtoMessage, ProtoPublish, ProtoPublishType, SessionHeader, SlimHeader,
+        ApplicationPayload, ProtoMessage, ProtoPublish, ProtoPublishType, SessionHeader, SlimHeader,
     };
     use slim_datapath::messages::Name;
     use std::collections::HashMap;
@@ -120,21 +118,15 @@ mod tests {
         content_type: String,
         metadata: HashMap<String, String>,
     ) -> ProtoMessage {
-        let content = Content {
-            blob: payload,
-            content_type,
-        };
+        let content = ApplicationPayload::new(&content_type, payload).as_content();
 
         let mut slim_header = SlimHeader::default();
         slim_header.set_source(&source);
         slim_header.set_destination(&dest);
 
-        let mut session_header = SessionHeader::default();
-        session_header.set_source(&source);
-
         let publish = ProtoPublish {
             header: Some(slim_header),
-            session: Some(session_header),
+            session: Some(SessionHeader::default()),
             msg: Some(content),
         };
 
@@ -186,9 +178,8 @@ mod tests {
         let mut metadata = HashMap::new();
         metadata.insert("trace_id".to_string(), "abc123".to_string());
         metadata.insert("user_id".to_string(), "user456".to_string());
-        metadata.insert(SLIM_IDENTITY.to_string(), identity.clone());
 
-        let proto_msg = create_test_proto_message(
+        let mut proto_msg = create_test_proto_message(
             source_name.clone(),
             dest_name.clone(),
             connection_id,
@@ -197,6 +188,10 @@ mod tests {
             metadata.clone(),
         );
 
+        // set identity
+        proto_msg
+            .get_slim_header_mut()
+            .set_identity(identity.clone());
         // Test from_proto_message
         let result = MessageContext::from_proto_message(proto_msg);
         assert!(result.is_ok());
@@ -247,12 +242,9 @@ mod tests {
         slim_header.set_source(&source_name);
         slim_header.set_destination(&_dest_name);
 
-        let mut session_header = SessionHeader::default();
-        session_header.set_source(&source_name);
-
         let publish = ProtoPublish {
             header: Some(slim_header),
-            session: Some(session_header),
+            session: Some(SessionHeader::default()),
             msg: None, // No content
         };
 

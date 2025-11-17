@@ -4,8 +4,23 @@
 //! gRPC bindings for data plane service.
 pub(crate) mod proto;
 
+pub use proto::dataplane::v1::ApplicationPayload;
+pub use proto::dataplane::v1::CommandPayload;
 pub use proto::dataplane::v1::Content;
+pub use proto::dataplane::v1::DiscoveryReplyPayload;
+pub use proto::dataplane::v1::DiscoveryRequestPayload;
+pub use proto::dataplane::v1::GroupAckPayload;
+pub use proto::dataplane::v1::GroupAddPayload;
+pub use proto::dataplane::v1::GroupNackPayload;
+pub use proto::dataplane::v1::GroupProposalPayload;
+pub use proto::dataplane::v1::GroupRemovePayload;
+pub use proto::dataplane::v1::GroupWelcomePayload;
+pub use proto::dataplane::v1::JoinReplyPayload;
+pub use proto::dataplane::v1::JoinRequestPayload;
+pub use proto::dataplane::v1::LeaveReplyPayload;
+pub use proto::dataplane::v1::LeaveRequestPayload;
 pub use proto::dataplane::v1::Message as ProtoMessage;
+pub use proto::dataplane::v1::MlsPayload;
 pub use proto::dataplane::v1::Name as ProtoName;
 pub use proto::dataplane::v1::Publish as ProtoPublish;
 pub use proto::dataplane::v1::SessionHeader;

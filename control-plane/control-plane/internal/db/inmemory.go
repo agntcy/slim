@@ -6,11 +6,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 type dbService struct {
 	nodes    map[string]Node
-	routes   map[string]Route
+	routes   map[uint64]Route
 	channels map[string]Channel
 	mu       sync.RWMutex
 }
@@ -18,7 +19,7 @@ type dbService struct {
 func NewInMemoryDBService() DataAccess {
 	return &dbService{
 		nodes:    make(map[string]Node),
-		routes:   make(map[string]Route, 100),
+		routes:   make(map[uint64]Route, 100),
 		channels: make(map[string]Channel),
 	}
 }
@@ -111,18 +112,27 @@ func (d *dbService) GetNode(id string) (*Node, error) {
 }
 
 // SaveNode implements DataAccess.
-func (d *dbService) SaveNode(node Node) (string, error) {
+func (d *dbService) SaveNode(node Node) (string, bool, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
+	connDetailsChanged := false
 	if node.ID == "" {
 		node.ID = uuid.New().String()
+		connDetailsChanged = false
+	} else {
+		// Check if node exists and compare connection details
+		if existingNode, exists := d.nodes[node.ID]; exists {
+			connDetailsChanged = hasConnectionDetailsChanged(existingNode.ConnDetails, node.ConnDetails)
+		} else {
+			connDetailsChanged = false
+		}
 	}
 
 	node.LastUpdated = time.Now()
-
 	d.nodes[node.ID] = node
-	return node.ID, nil
+
+	return node.ID, connDetailsChanged, nil
 }
 
 // DeleteNode implements DataAccess.
@@ -139,33 +149,38 @@ func (d *dbService) DeleteNode(id string) error {
 	return nil
 }
 
-func (d *dbService) AddRoute(route Route) string {
-	routeID := route.GetID()
-	// Add route to the map
+func (d *dbService) AddRoute(route Route) (Route, error) {
+	routeID := route.GetUniqueID()
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if _, exists := d.routes[routeID]; exists {
+		return Route{}, fmt.Errorf("route %s already exists", route.String())
+	}
+
+	// Add route to the map
+	route.ID = routeID
 	route.LastUpdated = time.Now()
 	d.routes[routeID] = route
-	return routeID
+	return route, nil
 }
 
-func (d *dbService) DeleteRoute(routeID string) error {
+func (d *dbService) DeleteRoute(routeID uint64) error {
 	// Remove route from the map
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if _, exists := d.routes[routeID]; !exists {
-		return fmt.Errorf("route %s not found", routeID)
+		return fmt.Errorf("route %v not found", routeID)
 	}
 	delete(d.routes, routeID)
 	return nil
 }
 
-func (d *dbService) MarkRouteAsDeleted(routeID string) error {
+func (d *dbService) MarkRouteAsDeleted(routeID uint64) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	route, exists := d.routes[routeID]
 	if !exists {
-		return fmt.Errorf("route %s not found", routeID)
+		return fmt.Errorf("route %v not found", routeID)
 	}
 	route.LastUpdated = time.Now()
 	route.Deleted = true
@@ -173,9 +188,41 @@ func (d *dbService) MarkRouteAsDeleted(routeID string) error {
 	return nil
 }
 
-func (d *dbService) GetRouteByID(routeID string) *Route {
+// MarkRouteAsApplied implements DataAccess.
+func (d *dbService) MarkRouteAsApplied(routeID uint64) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	route, exists := d.routes[routeID]
+	if !exists {
+		return fmt.Errorf("route %v not found", routeID)
+	}
+	route.LastUpdated = time.Now()
+	route.Status = RouteStatusApplied
+	d.routes[routeID] = route
+	return nil
+}
+
+// MarkRouteAsFailed implements DataAccess.
+func (d *dbService) MarkRouteAsFailed(routeID uint64, msg string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	route, exists := d.routes[routeID]
+	if !exists {
+		return fmt.Errorf("route %v not found", routeID)
+	}
+	route.LastUpdated = time.Now()
+	route.Status = RouteStatusFailed
+	route.StatusMsg = msg
+	d.routes[routeID] = route
+	return nil
+}
+
+func (d *dbService) GetRouteByID(routeID uint64) *Route {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
+	if _, exists := d.routes[routeID]; !exists {
+		return nil
+	}
 	route := d.routes[routeID]
 	return &route
 }
@@ -192,5 +239,78 @@ func (d *dbService) GetRoutesForNodeID(nodeID string) []Route {
 	}
 
 	// Return empty slice instead of error when no routes found
+	return routes
+}
+
+func (d *dbService) GetRoutesForDestinationNodeID(nodeID string) []Route {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	var routes []Route
+	for _, route := range d.routes {
+		if route.DestNodeID == nodeID && route.SourceNodeID != AllNodesID {
+			routes = append(routes, route)
+		}
+	}
+
+	// Return empty slice instead of error when no routes found
+	return routes
+}
+
+func (d *dbService) GetRoutesForDestinationNodeIDAndName(nodeID string, component0 string, component1 string,
+	component2 string, componentID *wrapperspb.UInt64Value) []Route {
+
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	var routes []Route
+	for _, route := range d.routes {
+		if route.DestNodeID == nodeID &&
+			route.Component0 == component0 &&
+			route.Component1 == component1 &&
+			route.Component2 == component2 {
+			if (componentID == nil && route.ComponentID == nil) ||
+				(componentID != nil && route.ComponentID != nil && componentID.Value == route.ComponentID.Value) {
+				routes = append(routes, route)
+			}
+		}
+	}
+	return routes
+}
+
+func (d *dbService) GetRouteForSrcAndDestinationAndName(srcNodeID string, component0 string, component1 string,
+	component2 string, componentID *wrapperspb.UInt64Value, destNodeID string, destEndpoint string) (Route, error) {
+
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	for _, route := range d.routes {
+		if route.SourceNodeID == srcNodeID &&
+			(route.DestNodeID == destNodeID ||
+				route.DestEndpoint == destEndpoint) &&
+			route.Component0 == component0 &&
+			route.Component1 == component1 &&
+			route.Component2 == component2 {
+			if (componentID == nil && route.ComponentID == nil) ||
+				(componentID != nil && route.ComponentID != nil && componentID.Value == route.ComponentID.Value) {
+				return route, nil
+			}
+		}
+	}
+	return Route{}, fmt.Errorf("route not found")
+}
+
+func (d *dbService) FilterRoutesBySourceAndDestination(sourceNodeID string, destNodeID string) []Route {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	var routes []Route
+	for _, route := range d.routes {
+		sourceMatch := sourceNodeID == "" || route.SourceNodeID == sourceNodeID
+		destMatch := destNodeID == "" || route.DestNodeID == destNodeID
+		if sourceMatch && destMatch {
+			routes = append(routes, route)
+		}
+	}
+
 	return routes
 }

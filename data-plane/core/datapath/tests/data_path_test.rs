@@ -25,6 +25,7 @@ mod tests {
         let msg_processor = svc.clone();
         let ep_server = server_conf
             .to_server_future(&[DataPlaneServiceServer::from_arc(svc)])
+            .await
             .unwrap();
 
         // start server
@@ -40,7 +41,7 @@ mod tests {
         // connect client
         let mut client_config = ClientConfig::with_endpoint("http://127.0.0.1:50051");
         client_config.tls_setting.insecure = true;
-        let channel = client_config.to_channel().unwrap();
+        let channel = client_config.to_channel().await.unwrap();
 
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
@@ -147,28 +148,101 @@ mod tests {
         assert!(logs_contain(expected_msg));
     }
 
+    #[tokio::test]
+    #[traced_test]
+    async fn test_disconnection() {
+        // setup server from configuration
+        let mut server_conf = ServerConfig::with_endpoint("127.0.0.1:50052");
+        server_conf.tls_setting.insecure = true;
+
+        let (processor, _signal) = MessageProcessor::new();
+        let svc = Arc::new(processor);
+        let msg_processor = svc.clone();
+
+        let ep_server = server_conf
+            .to_server_future(&[DataPlaneServiceServer::from_arc(svc)])
+            .await
+            .unwrap();
+
+        tokio::spawn(async move {
+            if let Err(e) = ep_server.await {
+                panic!("Server error: {:?}", e);
+            }
+        });
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // create a client config we will attach to the connection
+        let mut client_config = ClientConfig::with_endpoint("http://127.0.0.1:50052");
+        client_config.tls_setting.insecure = true;
+        let channel = client_config.to_channel().await.unwrap();
+
+        // connect with client_config Some(...)
+        let (_, conn_index) = msg_processor
+            .connect(
+                channel,
+                Some(client_config.clone()),
+                None,
+                Some(SocketAddr::from(([127, 0, 0, 1], 50052))),
+            )
+            .await
+            .expect("error creating channel");
+
+        // ensure connection exists before disconnect
+        assert!(
+            msg_processor
+                .connection_table()
+                .get(conn_index as usize)
+                .is_some()
+        );
+
+        // disconnect (should cancel stream and eventually remove connection)
+        let _returned_cfg = msg_processor
+            .disconnect(conn_index)
+            .expect("disconnect should return client config");
+
+        // wait for cancellation to propagate and stream task to drop connection
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+
+        // after disconnect the connection should be removed
+        assert!(
+            msg_processor
+                .connection_table()
+                .get(conn_index as usize)
+                .is_none(),
+            "connection should be removed after disconnect"
+        );
+    }
+
     fn make_message(org: &str, ns: &str, name: &str) -> Message {
         let source = Name::from_strings([org, ns, name]).with_id(0);
         let name = Name::from_strings([org, ns, name]).with_id(1);
-        Message::new_subscribe(&source, &name, None)
+        Message::builder()
+            .source(source)
+            .destination(name)
+            .build_subscribe()
+            .unwrap()
     }
 
     fn make_sub_from_command(org: &str, ns: &str, name_str: &str, from_conn: u64) -> Message {
+        let source = Name::from_strings([org, ns, name_str]).with_id(0);
         let name = Name::from_strings([org, ns, name_str]);
-        Message::new_subscribe(
-            &Name::from_strings([org, ns, name_str]).with_id(0),
-            &name,
-            Some(SlimHeaderFlags::default().with_recv_from(from_conn)),
-        )
+        Message::builder()
+            .source(source)
+            .destination(name)
+            .flags(SlimHeaderFlags::default().with_recv_from(from_conn))
+            .build_subscribe()
+            .unwrap()
     }
 
     fn make_fwd_to_command(org: &str, ns: &str, name_str: &str, to_conn: u64) -> Message {
         let source = Name::from_strings([org, ns, name_str]).with_id(0);
         let name = Name::from_strings([org, ns, name_str]);
-        Message::new_subscribe(
-            &source,
-            &name,
-            Some(SlimHeaderFlags::default().with_forward_to(to_conn)),
-        )
+        Message::builder()
+            .source(source)
+            .destination(name)
+            .flags(SlimHeaderFlags::default().with_forward_to(to_conn))
+            .build_subscribe()
+            .unwrap()
     }
 }

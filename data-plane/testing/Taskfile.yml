@@ -9,51 +9,17 @@ verbose: false
 env:
   CONFIG_CLIENT: ../config/base/client-config.yaml
   CONFIG_SERVER: ./config/base/server-config.yaml
-  SUB: 5000
-  PUB: 10000
-  SUB_APPS: 10
-  PUB_APPS: 1
 
 tasks:
   default:
     cmds:
       - task -l
 
-  run:workload-gen:
-    desc: "Run workload generator"
-    cmds:
-      - cargo run --release --bin workload-gen -- -s $SUB -p $PUB -i $SUB_APPS -a $SUB_APPS
-
   run:slim:
     desc: "Run the SLIM server"
     dir: ".."
     cmds:
       - cargo run --release --bin slim -- --config $CONFIG_SERVER
-
-  run:subscribers:
-    desc: "Run subscriber applications"
-    cmds:
-      - |
-        for ((i = 0 ; i < $SUB_APPS ; i++ )); do
-          cargo run --release --bin subscriber -- -w sub${SUB}_pub${PUB}_i${SUB_APPS}_s${SUB_APPS}.dat -c $CONFIG_CLIENT -i $i &
-          sleep 1
-        done
-
-  run:publisher:
-    desc: "Run publisher application"
-    cmds:
-      - cargo run --release --bin publisher -- -w sub${SUB}_pub${PUB}_i${SUB_APPS}_s${SUB_APPS}.dat -c $CONFIG_CLIENT -i 0
-
-  run:shutdown:
-    desc: "Shutdown test"
-    cmds:
-      - |
-        echo "stop all subscribers"
-        killall subscriber || true
-        echo "stop all publishers"
-        killall publisher || true
-        echo "stop slim"
-        killall slim || true
 
   channel-example:moderator:mls:
     desc: "start moderator for test channel"
@@ -97,7 +63,5 @@ tasks:
     cmds:
       - |
         cargo run --release --bin test-p2p -- --mls-disabled
-        cargo run --release --bin test-p2p -- --mls-disabled --is-reliable
-        cargo run --release --bin test-p2p -- --mls-disabled --is-unicast
-        cargo run --release --bin test-p2p -- --is-unicast
+        cargo run --release --bin test-p2p
 

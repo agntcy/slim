@@ -5,15 +5,12 @@
 use tonic::Status;
 
 use slim_datapath::{
-    api::{
-        ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType, SessionHeader,
-        SlimHeader,
-    },
-    messages::{Name, utils::SlimHeaderFlags},
+    api::{ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType},
+    messages::{Name, utils::MessageError},
 };
 
 // Local crate
-use crate::{PointToPointConfiguration, SessionError};
+use crate::SessionError;
 
 /// Reserved session id
 pub const SESSION_RANGE: std::ops::Range<u32> = 0..(u32::MAX - 1000);
@@ -22,9 +19,10 @@ pub const SESSION_RANGE: std::ops::Range<u32> = 0..(u32::MAX - 1000);
 pub const SESSION_UNSPECIFIED: u32 = u32::MAX;
 
 /// Channel used in the path service -> app
-pub(crate) type AppChannelSender = tokio::sync::mpsc::Sender<Result<Message, SessionError>>;
+pub(crate) type AppChannelSender =
+    tokio::sync::mpsc::UnboundedSender<Result<Message, SessionError>>;
 /// Channel used in the path app -> service
-pub type AppChannelReceiver = tokio::sync::mpsc::Receiver<Result<Message, SessionError>>;
+pub type AppChannelReceiver = tokio::sync::mpsc::UnboundedReceiver<Result<Message, SessionError>>;
 /// Channel used in the path service -> slim
 pub type SlimChannelSender = tokio::sync::mpsc::Sender<Result<Message, Status>>;
 
@@ -52,62 +50,54 @@ pub fn new_message_from_session_fields(
     message_type: ProtoSessionMessageType,
     session_id: u32,
     message_id: u32,
-) -> Message {
-    let flags = if is_error {
-        Some(
-            SlimHeaderFlags::default()
-                .with_forward_to(target_conn)
-                .with_error(true),
-        )
-    } else {
-        Some(SlimHeaderFlags::default().with_forward_to(target_conn))
-    };
+) -> Result<Message, MessageError> {
+    let mut builder = Message::builder()
+        .source(local_name.clone())
+        .destination(target_name.clone())
+        .identity("")
+        .forward_to(target_conn)
+        .session_type(session_type)
+        .session_message_type(message_type)
+        .session_id(session_id)
+        .message_id(message_id)
+        .application_payload("", vec![]);
 
-    let slim_header = Some(SlimHeader::new(local_name, target_name, flags));
+    if is_error {
+        builder = builder.error(true);
+    }
 
-    let session_header = Some(SessionHeader::new(
-        session_type.into(),
-        message_type.into(),
-        session_id,
-        message_id,
-        &None,
-        &None,
-    ));
-
-    Message::new_publish_with_headers(slim_header, session_header, "", vec![])
+    builder.build_publish()
 }
 
 /// Message types for communication between session components
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum SessionMessage {
+    /// application message coming from the app or from slim
     OnMessage {
         message: Message,
         direction: MessageDirection,
     },
-    SetPointToPointConfig {
-        config: PointToPointConfiguration,
-    },
+    /// timeout signal for a message (ack,rtx or control messages)
+    /// that needs to be send again
     TimerTimeout {
         message_id: u32,
-        timeouts: u32,
+        message_type: ProtoSessionMessageType,
         name: Option<Name>,
+        timeouts: u32,
     },
+    /// timer failure, signal to the owner of the packet that
+    /// the message will not be delivered
     TimerFailure {
         message_id: u32,
-        timeouts: u32,
+        message_type: ProtoSessionMessageType,
         name: Option<Name>,
+        timeouts: u32,
     },
-    DeleteSession {
-        session_id: u32,
-    },
-    AddEndpoint {
-        endpoint: Name,
-    },
-    RemoveEndpoint {
-        endpoint: Name,
-    },
-    Drain {
-        grace_period_ms: u64,
-    },
+    /// message from session controller to session layer
+    /// to notify that the session can be removed safely
+    DeleteSession { session_id: u32 },
+    /// message from session layer to the session controller
+    /// to start to the close procedures of the session
+    StartDrain { grace_period_ms: u64 },
 }

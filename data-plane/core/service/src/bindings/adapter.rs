@@ -7,7 +7,8 @@ use tokio::sync::{RwLock, mpsc};
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::messages::Name;
 use slim_session::context::SessionContext;
-use slim_session::{Notification, Session, SessionConfig, SessionError};
+use slim_session::{Notification, SessionError};
+use slim_session::{SessionConfig, session_controller::SessionController};
 
 use crate::app::App;
 use crate::bindings::builder::AppAdapterBuilder;
@@ -27,7 +28,7 @@ where
     app: Arc<App<P, V>>,
 
     /// Channel receiver for notifications from the app
-    notification_rx: Arc<RwLock<mpsc::Receiver<Result<Notification<P, V>, SessionError>>>>,
+    notification_rx: Arc<RwLock<mpsc::Receiver<Result<Notification, SessionError>>>>,
 }
 
 impl<P, V> BindingsAdapter<P, V>
@@ -38,7 +39,7 @@ where
     /// Create a new AppAdapter wrapping the given App
     pub fn new_with_app(
         app: App<P, V>,
-        notification_rx: mpsc::Receiver<Result<Notification<P, V>, SessionError>>,
+        notification_rx: mpsc::Receiver<Result<Notification, SessionError>>,
     ) -> Self {
         Self {
             app: Arc::new(app),
@@ -143,29 +144,16 @@ where
     pub async fn create_session(
         &self,
         session_config: SessionConfig,
-    ) -> Result<SessionContext<P, V>, SessionError> {
-        self.app.create_session(session_config, None).await
+        destination: Name,
+    ) -> Result<SessionContext, SessionError> {
+        self.app
+            .create_session(session_config, destination, None)
+            .await
     }
 
     /// Delete a session by its context
-    pub async fn delete_session(&self, session: &Session<P, V>) -> Result<(), SessionError> {
+    pub async fn delete_session(&self, session: &SessionController) -> Result<(), SessionError> {
         self.app.delete_session(session).await
-    }
-
-    /// Set the default session configuration
-    pub fn set_default_session_config(
-        &self,
-        session_config: &slim_session::SessionConfig,
-    ) -> Result<(), SessionError> {
-        self.app.set_default_session_config(session_config)
-    }
-
-    /// Get the default session configuration for a given session type
-    pub fn get_default_session_config(
-        &self,
-        session_type: slim_session::SessionType,
-    ) -> Result<slim_session::SessionConfig, SessionError> {
-        self.app.get_default_session_config(session_type)
     }
 
     /// Subscribe to a name with optional connection ID
@@ -195,7 +183,7 @@ where
     pub async fn listen_for_session(
         &self,
         timeout: Option<std::time::Duration>,
-    ) -> Result<SessionContext<P, V>, ServiceError> {
+    ) -> Result<SessionContext, ServiceError> {
         let mut rx = self.notification_rx.write().await;
 
         let recv_fut = rx.recv();
@@ -245,10 +233,10 @@ mod tests {
     use tokio::sync::mpsc;
 
     use slim_auth::shared_secret::SharedSecret;
-    use slim_datapath::messages::Name;
+    use slim_datapath::{api::ProtoSessionType, messages::Name};
 
-    use slim_session::point_to_point::PointToPointConfiguration;
-    use slim_session::{Notification, SessionConfig, SessionError, SessionType};
+    use slim_session::{Notification, SessionConfig, SessionError};
+    use slim_testing::utils::TEST_VALID_SECRET;
 
     use crate::bindings::session_context::BindingsSessionContext;
 
@@ -266,8 +254,8 @@ mod tests {
 
     /// Create test authentication components
     fn create_test_auth() -> (TestProvider, TestVerifier) {
-        let provider = SharedSecret::new("test-app", "test-secret");
-        let verifier = SharedSecret::new("test-app", "test-secret");
+        let provider = SharedSecret::new("test-app", TEST_VALID_SECRET);
+        let verifier = SharedSecret::new("test-app", TEST_VALID_SECRET);
         (provider, verifier)
     }
 
@@ -279,7 +267,7 @@ mod tests {
     /// Create a mock app and notification receiver for testing
     fn create_mock_app_with_receiver() -> (
         App<TestProvider, TestVerifier>,
-        mpsc::Receiver<Result<Notification<TestProvider, TestVerifier>, SessionError>>,
+        mpsc::Receiver<Result<Notification, SessionError>>,
     ) {
         let (tx_slim, _rx_slim) = mpsc::channel(128);
         let (tx_app, rx_app) = mpsc::channel(128);
@@ -306,7 +294,7 @@ mod tests {
 
         assert_eq!(adapter.id(), 0);
         assert_eq!(
-            adapter.name().components_strings().unwrap(),
+            adapter.name().components_strings(),
             &["org", "namespace", "test-app"]
         );
     }
@@ -323,7 +311,7 @@ mod tests {
 
         assert!(adapter.id() > 0);
         assert_eq!(
-            adapter.name().components_strings().unwrap(),
+            adapter.name().components_strings(),
             &["org", "namespace", "test-app"]
         );
     }
@@ -336,51 +324,9 @@ mod tests {
         assert_eq!(adapter.id(), 0);
         assert_eq!(adapter.name().id(), 0);
         assert_eq!(
-            adapter.name().components_strings().unwrap(),
+            adapter.name().components_strings(),
             &["org", "namespace", "test-app"]
         );
-    }
-
-    #[tokio::test]
-    async fn test_create_session() {
-        let service = create_test_service().await;
-        let app_name = create_test_name();
-        let (provider, verifier) = create_test_auth();
-
-        let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .await
-            .expect("Failed to create adapter");
-
-        let config = SessionConfig::PointToPoint(PointToPointConfiguration::default());
-        let session = adapter
-            .create_session(config)
-            .await
-            .expect("Failed to create session");
-
-        // Just verify we got a session context
-        assert!(session.session.upgrade().is_some());
-    }
-
-    #[tokio::test]
-    async fn test_session_config_operations() {
-        let service = create_test_service().await;
-        let app_name = create_test_name();
-        let (provider, verifier) = create_test_auth();
-
-        let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .await
-            .expect("Failed to create adapter");
-
-        let config = SessionConfig::PointToPoint(PointToPointConfiguration::default());
-        adapter
-            .set_default_session_config(&config)
-            .expect("Failed to set config");
-
-        let retrieved_config = adapter
-            .get_default_session_config(SessionType::PointToPoint)
-            .expect("Failed to get config");
-
-        assert!(matches!(retrieved_config, SessionConfig::PointToPoint(_)));
     }
 
     #[tokio::test]
@@ -512,9 +458,11 @@ mod tests {
             .expect("Failed to create adapter");
 
         // Create a session
-        let config = SessionConfig::PointToPoint(PointToPointConfiguration::default());
+        let session_config =
+            SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
+        let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
-            .create_session(config)
+            .create_session(session_config, dst)
             .await
             .expect("Failed to create session");
 
@@ -590,9 +538,10 @@ mod tests {
         .expect("Failed to create adapter");
 
         // Create a session
-        let config = SessionConfig::PointToPoint(PointToPointConfiguration::default());
+        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
+        let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = adapter
-            .create_session(config)
+            .create_session(config, dst)
             .await
             .expect("Failed to create session");
 
@@ -661,8 +610,8 @@ mod tests {
     async fn test_deterministic_name_generation_same_token() {
         let base_name = create_test_name();
         // Use the same SharedSecret instances to ensure same token IDs
-        let provider = SharedSecret::new("test-app", "test-secret");
-        let verifier = SharedSecret::new("test-app", "test-secret");
+        let provider = SharedSecret::new("test-app", TEST_VALID_SECRET);
+        let verifier = SharedSecret::new("test-app", TEST_VALID_SECRET);
 
         // Create two adapters with the same authentication (should produce same ID)
         let result1 =
@@ -685,11 +634,11 @@ mod tests {
         let base_name = create_test_name();
 
         // Create two different authentication providers
-        let provider1 = SharedSecret::new("app1", "secret1");
-        let verifier1 = SharedSecret::new("app1", "secret1");
+        let provider1 = SharedSecret::new("app1", "secret1-shared-secret-value-0123456789abcdef");
+        let verifier1 = SharedSecret::new("app1", "secret1-shared-secret-value-0123456789abcdef");
 
-        let provider2 = SharedSecret::new("app2", "secret2");
-        let verifier2 = SharedSecret::new("app2", "secret2");
+        let provider2 = SharedSecret::new("app2", "secret2-shared-secret-value-0123456789abcdef");
+        let verifier2 = SharedSecret::new("app2", "secret2-shared-secret-value-0123456789abcdef");
 
         let result1 = BindingsAdapter::new(base_name.clone(), provider1, verifier1, false).await;
         assert!(result1.is_ok());
@@ -708,8 +657,8 @@ mod tests {
     async fn test_consistent_id_generation_multiple_calls() {
         // Test that multiple calls with the same SharedSecret instance produce consistent results
         let base_name = create_test_name();
-        let provider = SharedSecret::new("test-app", "test-secret");
-        let verifier = SharedSecret::new("test-app", "test-secret");
+        let provider = SharedSecret::new("test-app", TEST_VALID_SECRET);
+        let verifier = SharedSecret::new("test-app", TEST_VALID_SECRET);
 
         // Since SharedSecret instances are created separately, they will have different random suffixes
         // But we can test that the same instance produces consistent results

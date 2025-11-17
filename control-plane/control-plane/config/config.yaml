@@ -7,9 +7,13 @@ southbound:
   httpPort: 50052
 
 reconciler:
-  threads: 3
+  maxRequeues: 15
+  maxNumOfParallelReconciles: 1000
 
 logging:
   level: DEBUG
+
+database:
+  filePath: db/controlplane.db
 
 

@@ -16,7 +16,8 @@ use slim_config::tls::client::TlsClientConfig;
 use slim_config::tls::server::TlsServerConfig;
 use slim_datapath::messages::Name;
 use slim_service::{ServiceConfiguration, SlimHeaderFlags};
-use slim_session::{MulticastConfiguration, Notification};
+use slim_session::{Notification, SessionConfig};
+use slim_testing::utils::TEST_VALID_SECRET;
 use slim_tracing::TracingConfiguration;
 
 const DEFAULT_DATAPLANE_PORT: u16 = 46357;
@@ -28,7 +29,7 @@ pub struct Args {
     #[arg(
         short,
         long,
-        value_name = "MSL_DISABLED",
+        value_name = "MLS_DISABLED",
         required = false,
         default_value_t = false
     )]
@@ -124,8 +125,8 @@ async fn run_participant_task(name: Name) -> Result<(), String> {
     let (app, mut rx) = svc
         .create_app(
             &name,
-            SharedSecret::new(&name.to_string(), "group"),
-            SharedSecret::new(&name.to_string(), "group"),
+            SharedSecret::new(&name.to_string(), TEST_VALID_SECRET),
+            SharedSecret::new(&name.to_string(), TEST_VALID_SECRET),
         )
         .await
         .map_err(|_| format!("Failed to create participant {}", name))?;
@@ -173,7 +174,7 @@ async fn run_participant_task(name: Name) -> Result<(), String> {
                                                 if let Some(slim_datapath::api::ProtoPublishType(publish)) = msg.message_type.as_ref() {
                                                     let publisher = msg.get_slim_header().get_source();
                                                     let msg_id = msg.get_id();
-                                                    let blob = &publish.get_payload().blob;
+                                                    let blob = &publish.get_payload().as_application_payload().unwrap().blob;
                                                     if let Ok(val) = String::from_utf8(blob.to_vec()) {
                                                         if publisher == session_moderator_clone {
                                                             if val != *"hello there" { continue; }
@@ -214,9 +215,9 @@ async fn run_participant_task(name: Name) -> Result<(), String> {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // get command line conf
     let args = Args::parse();
-    let msl_enabled = !*args.mls_disabled();
+    let mls_enabled = !*args.mls_disabled();
 
-    if msl_enabled {
+    if mls_enabled {
         println!("start test with msl enabled");
     } else {
         println!("start test with msl disabled");
@@ -257,8 +258,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (app, _rx) = svc
         .create_app(
             &name,
-            SharedSecret::new(&name.to_string(), "group"),
-            SharedSecret::new(&name.to_string(), "group"),
+            SharedSecret::new(&name.to_string(), TEST_VALID_SECRET),
+            SharedSecret::new(&name.to_string(), TEST_VALID_SECRET),
         )
         .await
         .map_err(|_| format!("Failed to create moderator {}", name))?;
@@ -278,17 +279,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .map_err(|_| format!("Failed to subscribe for participant {}", name))?;
 
+    let conf = SessionConfig {
+        session_type: slim_datapath::api::ProtoSessionType::Multicast,
+        max_retries: Some(10),
+        interval: Some(Duration::from_secs(1)),
+        mls_enabled,
+        initiator: true,
+        metadata: HashMap::new(),
+    };
     let session_ctx = app
-        .create_session(
-            slim_session::SessionConfig::Multicast(MulticastConfiguration::new(
-                channel_name.clone(),
-                Some(10),
-                Some(Duration::from_secs(1)),
-                msl_enabled,
-                HashMap::new(),
-            )),
-            None,
-        )
+        .create_session(conf, channel_name.clone(), None)
         .await
         .expect("error creating session");
 
@@ -330,11 +330,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if let Some(slim_datapath::api::ProtoPublishType(publish)) =
                             msg.message_type.as_ref()
                         {
-                            let p = &publish.get_payload().blob;
-                            let _ = String::from_utf8(p.to_vec())
+                            let blob =
+                                &publish.get_payload().as_application_payload().unwrap().blob;
+                            let _ = String::from_utf8(blob.to_vec())
                                 .expect("error while parsing received message");
-                            if p.len() >= 4 {
-                                let bytes_array: [u8; 4] = p[0..4].try_into().unwrap();
+                            if blob.len() >= 4 {
+                                let bytes_array: [u8; 4] = blob[0..4].try_into().unwrap();
                                 let id = u32::from_ne_bytes(bytes_array) as usize;
                                 println!("recv msg {} from {}", id, msg.get_source());
                                 let mut lock = recv_msgs_clone.write();
@@ -359,7 +360,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let p = msg_payload_str.as_bytes().to_vec();
     let mut to_add = tot_participants - 1;
     let mut to_remove = 0;
-    for i in 0..max_packets {
+    for i in 1..max_packets {
         println!("moderator: send message {}", i);
 
         // set fanout > 1 to send the message in broadcast
@@ -392,7 +393,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    for i in 0..max_packets {
+    for i in 1..max_packets {
         let lock = recv_msgs.read();
         if lock[i] != (tot_participants - 1) {
             println!(

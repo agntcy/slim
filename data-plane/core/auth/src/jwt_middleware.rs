@@ -36,6 +36,16 @@ impl<T: TokenProvider + Clone> AddJwtLayer<T> {
             duration,
         }
     }
+    /// Asynchronously initialize the underlying `TokenProvider` before
+    /// the layer is used to construct services. This must be called for
+    /// providers that perform network or other async setup (e.g. OIDC,
+    /// SPIFFE) because `Layer::layer` and `TokenProvider::get_token` are
+    /// both synchronous.
+    ///
+    /// If the provider does not need initialization this will be a no-op.
+    pub async fn initialize(&mut self) -> Result<(), AuthError> {
+        self.provider.initialize().await
+    }
 }
 
 /// Layer implementation for `SignJwtLayer` that adds JWT tokens to requests
@@ -140,6 +150,14 @@ impl<Claim: Clone, V: Verifier + Clone> ValidateJwtLayer<Claim, V> {
             verifier,
             _claims: claims,
         }
+    }
+
+    /// Asynchronously initialize the underlying `Verifier` before
+    /// constructing services. Call this during application startup.
+    /// Safe to call multiple times; subsequent calls should be cheap
+    /// as implementors may simply return `Ok(())` if already initialized.
+    pub async fn initialize(&mut self) -> Result<(), AuthError> {
+        self.verifier.initialize().await
     }
 }
 
@@ -310,11 +328,11 @@ where
 #[cfg(test)]
 mod tests {
     use crate::jwt::{Algorithm, KeyFormat};
+    use crate::metadata::MetadataMap;
     use crate::traits::{Signer, StandardClaims};
     use crate::{builder::JwtBuilder, jwt::Key, jwt::KeyData};
     use futures::future::{self, Ready};
     use http::{Request, Response, StatusCode};
-    use std::collections::HashMap;
     use std::time::Duration;
     use tower::{Service, ServiceBuilder};
 
@@ -370,7 +388,7 @@ mod tests {
             .private_key(&Key {
                 algorithm: Algorithm::HS256,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("test-key".to_string()),
+                key: KeyData::Data("test-key".to_string()),
             })
             .build()
             .unwrap();
@@ -403,7 +421,7 @@ mod tests {
             .private_key(&Key {
                 algorithm: Algorithm::HS256,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("test-key".to_string()),
+                key: KeyData::Data("test-key".to_string()),
             })
             .build()
             .unwrap();
@@ -487,7 +505,7 @@ mod tests {
             .private_key(&Key {
                 algorithm: Algorithm::HS256,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("shared-secret".to_string()),
+                key: KeyData::Data("shared-secret".to_string()),
             })
             .build()
             .unwrap();
@@ -499,7 +517,7 @@ mod tests {
             .public_key(&Key {
                 algorithm: Algorithm::HS256,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("shared-secret".to_string()),
+                key: KeyData::Data("shared-secret".to_string()),
             })
             .build()
             .unwrap();
@@ -546,7 +564,7 @@ mod tests {
             .public_key(&Key {
                 algorithm: Algorithm::HS256,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("test-key".to_string()),
+                key: KeyData::Data("test-key".to_string()),
             })
             .build()
             .unwrap();
@@ -565,7 +583,7 @@ mod tests {
             .private_key(&Key {
                 algorithm: Algorithm::HS256,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("test-key".to_string()),
+                key: KeyData::Data("test-key".to_string()),
             })
             .build()
             .unwrap();
@@ -628,18 +646,9 @@ mod tests {
     #[tokio::test]
     async fn test_end_to_end() {
         // Create custom claims
-        let mut claims = HashMap::new();
-        claims.insert(
-            "claim1".to_string(),
-            serde_json::Value::Number(serde_json::Number::from(2)),
-        );
-        claims.insert(
-            "claim2".to_string(),
-            serde_json::Value::Object(serde_json::Map::from_iter(vec![(
-                "key".to_string(),
-                serde_json::Value::String("value".to_string()),
-            )])),
-        );
+        let mut claims = MetadataMap::new();
+        claims.insert("claim1", 2u64);
+        claims.insert("claim2", MetadataMap::from_iter(vec![("key", "value")]));
 
         // Set up a JWT signer and verifier with the same key
         let signer = JwtBuilder::new()
@@ -649,7 +658,7 @@ mod tests {
             .private_key(&Key {
                 algorithm: Algorithm::HS256,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("shared-secret".to_string()),
+                key: KeyData::Data("shared-secret".to_string()),
             })
             .custom_claims(claims.clone())
             .build()
@@ -662,7 +671,7 @@ mod tests {
             .public_key(&Key {
                 algorithm: Algorithm::HS256,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("shared-secret".to_string()),
+                key: KeyData::Data("shared-secret".to_string()),
             })
             .build()
             .unwrap();
@@ -709,19 +718,23 @@ mod tests {
         assert_eq!(ret_claims.iss, Some("test-issuer".to_string()));
         assert_eq!(ret_claims.aud, Some(vec!["test-audience".to_string()]));
         assert_eq!(ret_claims.sub, Some("test-subject".to_string()));
-        assert_eq!(
-            ret_claims.custom_claims.get("claim1"),
-            Some(&serde_json::Value::Number(2.into()))
-        );
-        assert_eq!(
-            ret_claims.custom_claims.get("claim2"),
-            Some(&serde_json::Value::Object(serde_json::Map::from_iter(
-                vec![(
-                    "key".to_string(),
-                    serde_json::Value::String("value".to_string())
-                )]
-            )))
-        );
+
+        let custom_claim: u64 = ret_claims
+            .custom_claims
+            .get("claim1")
+            .and_then(|v| v.as_number())
+            .and_then(|n| n.as_u64())
+            .unwrap();
+        assert_eq!(custom_claim, 2u64);
+
+        let claim2_value = ret_claims
+            .custom_claims
+            .get("claim2")
+            .and_then(|v| v.as_map())
+            .and_then(|m| m.get("key"))
+            .and_then(|v| v.as_str())
+            .expect("claim2.key not found or not a string");
+        assert_eq!(claim2_value, "value");
 
         // Send the request through the server service, which should verify JWT
         let server_response = server.call(server_req).await.unwrap();

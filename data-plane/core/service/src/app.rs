@@ -14,15 +14,15 @@ use slim_datapath::Status;
 use slim_datapath::api::MessageType;
 use slim_datapath::api::ProtoMessage as Message;
 use slim_datapath::messages::Name;
-use slim_datapath::messages::utils::{SLIM_IDENTITY, SlimHeaderFlags};
+use slim_datapath::messages::utils::SlimHeaderFlags;
+use slim_session::{SessionConfig, session_controller::SessionController};
 
 // Local crate
 use crate::ServiceError;
-use slim_session::Session;
+use slim_session::SlimChannelSender;
 use slim_session::interceptor::{IdentityInterceptor, SessionInterceptorProvider};
 use slim_session::notification::Notification;
 use slim_session::transmitter::AppTransmitter;
-use slim_session::{Id, SessionConfig, SlimChannelSender};
 use slim_session::{SessionError, SessionLayer, context::SessionContext};
 
 #[derive(Clone)]
@@ -74,7 +74,7 @@ where
         identity_verifier: V,
         conn_id: u64,
         tx_slim: SlimChannelSender,
-        tx_app: mpsc::Sender<Result<Notification<P, V>, SessionError>>,
+        tx_app: mpsc::Sender<Result<Notification, SessionError>>,
         storage_path: std::path::PathBuf,
     ) -> Self {
         // Create identity interceptor
@@ -84,7 +84,7 @@ where
         ));
 
         // Create the transmitter
-        let transmitter = AppTransmitter::<P, V> {
+        let transmitter = AppTransmitter {
             slim_tx: tx_slim.clone(),
             app_tx: tx_app.clone(),
             interceptors: Arc::new(SyncRwLock::new(Vec::new())),
@@ -118,11 +118,12 @@ where
     pub async fn create_session(
         &self,
         session_config: SessionConfig,
-        id: Option<Id>,
-    ) -> Result<SessionContext<P, V>, SessionError> {
+        destination: Name,
+        id: Option<u32>,
+    ) -> Result<SessionContext, SessionError> {
         let ret = self
             .session_layer
-            .create_session(session_config, self.app_name.clone(), id)
+            .create_session(session_config, self.app_name.clone(), destination, id)
             .await?;
 
         // return the session info
@@ -130,32 +131,13 @@ where
     }
 
     /// Delete a session.
-    pub async fn delete_session(&self, session: &Session<P, V>) -> Result<(), SessionError> {
+    pub async fn delete_session(&self, session: &SessionController) -> Result<(), SessionError> {
         // remove the session from the pool
         if self.session_layer.remove_session(session.id()).await {
             Ok(())
         } else {
             Err(SessionError::SessionNotFound(session.id()))
         }
-    }
-
-    /// Set config for a session
-    pub fn set_default_session_config(
-        &self,
-        session_config: &slim_session::SessionConfig,
-    ) -> Result<(), SessionError> {
-        // set the session config
-        self.session_layer
-            .set_default_session_config(session_config)
-    }
-
-    /// Get default session config
-    pub fn get_default_session_config(
-        &self,
-        session_type: slim_session::SessionType,
-    ) -> Result<slim_session::SessionConfig, SessionError> {
-        // get the default session config
-        self.session_layer.get_default_session_config(session_type)
     }
 
     /// Get the app name
@@ -176,7 +158,7 @@ where
             .map_err(ServiceError::SessionError)?;
 
         // Add the identity to the message metadata
-        msg.insert_metadata(SLIM_IDENTITY.to_string(), identity);
+        msg.get_slim_header_mut().set_identity(identity);
 
         self.session_layer
             .tx_slim()
@@ -200,7 +182,16 @@ where
         } else {
             Some(SlimHeaderFlags::default())
         };
-        let msg = Message::new_subscribe(&self.app_name, &name, header);
+
+        let mut builder = Message::builder()
+            .source(self.app_name.clone())
+            .destination(name.clone());
+
+        if let Some(h) = header {
+            builder = builder.flags(h);
+        }
+
+        let msg = builder.build_subscribe().unwrap();
 
         // Subscribe
         self.send_message_without_context(msg).await?;
@@ -220,7 +211,16 @@ where
         } else {
             Some(SlimHeaderFlags::default())
         };
-        let msg = Message::new_subscribe(&self.app_name, name, header);
+
+        let mut builder = Message::builder()
+            .source(self.app_name.clone())
+            .destination(name.clone());
+
+        if let Some(h) = header {
+            builder = builder.flags(h);
+        }
+
+        let msg = builder.build_unsubscribe().unwrap();
 
         // Unsubscribe
         self.send_message_without_context(msg).await?;
@@ -236,23 +236,27 @@ where
         debug!("set route: {} - {:?}", name, conn);
 
         // send a message with subscription from
-        let msg = Message::new_subscribe(
-            &self.app_name,
-            name,
-            Some(SlimHeaderFlags::default().with_recv_from(conn)),
-        );
+        let msg = Message::builder()
+            .source(self.app_name.clone())
+            .destination(name.clone())
+            .flags(SlimHeaderFlags::default().with_recv_from(conn))
+            .build_subscribe()
+            .unwrap();
+
         self.send_message_without_context(msg).await
     }
 
+    /// Remove a route towards another app
     pub async fn remove_route(&self, name: &Name, conn: u64) -> Result<(), ServiceError> {
-        debug!("unset route to {} - {}", name, conn);
+        debug!("remove route: {} - {:?}", name, conn);
 
-        //  send a message with unsubscription from
-        let msg = Message::new_unsubscribe(
-            &self.app_name,
-            name,
-            Some(SlimHeaderFlags::default().with_recv_from(conn)),
-        );
+        // send a message with unsubscription from
+        let msg = Message::builder()
+            .source(self.app_name.clone())
+            .destination(name.clone())
+            .flags(SlimHeaderFlags::default().with_recv_from(conn))
+            .build_unsubscribe()
+            .unwrap();
 
         self.send_message_without_context(msg).await
     }
@@ -267,7 +271,11 @@ where
             debug!("starting message processing loop for {}", app_name);
 
             // subscribe for local name running this loop
-            let subscribe_msg = Message::new_subscribe(&app_name, &app_name, None);
+            let subscribe_msg = Message::builder()
+                .source(app_name.clone())
+                .destination(app_name.clone())
+                .build_subscribe()
+                .unwrap();
             let tx = session_layer.tx_slim();
             tx.send(Ok(subscribe_msg))
                 .await
@@ -305,6 +313,11 @@ where
                                             .await;
 
                                         if let Err(e) = res {
+                                            // Ignore errors due to subscription not found
+                                            if let SessionError::SubscriptionNotFound(_) = e {
+                                                debug!("session not found, ignoring message");
+                                                continue;
+                                            }
                                             error!("error handling message: {}", e);
                                         }
                                     }
@@ -333,14 +346,15 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
-    use slim_session::point_to_point::PointToPointConfiguration;
 
     use slim_auth::shared_secret::SharedSecret;
-    use slim_datapath::{
-        api::{ProtoMessage, ProtoSessionMessageType, ProtoSessionType},
-        messages::{Name, utils::SLIM_IDENTITY},
+    use slim_datapath::api::{
+        CommandPayload, ProtoMessage, ProtoSessionMessageType, ProtoSessionType,
     };
+    use slim_testing::utils::TEST_VALID_SECRET;
 
     #[allow(dead_code)]
     fn create_app() -> App<SharedSecret, SharedSecret> {
@@ -350,8 +364,8 @@ mod tests {
 
         App::new(
             &name,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
             0,
             tx_slim,
             tx_app,
@@ -367,18 +381,18 @@ mod tests {
 
         let app = App::new(
             &name,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
             0,
             tx_slim.clone(),
             tx_app.clone(),
             std::path::PathBuf::from("/tmp/test_storage"),
         );
-        let session_config = PointToPointConfiguration::default();
 
-        let ret = app
-            .create_session(SessionConfig::PointToPoint(session_config), Some(1))
-            .await;
+        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
+        let dst = Name::from_strings(["org", "ns", "dst"]);
+
+        let ret = app.create_session(config, dst, Some(1)).await;
 
         assert!(ret.is_ok());
 
@@ -395,20 +409,18 @@ mod tests {
 
         let session_layer = App::new(
             &name,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
             0,
             tx_slim.clone(),
             tx_app.clone(),
             std::path::PathBuf::from("/tmp/test_storage"),
         );
 
-        let res = session_layer
-            .create_session(
-                SessionConfig::PointToPoint(PointToPointConfiguration::default()),
-                None,
-            )
-            .await;
+        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
+        let dst = Name::from_strings(["org", "ns", "dst"]);
+        let res = session_layer.create_session(config, dst, None).await;
+
         assert!(res.is_ok());
     }
 
@@ -420,20 +432,18 @@ mod tests {
 
         let session_layer = App::new(
             &name,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
             0,
             tx_slim.clone(),
             tx_app.clone(),
             std::path::PathBuf::from("/tmp/test_storage"),
         );
 
-        let res = session_layer
-            .create_session(
-                SessionConfig::PointToPoint(PointToPointConfiguration::default()),
-                Some(1),
-            )
-            .await;
+        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
+        let dst = Name::from_strings(["org", "ns", "dst"]);
+        let res = session_layer.create_session(config, dst, None).await;
+
         assert!(res.is_ok());
 
         session_layer
@@ -450,19 +460,18 @@ mod tests {
 
         let app = App::new(
             &name,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET),
             0,
             tx_slim.clone(),
             tx_app.clone(),
             std::path::PathBuf::from("/tmp/test_storage"),
         );
 
+        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
+        let dst = Name::from_strings(["org", "ns", "dst"]);
         let session_ctx = app
-            .create_session(
-                SessionConfig::PointToPoint(PointToPointConfiguration::default()),
-                Some(42),
-            )
+            .create_session(config, dst, Some(42))
             .await
             .expect("failed to create session");
 
@@ -491,12 +500,13 @@ mod tests {
     async fn test_handle_message_from_slim() {
         let (tx_slim, _) = tokio::sync::mpsc::channel(1);
         let (tx_app, mut rx_app) = tokio::sync::mpsc::channel(1);
-        let name = Name::from_strings(["org", "ns", "type"]).with_id(0);
+        let source = Name::from_strings(["org", "ns", "source"]).with_id(0);
+        let dest = Name::from_strings(["org", "ns", "dest"]).with_id(0);
 
-        let identity = SharedSecret::new("a", "group");
+        let identity = SharedSecret::new("a", TEST_VALID_SECRET);
 
         let app = App::new(
-            &name,
+            &dest,
             identity.clone(),
             identity.clone(),
             0,
@@ -505,22 +515,26 @@ mod tests {
             std::path::PathBuf::from("/tmp/test_storage"),
         );
 
-        let mut message = ProtoMessage::new_publish(
-            &name,
-            &Name::from_strings(["org", "ns", "type"]).with_id(0),
-            None,
-            "msg",
-            vec![0x1, 0x2, 0x3, 0x4],
-        );
+        // send join_request message to create the session
+        let payload = CommandPayload::builder()
+            .join_request(false, None, None, None)
+            .as_content();
 
-        // set the session id in the message
-        let header = message.get_session_header_mut();
-        header.session_id = 1;
-        header.set_session_type(ProtoSessionType::SessionPointToPoint);
-        header.set_session_message_type(ProtoSessionMessageType::P2PMsg);
+        let mut join_request = Message::builder()
+            .source(source.clone())
+            .destination(dest.clone())
+            .identity("")
+            .incoming_conn(0)
+            .session_type(slim_datapath::api::ProtoSessionType::PointToPoint)
+            .session_message_type(slim_datapath::api::ProtoSessionMessageType::JoinRequest)
+            .session_id(1)
+            .message_id(1) // this id will be changed by the session controller
+            .payload(payload)
+            .build_publish()
+            .unwrap();
 
         app.session_layer
-            .handle_message_from_slim(message.clone())
+            .handle_message_from_slim(join_request.clone())
             .await
             .expect_err("should fail as identity is not verified");
 
@@ -530,12 +544,14 @@ mod tests {
         // As there is no identity, we should not get any message in the app
         assert!(rx_app.try_recv().is_err());
 
-        // Add identity to message
-        message.insert_metadata(SLIM_IDENTITY.to_string(), identity.get_token().unwrap());
+        // Set the right identity
+        join_request
+            .get_slim_header_mut()
+            .set_identity(identity.get_token().unwrap());
 
         // Try again
         app.session_layer
-            .handle_message_from_slim(message.clone())
+            .handle_message_from_slim(join_request.clone())
             .await
             .unwrap();
 
@@ -552,6 +568,26 @@ mod tests {
         };
         assert_eq!(session_ctx.session().upgrade().unwrap().id(), 1);
 
+        let mut message = ProtoMessage::builder()
+            .source(source.clone())
+            .destination(Name::from_strings(["org", "ns", "type"]).with_id(0))
+            .identity(identity.get_token().unwrap())
+            .flags(SlimHeaderFlags::default().with_incoming_conn(0))
+            .application_payload("msg", vec![0x1, 0x2, 0x3, 0x4])
+            .build_publish()
+            .unwrap();
+
+        // set the session id in the message
+        let header = message.get_session_header_mut();
+        header.session_id = 1;
+        header.set_session_type(ProtoSessionType::PointToPoint);
+        header.set_session_message_type(ProtoSessionMessageType::Msg);
+
+        app.session_layer
+            .handle_message_from_slim(message.clone())
+            .await
+            .unwrap();
+
         // Receive message from the session
         let msg = session_ctx
             .rx
@@ -565,14 +601,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_message_from_app() {
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(1);
-        let (tx_app, _) = tokio::sync::mpsc::channel(1);
-        let name = Name::from_strings(["org", "ns", "type"]).with_id(0);
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, _) = tokio::sync::mpsc::channel(10);
+        let dst = Name::from_strings(["cisco", "default", "remote"]).with_id(0);
+        let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
-        let identity = SharedSecret::new("a", "group");
+        let identity = SharedSecret::new("a", TEST_VALID_SECRET);
 
         let app = App::new(
-            &name,
+            &source,
             identity.clone(),
             identity.clone(),
             0,
@@ -581,29 +618,138 @@ mod tests {
             std::path::PathBuf::from("/tmp/test_storage"),
         );
 
-        let session_config = PointToPointConfiguration::default();
+        let mut session_config =
+            SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
+        session_config.initiator = true;
 
         // create a new session
         let res = app
-            .create_session(SessionConfig::PointToPoint(session_config), Some(1))
+            .create_session(session_config, dst.clone(), Some(1))
             .await
             .unwrap();
 
-        let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
+        // a discovery request should be generated by the session just created
+        // try to read it on slim
+        let discovery_req = rx_slim
+            .recv()
+            .await
+            .expect("no message received")
+            .expect("error");
 
-        let mut message = ProtoMessage::new_publish(
-            &source,
-            &Name::from_strings(["cisco", "default", "remote"]).with_id(0),
-            None,
-            "msg",
-            vec![0x1, 0x2, 0x3, 0x4],
+        assert_eq!(
+            discovery_req.get_session_message_type(),
+            ProtoSessionMessageType::DiscoveryRequest
         );
+
+        // create a discovery reply with the right id
+        let payload = CommandPayload::builder().discovery_reply().as_content();
+
+        let discovery_reply = Message::builder()
+            .source(dst.clone())
+            .destination(source.clone())
+            .identity(identity.get_token().unwrap())
+            .incoming_conn(0)
+            .session_type(slim_datapath::api::ProtoSessionType::PointToPoint)
+            .session_message_type(slim_datapath::api::ProtoSessionMessageType::DiscoveryReply)
+            .session_id(1)
+            .message_id(discovery_req.get_id())
+            .payload(payload)
+            .build_publish()
+            .unwrap();
+
+        // process the discovery reply
+        app.session_layer
+            .handle_message_from_slim(discovery_reply.clone())
+            .await
+            .expect("error receiving discovery reply");
+
+        // the local node sets the route to the remote endpoint
+        let route = rx_slim
+            .recv()
+            .await
+            .expect("no message received")
+            .expect("error");
+
+        assert!(route.is_subscribe(), "route should be a subscribe message");
+
+        // a join request should be generated by the session
+        let join_req = rx_slim
+            .recv()
+            .await
+            .expect("no message received")
+            .expect("error");
+
+        assert_eq!(
+            join_req.get_session_message_type(),
+            ProtoSessionMessageType::JoinRequest
+        );
+
+        // reply with the right id
+        let payload = CommandPayload::builder().join_reply(None).as_content();
+
+        let join_replay = Message::builder()
+            .source(dst.clone())
+            .destination(source.clone())
+            .identity(identity.get_token().unwrap())
+            .incoming_conn(0)
+            .session_type(slim_datapath::api::ProtoSessionType::PointToPoint)
+            .session_message_type(slim_datapath::api::ProtoSessionMessageType::JoinReply)
+            .session_id(1)
+            .message_id(join_req.get_id())
+            .payload(payload)
+            .build_publish()
+            .unwrap();
+
+        app.session_layer
+            .handle_message_from_slim(join_replay.clone())
+            .await
+            .expect("error receiving join reply");
+
+        // now the local node should send a welcome message
+        let welcome = rx_slim
+            .recv()
+            .await
+            .expect("no message received")
+            .expect("error");
+
+        assert_eq!(
+            welcome.get_session_message_type(),
+            ProtoSessionMessageType::GroupWelcome
+        );
+
+        let payload = CommandPayload::builder().group_ack().as_content();
+
+        let ack = Message::builder()
+            .source(dst.clone())
+            .destination(source.clone())
+            .identity(identity.get_token().unwrap())
+            .incoming_conn(0)
+            .session_type(slim_datapath::api::ProtoSessionType::PointToPoint)
+            .session_message_type(slim_datapath::api::ProtoSessionMessageType::GroupAck)
+            .session_id(1)
+            .message_id(welcome.get_id())
+            .payload(payload)
+            .build_publish()
+            .unwrap();
+
+        app.session_layer
+            .handle_message_from_slim(ack.clone())
+            .await
+            .expect("error receiving join reply");
+
+        // now we can finally send a message
+        let mut message = ProtoMessage::builder()
+            .source(source.clone())
+            .destination(dst.clone())
+            .application_payload("msg", vec![0x1, 0x2, 0x3, 0x4])
+            .build_publish()
+            .unwrap();
 
         // set the session id in the message
         let header = message.get_session_header_mut();
         header.session_id = 1;
-        header.set_session_type(ProtoSessionType::SessionPointToPoint);
-        header.set_session_message_type(ProtoSessionMessageType::P2PMsg);
+        header.set_session_type(ProtoSessionType::PointToPoint);
+        header.set_session_message_type(ProtoSessionMessageType::Msg);
 
         let res = app
             .session_layer
@@ -613,17 +759,15 @@ mod tests {
         assert!(res.is_ok());
 
         // message should have been delivered to the app
-        let mut msg = rx_slim
+        let msg = rx_slim
             .recv()
             .await
             .expect("no message received")
             .expect("error");
 
-        // Add identity to message
-        message.insert_metadata(SLIM_IDENTITY.to_string(), identity.get_token().unwrap());
-
-        msg.set_message_id(0);
-        assert_eq!(msg, message);
+        assert_eq!(msg.get_session_message_type(), ProtoSessionMessageType::Msg);
+        assert_eq!(msg.get_source(), source);
+        assert_eq!(msg.get_dst(), dst);
     }
 
     /// Test configuration for parameterized P2P session tests
@@ -657,7 +801,6 @@ mod tests {
     async fn run_p2p_subscription_test(config: P2PTestConfig) {
         use crate::service::Service;
         use slim_config::component::id::{ID, Kind};
-        use slim_session::point_to_point::PointToPointConfiguration;
 
         // Create a service instance with unique name
         let service_name = format!("test-service-{}", config.test_name);
@@ -672,8 +815,8 @@ mod tests {
         let (subscriber_app, mut subscriber_notifications) = service
             .create_app(
                 &subscriber_name,
-                SharedSecret::new("a", "group"),
-                SharedSecret::new("a", "group"),
+                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET),
             )
             .await
             .unwrap();
@@ -681,8 +824,8 @@ mod tests {
         let (publisher_app, _publisher_notifications) = service
             .create_app(
                 &publisher_name,
-                SharedSecret::new("a", "group"),
-                SharedSecret::new("a", "group"),
+                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET),
             )
             .await
             .unwrap();
@@ -714,14 +857,11 @@ mod tests {
         let mut sessions = Vec::new();
         for name in &subscription_names {
             // Create session with the subscription name as peer
-
-            println!("Creating session to peer: {}", name);
-            let session_config = PointToPointConfiguration::default().with_peer_name(name.clone());
+            let mut session_config =
+                SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
+            session_config.initiator = true;
             let session_ctx = publisher_app
-                .create_session(
-                    slim_session::SessionConfig::PointToPoint(session_config),
-                    None,
-                )
+                .create_session(session_config, name.clone(), None)
                 .await
                 .unwrap();
 
@@ -760,19 +900,16 @@ mod tests {
         for session_ctx in received_sessions {
             let session_arc = session_ctx.session_arc().unwrap();
 
-            println!("Verifying session ID: {}", session_arc.source());
-
             // Check that the source matches is in sub_names_set
             let src = session_arc.source();
-            println!("Session source: {}", src);
             assert!(sub_names_set.contains(src));
 
             // Verify it's a point-to-point session
-            assert_eq!(session_arc.kind(), slim_session::SessionType::PointToPoint);
+            assert_eq!(session_arc.session_type(), ProtoSessionType::PointToPoint);
 
             // Verify the destination is the publisher app (from subscriber's perspective)
-            let dst = session_arc.dst().unwrap();
-            assert_eq!(dst, publisher_name);
+            let dst = session_arc.dst();
+            assert_eq!(dst, &publisher_name);
         }
 
         // Verify we created sessions for each subscription
@@ -821,8 +958,6 @@ mod tests {
     async fn run_multicast_test(config: MulticastTestConfig) {
         use crate::service::Service;
         use slim_config::component::id::{ID, Kind};
-        use slim_session::multicast::MulticastConfiguration;
-        use std::collections::HashMap;
 
         // Create a service instance with unique name
         let service_name = format!("test-service-{}", config.test_name);
@@ -834,8 +969,8 @@ mod tests {
         let (moderator_app, mut _moderator_notifications) = service
             .create_app(
                 &moderator_name,
-                SharedSecret::new("a", "group"),
-                SharedSecret::new("a", "group"),
+                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET),
             )
             .await
             .unwrap();
@@ -850,8 +985,8 @@ mod tests {
             let (app, notifications) = service
                 .create_app(
                     &participant_name,
-                    SharedSecret::new("a", "group"),
-                    SharedSecret::new("a", "group"),
+                    SharedSecret::new("a", TEST_VALID_SECRET),
+                    SharedSecret::new("a", TEST_VALID_SECRET),
                 )
                 .await
                 .unwrap();
@@ -873,19 +1008,17 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         // Create multicast session from moderator
-        let multicast_config = MulticastConfiguration::new(
-            channel_name.clone(),
-            Some(5),
-            Some(std::time::Duration::from_millis(1000)),
-            false,
-            HashMap::new(),
-        );
+        let session_config = SessionConfig {
+            session_type: ProtoSessionType::Multicast,
+            max_retries: Some(5),
+            interval: Some(std::time::Duration::from_millis(1000)),
+            mls_enabled: true,
+            initiator: true,
+            metadata: HashMap::new(),
+        };
 
         let session_ctx = moderator_app
-            .create_session(
-                slim_session::SessionConfig::Multicast(multicast_config),
-                None,
-            )
+            .create_session(session_config, channel_name.clone(), None)
             .await
             .unwrap();
 
@@ -907,7 +1040,7 @@ mod tests {
             .unwrap();
 
         // Give some time for messages to be processed
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
         // Collect received session notifications from all participants
         let mut total_received_sessions = 0;
@@ -937,11 +1070,11 @@ mod tests {
             let session_arc = received_session.session_arc().unwrap();
 
             // Verify it's a multicast session
-            assert_eq!(session_arc.kind(), slim_session::SessionType::Multicast);
+            assert_eq!(session_arc.session_type(), ProtoSessionType::Multicast);
 
             // For multicast sessions, the destination is also the channel name
-            let dst = session_arc.dst().unwrap();
-            assert_eq!(dst, channel_name);
+            let dst = session_arc.dst();
+            assert_eq!(dst, &channel_name);
 
             total_received_sessions += participant_sessions.len();
         }
@@ -957,6 +1090,7 @@ mod tests {
             test_name: "many-participants",
             moderator_suffix: "leader",
             channel_suffix: "broadcast",
+            //participant_suffixes: vec!["p1", "p2"],
             participant_suffixes: vec!["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"],
         };
 

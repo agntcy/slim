@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{AuthError, ClientAuthenticator, ServerAuthenticator};
 use slim_auth::oidc::{OidcProviderConfig, OidcTokenProvider, OidcVerifier};
+use slim_auth::traits::TokenProvider; // bring trait into scope for initialize()
 
 /// Unified OIDC Configuration that can act as both provider and verifier
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
@@ -20,7 +21,6 @@ pub struct Config {
     pub client_id: Option<String>,
 
     /// OAuth2 client secret (required for provider functionality)
-    #[schemars(skip)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_secret: Option<String>,
 
@@ -183,7 +183,7 @@ impl Config {
     /// Create an OIDC token provider from this configuration
     pub async fn create_provider(&self) -> Result<OidcTokenProvider, AuthError> {
         let config = self.to_auth_config()?;
-        let provider = OidcTokenProvider::new(config).map_err(|e| {
+        let mut provider = OidcTokenProvider::new(config).map_err(|e| {
             AuthError::ConfigError(format!("Failed to create OIDC provider: {}", e))
         })?;
         provider.initialize().await.map_err(|e| {
@@ -366,7 +366,7 @@ mod tests {
     #[test]
     fn test_server_layer_creation() {
         // Initialize crypto provider for HTTPS requests
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        crate::tls::provider::initialize_crypto_provider();
 
         let config = Config::verifier("https://auth.example.com", "test-audience");
 

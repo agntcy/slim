@@ -16,6 +16,10 @@ type ControlPlaneConfig struct {
 	Southbound APIConfig        `yaml:"southbound"`
 	LogConfig  LogConfig        `yaml:"logging"`
 	Reconciler ReconcilerConfig `yaml:"reconciler"`
+	Database   DatabaseConfig   `yaml:"database"`
+}
+type DatabaseConfig struct {
+	FilePath string `yaml:"filePath"`
 }
 
 type LogConfig struct {
@@ -35,8 +39,8 @@ func (l LogConfig) Validate() error {
 }
 
 type ReconcilerConfig struct {
-	Threads     int `yaml:"threads"`
-	MaxRequeues int `yaml:"maxRequeues"`
+	MaxRequeues                int `yaml:"maxRequeues"`
+	MaxNumOfParallelReconciles int `yaml:"maxNumOfParallelReconciles"`
 }
 
 type APIConfig struct {
@@ -111,9 +115,12 @@ func DefaultConfig() *ControlPlaneConfig {
 			Level: "debug", // Default log level
 		},
 		ReconcilerConfig{
-			Threads:     3,
-			MaxRequeues: 15,
+			MaxRequeues:                15,
+			MaxNumOfParallelReconciles: 1000,
 		}, // Default to 3 threads
+		DatabaseConfig{
+			FilePath: "db/controlplane.db",
+		},
 	}
 }
 

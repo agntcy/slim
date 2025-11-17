@@ -1,23 +1,26 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashMap;
+
 use clap::Parser;
 use tokio::time;
 use tracing::info;
 
 use slim::config;
 use slim_auth::shared_secret::SharedSecret;
-use slim_datapath::messages::Name;
-use slim_session::{self, PointToPointConfiguration, SessionConfig};
+use slim_datapath::{api::ProtoSessionType, messages::Name};
+use slim_session::{SessionConfig, session_controller::SessionController};
+use slim_testing::utils::TEST_VALID_SECRET;
 
 mod args;
 
 // Function to handle session messages using spawn_receiver
 fn spawn_session_receiver(
-    session_ctx: slim_session::context::SessionContext<SharedSecret, SharedSecret>,
+    session_ctx: slim_session::context::SessionContext,
     local_name: String,
     route: Name,
-) -> std::sync::Arc<slim_session::Session<SharedSecret, SharedSecret>> {
+) -> std::sync::Arc<SessionController> {
     session_ctx
         .spawn_receiver(|mut rx, weak| async move {
             info!("Session handler task started");
@@ -36,14 +39,14 @@ fn spawn_session_receiver(
                             Some(Ok(message)) => match &message.message_type {
                                 Some(slim_datapath::api::MessageType::Publish(msg)) => {
                                     let payload = msg.get_payload();
-                                    match std::str::from_utf8(&payload.blob) {
+                                    match std::str::from_utf8(&payload.as_application_payload().unwrap().blob) {
                                         Ok(text) => {
                                             info!("received message: {}", text);
                                         }
                                         Err(_) => {
                                             info!(
                                                 "received encrypted message: {} bytes",
-                                                payload.blob.len()
+                                                payload.as_application_payload().unwrap().blob.len()
                                             );
                                         }
                                     }
@@ -131,8 +134,8 @@ async fn main() {
     let (app, mut rx) = svc
         .create_app(
             &name,
-            SharedSecret::new("a", "group"),
-            SharedSecret::new("a", "group"),
+            SharedSecret::new(local_name, TEST_VALID_SECRET),
+            SharedSecret::new(local_name, TEST_VALID_SECRET),
         )
         .await
         .expect("failed to create app");
@@ -149,144 +152,41 @@ async fn main() {
     app.subscribe(&local_app_name, Some(conn_id)).await.unwrap();
 
     // Set a route for the remote app
-    let route = Name::from_strings(["org", "default", remote_name]);
-    info!("allowing messages to remote app: {:?}", route);
-    app.set_route(&route, conn_id).await.unwrap();
+    let remote_app_name = Name::from_strings(["org", "default", remote_name]);
+    info!("allowing messages to remote app: {:?}", remote_app_name);
+    app.set_route(&remote_app_name, conn_id).await.unwrap();
 
     // wait for the connection to be established
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
-    // MLS setup, only if mls_group_id is provided
-    if let Some(group_identifier) = mls_group_id {
-        info!("MLS enabled with group identifier: {}", group_identifier);
-
-        //TODO(zkacsand): temporary file based key package exchange, until the session API is ready to support it
-        // Clean up previous run files
-        let key_package_path = format!("/tmp/mls_key_package_{}", group_identifier);
-        let welcome_path = format!("/tmp/mls_welcome_{}", group_identifier);
-        let _ = std::fs::remove_file(&key_package_path);
-        let _ = std::fs::remove_file(&welcome_path);
-
-        // Clean up MLS identity directories
-        let identity_path = format!("/tmp/mls_identities_{}", local_name);
-        let _ = std::fs::remove_dir_all(&identity_path);
-
-        if message.is_some() {
-            // Client: will join group after server creates it
-            None
-        } else {
-            // Server: create group and wait for client key package
-            let identity_provider = SharedSecret::new("server", "group");
-            let identity_verifier = SharedSecret::new("server", "group");
-            let mut server_mls = slim_mls::mls::Mls::new(
-                name.clone(),
-                identity_provider,
-                identity_verifier,
-                std::path::PathBuf::from("/tmp/server_mls"),
-            );
-            server_mls.initialize().unwrap();
-
-            // Create group
-            let group_id = server_mls.create_group().unwrap();
-            info!("Server created MLS group");
-
-            // Wait for client key package
-            info!(
-                "Server waiting for client key package at: {}",
-                key_package_path
-            );
-            let mut attempts = 0;
-            let key_package = loop {
-                if std::path::Path::new(&key_package_path).exists() {
-                    let key_package_bytes = std::fs::read(&key_package_path).unwrap();
-                    info!("Server found client key package");
-                    break key_package_bytes;
-                }
-                if attempts > 100 {
-                    panic!("Timeout waiting for client key package");
-                }
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                attempts += 1;
-            };
-
-            // Add client to group and generate welcome message
-            let ret = server_mls.add_member(&key_package).unwrap();
-
-            // Save welcome message for client
-            std::fs::write(&welcome_path, &ret.welcome_message).unwrap();
-            info!("Server saved welcome message to: {}", welcome_path);
-
-            Some((server_mls, group_id))
-        }
-    } else {
-        info!("MLS disabled - no group identifier provided");
-        None
-    };
 
     // Local array of created sessions
     let mut sessions = vec![];
 
     // check what to do with the message
     if let Some(msg) = message {
-        // create a p2p session
+        let config = SessionConfig {
+            session_type: ProtoSessionType::PointToPoint,
+            max_retries: None,
+            interval: None,
+            mls_enabled: mls_group_id.is_some(),
+            initiator: true,
+            metadata: HashMap::new(),
+        };
         let session_ctx = app
-            .create_session(
-                SessionConfig::PointToPoint(PointToPointConfiguration::default()),
-                None,
-            )
+            .create_session(config, remote_app_name.clone(), None)
             .await
             .expect("error creating p2p session");
 
-        // Client MLS setup, only if mls_group_id is provided
-        if let Some(group_identifier) = mls_group_id {
-            // Client: generate key package and wait for welcome message
-            let identity_provider = SharedSecret::new("client", "group");
-            let identity_verifier = SharedSecret::new("client", "group");
-            let mut client_mls = slim_mls::mls::Mls::new(
-                name.clone(),
-                identity_provider,
-                identity_verifier,
-                std::path::PathBuf::from("/tmp/client_mls"),
-            );
-            client_mls.initialize().unwrap();
-
-            // Generate and save key package for server to use
-            let key_package = client_mls.generate_key_package().unwrap();
-            let key_package_path = format!("/tmp/mls_key_package_{}", group_identifier);
-            std::fs::write(&key_package_path, &key_package).unwrap();
-            info!("Client saved key package to: {}", key_package_path);
-
-            // Wait for welcome message from server
-            let welcome_path = format!("/tmp/mls_welcome_{}", group_identifier);
-            info!("Client waiting for welcome message at: {}", welcome_path);
-            let mut attempts = 0;
-            let welcome_message = loop {
-                if std::path::Path::new(&welcome_path).exists() {
-                    let welcome_bytes = std::fs::read(&welcome_path).unwrap();
-                    info!("Client found welcome message");
-                    break welcome_bytes;
-                }
-                if attempts > 100 {
-                    panic!("Timeout waiting for welcome message");
-                }
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                attempts += 1;
-            };
-
-            // Join the group
-            let _group_id = client_mls.process_welcome(&welcome_message).unwrap();
-            info!("Client successfully joined group");
-        }
-
         // Get the session and spawn receiver for handling responses
-        let session = spawn_session_receiver(session_ctx, local_name.to_string(), route.clone());
+        let session =
+            spawn_session_receiver(session_ctx, local_name.to_string(), remote_app_name.clone());
         // let session = session_ctx.session_arc().unwrap();
 
-        info!("Sending message to {}", route);
+        info!("Sending message to {}", remote_app_name);
 
         // publish message using session context
         session
-            .publish(&route, msg.into(), None, None)
+            .publish(&remote_app_name, msg.into(), None, None)
             .await
             .unwrap();
 
@@ -314,7 +214,7 @@ async fn main() {
                         let session = spawn_session_receiver(
                             session,
                             local_name.to_string(),
-                            route.clone(),
+                            remote_app_name.clone(),
                         );
 
                         // Save the session

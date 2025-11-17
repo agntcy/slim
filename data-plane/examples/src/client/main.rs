@@ -15,7 +15,7 @@ use slim_session::Notification;
 mod args;
 
 fn spawn_session_receiver(
-    session_ctx: slim_session::context::SessionContext<SharedSecret, SharedSecret>,
+    session_ctx: slim_session::context::SessionContext,
     message: &Option<String>,
 ) {
     let message_clone = message.clone();
@@ -25,13 +25,9 @@ fn spawn_session_receiver(
 
             if let Some(m) = message_clone {
                 if let Some(s) = session.upgrade() {
-                    if let Some(dst) = s.dst() {
-                        if let Err(e) = s.publish(&dst, m.encode_to_vec(), None, None).await {
+                        if let Err(e) = s.publish(s.dst(), m.encode_to_vec(), None, None).await {
                             error!("Failed to publish message to session: {:?}", e);
                         }
-                    } else {
-                        error!("Failed to get session destination");
-                    }
                 } else {
                     error!("Failed to upgrade session weak reference");
                 }
@@ -54,7 +50,7 @@ fn spawn_session_receiver(
                                 info!("CLIENT: message from {:?}, id: {}", publisher, msg_id);
 
                                 if let Some(c) = msg.get_payload() {
-                                    let blob = &c.blob;
+                                    let blob = &c.as_application_payload().unwrap().blob;
                                     info!("CLIENT: message has payload of {} bytes", blob.len());
 
                                     match String::from_utf8(blob.to_vec()) {

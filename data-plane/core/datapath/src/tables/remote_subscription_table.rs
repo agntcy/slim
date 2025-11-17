@@ -15,11 +15,18 @@ pub struct SubscriptionInfo {
 
     /// subscription name
     name: Name,
+
+    /// identity of the original sender of the subscription
+    source_identity: String,
 }
 
 impl SubscriptionInfo {
     pub fn source(&self) -> &Name {
         &self.source
+    }
+
+    pub fn source_identity(&self) -> &String {
+        &self.source_identity
     }
 
     pub fn name(&self) -> &Name {
@@ -35,8 +42,12 @@ pub struct RemoteSubscriptions {
 }
 
 impl RemoteSubscriptions {
-    pub fn add_subscription(&self, source: Name, name: Name, conn: u64) {
-        let info = SubscriptionInfo { source, name };
+    pub fn add_subscription(&self, source: Name, name: Name, source_identity: String, conn: u64) {
+        let info = SubscriptionInfo {
+            source,
+            name,
+            source_identity,
+        };
         let mut map = self.table.write();
         match map.get_mut(&conn) {
             None => {
@@ -51,8 +62,18 @@ impl RemoteSubscriptions {
         }
     }
 
-    pub fn remove_subscription(&self, source: Name, name: Name, conn: u64) {
-        let info = SubscriptionInfo { source, name };
+    pub fn remove_subscription(
+        &self,
+        source: Name,
+        name: Name,
+        source_identity: String,
+        conn: u64,
+    ) {
+        let info = SubscriptionInfo {
+            source,
+            name,
+            source_identity,
+        };
         let mut map = self.table.write();
         match map.get_mut(&conn) {
             None => {
@@ -75,8 +96,8 @@ impl RemoteSubscriptions {
         }
     }
 
-    pub fn remove_connection(&self, conn: u64) {
+    pub fn remove_connection(&self, conn: u64) -> HashSet<SubscriptionInfo> {
         let mut map = self.table.write();
-        map.remove(&conn);
+        map.remove(&conn).unwrap_or_default()
     }
 }

@@ -39,6 +39,7 @@ mod tests {
     use super::*;
     use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::messages::Name;
+    use slim_testing::utils::TEST_VALID_SECRET;
 
     use crate::bindings::adapter::BindingsAdapter;
 
@@ -47,8 +48,8 @@ mod tests {
 
     /// Create test authentication components
     fn create_test_auth() -> (TestProvider, TestVerifier) {
-        let provider = SharedSecret::new("test-app", "test-secret");
-        let verifier = SharedSecret::new("test-app", "test-secret");
+        let provider = SharedSecret::new("test-app", TEST_VALID_SECRET);
+        let verifier = SharedSecret::new("test-app", TEST_VALID_SECRET);
         (provider, verifier)
     }
 

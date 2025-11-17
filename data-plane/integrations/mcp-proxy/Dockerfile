@@ -8,30 +8,7 @@ SHELL ["/bin/bash", "-c"]
 
 ARG TARGETARCH
 
-RUN DEBIAN_FRONTEND=noninteractive \
-    apt-get update && \
-    apt-get install --no-install-recommends -y \
-        curl \
-        file \
-        make \
-        unzip \
-        git \
-        lsb-release \
-        software-properties-common \
-        gnupg \
-        pkg-config && \
-    curl -OL https://apt.llvm.org/llvm.sh && \
-    chmod +x llvm.sh && \
-    ./llvm.sh 19
-
-# Install taskfile
-RUN sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
-
-# Copy source code
-COPY . /app
-WORKDIR /app/data-plane/integrations/mcp-proxy
-
-RUN <<EOF
+RUN --mount=type=cache,id=target-$TARGETARCH,sharing=locked,target=/app/data-plane/integrations/mcp-proxy/target <<EOF
 case ${TARGETARCH} in
     "amd64")
         PACKAGES="gcc-x86-64-linux-gnu g++-x86-64-linux-gnu"
@@ -47,20 +24,40 @@ case ${TARGETARCH} in
         ;;
 esac
 
-apt-get update && apt-get install -y ${PACKAGES}
+DEBIAN_FRONTEND=noninteractive \
+    apt-get update && \
+    apt-get install --no-install-recommends -y \
+        curl \
+        file \
+        make \
+        unzip \
+        git \
+        lsb-release \
+        software-properties-common \
+        gnupg \
+        pkg-config \
+        ${PACKAGES}
 
-# Fetch rust packages
-task -v mcp-proxy:fetch TARGET=${RUSTARCH}
+curl -L -o /tmp/llvm.sh https://apt.llvm.org/llvm.sh
+chmod +x /tmp/llvm.sh
+/tmp/llvm.sh 19
+
+curl -1sLf 'https://dl.cloudsmith.io/public/task/task/setup.deb.sh' | bash
+apt-get install -y task
 EOF
+
+# Copy source code
+COPY . /app
+WORKDIR /app/data-plane/integrations/mcp-proxy
 
 # Build debug application
 RUN <<EOF
 case ${TARGETARCH} in
     "amd64")
-        RUSTARCH=x86_64
+        RUSTARCH=x86_64-unknown-linux-gnu
         ;;
     "arm64")
-        RUSTARCH=aarch64
+        RUSTARCH=aarch64-unknown-linux-gnu
         ;;
     *)
         echo "Unsupported platform: ${TARGETPLATFORM}"
@@ -68,19 +65,23 @@ case ${TARGETARCH} in
         ;;
 esac
 
-task -v mcp-proxy:build:strip TARGET=${RUSTARCH}-unknown-linux-gnu PROFILE=release
-mv target/${RUSTARCH}-unknown-linux-gnu target/${TARGETARCH}-unknown-linux-gnu
+# Fetch rust packages
+task -v mcp-proxy:fetch TARGET=${RUSTARCH}
+
+task -v mcp-proxy:build:strip TARGET=${RUSTARCH} PROFILE=release
+mv target/${RUSTARCH}/release/slim-mcp-proxy /slim-mcp-proxy
+mv target/${RUSTARCH}/release/slim-mcp-proxy.dbg /slim-mcp-proxy.dbg
 EOF
 
 FROM ghcr.io/distroless/cc-debian12:nonroot AS mcp-proxy-debug
 ARG TARGETARCH
 
 # copy the artifacts from the build stage
-COPY --from=rust /app/data-plane/integrations/mcp-proxy/target/${TARGETARCH}-unknown-linux-gnu/release/slim-mcp-proxy /slim-mcp-proxy
-COPY --from=rust /app/data-plane/integrations/mcp-proxy/target/${TARGETARCH}-unknown-linux-gnu/release/slim-mcp-proxy.dbg /slim-mcp-proxy.dbg
+COPY --from=rust /slim-mcp-proxy /slim-mcp-proxy
+COPY --from=rust /slim-mcp-proxy.dbg /slim-mcp-proxy.dbg
 
 FROM gcr.io/distroless/cc-debian12:nonroot AS mcp-proxy-release
 ARG TARGETARCH
 
 # copy the artifacts from the build stage
-COPY --from=rust /app/data-plane/integrations/mcp-proxy/target/${TARGETARCH}-unknown-linux-gnu/release/slim-mcp-proxy /slim-mcp-proxy
+COPY --from=rust /slim-mcp-proxy /slim-mcp-proxy

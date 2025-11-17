@@ -65,12 +65,12 @@ async def run_server(address: str, enable_opentelemetry: bool):
     # use stronger identity mechanisms (e.g. JWT + proper key management).
     provider, verifier = shared_secret_identity(
         identity="slim",
-        secret="secret",  # Not used
+        secret="jasfhuejasdfhays3wtkrktasdhfsadu2rtkdhsfgeht",  # Must be > 32 bytes
     )
 
-    # Create Slim instance with a fixed PyName. Organization/namespace/app are illustrative.
+    # Create Slim instance with a fixed Name. Organization/namespace/app are illustrative.
     slim = await slim_bindings.Slim.new(
-        slim_bindings.PyName("cisco", "default", "slim"), provider, verifier
+        slim_bindings.Name("cisco", "default", "slim"), provider, verifier
     )
 
     # Launch the embedded server with insecure TLS (development setting).

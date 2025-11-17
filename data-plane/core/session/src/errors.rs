@@ -6,6 +6,7 @@ use thiserror::Error;
 
 // Local crate
 use slim_datapath::api::ProtoMessage as Message;
+use slim_datapath::messages::utils::MessageError;
 
 #[derive(Error, Debug, PartialEq)]
 pub enum SessionError {
@@ -21,6 +22,8 @@ pub enum SessionError {
     AppTransmission(String),
     #[error("error processing message: {0}")]
     Processing(String),
+    #[error("error sending message to session: {0}")]
+    QueueFullError(String),
     #[error("session id already used: {0}")]
     SessionIdAlreadyUsed(String),
     #[error("invalid session id: {0}")]
@@ -75,7 +78,7 @@ pub enum SessionError {
     NoMls,
     #[error("error generating key package: {0}")]
     MLSKeyPackage(String),
-    #[error("invialid id message: {0}")]
+    #[error("invalid id message: {0}")]
     MLSIdMessage(String),
     #[error("error processing welcome message: {0}")]
     WelcomeMessage(String),
@@ -99,4 +102,10 @@ pub enum SessionError {
     // Moderator Tasks errors
     #[error("error updating a task: {0}")]
     ModeratorTask(String),
+}
+
+impl From<MessageError> for SessionError {
+    fn from(err: MessageError) -> Self {
+        SessionError::Processing(err.to_string())
+    }
 }

@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use duration_string::DurationString;
+use rustls_pki_types::ServerName;
+
 use std::time::Duration;
 use std::{collections::HashMap, str::FromStr};
 use tower::ServiceExt;
@@ -18,22 +20,52 @@ use tonic::codegen::{Body, Bytes, StdError};
 use tonic::transport::{Channel, Uri};
 use tracing::warn;
 
-/// Macro to create TLS-enabled or plain connectors based on TLS configuration
+use slim_auth::metadata::MetadataMap;
+
+use super::compression::CompressionType;
+use super::errors::ConfigError;
+use super::headers_middleware::SetRequestHeaderLayer;
+use crate::auth::ClientAuthenticator;
+use crate::auth::basic::Config as BasicAuthenticationConfig;
+use crate::auth::jwt::Config as JwtAuthenticationConfig;
+use crate::auth::static_jwt::Config as BearerAuthenticationConfig;
+use crate::component::configuration::{Configuration, ConfigurationError};
+use crate::grpc::proxy::ProxyConfig;
+use crate::tls::{client::TlsClientConfig as TLSSetting, common::RustlsConfigLoader};
+
+/// Creates an HTTPS connector with optional SNI based on the origin
+fn https_connector<S>(
+    s: S,
+    tls: &rustls::ClientConfig,
+    server_name: Option<String>,
+) -> hyper_rustls::HttpsConnector<S>
+where
+    S: tower::Service<Uri>,
+{
+    let tls = tls.clone();
+    let mut builder = hyper_rustls::HttpsConnectorBuilder::new()
+        .with_tls_config(tls)
+        .https_or_http();
+
+    if let Some(origin_str) = server_name {
+        builder =
+            builder.with_server_name_resolver(move |_: &_| ServerName::try_from(origin_str.clone()))
+    }
+
+    builder.enable_http2().wrap_connector(s)
+}
+
+/// Macro to create TLS-enabled or plain connectors based on TLS configuration,
+/// applying the optional origin (for SNI) when TLS is enabled.
 macro_rules! create_connector {
-    ($builder:expr, $base_connector:expr, $tls_config:expr) => {
+    ($builder:expr, $base_connector:expr, $tls_config:expr, $server_name:expr) => {
         match $tls_config {
             Some(tls) => {
                 let connector = tower::ServiceBuilder::new()
                     .layer_fn(move |s| {
-                        let tls = tls.clone();
-                        hyper_rustls::HttpsConnectorBuilder::new()
-                            .with_tls_config(tls)
-                            .https_or_http()
-                            .enable_http2()
-                            .wrap_connector(s)
+                        https_connector(s, &tls, $server_name.map(|s| s.to_string()))
                     })
                     .service($base_connector);
-
                 Ok($builder.connect_with_connector_lazy(connector))
             }
             None => Ok($builder.connect_with_connector_lazy($base_connector)),
@@ -41,8 +73,8 @@ macro_rules! create_connector {
     };
 }
 
-/// Macro to create authenticated service layers for different auth types
-macro_rules! create_auth_service {
+/// Macro to create authenticated service layers for auth types that don't need initialization
+macro_rules! create_auth_service_no_init {
     ($self:expr, $auth_config:expr, $header_map:expr, $channel:expr) => {{
         let auth_layer = $auth_config
             .get_client_layer()
@@ -54,21 +86,31 @@ macro_rules! create_auth_service {
             .layer(SetRequestHeaderLayer::new($header_map))
             .layer(auth_layer)
             .service($channel)
-            .boxed())
+            .boxed_clone())
     }};
 }
 
-use super::compression::CompressionType;
-use super::errors::ConfigError;
-use super::headers_middleware::SetRequestHeaderLayer;
-use crate::auth::ClientAuthenticator;
-use crate::auth::basic::Config as BasicAuthenticationConfig;
-use crate::auth::jwt::Config as JwtAuthenticationConfig;
-use crate::auth::static_jwt::Config as BearerAuthenticationConfig;
-use crate::component::configuration::{Configuration, ConfigurationError};
-use crate::grpc::proxy::ProxyConfig;
-use crate::metadata::MetadataMap;
-use crate::tls::{client::TlsClientConfig as TLSSetting, common::RustlsConfigLoader};
+/// Macro to create authenticated service layers for auth types that need initialization
+macro_rules! create_auth_service_with_init {
+    ($self:expr, $auth_config:expr, $header_map:expr, $channel:expr) => {{
+        let mut auth_layer = $auth_config
+            .get_client_layer()
+            .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;
+
+        // Initialize the auth layer
+        auth_layer.initialize().await.map_err(|e| {
+            ConfigError::AuthConfigError(format!("Failed to initialize auth layer: {}", e))
+        })?;
+
+        $self.warn_insecure_auth();
+
+        Ok(tower::ServiceBuilder::new()
+            .layer(SetRequestHeaderLayer::new($header_map))
+            .layer(auth_layer)
+            .service($channel)
+            .boxed_clone())
+    }};
+}
 
 /// Enum to handle all connection types: direct connections and proxy tunnels
 enum ConnectionType {
@@ -136,7 +178,7 @@ fn default_keep_alive_while_idle() -> bool {
 
 /// Enum holding one configuration for the client.
 #[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub enum AuthenticationConfig {
     /// Basic authentication configuration.
     Basic(BasicAuthenticationConfig),
@@ -159,8 +201,12 @@ pub struct ClientConfig {
     /// The target the client will connect to.
     pub endpoint: String,
 
-    /// Origin for the client.
+    /// Origin (HTTP Host authority override) for the client.
     pub origin: Option<String>,
+
+    /// Optional TLS SNI server name override. If set, this value is used for TLS
+    /// server name verification (SNI) instead of the host extracted from endpoint/origin.
+    pub server_name: Option<String>,
 
     /// Compression type - TODO(msardara): not implemented yet.
     pub compression: Option<CompressionType>,
@@ -198,7 +244,6 @@ pub struct ClientConfig {
 
     /// Auth configuration for outgoing RPCs.
     #[serde(default)]
-    // #[serde(with = "serde_yaml::with::singleton_map")]
     pub auth: AuthenticationConfig,
 
     /// Arbitrary user-provided metadata.
@@ -211,6 +256,7 @@ impl Default for ClientConfig {
         ClientConfig {
             endpoint: String::new(),
             origin: None,
+            server_name: None,
             compression: None,
             rate_limit: None,
             tls_setting: TLSSetting::default(),
@@ -239,9 +285,10 @@ impl std::fmt::Display for ClientConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "ClientConfig {{ endpoint: {}, origin: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, proxy: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?}, metadata: {:?} }}",
+            "ClientConfig {{ endpoint: {}, origin: {:?}, server_name: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, proxy: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?}, metadata: {:?} }}",
             self.endpoint,
             self.origin,
+            self.server_name,
             self.compression,
             self.rate_limit,
             self.tls_setting,
@@ -278,6 +325,13 @@ impl ClientConfig {
     pub fn with_origin(self, origin: &str) -> Self {
         Self {
             origin: Some(origin.to_string()),
+            ..self
+        }
+    }
+
+    pub fn with_server_name(self, server_name: &str) -> Self {
+        Self {
+            server_name: Some(server_name.to_string()),
             ..self
         }
     }
@@ -355,7 +409,7 @@ impl ClientConfig {
     /// If the configuration is invalid, it will return a ConfigError.
     /// The function will set the headers, tls settings, keepalive settings, rate limit settings
     /// timeout settings, buffer size settings, and origin settings.
-    pub fn to_channel(
+    pub async fn to_channel(
         &self,
     ) -> Result<
         impl tonic::client::GrpcService<
@@ -366,7 +420,8 @@ impl ClientConfig {
                               + 'static,
             Future: Send,
         > + Send
-        + use<>,
+        + Clone
+        + 'static,
         ConfigError,
     > {
         // Validate endpoint
@@ -385,14 +440,15 @@ impl ClientConfig {
         let header_map = self.parse_headers()?;
 
         // Load TLS configuration
-        let tls_config = self.load_tls_config()?;
+        let tls_config = self.load_tls_config().await?;
 
         // Create the channel with appropriate connector
-        let channel =
-            self.create_channel_with_connector(uri, builder, http_connector, tls_config)?;
+        let channel = self
+            .create_channel_with_connector(uri, builder, http_connector, tls_config)
+            .await?;
 
         // Apply authentication and headers
-        self.apply_auth_and_headers(channel, header_map)
+        self.apply_auth_and_headers(channel, header_map).await
     }
 
     /// Validates that the endpoint is set and not empty
@@ -531,13 +587,15 @@ impl ClientConfig {
     }
 
     /// Loads TLS configuration
-    fn load_tls_config(&self) -> Result<Option<rustls::ClientConfig>, ConfigError> {
-        TLSSetting::load_rustls_config(&self.tls_setting)
+    async fn load_tls_config(&self) -> Result<Option<rustls::ClientConfig>, ConfigError> {
+        self.tls_setting
+            .load_rustls_config()
+            .await
             .map_err(|e| ConfigError::TLSSettingError(e.to_string()))
     }
 
     /// Creates the channel with the appropriate connector (proxy or direct)
-    fn create_channel_with_connector(
+    async fn create_channel_with_connector(
         &self,
         uri: Uri,
         builder: tonic::transport::Endpoint,
@@ -545,14 +603,14 @@ impl ClientConfig {
         tls_config: Option<rustls::ClientConfig>,
     ) -> Result<Channel, ConfigError> {
         // Create the appropriate connection type
-        let connection = self.create_connection(uri, http_connector)?;
+        let connection = self.create_connection(uri, http_connector).await?;
 
         // Apply TLS and create the channel
         self.create_channel_from_connection(builder, connection, tls_config)
     }
 
     /// Creates the appropriate connection type based on proxy configuration
-    fn create_connection(
+    async fn create_connection(
         &self,
         uri: Uri,
         http_connector: HttpConnector,
@@ -561,6 +619,7 @@ impl ClientConfig {
         if let Some(intercept) = self.proxy.should_use_proxy(uri.to_string()) {
             // Use proxy for this host
             self.create_proxy_connection(intercept, http_connector)
+                .await
         } else {
             // Skip proxy for this host, use direct connection
             Ok(ConnectionType::Direct(http_connector))
@@ -568,7 +627,7 @@ impl ClientConfig {
     }
 
     /// Creates a proxy connection
-    fn create_proxy_connection(
+    async fn create_proxy_connection(
         &self,
         intercept: Intercept,
         http_connector: HttpConnector,
@@ -583,6 +642,7 @@ impl ClientConfig {
                 .proxy
                 .tls_setting
                 .load_rustls_config()
+                .await
                 .map_err(|e| {
                     ConfigError::TLSSettingError(format!("Failed to load proxy TLS config: {}", e))
                 })?
@@ -617,13 +677,13 @@ impl ClientConfig {
     ) -> Result<Channel, ConfigError> {
         match connection {
             ConnectionType::Direct(connector) => {
-                create_connector!(builder, connector, tls_config)
+                create_connector!(builder, connector, tls_config, self.server_name.as_deref())
             }
             ConnectionType::ProxyHttp(tunnel) => {
-                create_connector!(builder, tunnel, tls_config)
+                create_connector!(builder, tunnel, tls_config, self.server_name.as_deref())
             }
             ConnectionType::ProxyHttps(tunnel) => {
-                create_connector!(builder, tunnel, tls_config)
+                create_connector!(builder, tunnel, tls_config, self.server_name.as_deref())
             }
         }
     }
@@ -637,7 +697,7 @@ impl ClientConfig {
     }
 
     /// Applies authentication and headers to the channel
-    fn apply_auth_and_headers(
+    async fn apply_auth_and_headers(
         &self,
         channel: Channel,
         header_map: HeaderMap,
@@ -650,23 +710,24 @@ impl ClientConfig {
                               + 'static,
             Future: Send,
         > + Send
-        + use<>,
+        + Clone
+        + 'static,
         ConfigError,
     > {
         match &self.auth {
             AuthenticationConfig::Basic(basic) => {
-                create_auth_service!(self, basic, header_map, channel)
+                create_auth_service_no_init!(self, basic, header_map, channel)
             }
             AuthenticationConfig::StaticJwt(jwt) => {
-                create_auth_service!(self, jwt, header_map, channel)
+                create_auth_service_with_init!(self, jwt, header_map, channel)
             }
             AuthenticationConfig::Jwt(jwt) => {
-                create_auth_service!(self, jwt, header_map, channel)
+                create_auth_service_with_init!(self, jwt, header_map, channel)
             }
             AuthenticationConfig::None => Ok(tower::ServiceBuilder::new()
                 .layer(SetRequestHeaderLayer::new(header_map))
                 .service(channel)
-                .boxed()),
+                .boxed_clone()),
         }
     }
 
@@ -728,6 +789,7 @@ fn parse_rate_limit(rate_limit: &str) -> Result<(u64, Duration), ConfigError> {
 mod test {
     #[allow(unused_imports)]
     use super::*;
+    use crate::tls::common::CaSource;
     use tracing::debug;
     use tracing_test::traced_test;
 
@@ -779,43 +841,46 @@ mod test {
         let mut client = ClientConfig::default();
 
         // as the endpoint is missing, this should fail
-        let mut channel = client.to_channel();
+        let mut channel = client.to_channel().await;
         assert!(channel.is_err());
 
         // Set the endpoint
         client.endpoint = "http://localhost:8080".to_string();
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
 
         // Set the tls settings
         client.tls_setting.insecure = true;
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
 
         // Set the tls settings
         client.tls_setting = {
             let mut tls = TLSSetting::default();
-            tls.config.ca_file = Some(format!("{}/testdata/grpc/{}", test_path, "ca.crt"));
+            // Updated for new Config fields: set CA via ca_source and leave source as default (None)
+            tls.config.ca_source = CaSource::File {
+                path: format!("{}/testdata/grpc/{}", test_path, "ca.crt"),
+            };
             tls.insecure = false;
             tls
         };
         debug!("{}/testdata/{}", test_path, "ca.crt");
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
 
         // Set keepalive settings
         client.keepalive = Some(KeepaliveConfig::default());
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
 
         // Set rate limit settings
         client.rate_limit = Some("100/10".to_string());
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
 
         // Set rate limit settings wrong
         client.rate_limit = Some("100".to_string());
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_err());
 
         // reset config
@@ -823,34 +888,34 @@ mod test {
 
         // Set timeout settings
         client.request_timeout = Duration::from_secs(10).into();
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
 
         // Set buffer size settings
         client.buffer_size = Some(1024);
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
 
         // Set origin settings
         client.origin = Some("http://example.com".to_string());
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
 
         // set additional header to add to the request
         client
             .headers
             .insert("X-Test".to_string(), "test".to_string());
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
 
         // Set proxy settings
         client.proxy = ProxyConfig::new("http://proxy.example.com:8080");
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
 
         // Set proxy with authentication
         client.proxy = ProxyConfig::new("http://proxy.example.com:8080").with_auth("user", "pass");
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
 
         // Set proxy with headers
@@ -858,17 +923,17 @@ mod test {
         proxy_headers.insert("X-Proxy-Header".to_string(), "value".to_string());
         client.proxy =
             ProxyConfig::new("http://proxy.example.com:8080").with_headers(proxy_headers);
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
 
         // Set HTTPS proxy settings
         client.proxy = ProxyConfig::new("https://proxy.example.com:8080");
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
 
         // Set HTTPS proxy with authentication
         client.proxy = ProxyConfig::new("https://proxy.example.com:8080").with_auth("user", "pass");
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
 
         // Set HTTPS proxy with headers
@@ -876,7 +941,7 @@ mod test {
         https_proxy_headers.insert("X-Proxy-Header".to_string(), "value".to_string());
         client.proxy =
             ProxyConfig::new("https://proxy.example.com:8080").with_headers(https_proxy_headers);
-        channel = client.to_channel();
+        channel = client.to_channel().await;
         assert!(channel.is_ok());
     }
 

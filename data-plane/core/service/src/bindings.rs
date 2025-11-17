@@ -31,8 +31,9 @@
 //! use slim_datapath::messages::Name;
 //!
 //! // Create authentication components
-//! let provider = SharedSecret::new("myapp", "my_secret");
-//! let verifier = SharedSecret::new("myapp", "my_secret");
+//! use slim_auth::testutils::TEST_VALID_SECRET;
+//! let provider = SharedSecret::new("myapp", TEST_VALID_SECRET);
+//! let verifier = SharedSecret::new("myapp", TEST_VALID_SECRET);
 //!
 //! // Create adapter with complete setup
 //! let base_name = Name::from_strings(["org", "ns", "svc"]);

@@ -27,7 +27,7 @@ var _ = Describe("Group management through control plane", func() {
 		// start control plane
 		var errCP error
 		controlPlaneSession, errCP = gexec.Start(
-			exec.Command(controlPlanePath),
+			exec.Command(controlPlanePath, "--config", "./testdata/control-plane-config.yaml"),
 			GinkgoWriter, GinkgoWriter,
 		)
 		Expect(errCP).NotTo(HaveOccurred())
@@ -46,7 +46,7 @@ var _ = Describe("Group management through control plane", func() {
 		// start moderator
 		var errModerator error
 		moderatorSession, errModerator = gexec.Start(
-			exec.Command(clientPath, "--config", "./testdata/moderator-config.yaml", "--local-name", "org/default/moderator1", "--secret", "group"),
+			exec.Command(clientPath, "--config", "./testdata/moderator-config.yaml", "--local-name", "org/default/moderator1", "--secret", "group-abcdef-12345678901234567890"),
 			GinkgoWriter, GinkgoWriter,
 		)
 		Expect(errModerator).NotTo(HaveOccurred())
@@ -59,7 +59,7 @@ var _ = Describe("Group management through control plane", func() {
 		clientASession, errClientA = gexec.Start(
 			exec.Command(clientPath,
 				"--config", "./testdata/client-a-config.yaml",
-				"--local-name", "org/default/a", "--secret", "group",
+				"--local-name", "org/default/a", "--secret", "group-abcdef-12345678901234567890",
 			),
 			GinkgoWriter, GinkgoWriter,
 		)
@@ -69,7 +69,7 @@ var _ = Describe("Group management through control plane", func() {
 			exec.Command(clientPath,
 				"--config", "./testdata/client-c-config.yaml",
 				"--local-name", "org/default/c",
-				"--secret", "group",
+				"--secret", "group-abcdef-12345678901234567890",
 				"--message", "hey there, I am c!",
 			),
 			GinkgoWriter, GinkgoWriter,
@@ -110,7 +110,7 @@ var _ = Describe("Group management through control plane", func() {
 		It("SLIM node creates channel, adds participant, removes participant and deletes channel", func() {
 			addChannelOutput, err := exec.Command(
 				slimctlPath,
-				"channel", "create",
+				"c", "channel", "create",
 				"moderators=org/default/moderator1/0",
 				"-s", "127.0.0.1:50051",
 			).CombinedOutput()
@@ -136,7 +136,7 @@ var _ = Describe("Group management through control plane", func() {
 			// Invite clientA to the channel
 			addClientAOutput, errA := exec.Command(
 				slimctlPath,
-				"participant", "add",
+				"c", "participant", "add",
 				participantA,
 				"--channel-id", channelName,
 				"-s", "127.0.0.1:50051",
@@ -153,7 +153,7 @@ var _ = Describe("Group management through control plane", func() {
 			// Invite clientC to the channel
 			addClientCOutput, errB := exec.Command(
 				slimctlPath,
-				"participant", "add",
+				"c", "participant", "add",
 				participantC,
 				"--channel-id", channelName,
 				"-s", "127.0.0.1:50051",
@@ -177,7 +177,7 @@ var _ = Describe("Group management through control plane", func() {
 			// Remove participant c from the channel
 			deleteParticipantOutput, errP := exec.Command(
 				slimctlPath,
-				"participant", "delete",
+				"c", "participant", "delete",
 				participantC,
 				"--channel-id", channelName,
 				"-s", "127.0.0.1:50051",
@@ -193,7 +193,7 @@ var _ = Describe("Group management through control plane", func() {
 
 			deleteChannelOutput, errC := exec.Command(
 				slimctlPath,
-				"channel", "delete",
+				"c", "channel", "delete",
 				channelName,
 				"-s", "127.0.0.1:50051",
 			).CombinedOutput()

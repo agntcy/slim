@@ -3,13 +3,12 @@
 
 //! Common traits for authentication mechanisms.
 
-use std::collections::HashMap;
-
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::errors::AuthError;
+use crate::metadata::MetadataMap;
 
 /// Standard JWT Claims structure that includes the registered claims
 /// as specified in RFC 7519.
@@ -44,7 +43,7 @@ pub struct StandardClaims {
 
     // Additional custom claims can be added by the user
     #[serde(flatten)]
-    pub custom_claims: HashMap<String, serde_json::Value>,
+    pub custom_claims: MetadataMap,
 }
 
 impl StandardClaims {
@@ -58,7 +57,7 @@ impl StandardClaims {
             iat: None,
             jti: None,
             nbf: None,
-            custom_claims: HashMap::new(),
+            custom_claims: MetadataMap::new(),
         }
     }
 }
@@ -66,6 +65,9 @@ impl StandardClaims {
 /// Trait for verifying JWT tokens
 #[async_trait]
 pub trait Verifier {
+    /// Initializes the verifier asynchronously.
+    async fn initialize(&mut self) -> Result<(), AuthError>;
+
     /// Verifies the token.
     async fn verify(&self, token: impl Into<String> + Send) -> Result<(), AuthError>;
 
@@ -102,10 +104,33 @@ pub trait Signer {
 }
 
 /// Trait for providing JWT claims
+#[async_trait]
 pub trait TokenProvider {
-    // Try to get a token
+    /// Initializes the token provider asynchronously.
+    /// Usage notes:
+    /// - For most lightweight providers (SharedSecret, SignerJwt, StaticTokenProvider) this is a
+    ///   no-op and can be safely skipped.
+    /// - For providers that manage background tasks or external resources (e.g. `SpireIdentityManager`
+    ///   and `OidcTokenProvider`), call their inherent `initialize` method (e.g.
+    ///   `spire_identity_manager.initialize().await`) immediately after construction. The trait-level
+    ///   `initialize` is currently a no-op placeholder to satisfy generic constraints.
+    /// - Framework code that receives a generic `P: TokenProvider` MAY call `initialize` for
+    ///   uniformity; implementations that need real setup should rely on an inherent method.
+    async fn initialize(&mut self) -> Result<(), AuthError>;
+
+    /// Try to get a token
     fn get_token(&self) -> Result<String, AuthError>;
 
-    // Get ID from the identity provider
+    /// Try to get a token with custom claims
+    ///
+    /// # Arguments
+    /// * `custom_claims` - Additional custom claims to include in the token.
+    async fn get_token_with_claims(&self, custom_claims: MetadataMap) -> Result<String, AuthError> {
+        // Default implementation ignores custom claims for backward compatibility
+        let _ = custom_claims;
+        self.get_token()
+    }
+
+    /// Get ID from the identity provider, e.g. the sub claim in JWT
     fn get_id(&self) -> Result<String, AuthError>;
 }

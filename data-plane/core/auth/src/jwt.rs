@@ -20,10 +20,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::errors::AuthError;
 use crate::file_watcher::FileWatcher;
+use crate::metadata::MetadataMap;
 use crate::resolver::KeyResolver;
 use crate::traits::{Signer, StandardClaims, TokenProvider, Verifier};
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
+#[serde(rename_all = "lowercase")]
 pub enum KeyFormat {
     Pem,
     Jwk,
@@ -31,11 +33,11 @@ pub enum KeyFormat {
 }
 
 /// Enum representing key data types
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum KeyData {
     /// String with encoded key(s)
-    Str(String),
+    Data(String),
     /// File path to the key(s)
     File(String),
 }
@@ -44,17 +46,32 @@ pub enum KeyData {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct Key {
     /// Algorithm used for signing the JWT
-    #[schemars(skip)]
+    #[schemars(with = "AlgorithmRepr")]
     pub algorithm: Algorithm,
 
     /// Key format - PEM, JWK or JWKS
-    #[schemars(skip)]
     pub format: KeyFormat,
 
-    /// Eencoded key or file path
-    #[schemars(skip)]
-    #[serde(flatten, with = "serde_yaml::with::singleton_map")]
+    /// Encoded key or file path
     pub key: KeyData,
+}
+
+/// Local enum used only for JSON Schema generation of the `algorithm` field.
+/// Remote schema representation of jsonwebtoken_aws_lc::Algorithm
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
+pub enum AlgorithmRepr {
+    HS256,
+    HS384,
+    HS512,
+    ES256,
+    ES384,
+    RS256,
+    RS384,
+    RS512,
+    PS256,
+    PS384,
+    PS512,
+    EdDSA,
 }
 
 fn key_alg_to_algorithm(key: &KeyAlgorithm) -> Result<Algorithm, AuthError> {
@@ -289,6 +306,27 @@ impl<S> Jwt<S> {
         }
     }
 
+    /// Creates a StandardClaims object with custom claims merged in.
+    pub fn create_claims_with_custom(&self, custom_claims: MetadataMap) -> StandardClaims {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or(Duration::from_secs(0))
+            .as_secs();
+
+        let expiration = now + self.token_duration.as_secs();
+
+        let mut merged_claims = self.claims.custom_claims.clone();
+        merged_claims.extend(custom_claims);
+
+        StandardClaims {
+            exp: expiration,
+            iat: Some(now),
+            nbf: Some(now),
+            custom_claims: merged_claims,
+            ..self.claims.clone()
+        }
+    }
+
     fn sign_claims<Claims: Serialize>(&self, claims: &Claims) -> Result<String, AuthError> {
         // Ensure we have an encoding key for signing
 
@@ -306,6 +344,14 @@ impl<S> Jwt<S> {
 
     fn sign_internal_claims(&self) -> Result<String, AuthError> {
         let claims = self.create_claims();
+        self.sign_claims(&claims)
+    }
+
+    fn sign_internal_claims_with_custom(
+        &self,
+        custom_claims: MetadataMap,
+    ) -> Result<String, AuthError> {
+        let claims = self.create_claims_with_custom(custom_claims);
         self.sign_claims(&claims)
     }
 }
@@ -532,9 +578,23 @@ impl Signer for SignerJwt {
     }
 }
 
+#[async_trait]
 impl TokenProvider for SignerJwt {
+    async fn initialize(&mut self) -> Result<(), AuthError> {
+        // SignerJwt has no asynchronous initialization requirements.
+        Ok(())
+    }
+
     fn get_token(&self) -> Result<String, AuthError> {
         self.sign_internal_claims()
+    }
+
+    async fn get_token_with_claims(&self, custom_claims: MetadataMap) -> Result<String, AuthError> {
+        if custom_claims.is_empty() {
+            self.sign_internal_claims()
+        } else {
+            self.sign_internal_claims_with_custom(custom_claims)
+        }
     }
 
     fn get_id(&self) -> Result<String, AuthError> {
@@ -545,19 +605,42 @@ impl TokenProvider for SignerJwt {
     }
 }
 
+#[async_trait]
 impl TokenProvider for StaticTokenProvider {
+    async fn initialize(&mut self) -> Result<(), AuthError> {
+        // StaticTokenProvider exposes a statically loaded token; nothing async to perform.
+        Ok(())
+    }
+
     fn get_token(&self) -> Result<String, AuthError> {
-        self.get_token()
+        self.static_token
+            .as_ref()
+            .ok_or_else(|| AuthError::ConfigError("Static token not configured".to_string()))
+            .map(|token| token.read().clone())
     }
 
     fn get_id(&self) -> Result<String, AuthError> {
         let token = self.get_token()?;
         extract_sub_claim_unsafe(&token)
     }
+
+    async fn get_token_with_claims(
+        &self,
+        _custom_claims: MetadataMap,
+    ) -> Result<String, AuthError> {
+        // This provider does not support custom claims in the token
+        Err(AuthError::UnsupportedOperation(
+            "StaticTokenProvider does not support custom claims".to_string(),
+        ))
+    }
 }
 
 #[async_trait]
 impl Verifier for VerifierJwt {
+    async fn initialize(&mut self) -> Result<(), AuthError> {
+        Ok(()) // no-op
+    }
+
     async fn verify(&self, token: impl Into<String> + Send) -> Result<(), AuthError> {
         // Just verify the token is valid, don't extract claims
         self.verify_claims::<StandardClaims>(token)
@@ -609,7 +692,6 @@ pub(crate) fn extract_sub_claim_unsafe(token: &str) -> Result<String, AuthError>
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use std::fs::{File, OpenOptions};
     use std::io::{Seek, SeekFrom, Write};
     use std::{env, fs, vec};
@@ -622,7 +704,7 @@ mod tests {
     use slim_config::tls::provider::initialize_crypto_provider;
 
     use crate::builder::JwtBuilder;
-    use crate::testutils::setup_test_jwt_resolver;
+    use slim_testing::utils::setup_test_jwt_resolver;
 
     fn create_file(file_path: &str, content: &str) -> std::io::Result<()> {
         let mut file = File::create(file_path)?;
@@ -653,7 +735,7 @@ mod tests {
         create_file(file_name, first_key).expect("failed to create file");
 
         // create jwt builder
-        let jwt = JwtBuilder::new()
+        let mut jwt = JwtBuilder::new()
             .issuer("test-issuer")
             .audience(&["test-audience"])
             .subject("test-subject")
@@ -665,6 +747,7 @@ mod tests {
             .build()
             .unwrap();
 
+        let _ = jwt.initialize().await;
         let claims = jwt.create_claims();
 
         assert_eq!(claims.iss.unwrap(), "test-issuer");
@@ -733,8 +816,11 @@ mod tests {
             .build()
             .unwrap();
         // Use test utility to generate a syntactically valid unsigned token
-        let token =
-            crate::testutils::generate_test_token("test-issuer", "test-audience", "test-subject");
+        let token = slim_testing::utils::generate_test_token(
+            "test-issuer",
+            "test-audience",
+            "test-subject",
+        );
 
         let res = verifier.try_verify(&token);
         assert!(
@@ -778,7 +864,7 @@ mod tests {
             .private_key(&Key {
                 algorithm: Algorithm::HS512,
                 format: KeyFormat::Pem,
-                key: KeyData::Str(String::from(first_key)),
+                key: KeyData::Data(String::from(first_key)),
             })
             .build()
             .unwrap();
@@ -807,7 +893,7 @@ mod tests {
             .private_key(&Key {
                 algorithm: Algorithm::HS512,
                 format: KeyFormat::Pem,
-                key: KeyData::Str(String::from(second_key)),
+                key: KeyData::Data(String::from(second_key)),
             })
             .build()
             .unwrap();
@@ -833,7 +919,7 @@ mod tests {
             .private_key(&Key {
                 algorithm: Algorithm::HS512,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("secret-key".to_string()),
+                key: KeyData::Data("secret-key".to_string()),
             })
             .build()
             .unwrap();
@@ -845,7 +931,7 @@ mod tests {
             .public_key(&Key {
                 algorithm: Algorithm::HS512,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("secret-key".to_string()),
+                key: KeyData::Data("secret-key".to_string()),
             })
             .build()
             .unwrap();
@@ -876,7 +962,7 @@ mod tests {
             .public_key(&Key {
                 algorithm: Algorithm::HS512,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("wrong-secret-key".to_string()),
+                key: KeyData::Data("wrong-secret-key".to_string()),
             })
             .build()
             .unwrap();
@@ -897,7 +983,7 @@ mod tests {
             .private_key(&Key {
                 algorithm: Algorithm::HS512,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("secret-key".to_string()),
+                key: KeyData::Data("secret-key".to_string()),
             })
             .build()
             .unwrap();
@@ -909,22 +995,16 @@ mod tests {
             .public_key(&Key {
                 algorithm: Algorithm::HS512,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("secret-key".to_string()),
+                key: KeyData::Data("secret-key".to_string()),
             })
             .build()
             .unwrap();
 
-        let mut custom_claims = HashMap::new();
-        custom_claims.insert(
-            "role".to_string(),
-            serde_json::Value::String("admin".to_string()),
-        );
+        let mut custom_claims = MetadataMap::new();
+        custom_claims.insert("role".to_string(), "admin".to_string());
         custom_claims.insert(
             "permissions".to_string(),
-            serde_json::Value::Array(vec![
-                serde_json::Value::String("read".to_string()),
-                serde_json::Value::String("write".to_string()),
-            ]),
+            vec!["read".to_string(), "write".to_string()],
         );
 
         let mut claims = signer.create_claims();
@@ -933,13 +1013,29 @@ mod tests {
 
         let verified_claims: StandardClaims = verifier.get_claims(token).await.unwrap();
 
-        assert_eq!(verified_claims.custom_claims.get("role").unwrap(), "admin");
+        let role: String = verified_claims
+            .custom_claims
+            .get("role")
+            .unwrap()
+            .try_into()
+            .unwrap();
+        assert_eq!(&role, "admin");
+
+        let permissions: Vec<String> = verified_claims
+            .custom_claims
+            .get("permissions")
+            .unwrap()
+            .as_list()
+            .unwrap()
+            .iter()
+            .map(|v| v.try_into().unwrap())
+            .collect();
         assert_eq!(
-            verified_claims.custom_claims.get("permissions").unwrap(),
-            &serde_json::Value::Array(vec![
+            permissions,
+            vec![
                 serde_json::Value::String("read".to_string()),
                 serde_json::Value::String("write".to_string())
-            ])
+            ]
         );
     }
 
@@ -959,7 +1055,7 @@ mod tests {
             .private_key(&Key {
                 algorithm,
                 format: KeyFormat::Pem,
-                key: KeyData::Str(test_key),
+                key: KeyData::Data(test_key),
             })
             .build()
             .unwrap();
@@ -1038,7 +1134,7 @@ mod tests {
             .private_key(&Key {
                 algorithm: Algorithm::HS512,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("secret-key".to_string()),
+                key: KeyData::Data("secret-key".to_string()),
             })
             .build()
             .unwrap();
@@ -1050,7 +1146,7 @@ mod tests {
             .public_key(&Key {
                 algorithm: Algorithm::HS512,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("secret-key".to_string()),
+                key: KeyData::Data("secret-key".to_string()),
             })
             .build()
             .unwrap();
@@ -1075,11 +1171,8 @@ mod tests {
         assert_eq!(first_result.exp, second_result.exp);
 
         // Now create a different token
-        let mut custom_claims = std::collections::HashMap::new();
-        custom_claims.insert(
-            "role".to_string(),
-            serde_json::Value::String("admin".to_string()),
-        );
+        let mut custom_claims = MetadataMap::new();
+        custom_claims.insert("role", "admin");
 
         let mut claims2 = signer.create_claims();
         claims2.custom_claims = custom_claims;
@@ -1103,7 +1196,7 @@ mod tests {
             .private_key(&Key {
                 algorithm: Algorithm::HS256,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("secret".to_string()),
+                key: KeyData::Data("secret".to_string()),
             })
             .build()
             .unwrap();
@@ -1121,7 +1214,7 @@ mod tests {
             .private_key(&Key {
                 algorithm: Algorithm::HS256,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("secret".to_string()),
+                key: KeyData::Data("secret".to_string()),
             })
             .build()
             .unwrap();
@@ -1220,5 +1313,37 @@ mod tests {
                 .to_string()
                 .contains("Missing 'sub' claim in token")
         );
+    }
+
+    #[tokio::test]
+    async fn test_initialize_jwt_signer() {
+        let jwt = JwtBuilder::new()
+            .issuer("test-issuer")
+            .audience(&["aud"])
+            .subject("sub")
+            .private_key(&Key {
+                algorithm: Algorithm::HS256,
+                format: KeyFormat::Pem,
+                key: KeyData::Data("secret-key".into()),
+            })
+            .build()
+            .unwrap();
+        let mut signer: SignerJwt = jwt;
+        let _ = signer.initialize().await; // no-op
+        // Verify the signer is properly configured
+        assert!(signer.encoding_key.is_some());
+        assert!(signer.decoding_key.is_none());
+
+        // Produce a token explicitly to verify signer works after initialize.
+        let claims = signer.create_claims();
+        assert_eq!(claims.iss.as_ref().unwrap(), "test-issuer");
+        assert_eq!(claims.aud.as_ref().unwrap(), &["aud"]);
+        assert_eq!(claims.sub.as_ref().unwrap(), "sub");
+        assert!(claims.exp > 0);
+        assert!(claims.iat.is_some());
+        assert!(claims.nbf.is_some());
+        let token = signer.sign(&claims).unwrap();
+        assert!(!token.is_empty());
+        assert_eq!(token.split('.').count(), 3); // JWT should have 3 parts
     }
 }

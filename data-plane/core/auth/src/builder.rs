@@ -3,7 +3,6 @@
 
 //! Builder pattern implementation for auth components.
 
-use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,6 +14,7 @@ use parking_lot::RwLock;
 use crate::errors::AuthError;
 use crate::file_watcher::FileWatcher;
 use crate::jwt::{Key, KeyData, KeyFormat, SignerJwt, StaticTokenProvider, VerifierJwt};
+use crate::metadata::MetadataMap;
 use crate::resolver::KeyResolver;
 use crate::traits::StandardClaims;
 
@@ -80,7 +80,7 @@ pub struct JwtBuilder<S = state::Initial> {
     required_claims: Vec<String>,
 
     // Custom claims
-    custom_claims: HashMap<String, serde_json::Value>,
+    custom_claims: MetadataMap,
 
     // Token file
     token_file: Option<String>,
@@ -91,7 +91,7 @@ pub struct JwtBuilder<S = state::Initial> {
 
 fn resolve_key(key: &Key) -> String {
     match &key.key {
-        KeyData::Str(key) => key.clone(),
+        KeyData::Data(key) => key.clone(),
         KeyData::File(path) => std::fs::read_to_string(path).expect("error reading key file"),
     }
 }
@@ -108,7 +108,7 @@ impl Default for JwtBuilder<state::Initial> {
             token_duration: Duration::from_secs(3600), // Default 1 hour
             auto_resolve_keys: false,
             required_claims: Vec::new(),
-            custom_claims: HashMap::new(),
+            custom_claims: MetadataMap::new(),
             token_file: None,
             _state: PhantomData,
         }
@@ -314,7 +314,7 @@ impl JwtBuilder<state::WithPrivateKey> {
     }
 
     /// Set custom claims
-    pub fn custom_claims(self, claims: HashMap<String, serde_json::Value>) -> Self {
+    pub fn custom_claims(self, claims: MetadataMap) -> Self {
         Self {
             custom_claims: claims,
             ..self
@@ -583,7 +583,7 @@ mod tests {
             .private_key(&Key {
                 algorithm: Algorithm::HS512,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("test-key".to_string()),
+                key: KeyData::Data("test-key".to_string()),
             })
             .build()
             .unwrap();
@@ -635,7 +635,7 @@ mod tests {
             .private_key(&Key {
                 algorithm: Algorithm::HS512,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("test-key".to_string()),
+                key: KeyData::Data("test-key".to_string()),
             })
             .build()
             .unwrap();
@@ -647,7 +647,7 @@ mod tests {
             .public_key(&Key {
                 algorithm: Algorithm::HS512,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("test-key".to_string()),
+                key: KeyData::Data("test-key".to_string()),
             })
             .build()
             .unwrap();
@@ -679,7 +679,7 @@ mod tests {
             .private_key(&Key {
                 algorithm: Algorithm::HS512,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("test-key".to_string()),
+                key: KeyData::Data("test-key".to_string()),
             })
             .build()
             .unwrap();
@@ -691,7 +691,7 @@ mod tests {
             .public_key(&Key {
                 algorithm: Algorithm::HS512,
                 format: KeyFormat::Pem,
-                key: KeyData::Str("test-key".to_string()),
+                key: KeyData::Data("test-key".to_string()),
             })
             .build()
             .unwrap();
@@ -762,5 +762,25 @@ mod tests {
         // Let's check the token again
         let token = provider.get_token().unwrap();
         assert_eq!(token, new_token_value);
+    }
+
+    #[tokio::test]
+    async fn initialize_static_token_provider() {
+        let jwt = JwtBuilder::new()
+            .issuer("test-issuer")
+            .audience(&["aud"])
+            .subject("sub")
+            .private_key(&Key {
+                algorithm: Algorithm::HS256,
+                format: KeyFormat::Pem,
+                key: KeyData::Data("secret-key".into()),
+            })
+            .build()
+            .unwrap();
+        let token = Arc::new(RwLock::new("header.payload.sig".to_string()));
+        let mut static_provider: StaticTokenProvider = jwt.with_static_token(token);
+        let _ = static_provider.initialize().await; // no-op
+        let token = static_provider.get_token().unwrap(); // may not be a valid JWT; only presence matters here
+        assert_eq!(token, "header.payload.sig");
     }
 }

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 tracing:
-  log_level: info
+  log_level: debug
   display_thread_names: true
   display_thread_ids: true
 
@@ -26,4 +26,5 @@ services:
           tls:
             insecure: true
       token_provider:
-        shared_secret: "group"
+        type: shared_secret
+        data: "group-abcdef-12345678901234567890"

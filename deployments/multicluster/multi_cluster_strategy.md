@@ -223,7 +223,7 @@ spec:
 ### 4. Deploy Controller chart on admin cluster
 
 ```bash
-task slim:contoller:deploy
+task slim:controller:deploy
 ```
 
 <details>
@@ -263,7 +263,7 @@ During deployment Controller's LoadBalancer IP addresses are displayed for each 
 
 ```bash
 ...
-Add to your /etc/hosts: 172.18.0.8    spire-control.admin.example
+Add to your /etc/hosts: 172.18.0.8    slim-control.admin.example
 ```
 
 See [Controller Helm chart values](controller-values.yaml) for more information.
