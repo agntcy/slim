@@ -11,8 +11,13 @@ use tokio::sync::mpsc::{self};
 use tracing::debug;
 
 use crate::{
-    MessageDirection, common::SessionMessage, errors::SessionError, session_config::SessionConfig,
-    session_receiver::SessionReceiver, session_sender::SessionSender, traits::MessageHandler,
+    MessageDirection,
+    common::SessionMessage,
+    errors::SessionError,
+    session_config::SessionConfig,
+    session_receiver::SessionReceiver,
+    session_sender::SessionSender,
+    traits::{MessageHandler, ProcessingState},
     transmitter::SessionTransmitter,
 };
 
@@ -20,6 +25,7 @@ pub(crate) struct Session {
     local_name: Name,
     sender: SessionSender,
     receiver: SessionReceiver,
+    processing_state: ProcessingState,
 }
 
 impl Session {
@@ -60,6 +66,7 @@ impl Session {
             local_name: local_name.clone(),
             sender,
             receiver,
+            processing_state: ProcessingState::Active,
         }
     }
 
@@ -94,6 +101,7 @@ impl Session {
                 timeouts: _,
             } => self.on_timer_failure(message_id, message_type, name).await,
             SessionMessage::StartDrain { grace_period: _ } => {
+                self.processing_state = ProcessingState::Draining;
                 self.sender.start_drain();
                 self.receiver.start_drain();
                 Ok(())
@@ -227,6 +235,10 @@ impl MessageHandler for Session {
 
     fn needs_drain(&self) -> bool {
         !(self.sender.drain_completed() && self.receiver.drain_completed())
+    }
+
+    fn processing_state(&self) -> ProcessingState {
+        self.processing_state
     }
 
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {

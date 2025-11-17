@@ -210,6 +210,9 @@ async def test_group(server, mls_enabled):  # noqa: C901
                 # If we received as many messages as the number of participants, we can exit
                 if local_count >= (participants_count - 1) and index == 0:
                     print(f"{part_name} -> Received all messages, close channel...")
+
+                    await asyncio.sleep(0.2)
+
                     h = await participant.delete_session(recv_session)
                     await h
                     print("session closed on participant 0")

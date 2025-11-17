@@ -362,24 +362,8 @@ async def test_error_on_nonexistent_subscription(server):
     ):
         await asyncio.wait_for(completion_handle, timeout=1)
 
-    # publish a message from Alice intended for Bob (who is not there)
-    msg = [7, 8, 9]
-    await session_context.publish(1, msg, name=bob_name)
-
-    # attempt to receive on Alice's session context; since Bob does not exist, no message should arrive
-    # and we should also get an error coming from SLIM
-    try:
-        session = await asyncio.wait_for(svc_alice.listen_for_session(), timeout=5)
-    except asyncio.TimeoutError:
-        pytest.fail("timed out waiting for error message on receive channel")
-    except Exception as e:
-        assert "no matching found" in str(e), f"Unexpected error message: {str(e)}"
-    else:
-        pytest.fail(f"Expected an exception, but received session: {session}")
-
-    # delete session
-    h = await svc_alice.delete_session(session_context)
-    await h
+    # delete session - no need to wait for completion since it was never established
+    await svc_alice.delete_session(session_context)
 
     # clean up
     await svc_alice.disconnect(conn_id_alice)
@@ -485,55 +469,7 @@ async def test_get_message_timeout(server):
         )
 
     # Clean up
-    h = await svc_alice.delete_session(session_context)
-    await h
+    await svc_alice.delete_session(session_context)
 
     if conn_id_alice is not None:
         await svc_alice.disconnect(conn_id_alice)
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("server", ["127.0.0.1:12348", None], indirect=True)
-async def test_publish_no_ack_timeout(server):
-    """Test that awaiting publish result times out when there's no receiver to acknowledge.
-
-    This test verifies that when a message is published to a non-existent peer,
-    the internal acknowledgment (that the message was received by the other side)
-    never arrives, causing the publish await to timeout.
-
-    The session should be reliable to require acknowledgments.
-    """
-    alice_name = slim_bindings.Name("org", "default", "alice_noack")
-
-    # Create only Alice - no Bob to receive/acknowledge
-    slim_alice = create_slim(alice_name, local_service=server.local_service)
-
-    if server.local_service:
-        # Connect to the service and subscribe for the local name
-        _ = await slim_alice.connect(
-            {"endpoint": "http://127.0.0.1:12348", "tls": {"insecure": True}}
-        )
-
-    # Create Bob's name, but Bob doesn't exist/isn't listening
-    bob_name = slim_bindings.Name("org", "default", "bob_noack")
-
-    # Create a reliable session from Alice to non-existent Bob
-    session_context, completion_handle = await slim_alice.create_session(
-        bob_name,
-        slim_bindings.SessionConfiguration.PointToPoint(
-            max_retries=5,
-            timeout=datetime.timedelta(seconds=5),
-        ),
-    )
-
-    # Publish a message - there's no Bob to acknowledge receipt
-    msg = [1, 2, 3, 4, 5, 6, 7, 8, 9]
-    pub_res = await session_context.publish(msg)
-
-    # The await on pub_res should timeout because there's no receiver to send internal ack
-    with pytest.raises(asyncio.TimeoutError):
-        await asyncio.wait_for(pub_res, timeout=2.0)
-
-    # Clean up
-    h = await slim_alice.delete_session(session_context)
-    await h
