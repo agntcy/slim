@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use pyo3::exceptions::PyException;
+use pyo3::types::PyIterator;
 use slim_datapath::api::ProtoSessionType;
 use slim_session::session_controller::SessionController;
 use std::collections::HashMap;
@@ -11,8 +12,9 @@ use std::sync::{Arc, Weak};
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::gen_stub_pyclass;
 use pyo3_stub_gen::derive::gen_stub_pyclass_enum;
-use pyo3_stub_gen::derive::gen_stub_pyfunction;
+
 use pyo3_stub_gen::derive::gen_stub_pymethods;
+use slim_session::CompletionHandle;
 use slim_session::{SessionConfig, SessionError};
 
 use crate::pyidentity::{IdentityProvider, IdentityVerifier};
@@ -24,6 +26,54 @@ pub use slim_session::SESSION_UNSPECIFIED;
 
 use slim_session::context::SessionContext;
 
+/// Handle for awaiting completion of asynchronous operations.
+/// This class wraps a `CompletionHandle` future, allowing Python code
+/// to await the completion of operations such as:
+/// - Message delivery (publish)
+/// - Session initialization (create_session)
+/// - Participant invitation (invite)
+/// - Participant removal (remove)
+///
+/// # Examples
+/// ````python
+/// ...
+/// # This will make sure the message is successfully handled to the session
+/// res_pub = await session_context.publish(msg)
+/// # This will make sure the message was successfully delivered to the peer(s)
+/// ack = await res_pub
+/// print("Operation completed:", ack)
+/// ...
+/// ```
+#[gen_stub_pyclass]
+#[pyclass(name = "CompletionHandle")]
+pub(crate) struct PyCompletionHandle {
+    pub(crate) handle: Option<CompletionHandle>,
+}
+
+impl From<CompletionHandle> for PyCompletionHandle {
+    fn from(handle: CompletionHandle) -> Self {
+        Self {
+            handle: Some(handle),
+        }
+    }
+}
+
+#[pymethods]
+impl PyCompletionHandle {
+    fn __await__<'a>(&'a mut self, py: Python<'a>) -> PyResult<Bound<'a, PyIterator>> {
+        let handle = self.handle.take().ok_or_else(|| {
+            PyErr::new::<PyException, _>("No future found. Did you call await twice?")
+        })?;
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            handle
+                .await
+                .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        })?
+        .try_iter()
+    }
+}
+
 /// Internal shared session context state.
 ///
 /// Holds a `BindingsSessionContext` which provides:
@@ -34,7 +84,7 @@ use slim_session::context::SessionContext;
 ///   protected by an async `RwLock` to allow concurrent access patterns
 ///
 /// This struct is not exposed directly to Python; it is wrapped by
-/// `PySessionContext`.
+/// `SessionContext`.
 pub(crate) struct PySessionCtxInternal {
     pub(crate) bindings_ctx: BindingsSessionContext,
 }
@@ -52,17 +102,17 @@ pub(crate) struct PySessionCtxInternal {
 /// - metadata -> dict[str,str]: Arbitrary key/value metadata copied from the
 ///   current SessionConfig. A cloned map is returned so Python can mutate
 ///   without racing the underlying config.
-/// - session_type -> PySessionType: High-level transport classification
+/// - session_type -> SessionType: High-level transport classification
 ///   (PointToPoint, Group), inferred from internal kind + destination.
-/// - src -> PyName: Fully qualified source identity that originated / owns
+/// - src -> Name: Fully qualified source identity that originated / owns
 ///   the session.
-/// - dst -> PyName: Destination name:
-///     * PyName of the peer for PointToPoint
-///     * PyName of the channel for Group
-/// - session_config -> PySessionConfiguration: Current effective configuration
+/// - dst -> Name: Destination name:
+///     * Name of the peer for PointToPoint
+///     * Name of the channel for Group
+/// - session_config -> SessionConfiguration: Current effective configuration
 ///   converted to the Python-facing enum variant.
 #[gen_stub_pyclass]
-#[pyclass]
+#[pyclass(name = "SessionContext")]
 #[derive(Clone)]
 pub(crate) struct PySessionContext {
     pub(crate) internal: Arc<PySessionCtxInternal>,
@@ -139,12 +189,113 @@ impl PySessionContext {
         let session = strong_session(&self.internal.bindings_ctx.session)?;
         Ok(session.session_config().into())
     }
+
+    /// Publish a message through the specified session.
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (fanout, blob, message_ctx=None, name=None, payload_type=None, metadata=None))]
+    fn publish<'a>(
+        &'a self,
+        py: Python<'a>,
+        fanout: u32,
+        blob: Vec<u8>,
+        message_ctx: Option<PyMessageContext>,
+        name: Option<PyName>,
+        payload_type: Option<String>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let internal_clone = self.internal.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let ctx = PySessionContext {
+                internal: internal_clone,
+            };
+            ctx.publish_internal(fanout, blob, message_ctx, name, payload_type, metadata)
+                .await
+                .map(PyCompletionHandle::from)
+                .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        })
+    }
+
+    /// Publish a message as a reply to a received message through the specified session.
+    #[pyo3(signature = (message_ctx, blob, payload_type=None, metadata=None))]
+    fn publish_to<'a>(
+        &'a self,
+        py: Python<'a>,
+        message_ctx: PyMessageContext,
+        blob: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let internal_clone = self.internal.clone();
+        pyo3_async_runtimes::tokio::future_into_py_with_locals(
+            py,
+            pyo3_async_runtimes::tokio::get_current_locals(py)?,
+            async move {
+                let ctx = PySessionContext {
+                    internal: internal_clone,
+                };
+                ctx.publish_to_internal(message_ctx, blob, payload_type, metadata)
+                    .await
+                    .map(PyCompletionHandle::from)
+                    .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+            },
+        )
+    }
+
+    /// Invite a participant to the specified session (group only).
+    #[pyo3(signature = (name))]
+    fn invite<'a>(&'a self, py: Python<'a>, name: PyName) -> PyResult<Bound<'a, PyAny>> {
+        let internal_clone = self.internal.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let ctx = PySessionContext {
+                internal: internal_clone,
+            };
+            ctx.invite_internal(name)
+                .await
+                .map(PyCompletionHandle::from)
+                .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        })
+    }
+
+    /// Remove a participant from the specified session (group only).
+    #[pyo3(signature = (name))]
+    fn remove<'a>(&'a self, py: Python<'a>, name: PyName) -> PyResult<Bound<'a, PyAny>> {
+        let internal_clone = self.internal.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let ctx = PySessionContext {
+                internal: internal_clone,
+            };
+            ctx.remove_internal(name)
+                .await
+                .map(PyCompletionHandle::from)
+                .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        })
+    }
+
+    /// Get a message from the specified session.
+    #[pyo3(signature = (timeout=None))]
+    fn get_message<'a>(
+        &'a self,
+        py: Python<'a>,
+        timeout: Option<std::time::Duration>,
+    ) -> PyResult<Bound<'a, PyAny>> {
+        let internal_clone = self.internal.clone();
+        pyo3_async_runtimes::tokio::future_into_py_with_locals(
+            py,
+            pyo3_async_runtimes::tokio::get_current_locals(py)?,
+            async move {
+                let ctx = PySessionContext {
+                    internal: internal_clone,
+                };
+                ctx.get_message_internal(timeout).await
+            },
+        )
+    }
 }
 
-/// Session-specific operations
+/// Session-specific internal operations
 impl PySessionContext {
     /// Get a message from this session
-    pub(crate) async fn get_message(
+    async fn get_message_internal(
         &self,
         timeout: Option<std::time::Duration>,
     ) -> PyResult<(PyMessageContext, Vec<u8>)> {
@@ -158,7 +309,7 @@ impl PySessionContext {
     }
 
     /// Publish a message through this session
-    pub(crate) async fn publish(
+    async fn publish_internal(
         &self,
         fanout: u32,
         blob: Vec<u8>,
@@ -166,7 +317,7 @@ impl PySessionContext {
         name: Option<PyName>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> PyResult<()> {
+    ) -> PyResult<CompletionHandle> {
         let session = self
             .internal
             .bindings_ctx
@@ -188,53 +339,49 @@ impl PySessionContext {
             .bindings_ctx
             .publish(&target_name, fanout, blob, conn_out, payload_type, metadata)
             .await
-            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
-        Ok(())
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     }
 
     /// Publish a message as a reply to a received message
-    pub(crate) async fn publish_to(
+    async fn publish_to_internal(
         &self,
         message_ctx: PyMessageContext,
         blob: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> PyResult<()> {
+    ) -> PyResult<CompletionHandle> {
         let ctx: MessageContext = message_ctx.into();
 
         self.internal
             .bindings_ctx
             .publish_to(&ctx, blob, payload_type, metadata)
             .await
-            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
-        Ok(())
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     }
 
     /// Invite a participant to this session (multicast only)
-    pub(crate) async fn invite(&self, name: PyName) -> PyResult<()> {
+    async fn invite_internal(&self, name: PyName) -> PyResult<CompletionHandle> {
         self.internal
             .bindings_ctx
             .invite(&name.into())
             .await
-            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
-        Ok(())
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     }
 
     /// Remove a participant from this session (multicast only)
-    pub(crate) async fn remove(&self, name: PyName) -> PyResult<()> {
+    async fn remove_internal(&self, name: PyName) -> PyResult<CompletionHandle> {
         self.internal
             .bindings_ctx
             .remove(&name.into())
             .await
-            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
-        Ok(())
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     }
 
-    /// Delete this session
+    /// Delete this session and return a completion handle
     pub(crate) async fn delete(
         &self,
         adapter: &BindingsAdapter<IdentityProvider, IdentityVerifier>,
-    ) -> PyResult<()> {
+    ) -> PyResult<CompletionHandle> {
         let session = self
             .internal
             .bindings_ctx
@@ -244,15 +391,13 @@ impl PySessionContext {
 
         adapter
             .delete_session(&session)
-            .await
-            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
-        Ok(())
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     }
 }
 
 /// High-level session classification presented to Python.
 #[gen_stub_pyclass_enum]
-#[pyclass(eq, eq_int)]
+#[pyclass(name = "SessionType", eq, eq_int)]
 #[derive(PartialEq, Clone)]
 pub enum PySessionType {
     /// Point-to-point with a single, explicit destination name.
@@ -292,11 +437,11 @@ impl From<ProtoSessionType> for PySessionType {
 ///
 /// ## Python: Create different session configs
 /// ```python
-/// from slim_bindings import PySessionConfiguration, PyName
+/// from slim_bindings import SessionConfiguration, Name
 ///
 /// # PointToPoint session - direct peer communication
-/// p2p_cfg = PySessionConfiguration.PointToPoint(
-///     peer_name=PyName("org", "namespace", "service"), # target peer
+/// p2p_cfg = SessionConfiguration.PointToPoint(
+///     peer_name=Name("org", "namespace", "service"), # target peer
 ///     timeout=datetime.timedelta(seconds=2), # wait 2 seconds for an ack
 ///     max_retries=5, # retry up to 5 times
 ///     mls_enabled=True, # enable MLS
@@ -304,8 +449,8 @@ impl From<ProtoSessionType> for PySessionType {
 /// )
 ///
 /// # Group session (channel-based)
-/// channel = PyName("org", "namespace", "channel")
-/// group_cfg = PySessionConfiguration.Group(
+/// channel = Name("org", "namespace", "channel")
+/// group_cfg = SessionConfiguration.Group(
 ///     channel_name=channel, # group channel_name
 ///     max_retries=2, # retry up to 2 times
 ///     timeout=datetime.timedelta(seconds=2), # wait 2 seconds for an ack
@@ -326,8 +471,8 @@ impl From<ProtoSessionType> for PySessionType {
 /// ## Python: Updating configuration after creation
 /// ```python
 /// # Adjust retries & metadata dynamically
-/// new_cfg = PySessionConfiguration.PointToPoint(
-///     peer_name=PyName("org", "namespace", "service"),
+/// new_cfg = SessionConfiguration.PointToPoint(
+///     peer_name=Name("org", "namespace", "service"),
 ///     timeout=None,
 ///     max_retries=10,
 ///     mls_enabled=True,
@@ -341,11 +486,11 @@ impl From<ProtoSessionType> for PySessionType {
 /// ```
 /// // Example conversion (pseudo-code):
 /// // let core: SessionConfig = py_cfg.clone().into();
-/// // let roundtrip: PySessionConfiguration = core.into();
+/// // let roundtrip: SessionConfiguration = core.into();
 /// // assert_eq!(py_cfg, roundtrip);
 /// ```
 #[gen_stub_pyclass]
-#[pyclass]
+#[pyclass(name = "SessionConfiguration")]
 #[derive(Clone)]
 pub struct PySessionConfiguration {
     /// session type
@@ -481,99 +626,4 @@ impl From<&PySessionConfiguration> for SessionConfig {
             metadata: value.metadata.clone(),
         }
     }
-}
-
-// ============================================================================
-// Python binding functions for session operations
-// ============================================================================
-
-/// Publish a message through the specified session.
-#[allow(clippy::too_many_arguments)]
-#[gen_stub_pyfunction]
-#[pyfunction]
-#[pyo3(signature = (session_context, fanout, blob, message_ctx=None, name=None, payload_type=None, metadata=None))]
-pub fn publish(
-    py: Python,
-    session_context: PySessionContext,
-    fanout: u32,
-    blob: Vec<u8>,
-    message_ctx: Option<PyMessageContext>,
-    name: Option<PyName>,
-    payload_type: Option<String>,
-    metadata: Option<HashMap<String, String>>,
-) -> PyResult<Bound<PyAny>> {
-    pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        session_context
-            .publish(fanout, blob, message_ctx, name, payload_type, metadata)
-            .await
-    })
-}
-
-/// Publish a message as a reply to a received message through the specified session.
-#[gen_stub_pyfunction]
-#[pyfunction]
-#[pyo3(signature = (session_context, message_ctx, blob, payload_type=None, metadata=None))]
-pub fn publish_to(
-    py: Python,
-    session_context: PySessionContext,
-    message_ctx: PyMessageContext,
-    blob: Vec<u8>,
-    payload_type: Option<String>,
-    metadata: Option<HashMap<String, String>>,
-) -> PyResult<Bound<PyAny>> {
-    pyo3_async_runtimes::tokio::future_into_py_with_locals(
-        py,
-        pyo3_async_runtimes::tokio::get_current_locals(py)?,
-        async move {
-            session_context
-                .publish_to(message_ctx, blob, payload_type, metadata)
-                .await
-        },
-    )
-}
-
-/// Invite a participant to the specified session (group only).
-#[gen_stub_pyfunction]
-#[pyfunction]
-#[pyo3(signature = (session_context, name))]
-pub fn invite(
-    py: Python,
-    session_context: PySessionContext,
-    name: PyName,
-) -> PyResult<Bound<PyAny>> {
-    pyo3_async_runtimes::tokio::future_into_py(
-        py,
-        async move { session_context.invite(name).await },
-    )
-}
-
-/// Remove a participant from the specified session (group only).
-#[gen_stub_pyfunction]
-#[pyfunction]
-#[pyo3(signature = (session_context, name))]
-pub fn remove(
-    py: Python,
-    session_context: PySessionContext,
-    name: PyName,
-) -> PyResult<Bound<PyAny>> {
-    pyo3_async_runtimes::tokio::future_into_py(
-        py,
-        async move { session_context.remove(name).await },
-    )
-}
-
-/// Get a message from the specified session.
-#[gen_stub_pyfunction]
-#[pyfunction]
-#[pyo3(signature = (session_context, timeout=None))]
-pub fn get_message(
-    py: Python,
-    session_context: PySessionContext,
-    timeout: Option<std::time::Duration>,
-) -> PyResult<Bound<PyAny>> {
-    pyo3_async_runtimes::tokio::future_into_py_with_locals(
-        py,
-        pyo3_async_runtimes::tokio::get_current_locals(py)?,
-        async move { session_context.get_message(timeout).await },
-    )
 }

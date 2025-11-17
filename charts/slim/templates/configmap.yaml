@@ -16,23 +16,3 @@ data:
     {{- else }}
     {{- tpl (toYaml .Values.slim.config) . | nindent 4 }}
     {{- end }}
-    {{- if eq .Values.spire.enabled true }}
-  helper.conf: |
-    agent_address =  "/run/spire/agent-sockets/api.sock"
-    cmd = ""
-    cmd_args = ""
-    cert_dir = "/svids"
-    renew_signal = ""
-    svid_file_name = "tls.crt"
-    svid_key_file_name = "tls.key"
-    svid_bundle_file_name = "svid_bundle.pem"
-    jwt_bundle_file_name = "cert.jwt"
-    cert_file_mode = 0644
-    key_file_mode = 0644
-    jwt_svid_file_mode = 0644
-    jwt_bundle_file_mode = 0644
-    jwt_svids = [{jwt_audience="test", jwt_svid_file_name="jwt_svid.token"}]
-    daemon_mode = true
-    include_federated_domains = true
-    add_intermediates_to_bundle = true
-    {{- end}}

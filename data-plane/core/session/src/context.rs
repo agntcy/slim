@@ -37,7 +37,7 @@ impl SessionContext {
         self.session().upgrade()
     }
 
-    /// Consume the context returning session, receiver and optional metadata.
+    /// Consume the context returning session and receiver.
     pub fn into_parts(self) -> (Weak<SessionController>, AppChannelReceiver) {
         (self.session, self.rx)
     }
@@ -68,16 +68,21 @@ impl SessionContext {
         });
         session
     }
+
+    /// Get the session ID
+    pub fn session_id(&self) -> u32 {
+        self.session_arc().map(|s| s.id()).unwrap_or(0)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::SessionError;
     use crate::common::AppChannelSender;
     use crate::session_config::SessionConfig;
     use crate::session_controller::SessionController;
     use crate::transmitter::SessionTransmitter;
+    use crate::{SessionError, SessionMessage};
     use async_trait::async_trait;
     use slim_auth::errors::AuthError;
     use slim_auth::traits::{TokenProvider, Verifier};
@@ -90,7 +95,12 @@ mod tests {
     // Lightweight provider / verifier used to satisfy generic bounds of sessions.
     #[derive(Clone, Default)]
     struct DummyProvider;
+
+    #[async_trait]
     impl TokenProvider for DummyProvider {
+        async fn initialize(&mut self) -> Result<(), AuthError> {
+            Ok(())
+        }
         fn get_token(&self) -> Result<String, AuthError> {
             Ok("t".into())
         }
@@ -103,6 +113,9 @@ mod tests {
     struct DummyVerifier;
     #[async_trait]
     impl Verifier for DummyVerifier {
+        async fn initialize(&mut self) -> Result<(), AuthError> {
+            Ok(())
+        }
         async fn verify(&self, _t: impl Into<String> + Send) -> Result<(), AuthError> {
             Ok(())
         }
@@ -135,7 +148,6 @@ mod tests {
         app_tx: AppChannelSender,
     ) -> Arc<SessionController> {
         use crate::SlimChannelSender;
-        use crate::common::SessionMessage;
 
         let source = make_name(["a", "b", "c"]);
         let destination = make_name(["x", "y", "z"]);
@@ -173,7 +185,6 @@ mod tests {
                 .ready()
                 .expect("Failed to prepare SessionController builder")
                 .build()
-                .await
                 .expect("Failed to create SessionController"),
         )
     }

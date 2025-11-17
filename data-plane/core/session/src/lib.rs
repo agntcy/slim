@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 mod common;
+pub mod completion_handle;
 pub mod context;
 pub mod controller_sender;
 mod errors;
@@ -55,4 +56,5 @@ pub use session_layer::SessionLayer;
 pub use common::{AppChannelReceiver, SESSION_UNSPECIFIED};
 
 // Re-export specific items that need to be publicly accessible
+pub use completion_handle::CompletionHandle;
 pub use notification::Notification;

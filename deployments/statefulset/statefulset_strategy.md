@@ -25,7 +25,7 @@ Forwarding routes between the nodes are managed automatically by Controller on-d
 
 All connections between SLIM nodes and SLIM nodes and Controller are set up using MTLS. Clients are also deployed on the cluster connecting with MTLS, but in addition messages are encrypted using MLS authenticating with JWT tokens.
 
-SPIRE is not part of SLIM, we use it to resolve automatic certificate and token generation, rotation between pods. For more information, see the [Spire documentation](https://spiffe.io/docs/latest/spire-about/).
+SLIM leverages [SPIRE](https://spiffe.io/docs/latest/spire-about/) to resolve trust between different components of the system: SLIM nodes, SLIM clients, Controller. SPIRE establishes a zero-trust identity framework where every process receives an SVID along with automatically rotated certificates and JWT tokens for mutual authentication.
 
 The deployment is driven by the `statefulset-values.yaml` file, which contains specific configuration parameters optimized for stateful workloads.
 

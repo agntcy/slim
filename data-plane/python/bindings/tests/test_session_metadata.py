@@ -10,7 +10,7 @@ Purpose:
   receiving side once the session is established.
 
 What is covered:
-  * Construction of a PointToPoint PySessionConfiguration with custom metadata.
+  * Construction of a PointToPoint SessionConfiguration with custom metadata.
   * Session creation by the sender and automatic session notification for receiver.
   * Verification that all metadata entries appear unchanged on the receiver's
     session context (session_receiver.metadata).
@@ -23,12 +23,14 @@ Pass criteria:
   exactly once and match on the receiver side.
 """
 
+import asyncio
+
 import pytest
 from common import create_slim
 
 from slim_bindings import (
-    PyName,
-    PySessionConfiguration,
+    Name,
+    SessionConfiguration,
 )
 
 
@@ -49,19 +51,24 @@ async def test_session_metadata_merge_roundtrip(server):
       For each (k, v) in initial metadata: receiver.metadata[k] == v.
     """
     # Define identities
-    sender_name = PyName("org", "ns", "session_sender")
-    receiver_name = PyName("org", "ns", "session_receiver")
+    sender_name = Name("org", "ns", "session_sender")
+    receiver_name = Name("org", "ns", "session_receiver")
 
     # Instantiate Slim instances with shared-secret auth
-    sender = await create_slim(sender_name, local_service=False)
-    receiver = await create_slim(receiver_name, local_service=False)
+    sender = create_slim(sender_name, local_service=False)
+    receiver = create_slim(receiver_name, local_service=False)
 
     # Metadata we want to propagate with the session creation
     metadata = {"a": "1", "k": "session"}
 
     # Create PointToPoint session
-    sess_cfg = PySessionConfiguration.PointToPoint(metadata=metadata)
-    session_sender = await sender.create_session(receiver_name, sess_cfg)
+    sess_cfg = SessionConfiguration.PointToPoint(metadata=metadata)
+    session_sender, completion_handle = await sender.create_session(
+        receiver_name, sess_cfg
+    )
+
+    # wait for session establishment to complete
+    await completion_handle
 
     await session_sender.publish(b"hello")
 
@@ -76,5 +83,6 @@ async def test_session_metadata_merge_roundtrip(server):
         )
 
     # Delete sessions
-    await sender.delete_session(session_sender)
-    await receiver.delete_session(session_receiver)
+    h1 = await sender.delete_session(session_sender)
+
+    await asyncio.gather(h1)

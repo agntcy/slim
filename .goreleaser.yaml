@@ -17,9 +17,9 @@ builds:
       - 386
 
     ldflags:
-      - -X '{{.ModulePath}}/control-plane/slimctl/internal/cmd/version.semVersion={{.Version}}'
-      - -X '{{.ModulePath}}/control-plane/slimctl/internal/cmd/version.gitCommit={{.Commit}}'
-      - -X '{{.ModulePath}}/control-plane/slimctl/internal/cmd/version.buildDate={{.Date}}'
+      - -X github.com/agntcy/slim/control-plane/slimctl/internal/cmd/version.semVersion={{.Version}}
+      - -X github.com/agntcy/slim/control-plane/slimctl/internal/cmd/version.gitCommit={{.Commit}}
+      - -X github.com/agntcy/slim/control-plane/slimctl/internal/cmd/version.buildDate={{.Date}}
 
     hooks:
       pre:
@@ -44,6 +44,14 @@ homebrew_casks:
     description: "A CLI tool for managing SLIM Devices"
     homepage: "https://github.com/agntcy/slim/control-plane/slimctl"
     directory: Casks
+    hooks:
+      post:
+        # workaround for the problem described here: https://goreleaser.com/customization/homebrew_casks/#signing-and-notarizing
+        install: |
+          system "chmod", "+x", "#{staged_path}/slimctl"
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/slimctl"]
+          end
 
     binaries:
       - slimctl

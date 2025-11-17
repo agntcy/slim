@@ -491,9 +491,16 @@ func generateConfigData(detail db.ConnectionDetails, localConnection bool) (stri
 		config.TLS = &TLS{
 			Insecure:           &falsev,
 			InsecureSkipVerify: &skipVerify,
-			CERTFile:           stringPtr("/svids/tls.crt"),
-			KeyFile:            stringPtr("/svids/tls.key"),
-			CAFile:             stringPtr("/svids/svid_bundle.pem"),
+			Source: &TLSSource{
+				Type:       "spire",
+				SocketPath: stringPtr("unix:/tmp/spire-agent/public/api.sock"),
+				//TargetSpiffeID: stringPtr("spiffe://example.local/ns/slim/sa/slim"),
+			},
+			CaSource: &CaSource{
+				Type:       "spire",
+				SocketPath: stringPtr("unix:/tmp/spire-agent/public/api.sock"),
+				//TrustDomains: &[]string{"example.org"},
+			},
 		}
 	}
 	var bufferSize int64 = 1024
@@ -506,10 +513,10 @@ func generateConfigData(detail db.ConnectionDetails, localConnection bool) (stri
 	}
 
 	config.Keepalive = &KeepaliveClass{
-		HTTPClient2Keepalive: stringPtr("2h"),
-		KeepAliveWhileIdle:   &falsev,
-		TCPKeepalive:         stringPtr("20s"),
-		Timeout:              stringPtr("20s"),
+		HTTP2Keepalive:     stringPtr("2h"),
+		KeepAliveWhileIdle: &falsev,
+		TCPKeepalive:       stringPtr("20s"),
+		Timeout:            stringPtr("20s"),
 	}
 	config.Origin = stringPtr("https://client.example.com")
 	config.RateLimit = stringPtr("20/60")

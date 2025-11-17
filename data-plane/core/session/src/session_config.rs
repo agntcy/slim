@@ -5,9 +5,9 @@ use std::collections::HashMap;
 
 use slim_datapath::api::{CommandPayload, ProtoSessionType};
 
-use crate::SessionError;
+use crate::{SessionError, timer_factory::TimerSettings};
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug, PartialEq)]
 pub struct SessionConfig {
     /// session type
     pub session_type: ProtoSessionType,
@@ -38,6 +38,11 @@ impl SessionConfig {
             initiator: self.initiator,
             metadata: self.metadata.clone(),
         }
+    }
+
+    pub fn get_timer_settings(&self) -> TimerSettings {
+        TimerSettings::constant(self.interval.unwrap_or(std::time::Duration::from_secs(1)))
+            .with_max_retries(self.max_retries.unwrap_or(10))
     }
 
     pub fn from_join_request(

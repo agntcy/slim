@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-package nodecontroller
+package node
 
 import (
 	"context"
@@ -38,7 +38,7 @@ func newListRoutesCmd(opts *options.CommonOptions) *cobra.Command {
 		Use:     "list",
 		Aliases: []string{"ls"},
 		Short:   "List routes",
-		Long:    `List routes`,
+		Long:    `List routes from the SLIM node`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			msg := &grpcapi.ControlMessage{
 				MessageId: uuid.NewString(),

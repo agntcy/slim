@@ -96,20 +96,21 @@ async def run_client(
 
     # ACTIVE MODE (publishing + expecting replies)
     if message and remote:
-        # Convert the remote ID string into a PyName.
+        # Convert the remote ID string into a Name.
         remote_name = split_id(remote)
         # Establish routing so outbound publishes know the remote destination.
         await local_app.set_route(remote_name)
 
-        config = slim_bindings.PySessionConfiguration.PointToPoint(
+        config = slim_bindings.SessionConfiguration.PointToPoint(
             max_retries=5,
             timeout=datetime.timedelta(seconds=5),
             mls_enabled=enable_mls,
         )
-        session = await local_app.create_session(remote_name, config)
+        session, handle = await local_app.create_session(remote_name, config)
+        await handle
 
         # Iterate send->receive cycles.
-        for i in range(iterations):
+        for i in range(3):
             try:
                 await session.publish(message.encode())
                 format_message_print(
@@ -128,6 +129,9 @@ async def run_client(
             # Basic pacing so output remains readable.
             await asyncio.sleep(1)
 
+        handle = await local_app.delete_session(session)
+        await handle
+
     # PASSIVE MODE (listen for inbound sessions)
     else:
         while True:
@@ -138,7 +142,7 @@ async def run_client(
             session = await local_app.listen_for_session()
             format_message_print(f"{instance}", f"new session {session.id}")
 
-            async def session_loop(sess: slim_bindings.PySession):
+            async def session_loop(sess: slim_bindings.Session):
                 """
                 Inner loop for a single inbound session:
                   * Receive messages until the session is closed or an error occurs.

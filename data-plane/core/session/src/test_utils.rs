@@ -24,7 +24,12 @@ use crate::traits::{MessageHandler, Transmitter};
 #[derive(Clone, Default)]
 pub struct MockTokenProvider;
 
+#[async_trait::async_trait]
 impl TokenProvider for MockTokenProvider {
+    async fn initialize(&mut self) -> Result<(), AuthError> {
+        Ok(())
+    }
+
     fn get_token(&self) -> Result<String, AuthError> {
         Ok("mock_token".to_string())
     }
@@ -40,6 +45,10 @@ pub struct MockVerifier;
 
 #[async_trait::async_trait]
 impl Verifier for MockVerifier {
+    async fn initialize(&mut self) -> Result<(), AuthError> {
+        Ok(())
+    }
+
     async fn verify(&self, _token: impl Into<String> + Send) -> Result<(), AuthError> {
         Ok(())
     }
@@ -156,6 +165,10 @@ impl MessageHandler for MockInnerHandler {
         tokio::spawn(async move {
             endpoints.lock().await.push(endpoint);
         });
+    }
+
+    fn needs_drain(&self) -> bool {
+        false
     }
 
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {

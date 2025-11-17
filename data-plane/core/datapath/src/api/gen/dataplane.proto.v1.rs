@@ -129,7 +129,7 @@ pub struct ApplicationPayload {
 pub struct CommandPayload {
     #[prost(
         oneof = "command_payload::CommandPayloadType",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12"
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13"
     )]
     pub command_payload_type: ::core::option::Option<
         command_payload::CommandPayloadType,
@@ -158,10 +158,12 @@ pub mod command_payload {
         #[prost(message, tag = "9")]
         GroupWelcome(super::GroupWelcomePayload),
         #[prost(message, tag = "10")]
-        GroupProposal(super::GroupProposalPayload),
+        GroupClose(super::GroupClosePayload),
         #[prost(message, tag = "11")]
-        GroupAck(super::GroupAckPayload),
+        GroupProposal(super::GroupProposalPayload),
         #[prost(message, tag = "12")]
+        GroupAck(super::GroupAckPayload),
+        #[prost(message, tag = "13")]
         GroupNack(super::GroupNackPayload),
     }
 }
@@ -266,6 +268,13 @@ pub struct GroupWelcomePayload {
     #[prost(message, optional, tag = "2")]
     pub mls: ::core::option::Option<MlsPayload>,
 }
+/// Group Close
+/// sent on group close
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GroupClosePayload {
+    #[prost(message, repeated, tag = "1")]
+    pub participants: ::prost::alloc::vec::Vec<Name>,
+}
 /// Group Proposal
 /// sent on mls key rotation
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -332,9 +341,10 @@ pub enum SessionMessageType {
     GroupAdd = 11,
     GroupRemove = 12,
     GroupWelcome = 13,
-    GroupProposal = 14,
-    GroupAck = 15,
-    GroupNack = 16,
+    GroupClose = 14,
+    GroupProposal = 15,
+    GroupAck = 16,
+    GroupNack = 17,
 }
 impl SessionMessageType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -357,6 +367,7 @@ impl SessionMessageType {
             Self::GroupAdd => "SESSION_MESSAGE_TYPE_GROUP_ADD",
             Self::GroupRemove => "SESSION_MESSAGE_TYPE_GROUP_REMOVE",
             Self::GroupWelcome => "SESSION_MESSAGE_TYPE_GROUP_WELCOME",
+            Self::GroupClose => "SESSION_MESSAGE_TYPE_GROUP_CLOSE",
             Self::GroupProposal => "SESSION_MESSAGE_TYPE_GROUP_PROPOSAL",
             Self::GroupAck => "SESSION_MESSAGE_TYPE_GROUP_ACK",
             Self::GroupNack => "SESSION_MESSAGE_TYPE_GROUP_NACK",
@@ -379,6 +390,7 @@ impl SessionMessageType {
             "SESSION_MESSAGE_TYPE_GROUP_ADD" => Some(Self::GroupAdd),
             "SESSION_MESSAGE_TYPE_GROUP_REMOVE" => Some(Self::GroupRemove),
             "SESSION_MESSAGE_TYPE_GROUP_WELCOME" => Some(Self::GroupWelcome),
+            "SESSION_MESSAGE_TYPE_GROUP_CLOSE" => Some(Self::GroupClose),
             "SESSION_MESSAGE_TYPE_GROUP_PROPOSAL" => Some(Self::GroupProposal),
             "SESSION_MESSAGE_TYPE_GROUP_ACK" => Some(Self::GroupAck),
             "SESSION_MESSAGE_TYPE_GROUP_NACK" => Some(Self::GroupNack),

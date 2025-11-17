@@ -49,8 +49,8 @@ async def server(request):
     endpoint = request.param
     local_service = endpoint is not None
 
-    name = slim_bindings.PyName("agntcy", "default", "server")
-    svc_server = await create_svc(name, local_service=local_service)
+    name = slim_bindings.Name("agntcy", "default", "server")
+    svc_server = create_svc(name, local_service=local_service)
 
     # init tracing
     await slim_bindings.init_tracing({"log_level": "info"})
@@ -58,8 +58,7 @@ async def server(request):
     # Only start server if endpoint is provided
     if endpoint is not None:
         # run slim server in background
-        await slim_bindings._slim_bindings.run_server(
-            svc_server,
+        await svc_server.run_server(
             {"endpoint": endpoint, "tls": {"insecure": True}},
         )
 

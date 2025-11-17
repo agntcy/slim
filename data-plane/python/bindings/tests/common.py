@@ -2,39 +2,38 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import slim_bindings
-from slim_bindings._slim_bindings import create_pyapp
 
 
-async def create_svc(
-    name: slim_bindings.PyName,
+def create_svc(
+    name: slim_bindings.Name,
     secret: str = "testing-secret-123456789012345abc",
     local_service: bool = True,
 ):
-    """Create and return a low-level PyService for tests.
+    """Create and return a low-level App for tests.
 
     Sets up a SharedSecret-based identity provider and verifier with the same
     secret so that authentication succeeds without external infrastructure.
 
     Args:
-        name: Fully qualified PyName identifying the local service/app.
+        name: Fully qualified Name identifying the local service/app.
         secret: Shared secret string used for symmetric token generation/verification.
 
     Returns:
-        PyService: The underlying service handle usable with session creation
+        App: The underlying service handle usable with session creation
         and message operations.
     """
 
-    provider = slim_bindings.PyIdentityProvider.SharedSecret(
+    provider = slim_bindings.IdentityProvider.SharedSecret(
         identity=f"{name}", shared_secret=secret
     )
-    verifier = slim_bindings.PyIdentityVerifier.SharedSecret(
+    verifier = slim_bindings.IdentityVerifier.SharedSecret(
         identity=f"{name}", shared_secret=secret
     )
-    return await create_pyapp(name, provider, verifier, local_service=local_service)
+    return slim_bindings.App(name, provider, verifier, local_service=local_service)
 
 
-async def create_slim(
-    name: slim_bindings.PyName,
+def create_slim(
+    name: slim_bindings.Name,
     secret: str = "testing-secret-123456789012345abc",
     local_service: bool = True,
 ):
@@ -45,18 +44,16 @@ async def create_slim(
     as create_session, connect, subscribe, etc.
 
     Args:
-        name: Fully qualified PyName for the local application/service.
+        name: Fully qualified Name for the local application/service.
         secret: Shared secret used for symmetric identity provider/verifier.
 
     Returns:
-        Slim: High-level wrapper around the newly created PyService.
+        Slim: High-level wrapper around the newly created App.
     """
-    provider = slim_bindings.PyIdentityProvider.SharedSecret(
+    provider = slim_bindings.IdentityProvider.SharedSecret(
         identity=f"{name}", shared_secret=secret
     )
-    verifier = slim_bindings.PyIdentityVerifier.SharedSecret(
+    verifier = slim_bindings.IdentityVerifier.SharedSecret(
         identity=f"{name}", shared_secret=secret
     )
-    return await slim_bindings.Slim.new(
-        name, provider, verifier, local_service=local_service
-    )
+    return slim_bindings.Slim(name, provider, verifier, local_service=local_service)

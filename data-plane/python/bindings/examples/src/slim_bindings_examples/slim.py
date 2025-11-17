@@ -69,8 +69,8 @@ async def run_server(address: str, enable_opentelemetry: bool):
     )
 
     # Create Slim instance with a fixed PyName. Organization/namespace/app are illustrative.
-    slim = await slim_bindings.Slim.new(
-        slim_bindings.PyName("cisco", "default", "slim"), provider, verifier
+    slim = slim_bindings.Slim(
+        slim_bindings.Name("cisco", "default", "slim"), provider, verifier
     )
 
     # Launch the embedded server with insecure TLS (development setting).

@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
-import contextlib
 import datetime
 import pathlib
 
@@ -16,7 +15,7 @@ test_audience = ["test.audience"]
 
 
 def create_slim(
-    name: slim_bindings.PyName,
+    name: slim_bindings.Name,
     private_key,
     private_key_algorithm,
     public_key,
@@ -26,11 +25,11 @@ def create_slim(
     """Asynchronously construct a Slim instance with a JWT identity provider/verifier.
 
     Args:
-        name: PyName identifying this local app (used as JWT subject).
+        name: Name identifying this local app (used as JWT subject).
         private_key: Path to PEM private key used for signing outbound tokens.
-        private_key_algorithm: PyAlgorithm matching the private key type (e.g. ES256).
+        private_key_algorithm: Algorithm matching the private key type (e.g. ES256).
         public_key: Path to PEM public key used to verify the peer's tokens.
-        public_key_algorithm: PyAlgorithm matching the peer public key type.
+        public_key_algorithm: Algorithm matching the peer public key type.
         wrong_audience: Optional override audience list to force verification failure.
                         If None, uses the shared test_audience (success path).
 
@@ -38,19 +37,19 @@ def create_slim(
         Awaitable[Slim]: A coroutine yielding a configured Slim instance.
     """
     # Build signing key object (private)
-    private_key = slim_bindings.PyKey(
+    private_key = slim_bindings.Key(
         algorithm=private_key_algorithm,
-        format=slim_bindings.PyKeyFormat.Pem,
-        key=slim_bindings.PyKeyData.File(path=private_key),
+        format=slim_bindings.KeyFormat.Pem,
+        key=slim_bindings.KeyData.File(path=private_key),
     )
 
-    public_key = slim_bindings.PyKey(
+    public_key = slim_bindings.Key(
         algorithm=public_key_algorithm,
-        format=slim_bindings.PyKeyFormat.Pem,
-        key=slim_bindings.PyKeyData.File(path=public_key),
+        format=slim_bindings.KeyFormat.Pem,
+        key=slim_bindings.KeyData.File(path=public_key),
     )
 
-    provider = slim_bindings.PyIdentityProvider.Jwt(
+    provider = slim_bindings.IdentityProvider.Jwt(
         private_key=private_key,
         duration=datetime.timedelta(seconds=60),
         issuer="test-issuer",
@@ -58,7 +57,7 @@ def create_slim(
         subject=f"{name}",
     )
 
-    verifier = slim_bindings.PyIdentityVerifier.Jwt(
+    verifier = slim_bindings.IdentityVerifier.Jwt(
         public_key=public_key,
         issuer="test-issuer",
         audience=wrong_audience or test_audience,
@@ -66,7 +65,7 @@ def create_slim(
         require_aud=True,
     )
 
-    return slim_bindings.Slim.new(name, provider, verifier, local_service=False)
+    return slim_bindings.Slim(name, provider, verifier, local_service=False)
 
 
 @pytest.mark.asyncio
@@ -92,8 +91,8 @@ async def test_identity_verification(server, audience):
         - Payload integrity on both directions when audience matches.
         - Proper exception/timeout on audience mismatch.
     """
-    sender_name = slim_bindings.PyName("org", "default", "id_sender")
-    receiver_name = slim_bindings.PyName("org", "default", "id_receiver")
+    sender_name = slim_bindings.Name("org", "default", "id_sender")
+    receiver_name = slim_bindings.Name("org", "default", "id_receiver")
 
     # Keys used for signing JWTs of sender
     private_key_sender = f"{keys_folder}/ec256.pem"  # Sender's signing key (ES256)
@@ -101,7 +100,7 @@ async def test_identity_verification(server, audience):
         f"{keys_folder}/ec256-public.pem"  # Public half used by receiver to verify
     )
     algorithm_sender = (
-        slim_bindings.PyAlgorithm.ES256
+        slim_bindings.Algorithm.ES256
     )  # Curves/selections align with private key
 
     # Keys used for signing JWTs of receiver
@@ -109,11 +108,11 @@ async def test_identity_verification(server, audience):
     public_key_receiver = (
         f"{keys_folder}/ec384-public.pem"  # Public half used by sender to verify
     )
-    algorithm_receiver = slim_bindings.PyAlgorithm.ES384
+    algorithm_receiver = slim_bindings.Algorithm.ES384
 
     # create new slim object. note that the verifier will use the public key of the receiver
     # to verify the JWT of the reply message
-    slim_sender = await create_slim(
+    slim_sender = create_slim(
         sender_name,
         private_key_sender,
         algorithm_sender,
@@ -123,7 +122,7 @@ async def test_identity_verification(server, audience):
 
     # create second local app. note that the receiver will use the public key of the sender
     # to verify the JWT of the request message
-    slim_receiver = await create_slim(
+    slim_receiver = create_slim(
         receiver_name,
         private_key_receiver,
         algorithm_receiver,
@@ -133,11 +132,21 @@ async def test_identity_verification(server, audience):
     )
 
     # Create PointToPoint session
-    session_config = slim_bindings.PySessionConfiguration.PointToPoint(
+    session_config = slim_bindings.SessionConfiguration.PointToPoint(
         max_retries=3,
         timeout=datetime.timedelta(seconds=1),
     )
-    session_info = await slim_sender.create_session(receiver_name, session_config)
+    session_info, completion_handle = await slim_sender.create_session(
+        receiver_name, session_config
+    )
+
+    # wait for session establishment if the audience is valid
+    if audience == test_audience:
+        await completion_handle
+    else:
+        # session establishment should timeout due to invalid audience
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(completion_handle, timeout=3.0)
 
     # messages
     pub_msg = str.encode("thisistherequest")
@@ -167,10 +176,7 @@ async def test_identity_verification(server, audience):
                 # reply to the session
                 await recv_session.publish_to(_ctx, res_msg)
             except Exception as e:
-                print("Error receiving message on slim1:", e)
-            finally:
-                if recv_session is not None:
-                    await slim_receiver.delete_session(recv_session)
+                print("Error receiving message on slim:", e)
 
         t = asyncio.create_task(background_task())
 
@@ -185,17 +191,7 @@ async def test_identity_verification(server, audience):
 
             # Wait for task to finish
             await t
-        else:
-            # expect an exception due to audience mismatch
-            with pytest.raises(asyncio.TimeoutError):
-                # As audience matches, we expect a successful request/reply
-                await session_info.publish(pub_msg)
-                await asyncio.wait_for(session_info.get_message(), timeout=3.0)
-
-            # cancel the background task
-            t.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await t
     finally:
         # delete sessions
-        await slim_sender.delete_session(session_info)
+        h = await slim_sender.delete_session(session_info)
+        await h

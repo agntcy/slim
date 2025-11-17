@@ -7,7 +7,7 @@ Point-to-point sticky session integration test.
 Scenario:
   - One logical sender creates a PointToPoint session and sends 1000 messages
     to a shared logical receiver identity.
-  - Ten receiver instances (same PyName) concurrently listen for an
+  - Ten receiver instances (same Name) concurrently listen for an
     inbound session. Only one should become the bound peer for the
     PointToPoint session (stickiness).
   - All 1000 messages must arrive at exactly one receiver (verifying
@@ -19,10 +19,6 @@ Validated invariants:
   * session_type == PointToPoint for receiver-side context
   * dst == sender.local_name and src == receiver.local_name
   * Exactly one receiver_counts[i] == 1000 and total sum == 1000
-
-Notes:
-  The test uses simple sleeps for propagation; production-grade suites
-  might replace those with explicit readiness signaling.
 """
 
 import asyncio
@@ -52,7 +48,7 @@ async def test_sticky_session(server, mls_enabled):
         mls_enabled (bool): Whether to enable MLS for the created session.
 
     Flow:
-        1. Spawn 10 receiver tasks (same logical PyName).
+        1. Spawn 10 receiver tasks (same logical Name).
         2. Sender establishes PointToPoint session.
         3. Sender publishes 1000 messages with consistent metadata + payload_type.
         4. Each receiver tallies only messages addressed to the logical receiver name.
@@ -61,14 +57,14 @@ async def test_sticky_session(server, mls_enabled):
     Expectation:
         Sticky routing pins all messages to the first receiver that accepted the session.
     """
-    sender_name = slim_bindings.PyName("org", "default", "p2p_sender")
-    receiver_name = slim_bindings.PyName("org", "default", "p2p_receiver")
+    sender_name = slim_bindings.Name("org", "default", "p2p_sender")
+    receiver_name = slim_bindings.Name("org", "default", "p2p_receiver")
 
     print(f"Sender name: {sender_name}")
     print(f"Receiver name: {receiver_name}")
 
     # create new slim object
-    sender = await create_slim(sender_name, local_service=server.local_service)
+    sender = create_slim(sender_name, local_service=server.local_service)
 
     if server.local_service:
         # Connect to the service and subscribe for the local name
@@ -81,14 +77,16 @@ async def test_sticky_session(server, mls_enabled):
 
     receiver_counts = {i: 0 for i in range(10)}
 
+    n_messages = 1000
+
     async def run_receiver(i: int):
         """Receiver task:
-        - Creates its own Slim instance using the shared receiver PyName.
+        - Creates its own Slim instance using the shared receiver Name.
         - Awaits the inbound PointToPoint session (only one task should get bound).
         - Counts messages matching expected routing + metadata.
         - Continues until sender finishes publishing (loop ends by external cancel or test end).
         """
-        receiver = await create_slim(receiver_name, local_service=server.local_service)
+        receiver = create_slim(receiver_name, local_service=server.local_service)
 
         if server.local_service:
             # Connect to the service and subscribe for the local name
@@ -99,7 +97,7 @@ async def test_sticky_session(server, mls_enabled):
         session = await receiver.listen_for_session()
 
         # make sure the received session is PointToPoint
-        assert session.session_type == slim_bindings.PySessionType.PointToPoint
+        assert session.session_type == slim_bindings.SessionType.PointToPoint
 
         # Make sure the dst of the session is the receiver name
         assert session.dst == sender.local_name
@@ -121,22 +119,31 @@ async def test_sticky_session(server, mls_enabled):
                 # store the count in dictionary
                 receiver_counts[i] += 1
 
+                if receiver_counts[i] == n_messages:
+                    # send back application acknowledgment
+                    h = await session.publish(
+                        f"All messages received: {i}".encode(),
+                    )
+
+                    await h
+
     tasks = []
     for i in range(10):
         t = asyncio.create_task(run_receiver(i))
         tasks.append(t)
-        await asyncio.sleep(0.1)
 
     # create a new session
-    session_config = slim_bindings.PySessionConfiguration.PointToPoint(
+    session_config = slim_bindings.SessionConfiguration.PointToPoint(
         max_retries=5,
-        timeout=datetime.timedelta(seconds=5),
+        timeout=datetime.timedelta(milliseconds=500),
         mls_enabled=mls_enabled,
     )
-    sender_session = await sender.create_session(receiver_name, session_config)
+    sender_session, completion_handle = await sender.create_session(
+        receiver_name, session_config
+    )
 
-    # Wait a moment
-    await asyncio.sleep(2)
+    # wait for session establishment
+    await completion_handle
 
     payload_type = "hello message"
     metadata = {"sender": "hello"}
@@ -144,27 +151,45 @@ async def test_sticky_session(server, mls_enabled):
     # Flood the established p2s session with messages.
     # Stickiness requirement: every one of these 1000 publishes should be delivered
     # to exactly the same receiver instance (affinity).
-    for _ in range(1000):
-        await sender_session.publish(
-            b"Hello from sender",
-            payload_type=payload_type,
-            metadata=metadata,
+
+    pub_results = []
+    for _ in range(n_messages):
+        pub_results.append(
+            await sender_session.publish(
+                b"Hello from sender",
+                payload_type=payload_type,
+                metadata=metadata,
+            )
         )
 
-    # Wait for all receivers to finish
-    await asyncio.sleep(1)
+    await asyncio.gather(*pub_results)
+
+    # wait a moment for all messages to be processed
+    _, msg = await sender_session.get_message()
+
+    ack_text = msg.decode()
+    print(f"Sender received ack from receiver: {ack_text}")
+
+    # Parse winning receiver index from ack: format "All messages received: {i}"
+    try:
+        winner_id = int(ack_text.rsplit(":", 1)[1].strip())
+    except Exception as e:
+        raise AssertionError(f"Unexpected ack format '{ack_text}': {e}")
+
+    # Cancel all non-winning receiver tasks
+    for idx, t in enumerate(tasks):
+        if idx != winner_id and not t.done():
+            t.cancel()
 
     # Affinity assertions:
     #  * Sum of all per-receiver counts == total sent (1000)
     #  * Exactly one bucket contains 1000 (the sticky peer)
-    assert sum(receiver_counts.values()) == 1000
-    assert 1000 in receiver_counts.values()
+    assert sum(receiver_counts.values()) == n_messages
+    assert n_messages in receiver_counts.values()
 
     # Delete sender_session
-    await sender.delete_session(sender_session)
+    h = await sender.delete_session(sender_session)
+    await h
 
-    await asyncio.sleep(5)
-
-    # Kill all tasks
-    for t in tasks:
-        t.cancel()
+    # Await only the winning receiver task (others were cancelled)
+    await tasks[winner_id]
