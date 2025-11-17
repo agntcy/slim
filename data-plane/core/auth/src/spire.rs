@@ -398,29 +398,31 @@ impl SpireIdentityManager {
     }
 
     /// Get the X.509 bundle for an explicit trust domain (ignores config override)
-    pub fn get_x509_bundle_for_trust_domain(
-        &self,
+    pub async fn get_x509_bundle_for_trust_domain(
+        &mut self,
         trust_domain: impl Into<String>,
     ) -> Result<X509Bundle, AuthError> {
         let td_str = trust_domain.into();
-        let x509_source = self
-            .x509_source
-            .as_ref()
-            .ok_or_else(|| AuthError::ConfigError("X509Source not initialized".to_string()))?;
-        let td_parsed = TrustDomain::new(&td_str).map_err(|e| {
-            AuthError::ConfigError(format!("Invalid trust domain '{}': {}", td_str, e))
+
+        let c = self.client.as_mut().ok_or_else(|| {
+            AuthError::ConfigError("WorkloadApiClient not initialized".to_string())
         })?;
-        x509_source
-            .get_bundle_for_trust_domain(&td_parsed)
-            .map_err(|e| {
-                AuthError::ConfigError(format!(
-                    "Failed to get X509 bundle for trust domain {}: {}",
-                    td_str, e
-                ))
-            })?
-            .ok_or_else(|| {
-                AuthError::ConfigError(format!("No X509 bundle for trust domain {}", td_str))
-            })
+
+        let bundles = c.fetch_x509_bundles().await.map_err(|e| {
+            AuthError::ConfigError(format!("Failed to fetch all X509 bundles: {}", e))
+        })?;
+
+        let td = TrustDomain::new(&td_str).map_err(|e| {
+            AuthError::ConfigError(format!("Invalid trust domain {}: {}", td_str, e))
+        })?;
+
+        bundles
+            .get_bundle(&td)
+            .cloned()
+            .ok_or(AuthError::ConfigError(format!(
+                "No X509 bundle for trust domain {}",
+                td_str
+            )))
     }
 
     /// Internal helper to access JWT bundles
