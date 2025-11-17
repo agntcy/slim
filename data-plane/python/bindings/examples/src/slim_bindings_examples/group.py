@@ -149,6 +149,9 @@ async def run_client(
     jwt: str | None = None,
     spire_trust_bundle: str | None = None,
     audience: list[str] | None = None,
+    spire_socket_path: str | None = None,
+    spire_target_spiffe_id: str | None = None,
+    spire_jwt_audience: list[str] | None = None,
     invites: list[str] | None = None,
 ):
     """
@@ -179,6 +182,9 @@ async def run_client(
         jwt=jwt,
         spire_trust_bundle=spire_trust_bundle,
         audience=audience,
+        spire_socket_path=spire_socket_path,
+        spire_target_spiffe_id=spire_target_spiffe_id,
+        spire_jwt_audience=spire_jwt_audience,
     )
 
     # Parse the remote channel/topic if provided; else None triggers passive mode.
@@ -272,6 +278,9 @@ def group_main(
     jwt: str | None = None,
     spire_trust_bundle: str | None = None,
     audience: list[str] | None = None,
+    spire_socket_path: str | None = None,
+    spire_target_spiffe_id: str | None = None,
+    spire_jwt_audience: list[str] | None = None,
     invites: list[str] | None = None,
 ):
     """
@@ -291,6 +300,9 @@ def group_main(
                 jwt=jwt,
                 spire_trust_bundle=spire_trust_bundle,
                 audience=audience,
+                spire_socket_path=spire_socket_path,
+                spire_target_spiffe_id=spire_target_spiffe_id,
+                spire_jwt_audience=spire_jwt_audience,
                 invites=invites,
             )
         )
