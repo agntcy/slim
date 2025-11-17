@@ -32,7 +32,7 @@ slim:
     services:
       slim/0:
         node_id: ${env:SLIM_SVC_ID}
-        group_name: "cluster-a"
+        group_name: "cluster-a.example"
         dataplane:
           servers:
             - endpoint: "0.0.0.0:{{ .Values.slim.service.data.port }}"
@@ -45,9 +45,11 @@ slim:
                 source:
                   type: spire
                   socket_path: unix:/tmp/spire-agent/public/api.sock              
-                client_ca:
+                ca_source:
                   type: spire
-                  socket_path: unix:/tmp/spire-agent/public/api.sock           
+                  socket_path: unix:/tmp/spire-agent/public/api.sock        
+                  trust_domains:
+                    - cluster-b.example    
         controller:
           clients:
             - endpoint: "https://slim-control.admin.example:50052"

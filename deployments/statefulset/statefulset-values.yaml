@@ -42,7 +42,7 @@ slim:
                   type: spire
                   socket_path: unix:/tmp/spire-agent/public/api.sock
                   target_spiffe_id: spiffe://example.local/ns/slim/sa/slim                  
-                client_ca:
+                ca_source:
                   type: spire
                   socket_path: unix:/tmp/spire-agent/public/api.sock
                   # trust_domains:

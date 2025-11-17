@@ -357,7 +357,7 @@ The sample applications demonstrate cross-cluster communication with centralized
 - **Bob (Sender)** on cluster-b creates a new MLS session publishes messages and waits for reply.
 - Messages flow: Bob → SLIM(cluster-b) → SLIM(cluster-a) → Alice.
   
-Each client uses SPIRE federation for authentication, running spiffe-helper as a side-car.
+Each client uses SPIRE federation for authentication.
   
 The centralized Controller automatically creates routes when Alice subscribes, enabling Bob's messages to reach Alice across clusters through the admin cluster coordination.
   
@@ -424,15 +424,6 @@ In case of connection problems check the following:
     ```
 
     There should be 2 relationships on each cluster.
-
-3. Check `spiffe-helper` side-car logs in SLIM nodes and client apps:
-
-    ```bash
-    kubectl logs -n slim slim-0 spiffe-helper
-    kubectl logs -n slim slim-1 spiffe-helper
-    kubectl logs alice spiffe-helper
-    kubectl logs bob spiffe-helper
-    ```
 
     </details>
 
