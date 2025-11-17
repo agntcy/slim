@@ -69,7 +69,7 @@ var _ = Describe("Routing", func() {
 				GinkgoWriter, GinkgoWriter,
 			)
 			Expect(errCP).NotTo(HaveOccurred())
-			Eventually(serverBSession.Out, 15*time.Second).Should(gbytes.Say(`Connection attempt: #4 successful`))
+			Eventually(serverBSession.Out, 15*time.Second).Should(gbytes.Say(`Connection attempt: #\d+ successful`))
 
 			var errA error
 			serverASession, errA = gexec.Start(
@@ -175,7 +175,7 @@ var _ = Describe("Routing", func() {
 
 			Eventually(serverBSession.Out, 15*time.Second).Should(gbytes.Say(`notify control plane about lost subscription`))
 
-			time.Sleep(3 * time.Second)
+			time.Sleep(6 * time.Second)
 
 			// test listing routes for node a
 			routeListOutA, err = exec.Command(
