@@ -22,10 +22,10 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agntcy/slim/control-plane/slimctl/internal/cfg"
-	configCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/config"
-	controllerCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/controller"
-	nodectrlCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/nodecontroller"
-	versionCmd "github.com/agntcy/slim/control-plane/slimctl/internal/cmd/version"
+	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/config"
+	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/controller"
+	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/node"
+	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/version"
 )
 
 var k = koanf.New(".")
@@ -153,16 +153,23 @@ func main() {
 		"path to client TLS key",
 	)
 
-	rootCmd.AddCommand(controllerCmd.NewNodeCmd(conf.AppConfig.CommonOpts))
-	rootCmd.AddCommand(controllerCmd.NewConnectionCmd(conf.AppConfig.CommonOpts))
-	rootCmd.AddCommand(controllerCmd.NewRouteCmd(conf.AppConfig.CommonOpts))
-	rootCmd.AddCommand(controllerCmd.NewChannelCmd(conf.AppConfig.CommonOpts))
-	rootCmd.AddCommand(controllerCmd.NewParticipantCmd(conf.AppConfig.CommonOpts))
+	// add the version command
+	rootCmd.AddCommand(version.NewVersionCmd(conf.AppConfig.CommonOpts))
 
-	rootCmd.AddCommand(nodectrlCmd.NewNodeCmd(conf.AppConfig.CommonOpts))
-	rootCmd.AddCommand(versionCmd.NewVersionCmd(conf.AppConfig.CommonOpts))
+	// add the config command tree
+	rootCmd.AddCommand(config.NewConfigCmd(conf))
 
-	rootCmd.AddCommand(configCmd.NewConfigCmd(conf))
+	// add the controller command tree
+	rootCmd.AddCommand(controller.NewControllerCmd(conf))
+
+	// add the node command tree
+	rootCmd.AddCommand(node.NewNodeCmd(conf.AppConfig.CommonOpts))
+
+	rootCmd.AddGroup(
+		&cobra.Group{ID: "slimctl", Title: "Commands for SLIM CLI configuration & version info"},
+		&cobra.Group{ID: "node", Title: "Commands to interact with SLIM nodes"},
+		&cobra.Group{ID: "controller", Title: "Commands to interact with the SLIM Control Plane"},
+	)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "CLI error: %v", err)

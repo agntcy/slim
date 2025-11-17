@@ -22,31 +22,6 @@ var _ = Describe("Routing", func() {
 	)
 
 	BeforeEach(func() {
-		// start control plane
-		var errCP error
-		controlPlaneSession, errCP = gexec.Start(
-			exec.Command(controlPlanePath, "--config", "./testdata/control-plane-config.yaml"),
-			GinkgoWriter, GinkgoWriter,
-		)
-
-		Expect(errCP).NotTo(HaveOccurred())
-		// start SLIMs
-		var errA, errB error
-		serverASession, errA = gexec.Start(
-			exec.Command(slimPath, "--config", "./testdata/server-a-config-cp.yaml"),
-			GinkgoWriter, GinkgoWriter,
-		)
-		serverBSession, errB = gexec.Start(
-			exec.Command(slimPath, "--config", "./testdata/server-b-config-cp.yaml"),
-			GinkgoWriter, GinkgoWriter,
-		)
-		Expect(errA).NotTo(HaveOccurred())
-		Expect(errB).NotTo(HaveOccurred())
-
-		// wait for SLIM instances to start
-		time.Sleep(2000 * time.Millisecond)
-
-		// no need to add routes, they will be created dynamically by the control plane
 	})
 
 	AfterEach(func() {
@@ -78,8 +53,35 @@ var _ = Describe("Routing", func() {
 
 	Describe("message routing with control plane", func() {
 		It("should deliver at least one message each way", func() {
-			var err error
+			// start SLIMs
+			var errB error
 
+			serverBSession, errB = gexec.Start(
+				exec.Command(slimPath, "--config", "./testdata/server-b-config-cp.yaml"),
+				GinkgoWriter, GinkgoWriter,
+			)
+			Expect(errB).NotTo(HaveOccurred())
+			time.Sleep(8000 * time.Millisecond)
+
+			var errCP error
+			controlPlaneSession, errCP = gexec.Start(
+				exec.Command(controlPlanePath, "--config", "./testdata/control-plane-config.yaml"),
+				GinkgoWriter, GinkgoWriter,
+			)
+			Expect(errCP).NotTo(HaveOccurred())
+			Eventually(serverBSession.Out, 15*time.Second).Should(gbytes.Say(`Connection attempt: #4 successful`))
+
+			var errA error
+			serverASession, errA = gexec.Start(
+				exec.Command(slimPath, "--config", "./testdata/server-a-config-cp.yaml"),
+				GinkgoWriter, GinkgoWriter,
+			)
+			Expect(errA).NotTo(HaveOccurred())
+
+			// wait for SLIM instances to start
+			time.Sleep(2000 * time.Millisecond)
+
+			var err error
 			clientBSession, err = gexec.Start(
 				exec.Command(sdkMockPath,
 					"--config", "./testdata/client-b-config.yaml",
@@ -122,7 +124,7 @@ var _ = Describe("Routing", func() {
 			// test listing routes for node a
 			routeListOutA, err := exec.Command(
 				slimctlPath,
-				"route", "list",
+				"controller", "route", "list",
 				"-s", "127.0.0.1:50051",
 				"-n", "slim/a",
 			).CombinedOutput()
@@ -135,7 +137,7 @@ var _ = Describe("Routing", func() {
 			// test listing connections for node a
 			connectionListOutA, err := exec.Command(
 				slimctlPath,
-				"connection", "list",
+				"controller", "connection", "list",
 				"-s", "127.0.0.1:50051",
 				"-n", "slim/a",
 			).CombinedOutput()
@@ -147,7 +149,7 @@ var _ = Describe("Routing", func() {
 			// test listing routes for node b
 			routeListOutB, err := exec.Command(
 				slimctlPath,
-				"route", "list",
+				"controller", "route", "list",
 				"-s", "127.0.0.1:50051",
 				"-n", "slim/b",
 			).CombinedOutput()
@@ -159,7 +161,7 @@ var _ = Describe("Routing", func() {
 			// test listing connections for node a
 			connectionListOutB, err := exec.Command(
 				slimctlPath,
-				"connection", "list",
+				"controller", "connection", "list",
 				"-s", "127.0.0.1:50051",
 				"-n", "slim/b",
 			).CombinedOutput()
@@ -178,7 +180,7 @@ var _ = Describe("Routing", func() {
 			// test listing routes for node a
 			routeListOutA, err = exec.Command(
 				slimctlPath,
-				"route", "list",
+				"controller", "route", "list",
 				"-s", "127.0.0.1:50051",
 				"-n", "slim/a",
 			).CombinedOutput()
@@ -189,7 +191,7 @@ var _ = Describe("Routing", func() {
 			// test listing routes for node b
 			routeListOutB, err = exec.Command(
 				slimctlPath,
-				"route", "list",
+				"controller", "route", "list",
 				"-s", "127.0.0.1:50051",
 				"-n", "slim/b",
 			).CombinedOutput()

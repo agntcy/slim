@@ -10,6 +10,10 @@ use slim_auth::metadata::MetadataValue;
 use slim_config::component::id::ID;
 use slim_config::grpc::server::ServerConfig;
 use tokio::sync::mpsc;
+use tokio_retry::Retry;
+use tokio_retry::strategy::{ExponentialBackoff, jitter};
+//use tokio_retry::strategy::FixedInterval;
+
 use tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
 use tokio_util::sync::CancellationToken;
 use tonic::{Request, Response, Status};
@@ -661,8 +665,6 @@ fn remove_participant_message(
 }
 
 impl ControllerService {
-    const MAX_RETRIES: i32 = 10;
-
     /// Handle new control messages.
     async fn handle_new_control_message(
         &self,
@@ -1347,40 +1349,55 @@ impl ControllerService {
     ) -> Result<mpsc::Sender<Result<ControlMessage, Status>>, ControllerError> {
         info!(%config.endpoint, "connecting to control plane");
 
+        let backoff_strategy = ExponentialBackoff::from_millis(1000)
+            .factor(2)
+            .max_delay(Duration::from_secs(10))
+            .map(jitter);
+
         let channel = config.to_channel().await.map_err(|e| {
             error!("error reading channel config: {}", e);
             ControllerError::ConfigError(e.to_string())
         })?;
 
-        let mut client = ControllerServiceClient::new(channel);
-        for i in 0..Self::MAX_RETRIES {
-            let (tx, rx) = mpsc::channel::<Result<ControlMessage, Status>>(128);
-            let out_stream = ReceiverStream::new(rx).map(|res| res.expect("mapping error"));
-            match client.open_control_channel(Request::new(out_stream)).await {
-                Ok(stream) => {
-                    // process the control message stream
-                    self.process_control_message_stream(
-                        Some(config),
-                        stream.into_inner(),
-                        tx.clone(),
-                        cancellation_token.clone(),
-                    );
+        let mut attempt = 0;
 
-                    return Ok(tx);
+        // Retry infinitely using the strategy
+        let result = Retry::spawn(backoff_strategy, move || {
+            attempt += 1;
+            let mut client = ControllerServiceClient::new(channel.clone());
+            async move {
+                let (tx, rx) = mpsc::channel::<Result<ControlMessage, Status>>(128);
+                let out_stream = ReceiverStream::new(rx).map(|res| res.expect("mapping error"));
+                match client.open_control_channel(Request::new(out_stream)).await {
+                    Ok(stream) => {
+                        debug!("Connection attempt: #{} successful", attempt);
+                        Ok((tx, stream))
+                    }
+                    Err(e) => {
+                        debug!("Connection attempt: #{} failed: {}", attempt, e);
+                        Err(e)
+                    }
                 }
-                Err(e) => {
-                    error!(%e, "connection error, retrying {}/{}", i + 1, Self::MAX_RETRIES);
-                }
-            };
+            }
+        })
+        .await;
 
-            // sleep 1 sec between each connection retry
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        match result {
+            Ok((tx, stream)) => {
+                self.process_control_message_stream(
+                    Some(config),
+                    stream.into_inner(),
+                    tx.clone(),
+                    cancellation_token.clone(),
+                );
+                Ok(tx)
+            }
+
+            Err(e) => Err(ControllerError::ConfigError(format!(
+                "failed to connect to control plane: {}",
+                e
+            ))),
         }
-
-        Err(ControllerError::ConfigError(format!(
-            "failed to connect to control plane after {} retries",
-            Self::MAX_RETRIES
-        )))
     }
 
     fn match_for_io_error(err_status: &Status) -> Option<&std::io::Error> {
