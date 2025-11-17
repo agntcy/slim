@@ -57,7 +57,7 @@ import asyncio
 import slim_bindings
 
 async def main():
-    # 1. Create identity (shared secret for demo)
+    # 1. Create identity
     provider = slim_bindings.PyIdentityProvider.SharedSecret(identity="demo", shared_secret="secret")
     verifier = slim_bindings.PyIdentityVerifier.SharedSecret(identity="demo", shared_secret="secret")
 

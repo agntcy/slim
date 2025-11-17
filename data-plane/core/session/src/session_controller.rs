@@ -8,7 +8,7 @@ use parking_lot::Mutex;
 use tokio::sync::{self, oneshot};
 // Third-party crates
 use tokio_util::sync::CancellationToken;
-use tracing::debug;
+use tracing::{Instrument, debug};
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
@@ -83,12 +83,19 @@ impl SessionController {
     {
         // Spawn the processing loop
         let cancellation_token = CancellationToken::new();
-        let handle = tokio::spawn(Self::processing_loop(
-            inner,
-            rx,
-            cancellation_token.clone(),
-            settings,
-        ));
+
+        // setup tracing context
+        let span = tracing::debug_span!(
+            "session_controller_processing_loop",
+            session_id = id,
+            source = %source,
+            destination = %destination,
+            session_type = ?config.session_type
+        );
+
+        let handle = tokio::spawn(
+            Self::processing_loop(inner, rx, cancellation_token.clone(), settings).instrument(span),
+        );
 
         Self {
             id,
