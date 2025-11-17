@@ -497,8 +497,8 @@ func generateConfigData(detail db.ConnectionDetails, localConnection bool) (stri
 				//TargetSpiffeID: stringPtr("spiffe://example.local/ns/slim/sa/slim"),
 			},
 			CaSource: &CaSource{
-				Type:         "spire",
-				SocketPath:   stringPtr("unix:/tmp/spire-agent/public/api.sock"),
+				Type:       "spire",
+				SocketPath: stringPtr("unix:/tmp/spire-agent/public/api.sock"),
 				//TrustDomains: &[]string{"example.org"},
 			},
 		}
