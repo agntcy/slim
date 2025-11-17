@@ -28,7 +28,7 @@ class Session:
         safe to await concurrently.
 
     Lifecycle:
-        A `PySession` is typically obtained from `Slim.create_session(...)`
+        A `Session` is typically obtained from `Slim.create_session(...)`
         or `Slim.listen_for_session(...)`. Call `delete()`to release
         server-side resources.
 
@@ -48,7 +48,7 @@ class Session:
     @property
     def id(self) -> int:
         """Return the unique numeric identifier for this session."""
-        return self._ctx.id  # exposed by PySessionContext
+        return self._ctx.id  # exposed by SessionContext
 
     @property
     def metadata(self) -> dict[str, str]:

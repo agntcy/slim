@@ -369,7 +369,7 @@ async def create_local_app(
     # Convert local identifier to a strongly typed Name.
     local_name = split_id(local)
 
-    # Instantiate Slim (async constructor prepares underlying PyService).
+    # Instantiate Slim (async constructor prepares underlying Service).
     local_app = slim_bindings.Slim(local_name, provider, verifier)
 
     # Provide feedback to user (instance numeric id).

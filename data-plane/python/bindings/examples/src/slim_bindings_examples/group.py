@@ -17,7 +17,7 @@ Key concepts:
   - Invites are explicit: the moderator invites each participant after
     creating the session.
   - Participants that did not create the session simply wait for
-    listen_for_session() to yield their PySession.
+    listen_for_session() to yield their Session.
 
 Usage:
   slim-bindings-examples group \

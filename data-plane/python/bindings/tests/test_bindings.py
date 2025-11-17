@@ -7,7 +7,7 @@ Integration tests for the slim_bindings Python layer.
 These tests exercise:
 - End-to-end PointToPoint session creation, message publish/reply, and cleanup.
 - Session configuration retrieval and default session configuration propagation.
-- Usage of the high-level Slim wrapper (PySession helper methods).
+- Usage of the high-level Slim wrapper (Session helper methods).
 - Automatic client reconnection after a server restart.
 - Error handling when targeting a non-existent subscription.
 
@@ -146,7 +146,7 @@ async def test_end_to_end(server):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("server", ["127.0.0.1:12345"], indirect=True)
 async def test_slim_wrapper(server):
-    """Exercise high-level Slim + PySession convenience API:
+    """Exercise high-level Slim + Session convenience API:
     - Instantiate two Slim instances
     - Connect & establish routing
     - Create PointToPoint session and publish
