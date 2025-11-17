@@ -18,7 +18,7 @@ from .session import Session
 
 class Slim:
     """
-    High-level façade over the underlying PyService (Rust core) providing a
+    High-level façade over the underlying Service (Rust core) providing a
     Pythonic API for:
       * Service initialization & authentication (via Slim.new)
       * Client connections to remote Slim services (connect / disconnect)
@@ -84,9 +84,9 @@ class Slim:
         the underlying service handle.
 
         Args:
-            name (PyName): Fully qualified local name (org/namespace/app).
-            provider (PyIdentityProvider): Identity provider for authentication.
-            verifier (PyIdentityVerifier): Identity verifier for validating peers.
+            name (Name): Fully qualified local name (org/namespace/app).
+            provider (IdentityProvider): Identity provider for authentication.
+            verifier (IdentityVerifier): Identity verifier for validating peers.
             local_service (bool): Whether this is a local service. Defaults to False.
 
         Note: Service initialization happens here via PyApp construction.
@@ -141,14 +141,14 @@ class Slim:
         destination: Name,
         session_config: SessionConfiguration,
     ) -> typing.Any:
-        """Create a new session and return its high-level PySession wrapper.
+        """Create a new session and return its high-level Session wrapper.
 
         Args:
             destination (Name): Target peer or channel name.
             session_config (SessionConfiguration): Parameters controlling creation.
 
         Returns:
-            PySession: Wrapper exposing high-level async operations for the session.
+            Session: Wrapper exposing high-level async operations for the session.
         """
         ctx, completion_handle = await self._app.create_session(
             destination, session_config
@@ -160,7 +160,7 @@ class Slim:
         Terminate and remove an existing session.
 
         Args:
-            session (PySession): Session wrapper previously returned by create_session.
+            session (Session): Session wrapper previously returned by create_session.
 
         Returns:
             None
@@ -318,7 +318,7 @@ class Slim:
         Await the next inbound session (optionally bounded by timeout).
 
         Returns:
-            PySession: Wrapper for the accepted session context.
+            Session: Wrapper for the accepted session context.
         """
 
         ctx: SessionContext = await self._app.listen_for_session(timeout)

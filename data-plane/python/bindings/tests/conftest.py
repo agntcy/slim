@@ -5,7 +5,7 @@
 
 Provides the 'server' fixture which spins up a Slim service. The fixture
 initializes tracing, launches the server asynchronously, waits briefly
-for readiness, and yields the underlying PyService so tests can
+for readiness, and yields the underlying Service so tests can
 establish sessions, publish messages, or perform connection logic.
 """
 
@@ -36,7 +36,7 @@ async def server(request):
             - None: No server created - creates global service
 
     Behavior:
-        1. Creates a PyService with SharedSecret auth (identity 'server').
+        1. Creates a Service with SharedSecret auth (identity 'server').
            This is not used here, as we use this SLIM instance only for packet forwarding.
         2. Initializes tracing (log_level=info) once.
         3. Starts the server with the provided endpoint (non-blocking) if endpoint provided.

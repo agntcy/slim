@@ -87,8 +87,8 @@ session and can invite participants.
 ```python
 chat_channel = split_id(remote)  # e.g. agntcy/ns/chat
 created_session = await local_app.create_session(
-    slim_bindings.PySessionConfiguration.Group(  # Build group session configuration
-        channel_name=chat_channel,  # Logical group channel (PyName) all participants join; acts as group/topic identifier.
+    slim_bindings.SessionConfiguration.Group(  # Build group session configuration
+        channel_name=chat_channel,  # Logical group channel (Name) all participants join; acts as group/topic identifier.
         max_retries=5,  # Max per-message resend attempts upon missing ack before reporting a delivery failure.
         timeout=datetime.timedelta(
             seconds=5
@@ -132,15 +132,15 @@ while True:
     try:
         # Await next inbound message from the group session.
         # The returned parameters are a message context and the raw payload bytes.
-        # Check session.py for details on PyMessageContext contents.
+        # Check session.py for details on MessageContext contents.
         ctx, payload = await session.get_message()
         print_formatted_text(
             f"{ctx.source_name} > {payload.decode()}",
             style=custom_style,
         )
 ```
-The message is received with `session.get_message()`. `ctx` is a `PyMessageContext`
-with information about the received message. `ctx.source_name` is the `PyName` of
+The message is received with `session.get_message()`. `ctx` is a `MessageContext`
+with information about the received message. `ctx.source_name` is the `Name` of
 the sender, and `payload` is a `bytes` object carrying the published message.
 
 ### 4. Publishing messages
