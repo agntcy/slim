@@ -99,7 +99,7 @@ spec:
     env:
     - name: PYTHONUNBUFFERED
       value: "1"
-    image: ghcr.io/agntcy/slim/bindings-examples:0.6.0
+    image: ghcr.io/agntcy/slim/bindings-examples:0.7.0-dev.2
     imagePullPolicy: Always
     name: client
     volumeMounts:
