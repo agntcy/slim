@@ -99,6 +99,7 @@ impl PyApp {
         PyName::from(self.internal.adapter.name().clone())
     }
 
+    #[gen_stub(override_return_type(type_repr="collections.abc.Awaitable[tuple[SessionContext, CompletionHandle]]", imports=("collections.abc",)))]
     fn create_session<'a>(
         &'a self,
         py: Python<'a>,
@@ -124,6 +125,7 @@ impl PyApp {
     }
 
     #[pyo3(signature = (timeout=None))]
+    #[gen_stub(override_return_type(type_repr="collections.abc.Awaitable[SessionContext]", imports=("collections.abc",)))]
     fn listen_for_session<'a>(
         &'a self,
         py: Python<'a>,
@@ -143,6 +145,7 @@ impl PyApp {
         })
     }
 
+    #[gen_stub(override_return_type(type_repr="collections.abc.Awaitable", imports=("collections.abc",)))]
     fn run_server<'a>(&'a self, py: Python<'a>, config: Py<PyDict>) -> PyResult<Bound<'a, PyAny>> {
         let config: PyGrpcServerConfig = from_pyobject(config.into_bound(py))?;
         let internal_clone = self.internal.clone();
@@ -157,6 +160,7 @@ impl PyApp {
         })
     }
 
+    #[gen_stub(override_return_type(type_repr="collections.abc.Awaitable", imports=("collections.abc",)))]
     fn stop_server<'a>(&'a self, py: Python<'a>, endpoint: String) -> PyResult<Bound<'a, PyAny>> {
         let internal_clone = self.internal.clone();
 
@@ -169,6 +173,7 @@ impl PyApp {
         })
     }
 
+    #[gen_stub(override_return_type(type_repr="collections.abc.Awaitable", imports=("collections.abc",)))]
     fn connect<'a>(&'a self, py: Python<'a>, config: Py<PyDict>) -> PyResult<Bound<'a, PyAny>> {
         let config: PyGrpcClientConfig = from_pyobject(config.into_bound(py))?;
         let internal_clone = self.internal.clone();
@@ -183,6 +188,7 @@ impl PyApp {
         })
     }
 
+    #[gen_stub(override_return_type(type_repr="collections.abc.Awaitable", imports=("collections.abc",)))]
     fn disconnect<'a>(&'a self, py: Python<'a>, conn: u64) -> PyResult<Bound<'a, PyAny>> {
         let internal_clone = self.internal.clone();
 
@@ -196,6 +202,7 @@ impl PyApp {
     }
 
     #[pyo3(signature = (name, conn=None))]
+    #[gen_stub(override_return_type(type_repr="collections.abc.Awaitable", imports=("collections.abc",)))]
     fn subscribe<'a>(
         &'a self,
         py: Python<'a>,
@@ -214,6 +221,7 @@ impl PyApp {
     }
 
     #[pyo3(signature = (name, conn=None))]
+    #[gen_stub(override_return_type(type_repr="collections.abc.Awaitable", imports=("collections.abc",)))]
     fn unsubscribe<'a>(
         &'a self,
         py: Python<'a>,
@@ -231,6 +239,7 @@ impl PyApp {
         })
     }
 
+    #[gen_stub(override_return_type(type_repr="collections.abc.Awaitable", imports=("collections.abc",)))]
     fn set_route<'a>(
         &'a self,
         py: Python<'a>,
@@ -248,6 +257,7 @@ impl PyApp {
         })
     }
 
+    #[gen_stub(override_return_type(type_repr="collections.abc.Awaitable", imports=("collections.abc",)))]
     fn remove_route<'a>(
         &'a self,
         py: Python<'a>,
@@ -265,6 +275,7 @@ impl PyApp {
         })
     }
 
+    #[gen_stub(override_return_type(type_repr="collections.abc.Awaitable[CompletionHandle]", imports=("collections.abc",)))]
     fn delete_session<'a>(
         &'a self,
         py: Python<'a>,

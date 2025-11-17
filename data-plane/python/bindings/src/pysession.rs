@@ -59,7 +59,9 @@ impl From<CompletionHandle> for PyCompletionHandle {
 }
 
 #[pymethods]
+#[gen_stub_pymethods]
 impl PyCompletionHandle {
+    #[gen_stub(override_return_type(type_repr="collections.abc.Generator", imports=("collections.abc",)))]
     fn __await__<'a>(&'a mut self, py: Python<'a>) -> PyResult<Bound<'a, PyIterator>> {
         let handle = self.handle.take().ok_or_else(|| {
             PyErr::new::<PyException, _>("No future found. Did you call await twice?")
@@ -193,6 +195,7 @@ impl PySessionContext {
     /// Publish a message through the specified session.
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (fanout, blob, message_ctx=None, name=None, payload_type=None, metadata=None))]
+    #[gen_stub(override_return_type(type_repr="collections.abc.Awaitable[CompletionHandle]", imports=("collections.abc",)))]
     fn publish<'a>(
         &'a self,
         py: Python<'a>,
@@ -217,6 +220,7 @@ impl PySessionContext {
 
     /// Publish a message as a reply to a received message through the specified session.
     #[pyo3(signature = (message_ctx, blob, payload_type=None, metadata=None))]
+    #[gen_stub(override_return_type(type_repr="collections.abc.Awaitable[CompletionHandle]", imports=("collections.abc",)))]
     fn publish_to<'a>(
         &'a self,
         py: Python<'a>,
@@ -243,6 +247,7 @@ impl PySessionContext {
 
     /// Invite a participant to the specified session (group only).
     #[pyo3(signature = (name))]
+    #[gen_stub(override_return_type(type_repr="collections.abc.Awaitable[CompletionHandle]", imports=("collections.abc",)))]
     fn invite<'a>(&'a self, py: Python<'a>, name: PyName) -> PyResult<Bound<'a, PyAny>> {
         let internal_clone = self.internal.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
@@ -258,6 +263,7 @@ impl PySessionContext {
 
     /// Remove a participant from the specified session (group only).
     #[pyo3(signature = (name))]
+    #[gen_stub(override_return_type(type_repr="collections.abc.Awaitable[CompletionHandle]", imports=("collections.abc",)))]
     fn remove<'a>(&'a self, py: Python<'a>, name: PyName) -> PyResult<Bound<'a, PyAny>> {
         let internal_clone = self.internal.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
@@ -273,6 +279,7 @@ impl PySessionContext {
 
     /// Get a message from the specified session.
     #[pyo3(signature = (timeout=None))]
+    #[gen_stub(override_return_type(type_repr="collections.abc.Awaitable[tuple[MessageContext, bytes]]", imports=("collections.abc",)))]
     fn get_message<'a>(
         &'a self,
         py: Python<'a>,
