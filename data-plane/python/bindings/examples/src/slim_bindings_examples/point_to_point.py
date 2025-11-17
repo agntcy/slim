@@ -116,7 +116,7 @@ async def run_client(
         await handle
 
         # Iterate send->receive cycles.
-        for i in range(iterations):
+        for i in range(3):
             try:
                 await session.publish(message.encode())
                 format_message_print(
