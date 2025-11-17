@@ -283,13 +283,21 @@ impl SpireIdentityManager {
         // Create WorkloadApiClient
         let mut client = create_workload_client(self.socket_path.as_ref()).await?;
 
-        let bundles = client.fetch_x509_bundles()
+        let mut stream = client.stream_x509_contexts()
             .await
             .map_err(|e| {
                 AuthError::ConfigError(format!("Failed to fetch all X509 bundles: {}", e))
             })?;
 
-        tracing::debug!("Fetched all X509 bundles: {:?}", bundles);        
+        let context = stream.next().await.ok_or_else(|| {
+            AuthError::ConfigError("No X509 context received from SPIFFE Workload API".to_string())
+        })?.map_err(
+            |e| AuthError::ConfigError(format!("Failed to fetch all X509 bundles: {}", e))
+        )?;
+
+        let bundles = context.bundle_set();
+
+        tracing::debug!("Fetched all X509 bundles: {:?}", bundles);     
 
         // Initialize X509Source for certificate management
         let x509_source = X509SourceBuilder::new()
