@@ -329,5 +329,3 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
-
-replace google.golang.org/protobuf v1.36.5 => google.golang.org/protobuf v1.35.2
