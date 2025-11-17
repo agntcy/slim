@@ -40,20 +40,31 @@ slim:
                 local_endpoint: ${env:MY_POD_IP}
                 external_endpoint: "slim.cluster-b.example:{{ .Values.slim.service.data.port }}"
               tls:
-                insecure_skip_verify: false
-                cert_file: "/svids/tls.crt"
-                key_file: "/svids/tls.key"
-                ca_file: "/svids/svid_bundle.pem"
+                #insecure: true
+                insecure_skip_verify: false   
+                source:
+                  type: spire
+                  socket_path: unix:/tmp/spire-agent/public/api.sock              
+                client_ca:
+                  type: spire
+                  socket_path: unix:/tmp/spire-agent/public/api.sock  
 
           clients: []
         controller:
           clients:
             - endpoint: "https://slim-control.admin.example:50052"
               tls:
+                #insecure: true
                 insecure_skip_verify: false
-                cert_file: "/svids/tls.crt"
-                key_file: "/svids/tls.key"
-                ca_file: "/svids/svid_bundle.pem"
+                source:
+                  type: spire
+                  socket_path: unix:/tmp/spire-agent/public/api.sock               
+                ca_source:
+                  type: spire
+                  socket_path: unix:/tmp/spire-agent/public/api.sock
+                  trust_domains:
+                    - admin.example                     
+
 
   # This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
   service:
@@ -84,12 +95,6 @@ slim:
 
 spire:
   enabled: true
-  helperImage:
-    repository: ghcr.io/spiffe/spiffe-helper
-    # This sets the pull policy for images.
-    pullPolicy: IfNotPresent
-    # Overrides the image tag whose default is the chart appVersion.
-    tag: "0.10.0"
   trustedDomains:
   - spiffe://admin.example  
   - spiffe://cluster-a.example 
