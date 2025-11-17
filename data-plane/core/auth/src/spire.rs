@@ -281,7 +281,15 @@ impl SpireIdentityManager {
         info!("Initializing spire identity manager");
 
         // Create WorkloadApiClient
-        let client = create_workload_client(self.socket_path.as_ref()).await?;
+        let mut client = create_workload_client(self.socket_path.as_ref()).await?;
+
+        let bundles = client.fetch_x509_bundles()
+            .await
+            .map_err(|e| {
+                AuthError::ConfigError(format!("Failed to fetch all X509 bundles: {}", e))
+            })?;
+
+        tracing::debug!("Fetched all X509 bundles: {:?}", bundles);        
 
         // Initialize X509Source for certificate management
         let x509_source = X509SourceBuilder::new()

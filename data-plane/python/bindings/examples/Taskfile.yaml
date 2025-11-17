@@ -23,6 +23,31 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
+  python:example:p2p:test:
+    desc: "Point to Point example - Alice will listen for messages and echo them"
+    cmds:
+      - |
+        uv run --package slim-bindings-examples p2p                                   \
+          --local agntcy/ns/alice                                                     \
+          --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}'  \
+          --spire-socket /tmp/spire-agent.sock \
+          --spire-audience slim-demo
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  python:example:p2p:test_jwt:
+    desc: "Point to Point example - Alice will listen for messages and echo them"
+    cmds:
+      - |
+        uv run --package slim-bindings-examples p2p                                   \
+          --local agntcy/ns/alice                                                     \
+          --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}'  \
+          --jwt jwt_svid.token \
+          --spire-trust-bundle key.jwt \
+          --audience slim-demo
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'      
+
   python:example:p2p:alice:
     desc: "Point to Point example - Alice will listen for messages and echo them"
     cmds:
@@ -32,7 +57,7 @@ tasks:
           --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}'  \
           --shared-secret $SHARED_SECRET {{.EXTRA_ARGS}}
     vars:
-      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'      
 
   python:example:p2p:no-mls:bob:
     desc: "Point to Point example - Bob will send unencrypted messages to Alice"
