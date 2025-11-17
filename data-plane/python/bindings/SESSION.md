@@ -94,7 +94,7 @@ Using the SLIM Python bindings, you can create a PointToPoint session as follows
 ```python
 # Assume local_app is an initialized application instance
 session = await local_app.create_session(
-    slim_bindings.PySessionConfiguration.PointToPoint(
+    slim_bindings.SessionConfiguration.PointToPoint(
         peer_name=remote_name,
         max_retries=5,
         timeout=datetime.timedelta(seconds=5),
@@ -104,7 +104,7 @@ session = await local_app.create_session(
 ```
 
 Parameters:
-* `peer_name` (required, PyName): Identifier of the remote participant
+* `peer_name` (required, Name): Identifier of the remote participant
     instance.
 * `max_retries` (optional, int): Retry attempts per message if Ack missing.
 * `timeout` (optional, timedelta): Wait per attempt for an Ack before retry.
@@ -153,7 +153,7 @@ example:
 ```python
 # Assume local_app is an initialized application instance
 session = await local_app.create_session(
-    slim_bindings.PySessionConfiguration.Group(
+    slim_bindings.SessionConfiguration.Group(
         channel_name=channel_name,
         max_retries=5,
         timeout=datetime.timedelta(seconds=5),
@@ -163,7 +163,7 @@ session = await local_app.create_session(
 ```
 
 Parameters:
-* `channel_name` (required, PyName): Channel name where all the messages are
+* `channel_name` (required, Name): Channel name where all the messages are
     delivered.
 * `max_retries` (optional, int): Retry attempts for missing Acks.
 * `timeout` (optional, timedelta): Wait per attempt for Ack before retry.
@@ -201,7 +201,7 @@ await session.invite(invite_name)
 ```
 
 Parameter:
-* `invite_name` (PyName): Identifier of the participant to add.
+* `invite_name` (Name): Identifier of the participant to add.
 
 
 When a moderator wants to add a new participant (e.g., an instance of App-C) to
@@ -292,7 +292,7 @@ await session.remove(remove_name)
 
 
 Parameter:
-* `remove_name` (PyName): Identifier of the participant to remove.
+* `remove_name` (Name): Identifier of the participant to remove.
 
 
 When a moderator wants to remove a participant (e.g., App-C/1) from a group
