@@ -1277,7 +1277,11 @@ impl ControllerService {
     }
 
     /// Send all queued subscription notifications when connection is restored.
-    async fn send_queued_notifications(&self, endpoint: &str) {
+    async fn send_queued_notifications(
+        &self,
+        tx: &mpsc::Sender<Result<ControlMessage, Status>>,
+        endpoint: &str,
+    ) {
         let notifications = {
             let mut queue = self.inner.pending_notifications.lock();
             if queue.is_empty() {
@@ -1296,26 +1300,17 @@ impl ControllerService {
             endpoint
         );
 
-        let tx = match self.inner.tx_channels.read().get(endpoint) {
-            Some(tx) => tx.clone(),
-            None => {
-                // Connection not available, put notifications back in queue
-                self.inner
-                    .pending_notifications
-                    .lock()
-                    .extend(notifications);
-                return;
-            }
-        };
-
         let mut failed_notifications = Vec::new();
         for notification in notifications {
-            if let Err(_) = tx.send(Ok(notification.clone())).await {
+            if let Err(e) = tx.send(Ok(notification)).await {
                 error!(
-                    "failed to send queued notification to control plane {}",
-                    endpoint
+                    "failed to send queued notification to control plane {}: {}",
+                    endpoint,
+                    e.to_string()
                 );
-                failed_notifications.push(notification);
+
+                // we can unwrap here because we know we sent a Ok(ControlMessage)
+                failed_notifications.push(e.0.unwrap());
             }
         }
 
@@ -1423,13 +1418,6 @@ impl ControllerService {
                                 .tx_channels
                                 .write()
                                 .insert(config.endpoint.clone(), tx);
-
-                            // Send queued notifications after reconnection
-                            let this_clone = this.clone();
-                            let endpoint = config.endpoint.clone();
-                            tokio::spawn(async move {
-                                this_clone.send_queued_notifications(&endpoint).await;
-                            });
                         },
                     )
             }
@@ -1481,6 +1469,9 @@ impl ControllerService {
 
         match result {
             Ok((tx, stream)) => {
+                // Send any queued notifications after successful connection
+                self.send_queued_notifications(&tx, &config.endpoint).await;
+
                 self.process_control_message_stream(
                     Some(config),
                     stream.into_inner(),
@@ -1488,8 +1479,6 @@ impl ControllerService {
                     cancellation_token.clone(),
                 );
 
-                // Send any queued notifications after successful connection
-                self.send_queued_notifications(&config.endpoint).await;
                 Ok(tx)
             }
 
