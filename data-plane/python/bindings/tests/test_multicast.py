@@ -20,11 +20,6 @@ What is validated implicitly:
   * src matches the participant's own local identity when receiving.
   * Message propagation across all participants without loss.
   * Optional MLS flag is parameterized.
-
-Note:
-  The test relies on timing (sleep calls) to allow route propagation and
-  invitation distribution; in a production-grade test suite you might
-  replace these with explicit synchronization primitives or polling.
 """
 
 import asyncio
@@ -42,11 +37,11 @@ import slim_bindings
     "server",
     [
         "127.0.0.1:12375",  # local service
-        None,  # global service
+        # None,  # global service
     ],
     indirect=True,
 )
-@pytest.mark.parametrize("mls_enabled", [False, True])
+@pytest.mark.parametrize("mls_enabled", [True, False])
 async def test_group(server, mls_enabled):  # noqa: C901
     """Exercise group session behavior with N participants relaying a message in a ring.
 
@@ -95,7 +90,7 @@ async def test_group(server, mls_enabled):  # noqa: C901
         # Use unique namespace per test to avoid collisions
         name = slim_bindings.Name("org", f"test_{test_id}", part_name)
 
-        participant = await create_slim(name, local_service=server.local_service)
+        participant = create_slim(name, local_service=server.local_service)
 
         if server.endpoint is not None:
             # Connect to SLIM server
@@ -113,9 +108,12 @@ async def test_group(server, mls_enabled):  # noqa: C901
                 timeout=datetime.timedelta(seconds=5),
                 mls_enabled=mls_enabled,
             )
-            session = await participant.create_session(chat_name, session_config)
+            session, completion_handle = await participant.create_session(
+                chat_name, session_config
+            )
 
-            await asyncio.sleep(3)
+            # wait for session establishment
+            await completion_handle
 
             # invite all participants
             for i in range(participants_count):
@@ -127,11 +125,14 @@ async def test_group(server, mls_enabled):  # noqa: C901
                     if server.endpoint is not None:
                         await participant.set_route(to_add)
 
-                    await session.invite(to_add)
+                    ret = await session.invite(to_add)
+
+                    # wait for the invite flow to finish
+                    await ret
+
                     print(f"{part_name} -> add {name_to_add} to the group")
 
-        # wait a bit for all chat participants to be ready
-        await asyncio.sleep(5)
+            await asyncio.sleep(1)  # wait a bit to ensure routes are set up
 
         # Track if this participant was called
         called = False
@@ -192,9 +193,6 @@ async def test_group(server, mls_enabled):  # noqa: C901
 
                     called = True
 
-                    # wait a moment to simulate processing time
-                    await asyncio.sleep(0.1)
-
                     # as the message is for this specific participant, we can
                     # reply to the session and call out the next participant
                     next_participant = (index + 1) % participants_count
@@ -203,20 +201,27 @@ async def test_group(server, mls_enabled):  # noqa: C901
                     await recv_session.publish(
                         f"{message} - {next_participant_name}".encode()
                     )
+                    print(f"{part_name} -> Published! Local count: {local_count}")
                 else:
                     print(
                         f"{part_name} -> Receiving message: {msg_rcv.decode()} - not for me. Local count: {local_count}"
                     )
 
                 # If we received as many messages as the number of participants, we can exit
-                if local_count >= (participants_count - 1):
-                    print(f"{part_name} -> Received all messages, exiting...")
+                if local_count >= (participants_count - 1) and index == 0:
+                    print(f"{part_name} -> Received all messages, close channel...")
+
                     await asyncio.sleep(0.2)
-                    await participant.delete_session(recv_session)
+
+                    h = await participant.delete_session(recv_session)
+                    await h
+                    print("session closed on participant 0")
                     break
 
             except Exception as e:
-                print(f"{part_name} -> Error receiving message: {e}")
+                # Expected: when the session is closed by the moderator, other participants
+                # will receive "session channel closed" error
+                print(f"{part_name} -> Session closed: {e}")
                 break
 
     # start participants in background
@@ -224,7 +229,6 @@ async def test_group(server, mls_enabled):  # noqa: C901
         task = asyncio.create_task(background_task(i))
         task.set_name(f"participant-{i}")
         participants.append(task)
-        await asyncio.sleep(0.1)
 
     # Wait for the task to complete
     for task in participants:

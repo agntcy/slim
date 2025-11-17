@@ -213,10 +213,8 @@ where
         // this message will init the last_mls_msg_id. so if last_mls_msg_id = 0
         // drop the commits
         if self.last_mls_msg_id == 0 {
-            error!("welcome message not received yet, drop mls message");
-            return Err(SessionError::MLSIdMessage(
-                "welcome message not received yet, drop mls message".to_string(),
-            ));
+            debug!("welcome message not received yet, drop mls message");
+            return Ok(false);
         }
 
         let command_payload = msg.extract_command_payload().map_err(|e| {

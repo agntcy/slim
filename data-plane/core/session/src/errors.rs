@@ -52,6 +52,8 @@ pub enum SessionError {
         message_id: u32,
         message: Box<Message>,
     },
+    #[error("close session: operation timed out")]
+    CloseTimeout,
     #[error("configuration error: {0}")]
     ConfigurationError(String),
     #[error("message lost: {0}")]
@@ -70,6 +72,12 @@ pub enum SessionError {
     IdentityError(String),
     #[error("error pushing identity to the message: {0}")]
     IdentityPushError(String),
+    #[error("no session handle available: session might be closed")]
+    NoHandleAvailable,
+    #[error("session error: {0}")]
+    Generic(String),
+    #[error("error receiving ack for message: {0}")]
+    AckReception(String),
 
     // Channel Endpoint errors
     #[error("error initializing MLS: {0}")]

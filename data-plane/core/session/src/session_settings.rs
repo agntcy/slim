@@ -5,7 +5,7 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::messages::Name;
 
 use crate::{
-    common::SessionMessage, errors::SessionError, session_config::SessionConfig,
+    SessionError, common::SessionMessage, session_config::SessionConfig,
     transmitter::SessionTransmitter,
 };
 
@@ -55,4 +55,7 @@ where
 
     /// Storage path for session data
     pub(crate) storage_path: std::path::PathBuf,
+
+    /// Graceful shutdown timeout - time to drain pending messages during shutdown
+    pub(crate) graceful_shutdown_timeout: Option<std::time::Duration>,
 }

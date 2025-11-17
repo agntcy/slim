@@ -43,6 +43,10 @@ pub enum ServiceError {
     ControllerError(String),
     #[error("storage error: {0}")]
     StorageError(String),
+    #[error("drain signal missing")]
+    NoDrainSignal,
+    #[error("timed out while waiting for sessions to close")]
+    DrainTimeoutError,
     #[error("unknown error")]
     Unknown,
 }

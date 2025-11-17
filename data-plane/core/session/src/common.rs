@@ -1,6 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::time::Duration;
+
 // Third-party crates
 use tonic::Status;
 
@@ -77,6 +79,8 @@ pub enum SessionMessage {
     OnMessage {
         message: Message,
         direction: MessageDirection,
+        /// Optional channel to signal when message processing is complete
+        ack_tx: Option<tokio::sync::oneshot::Sender<Result<(), SessionError>>>,
     },
     /// timeout signal for a message (ack,rtx or control messages)
     /// that needs to be send again
@@ -94,10 +98,10 @@ pub enum SessionMessage {
         name: Option<Name>,
         timeouts: u32,
     },
+    /// message from session layer to the session controller
+    /// to start to the close procedures of the session
+    StartDrain { grace_period: Duration },
     /// message from session controller to session layer
     /// to notify that the session can be removed safely
     DeleteSession { session_id: u32 },
-    /// message from session layer to the session controller
-    /// to start to the close procedures of the session
-    StartDrain { grace_period_ms: u64 },
 }

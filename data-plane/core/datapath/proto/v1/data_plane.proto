@@ -95,9 +95,10 @@ enum SessionMessageType {
   SESSION_MESSAGE_TYPE_GROUP_ADD = 11;
   SESSION_MESSAGE_TYPE_GROUP_REMOVE = 12;
   SESSION_MESSAGE_TYPE_GROUP_WELCOME = 13;
-  SESSION_MESSAGE_TYPE_GROUP_PROPOSAL = 14;
-  SESSION_MESSAGE_TYPE_GROUP_ACK = 15;
-  SESSION_MESSAGE_TYPE_GROUP_NACK = 16;
+  SESSION_MESSAGE_TYPE_GROUP_CLOSE = 14;
+  SESSION_MESSAGE_TYPE_GROUP_PROPOSAL = 15;
+  SESSION_MESSAGE_TYPE_GROUP_ACK = 16;
+  SESSION_MESSAGE_TYPE_GROUP_NACK = 17;
 }
 
 // SLIM message content
@@ -124,9 +125,10 @@ message CommandPayload {
     GroupAddPayload group_add = 7;
     GroupRemovePayload group_remove = 8;
     GroupWelcomePayload group_welcome = 9;
-    GroupProposalPayload group_proposal = 10;
-    GroupAckPayload group_ack = 11;
-    GroupNackPayload group_nack = 12;
+    GroupClosePayload group_close = 10;
+    GroupProposalPayload group_proposal = 11;
+    GroupAckPayload group_ack = 12;
+    GroupNackPayload group_nack = 13;
   }
 }
 
@@ -213,6 +215,12 @@ message GroupWelcomePayload {
   repeated Name participants = 1;
   // used only when MLS is enabled
   optional MlsPayload mls = 2;
+}
+
+// Group Close
+// sent on group close
+message GroupClosePayload {
+  repeated Name participants = 1;
 }
 
 // Group Proposal
