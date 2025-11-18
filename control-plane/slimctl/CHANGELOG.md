@@ -1,30 +1,5 @@
 # Changelog
 
-## [0.7.1](https://github.com/agntcy/slim/compare/slimctl-v0.7.0...slimctl-v0.7.1) (2025-11-18)
-
-
-### Features
-
-* add auth support in sessions ([#382](https://github.com/agntcy/slim/issues/382)) ([242e38a](https://github.com/agntcy/slim/commit/242e38a96c9e8b3d9e4a69de3d35740a53fcf252))
-* add basic auth to slimctl ([#763](https://github.com/agntcy/slim/issues/763)) ([b064d0d](https://github.com/agntcy/slim/commit/b064d0d1fce57c219f18e210770765f348c45fdd))
-* add channel and participant commands ([#534](https://github.com/agntcy/slim/issues/534)) ([ecbca90](https://github.com/agntcy/slim/commit/ecbca9074548a51f26e889a2e1adecb1a67a2029))
-* add client connections to control plane ([#429](https://github.com/agntcy/slim/issues/429)) ([26cfee6](https://github.com/agntcy/slim/commit/26cfee6565c7be933afd7edab36dca032753e132))
-* add config subcommand to slimctl ([#818](https://github.com/agntcy/slim/issues/818)) ([562b550](https://github.com/agntcy/slim/commit/562b5504608cb37f6d6f6e9dede155cf92a83426))
-* add node register call to proto ([#406](https://github.com/agntcy/slim/issues/406)) ([bdce118](https://github.com/agntcy/slim/commit/bdce1181dd0d05d78eb4f577aa012c4033cad3b2))
-* control plane service & slimctl cp commands ([#388](https://github.com/agntcy/slim/issues/388)) ([8a17dba](https://github.com/agntcy/slim/commit/8a17dbad99fa679e07585ca4fbcefe9cb3fa8a29))
-* **control-plane:** handle all configuration parameters when creating a new connection ([#360](https://github.com/agntcy/slim/issues/360)) ([9fe6230](https://github.com/agntcy/slim/commit/9fe623093614cf075d36e938734625003087e465))
-* handle updates from SLIM nodes ([#708](https://github.com/agntcy/slim/issues/708)) ([ccc5183](https://github.com/agntcy/slim/commit/ccc518386d0ece16237647511118e7d032e033c6))
-* implement control plane group management ([#554](https://github.com/agntcy/slim/issues/554)) ([d0065a0](https://github.com/agntcy/slim/commit/d0065a0e1955dbc7e7fd2bfabd5fdca210459a0b))
-* outline routes (list routes from the controller) ([#871](https://github.com/agntcy/slim/issues/871)) ([278ec7d](https://github.com/agntcy/slim/commit/278ec7da6f85140da3b43a723773423386ec07a5))
-* support for homebrew  - slimctl releases ([#921](https://github.com/agntcy/slim/issues/921)) ([e6688b8](https://github.com/agntcy/slim/commit/e6688b825a8c1ad3d1fe5d13073d20efe931707a))
-
-
-### Bug Fixes
-
-* Handle route connection faliures and node connection detail changes ([#833](https://github.com/agntcy/slim/issues/833)) ([8027c3b](https://github.com/agntcy/slim/commit/8027c3b0a11a7d3c2b57184d2313e18d5de6ba3b))
-* slimctl: add scheme to endpoint param ([#459](https://github.com/agntcy/slim/issues/459)) ([6716ff0](https://github.com/agntcy/slim/commit/6716ff0c53f6b090170ff6cd64bd44ec9e4d387f))
-* upgraded to golang version 1.25.4 ([#923](https://github.com/agntcy/slim/issues/923)) ([82cabef](https://github.com/agntcy/slim/commit/82cabef4e744fa7954559d06aa97e81d3e4eef3a))
-
 ## [0.7.0](https://github.com/agntcy/slim/compare/slimctl-v0.6.0...slimctl-v0.7.0) (2025-11-18)
 
 
