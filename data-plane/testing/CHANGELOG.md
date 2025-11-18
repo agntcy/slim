@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.6.1](https://github.com/agntcy/slim/compare/slim-testutils-v0.6.0...slim-testutils-v0.6.1) (2025-10-17)
+## [0.7.0](https://github.com/agntcy/slim/compare/slim-testutils-v0.6.0...slim-testutils-v0.7.0) (2025-10-17)
 
 
 ### Features
