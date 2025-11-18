@@ -91,7 +91,6 @@ func (m *MockSlimServer) connect(ctx context.Context) error {
 				MtlsRequired:     m.MTLSRequired,
 				LocalEndpoint:    m.LocalEndpoint,
 				ExternalEndpoint: m.ExternalEndpoint,
-				GroupName:        m.GroupName,
 			}},
 		}},
 	}
