@@ -1,14 +1,13 @@
 {
   "data-plane/python/bindings": "0.7.0",
-  "charts/slim": "0.6.0",
+  "charts/slim": "0.7.0",
   "data-plane/python/integrations/slim-mcp": "0.1.7",
   "control-plane/slimctl": "0.7.0",
-  "control-plane/control-pane": "0.0.1",
   "data-plane/python/integrations/slim-mcp/examples/llamaindex-time-agent": "0.1.2",
   "data-plane/python/integrations/slim-mcp/examples/mcp-server-time": "0.1.2",
   "data-plane/testing": "0.7.0",
   "control-plane/control-plane": "0.7.0",
-  "charts/slim-control-plane": "0.6.0",
+  "charts/slim-control-plane": "0.7.0",
   "data-plane/python/bindings/examples": "0.7.0",
   "data-plane/python/integrations/slima2a": "0.1.0",
   "data-plane/python/integrations/slimrpc": "0.1.0"
