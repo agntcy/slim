@@ -117,7 +117,8 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github-token }}
       run: |
         echo "Task not found in cache, downloading..."
-        sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -b ~/.local/bin -d ${{ steps.get-version.outputs.version }}
+        [[ "$OS" = "windows" ]] && CURL_EXTRA="--ssl-no-revoke" || CURL_EXTRA=""
+        sh -c "$(curl ${CURL_EXTRA} --location https://taskfile.dev/install.sh)" -- -b ~/.local/bin -d ${{ steps.get-version.outputs.version }}
 
     - name: Verify installation
       shell: bash
