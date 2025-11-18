@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "agntcy-slim"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-service",
@@ -24,7 +24,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-auth"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "async-trait",
  "aws-lc-rs",
@@ -56,7 +56,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-config"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "agntcy-slim-auth",
  "async-trait",
@@ -96,7 +96,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-controller"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
@@ -125,7 +125,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-datapath"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-tracing",
@@ -174,7 +174,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-mls"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
@@ -193,7 +193,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-service"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
@@ -203,6 +203,7 @@ dependencies = [
  "agntcy-slim-session",
  "dirs",
  "drain",
+ "futures",
  "parking_lot",
  "serde",
  "thiserror 2.0.17",
@@ -213,7 +214,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-session"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
@@ -239,7 +240,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-tracing"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "agntcy-slim-config",
  "once_cell",

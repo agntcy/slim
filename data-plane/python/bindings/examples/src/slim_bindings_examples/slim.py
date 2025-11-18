@@ -69,7 +69,7 @@ async def run_server(address: str, enable_opentelemetry: bool):
     )
 
     # Create Slim instance with a fixed Name. Organization/namespace/app are illustrative.
-    slim = await slim_bindings.Slim.new(
+    slim = slim_bindings.Slim(
         slim_bindings.Name("cisco", "default", "slim"), provider, verifier
     )
 

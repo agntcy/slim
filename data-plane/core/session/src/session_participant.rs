@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashSet, sync::Arc};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use slim_auth::traits::{TokenProvider, Verifier};
@@ -15,9 +15,12 @@ use tokio::sync::Mutex;
 use tracing::debug;
 
 use crate::{
-    common::SessionMessage, errors::SessionError, mls_state::MlsState,
-    session_controller::SessionControllerCommon, session_settings::SessionSettings,
-    traits::MessageHandler,
+    common::SessionMessage,
+    errors::SessionError,
+    mls_state::MlsState,
+    session_controller::SessionControllerCommon,
+    session_settings::SessionSettings,
+    traits::{MessageHandler, ProcessingState},
 };
 
 pub struct SessionParticipant<P, V, I>
@@ -94,12 +97,20 @@ where
 
     async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
         match message {
-            SessionMessage::OnMessage { message, direction } => {
+            SessionMessage::OnMessage {
+                message,
+                direction,
+                ack_tx,
+            } => {
                 if message.get_session_message_type().is_command_message() {
                     self.process_control_message(message).await
                 } else {
                     self.inner
-                        .on_message(SessionMessage::OnMessage { message, direction })
+                        .on_message(SessionMessage::OnMessage {
+                            message,
+                            direction,
+                            ack_tx,
+                        })
                         .await
                 }
             }
@@ -142,8 +153,24 @@ where
                         .await
                 }
             }
-            SessionMessage::StartDrain { grace_period_ms: _ } => todo!(),
-            SessionMessage::DeleteSession { session_id: _ } => todo!(),
+            SessionMessage::StartDrain {
+                grace_period: duration,
+            } => {
+                debug!("received drain signal");
+                // propagate draining state
+                self.common.processing_state = ProcessingState::Draining;
+                self.inner
+                    .on_message(SessionMessage::StartDrain {
+                        grace_period: duration,
+                    })
+                    .await?;
+                self.common.sender.start_drain();
+                Ok(())
+            }
+            _ => Err(SessionError::Processing(format!(
+                "Unexpected message type {:?}",
+                message
+            ))),
         }
     }
 
@@ -155,9 +182,19 @@ where
         self.inner.remove_endpoint(endpoint);
     }
 
+    fn needs_drain(&self) -> bool {
+        !self.common.sender.drain_completed() || self.inner.needs_drain()
+    }
+
+    fn processing_state(&self) -> ProcessingState {
+        self.common.processing_state
+    }
+
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {
         // Participant-specific cleanup
         self.subscribed = false;
+        self.common.sender.close();
+
         // Shutdown inner layer
         MessageHandler::on_shutdown(&mut self.inner).await
     }
@@ -177,7 +214,9 @@ where
             ProtoSessionMessageType::GroupRemove => {
                 self.on_group_update_message(message, false).await
             }
-            ProtoSessionMessageType::LeaveRequest => self.on_leave_request(message).await,
+            ProtoSessionMessageType::LeaveRequest | ProtoSessionMessageType::GroupClose => {
+                self.on_leave_request(message).await
+            }
             ProtoSessionMessageType::GroupProposal
             | ProtoSessionMessageType::GroupAck
             | ProtoSessionMessageType::GroupNack => todo!(),
@@ -353,15 +392,38 @@ where
     }
 
     async fn on_leave_request(&mut self, msg: Message) -> Result<(), SessionError> {
-        let reply = self.common.create_control_message(
-            &msg.get_source(),
-            ProtoSessionMessageType::LeaveReply,
-            msg.get_id(),
-            CommandPayload::builder().leave_reply().as_content(),
-            false,
-        )?;
+        debug!("close the session");
+        self.common.processing_state = ProcessingState::Draining;
+        self.inner
+            .on_message(SessionMessage::StartDrain {
+                grace_period: Duration::from_secs(60), // not used in session
+            })
+            .await?;
+        self.common.sender.start_drain();
+
+        let reply = if msg.get_session_message_type() == ProtoSessionMessageType::LeaveRequest {
+            self.common.create_control_message(
+                &msg.get_source(),
+                ProtoSessionMessageType::LeaveReply,
+                msg.get_id(),
+                CommandPayload::builder().leave_reply().as_content(),
+                false,
+            )?
+        } else {
+            self.common.create_control_message(
+                &msg.get_source(),
+                ProtoSessionMessageType::GroupAck,
+                msg.get_id(),
+                CommandPayload::builder().group_ack().as_content(),
+                false,
+            )?
+        };
 
         self.common.send_to_slim(reply).await?;
+
+        // Add a small delay before cleaning up routes to allow the ack to be delivered
+        // and processed by the moderator, reducing race conditions during shutdown.
+        tokio::time::sleep(Duration::from_millis(500)).await;
 
         self.leave(&msg).await?;
 
@@ -458,9 +520,8 @@ mod tests {
         let (tx_slim, rx_slim) = mpsc::channel(16);
         let (tx_app, _rx_app) = mpsc::unbounded_channel();
         let (tx_session, _rx_session) = mpsc::channel(16);
-        let (tx_session_layer, rx_session_layer) = mpsc::channel(16);
-
         let tx = crate::transmitter::SessionTransmitter::new(tx_slim, tx_app);
+        let (tx_session_layer, rx_session_layer) = mpsc::channel(16);
 
         let config = SessionConfig {
             session_type,
@@ -484,6 +545,7 @@ mod tests {
             identity_provider,
             identity_verifier,
             storage_path,
+            graceful_shutdown_timeout: None,
         };
 
         let inner = MockInnerHandler::new();
@@ -891,6 +953,7 @@ mod tests {
             .on_message(SessionMessage::OnMessage {
                 message: app_msg,
                 direction: crate::MessageDirection::South,
+                ack_tx: None,
             })
             .await;
 

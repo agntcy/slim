@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
+	"github.com/glebarez/sqlite"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/wrapperspb"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -40,7 +41,7 @@ type RouteModel struct {
 	Component0     string
 	Component1     string
 	Component2     string
-	ComponentID    *uint64
+	ComponentID    *string
 	Status         int
 	StatusMsg      string
 	Deleted        bool
@@ -184,7 +185,8 @@ func (s *SQLiteDBService) GetRoutesForDestinationNodeIDAndName(nodeID string, co
 	if componentID == nil {
 		query = query.Where("component_id IS NULL")
 	} else {
-		query = query.Where("component_id = ?", componentID.Value)
+		componentIDStr := strconv.FormatUint(componentID.Value, 10)
+		query = query.Where("component_id = ?", componentIDStr)
 	}
 
 	var routeModels []RouteModel
@@ -213,7 +215,8 @@ func (s *SQLiteDBService) GetRouteForSrcAndDestinationAndName(srcNodeID string, 
 	if componentID == nil {
 		query = query.Where("component_id IS NULL")
 	} else {
-		query = query.Where("component_id = ?", componentID.Value)
+		componentIDStr := strconv.FormatUint(componentID.Value, 10)
+		query = query.Where("component_id = ?", componentIDStr)
 	}
 
 	var routeModel RouteModel
@@ -404,9 +407,10 @@ func (s *SQLiteDBService) nodeModelToNode(nodeModel NodeModel) Node {
 }
 
 func (s *SQLiteDBService) routeToRouteModel(route Route) RouteModel {
-	var componentID *uint64
+	var componentID *string
 	if route.ComponentID != nil {
-		componentID = &route.ComponentID.Value
+		componentIDStr := strconv.FormatUint(route.ComponentID.Value, 10)
+		componentID = &componentIDStr
 	}
 
 	return RouteModel{
@@ -429,7 +433,9 @@ func (s *SQLiteDBService) routeToRouteModel(route Route) RouteModel {
 func (s *SQLiteDBService) routeModelToRoute(routeModel RouteModel) Route {
 	var componentID *wrapperspb.UInt64Value
 	if routeModel.ComponentID != nil {
-		componentID = &wrapperspb.UInt64Value{Value: *routeModel.ComponentID}
+		if componentIDValue, err := strconv.ParseUint(*routeModel.ComponentID, 10, 64); err == nil {
+			componentID = &wrapperspb.UInt64Value{Value: componentIDValue}
+		}
 	}
 
 	return Route{

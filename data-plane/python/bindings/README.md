@@ -29,11 +29,11 @@ You can choose among multiple identity provider / verifier strategies:
 
 | Provider Variant                      | Use Case                               | Notes |
 |--------------------------------------|-----------------------------------------|-------|
-| `PyIdentityProvider.SharedSecret`    | Local dev / tests                       | Symmetric; not for production |
-| `PyIdentityProvider.StaticJwt`       | Pre-issued token loaded from file       | No key rotation; simple |
-| `PyIdentityProvider.Jwt`             | Dynamically signed JWT (private key)    | Supports exp, iss, aud, sub, duration |
-| `PyIdentityVerifier.Jwt`             | Verifies JWT (public key or JWKS auto)  | Optional claim requirements (`require_iss`, etc.) |
-| `PyIdentityVerifier.SharedSecret`    | Matches shared secret provider          | Symmetric validation |
+| `IdentityProvider.SharedSecret`    | Local dev / tests                       | Symmetric; not for production |
+| `IdentityProvider.StaticJwt`       | Pre-issued token loaded from file       | No key rotation; simple |
+| `IdentityProvider.Jwt`             | Dynamically signed JWT (private key)    | Supports exp, iss, aud, sub, duration |
+| `IdentityVerifier.Jwt`             | Verifies JWT (public key or JWKS auto)  | Optional claim requirements (`require_iss`, etc.) |
+| `IdentityVerifier.SharedSecret`    | Matches shared secret provider          | Symmetric validation |
 
 JWKS auto‑resolution (when configured in the verifier with `autoresolve=True`) will:
 1. Try OpenID discovery (`/.well-known/openid-configuration`) for `jwks_uri`
@@ -58,10 +58,10 @@ import slim_bindings
 
 async def main():
     # 1. Create identity
-    provider = slim_bindings.PyIdentityProvider.SharedSecret(identity="demo", shared_secret="secret")
-    verifier = slim_bindings.PyIdentityVerifier.SharedSecret(identity="demo", shared_secret="secret")
+    provider = slim_bindings.IdentityProvider.SharedSecret(identity="demo", shared_secret="secret")
+    verifier = slim_bindings.IdentityVerifier.SharedSecret(identity="demo", shared_secret="secret")
 
-    local_name = slim_bindings.PyName("org", "namespace", "demo")
+    local_name = slim_bindings.Name("org", "namespace", "demo")
     slim = await slim_bindings.Slim.new(local_name, provider, verifier)
 
     # 2. (Optionally) connect as a client to a remote endpoint
@@ -89,9 +89,9 @@ asyncio.run(main())
 ### 3. Outbound Session (PointToPoint)
 
 ```python
-remote = slim_bindings.PyName("org", "namespace", "peer")
+remote = slim_bindings.Name("org", "namespace", "peer")
 session = await slim.create_session(
-    slim_bindings.PySessionConfiguration.PointToPoint(
+    slim_bindings.SessionConfiguration.PointToPoint(
         peer_name=remote,
         mls_enabled=True,
         metadata={"trace_id": "abc123"},

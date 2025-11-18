@@ -52,6 +52,9 @@ async def run_client(
     jwt: str | None = None,
     spire_trust_bundle: str | None = None,
     audience: list[str] | None = None,
+    spire_socket_path: str | None = None,
+    spire_target_spiffe_id: str | None = None,
+    spire_jwt_audience: list[str] | None = None,
     message: str | None = None,
     iterations: int = 1,
 ):
@@ -85,6 +88,9 @@ async def run_client(
         jwt=jwt,
         spire_trust_bundle=spire_trust_bundle,
         audience=audience,
+        spire_socket_path=spire_socket_path,
+        spire_target_spiffe_id=spire_target_spiffe_id,
+        spire_jwt_audience=spire_jwt_audience,
     )
 
     # Numeric unique instance ID (useful for distinguishing multiple processes).
@@ -106,10 +112,11 @@ async def run_client(
             timeout=datetime.timedelta(seconds=5),
             mls_enabled=enable_mls,
         )
-        session = await local_app.create_session(remote_name, config)
+        session, handle = await local_app.create_session(remote_name, config)
+        await handle
 
         # Iterate send->receive cycles.
-        for i in range(iterations):
+        for i in range(3):
             try:
                 await session.publish(message.encode())
                 format_message_print(
@@ -128,6 +135,9 @@ async def run_client(
             # Basic pacing so output remains readable.
             await asyncio.sleep(1)
 
+        handle = await local_app.delete_session(session)
+        await handle
+
     # PASSIVE MODE (listen for inbound sessions)
     else:
         while True:
@@ -138,7 +148,7 @@ async def run_client(
             session = await local_app.listen_for_session()
             format_message_print(f"{instance}", f"new session {session.id}")
 
-            async def session_loop(sess: slim_bindings.PySession):
+            async def session_loop(sess: slim_bindings.Session):
                 """
                 Inner loop for a single inbound session:
                   * Receive messages until the session is closed or an error occurs.
@@ -195,6 +205,9 @@ def p2p_main(
     jwt: str | None = None,
     spire_trust_bundle: str | None = None,
     audience: list[str] | None = None,
+    spire_socket_path: str | None = None,
+    spire_target_spiffe_id: str | None = None,
+    spire_jwt_audience: list[str] | None = None,
     invites: list[str] | None = None,
     message: str | None = None,
     iterations: int = 1,
@@ -219,6 +232,9 @@ def p2p_main(
                 jwt=jwt,
                 spire_trust_bundle=spire_trust_bundle,
                 audience=audience,
+                spire_socket_path=spire_socket_path,
+                spire_target_spiffe_id=spire_target_spiffe_id,
+                spire_jwt_audience=spire_jwt_audience,
                 message=message,
                 iterations=iterations,
             )

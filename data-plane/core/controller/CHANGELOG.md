@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2](https://github.com/agntcy/slim/compare/slim-controller-v0.4.1...slim-controller-v0.4.2) - 2025-11-17
+
+### Added
+
+- add backoff retry ([#939](https://github.com/agntcy/slim/pull/939))
+- Integrate SPIRE-based mTLS & identity, unify TLS sources, enhance gRPC config, and add flexible metadata support ([#892](https://github.com/agntcy/slim/pull/892))
+
+### Fixed
+
+- add original MsgID to all response messages ([#891](https://github.com/agntcy/slim/pull/891))
+- Handle route connection faliures and node connection detail changes ([#833](https://github.com/agntcy/slim/pull/833))
+
+### Other
+
+- unify multicast and P2P session handling ([#904](https://github.com/agntcy/slim/pull/904))
+- implement all control message payload in protobuf ([#862](https://github.com/agntcy/slim/pull/862))
+- *(data-plane)* update project dependencies ([#861](https://github.com/agntcy/slim/pull/861))
+
 ## [0.4.1](https://github.com/agntcy/slim/compare/slim-controller-v0.4.0...slim-controller-v0.4.1) - 2025-10-17
 
 ### Other

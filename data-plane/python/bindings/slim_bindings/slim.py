@@ -1,6 +1,7 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
+import typing
 from datetime import timedelta
 
 from slim_bindings._slim_bindings import (
@@ -11,49 +12,13 @@ from slim_bindings._slim_bindings import (
     SessionConfiguration,
     SessionContext,
 )
-from slim_bindings._slim_bindings import (
-    connect as _connect,
-)
-from slim_bindings._slim_bindings import (
-    create_app as _create_app,
-)
-from slim_bindings._slim_bindings import (
-    create_session as _create_session,
-)
-from slim_bindings._slim_bindings import (
-    delete_session as _delete_session,
-)
-from slim_bindings._slim_bindings import (
-    disconnect as _disconnect,
-)
-from slim_bindings._slim_bindings import (
-    listen_for_session as _listen_for_session,
-)
-from slim_bindings._slim_bindings import (
-    remove_route as _remove_route,
-)
-from slim_bindings._slim_bindings import (
-    run_server as _run_server,
-)
-from slim_bindings._slim_bindings import (
-    set_route as _set_route,
-)
-from slim_bindings._slim_bindings import (
-    stop_server as _stop_server,
-)
-from slim_bindings._slim_bindings import (
-    subscribe as _subscribe,
-)
-from slim_bindings._slim_bindings import (
-    unsubscribe as _unsubscribe,
-)
 
-from .session import PySession
+from .session import Session
 
 
 class Slim:
     """
-    High-level façade over the underlying PyService (Rust core) providing a
+    High-level façade over the underlying Service (Rust core) providing a
     Pythonic API for:
       * Service initialization & authentication (via Slim.new)
       * Client connections to remote Slim services (connect / disconnect)
@@ -107,58 +72,39 @@ class Slim:
 
     def __init__(
         self,
-        svc: App,
         name: Name,
+        provider: IdentityProvider,
+        verifier: IdentityVerifier,
+        local_service: bool = False,
     ):
         """
-        Internal constructor. Prefer Slim.new(...) unless you already have a
-        prepared App. Associates this instance with the provided service
-        and cached local name/identity (Name).
+        Primary constructor for initializing a Slim instance.
+
+        Creates a Slim instance with the provided identity components and initializes
+        the underlying service handle.
 
         Args:
-            svc (App): Low-level service handle returned by bindings.
             name (Name): Fully qualified local name (org/namespace/app).
+            provider (IdentityProvider): Identity provider for authentication.
+            verifier (IdentityVerifier): Identity verifier for validating peers.
+            local_service (bool): Whether this is a local service. Defaults to False.
 
-        Note: No I/O is performed here; creation of the service happens in new().
+        Note: Service initialization happens here via PyApp construction.
         """
 
         # Initialize service
-        self._svc = svc
+        self._app = App(
+            name,
+            provider,
+            verifier,
+            local_service=local_service,
+        )
 
         # Create connection ID map
         self.conn_ids: dict[str, int] = {}
 
         # For the moment we manage one connection only
         self.conn_id: int | None = None
-
-    @classmethod
-    async def new(
-        cls,
-        name: Name,
-        provider: IdentityProvider,
-        verifier: IdentityVerifier,
-        local_service: bool = False,
-    ) -> "Slim":
-        """
-        Asynchronously construct and initialize a new Slim instance (preferred entry
-        point). Allocates a new underlying App via the native bindings.
-
-        Args:
-            name (Name): Fully qualified local application identity.
-            provider (IdentityProvider): Provides local authentication material.
-            verifier (IdentityVerifier): Verifies remote identities / signatures.
-            local_service (bool): If True, creates a local service instance
-                instead of using the global static service. Defaults to False (global).
-
-        Returns:
-            Slim: High-level wrapper around the created App.
-
-        Possible errors: Propagates exceptions from create_app.
-        """
-        return cls(
-            await _create_app(name, provider, verifier, local_service),
-            name,
-        )
 
     @property
     def id(self) -> int:
@@ -167,7 +113,7 @@ class Slim:
         Returns:
             int: Service ID allocated by the native layer.
         """
-        return self._svc.id
+        return self._app.id
 
     @property
     def id_str(self) -> str:
@@ -179,7 +125,7 @@ class Slim:
 
         components_string = self.local_name.components_strings()
 
-        return f"{components_string[0]}/{components_string[1]}/{components_string[2]}/{self._svc.id}"
+        return f"{components_string[0]}/{components_string[1]}/{components_string[2]}/{self._app.id}"
 
     @property
     def local_name(self) -> Name:
@@ -188,33 +134,33 @@ class Slim:
         Returns:
             Name: Immutable name used for routing, subscriptions, etc.
         """
-        return self._svc.name
+        return self._app.name
 
     async def create_session(
         self,
         destination: Name,
         session_config: SessionConfiguration,
-    ) -> PySession:
-        """Create a new session and return its high-level PySession wrapper.
+    ) -> typing.Any:
+        """Create a new session and return its high-level Session wrapper.
 
         Args:
             destination (Name): Target peer or channel name.
             session_config (SessionConfiguration): Parameters controlling creation.
 
         Returns:
-            PySession: Wrapper exposing high-level async operations for the session.
+            Session: Wrapper exposing high-level async operations for the session.
         """
-        ctx: SessionContext = await _create_session(
-            self._svc, destination, session_config
+        ctx, completion_handle = await self._app.create_session(
+            destination, session_config
         )
-        return PySession(ctx)
+        return Session(ctx), completion_handle
 
-    async def delete_session(self, session: PySession):
+    async def delete_session(self, session: Session) -> typing.Any:
         """
         Terminate and remove an existing session.
 
         Args:
-            session (PySession): Session wrapper previously returned by create_session.
+            session (Session): Session wrapper previously returned by create_session.
 
         Returns:
             None
@@ -224,7 +170,7 @@ class Slim:
         """
 
         # Remove the session from SLIM
-        await _delete_session(self._svc, session._ctx)
+        return await self._app.delete_session(session._ctx)
 
     async def run_server(self, config: dict):
         """
@@ -238,7 +184,7 @@ class Slim:
             None
         """
 
-        await _run_server(self._svc, config)
+        await self._app.run_server(config)
 
     async def stop_server(self, endpoint: str):
         """
@@ -251,7 +197,7 @@ class Slim:
             None
         """
 
-        await _stop_server(self._svc, endpoint)
+        await self._app.stop_server(endpoint)
 
     async def connect(self, client_config: dict) -> int:
         """
@@ -265,10 +211,7 @@ class Slim:
             int: Numeric connection identifier assigned by the service.
         """
 
-        conn_id = await _connect(
-            self._svc,
-            client_config,
-        )
+        conn_id = await self._app.connect(client_config)
 
         # Save the connection ID
         self.conn_ids[client_config["endpoint"]] = conn_id
@@ -277,9 +220,8 @@ class Slim:
         self.conn_id = conn_id
 
         # Subscribe to the local name
-        await _subscribe(
-            self._svc,
-            self._svc.name,
+        await self._app.subscribe(
+            self._app.name,
             conn_id,
         )
 
@@ -299,7 +241,7 @@ class Slim:
 
         """
         conn = self.conn_ids[endpoint]
-        await _disconnect(self._svc, conn)
+        await self._app.disconnect(conn)
 
     async def set_route(
         self,
@@ -318,8 +260,7 @@ class Slim:
         if self.conn_id is None:
             raise RuntimeError("No active connection. Please connect first.")
 
-        await _set_route(
-            self._svc,
+        await self._app.set_route(
             name,
             self.conn_id,
         )
@@ -341,8 +282,7 @@ class Slim:
         if self.conn_id is None:
             raise RuntimeError("No active connection. Please connect first.")
 
-        await _remove_route(
-            self._svc,
+        await self._app.remove_route(
             name,
             self.conn_id,
         )
@@ -358,7 +298,7 @@ class Slim:
             None
         """
 
-        await _subscribe(self._svc, name, self.conn_id)
+        await self._app.subscribe(name, self.conn_id)
 
     async def unsubscribe(self, name: Name):
         """
@@ -371,15 +311,15 @@ class Slim:
             None
         """
 
-        await _unsubscribe(self._svc, name, self.conn_id)
+        await self._app.unsubscribe(name, self.conn_id)
 
-    async def listen_for_session(self, timeout: timedelta | None = None) -> PySession:
+    async def listen_for_session(self, timeout: timedelta | None = None) -> Session:
         """
         Await the next inbound session (optionally bounded by timeout).
 
         Returns:
-            PySession: Wrapper for the accepted session context.
+            Session: Wrapper for the accepted session context.
         """
 
-        ctx: SessionContext = await _listen_for_session(self._svc, timeout)
-        return PySession(ctx)
+        ctx: SessionContext = await self._app.listen_for_session(timeout)
+        return Session(ctx)

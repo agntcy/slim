@@ -86,7 +86,7 @@ all subsequent traffic is pinned to that peer for the session lifetime.
 remote_name = split_id(remote)
 await local_app.set_route(remote_name)
 session = await local_app.create_session(
-    slim_bindings.PySessionConfiguration.PointToPoint(
+    slim_bindings.SessionConfiguration.PointToPoint(
         peer_name=remote_name,
         max_retries=5,
         timeout=datetime.timedelta(seconds=5),

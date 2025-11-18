@@ -17,7 +17,7 @@ Key concepts:
   - Invites are explicit: the moderator invites each participant after
     creating the session.
   - Participants that did not create the session simply wait for
-    listen_for_session() to yield their PySession.
+    listen_for_session() to yield their Session.
 
 Usage:
   slim-bindings-examples group \
@@ -122,7 +122,8 @@ async def keyboard_loop(session_ready, shared_session_container, local_app):
 
             if user_input.lower() in ("exit", "quit"):
                 # Also terminate the receive loop.
-                await local_app.delete_session(shared_session_container[0])
+                handle = await local_app.delete_session(shared_session_container[0])
+                await handle
                 break
 
             # Send message to the channel_name specified when creating the session.
@@ -148,6 +149,9 @@ async def run_client(
     jwt: str | None = None,
     spire_trust_bundle: str | None = None,
     audience: list[str] | None = None,
+    spire_socket_path: str | None = None,
+    spire_target_spiffe_id: str | None = None,
+    spire_jwt_audience: list[str] | None = None,
     invites: list[str] | None = None,
 ):
     """
@@ -178,6 +182,9 @@ async def run_client(
         jwt=jwt,
         spire_trust_bundle=spire_trust_bundle,
         audience=audience,
+        spire_socket_path=spire_socket_path,
+        spire_target_spiffe_id=spire_target_spiffe_id,
+        spire_jwt_audience=spire_jwt_audience,
     )
 
     # Parse the remote channel/topic if provided; else None triggers passive mode.
@@ -205,13 +212,12 @@ async def run_client(
             mls_enabled=enable_mls,  # Enable Messaging Layer Security for end-to-end encrypted & authenticated group communication.
         )
 
-        created_session = await local_app.create_session(
+        created_session, handle = await local_app.create_session(
             chat_channel,  # Logical group channel (Name) all participants join; acts as group/topic identifier.
             config,  # session configuration
         )
 
-        # Small delay so underlying routing / session creation stabilizes.
-        await asyncio.sleep(1)
+        await handle
 
         # Invite each provided participant. Route is set before inviting to ensure
         # outbound control messages can reach them. For more info see
@@ -219,7 +225,8 @@ async def run_client(
         for invite in invites:
             invite_name = split_id(invite)
             await local_app.set_route(invite_name)
-            await created_session.invite(invite_name)
+            handle = await created_session.invite(invite_name)
+            await handle
             print(f"{local} -> add {invite_name} to the group")
 
     # Launch the receiver immediately.
@@ -271,6 +278,9 @@ def group_main(
     jwt: str | None = None,
     spire_trust_bundle: str | None = None,
     audience: list[str] | None = None,
+    spire_socket_path: str | None = None,
+    spire_target_spiffe_id: str | None = None,
+    spire_jwt_audience: list[str] | None = None,
     invites: list[str] | None = None,
 ):
     """
@@ -290,6 +300,9 @@ def group_main(
                 jwt=jwt,
                 spire_trust_bundle=spire_trust_bundle,
                 audience=audience,
+                spire_socket_path=spire_socket_path,
+                spire_target_spiffe_id=spire_target_spiffe_id,
+                spire_jwt_audience=spire_jwt_audience,
                 invites=invites,
             )
         )

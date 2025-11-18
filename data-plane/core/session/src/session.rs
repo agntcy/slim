@@ -7,12 +7,17 @@ use slim_datapath::{
     messages::Name,
 };
 
-use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::{self};
 use tracing::debug;
 
 use crate::{
-    MessageDirection, common::SessionMessage, errors::SessionError, session_config::SessionConfig,
-    session_receiver::SessionReceiver, session_sender::SessionSender, traits::MessageHandler,
+    MessageDirection,
+    common::SessionMessage,
+    errors::SessionError,
+    session_config::SessionConfig,
+    session_receiver::SessionReceiver,
+    session_sender::SessionSender,
+    traits::{MessageHandler, ProcessingState},
     transmitter::SessionTransmitter,
 };
 
@@ -20,6 +25,7 @@ pub(crate) struct Session {
     local_name: Name,
     sender: SessionSender,
     receiver: SessionReceiver,
+    processing_state: ProcessingState,
 }
 
 impl Session {
@@ -28,7 +34,7 @@ impl Session {
         session_config: SessionConfig,
         local_name: &Name,
         tx: SessionTransmitter,
-        tx_signals: Sender<SessionMessage>,
+        tx_signals: mpsc::Sender<SessionMessage>,
     ) -> Self {
         let timer_settings = if let Some(duration) = session_config.interval
             && let Some(max_retries) = session_config.max_retries
@@ -60,12 +66,17 @@ impl Session {
             local_name: local_name.clone(),
             sender,
             receiver,
+            processing_state: ProcessingState::Active,
         }
     }
 
     pub async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
         match message {
-            SessionMessage::OnMessage { message, direction } => {
+            SessionMessage::OnMessage {
+                message,
+                direction,
+                ack_tx,
+            } => {
                 debug!(
                     "received message {} type {:?} on {} from {} (direction {:?})",
                     message.get_id(),
@@ -74,7 +85,8 @@ impl Session {
                     message.get_source(),
                     direction
                 );
-                self.on_application_message(message, direction).await
+                self.on_application_message(message, direction, ack_tx)
+                    .await
             }
             SessionMessage::TimerTimeout {
                 message_id,
@@ -88,8 +100,16 @@ impl Session {
                 name,
                 timeouts: _,
             } => self.on_timer_failure(message_id, message_type, name).await,
-            SessionMessage::DeleteSession { session_id: _ } => todo!(),
-            SessionMessage::StartDrain { grace_period_ms: _ } => todo!(),
+            SessionMessage::StartDrain { grace_period: _ } => {
+                self.processing_state = ProcessingState::Draining;
+                self.sender.start_drain();
+                self.receiver.start_drain();
+                Ok(())
+            }
+            _ => Err(SessionError::Processing(format!(
+                "Unexpected message type {:?}",
+                message
+            ))),
         }
     }
 
@@ -112,25 +132,41 @@ impl Session {
         &mut self,
         message: Message,
         direction: MessageDirection,
+        ack_tx: Option<tokio::sync::oneshot::Sender<Result<(), SessionError>>>,
     ) -> Result<(), SessionError> {
         match message.get_session_message_type() {
             ProtoSessionMessageType::Msg => {
                 if direction == MessageDirection::South {
-                    // message from app to slim, give it to the sender
-                    self.sender.on_message(message).await
+                    // message from app to slim, give it to the sender with ack
+                    self.sender.on_message(message, ack_tx).await
                 } else {
                     // message from slim to the app, give it to the receiver
+                    // Signal ack immediately for incoming messages
+                    if let Some(tx) = ack_tx {
+                        let _ = tx.send(Ok(()));
+                    }
                     self.receiver.on_message(message).await
                 }
             }
             ProtoSessionMessageType::MsgAck | ProtoSessionMessageType::RtxRequest => {
-                self.sender.on_message(message).await
+                self.sender.on_message(message, ack_tx).await
             }
-            ProtoSessionMessageType::RtxReply => self.receiver.on_message(message).await,
-            _ => Err(SessionError::Processing(format!(
-                "Unexpected message type {:?}",
-                message.get_session_message_type()
-            ))),
+            ProtoSessionMessageType::RtxReply => {
+                // Signal ack immediately for control messages
+                if let Some(tx) = ack_tx {
+                    let _ = tx.send(Ok(()));
+                }
+                self.receiver.on_message(message).await
+            }
+            _ => {
+                if let Some(tx) = ack_tx {
+                    let _ = tx.send(Ok(()));
+                }
+                Err(SessionError::Processing(format!(
+                    "Unexpected message type {:?}",
+                    message.get_session_message_type()
+                )))
+            }
         }
     }
 
@@ -195,6 +231,14 @@ impl MessageHandler for Session {
 
     fn remove_endpoint(&mut self, endpoint: &slim_datapath::messages::Name) {
         self.remove_endpoint(endpoint);
+    }
+
+    fn needs_drain(&self) -> bool {
+        !(self.sender.drain_completed() && self.receiver.drain_completed())
+    }
+
+    fn processing_state(&self) -> ProcessingState {
+        self.processing_state
     }
 
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {
@@ -264,6 +308,7 @@ mod tests {
             .on_message(SessionMessage::OnMessage {
                 message: message.clone(),
                 direction: MessageDirection::South,
+                ack_tx: None,
             })
             .await
             .expect("error sending message");
@@ -335,6 +380,7 @@ mod tests {
             .on_message(SessionMessage::OnMessage {
                 message: ack_message,
                 direction: MessageDirection::North,
+                ack_tx: None,
             })
             .await
             .expect("error sending ack");
@@ -365,7 +411,7 @@ mod tests {
         let session_config = SessionConfig {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(5),
-            interval: Some(Duration::from_millis(500)),
+            interval: Some(Duration::from_millis(200)),
             mls_enabled: false,
             initiator: false,
             metadata: HashMap::new(),
@@ -395,6 +441,7 @@ mod tests {
             .on_message(SessionMessage::OnMessage {
                 message: message1.clone(),
                 direction: MessageDirection::North,
+                ack_tx: None,
             })
             .await
             .expect("error receiving message1");
@@ -440,6 +487,7 @@ mod tests {
             .on_message(SessionMessage::OnMessage {
                 message: message3.clone(),
                 direction: MessageDirection::North,
+                ack_tx: None,
             })
             .await
             .expect("error receiving message3");
@@ -521,6 +569,7 @@ mod tests {
             .on_message(SessionMessage::OnMessage {
                 message: message2.clone(),
                 direction: MessageDirection::North,
+                ack_tx: None,
             })
             .await
             .expect("error receiving message2 as RtxReply");
@@ -637,6 +686,7 @@ mod tests {
             .on_message(SessionMessage::OnMessage {
                 message: message1.clone(),
                 direction: MessageDirection::South,
+                ack_tx: None,
             })
             .await
             .expect("error sending message from sender");
@@ -665,6 +715,7 @@ mod tests {
             .on_message(SessionMessage::OnMessage {
                 message: received_message.clone(),
                 direction: MessageDirection::North,
+                ack_tx: None,
             })
             .await
             .expect("error receiving message on receiver");
@@ -703,6 +754,7 @@ mod tests {
             .on_message(SessionMessage::OnMessage {
                 message: ack_to_sender,
                 direction: MessageDirection::North,
+                ack_tx: None,
             })
             .await
             .expect("error processing ack on sender");

@@ -15,9 +15,7 @@ use serde::Deserialize;
 use thiserror::Error;
 use tracing::Level;
 use tracing_opentelemetry::{MetricsLayer, OpenTelemetryLayer};
-use tracing_subscriber::{
-    Layer, filter::LevelFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt,
-};
+use tracing_subscriber::{EnvFilter, Layer, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 use slim_config::{grpc::client::ClientConfig, tls::client::TlsClientConfig};
 
@@ -29,6 +27,9 @@ const OTEL_EXPORTER_OTLP_ENDPOINT: &str = "http://localhost:4317";
 pub enum ConfigError {
     #[error("error loading GRPC config: {0}")]
     GRPCError(String),
+
+    #[error("error parsing filter directives: {0}")]
+    FilterParseError(#[from] tracing_subscriber::filter::ParseError),
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -43,7 +44,7 @@ pub struct TracingConfiguration {
     display_thread_ids: bool,
 
     #[serde(default = "default_filter")]
-    filter: String,
+    filters: Vec<String>,
 
     #[serde(default)]
     opentelemetry: OpenTelemetryConfig,
@@ -56,7 +57,7 @@ impl Default for TracingConfiguration {
             log_level: default_log_level(),
             display_thread_names: default_display_thread_names(),
             display_thread_ids: default_display_thread_ids(),
-            filter: default_filter(),
+            filters: default_filter(),
             opentelemetry: OpenTelemetryConfig::default(),
         }
     }
@@ -250,8 +251,25 @@ fn default_display_thread_ids() -> bool {
     false
 }
 
-fn default_filter() -> String {
-    "info".to_string()
+fn default_filter() -> Vec<String> {
+    // Only module names here. Their effective level will be the configured `log_level`.
+    vec![
+        "slim_datapath".to_string(),
+        "slim_service".to_string(),
+        "slim_controller".to_string(),
+        "slim_auth".to_string(),
+        "slim_config".to_string(),
+        "slim_mls".to_string(),
+        "slim_session".to_string(),
+        "slim_signal".to_string(),
+        "slim_tracing".to_string(),
+        "_slim_bindings".to_string(),
+        "slim_testing".to_string(),
+        "slim".to_string(),
+        "slim_examples".to_string(),
+        "sdk_mock".to_string(),
+        "client".to_string(),
+    ]
 }
 
 fn default_service_name() -> String {
@@ -323,8 +341,11 @@ impl TracingConfiguration {
         }
     }
 
-    pub fn with_filter(self, filter: String) -> Self {
-        TracingConfiguration { filter, ..self }
+    pub fn with_filter(self, filter: Vec<String>) -> Self {
+        TracingConfiguration {
+            filters: filter,
+            ..self
+        }
     }
 
     pub fn with_opentelemetry_config(mut self, config: OpenTelemetryConfig) -> Self {
@@ -354,8 +375,8 @@ impl TracingConfiguration {
         self.display_thread_ids
     }
 
-    pub fn filter(&self) -> &str {
-        &self.filter
+    pub fn filter(&self) -> &Vec<String> {
+        &self.filters
     }
 
     /// Set up a subscriber
@@ -363,6 +384,7 @@ impl TracingConfiguration {
         let fmt_layer = fmt::layer()
             .with_thread_ids(self.display_thread_ids)
             .with_thread_names(self.display_thread_names)
+            .with_line_number(true)
             .with_filter(tracing_subscriber::filter::filter_fn(
                 |metadata: &tracing::Metadata| {
                     !metadata
@@ -372,7 +394,76 @@ impl TracingConfiguration {
                 },
             ));
 
-        let level_filter = LevelFilter::from_level(resolve_level(&self.log_level));
+        // Build the EnvFilter with correct precedence:
+        // 1. Environment variable (RUST_LOG) overrides everything (both modules & levels)
+        // 2. User-provided filter (if differs from the default) overrides default (modules & levels)
+        // 3. Default filter modules use the configured `log_level`
+        //
+        // Additionally, environment variable has highest priority.
+        let level_filter = if let Ok(env_value) = std::env::var("RUST_LOG") {
+            // Highest priority: environment.
+            // If env_value has no global directive (a bare level), and consists only of module=level
+            // directives, then append a global "off" so that unspecified modules are silenced.
+            // Examples:
+            //   slim=debug                  -> slim=debug,off
+            //   slim=debug,slim_auth=trace  -> slim=debug,slim_auth=trace,off
+            //   debug                       -> debug            (keep global)
+            //   info,slim=debug             -> info,slim=debug  (keep global)
+            let needs_global_off = {
+                let tokens: Vec<&str> = env_value
+                    .split(',')
+                    .map(|t| t.trim())
+                    .filter(|t| !t.is_empty())
+                    .collect();
+                let bare_level_present = tokens
+                    .iter()
+                    .any(|t| matches!(*t, "trace" | "debug" | "info" | "warn" | "error" | "off"));
+                !bare_level_present
+            };
+            let augmented = if needs_global_off {
+                format!("{env_value},off")
+            } else {
+                env_value
+            };
+            EnvFilter::new(augmented)
+        } else {
+            let is_default = self.filters == default_filter();
+
+            // Always set a fallback directive using the configured log_level.
+            let builder =
+                EnvFilter::builder().with_default_directive(resolve_level(self.log_level()).into());
+
+            let filter_string = if is_default {
+                // Apply the configured log_level to each default module.
+                self.filters
+                    .iter()
+                    .map(|m| {
+                        // In case a module accidentally already contains a level (e.g. "foo=debug"),
+                        // keep only the part before '=' to enforce overriding with `log_level`.
+                        let module = m.split('=').next().unwrap_or(m);
+                        format!("{module}={}", self.log_level())
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",")
+            } else {
+                // Custom filter provided: treat entries as authoritative.
+                // They may include levels (module=level) or just modules.
+                // For entries without explicit level, append the configured log_level.
+                self.filters
+                    .iter()
+                    .map(|d| {
+                        if d.contains('=') {
+                            d.clone()
+                        } else {
+                            format!("{d}={}", self.log_level())
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",")
+            };
+
+            builder.parse_lossy(filter_string)
+        };
 
         if self.opentelemetry.enabled {
             // TODO(msardara): derive a tonic channel directly when opentelemetry-otlp
@@ -477,7 +568,7 @@ mod tests {
         assert_eq!(config.log_level, default_log_level());
         assert_eq!(config.display_thread_names, default_display_thread_names());
         assert_eq!(config.display_thread_ids, default_display_thread_ids());
-        assert_eq!(config.filter, default_filter());
+        assert_eq!(config.filters, default_filter());
     }
 
     #[test]
@@ -496,12 +587,12 @@ mod tests {
             .with_log_level("debug".to_string())
             .with_display_thread_names(false)
             .with_display_thread_ids(true)
-            .with_filter("debug".to_string());
+            .with_filter(vec!["debug".to_string()]);
 
         assert_eq!(config.log_level(), "debug");
         assert!(!config.display_thread_names());
         assert!(config.display_thread_ids());
-        assert_eq!(config.filter(), "debug");
+        assert_eq!(config.filter(), &vec!["debug".to_string()]);
     }
 
     #[test]

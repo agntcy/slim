@@ -11,6 +11,41 @@ class App:
     def id(self) -> builtins.int: ...
     @property
     def name(self) -> Name: ...
+    def __new__(cls, name:Name, provider:IdentityProvider, verifier:IdentityVerifier, local_service:builtins.bool) -> App: ...
+    def create_session(self, destination:Name, config:SessionConfiguration) -> typing.Any: ...
+    def listen_for_session(self, timeout:typing.Optional[datetime.timedelta]=None) -> typing.Any: ...
+    def run_server(self, config:dict) -> typing.Any: ...
+    def stop_server(self, endpoint:builtins.str) -> typing.Any: ...
+    def connect(self, config:dict) -> typing.Any: ...
+    def disconnect(self, conn:builtins.int) -> typing.Any: ...
+    def subscribe(self, name:Name, conn:typing.Optional[builtins.int]=None) -> typing.Any: ...
+    def unsubscribe(self, name:Name, conn:typing.Optional[builtins.int]=None) -> typing.Any: ...
+    def set_route(self, name:Name, conn:builtins.int) -> typing.Any: ...
+    def remove_route(self, name:Name, conn:builtins.int) -> typing.Any: ...
+    def delete_session(self, session_context:SessionContext) -> typing.Any: ...
+
+class CompletionHandle:
+    r"""
+    Handle for awaiting completion of asynchronous operations.
+    This class wraps a `CompletionHandle` future, allowing Python code
+    to await the completion of operations such as:
+    - Message delivery (publish)
+    - Session initialization (create_session)
+    - Participant invitation (invite)
+    - Participant removal (remove)
+    
+    # Examples
+    ````python
+    ...
+    # This will make sure the message is successfully handled to the session
+    res_pub = await session_context.publish(msg)
+    # This will make sure the message was successfully delivered to the peer(s)
+    ack = await res_pub
+    print("Operation completed:", ack)
+    ...
+    ```
+    """
+    ...
 
 class IdentityProvider:
     r"""
@@ -23,6 +58,8 @@ class IdentityProvider:
         standard JWT claims (iss, aud, sub) and a token validity duration.
     * SharedSecret { identity, shared_secret }:
         Symmetric token provider using a shared secret. Used mainly for testing.
+    * Spire { socket_path=None, target_spiffe_id=None, jwt_audiences=None }:
+        SPIRE-based provider retrieving SPIFFE JWT SVIDs (non-Windows only; requires SPIRE agent socket).
     
     Examples (Python):
     
@@ -124,6 +161,16 @@ class IdentityProvider:
         def shared_secret(self) -> builtins.str: ...
         def __new__(cls, identity:builtins.str, shared_secret:builtins.str) -> IdentityProvider.SharedSecret: ...
     
+    class Spire(IdentityProvider):
+        __match_args__ = ("socket_path", "target_spiffe_id", "jwt_audiences",)
+        @property
+        def socket_path(self) -> typing.Optional[builtins.str]: ...
+        @property
+        def target_spiffe_id(self) -> typing.Optional[builtins.str]: ...
+        @property
+        def jwt_audiences(self) -> typing.Optional[builtins.list[builtins.str]]: ...
+        def __new__(cls, socket_path:typing.Optional[builtins.str]=None, target_spiffe_id:typing.Optional[builtins.str]=None, jwt_audiences:typing.Optional[typing.Sequence[builtins.str]]=None) -> IdentityProvider.Spire: ...
+    
     ...
 
 class IdentityVerifier:
@@ -138,6 +185,10 @@ class IdentityVerifier:
         (public_key must be omitted in that case).
     * SharedSecret { identity, shared_secret }:
         Verifies tokens generated with the same shared secret.
+    * Spire { socket_path=None, target_spiffe_id=None, jwt_audiences=None }:
+        SPIRE-based JWT SVID verifier (non-Windows only). Uses SPIRE Workload API
+        bundles to validate SPIFFE JWT SVIDs. Requires an initialized SPIRE
+        identity manager. (Underlying AuthVerifier support must exist.)
     
     JWKS Auto-Resolve:
       When `autoresolve=True`, the verifier will attempt to resolve keys
@@ -254,6 +305,16 @@ class IdentityVerifier:
         @property
         def shared_secret(self) -> builtins.str: ...
         def __new__(cls, identity:builtins.str, shared_secret:builtins.str) -> IdentityVerifier.SharedSecret: ...
+    
+    class Spire(IdentityVerifier):
+        __match_args__ = ("socket_path", "target_spiffe_id", "jwt_audiences",)
+        @property
+        def socket_path(self) -> typing.Optional[builtins.str]: ...
+        @property
+        def target_spiffe_id(self) -> typing.Optional[builtins.str]: ...
+        @property
+        def jwt_audiences(self) -> typing.Optional[builtins.list[builtins.str]]: ...
+        def __new__(cls, socket_path:typing.Optional[builtins.str]=None, target_spiffe_id:typing.Optional[builtins.str]=None, jwt_audiences:typing.Optional[typing.Sequence[builtins.str]]=None) -> IdentityVerifier.Spire: ...
     
     ...
 
@@ -521,6 +582,26 @@ class SessionContext:
     def dst(self) -> typing.Optional[Name]: ...
     @property
     def session_config(self) -> SessionConfiguration: ...
+    def publish(self, fanout:builtins.int, blob:typing.Sequence[builtins.int], message_ctx:typing.Optional[MessageContext]=None, name:typing.Optional[Name]=None, payload_type:typing.Optional[builtins.str]=None, metadata:typing.Optional[typing.Mapping[builtins.str, builtins.str]]=None) -> typing.Any:
+        r"""
+        Publish a message through the specified session.
+        """
+    def publish_to(self, message_ctx:MessageContext, blob:typing.Sequence[builtins.int], payload_type:typing.Optional[builtins.str]=None, metadata:typing.Optional[typing.Mapping[builtins.str, builtins.str]]=None) -> typing.Any:
+        r"""
+        Publish a message as a reply to a received message through the specified session.
+        """
+    def invite(self, name:Name) -> typing.Any:
+        r"""
+        Invite a participant to the specified session (group only).
+        """
+    def remove(self, name:Name) -> typing.Any:
+        r"""
+        Remove a participant from the specified session (group only).
+        """
+    def get_message(self, timeout:typing.Optional[datetime.timedelta]=None) -> typing.Any:
+        r"""
+        Get a message from the specified session.
+        """
 
 class Algorithm(Enum):
     r"""
@@ -565,54 +646,5 @@ class SessionType(Enum):
     Many-to-many distribution via a group channel_name.
     """
 
-def connect(svc:App, config:dict) -> typing.Any: ...
-
-def create_app(name:Name, provider:IdentityProvider, verifier:IdentityVerifier, local_service:builtins.bool=False) -> typing.Any: ...
-
-def create_session(svc:App, destination:Name, config:SessionConfiguration) -> typing.Any: ...
-
-def delete_session(svc:App, session_context:SessionContext) -> typing.Any: ...
-
-def disconnect(svc:App, conn:builtins.int) -> typing.Any: ...
-
-def get_message(session_context:SessionContext, timeout:typing.Optional[datetime.timedelta]=None) -> typing.Any:
-    r"""
-    Get a message from the specified session.
-    """
-
 def init_tracing(config:dict) -> typing.Any: ...
-
-def invite(session_context:SessionContext, name:Name) -> typing.Any:
-    r"""
-    Invite a participant to the specified session (group only).
-    """
-
-def listen_for_session(svc:App, timeout:typing.Optional[datetime.timedelta]=None) -> typing.Any: ...
-
-def publish(session_context:SessionContext, fanout:builtins.int, blob:typing.Sequence[builtins.int], message_ctx:typing.Optional[MessageContext]=None, name:typing.Optional[Name]=None, payload_type:typing.Optional[builtins.str]=None, metadata:typing.Optional[typing.Mapping[builtins.str, builtins.str]]=None) -> typing.Any:
-    r"""
-    Publish a message through the specified session.
-    """
-
-def publish_to(session_context:SessionContext, message_ctx:MessageContext, blob:typing.Sequence[builtins.int], payload_type:typing.Optional[builtins.str]=None, metadata:typing.Optional[typing.Mapping[builtins.str, builtins.str]]=None) -> typing.Any:
-    r"""
-    Publish a message as a reply to a received message through the specified session.
-    """
-
-def remove(session_context:SessionContext, name:Name) -> typing.Any:
-    r"""
-    Remove a participant from the specified session (group only).
-    """
-
-def remove_route(svc:App, name:Name, conn:builtins.int) -> typing.Any: ...
-
-def run_server(svc:App, config:dict) -> typing.Any: ...
-
-def set_route(svc:App, name:Name, conn:builtins.int) -> typing.Any: ...
-
-def stop_server(svc:App, endpoint:builtins.str) -> typing.Any: ...
-
-def subscribe(svc:App, name:Name, conn:typing.Optional[builtins.int]=None) -> typing.Any: ...
-
-def unsubscribe(svc:App, name:Name, conn:typing.Optional[builtins.int]=None) -> typing.Any: ...
 

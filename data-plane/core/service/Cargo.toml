@@ -2,7 +2,7 @@
 name = "agntcy-slim-service"
 edition = { workspace = true }
 license = { workspace = true }
-version = "0.8.0"
+version = "0.8.1"
 description = "Main service and public API to interact with SLIM data plane."
 
 [lib]
@@ -17,6 +17,7 @@ agntcy-slim-mls = { workspace = true }
 agntcy-slim-session = { workspace = true }
 dirs = "5.0"
 drain = { workspace = true }
+futures = { workspace = true }
 parking_lot = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }

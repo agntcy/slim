@@ -98,6 +98,20 @@ impl ControllerSender {
                 missing_replies.insert(name);
                 self.on_send_message(message, missing_replies).await?;
             }
+            slim_datapath::api::ProtoSessionMessageType::GroupClose => {
+                let payload = message.extract_group_close().map_err(|e| {
+                    SessionError::Processing(format!(
+                        "failed to extract group close payload: {}",
+                        e
+                    ))
+                })?;
+                let mut missing_replies = HashSet::new();
+                for n in &payload.participants {
+                    let name = Name::from(n);
+                    missing_replies.insert(name);
+                }
+                self.on_send_message(message, missing_replies).await?;
+            }
             slim_datapath::api::ProtoSessionMessageType::DiscoveryReply
             | slim_datapath::api::ProtoSessionMessageType::JoinReply
             | slim_datapath::api::ProtoSessionMessageType::LeaveReply
@@ -196,7 +210,6 @@ impl ControllerSender {
         };
 
         self.pending_replies.insert(id, pending);
-
         self.tx
             .send_to_slim(Ok(message.clone()))
             .await
@@ -259,17 +272,20 @@ impl ControllerSender {
         self.pending_replies.remove(&id);
     }
 
-    pub fn start_drain(&mut self) {
-        if self.pending_replies.is_empty() {
-            debug!("closing controller sender");
-            self.draining_state = ControllerSenderDrainStatus::Completed;
-        } else {
-            debug!("controller sender drain initiated");
-            self.draining_state = ControllerSenderDrainStatus::Initiated;
+    pub fn clear_timers(&mut self) {
+        for (_, mut p) in self.pending_replies.drain() {
+            p.timer.stop();
         }
+        self.pending_replies.clear();
     }
 
-    pub fn check_drain_completion(&self) -> bool {
+    pub fn start_drain(&mut self) {
+        // set only initiated to true because we may need send request leave
+        debug!("controller sender drain initiated");
+        self.draining_state = ControllerSenderDrainStatus::Initiated;
+    }
+
+    pub fn drain_completed(&self) -> bool {
         // Drain is complete if we're draining and no pending acks remain
         if self.draining_state == ControllerSenderDrainStatus::Completed
             || self.draining_state == ControllerSenderDrainStatus::Initiated
@@ -281,11 +297,7 @@ impl ControllerSender {
     }
 
     pub fn close(&mut self) {
-        for (_, mut p) in self.pending_replies.drain() {
-            p.timer.stop();
-        }
-
-        self.pending_replies.clear();
+        self.clear_timers();
         self.draining_state = ControllerSenderDrainStatus::Completed;
     }
 }
@@ -406,7 +418,7 @@ mod tests {
         sender
             .on_message(&reply)
             .await
-            .expect("error sending message");
+            .expect("error sending reply");
 
         // this should stop the timer so we should not get any other message in slim
         let res = timeout(Duration::from_millis(400), rx_slim.recv()).await;
@@ -855,10 +867,7 @@ mod tests {
             .unwrap();
 
         // Send the first ack using on_message function
-        sender
-            .on_message(&ack1)
-            .await
-            .expect("error sending first ack");
+        sender.on_message(&ack1).await.expect("error sending ack");
 
         // Verify the message is still pending (timer should NOT stop yet with only 1/2 acks)
         assert!(
@@ -882,10 +891,7 @@ mod tests {
             .unwrap();
 
         // Send the second ack using on_message function
-        sender
-            .on_message(&ack2)
-            .await
-            .expect("error sending second ack");
+        sender.on_message(&ack2).await.expect("error sending ack");
 
         // Now the timer should be stopped - verify no more messages in slim
         let res = timeout(Duration::from_millis(400), rx_slim.recv()).await;
@@ -1000,10 +1006,7 @@ mod tests {
             .unwrap();
 
         // Send the first ack using on_message function
-        sender
-            .on_message(&ack1)
-            .await
-            .expect("error sending first ack");
+        sender.on_message(&ack1).await.expect("error sending ack");
 
         // Verify the message is still pending (timer should NOT stop yet with only 1/2 acks)
         assert!(
@@ -1058,10 +1061,7 @@ mod tests {
             .unwrap();
 
         // Send the second ack from participant2
-        sender
-            .on_message(&ack2)
-            .await
-            .expect("error sending second ack");
+        sender.on_message(&ack2).await.expect("error sending ack");
 
         // NOW the timer should be stopped - verify no more messages in slim
         let res = timeout(Duration::from_millis(400), rx_slim.recv()).await;
