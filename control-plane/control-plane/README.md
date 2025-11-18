@@ -61,14 +61,10 @@ Example default configuration can be found in `config/config.yaml` or below:
 northbound:
   httpHost: localhost
   httpPort: 50051
-  logging:
-    level: DEBUG
 
 southbound:
   httpHost: localhost
   httpPort: 50052
-  logging:
-    level: DEBUG
 
 reconciler:
   maxRequeues: 15
