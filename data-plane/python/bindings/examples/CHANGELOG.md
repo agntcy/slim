@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.6.1](https://github.com/agntcy/slim/compare/slim-bindings-examples-v0.6.0...slim-bindings-examples-v0.6.1) (2025-11-18)
+
+
+### Features
+
+* add gha cache for docker builds ([#908](https://github.com/agntcy/slim/issues/908)) ([53195ec](https://github.com/agntcy/slim/commit/53195ec9dca54b6cfb74f4f6f2faf23f2e74e0de))
+* enable spire as token provider for clients ([#945](https://github.com/agntcy/slim/issues/945)) ([6d8f65f](https://github.com/agntcy/slim/commit/6d8f65f329098e31b9f62bbaeaadb58b50f60b20))
+* expand SharedSecret Auth from simple secret:id to HMAC tokens ([#858](https://github.com/agntcy/slim/issues/858)) ([1d0c6e8](https://github.com/agntcy/slim/commit/1d0c6e8f694ee15ac437564fe6400b4d7bd4dde1))
+* **python-bindings:** Remove Py prefix from the python names ([#931](https://github.com/agntcy/slim/issues/931)) ([5ffb2cc](https://github.com/agntcy/slim/commit/5ffb2cca4bcb3c9c2f6985e8bff8e8e223266585))
+* **python-bindings:** Remove remaining Py... names from python bindings ([#954](https://github.com/agntcy/slim/issues/954)) ([da76c70](https://github.com/agntcy/slim/commit/da76c70f766c165bf91f81e24c0aa0fc06bbb8f9))
+* **session:** graceful session draining + reliable blocking API completion ([#924](https://github.com/agntcy/slim/issues/924)) ([5ae9e80](https://github.com/agntcy/slim/commit/5ae9e806ae72ec465dfa6fe3da2c562fa5d73e7c))
+
+
+### Bug Fixes
+
+* **bindings:** Make sure type hinting is working ([#920](https://github.com/agntcy/slim/issues/920)) ([380030e](https://github.com/agntcy/slim/commit/380030e4f3b7b2d2c3ac2a07c4c269fc4a98920e))
+
 ## [0.6.0](https://github.com/agntcy/slim/compare/slim-bindings-examples-v0.1.1...slim-bindings-examples-v0.6.0) (2025-10-09)
 
 
