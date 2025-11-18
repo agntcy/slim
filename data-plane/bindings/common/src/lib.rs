@@ -260,6 +260,23 @@ impl App {
         }))
     }
 
+    /// Delete a session and free its resources
+    pub fn delete_session(&self, session: Arc<SessionContext>) -> Result<()> {
+        // Try to upgrade the weak reference to the session controller
+        let session_ref = session.inner.session.upgrade()
+            .ok_or_else(|| SlimError::SessionError {
+                message: "Session already closed or dropped".to_string(),
+            })?;
+
+        // Delete the session and discard the completion handle
+        self.adapter
+            .delete_session(&session_ref)
+            .map(|_| ()) // Discard the CompletionHandle
+            .map_err(|e| SlimError::SessionError {
+                message: e.to_string(),
+            })
+    }
+
     /// Subscribe to a name
     pub fn subscribe(&self, name: Name, connection_id: Option<u64>) -> Result<()> {
         let slim_name: SlimName = name.into();

@@ -64,6 +64,16 @@ func main() {
 		log.Fatalf("❌ Failed to create session: %v", err)
 	}
 	fmt.Println("✅ Session created")
+	
+	// Ensure session cleanup when done
+	defer func() {
+		fmt.Println("\n🗑️  Cleaning up session...")
+		if err := app.DeleteSession(session); err != nil {
+			fmt.Printf("⚠️  Failed to delete session: %v\n", err)
+		} else {
+			fmt.Println("✅ Session deleted")
+		}
+	}()
 
 	// Publish a message
 	message := []byte("Hello from Go! 👋")

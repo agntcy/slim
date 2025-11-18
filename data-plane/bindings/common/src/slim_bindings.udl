@@ -56,6 +56,9 @@ interface App {
     [Throws=SlimError]
     SessionContext create_session(SessionConfig config, Name destination);
     
+    [Throws=SlimError]
+    void delete_session(SessionContext session);
+    
     // Subscription management
     [Throws=SlimError]
     void subscribe(Name name, u64? connection_id);
