@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.6.1](https://github.com/agntcy/slim/compare/helm-slim-control-plane-v0.6.0...helm-slim-control-plane-v0.6.1) (2025-11-18)
+
+
+### Features
+
+* **slim-control-plane:** upgrade to latest image ([#967](https://github.com/agntcy/slim/issues/967)) ([8084e19](https://github.com/agntcy/slim/commit/8084e190f2065bbda39dc23e0f318e52aac6b754))
+* use slqlite for Controller persistence ([#916](https://github.com/agntcy/slim/issues/916)) ([706916a](https://github.com/agntcy/slim/commit/706916a850cea78f46db6590ba92e37bc0c83f3c))
+
+
+### Bug Fixes
+
+* add original MsgID to all response messages ([#891](https://github.com/agntcy/slim/issues/891)) ([f297d5b](https://github.com/agntcy/slim/commit/f297d5bf1062994eca94bd07ada915e11f1d32f9))
+
 ## [0.6.0](https://github.com/agntcy/slim/compare/helm-slim-control-plane-v0.1.4...helm-slim-control-plane-v0.6.0) (2025-10-10)
 
 
