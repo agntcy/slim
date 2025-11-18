@@ -23,7 +23,7 @@ name = "slim-mcp-proxy"
 path = "src/main.rs"
 
 [dependencies]
-agntcy-slim = { path = "../../core/slim", version = "0.6.0" }
+agntcy-slim = { path = "../../core/slim", version = "0.7.0" }
 agntcy-slim-auth = { path = "../../core/auth", version = "0.4.0" }
 agntcy-slim-config = { path = "../../core/config", version = "0.4.0" }
 agntcy-slim-datapath = { path = "../../core/datapath", version = "0.10.0" }
