@@ -46,9 +46,9 @@ slim:
               tls:
                 insecure: true
                 # Uncomment below to connect to control plane with MTLS by Spire
-                # cert_file: "/svids/tls.crt"
-                # key_file: "/svids/tls.key"
-                # ca_file: "/svids/svid_bundle.pem"
+                # source:
+                #   type: spire
+                #   socket_path: unix://tmp/spire-agent/public/api.sock
               # Required in case of multi-cluster setup or when SLIM nodes are behind a NAT or Load Balancer.
               # metadata:
               #   # IP or DNS resolvable hostname that other SLIM nodes in the network (cluster)
