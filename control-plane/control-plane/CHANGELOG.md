@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.6.1](https://github.com/agntcy/slim/compare/control-plane-v0.6.0...control-plane-v0.6.1) (2025-11-18)
+## [0.6.1](https://github.com/agntcy/slim/compare/control-plane-v0.6.0...control-plane-v0.7.0) (2025-11-18)
 
 
 ### Features
