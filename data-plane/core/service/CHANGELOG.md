@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1](https://github.com/agntcy/slim/compare/slim-service-v0.8.0...slim-service-v0.8.1) - 2025-11-17
+
+### Added
+
+- enable spire as token provider for clients ([#945](https://github.com/agntcy/slim/pull/945))
+- *(session)* graceful session draining + reliable blocking API completion ([#924](https://github.com/agntcy/slim/pull/924))
+- Integrate SPIRE-based mTLS & identity, unify TLS sources, enhance gRPC config, and add flexible metadata support ([#892](https://github.com/agntcy/slim/pull/892))
+- expand SharedSecret Auth from simple secret:id to HMAC tokens ([#858](https://github.com/agntcy/slim/pull/858))
+- derive name ID part from identity token ([#851](https://github.com/agntcy/slim/pull/851))x
+
+### Fixed
+
+- *(session)* prevent session queue saturation ([#903](https://github.com/agntcy/slim/pull/903))
+- *(service)* disconnect API ([#890](https://github.com/agntcy/slim/pull/890))
+- *(app.rs)* get app name from local property ([#859](https://github.com/agntcy/slim/pull/859))
+
+### Other
+
+- unify multicast and P2P session handling ([#904](https://github.com/agntcy/slim/pull/904))
+- implement all control message payload in protobuf ([#862](https://github.com/agntcy/slim/pull/862))
+- common rust infrastructure for language bindings ([#840](https://github.com/agntcy/slim/pull/840))
+
 ## [0.8.0](https://github.com/agntcy/slim/compare/slim-service-v0.7.0...slim-service-v0.8.0) - 2025-10-17
 
 ### Added
