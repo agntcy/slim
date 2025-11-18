@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.1](https://github.com/agntcy/slim/compare/helm-slim-v0.6.0...helm-slim-v0.6.1) (2025-11-18)
+
+
+### Features
+
+* **slim-helm:** upgrade to latest image ([#966](https://github.com/agntcy/slim/issues/966)) ([7fd71c8](https://github.com/agntcy/slim/commit/7fd71c892cc265f01f38310a196052556f70a035))
+* support data-plane spire configs ([#940](https://github.com/agntcy/slim/issues/940)) ([ab80876](https://github.com/agntcy/slim/commit/ab8087635fcb677bdcc7a698f9c947ea8913418c))
+
 ## [0.6.0](https://github.com/agntcy/slim/compare/helm-slim-v0.2.0...helm-slim-v0.6.0) (2025-10-10)
 
 
