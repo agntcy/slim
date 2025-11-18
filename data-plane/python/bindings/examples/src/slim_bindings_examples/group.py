@@ -171,6 +171,9 @@ async def run_client(
         jwt: Path to static JWT token (if using JWT auth).
         spire_trust_bundle: SPIRE trust bundle file path.
         audience: Audience list for JWT verification.
+        spire_socket_path: Path to SPIRE agent socket for workload API access.
+        spire_target_spiffe_id: Target SPIFFE ID for mTLS authentication with SPIRE.
+        spire_jwt_audience: Audience list for SPIRE JWT-SVID validation.
         invites: List of participant IDs to invite (moderator only).
     """
     # Create & connect the local Slim instance (auth derived from args).

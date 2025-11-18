@@ -17,23 +17,28 @@ Security (MLS).
 
 ### 1. Create the local application
 
-First we construct a local SLIM application instance:
+The script first initializes a local SLIM application instance using the
+following configuration options:
 
 ```python
-local_app = await create_local_app(
-    local,
-    slim,
-    enable_opentelemetry=enable_opentelemetry,
-    shared_secret=shared_secret,
-    jwt=jwt,
-    spire_trust_bundle=spire_trust_bundle,
-    audience=audience,
-)
+    # Create & connect the local Slim instance (auth derived from args).
+    local_app = await create_local_app(
+        local,
+        slim,
+        enable_opentelemetry=enable_opentelemetry,
+        shared_secret=shared_secret,
+        jwt=jwt,
+        spire_trust_bundle=spire_trust_bundle,
+        audience=audience,
+        spire_socket_path=spire_socket_path,
+        spire_target_spiffe_id=spire_target_spiffe_id,
+        spire_jwt_audience=spire_jwt_audience,
+    )
 ```
 
+`create_local_app` (in `common.py`) creates and configures a new SLIM
+application instance. Main parameters:
 
-`create_local_app` is a helper function defined in `common.py` that creates and
-configures a new local SLIM application instance. The main parameters are:
 
 - `local` (str): The SLIM name of the local application in the form
     `org/ns/service` (required).
@@ -48,7 +53,7 @@ configures a new local SLIM application instance. The main parameters are:
 - `enable_opentelemetry` (bool, default: `False`): Enable OpenTelemetry
     tracing. If `True`, traces are sent to `http://localhost:4317` by default.
 - `shared_secret` (str | None, default: `None`): Shared secret for identity and
-    authentication. Required if JWT and bundle are not provided.
+    authentication. Required if JWT, bundle and audience are not provided.
 - `jwt` (str | None, default: `None`): JWT token for identity. Used with
     `spire_trust_bundle` and `audience` for JWT-based authentication.
 - `spire_trust_bundle` (str | None, default: `None`): JWT trust bundle (list
@@ -62,8 +67,12 @@ configures a new local SLIM application instance. The main parameters are:
     ```
 - `audience` (list[str] | None, default: `None`): List of allowed audiences for
     JWT authentication.
-If `jwt`, `spire-trust-bundle` and `audience` are not, `shared_secret` must be set (only
-recommended for local testing / example, not production).
+- `spire_socket_path` (str | None, default: `None`): Path to SPIRE agent socket for workload API access.
+- `spire_target_spiffe_id` (str | None, default: `None`): Target SPIFFE ID for mTLS authentication with SPIRE.
+- `spire_jwt_audience` (list[str] | None, default: `None`): Audience list for SPIRE JWT-SVID validation.
+
+If `jwt`, `spire-trust-bundle` and `audience` are not provided, `shared_secret` must be set (only
+recommended for local testing / examples, not production).
 
 ### 2. Sender vs Receiver
 
@@ -83,16 +92,18 @@ In a PointToPoint session, a Discovery mechanism selects one target instance and
 all subsequent traffic is pinned to that peer for the session lifetime.
 
 ```python
-remote_name = split_id(remote)
-await local_app.set_route(remote_name)
-session = await local_app.create_session(
-    slim_bindings.SessionConfiguration.PointToPoint(
-        peer_name=remote_name,
+    # Convert the remote ID string into a Name.
+    remote_name = split_id(remote)
+    # Establish routing so outbound publishes know the remote destination.
+    await local_app.set_route(remote_name)
+
+    config = slim_bindings.SessionConfiguration.PointToPoint(
         max_retries=5,
         timeout=datetime.timedelta(seconds=5),
         mls_enabled=enable_mls,
     )
-)
+    session, handle = await local_app.create_session(remote_name, config)
+    await handle
 ```
 
 Reliability parameters:
@@ -102,16 +113,33 @@ Reliability parameters:
 When MLS is enabled (`--enable-mls`), payloads are protected using the MLS
 protocol; only session members can decrypt and authenticate messages.
 
+The `local_app.create_session(...)` create the session and returns an handler `handle`. 
+The `await handle` guarantees that the session is fully established when it returns.  
+
 ### 3. Sender publish & response handling
 
 In sender mode the example loops for `iterations` times, publishing and then
 waiting for a reply (Alice echoes it). Logic summary:
 
 ```python
-for i in range(iterations):
-    await session.publish(message.encode())
-    _ctx, reply = await session.get_message()
-    print("received reply", reply.decode())
+    for i in range(iterations):
+        try:
+            await session.publish(message.encode())
+            format_message_print(
+                f"{instance}",
+                f"Sent message {message} - {i + 1}/{iterations}:",
+            )
+            # Wait for reply from remote peer.
+            _msg_ctx, reply = await session.get_message()
+            format_message_print(
+                f"{instance}",
+                f"received (from session {session.id}): {reply.decode()}",
+            )
+        except Exception as e:
+            # Surface an error but continue attempts (simple resilience).
+            format_message_print(f"{instance}", f"error: {e}")
+        # Basic pacing so output remains readable.
+        await asyncio.sleep(1)
 ```
 
 ### 4. Receiver session & echo loop
@@ -119,13 +147,28 @@ for i in range(iterations):
 Without `--message`, the process waits for inbound sessions:
 
 ```python
-while True:
+    # Block until a remote peer initiates a session to us.
     session = await local_app.listen_for_session()
-    async def session_loop(session):
+    format_message_print(f"{instance}", f"new session {session.id}")
+
+    async def session_loop(sess: slim_bindings.Session):
+        """
+        Inner loop for a single inbound session:
+            * Receive messages until the session is closed or an error occurs.
+            * Echo each message back using publish_to.
+        """
         while True:
-            msg_ctx, payload = await session.get_message()
+            try:
+                msg_ctx, payload = await sess.get_message()
+            except Exception:
+                # Session likely closed or transport broken.
+                break
             text = payload.decode()
-            await session.publish_to(msg_ctx, f"{text} from {local_app.id}".encode())
+            format_message_print(f"{instance}", f"received: {text}")
+            # Echo reply with appended instance identifier.
+            await sess.publish_to(msg_ctx, f"{text} from {instance}".encode())
+
+    # Launch a dedicated task to handle this session (allow multiple).
     asyncio.create_task(session_loop(session))
 ```
 
