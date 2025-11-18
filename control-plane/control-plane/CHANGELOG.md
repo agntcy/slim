@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.6.1](https://github.com/agntcy/slim/compare/control-plane-v0.6.0...control-plane-v0.7.0) (2025-11-18)
+
+
+### Features
+
+* outline routes (list routes from the controller) ([#871](https://github.com/agntcy/slim/issues/871)) ([278ec7d](https://github.com/agntcy/slim/commit/278ec7da6f85140da3b43a723773423386ec07a5))
+* support data-plane spire configs ([#940](https://github.com/agntcy/slim/issues/940)) ([ab80876](https://github.com/agntcy/slim/commit/ab8087635fcb677bdcc7a698f9c947ea8913418c))
+* use slqlite for Controller persistence ([#916](https://github.com/agntcy/slim/issues/916)) ([706916a](https://github.com/agntcy/slim/commit/706916a850cea78f46db6590ba92e37bc0c83f3c))
+
+
+### Bug Fixes
+
+* add original MsgID to all response messages ([#891](https://github.com/agntcy/slim/issues/891)) ([f297d5b](https://github.com/agntcy/slim/commit/f297d5bf1062994eca94bd07ada915e11f1d32f9))
+* Handle route connection faliures and node connection detail changes ([#833](https://github.com/agntcy/slim/issues/833)) ([8027c3b](https://github.com/agntcy/slim/commit/8027c3b0a11a7d3c2b57184d2313e18d5de6ba3b))
+* store componentID as string in sqlight db ([#958](https://github.com/agntcy/slim/issues/958)) ([2c2d175](https://github.com/agntcy/slim/commit/2c2d1754799f8b2de5f2b922c5dc084e9920876e))
+* upgraded to golang version 1.25.4 ([#923](https://github.com/agntcy/slim/issues/923)) ([82cabef](https://github.com/agntcy/slim/commit/82cabef4e744fa7954559d06aa97e81d3e4eef3a))
+
 ## [0.6.0](https://github.com/agntcy/slim/compare/control-plane-v0.1.1...control-plane-v0.6.0) (2025-10-09)
 
 
