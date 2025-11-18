@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.7.0](https://github.com/agntcy/slim/compare/slimctl-v0.6.0...slimctl-v0.7.0) (2025-11-18)
+
+
+### Features
+
+* add config subcommand to slimctl ([#818](https://github.com/agntcy/slim/issues/818)) ([562b550](https://github.com/agntcy/slim/commit/562b5504608cb37f6d6f6e9dede155cf92a83426))
+* outline routes (list routes from the controller) ([#871](https://github.com/agntcy/slim/issues/871)) ([278ec7d](https://github.com/agntcy/slim/commit/278ec7da6f85140da3b43a723773423386ec07a5))
+* support for homebrew  - slimctl releases ([#921](https://github.com/agntcy/slim/issues/921)) ([e6688b8](https://github.com/agntcy/slim/commit/e6688b825a8c1ad3d1fe5d13073d20efe931707a))
+
+
+### Bug Fixes
+
+* Handle route connection faliures and node connection detail changes ([#833](https://github.com/agntcy/slim/issues/833)) ([8027c3b](https://github.com/agntcy/slim/commit/8027c3b0a11a7d3c2b57184d2313e18d5de6ba3b))
+* upgraded to golang version 1.25.4 ([#923](https://github.com/agntcy/slim/issues/923)) ([82cabef](https://github.com/agntcy/slim/commit/82cabef4e744fa7954559d06aa97e81d3e4eef3a))
+
 ## [0.6.0](https://github.com/agntcy/slim/compare/slimctl-v0.2.2...slimctl-v0.6.0) (2025-10-09)
 
 
