@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.7.0](https://github.com/agntcy/slim/compare/slim-testutils-v0.6.1...slim-testutils-v0.7.0) (2025-11-18)
+
+
+### Features
+
+* expand SharedSecret Auth from simple secret:id to HMAC tokens ([#858](https://github.com/agntcy/slim/issues/858)) ([1d0c6e8](https://github.com/agntcy/slim/commit/1d0c6e8f694ee15ac437564fe6400b4d7bd4dde1))
+* Integrate SPIRE-based mTLS & identity, unify TLS sources, enhance gRPC config, and add flexible metadata support ([#892](https://github.com/agntcy/slim/issues/892)) ([a86bfd6](https://github.com/agntcy/slim/commit/a86bfd64a75d7f5aba2b440d58fa8f3d5bd3a8a0))
+* **session:** graceful session draining + reliable blocking API completion ([#924](https://github.com/agntcy/slim/issues/924)) ([5ae9e80](https://github.com/agntcy/slim/commit/5ae9e806ae72ec465dfa6fe3da2c562fa5d73e7c))
+
 ## [0.6.1](https://github.com/agntcy/slim/compare/slim-testutils-v0.6.0...slim-testutils-v0.6.1) (2025-10-17)
 
 
