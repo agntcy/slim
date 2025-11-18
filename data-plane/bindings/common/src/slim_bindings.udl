@@ -1,0 +1,131 @@
+// UniFFI Definition Language (UDL) for SLIM Go Bindings
+// This file defines the interface exposed to Go
+
+namespace slim_bindings {
+    // Initialize the crypto provider
+    void initialize_crypto();
+    
+    // Get version information
+    string get_version();
+};
+
+// Name type for hierarchical identity
+dictionary Name {
+    sequence<string> components;
+    u64? id;
+};
+
+// Message context containing routing and metadata
+dictionary MessageContext {
+    Name source_name;
+    Name? destination_name;
+    string payload_type;
+    record<string, string> metadata;
+    u64 input_connection;
+    string identity;
+};
+
+// Session configuration
+enum SessionType {
+    "PointToPoint",
+    "Multicast",
+};
+
+dictionary SessionConfig {
+    SessionType session_type;
+    boolean enable_mls;
+};
+
+// Service reference (simplified for Go)
+interface Service {
+    [Throws=SlimError, Name=new]
+    constructor();
+    
+    // Create an app adapter
+    [Throws=SlimError]
+    App create_app(Name app_name, string shared_secret);
+};
+
+// App adapter - main interface for applications
+interface App {
+    // Get app properties
+    u64 id();
+    Name name();
+    
+    // Session management
+    [Throws=SlimError]
+    SessionContext create_session(SessionConfig config, Name destination);
+    
+    // Subscription management
+    [Throws=SlimError]
+    void subscribe(Name name, u64? connection_id);
+    
+    [Throws=SlimError]
+    void unsubscribe(Name name, u64? connection_id);
+    
+    // Route management
+    [Throws=SlimError]
+    void set_route(Name name, u64 connection_id);
+    
+    [Throws=SlimError]
+    void remove_route(Name name, u64 connection_id);
+    
+    // Listen for incoming sessions
+    [Throws=SlimError]
+    SessionContext listen_for_session(u32? timeout_ms);
+};
+
+// Session context for messaging within a session
+interface SessionContext {
+    // Publish a message
+    [Throws=SlimError]
+    void publish(
+        Name destination,
+        u32 fanout,
+        bytes payload,
+        u64? connection_id,
+        string? payload_type,
+        record<string, string>? metadata
+    );
+    
+    // Reply to a received message
+    [Throws=SlimError]
+    void publish_to(
+        MessageContext original_context,
+        bytes payload,
+        string? payload_type,
+        record<string, string>? metadata
+    );
+    
+    // Invite a peer to the session
+    [Throws=SlimError]
+    void invite(Name peer);
+    
+    // Remove a peer from the session
+    [Throws=SlimError]
+    void remove(Name peer);
+    
+    // Receive a message from this session
+    [Throws=SlimError]
+    MessageWithContext get_message(u32? timeout_ms);
+};
+
+// Combined message and context for receiving
+dictionary MessageWithContext {
+    MessageContext context;
+    bytes payload;
+};
+
+// Error type
+[Error]
+enum SlimError {
+    "ConfigError",
+    "SessionError", 
+    "ReceiveError",
+    "SendError",
+    "AuthError",
+    "Timeout",
+    "InvalidArgument",
+    "InternalError",
+};
+

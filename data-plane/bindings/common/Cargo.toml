@@ -1,0 +1,36 @@
+[package]
+name = "slim-go-bindings"
+edition = "2021"
+license = "Apache-2.0"
+version = "0.1.0"
+description = "Common Rust library for SLIM language bindings using UniFFI"
+
+# This is a standalone crate, not part of the main workspace
+[workspace]
+members = []
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+name = "slim_go_bindings"
+
+[dependencies]
+# SLIM dependencies
+agntcy-slim-auth = { path = "../../core/auth", version = "0.4.0" }
+agntcy-slim-config = { path = "../../core/config", version = "0.4.1" }
+agntcy-slim-datapath = { path = "../../core/datapath", version = "0.10.1" }
+agntcy-slim-service = { path = "../../core/service", version = "0.8.0" }
+agntcy-slim-session = { path = "../../core/session", version = "0.1.0" }
+
+# UniFFI
+uniffi = { version = "0.28.3", features = ["cli"] }
+
+# Async runtime
+tokio = { version = "1.40", features = ["full"] }
+
+[build-dependencies]
+uniffi = { version = "0.28.3", features = ["build"] }
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+

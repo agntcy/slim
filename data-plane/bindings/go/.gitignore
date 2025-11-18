@@ -1,0 +1,14 @@
+# Generated Go bindings
+generated/
+
+# Rust build artifacts
+target/
+Cargo.lock
+
+# Go artifacts
+*.so
+*.dylib
+*.dll
+go.mod
+go.sum
+
