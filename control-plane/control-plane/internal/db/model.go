@@ -19,8 +19,9 @@ type Node struct {
 type ConnectionDetails struct {
 	Endpoint         string
 	ExternalEndpoint *string
-	GroupName        *string
-	MTLSRequired     bool
+	// not used at the moment, but reserved for future use
+	GroupName    *string
+	MTLSRequired bool
 }
 
 func (cd ConnectionDetails) String() string {

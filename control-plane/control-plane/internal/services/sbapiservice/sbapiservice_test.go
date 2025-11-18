@@ -2,6 +2,7 @@ package sbapiservice
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"testing"
@@ -806,4 +807,90 @@ func TestSouthbound_NoRegistration(t *testing.T) {
 
 	// Stream should close or subsequent operations should fail
 	time.Sleep(500 * time.Millisecond)
+}
+
+func strPtr(s string) *string {
+	return &s
+}
+
+func TestSouthbound_DifferentGroupsWithMTLS(t *testing.T) {
+	db := db.NewInMemoryDBService()
+	target, cleanup := startSouthbound(t, db)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Create two mock servers with different group names and mTLS required
+	slim0, _ := NewMockSlimServer("slim-0", 4500, target)
+	slim0.GroupName = strPtr("group-alpha")
+	slim0.MTLSRequired = true
+	slim0.ExternalEndpoint = strPtr("external-slim-0:4500")
+	slim1, _ := NewMockSlimServer("slim-1", 4501, target)
+	slim1.GroupName = strPtr("group-beta")
+	slim1.MTLSRequired = true
+	slim1.ExternalEndpoint = strPtr("external-slim-1:4501")
+
+	if err := slim0.Start(ctx); err != nil {
+		t.Fatalf("slim0 start: %v", err)
+	}
+	if err := slim1.Start(ctx); err != nil {
+		t.Fatalf("slim1 start: %v", err)
+	}
+
+	// Wait for nodes to register in DB
+	waitCond(t, 3*time.Second, func() bool {
+		return len(db.ListNodes()) == 2
+	}, "wait for 2 nodes to register")
+
+	// slim-0 publishes a subscription org/test/client/0
+	if err := slim0.updateSubscription(ctx, "org", "test", "client",
+		0, false); err != nil {
+		t.Fatalf("failed to send subcription update: %v", err)
+	}
+
+	// check that routes created in DB: from other nodes to slim-0
+	waitCond(t, 3*time.Second, func() bool {
+		for _, r := range db.GetRoutesForNodeID("group-beta/slim-1") {
+			if r.DestNodeID == "group-alpha/slim-0" && r.Component0 == "org" && r.Component2 == "client" {
+				return true
+			}
+		}
+		return false
+	}, "wait for route for group-beta/slim-1 to be created")
+
+	// Verify that slim1 received the connection with proper endpoint and ca_source
+	conns, _ := slim1.GetReceived()
+	var foundConnection bool
+	for _, conn := range conns {
+		if conn.ConnectionId == "https://external-slim-0:4500" {
+			// Parse the config data to check ca_source
+			var config map[string]interface{}
+			require.NoError(t, json.Unmarshal([]byte(conn.ConfigData), &config))
+
+			// Check if tls field exists
+			tls, ok := config["tls"].(map[string]interface{})
+			require.True(t, ok, "tls field should exist in config")
+
+			// Check if ca_source exists
+			caSource, ok := tls["ca_source"].(map[string]interface{})
+			require.True(t, ok, "ca_source should exist in tls config")
+
+			// Check if trust_domains exists and contains "group-alpha"
+			trustDomains, ok := caSource["trust_domains"].([]interface{})
+			require.True(t, ok, "trust_domains should exist in ca_source")
+			require.Len(t, trustDomains, 1, "trust_domains should have exactly one entry")
+
+			trustDomain, ok := trustDomains[0].(string)
+			require.True(t, ok, "trust_domain should be a string")
+			require.Equal(t, "group-alpha", trustDomain, "trust_domain should be group-alpha")
+
+			foundConnection = true
+			break
+		}
+	}
+	require.True(t, foundConnection, "should find connection with endpoint https://external-slim-0:4500")
+
+	_ = slim0.Close()
+	_ = slim1.Close()
 }
