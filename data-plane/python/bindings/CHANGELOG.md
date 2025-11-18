@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.6.2](https://github.com/agntcy/slim/compare/slim-bindings-v0.6.1...slim-bindings-v0.6.2) (2025-11-18)
+## [0.6.2](https://github.com/agntcy/slim/compare/slim-bindings-v0.6.1...slim-bindings-v0.7.0) (2025-11-18)
 
 
 ### Features
