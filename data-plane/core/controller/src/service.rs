@@ -254,6 +254,11 @@ impl ControlPlane {
     pub async fn run(&mut self) -> Result<(), ControllerError> {
         info!("starting controller service");
 
+        let rx = self
+            .rx_slim_option
+            .take()
+            .ok_or(ControllerError::ConfigError("Already running.".to_string()))?;
+
         // Collect servers to avoid borrowing self both mutably and immutably
         let servers = self.servers.clone();
         let clients = self.clients.clone();
@@ -268,8 +273,7 @@ impl ControlPlane {
             self.run_client(client).await?;
         }
 
-        let rx = self.rx_slim_option.take();
-        self.listen_from_data_plane(rx.unwrap()).await;
+        self.listen_from_data_plane(rx).await;
 
         Ok(())
     }
@@ -1559,41 +1563,40 @@ mod tests {
     use slim_testing::utils::TEST_VALID_SECRET;
     use tracing_test::traced_test;
 
-    #[tokio::test]
-    #[traced_test]
-    async fn test_end_to_end() {
-        // Create an ID for slim instance
-        let id_server =
-            ID::new_with_name(Kind::new("slim").unwrap(), "test-server-instance").unwrap();
-        let id_client =
-            ID::new_with_name(Kind::new("slim").unwrap(), "test-client-instance").unwrap();
+    /// Helper to build a server and client control plane pair with shared-secret auth.
+    async fn setup_control_planes(
+        server_endpoint: &str,
+        server_name: &str,
+        client_name: &str,
+    ) -> (
+        ControlPlane,
+        ControlPlane,
+        drain::Signal,
+        drain::Signal,
+        ClientConfig,
+    ) {
+        let id_server = ID::new_with_name(Kind::new("slim").unwrap(), server_name).unwrap();
+        let id_client = ID::new_with_name(Kind::new("slim").unwrap(), client_name).unwrap();
 
-        // Create a server configuration
-        let server_config = ServerConfig::with_endpoint("127.0.0.1:50051")
+        let server_config = ServerConfig::with_endpoint(server_endpoint)
             .with_tls_settings(slim_config::tls::server::TlsServerConfig::insecure());
-
-        // create a client configuration
-        let client_config = ClientConfig::with_endpoint("http://127.0.0.1:50051")
+        let client_config = ClientConfig::with_endpoint(&format!("http://{}", server_endpoint))
             .with_tls_setting(slim_config::tls::client::TlsClientConfig::insecure());
 
-        // create drain channels
         let (signal_server, watch_server) = drain::channel();
         let (signal_client, watch_client) = drain::channel();
 
-        // Create a message processor
-        let message_processor_client = MessageProcessor::with_drain_channel(watch_client.clone());
         let message_processor_server = MessageProcessor::with_drain_channel(watch_server.clone());
+        let message_processor_client = MessageProcessor::with_drain_channel(watch_client.clone());
 
-        // Create a control plane instance for server
-        let pubsub_servers = [server_config.clone()];
-        let mut control_plane_server = ControlPlane::new(ControlPlaneSettings {
+        let control_plane_server = ControlPlane::new(ControlPlaneSettings {
             id: id_server,
             group_name: None,
-            servers: vec![server_config],
+            servers: vec![server_config.clone()],
             clients: vec![],
             drain_rx: watch_server,
             message_processor: Arc::new(message_processor_server),
-            pubsub_servers: pubsub_servers.to_vec(),
+            pubsub_servers: vec![server_config.clone()],
             auth_provider: Some(AuthProvider::SharedSecret(SharedSecret::new(
                 "server",
                 TEST_VALID_SECRET,
@@ -1604,14 +1607,14 @@ mod tests {
             ))),
         });
 
-        let mut control_plane_client = ControlPlane::new(ControlPlaneSettings {
+        let control_plane_client = ControlPlane::new(ControlPlaneSettings {
             id: id_client,
             group_name: None,
             servers: vec![],
-            clients: vec![client_config],
+            clients: vec![client_config.clone()],
             drain_rx: watch_client,
             message_processor: Arc::new(message_processor_client),
-            pubsub_servers: pubsub_servers.to_vec(),
+            pubsub_servers: vec![],
             auth_provider: Some(AuthProvider::SharedSecret(SharedSecret::new(
                 "client",
                 TEST_VALID_SECRET,
@@ -1622,27 +1625,40 @@ mod tests {
             ))),
         });
 
-        // Start the server
+        (
+            control_plane_server,
+            control_plane_client,
+            signal_server,
+            signal_client,
+            client_config,
+        )
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_end_to_end() {
+        let (
+            mut control_plane_server,
+            mut control_plane_client,
+            signal_server,
+            signal_client,
+            _client_cfg,
+        ) = setup_control_planes(
+            "127.0.0.1:50051",
+            "test-server-instance",
+            "test-client-instance",
+        )
+        .await;
+
         control_plane_server.run().await.unwrap();
-
-        // Sleep for a short duration to ensure the server is ready
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
-        // Start the client
         control_plane_client.run().await.unwrap();
-
-        // Sleep for a short duration to ensure the client is ready
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        // Check if the server received the connection
         assert!(logs_contain("received a register node request"));
 
-        // drop the server and the client. This should also cancel the running listeners
-        // and close the connections gracefully.
         drop(control_plane_server);
         drop(control_plane_client);
-
-        // Make sure there is nothing left to drain (this should not block)
         signal_server.drain().await;
         signal_client.drain().await;
     }
@@ -1673,76 +1689,62 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_subscription_notification_queuing() {
-        // Create an ID for slim instance
-        let id = ID::new_with_name(Kind::new("slim").unwrap(), "test-instance").unwrap();
+    async fn test_subscription_notification_queue_drain() {
+        // Reuse common setup with a different port to avoid clash with other tests.
+        let (
+            mut control_plane_server,
+            mut control_plane_client,
+            signal_server,
+            signal_client,
+            client_config,
+        ) = setup_control_planes(
+            "127.0.0.1:50061",
+            "queue-drain-server",
+            "queue-drain-client",
+        )
+        .await;
 
-        // Create drain channels
-        let (_signal, watch) = drain::channel();
-
-        // Create a message processor
-        let message_processor = MessageProcessor::with_drain_channel(watch.clone());
-
-        // Create a control plane instance without any clients
-        let control_plane_settings = ControlPlaneSettings {
-            id,
-            group_name: None,
-            servers: vec![],
-            clients: vec![], // No clients - simulates disconnected state
-            drain_rx: watch,
-            message_processor: Arc::new(message_processor),
-            pubsub_servers: vec![],
-            auth_provider: None,
-            auth_verifier: None,
-        };
-
-        let control_plane = ControlPlane::new(control_plane_settings);
-        let controller = control_plane.controller.clone();
-
-        // Create a test control message (subscription notification)
-        let ctrl_msg = ControlMessage {
-            message_id: uuid::Uuid::new_v4().to_string(),
-            payload: Some(Payload::ConfigCommand(v1::ConfigurationCommand {
-                connections_to_create: vec![],
-                subscriptions_to_set: vec![v1::Subscription {
-                    component_0: "test".to_string(),
-                    component_1: "component".to_string(),
-                    component_2: "name".to_string(),
-                    id: Some(123),
-                    connection_id: "test-conn".to_string(),
-                    node_id: None,
-                }],
-                subscriptions_to_delete: vec![],
-            })),
-        };
-
-        // Create fake client config (no actual connection)
-        let fake_clients = vec![ClientConfig::with_endpoint("http://fake-endpoint:50051")];
-
-        // Verify queue is initially empty
+        let controller = control_plane_client.controller.clone();
         assert_eq!(controller.inner.pending_notifications.lock().len(), 0);
 
-        // Send notification when no connections are available - should be queued
-        controller
-            .send_or_queue_subscription_notification(ctrl_msg.clone(), &fake_clients)
-            .await;
-
-        // Verify notification was queued
-        assert_eq!(controller.inner.pending_notifications.lock().len(), 1);
-
-        // Verify the queued message is correct
-        let queued_msg = controller.inner.pending_notifications.lock()[0].clone();
-        assert_eq!(queued_msg.message_id, ctrl_msg.message_id);
-
-        // Test that queue doesn't exceed maximum size
-        for _ in 0..1001 {
-            // Try to add more than MAX_QUEUED_NOTIFICATIONS (1000)
+        const N: usize = 5;
+        for i in 0..N {
+            let ctrl_msg = ControlMessage {
+                message_id: uuid::Uuid::new_v4().to_string(),
+                payload: Some(Payload::ConfigCommand(v1::ConfigurationCommand {
+                    connections_to_create: vec![],
+                    subscriptions_to_set: vec![v1::Subscription {
+                        component_0: "queued".to_string(),
+                        component_1: "sub".to_string(),
+                        component_2: format!("name-{i}"),
+                        id: Some(i as u64),
+                        connection_id: "test-conn".to_string(),
+                        node_id: None,
+                    }],
+                    subscriptions_to_delete: vec![],
+                })),
+            };
             controller
-                .send_or_queue_subscription_notification(ctrl_msg.clone(), &fake_clients)
+                .send_or_queue_subscription_notification(ctrl_msg, &[client_config.clone()])
                 .await;
         }
+        assert_eq!(controller.inner.pending_notifications.lock().len(), N);
 
-        // Should be capped at 1000
-        assert_eq!(controller.inner.pending_notifications.lock().len(), 1000);
+        control_plane_server.run().await.expect("server run failed");
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        control_plane_client.run().await.expect("client run failed");
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+
+        assert_eq!(controller.inner.pending_notifications.lock().len(), 0);
+        assert!(
+            logs_contain(&format!("sending {} queued subscription notifications", N)),
+            "Expected log about sending queued subscription notifications"
+        );
+
+        drop(controller);
+        drop(control_plane_server);
+        drop(control_plane_client);
+        signal_server.drain().await;
+        signal_client.drain().await;
     }
 }
