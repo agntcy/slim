@@ -15,7 +15,7 @@ spec:
     env:
     - name: PYTHONUNBUFFERED
       value: "1"
-    image: ghcr.io/agntcy/slim/bindings-examples:0.7.0-dev.2
+    image: ghcr.io/agntcy/slim/bindings-examples:0.7.0
     imagePullPolicy: Always
     name: alice
   serviceAccount: default
