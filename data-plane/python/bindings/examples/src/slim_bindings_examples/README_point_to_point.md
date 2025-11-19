@@ -113,7 +113,7 @@ Reliability parameters:
 When MLS is enabled (`--enable-mls`), payloads are protected using the MLS
 protocol; only session members can decrypt and authenticate messages.
 
-The `local_app.create_session(...)` create the session and returns an handler `handle`. 
+The `local_app.create_session(...)` creates the session and returns an handler `handle`. 
 The `await handle` guarantees that the session is fully established when it returns.  
 
 ### 3. Sender publish & response handling
@@ -155,7 +155,7 @@ Without `--message`, the process waits for inbound sessions:
         """
         Inner loop for a single inbound session:
             * Receive messages until the session is closed or an error occurs.
-            * Echo each message back using publish_to.
+            * Echo each message back using publish.
         """
         while True:
             try:
@@ -166,7 +166,7 @@ Without `--message`, the process waits for inbound sessions:
             text = payload.decode()
             format_message_print(f"{instance}", f"received: {text}")
             # Echo reply with appended instance identifier.
-            await sess.publish_to(msg_ctx, f"{text} from {instance}".encode())
+            await session.publish(f"{text} from {instance}".encode())
 
     # Launch a dedicated task to handle this session (allow multiple).
     asyncio.create_task(session_loop(session))
@@ -175,7 +175,7 @@ Without `--message`, the process waits for inbound sessions:
 Key APIs:
 - `listen_for_session()`: blocks until a remote sender establishes a session.
 - `get_message()`: returns `(context, payload)`.
-- `publish_to(msg_ctx, data)`: reply directly to sender context.
+- `wait session.publish(f"{text} from {instance}".encode())`: reply back to the sender.
 
 This model supports multiple concurrent sessions (each gets its own task).
 

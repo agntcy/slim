@@ -182,7 +182,7 @@ messages which are immediately published to the group:
         if user_input.lower() in ("exit", "quit"):
             # Also terminate the receive loop.
             handle = await local_app.delete_session(shared_session_container[0])
-            `await handle`
+            await handle
             break
 
         # Send message to the channel_name specified when creating the session.
