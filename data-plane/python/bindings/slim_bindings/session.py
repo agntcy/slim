@@ -4,9 +4,9 @@
 from __future__ import annotations
 
 import datetime
-import typing
 
 from ._slim_bindings import (
+    CompletionHandle,
     MessageContext,
     Name,
     SessionConfiguration,
@@ -75,12 +75,12 @@ class Session:
         """Return the destination name"""
         return self._ctx.dst
 
-    def publish(
+    async def publish(
         self,
         msg: bytes,
         payload_type: str | None = None,
         metadata: dict | None = None,
-    ) -> typing.Any:
+    ) -> CompletionHandle:
         """
         Publish a message on the current session.
 
@@ -94,7 +94,7 @@ class Session:
             None
         """
 
-        return self._ctx.publish(
+        return await self._ctx.publish(
             1,
             msg,
             message_ctx=None,
@@ -109,7 +109,7 @@ class Session:
         msg: bytes,
         payload_type: str | None = None,
         metadata: dict | None = None,
-    ) -> typing.Any:
+    ) -> CompletionHandle:
         """
         Publish a message directly back to the originator associated with the
         supplied `message_ctx` (reply semantics).
@@ -129,14 +129,14 @@ class Session:
             RuntimeError (wrapped) if sending fails or the session is closed.
         """
 
-        return self._ctx.publish_to(
+        return await self._ctx.publish_to(
             message_ctx,
             msg,
             payload_type=payload_type,
             metadata=metadata,
         )
 
-    async def invite(self, name: Name) -> typing.Any:
+    async def invite(self, name: Name) -> CompletionHandle:
         """Invite (add) a participant to this session. Only works for Group.
 
         Args:
@@ -147,7 +147,7 @@ class Session:
         """
         return await self._ctx.invite(name)
 
-    async def remove(self, name: Name) -> typing.Any:
+    async def remove(self, name: Name) -> CompletionHandle:
         """Remove (eject) a participant from this session. Only works for Group.
 
         Args:

@@ -430,7 +430,7 @@ wheels = [
 
 [[package]]
 name = "slim-bindings"
-version = "0.6.3"
+version = "0.7.0"
 source = { editable = "." }
 
 [package.dev-dependencies]
@@ -471,7 +471,7 @@ testing = [
 
 [[package]]
 name = "slim-bindings-examples"
-version = "0.6.0"
+version = "0.7.0"
 source = { editable = "examples" }
 dependencies = [
     { name = "click" },
