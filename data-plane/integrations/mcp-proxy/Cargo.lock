@@ -10,6 +10,7 @@ dependencies = [
  "agntcy-slim-service",
  "agntcy-slim-signal",
  "agntcy-slim-tracing",
+ "anyhow",
  "clap",
  "duration-string",
  "jemallocator",
