@@ -15,8 +15,7 @@ This example can operate in two primary modes:
    - Echoes replies for each received payload, tagging them with the local instance ID.
 
 Key concepts demonstrated:
-  - Slim.new() construction and connection.
-  - Route establishment (set_route) prior to establishing a session.
+  - Slim() construction and connection.
   - PointToPoint session creation logic.
   - Publish / receive loop with per-message reply.
   - Simple flow control via iteration count and sleeps (demo-friendly).
@@ -116,7 +115,7 @@ async def run_client(
         await handle
 
         # Iterate send->receive cycles.
-        for i in range(3):
+        for i in range(iterations):
             try:
                 await session.publish(message.encode())
                 format_message_print(
@@ -152,7 +151,7 @@ async def run_client(
                 """
                 Inner loop for a single inbound session:
                   * Receive messages until the session is closed or an error occurs.
-                  * Echo each message back using publish_to.
+                  * Echo each message back using publish.
                 """
                 while True:
                     try:
@@ -163,7 +162,7 @@ async def run_client(
                     text = payload.decode()
                     format_message_print(f"{instance}", f"received: {text}")
                     # Echo reply with appended instance identifier.
-                    await sess.publish_to(msg_ctx, f"{text} from {instance}".encode())
+                    await session.publish(f"{text} from {instance}".encode())
 
             # Launch a dedicated task to handle this session (allow multiple).
             asyncio.create_task(session_loop(session))

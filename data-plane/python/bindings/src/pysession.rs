@@ -468,7 +468,7 @@ impl From<ProtoSessionType> for PySessionType {
 ///
 /// ## Python: Using a config when creating a session
 /// ```python
-/// slim = await Slim.new(local_name, provider, verifier)
+/// slim = Slim(local_name, provider, verifier)
 /// session = await slim.create_session(p2p_cfg)
 /// print("Session ID:", session.id)
 /// print("Type:", session.session_type)

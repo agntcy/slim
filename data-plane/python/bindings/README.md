@@ -3,13 +3,13 @@
 High-level asynchronous Python bindings for the SLIM data‑plane service (Rust core).
 They let you embed SLIM directly into your Python application to:
 
-- Instantiate a local SLIM service (`Slim.new`)
+- Instantiate a local SLIM service
 - Run a server listener (start / stop a SLIM endpoint)
 - Establish outbound client connections (`connect` / `disconnect`)
 - Create, accept, configure, and delete sessions (Point2Point / Group)
 - Publish / receive messages (point‑to‑point or group (channel) based)
 - Manage routing and subscriptions (add / remove routes, subscribe / unsubscribe)
-- Configure identity & trust (shared secret, static JWT, dynamic signing JWT, JWKS auto‑resolve)
+- Configure identity & trust (shared secret, static JWT, dynamic signing JWT, JWKS auto‑resolve, Spire)
 - Integrate tracing / OpenTelemetry
 
 ---
@@ -25,20 +25,146 @@ They let you embed SLIM directly into your Python application to:
 
 ## Identity & Authentication
 
-You can choose among multiple identity provider / verifier strategies:
+SLIM supports pluggable identity strategies for both the provider (how a local identity token/credential is produced) and the verifier (how inbound peer credentials are validated).
 
-| Provider Variant                      | Use Case                               | Notes |
-|--------------------------------------|-----------------------------------------|-------|
-| `IdentityProvider.SharedSecret`    | Local dev / tests                       | Symmetric; not for production |
-| `IdentityProvider.StaticJwt`       | Pre-issued token loaded from file       | No key rotation; simple |
-| `IdentityProvider.Jwt`             | Dynamically signed JWT (private key)    | Supports exp, iss, aud, sub, duration |
-| `IdentityVerifier.Jwt`             | Verifies JWT (public key or JWKS auto)  | Optional claim requirements (`require_iss`, etc.) |
-| `IdentityVerifier.SharedSecret`    | Matches shared secret provider          | Symmetric validation |
+### Provider Variants
 
-JWKS auto‑resolution (when configured in the verifier with `autoresolve=True`) will:
-1. Try OpenID discovery (`/.well-known/openid-configuration`) for `jwks_uri`
-2. Fallback to `/.well-known/jwks.json`
-3. Cache the key set with a TTL and prefer `kid` match, else algorithm match.
+| Variant                             | Use Case / Scenario                          | Notes |
+|------------------------------------|-----------------------------------------------|-------|
+| `IdentityProvider.SharedSecret`    | HMAC-based token (shared symmetric key)       | Full HMAC (nonce+timestamp, optional replay cache); validity window & clock skew; rotate by replacing secret |
+| `IdentityProvider.StaticJwt`       | Pre-issued token from file (ops managed)      | Simple; no signing key in process; rotate by replacing file |
+| `IdentityProvider.Jwt`             | Dynamically signed JWT                        | Supports `exp`, optional `iss`, `aud[]`, `sub`; controllable `duration` |
+| `IdentityProvider.Spire`           | SPIRE / SPIFFE based workload identity        | Obtains SVID/JWT via SPIRE Workload API; offloads trust & rotation |
+
+### Verifier Variants
+
+| Variant                             | Use Case / Scenario                               | Notes |
+|------------------------------------|----------------------------------------------------|-------|
+| `IdentityVerifier.SharedSecret`    | HMAC verification of shared-secret tokens          | Verifies MAC, nonce, timestamp; optional replay cache; supports custom claims (no iss/aud/sub) |
+| `IdentityVerifier.Jwt`             | Standard JWT / OIDC verification                   | Public key OR JWKS auto-resolve; optional strict claim requirements |
+| `IdentityVerifier.Spire`           | Verify SPIRE-issued identities / tokens            | Uses SPIRE Workload API; matches SPIFFE IDs and audiences |
+
+### JWT Algorithms
+
+Supported signing / verification algorithms:
+
+| Symmetric | RSA      | PS (RSA-PSS) | EC      | Other  |
+|-----------|----------|--------------|---------|--------|
+| HS256     | RS256    | PS256        | ES256   | EdDSA  |
+| HS384     | RS384    | PS384        | ES384   |        |
+| HS512     | RS512    | PS512        |         |        |
+
+(Select via `Algorithm.<Variant>` when constructing a `Key`.)
+
+### Key Formats
+
+| Format  | Description                                  |
+|---------|----------------------------------------------|
+| `KeyFormat.Pem`  | PEM encoded key material (file or string) |
+| `KeyFormat.Jwk`  | Single JSON Web Key                  |
+| `KeyFormat.Jwks` | JWKS (set of keys)                   |
+
+Key data can be provided either by file path (`KeyData.File(path="path.pem")`) or in-memory content (`KeyData.Content(content=pem_string)`).
+
+### Provider Examples
+
+Dynamic signing JWT:
+
+```python
+import datetime
+from slim_bindings import IdentityProvider, Key, Algorithm, KeyFormat, KeyData
+
+private_key = Key(Algorithm.RS256, KeyFormat.Pem, KeyData.File(path="private_key.pem"))
+provider = IdentityProvider.Jwt(
+    private_key=private_key,
+    duration=datetime.timedelta(minutes=30),
+    issuer="my-issuer",
+    audience=["peer-service"],
+    subject="local-service",
+)
+```
+
+Static pre-issued token (already on disk):
+
+```python
+from slim_bindings import IdentityProvider
+provider = IdentityProvider.StaticJwt(path="issued.jwt")
+```
+
+SPIRE provider (automatic SVID / JWT retrieval):
+
+```python
+from slim_bindings import IdentityProvider
+provider = IdentityProvider.Spire(
+    socket_path="/tmp/spire-agent/public/api.sock",     # optional; default search paths if None
+    target_spiffe_id="spiffe://example.org/my-service", # optional filter
+    jwt_audiences=["peer-service"]                      # optional requested audiences
+)
+```
+
+### Verifier Examples
+
+Strict JWT verification (public key):
+
+```python
+from slim_bindings import IdentityVerifier, Key, Algorithm, KeyFormat, KeyData
+
+pub_key = Key(Algorithm.RS256, KeyFormat.Pem, KeyData.File(path="public_key.pem"))
+verifier = IdentityVerifier.Jwt(
+    public_key=pub_key,
+    autoresolve=False,
+    issuer="my-issuer",
+    audience=["peer-service"],
+    subject="local-service",
+    require_iss=True,
+    require_aud=True,
+    require_sub=True,
+)
+```
+
+JWKS auto‑resolve (no static key needed — discovery used):
+
+```python
+verifier = IdentityVerifier.Jwt(
+    public_key=None,          # trigger auto-resolution
+    autoresolve=True,
+    issuer="https://issuer.example.com",
+    audience=["peer-service"],
+    require_iss=True,
+    require_aud=True,
+)
+```
+
+SPIRE verifier:
+
+```python
+verifier = IdentityVerifier.Spire(
+    socket_path="/tmp/spire-agent/public/api.sock",
+    target_spiffe_id="spiffe://example.org/peer-service",
+    jwt_audiences=["peer-service"]
+)
+```
+
+### JWKS Auto‑Resolution Workflow
+
+When `IdentityVerifier.Jwt` is created with `autoresolve=True` and no explicit `public_key`:
+
+1. Perform OpenID Provider Discovery (`/.well-known/openid-configuration`) to find `jwks_uri`.
+2. If discovery fails, attempt `/.well-known/jwks.json` directly.
+3. Fetch & cache key set (with TTL); prefer matching `kid`, else fall back to compatible algorithm.
+4. Periodically refresh before expiry (background).
+
+### Choosing a Strategy
+
+| Environment        | Recommended Provider / Verifier Pair                         |
+|--------------------|---------------------------------------------------------------|
+| Local Dev / Tests  | SharedSecret / SharedSecret                                   |
+| Simple Staging     | StaticJwt / Jwt (public key)                                  |
+| Production         | Jwt (dynamic signing) / Jwt (public key or JWKS)              |
+| Zero-Trust / SPIFFE| Spire / Spire                                                 |
+
+Use strict claim requirements (`require_*`) in production to avoid accepting tokens missing critical identity attributes.
+
 
 ---
 
@@ -62,26 +188,27 @@ async def main():
     verifier = slim_bindings.IdentityVerifier.SharedSecret(identity="demo", shared_secret="secret")
 
     local_name = slim_bindings.Name("org", "namespace", "demo")
-    slim = await slim_bindings.Slim.new(local_name, provider, verifier)
+    slim = slim_bindings.Slim(local_name, provider, verifier)
 
     # 2. (Optionally) connect as a client to a remote endpoint
     # await slim.connect({"endpoint": "http://127.0.0.1:50000", "tls": {"insecure": True}})
-
-    # 3. (Optionally) run a local server (insecure TLS for local dev)
-    # await slim.run_server({"endpoint": "127.0.0.1:40000", "tls": {"insecure": True}})
 
     # 4. Wait for inbound session
     print("Waiting for an inbound session...")
     session = await slim.listen_for_session()
 
-    # 5. Receive one message and reply
-    msg_ctx, payload = await session.get_message()
-    print("Received:", payload)
-    await session.publish_to(msg_ctx, b"echo:" + payload)
-
-    # 6. Clean shutdown
-    await slim.delete_session(session)
-    await slim.stop_server("127.0.0.1:40000")
+    # Wait for messages and reply
+    try:
+        while True:
+            msg_ctx, payload = await session.get_message()
+            print("Received:", payload)
+            handle = await session.publish(b"echo:" + payload)
+            
+            # Wait for message to be delivered end-to-end
+            await handle
+    except Exception as e:
+        print("Error:", e)
+        pass
 
 asyncio.run(main())
 ```
@@ -90,18 +217,26 @@ asyncio.run(main())
 
 ```python
 remote = slim_bindings.Name("org", "namespace", "peer")
+await slim.set_route(remote)
 session = await slim.create_session(
-    slim_bindings.SessionConfiguration.PointToPoint(
-        peer_name=remote,
+    dest_name=remote,
+    session_config=slim_bindings.SessionConfiguration.PointToPoint(
+        max_retries=5,
+        timeout=datetime.timedelta(seconds=5),
         mls_enabled=True,
         metadata={"trace_id": "abc123"},
     )
 )
-await slim.set_route(remote)
-await session.publish(b"hello")
+
+handle = await session.publish(b"hello")
+await handle
+
 ctx, reply = await session.get_message()
 print("Reply:", reply)
-await slim.delete_session(session)
+
+# Delete session when done. This will also end the session at the remote peer.
+handle = await slim.delete_session(session)
+await handle
 ```
 
 ---
@@ -141,7 +276,7 @@ version = "0.1.0"
 description = "Python program using SLIM"
 requires-python = ">=3.10"
 dependencies = [
-    "slim-bindings>=0.6.0"
+    "slim-bindings>=0.7.0"
 ]
 ```
 
@@ -179,7 +314,7 @@ slim-bindings = ">=0.5.0"
 
 Complete runnable examples (point2point, group, server) live in the repository:
 
-https://github.com/agntcy/slim/tree/slim-v0.5.0/data-plane/python/bindings/examples
+https://github.com/agntcy/slim/tree/slim-v0.7.0/data-plane/python/bindings/examples
 
 You can install and invoke them (after building) via:
 
