@@ -455,7 +455,7 @@ impl ClientConfig {
 
     /// Parses the endpoint string into a URI
     fn parse_endpoint_uri(&self) -> Result<Uri, ConfigError> {
-        Uri::from_str(&self.endpoint).map_err(|e| ConfigError::UriParseError(e.to_string()))
+        Ok(Uri::from_str(&self.endpoint)?)
     }
 
     /// Creates and configures the HTTP connector
@@ -500,15 +500,13 @@ impl ClientConfig {
 
         // set origin settings
         if let Some(origin) = &self.origin {
-            let origin_uri = Uri::from_str(origin.as_str())
-                .map_err(|e| ConfigError::UriParseError(e.to_string()))?;
+            let origin_uri = Uri::from_str(origin.as_str())?;
             builder = builder.origin(origin_uri);
         }
 
         // set rate limit settings
         if let Some(rate_limit) = &self.rate_limit {
-            let (limit, duration) = parse_rate_limit(rate_limit)
-                .map_err(|e| ConfigError::RateLimitParseError(e.to_string()))?;
+            let (limit, duration) = parse_rate_limit(rate_limit)?;
             builder = builder.rate_limit(limit, duration);
         }
 
@@ -522,22 +520,17 @@ impl ClientConfig {
 
     /// Parses headers from the configuration
     fn parse_headers(&self) -> Result<HeaderMap, ConfigError> {
-        Self::parse_header_map(&self.headers, "header")
+        Self::parse_header_map(&self.headers)
     }
 
     /// Generic helper to parse a HashMap<String, String> into HeaderMap
     fn parse_header_map(
         headers: &HashMap<String, String>,
-        context: &str,
     ) -> Result<HeaderMap, ConfigError> {
         let mut header_map = HeaderMap::new();
         for (key, value) in headers {
-            let header_name = HeaderName::from_str(key).map_err(|_| {
-                ConfigError::HeaderParseError(format!("Invalid {} name: {}", context, key))
-            })?;
-            let header_value = HeaderValue::from_str(value).map_err(|_| {
-                ConfigError::HeaderParseError(format!("Invalid {} value: {}", context, value))
-            })?;
+            let header_name = HeaderName::from_str(key)?;
+            let header_value = HeaderValue::from_str(value)?;
             header_map.insert(header_name, header_value);
         }
         Ok(header_map)
@@ -549,9 +542,7 @@ impl ClientConfig {
         password: &str,
     ) -> Result<HeaderValue, ConfigError> {
         let auth_value = BASE64_STANDARD.encode(format!("{}:{}", username, password));
-        HeaderValue::from_str(&format!("Basic {}", auth_value)).map_err(|_| {
-            ConfigError::HeaderParseError("Invalid proxy auth credentials".to_string())
-        })
+        Ok(HeaderValue::from_str(&format!("Basic {}", auth_value))?)
     }
 
     /// Helper to apply authentication and headers to a tunnel
@@ -582,10 +573,8 @@ impl ClientConfig {
 
     /// Loads TLS configuration
     async fn load_tls_config(&self) -> Result<Option<rustls::ClientConfig>, ConfigError> {
-        self.tls_setting
-            .load_rustls_config()
-            .await
-            .map_err(|e| ConfigError::TLSSettingError(e.to_string()))
+        let tls = self.tls_setting.load_rustls_config().await?;
+        Ok(tls)
     }
 
     /// Creates the channel with the appropriate connector (proxy or direct)
@@ -636,10 +625,7 @@ impl ClientConfig {
                 .proxy
                 .tls_setting
                 .load_rustls_config()
-                .await
-                .map_err(|e| {
-                    ConfigError::TLSSettingError(format!("Failed to load proxy TLS config: {}", e))
-                })?
+                .await?
                 .unwrap();
 
             // Create HTTPS connector for the proxy itself
@@ -687,7 +673,7 @@ impl ClientConfig {
         &self,
         headers: &HashMap<String, String>,
     ) -> Result<HeaderMap, ConfigError> {
-        Self::parse_header_map(headers, "proxy header")
+        Self::parse_header_map(headers)
     }
 
     /// Applies authentication and headers to the channel
@@ -759,23 +745,14 @@ mod metadata_tests {
 fn parse_rate_limit(rate_limit: &str) -> Result<(u64, Duration), ConfigError> {
     let parts: Vec<&str> = rate_limit.split('/').collect();
 
-    // Check the parts has two elements
     if parts.len() != 2 {
-        return Err(
-            ConfigError::RateLimitParseError(
-                "rate limit should be in the format of <limit>/<duration>, with duration expressed in seconds".to_string(),
-            ),
-        );
+        // Invalid format: expected <limit>/<duration>
+        return Err(ConfigError::Unknown);
     }
 
-    let limit = parts[0]
-        .parse::<u64>()
-        .map_err(|e| ConfigError::RateLimitParseError(e.to_string()))?;
-    let duration = Duration::from_secs(
-        parts[1]
-            .parse::<u64>()
-            .map_err(|e| ConfigError::RateLimitParseError(e.to_string()))?,
-    );
+    let limit = parts[0].parse::<u64>()?;
+    let duration = Duration::from_secs(parts[1].parse::<u64>()?);
+
     Ok((limit, duration))
 }
 

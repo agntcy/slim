@@ -53,17 +53,15 @@ where
 
     /// Build the AppAdapter using a Service instance
     pub fn build(self, service: &Service) -> Result<BindingsAdapter<P, V>, ServiceError> {
-        let app_name = self
-            .app_name
-            .ok_or_else(|| ServiceError::ConfigError("app name is required".to_string()))?;
+        let app_name = self.app_name.ok_or(ServiceError::NoAppName)?;
 
-        let identity_provider = self.identity_provider.ok_or_else(|| {
-            ServiceError::ConfigError("identity provider is required".to_string())
-        })?;
+        let identity_provider = self
+            .identity_provider
+            .ok_or(ServiceError::NoIdentityProvider)?;
 
-        let identity_verifier = self.identity_verifier.ok_or_else(|| {
-            ServiceError::ConfigError("identity verifier is required".to_string())
-        })?;
+        let identity_verifier = self
+            .identity_verifier
+            .ok_or(ServiceError::NoIdentityVerifier)?;
 
         // Use Service to create the App and get the notification receiver
         let (app, rx_app) = service.create_app(&app_name, identity_provider, identity_verifier)?;
@@ -143,12 +141,7 @@ mod tests {
             .with_identity_verifier(verifier)
             .build(&service);
 
-        assert!(result.is_err());
-        let error_string = match result {
-            Err(e) => e.to_string(),
-            _ => panic!("Expected an error"),
-        };
-        assert!(error_string.contains("app name is required"));
+        assert!(result.is_err_and(|e| matches!(e, ServiceError::NoAppName)));
     }
 
     #[tokio::test]
@@ -162,12 +155,7 @@ mod tests {
             .with_identity_verifier(verifier)
             .build(&service);
 
-        assert!(result.is_err());
-        let error_string = match result {
-            Err(e) => e.to_string(),
-            _ => panic!("Expected an error"),
-        };
-        assert!(error_string.contains("identity provider is required"));
+        assert!(result.is_err_and(|e| matches!(e, ServiceError::NoIdentityProvider)));
     }
 
     #[tokio::test]
@@ -181,12 +169,7 @@ mod tests {
             .with_identity_provider(provider)
             .build(&service);
 
-        assert!(result.is_err());
-        let error_string = match result {
-            Err(e) => e.to_string(),
-            _ => panic!("Expected an error"),
-        };
-        assert!(error_string.contains("identity verifier is required"));
+        assert!(result.is_err_and(|e| matches!(e, ServiceError::NoIdentityVerifier)));
     }
 
     #[tokio::test]

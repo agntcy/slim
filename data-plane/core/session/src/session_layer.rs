@@ -188,7 +188,7 @@ where
             session
                 .session()
                 .upgrade()
-                .ok_or_else(|| SessionError::SessionNotFound(session.session_id()))?
+                .ok_or(SessionError::SessionNotFound)?
                 .invite_participant_internal(&destination_clone)
                 .await
                 .inspect_err(|_| {
@@ -341,7 +341,9 @@ where
         debug!("try to remove session {}", id);
         // get the read lock
         let binding = self.pool.read();
-        let session = binding.get(&id).ok_or(SessionError::SessionNotFound(id))?;
+        let session = binding
+            .get(&id)
+            .ok_or(SessionError::SessionNotFoundWithId { id })?;
 
         // close the session and get the join handle
         let join_handle = session.close()?;
@@ -399,13 +401,12 @@ where
                     session_type,
                 )?;
 
-                self.transmitter.send_to_slim(Ok(msg)).await.map_err(|e| {
-                    SessionError::SlimTransmission(format!("error sending discovery reply: {}", e))
-                })
+                self.transmitter
+                    .send_to_slim(Ok(msg))
+                    .await
+                    .map_err(SessionError::from)
             }
-            _ => Err(SessionError::SlimTransmission(
-                "unexpected message type".to_string(),
-            )),
+            _ => Err(SessionError::UnexpectedMessageType { message_type: session_message_type }),
         }
     }
 
@@ -462,12 +463,9 @@ where
                     ProtoSessionType::PointToPoint => {
                         let conf = crate::SessionConfig::from_join_request(
                             ProtoSessionType::PointToPoint,
-                            message.extract_command_payload().map_err(|e| {
-                                SessionError::Processing(format!(
-                                    "failed to extract command payload: {}",
-                                    e
-                                ))
-                            })?,
+                            message
+                                .extract_command_payload()
+                                .map_err(|e| SessionError::extract_error("command_payload", e))?,
                             message.get_metadata_map(),
                             false,
                         )?;
@@ -481,12 +479,9 @@ where
                     }
                     ProtoSessionType::Multicast => {
                         // Multicast sessions require timer settings; reject if missing.
-                        let payload = message.extract_join_request().map_err(|e| {
-                            SessionError::Processing(format!(
-                                "failed to extract join request payload: {}",
-                                e
-                            ))
-                        })?;
+                        let payload = message
+                            .extract_join_request()
+                            .map_err(|e| SessionError::extract_error("join_request", e))?;
 
                         if payload.timer_settings.is_none() {
                             return Err(SessionError::Processing(
@@ -506,12 +501,9 @@ where
                         let initiator = message.remove_metadata(IS_MODERATOR).is_some();
                         let conf = crate::SessionConfig::from_join_request(
                             ProtoSessionType::Multicast,
-                            message.extract_command_payload().map_err(|e| {
-                                SessionError::Processing(format!(
-                                    "failed to extract command payload: {}",
-                                    e
-                                ))
-                            })?,
+                            message
+                                .extract_command_payload()
+                                .map_err(|e| SessionError::extract_error("command_payload", e))?,
                             message.get_metadata_map(),
                             initiator,
                         )?;
@@ -565,9 +557,7 @@ where
         new_session
             .session()
             .upgrade()
-            .ok_or(SessionError::SessionClosed(
-                "newly created session already closed: this should not happen".to_string(),
-            ))?
+            .ok_or(SessionError::SessionClosed)?
             .on_message_from_slim(message)
             .await?;
 
@@ -575,7 +565,7 @@ where
         self.tx_app
             .send(Ok(Notification::NewSession(new_session)))
             .await
-            .map_err(|e| SessionError::AppTransmission(format!("error sending new session: {}", e)))
+            .map_err(|e| SessionError::Processing(format!("error sending new session: {}", e)))
     }
 
     /// Handle a discovery request message.
@@ -996,8 +986,8 @@ mod tests {
 
         assert!(result.is_err());
         match result {
-            Err(SessionError::SlimTransmission(_)) => {}
-            _ => panic!("Expected SlimTransmission error"),
+            Err(SessionError::UnexpectedMessageType { .. }) => {}
+            _ => panic!("Expected UnexpectedMessageType error"),
         }
     }
 

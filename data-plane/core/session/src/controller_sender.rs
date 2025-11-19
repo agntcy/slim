@@ -203,7 +203,7 @@ impl ControllerSender {
         self.tx
             .send_to_slim(Ok(message.clone()))
             .await
-            .map_err(|e| SessionError::SlimTransmission(e.to_string()))
+            .map_err(SessionError::from)
     }
 
     fn on_reply_message(&mut self, message: &Message) {
@@ -244,13 +244,10 @@ impl ControllerSender {
                 .tx
                 .send_to_slim(Ok(pending.message.clone()))
                 .await
-                .map_err(|e| SessionError::SlimTransmission(e.to_string()));
+                .map_err(SessionError::from);
         };
 
-        Err(SessionError::SlimTransmission(format!(
-            "timer {} does not exists",
-            id
-        )))
+        Err(SessionError::TimerNotFound(format!("{}", id)))
     }
 
     pub async fn on_timer_failure(&mut self, id: u32) {

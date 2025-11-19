@@ -96,8 +96,7 @@ fn key_alg_to_algorithm(key: &KeyAlgorithm) -> Result<Algorithm, AuthError> {
 }
 
 pub fn algorithm_from_jwk(jwk: &str) -> Result<Algorithm, AuthError> {
-    let jwk: Jwk = serde_json::from_str(jwk)
-        .map_err(|e| AuthError::ConfigError(format!("Failed to parse JWK: {}", e)))?;
+    let jwk: Jwk = serde_json::from_str(jwk)?;
 
     tracing::info!(?jwk, "JWK parsed successfully");
 
@@ -424,18 +423,24 @@ impl<V> Jwt<V> {
 
         // Decode and verify the token
         let token_data: TokenData<Claims> =
-            decode(&token, &decoding_key, &validation).map_err(|e| match e.kind() {
-                ErrorKind::ExpiredSignature => AuthError::TokenExpired,
-                _ => AuthError::VerificationError(format!("{}", e)),
+            decode(&token, &decoding_key, &validation).map_err(|e| {
+                if matches!(e.kind(), ErrorKind::ExpiredSignature) {
+                    AuthError::TokenExpired
+                } else {
+                    AuthError::JwtLibraryError(e)
+                }
             })?;
 
         // Get the exp to cache the token
         validation.insecure_disable_signature_validation();
         // Decode and verify the exp
         let token_exp_data: TokenData<ExpClaim> = decode(&token, &decoding_key, &validation)
-            .map_err(|e| match e.kind() {
-                ErrorKind::ExpiredSignature => AuthError::TokenExpired,
-                _ => AuthError::VerificationError(format!("{}", e)),
+            .map_err(|e| {
+                if matches!(e.kind(), ErrorKind::ExpiredSignature) {
+                    AuthError::TokenExpired
+                } else {
+                    AuthError::JwtLibraryError(e)
+                }
             })?;
 
         // Cache the token with its expiry
@@ -488,8 +493,13 @@ impl<V> Jwt<V> {
         let decoding_key = DecodingKey::from_secret(b"unused");
 
         // Get issuer from claims
-        decode(token, &decoding_key, &validation)
-            .map_err(|e| AuthError::VerificationError(format!("Failed to decode token: {}", e)))
+        decode(token, &decoding_key, &validation).map_err(|e| {
+            if matches!(e.kind(), ErrorKind::ExpiredSignature) {
+                AuthError::TokenExpired
+            } else {
+                AuthError::JwtLibraryError(e)
+            }
+        })
     }
 
     /// Get decoding key for verification
@@ -510,8 +520,12 @@ impl<V> Jwt<V> {
             // Get issuer from claims
             let token_data: TokenData<StandardClaims> = decode(token, &decoding_key, &validation)
                 .map_err(|e| {
-                AuthError::VerificationError(format!("Failed to decode token: {}", e))
-            })?;
+                    if matches!(e.kind(), ErrorKind::ExpiredSignature) {
+                        AuthError::TokenExpired
+                    } else {
+                        AuthError::JwtLibraryError(e)
+                    }
+                })?;
 
             let issuer = token_data.claims.iss.as_ref().ok_or_else(|| {
                 AuthError::ConfigError("no issuer found in JWT claims".to_string())

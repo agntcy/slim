@@ -316,10 +316,10 @@ pub enum ConfigError {
     #[cfg(not(target_family = "windows"))]
     SpireError(String),
 
-    #[error("root store error: {0}")]
-    RootStore(#[from] rustls::Error),
+    #[error("rustls error: {0}")]
+    Rustls(#[from] rustls::Error),
     #[error("config builder error: {0}")]
-    ConfigBuilder(rustls::Error),
+    ConfigBuilder(String),
     #[error("missing server cert and key")]
     MissingServerCertAndKey,
     #[error("verifier builder error: {0}")]

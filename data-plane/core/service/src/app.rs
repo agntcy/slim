@@ -148,8 +148,7 @@ where
         // so they will bypass the interceptors. Add the identity
         let identity = self
             .session_layer
-            .get_identity_token()
-            .map_err(ServiceError::SessionError)?;
+            .get_identity_token()?;
 
         // Add the identity to the message metadata
         msg.get_slim_header_mut().set_identity(identity);

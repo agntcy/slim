@@ -17,7 +17,10 @@ use slim_datapath::api::{MlsPayload, ProtoMessage as Message, ProtoSessionMessag
 // Local crate
 use crate::SessionError;
 use slim_datapath::messages::Name;
-use slim_mls::mls::{CommitMsg, KeyPackageMsg, Mls, MlsIdentity, ProposalMsg, WelcomeMsg};
+use slim_mls::{
+    errors::MlsError,
+    mls::{CommitMsg, KeyPackageMsg, Mls, MlsIdentity, ProposalMsg, WelcomeMsg},
+};
 
 #[derive(Debug)]
 pub struct MlsState<P, V>
@@ -57,7 +60,8 @@ where
     }
 
     pub(crate) async fn generate_key_package(&mut self) -> Result<KeyPackageMsg, SessionError> {
-        self.mls.lock().await.generate_key_package().await?
+        let ret = self.mls.lock().await.generate_key_package().await?;
+        Ok(ret)
     }
 
     pub(crate) async fn process_welcome_message(
@@ -70,21 +74,16 @@ where
             return Ok(());
         }
 
-        let payload = msg.extract_group_welcome().map_err(|e| {
-            SessionError::WelcomeMessage(format!("failed to extract welcome payload: {}", e))
-        })?;
+        let payload = msg
+            .extract_group_welcome()
+            .map_err(|e| SessionError::extract_error("group_welcome", e))?;
         let mls_payload = payload.mls.as_ref().ok_or_else(|| {
             SessionError::WelcomeMessage("missing mls payload in welcome message".to_string())
         })?;
         self.last_mls_msg_id = mls_payload.commit_id;
         let welcome = &mls_payload.mls_content;
 
-        self.group = self
-            .mls
-            .lock()
-            .await
-            .process_welcome(welcome)
-            .await?;
+        self.group = self.mls.lock().await.process_welcome(welcome).await?;
 
         Ok(())
     }
@@ -116,18 +115,12 @@ where
                 }
                 ProtoSessionMessageType::GroupAdd => {
                     let payload = msg.extract_group_add()?;
-                    let mls_payload = payload
-                        .mls
-                        .as_ref()
-                        .ok_or(SessionError::MissingMlsPayload { context: "add" })?;
+                    let mls_payload = payload.mls.as_ref().ok_or(MlsError::NoGroupAddPayload)?;
                     self.process_commit_message(mls_payload).await?;
                 }
                 ProtoSessionMessageType::GroupRemove => {
                     let payload = msg.extract_group_remove()?;
-                    let mls_payload = payload
-                        .mls
-                        .as_ref()
-                        .ok_or(SessionError::MissingMlsPayload { context: "remove" })?;
+                    let mls_payload = payload.mls.as_ref().ok_or(MlsError::NoGroupRemovePayload)?;
 
                     self.process_commit_message(mls_payload).await?;
                 }
@@ -150,11 +143,14 @@ where
         trace!("processing stored commit {}", mls_payload.commit_id);
 
         // process the commit message
-        self.mls
+        let ret = self
+            .mls
             .lock()
             .await
             .process_commit(&mls_payload.mls_content)
-            .await?
+            .await?;
+
+        Ok(ret)
     }
 
     async fn process_proposal_message(
@@ -166,12 +162,11 @@ where
 
         let payload = proposal.extract_group_proposal()?;
 
-        let original_source = Name::from(
-            payload
-                .source
-                .as_ref()
-                .ok_or(SessionError::MissingPayload { context: "proposal source" })?,
-        );
+        let original_source = Name::from(payload.source.as_ref().ok_or(
+            SessionError::MissingPayload {
+                context: "proposal source",
+            },
+        )?);
         if original_source == *local_name {
             // drop the message as we are the original source
             debug!("Known proposal, drop the message");
@@ -204,7 +199,7 @@ where
                     .as_group_add_payload()?
                     .mls
                     .as_ref()
-                    .ok_or_else(|| SessionError::MLSIdMessage("missing mls payload".to_string()))?
+                    .ok_or(MlsError::NoGroupAddPayload)?
                     .commit_id
             }
             ProtoSessionMessageType::GroupRemove => {
@@ -212,13 +207,11 @@ where
                     .as_group_remove_payload()?
                     .mls
                     .as_ref()
-                    .ok_or_else(|| SessionError::MLSIdMessage("missing mls payload".to_string()))?
+                    .ok_or(MlsError::NoGroupRemovePayload)?
                     .commit_id
             }
             _ => {
-                return Err(SessionError::MLSIdMessage(
-                    "unexpected message type".to_string(),
-                ));
+                return Err(MlsError::UnknownPayloadType.into());
             }
         };
 
@@ -275,12 +268,7 @@ where
     }
 
     pub(crate) async fn init_moderator(&mut self) -> Result<(), SessionError> {
-        self.common
-            .mls
-            .lock()
-            .await
-            .create_group()
-            .await?;
+        self.common.mls.lock().await.create_group().await?;
         Ok(())
     }
 
@@ -321,13 +309,7 @@ where
             }
         };
         // Direct propagation of MlsError
-        let ret = self
-            .common
-            .mls
-            .lock()
-            .await
-            .remove_member(id)
-            .await?;
+        let ret = self.common.mls.lock().await.remove_member(id).await?;
 
         // remove the participant from the list
         self.participants.remove(&name);

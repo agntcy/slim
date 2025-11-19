@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::{net::SocketAddr, str::FromStr, time::Duration};
 
 use duration_string::DurationString;
-use futures::{FutureExt, TryStreamExt};
+use futures::FutureExt;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
@@ -313,11 +313,9 @@ impl ServerConfig {
             return Err(ConfigError::MissingEndpoint);
         }
 
-        let addr = SocketAddr::from_str(self.endpoint.as_str())
-            .map_err(|e| ConfigError::EndpointParseError(e.to_string()))?;
+        let addr = SocketAddr::from_str(self.endpoint.as_str())?;
 
-        let incoming =
-            TcpIncoming::bind(addr).map_err(|e| ConfigError::TcpIncomingError(e.to_string()))?;
+        let incoming = TcpIncoming::bind(addr)?;
 
         let builder: tonic::transport::Server =
             tonic::transport::Server::builder().accept_http1(false);
@@ -345,11 +343,7 @@ impl ServerConfig {
         let mut builder = builder.max_connection_age(self.keepalive.max_connection_age.into());
 
         // Async TLS configuration load (may involve SPIFFE operations)
-        let tls_config = self
-            .tls_setting
-            .load_rustls_config()
-            .await
-            .map_err(|e| ConfigError::TLSSettingError(e.to_string()))?;
+        let tls_config = self.tls_setting.load_rustls_config().await?;
 
         match &self.auth {
             AuthenticationConfig::Basic(basic) => {
@@ -364,8 +358,7 @@ impl ServerConfig {
 
                 if let Some(tls_config) = tls_config {
                     let incoming =
-                        tonic_tls::rustls::TlsIncoming::new(incoming, Arc::new(tls_config))
-                            .map_err(|e| ConfigError::TcpIncomingError(e.to_string()));
+                        tonic_tls::rustls::TlsIncoming::new(incoming, Arc::new(tls_config));
 
                     return Ok(router.serve_with_incoming(incoming).boxed());
                 };
@@ -391,8 +384,7 @@ impl ServerConfig {
 
                 if let Some(tls_config) = tls_config {
                     let incoming =
-                        tonic_tls::rustls::TlsIncoming::new(incoming, Arc::new(tls_config))
-                            .map_err(|e| ConfigError::TcpIncomingError(e.to_string()));
+                        tonic_tls::rustls::TlsIncoming::new(incoming, Arc::new(tls_config));
 
                     return Ok(router.serve_with_incoming(incoming).boxed());
                 };
@@ -407,8 +399,7 @@ impl ServerConfig {
 
                 if let Some(tls_config) = tls_config {
                     let incoming =
-                        tonic_tls::rustls::TlsIncoming::new(incoming, Arc::new(tls_config))
-                            .map_err(|e| ConfigError::TcpIncomingError(e.to_string()));
+                        tonic_tls::rustls::TlsIncoming::new(incoming, Arc::new(tls_config));
 
                     return Ok(router.serve_with_incoming(incoming).boxed());
                 };
@@ -530,14 +521,15 @@ mod tests {
         let ret = server_config
             .to_server_future(&[GreeterServer::from_arc(empty_service.clone())])
             .await;
-        assert!(ret.is_err_and(|e| { e.to_string().contains("error parsing grpc endpoint") }));
+        // Make sure we got an EndpointParse error
+        assert!(ret.is_err_and(|e| { matches!(e, ConfigError::EndpointParse(_)) }));
 
         // set a valid endpoint in the config. Now it should fail because of the missing cert/key files for tls
         server_config.endpoint = "0.0.0.0:12345".to_string();
         let ret = server_config
             .to_server_future(&[GreeterServer::from_arc(empty_service.clone())])
             .await;
-        assert!(ret.is_err_and(|e| { e.to_string().contains("tls setting error") }));
+        assert!(ret.is_err_and(|e| { matches!(e, ConfigError::TlsConfig(_)) }));
 
         // set the tls setting to insecure. Now it should return a server future
         server_config.tls_setting.insecure = true;

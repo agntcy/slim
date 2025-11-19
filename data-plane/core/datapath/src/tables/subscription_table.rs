@@ -479,19 +479,15 @@ fn remove_subscription_from_sub_table(
     // Convert &Name to &InternalName. This is unsafe, but we know the types are compatible.
     let query_name = unsafe { std::mem::transmute::<&Name, &InternalName>(name) };
 
-    match table.get_mut(query_name) {
-        None => {
-            debug!("subscription not found {}", name);
-            Err(SubscriptionTableError::SubscriptionNotFound)
+    if let Some(state) = table.get_mut(query_name) {
+        state.remove(&name.id(), conn_index, is_local)?;
+        if state.ids.is_empty() {
+            table.remove(query_name);
         }
-        Some(state) => {
-            state.remove(&name.id(), conn_index, is_local)?;
-            // we may need to remove the state
-            if state.ids.is_empty() {
-                table.remove(query_name);
-            }
-            Ok(())
-        }
+        Ok(())
+    } else {
+        debug!("subscription not found {}", name);
+        Err(DataPathError::SubscriptionNotFound)
     }
 }
 
@@ -504,7 +500,7 @@ fn remove_subscription_from_connection(
     match set {
         None => {
             warn!(%conn_index, "connection not found");
-            return Err(SubscriptionTableError::ConnectionIdNotFound);
+            return Err(DataPathError::ConnectionIdNotFound);
         }
         Some(s) => {
             if !s.remove(name) {
@@ -512,7 +508,7 @@ fn remove_subscription_from_connection(
                     "subscription for name {} not found on connection {}",
                     name, conn_index,
                 );
-                return Err(SubscriptionTableError::SubscriptionNotFound);
+                return Err(DataPathError::SubscriptionNotFound);
             }
             if s.is_empty() {
                 map.remove(&conn_index);
@@ -600,7 +596,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
             .connections
             .write()
             .remove(&conn)
-            .ok_or(SubscriptionTableError::ConnectionIdNotFound)?;
+            .ok_or(DataPathError::ConnectionIdNotFound)?;
         let mut table = self.table.write();
         for name in &removed_subscriptions {
             debug!("remove subscription {} from connection {}", name, conn);
@@ -649,7 +645,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         match table.get(query_name) {
             None => {
                 debug!("match not found for type {:}", name);
-                Err(SubscriptionTableError::NoMatch(format!("{}", name)))
+                Err(DataPathError::NoMatch(format!("{}", name)))
             }
             Some(state) => {
                 // first try to send the message to the local connections
@@ -669,7 +665,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 }
 
                 error!("no connection available (local/remote)");
-                Err(SubscriptionTableError::NoMatch(format!("{}", name)))
+                Err(DataPathError::NoMatch(format!("{}", name)))
             }
         }
     }
@@ -729,7 +725,7 @@ mod tests {
         // return no match
         assert_eq!(
             t.match_all(&name1, 1),
-            Err(SubscriptionTableError::NoMatch(format!("{}", name1,)))
+            Err(DataPathError::NoMatch(format!("{}", name1,)))
         );
 
         // add subscription again
@@ -811,7 +807,7 @@ mod tests {
         // test errors
         assert_eq!(
             t.remove_connection(4, false),
-            Err(SubscriptionTableError::ConnectionIdNotFound)
+            Err(DataPathError::ConnectionIdNotFound)
         );
 
         assert_eq!(t.match_one(&name1_1, 100), Ok(2));
@@ -824,11 +820,11 @@ mod tests {
 
         assert_eq!(
             t.remove_subscription(&name3, 2, false),
-            Err(SubscriptionTableError::SubscriptionNotFound)
+            Err(DataPathError::SubscriptionNotFound)
         );
         assert_eq!(
             t.remove_subscription(&name2, 2, false),
-            Err(SubscriptionTableError::IdNotFound)
+            Err(DataPathError::IdNotFound)
         );
     }
 

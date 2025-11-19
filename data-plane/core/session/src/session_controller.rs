@@ -375,7 +375,7 @@ impl SessionController {
             .message_id(rand::random::<u32>()) // this will be changed by the session itself
             .application_payload(&ct, blob)
             .build_publish()
-            .map_err(|e| SessionError::Processing(e.to_string()))?;
+            .map_err(SessionError::build_error)?;
         if let Some(map) = metadata
             && !map.is_empty()
         {
@@ -401,7 +401,7 @@ impl SessionController {
             .message_id(rand::random::<u32>())
             .payload(payload)
             .build_publish()
-            .map_err(|e| SessionError::Processing(e.to_string()))
+            .map_err(SessionError::build_error)
     }
 
     pub(crate) async fn invite_participant_internal(
@@ -448,7 +448,7 @@ impl SessionController {
                     .message_id(rand::random::<u32>())
                     .payload(CommandPayload::builder().leave_request(None).as_content())
                     .build_publish()
-                    .map_err(|_e| SessionError::MissingPayload { context: "leave_request" })?;
+                    .map_err(|e| SessionError::extract_error("leave_request", e))?;
                 self.publish_message(msg).await
             }
             _ => Err(SessionError::UnexpectedMessageType { message_type: ProtoSessionMessageType::LeaveRequest }),
@@ -496,7 +496,7 @@ pub fn handle_channel_discovery_message(
         .message_id(msg_id)
         .payload(CommandPayload::builder().discovery_reply().as_content())
         .build_publish()
-        .map_err(|e| SessionError::Processing(e.to_string()))
+        .map_err(SessionError::build_error)
 }
 
 pub(crate) struct SessionControllerCommon<P, V>
@@ -593,7 +593,7 @@ where
 
         builder
             .build_publish()
-            .map_err(|e| SessionError::Processing(e.to_string()))
+            .map_err(SessionError::build_error)
     }
 
     /// Send control message without creating ack channel (for internal use by moderator)
@@ -881,12 +881,7 @@ mod tests {
         let participant = Name::from_strings(["org", "ns", "new_participant"]);
 
         let result = controller.invite_participant(&participant).await;
-        assert!(result.is_err());
-        if let Err(SessionError::Processing(msg)) = result {
-            assert!(msg.contains("cannot invite participant"));
-        } else {
-            panic!("Expected SessionError::Processing");
-        }
+        assert!(result.is_err_and(|e| matches!(e, SessionError::NotInitiator)));
     }
 
     #[tokio::test]
@@ -898,12 +893,7 @@ mod tests {
         let participant = Name::from_strings(["org", "ns", "participant"]);
 
         let result = controller.invite_participant(&participant).await;
-        assert!(result.is_err());
-        if let Err(SessionError::Processing(msg)) = result {
-            assert!(msg.contains("cannot invite participant to point-to-point"));
-        } else {
-            panic!("Expected SessionError::Processing");
-        }
+        assert!(result.is_err_and(|e| matches!(e, SessionError::CannotInviteToP2P)));
     }
 
     #[tokio::test]
@@ -932,12 +922,7 @@ mod tests {
         let participant = Name::from_strings(["org", "ns", "participant"]);
 
         let result = controller.remove_participant(&participant).await;
-        assert!(result.is_err());
-        if let Err(SessionError::Processing(msg)) = result {
-            assert!(msg.contains("cannot remove participant"));
-        } else {
-            panic!("Expected SessionError::Processing");
-        }
+        assert!(result.is_err_and(|e| matches!(e, SessionError::NotInitiator)));
     }
 
     #[tokio::test]
@@ -949,12 +934,7 @@ mod tests {
         let participant = Name::from_strings(["org", "ns", "participant"]);
 
         let result = controller.remove_participant(&participant).await;
-        assert!(result.is_err());
-        if let Err(SessionError::Processing(msg)) = result {
-            assert!(msg.contains("cannot remove participant to point-to-point"));
-        } else {
-            panic!("Expected SessionError::Processing");
-        }
+        assert!(result.is_err_and(|e| matches!(e, SessionError::CannotRemoveFromP2P)));
     }
 
     #[test]

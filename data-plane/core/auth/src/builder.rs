@@ -342,21 +342,18 @@ impl JwtBuilder<state::WithPrivateKey> {
             | Algorithm::PS512 => {
                 // PEM-encoded private key
                 {
-                    let ek = EncodingKey::from_rsa_pem(key_str.as_bytes())
-                        .map_err(|e| AuthError::ConfigError(format!("Invalid RSA private key: {}", e)))?;
+                    let ek = EncodingKey::from_rsa_pem(key_str.as_bytes())?;
                     Ok(ek)
                 }
             }
             Algorithm::ES256 | Algorithm::ES384 => {
                 // PEM-encoded EC private key
-                let ek = EncodingKey::from_ec_pem(key_str.as_bytes())
-                    .map_err(|e| AuthError::ConfigError(format!("Invalid EC private key: {}", e)))?;
+                let ek = EncodingKey::from_ec_pem(key_str.as_bytes())?;
                 Ok(ek)
             }
             Algorithm::EdDSA => {
                 // PEM-encoded EdDSA private key
-                let ek = EncodingKey::from_ed_pem(key_str.as_bytes())
-                    .map_err(|e| AuthError::ConfigError(format!("Invalid EdDSA private key: {}", e)))?;
+                let ek = EncodingKey::from_ed_pem(key_str.as_bytes())?;
                 Ok(ek)
             }
         }
@@ -424,40 +421,30 @@ impl JwtBuilder<state::WithPublicKey> {
                     | Algorithm::PS384
                     | Algorithm::PS512 => {
                         // PEM-encoded public key
-                        let ret = DecodingKey::from_rsa_pem(key_str.as_bytes())
-                            .map_err(|e| AuthError::ConfigError(format!("Invalid RSA public key: {}", e)));
-
-                        ret.map(DecodingKeyInternal::DecKey)
+                        let ret = DecodingKey::from_rsa_pem(key_str.as_bytes())?;
+                        Ok(DecodingKeyInternal::DecKey(ret))
                     }
                     Algorithm::ES256 | Algorithm::ES384 => {
                         // PEM-encoded EC public key
-                        let ret = DecodingKey::from_ec_pem(key_str.as_bytes())
-                            .map_err(|e| AuthError::ConfigError(format!("Invalid EC public key: {}", e)));
-
-                        ret.map(DecodingKeyInternal::DecKey)
+                        let ret = DecodingKey::from_ec_pem(key_str.as_bytes())?;
+                        Ok(DecodingKeyInternal::DecKey(ret))
                     }
                     Algorithm::EdDSA => {
                         // PEM-encoded EdDSA public key
-                        let ret = DecodingKey::from_ed_pem(key_str.as_bytes())
-                            .map_err(|e| AuthError::ConfigError(format!("Invalid EdDSA public key: {}", e)));
-
-                        ret.map(DecodingKeyInternal::DecKey)
+                        let ret = DecodingKey::from_ed_pem(key_str.as_bytes())?;
+                        Ok(DecodingKeyInternal::DecKey(ret))
                     }
                 }
             }
             KeyFormat::Jwk => {
                 // JWK format
-                let jwk: Jwk = serde_json::from_str(&resolve_key(key))
-                    .map_err(|e| AuthError::ConfigError(format!("Invalid JWK: {}", e)))?;
-                let ret = DecodingKey::from_jwk(&jwk)
-                    .map_err(|e| AuthError::ConfigError(format!("Invalid JWK: {}", e)));
-
-                ret.map(DecodingKeyInternal::DecKey)
+                let jwk: Jwk = serde_json::from_str(&resolve_key(key))?;
+                let ret = DecodingKey::from_jwk(&jwk)?;
+                Ok(DecodingKeyInternal::DecKey(ret))
             }
             KeyFormat::Jwks => {
                 // JWKS format
-                let jwk_set: JwkSet = serde_json::from_str(&resolve_key(key))
-                    .map_err(|e| AuthError::ConfigError(format!("Invalid JWKS: {}", e)))?;
+                let jwk_set: JwkSet = serde_json::from_str(&resolve_key(key))?;
 
                 Ok(DecodingKeyInternal::Jwks(jwk_set))
             }
@@ -535,8 +522,7 @@ impl JwtBuilder<state::WithToken> {
             let token = std::fs::read_to_string(file).expect("error reading token file");
             *token_clone.as_ref().write() = token;
         });
-        w.add_file(self.token_file.as_ref().unwrap())
-            .map_err(|e| AuthError::ConfigError(e.to_string()))?;
+        w.add_file(self.token_file.as_ref().unwrap())?;
 
         // Create new Jwt instance
         Ok(SignerJwt::new(

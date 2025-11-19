@@ -5,8 +5,7 @@ pub mod api;
 pub mod message_processing;
 pub mod messages;
 pub mod tables;
-
-mod errors;
+pub mod errors;
 
 mod connection;
 mod forwarder;

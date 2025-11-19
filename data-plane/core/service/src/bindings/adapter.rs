@@ -101,7 +101,9 @@ where
         let service_ref = if use_local_service {
             let svc = Service::builder()
                 .build("local-bindings-service".to_string())
-                .map_err(|e| ServiceError::ConfigError(e.to_string()))?;
+                .map_err(|e| {
+                    ServiceError::InvalidConfig(format!("failed to create local service: {}", e))
+                })?;
             ServiceRef::Local(Box::new(svc))
         } else {
             ServiceRef::Global(get_or_init_global_service())
@@ -186,9 +188,7 @@ where
             match tokio::time::timeout(dur, recv_fut).await {
                 Ok(n) => n,
                 Err(_) => {
-                    return Err(ServiceError::ReceiveError(
-                        "listen_for_session timed out".to_string(),
-                    ));
+                    return Err(ServiceError::ReceiveTimeout);
                 }
             }
         } else {
@@ -196,17 +196,15 @@ where
         };
 
         if notification_opt.is_none() {
-            return Err(ServiceError::ReceiveError(
-                "application channel closed".to_string(),
-            ));
+            return Err(ServiceError::ReceiveChannelClosed);
         }
 
         match notification_opt.unwrap() {
             Ok(Notification::NewSession(ctx)) => Ok(ctx),
-            Ok(Notification::NewMessage(_)) => Err(ServiceError::ReceiveError(
-                "received unexpected message notification while listening for session".to_string(),
+            Ok(Notification::NewMessage(_)) => Err(ServiceError::ReceiveDecodeFailure(
+                "unexpected notification while waiting for new session".to_string(),
             )),
-            Err(e) => Err(ServiceError::ReceiveError(format!(
+            Err(e) => Err(ServiceError::ReceiveDecodeFailure(format!(
                 "failed to receive session notification: {}",
                 e
             ))),
@@ -369,10 +367,7 @@ mod tests {
         let result = adapter
             .listen_for_session(Some(Duration::from_millis(10)))
             .await;
-        assert!(result.is_err());
-        if let Err(e) = result {
-            assert!(e.to_string().contains("timed out"));
-        }
+        assert!(result.is_err_and(|e| matches!(e, ServiceError::ReceiveTimeout)));
     }
 
     #[tokio::test]

@@ -50,14 +50,15 @@ impl BindingsSessionContext {
         let session = self
             .session
             .upgrade()
-            .ok_or_else(|| ServiceError::SessionError("Session has been dropped".to_string()))?;
+            .ok_or(ServiceError::SessionNotFound)?;
 
         let flags = SlimHeaderFlags::new(fanout, None, conn_out, None, None);
 
-        session
+        let ret = session
             .publish_with_flags(name, flags, blob, payload_type, metadata)
-            .await
-            .map_err(|e| ServiceError::SessionError(e.to_string()))
+            .await?;
+
+        Ok(ret)
     }
 
     /// Publish a message as a reply to a received message (reply semantics)
@@ -80,11 +81,11 @@ impl BindingsSessionContext {
         blob: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<CompletionHandle, ServiceError> {
+    ) -> Result<CompletionHandle, SessionError> {
         let session = self
             .session
             .upgrade()
-            .ok_or_else(|| ServiceError::SessionError("Session has been dropped".to_string()))?;
+            .ok_or(SessionError::SessionNotFound)?;
 
         let flags = SlimHeaderFlags::new(
             1, // fanout = 1 for reply semantics
@@ -103,7 +104,6 @@ impl BindingsSessionContext {
                 metadata,
             )
             .await
-            .map_err(|e| ServiceError::SessionError(e.to_string()))
     }
 
     /// Invite a peer to join this session
@@ -147,10 +147,10 @@ impl BindingsSessionContext {
             let msg = rx
                 .recv()
                 .await
-                .ok_or_else(|| ServiceError::ReceiveError("session channel closed".to_string()))?;
+                .ok_or(ServiceError::ReceiveChannelClosed)?;
 
             let msg = msg.map_err(|e| {
-                ServiceError::ReceiveError(format!("failed to decode message: {}", e))
+                ServiceError::ReceiveDecodeFailure(format!("failed to decode message: {}", e))
             })?;
             MessageContext::from_proto_message(msg)
         };
@@ -158,9 +158,7 @@ impl BindingsSessionContext {
         if let Some(timeout_duration) = timeout {
             tokio::time::timeout(timeout_duration, recv_future)
                 .await
-                .map_err(|_| {
-                    ServiceError::ReceiveError("timeout waiting for message".to_string())
-                })?
+                .map_err(|_| ServiceError::ReceiveTimeout)?
         } else {
             recv_future.await
         }

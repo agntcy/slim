@@ -530,113 +530,130 @@ impl TaskUpdate for UpdateParticipant {
 #[cfg(test)]
 mod tests {
     use tracing_test::traced_test;
-
     use super::*;
 
-    #[test]
-    #[traced_test]
-    fn test_add_participant() {
-        let mut task = ModeratorTask::Add(AddParticipant::default());
-        assert!(!task.task_complete());
+    #[derive(Debug)]
+    enum StepExpectation {
+        Ok,
+        ModeratorTaskErr(&'static str),
+        UnsupportedPhase,
+    }
 
-        let timer_id = 10;
-        task.discovery_start(timer_id)
-            .expect("error on discovery start");
-        assert!(!task.task_complete());
+    struct Step {
+        name: &'static str,
+        action: Box<dyn Fn(&mut ModeratorTask) -> Result<(), SessionError>>,
+        expectation: StepExpectation,
+        expect_complete: bool,
+    }
 
-        let mut res = task.discovery_complete(timer_id + 1);
-        assert_eq!(
-            res,
-            Err(SessionError::ModeratorTask(
-                "unexpected timer id".to_string(),
-            ))
-        );
+    impl Step {
+        fn ok<F: 'static + Fn(&mut ModeratorTask) -> Result<(), SessionError>>(
+            name: &'static str,
+            f: F,
+            expect_complete: bool,
+        ) -> Self {
+            Step { name, action: Box::new(f), expectation: StepExpectation::Ok, expect_complete }
+        }
+        fn err<F: 'static + Fn(&mut ModeratorTask) -> Result<(), SessionError>>(
+            name: &'static str,
+            f: F,
+            msg: &'static str,
+            expect_complete: bool,
+        ) -> Self {
+            Step { name, action: Box::new(f), expectation: StepExpectation::ModeratorTaskErr(msg), expect_complete }
+        }
+        fn unsupported<F: 'static + Fn(&mut ModeratorTask) -> Result<(), SessionError>>(
+            name: &'static str,
+            f: F,
+            expect_complete: bool,
+        ) -> Self {
+            Step { name, action: Box::new(f), expectation: StepExpectation::UnsupportedPhase, expect_complete }
+        }
+    }
 
-        res = task.leave_start(timer_id);
-        assert_eq!(res, Err(unsupported_phase()));
-
-        task.discovery_complete(timer_id)
-            .expect("error on discovery complete");
-        assert!(!task.task_complete());
-
-        task.join_start(timer_id + 1).expect("error on join start");
-        assert!(!task.task_complete());
-
-        task.join_complete(timer_id + 1)
-            .expect("error on join complete");
-        assert!(!task.task_complete());
-
-        task.welcome_start(timer_id + 2)
-            .expect("error on weclome start");
-        assert!(!task.task_complete());
-
-        task.commit_start(timer_id + 3)
-            .expect("error on commit start");
-        assert!(!task.task_complete());
-
-        task.update_phase_completed(timer_id + 2)
-            .expect("error mls complete (welcome)");
-        assert!(!task.task_complete());
-
-        task.update_phase_completed(timer_id + 3)
-            .expect("error mls complete (commit)");
-        assert!(task.task_complete());
+    fn run_scenario(mut task: ModeratorTask, steps: Vec<Step>) {
+        assert!(!task.task_complete(), "task should start incomplete");
+        for (i, step) in steps.into_iter().enumerate() {
+            let res = (step.action)(&mut task);
+            match step.expectation {
+                StepExpectation::Ok => {
+                    if let Err(e) = res {
+                        panic!("step {} ({}) expected Ok, got Err {:?}", i, step.name, e);
+                    }
+                }
+                StepExpectation::ModeratorTaskErr(msg) => {
+                    match res {
+                        Err(SessionError::ModeratorTask(actual)) => {
+                            assert_eq!(actual, msg, "step {} ({}) msg mismatch", i, step.name);
+                        }
+                        other => panic!("step {} ({}) expected ModeratorTask('{}'), got {:?}", i, step.name, msg, other),
+                    }
+                }
+                StepExpectation::UnsupportedPhase => {
+                    match res {
+                        Err(SessionError::ModeratorTask(actual)) => {
+                            assert_eq!(actual, "this phase is not supported in this task", "step {} ({}) unsupported phase msg mismatch", i, step.name);
+                        }
+                        other => {
+                            panic!("step {} ({}) expected unsupported phase error, got {:?}", i, step.name, other);
+                        }
+                    }
+                }
+            }
+            assert_eq!(task.task_complete(), step.expect_complete, "step {} ({}) completion mismatch", i, step.name);
+        }
     }
 
     #[test]
     #[traced_test]
-    fn test_remove_participant() {
-        let mut task = ModeratorTask::Remove(RemoveParticipant::default());
-        assert!(!task.task_complete());
-
-        let timer_id = 10;
-        task.commit_start(timer_id).expect("error on commit start");
-        assert!(!task.task_complete());
-
-        task.update_phase_completed(timer_id)
-            .expect("error on commit completed");
-        assert!(!task.task_complete());
-
-        task.leave_start(timer_id + 1)
-            .expect("error on leave start");
-        assert!(!task.task_complete());
-
-        let mut res = task.leave_complete(timer_id + 2);
-        assert_eq!(
-            res,
-            Err(SessionError::ModeratorTask(
-                "unexpected timer id".to_string(),
-            ))
+    fn test_add_participant_scenario() {
+        let base = 10;
+        run_scenario(
+            ModeratorTask::Add(AddParticipant::default()),
+            vec![
+                Step::ok("discovery_start", move |t| t.discovery_start(base), false),
+                Step::err("discovery_complete_wrong", move |t| t.discovery_complete(base + 1), "unexpected timer id", false),
+                Step::err("leave_start_unsupported", move |t| t.leave_start(base), "this phase is not supported in this task", false),
+                Step::ok("discovery_complete_ok", move |t| t.discovery_complete(base), false),
+                Step::ok("join_start", move |t| t.join_start(base + 1), false),
+                Step::ok("join_complete", move |t| t.join_complete(base + 1), false),
+                Step::ok("welcome_start", move |t| t.welcome_start(base + 2), false),
+                Step::ok("commit_start", move |t| t.commit_start(base + 3), false),
+                Step::ok("welcome_phase_completed", move |t| t.update_phase_completed(base + 2), false),
+                Step::ok("commit_phase_completed", move |t| t.update_phase_completed(base + 3), true),
+            ],
         );
-
-        res = task.discovery_start(timer_id);
-        assert_eq!(res, Err(unsupported_phase()));
-
-        task.leave_complete(timer_id + 1)
-            .expect("error on leave complete");
-        assert!(task.task_complete());
     }
 
     #[test]
     #[traced_test]
-    fn test_update_participant_mls() {
-        let mut task = ModeratorTask::Update(UpdateParticipant::default());
-        assert!(!task.task_complete());
+    fn test_remove_participant_scenario() {
+        let base = 10;
+        run_scenario(
+            ModeratorTask::Remove(RemoveParticipant::default()),
+            vec![
+                Step::ok("commit_start", move |t| t.commit_start(base), false),
+                Step::ok("commit_completed", move |t| t.update_phase_completed(base), false),
+                Step::ok("leave_start", move |t| t.leave_start(base + 1), false),
+                Step::err("leave_complete_wrong", move |t| t.leave_complete(base + 2), "unexpected timer id", false),
+                Step::unsupported("discovery_start_unsupported", move |t| t.discovery_start(base), false),
+                Step::ok("leave_complete_ok", move |t| t.leave_complete(base + 1), true),
+            ],
+        );
+    }
 
-        let timer_id = 10;
-        task.commit_start(timer_id).expect("error on commit start");
-        assert!(!task.task_complete());
-
-        task.update_phase_completed(timer_id)
-            .expect("error on commit completed");
-        assert!(!task.task_complete());
-
-        task.proposal_start(timer_id)
-            .expect("error on proposal completed");
-        assert!(!task.task_complete());
-
-        task.update_phase_completed(timer_id)
-            .expect("error on proposal completed");
-        assert!(task.task_complete());
+    #[test]
+    #[traced_test]
+    fn test_update_participant_mls_scenario() {
+        let base = 10;
+        run_scenario(
+            ModeratorTask::Update(UpdateParticipant::default()),
+            vec![
+                Step::ok("commit_start", move |t| t.commit_start(base), false),
+                Step::ok("commit_completed", move |t| t.update_phase_completed(base), false),
+                Step::ok("proposal_start", move |t| t.proposal_start(base), false),
+                Step::ok("proposal_completed", move |t| t.update_phase_completed(base), true),
+            ],
+        );
     }
 }

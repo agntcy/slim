@@ -13,7 +13,7 @@ use mls_rs_crypto_awslc::AwsLcCryptoProvider;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::Write;
 use tracing::debug;
 
 use slim_auth::traits::{TokenProvider, Verifier};
@@ -53,10 +53,8 @@ impl StoredIdentity {
 
     fn load_from_storage(storage_path: &std::path::Path) -> Result<Self, MlsError> {
         let identity_file = storage_path.join(IDENTITY_FILENAME);
-        let mut file = File::open(&identity_file)?;
-        let mut buf = Vec::new();
-        file.read_to_end(&mut buf)?;
-        serde_json::from_slice(&buf)
+        let data = std::fs::read(&identity_file)?;
+        serde_json::from_slice(&data).map_err(MlsError::from)
     }
 
     fn save_to_storage(&self, storage_path: &std::path::Path) -> Result<(), MlsError> {
@@ -160,10 +158,6 @@ where
             .expect("Storage path should always be set in constructor")
     }
 
-    fn map_mls_error<T>(result: Result<T, impl std::fmt::Display>) -> Result<T, MlsError> {
-        result.map_err(|e| MlsError::Mls(e.to_string()))
-    }
-
     /// Helper method to create a signing identity from key pair and update storage
     /// Generates a token with the public key in the claims, creates a BasicCredential,
     /// and updates the stored identity with the new keys and token
@@ -178,7 +172,7 @@ where
             .identity_provider
             .get_token_with_claims(IdentityClaims::from_public_key_bytes(public_key.as_ref()))
             .await
-            .map_err(|e| MlsError::TokenRetrievalFailed(e.to_string()))?;
+            .map_err(MlsError::token_retrieval_failed)?;
 
         let credential_data = token.as_bytes().to_vec();
 
@@ -214,7 +208,7 @@ where
         cipher_suite_provider
             .signature_key_generate()
             .await
-            .map_err(|e| MlsError::Mls(e.to_string()))
+            .map_err(MlsError::crypto_provider)
     }
 
     pub async fn initialize(&mut self) -> Result<(), MlsError> {
@@ -232,7 +226,7 @@ where
             self.identity = Some(
                 self.identity_provider
                     .get_id()
-                    .map_err(|e| MlsError::IdentifierNotFound(e.to_string()))?,
+                    .map_err(MlsError::identifier_not_found)?,
             );
 
             let stored = StoredIdentity {
@@ -281,11 +275,9 @@ where
         debug!("Creating new MLS group");
         let client = self.client.as_ref().ok_or(MlsError::ClientNotInitialized)?;
 
-        let group = Self::map_mls_error(
-            client
-                .create_group(ExtensionList::default(), Default::default(), None)
-                .await,
-        )?;
+        let group = client
+            .create_group(ExtensionList::default(), Default::default(), None)
+            .await?;
 
         let group_id = group.group_id().to_vec();
         self.group = Some(group);
@@ -301,12 +293,13 @@ where
         debug!("Generating key package");
         let client = self.client.as_ref().ok_or(MlsError::ClientNotInitialized)?;
 
-        let key_package = Self::map_mls_error(
-            client
-                .generate_key_package_message(Default::default(), Default::default(), None)
-                .await,
-        )?;
-        Self::map_mls_error(key_package.to_bytes())
+        let key_package = client
+            .generate_key_package_message(Default::default(), Default::default(), None)
+            .await?;
+
+        let ret = key_package.to_bytes()?;
+
+        Ok(ret)
     }
 
     pub async fn add_member(
@@ -315,7 +308,7 @@ where
     ) -> Result<MlsAddMemberResult, MlsError> {
         debug!("Adding member to the MLS group");
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
-        let key_package = Self::map_mls_error(MlsMessage::from_bytes(key_package_bytes))?;
+        let key_package = MlsMessage::from_bytes(key_package_bytes)?;
 
         let identity_provider = SlimIdentityProvider::new(self.identity_verifier.clone());
 
@@ -324,38 +317,37 @@ where
         let old_roster = group.roster().members();
         let mut ids = HashSet::new();
         for m in old_roster {
-            let identifier = Self::map_mls_error(
-                identity_provider
-                    .identity(&m.signing_identity, &m.extensions)
-                    .await,
-            )?;
+            let identifier = identity_provider
+                .identity(&m.signing_identity, &m.extensions)
+                .await?;
             ids.insert(identifier);
         }
 
-        let commit = Self::map_mls_error(group.commit_builder().add_member(key_package))?;
-        let commit = Self::map_mls_error(commit.build().await)?;
+        let commit = group.commit_builder().add_member(key_package)?;
+        let commit = commit.build().await?;
 
         // create the commit message to broadcast in the group
-        let commit_msg = Self::map_mls_error(commit.commit_message.to_bytes())?;
+        let commit_msg = commit
+            .commit_message
+            .to_bytes()
+            .map_err(MlsError::from)?;
 
-        // create the welcome message
+        // extract and serialize the first welcome message
         let welcome = commit
             .welcome_messages
             .first()
             .ok_or(MlsError::NoWelcomeMessage)
-            .and_then(|welcome| Self::map_mls_error(welcome.to_bytes()))?;
+            .and_then(|w| w.to_bytes().map_err(MlsError::from))?;
 
         // apply the commit locally
-        Self::map_mls_error(group.apply_pending_commit().await)?;
+        group.apply_pending_commit().await?;
 
         let new_roster = group.roster().members();
         let mut new_id = vec![];
         for m in new_roster {
-            let identifier = Self::map_mls_error(
-                identity_provider
-                    .identity(&m.signing_identity, &m.extensions)
-                    .await,
-            )?;
+            let identifier = identity_provider
+                .identity(&m.signing_identity, &m.extensions)
+                .await?;
             if !ids.contains(&identifier) {
                 new_id = identifier;
                 break;
@@ -374,24 +366,24 @@ where
         debug!("Removing member from the  MLS group");
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
-        let m = Self::map_mls_error(group.member_with_identity(identity).await)?;
+        let m = group.member_with_identity(identity).await?;
 
-        let commit = Self::map_mls_error(group.commit_builder().remove_member(m.index))?;
-        let commit = Self::map_mls_error(commit.build().await)?;
+        let commit = group.commit_builder().remove_member(m.index)?;
+        let commit = commit.build().await?;
 
-        let commit_msg = Self::map_mls_error(commit.commit_message.to_bytes())?;
+        let commit_msg = commit.commit_message.to_bytes()?;
 
-        Self::map_mls_error(group.apply_pending_commit().await)?;
+        group.apply_pending_commit().await?;
 
         Ok(commit_msg)
     }
 
     pub async fn process_commit(&mut self, commit_message: &[u8]) -> Result<(), MlsError> {
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
-        let commit = Self::map_mls_error(MlsMessage::from_bytes(commit_message))?;
+        let commit = MlsMessage::from_bytes(commit_message)?;
 
         // process an incoming commit message
-        Self::map_mls_error(group.process_incoming_message(commit).await)?;
+        group.process_incoming_message(commit).await?;
         Ok(())
     }
 
@@ -400,8 +392,8 @@ where
         let client = self.client.as_ref().ok_or(MlsError::ClientNotInitialized)?;
 
         // process the welcome message and connect to the group
-        let welcome = Self::map_mls_error(MlsMessage::from_bytes(welcome_message))?;
-        let (group, _) = Self::map_mls_error(client.join_group(None, &welcome, None).await)?;
+        let welcome = MlsMessage::from_bytes(welcome_message)?;
+        let (group, _) = client.join_group(None, &welcome, None).await?;
 
         let group_id = group.group_id().to_vec();
         self.group = Some(group);
@@ -419,9 +411,9 @@ where
         create_commit: bool,
     ) -> Result<CommitMsg, MlsError> {
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
-        let proposal = Self::map_mls_error(MlsMessage::from_bytes(proposal_message))?;
+        let proposal = MlsMessage::from_bytes(proposal_message)?;
 
-        Self::map_mls_error(group.process_incoming_message(proposal).await)?;
+        group.process_incoming_message(proposal).await?;
 
         if !create_commit {
             debug!("process proposal but do not create commit. return empty commit");
@@ -429,13 +421,13 @@ where
         }
 
         // create commit message from proposal
-        let commit = Self::map_mls_error(group.commit_builder().build().await)?;
+        let commit = group.commit_builder().build().await?;
 
         // apply the commit locally
-        Self::map_mls_error(group.apply_pending_commit().await)?;
+        group.apply_pending_commit().await?;
 
         // return the commit message
-        let commit_msg = Self::map_mls_error(commit.commit_message.to_bytes())?;
+        let commit_msg = commit.commit_message.to_bytes()?;
         Ok(commit_msg)
     }
 
@@ -443,13 +435,13 @@ where
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
         // create commit message from proposal
-        let commit = Self::map_mls_error(group.commit_builder().build().await)?;
+        let commit = group.commit_builder().build().await?;
 
         // apply the commit locally
-        Self::map_mls_error(group.apply_pending_commit().await)?;
+        group.apply_pending_commit().await?;
 
         // return the commit message
-        let commit_msg = Self::map_mls_error(commit.commit_message.to_bytes())?;
+        let commit_msg = commit.commit_message.to_bytes()?;
         Ok(commit_msg)
     }
 
@@ -458,13 +450,11 @@ where
 
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
-        let encrypted_msg = Self::map_mls_error(
-            group
-                .encrypt_application_message(message, Default::default())
-                .await,
-        )?;
+        let encrypted_msg = group
+            .encrypt_application_message(message, Default::default())
+            .await?;
 
-        let msg = Self::map_mls_error(encrypted_msg.to_bytes())?;
+        let msg = encrypted_msg.to_bytes()?;
         Ok(msg)
     }
 
@@ -473,19 +463,17 @@ where
 
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
-        let message = Self::map_mls_error(MlsMessage::from_bytes(encrypted_message))?;
+        let message = MlsMessage::from_bytes(encrypted_message)?;
 
-        match Self::map_mls_error(group.process_incoming_message(message).await)? {
+        match group.process_incoming_message(message).await? {
             ReceivedMessage::ApplicationMessage(app_msg) => Ok(app_msg.data().to_vec()),
-            _ => Err(MlsError::Mls(
-                "Message was not an application message".to_string(),
-            )),
+            _ => Err(MlsError::verification_failed("Message was not an application message")),
         }
     }
 
     pub async fn write_to_storage(&mut self) -> Result<(), MlsError> {
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
-        Self::map_mls_error(group.write_to_storage().await)?;
+        group.write_to_storage().await?;
         Ok(())
     }
 
@@ -509,24 +497,24 @@ where
         // Now get mutable reference to group after creating signing identity
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
-        let update_proposal = Self::map_mls_error(
-            group
-                .propose_update_with_identity(new_private_key.clone(), new_signing_identity, vec![])
-                .await,
-        )?;
+        let update_proposal = group
+            .propose_update_with_identity(new_private_key.clone(), new_signing_identity, vec![])
+            .await?;
 
         debug!(
             "Created credential rotation proposal, stored new keys and incremented credential version"
         );
 
-        Self::map_mls_error(update_proposal.to_bytes())
+        update_proposal
+            .to_bytes()
+            .map_err(MlsError::from)
     }
 
     /// Get a token from the identity provider
     pub fn get_token(&self) -> Result<String, MlsError> {
         self.identity_provider
             .get_token()
-            .map_err(|e| MlsError::TokenRetrievalFailed(e.to_string()))
+            .map_err(MlsError::token_retrieval_failed)
     }
 }
 
@@ -537,7 +525,7 @@ mod tests {
     use mls_rs_core::identity::MemberValidationContext;
     use tokio::time;
 
-    use crate::errors::SlimIdentityError;
+    use crate::errors::MlsError;
 
     use super::*;
     use slim_auth::shared_secret::SharedSecret;
@@ -1018,7 +1006,7 @@ mod tests {
         assert!(
             matches!(
                 validation_res,
-                Err(SlimIdentityError::PublicKeyMismatch { .. })
+                Err(MlsError::PublicKeyMismatch { .. })
             ),
             "Expected PublicKeyMismatch for stolen token + different key"
         );

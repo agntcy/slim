@@ -214,12 +214,7 @@ mod tests {
             true,
         );
 
-        assert!(result.is_err());
-        if let Err(SessionError::Processing(msg)) = result {
-            assert!(msg.contains("failed to get join request payload"));
-        } else {
-            panic!("Expected SessionError::Processing");
-        }
+        assert!(result.is_err_and(|e| matches!(e, SessionError::InvalidJoinRequestPayload)));
     }
 
     #[test]

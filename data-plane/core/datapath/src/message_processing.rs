@@ -265,9 +265,7 @@ impl MessageProcessor {
             Some(c) => c,
             None => {
                 error!("error handling disconnect: connection unknown");
-                return Err(DataPathError::DisconnectionError(
-                    "connection not found".to_string(),
-                ));
+                return Err(DataPathError::DisconnectionError);
             }
         };
 
@@ -275,9 +273,7 @@ impl MessageProcessor {
             Some(t) => t,
             None => {
                 error!("error handling disconnect: missing cancellation token");
-                return Err(DataPathError::DisconnectionError(
-                    "missing cancellation token".to_string(),
-                ));
+                return Err(DataPathError::DisconnectionError);
             }
         };
 
@@ -287,9 +283,7 @@ impl MessageProcessor {
         connection
             .config_data()
             .cloned()
-            .ok_or(DataPathError::DisconnectionError(
-                "missing client config data".to_string(),
-            ))
+            .ok_or(DataPathError::DisconnectionError)
     }
 
     pub fn register_local_connection(
@@ -365,14 +359,12 @@ impl MessageProcessor {
                 ///////////////////////////////////////////////////////////////////
 
                 match conn.channel() {
-                    Channel::Server(s) => s
-                        .send(Ok(msg))
-                        .await
-                        .map_err(|e| DataPathError::ChannelSendFailure(e.to_string())),
-                    Channel::Client(s) => s
-                        .send(msg)
-                        .await
-                        .map_err(|e| DataPathError::ChannelSendFailure(e.to_string())),
+                    Channel::Server(s) => {
+                        s.send(Ok(msg)).await.map_err(|_e| DataPathError::ConnectionNotFound)
+                    }
+                    Channel::Client(s) => {
+                        s.send(msg).await.map_err(|_e| DataPathError::ConnectionNotFound)
+                    }
                     _ => Err(DataPathError::ConnectionNotFound),
                 }
             }
@@ -486,21 +478,19 @@ impl MessageProcessor {
         let connection = self
             .forwarder()
             .get_connection(conn)
-            .ok_or(DataPathError::ConnectionNotFound { connection: conn })?;
+            .ok_or(DataPathError::ConnectionNotFound)?;
 
         debug!(
             "subscription update (add = {}) for name: {} - connection: {}",
             add, dst, conn
         );
 
-        if let Err(e) = self.forwarder().on_subscription_msg(
+        self.forwarder().on_subscription_msg(
             dst.clone(),
             conn,
             connection.is_local_connection(),
             add,
-        ) {
-            return Err(DataPathError::SubscriptionError(e.to_string()));
-        }
+        )?;
 
         match forward {
             None => {
@@ -515,14 +505,10 @@ impl MessageProcessor {
                 let identity = msg.get_identity();
 
                 // send message
-                match self.send_msg(msg, out_conn).await {
-                    Ok(_) => {
-                        self.forwarder()
-                            .on_forwarded_subscription(source, dst, identity, out_conn, add);
-                        Ok(())
-                    }
-                    Err(e) => Err(DataPathError::UnsubscriptionError(e.to_string())),
-                }
+                self.send_msg(msg, out_conn).await.map(|_| {
+                    self.forwarder()
+                        .on_forwarded_subscription(source, dst, identity, out_conn, add);
+                })
             }
         }
     }
@@ -560,7 +546,7 @@ impl MessageProcessor {
                 message_type = "none"
             );
 
-            return Err(DataPathError::InvalidMessage(err.to_string()));
+            return Err(DataPathError::InvalidMessage(err));
         }
 
         // add incoming connection to the SLIM header
@@ -605,7 +591,7 @@ impl MessageProcessor {
                 //////////////////////////////////////////////////////
 
                 // drop message
-                Err(DataPathError::ProcessingError(e.to_string()))
+                Err(e)
             }
         }
     }

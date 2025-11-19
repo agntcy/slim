@@ -135,7 +135,7 @@ impl From<SessionContext> for PySessionContext {
 fn strong_session(weak: &Weak<SessionController>) -> PyResult<Arc<SessionController>> {
     weak.upgrade().ok_or_else(|| {
         PyErr::new::<PyException, _>(
-            SessionError::SessionClosed("session already closed".to_string()).to_string(),
+            SessionError::SessionClosed.to_string(),
         )
     })
 }
@@ -159,7 +159,7 @@ impl PySessionContext {
             .upgrade()
             .ok_or_else(|| {
                 PyErr::new::<PyException, _>(
-                    SessionError::SessionClosed("session already closed".to_string()).to_string(),
+                    SessionError::SessionClosed.to_string(),
                 )
             })?;
 

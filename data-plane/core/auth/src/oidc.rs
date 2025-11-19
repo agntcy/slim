@@ -167,16 +167,13 @@ impl OidcTokenProvider {
     /// Note: Call `initialize()` after creation to start background tasks and fetch initial token
     pub fn new(config: OidcProviderConfig) -> Result<Self, AuthError> {
         // Validate the issuer URL
-        Url::parse(&config.issuer_url).map_err(|e| {
-            AuthError::InvalidIssuerEndpoint(format!("Invalid issuer endpoint URL: {}", e))
-        })?;
+        Url::parse(&config.issuer_url)?;
 
         // Create HTTP client with timeout
         let client = ReqwestClient::builder()
             .user_agent("AGNTCY Slim Auth OAuth2")
             .timeout(config.timeout.unwrap_or(Duration::from_secs(30)))
-            .build()
-            .map_err(|e| AuthError::OAuth2Error(format!("Failed to create HTTP client: {}", e)))?;
+            .build()?;
 
         // Create shutdown channel for background task
         let (shutdown_tx, _shutdown_rx) = watch::channel(false);
@@ -240,15 +237,9 @@ impl OidcTokenProvider {
             .client
             .get(&discovery_url)
             .send()
-            .await
-            .map_err(|e| {
-                AuthError::ConfigError(format!("Failed to fetch discovery document: {}", e))
-            })?
+            .await?
             .json()
-            .await
-            .map_err(|e| {
-                AuthError::ConfigError(format!("Failed to parse discovery document: {}", e))
-            })?;
+            .await?;
 
         let token_endpoint = discovery_response
             .get("token_endpoint")
@@ -266,14 +257,8 @@ impl OidcTokenProvider {
         // Create OAuth2 client (updated for new oauth2 builder API)
         let client = BasicClient::new(ClientId::new(self.config.client_id.clone()))
             .set_client_secret(ClientSecret::new(self.config.client_secret.clone()))
-            .set_auth_uri(
-                AuthUrl::new(auth_url_str)
-                    .map_err(|e| AuthError::ConfigError(format!("Invalid auth URL: {}", e)))?,
-            )
-            .set_token_uri(
-                TokenUrl::new(token_endpoint.to_string())
-                    .map_err(|e| AuthError::ConfigError(format!("Invalid token URL: {}", e)))?,
-            );
+            .set_auth_uri(AuthUrl::new(auth_url_str)?)
+            .set_token_uri(TokenUrl::new(token_endpoint.to_string())?);
 
         let mut token_request = client.exchange_client_credentials();
 
@@ -284,7 +269,7 @@ impl OidcTokenProvider {
         let token_response = token_request
             .request_async(&self.client)
             .await
-            .map_err(|e| AuthError::GetTokenError(format!("Failed to exchange token: {}", e)))?;
+            .map_err(|e| AuthError::OAuth2Request(Box::new(e)))?;
 
         let access_token = token_response.access_token().secret();
         let expires_in = token_response
@@ -847,12 +832,12 @@ mod tests {
         // With jsonwebtoken_aws_lc, this might fail with a JwtAwsLcError instead
         // of UnsupportedOperation, which is also valid behavior
         match result.as_ref().err().unwrap() {
-            AuthError::UnsupportedOperation(_) | AuthError::JwtAwsLcError(_) => {
+            AuthError::UnsupportedOperation(_) | AuthError::JwtLibraryError(_) => {
                 // Both error types are acceptable for this test case
             }
             _ => {
                 panic!(
-                    "Expected UnsupportedOperation or JwtAwsLcError, got: {:?}",
+                    "Expected UnsupportedOperation or JwtLibraryError, got: {:?}",
                     result.err()
                 );
             }
@@ -1024,10 +1009,7 @@ mod tests {
 
         // Should get a ConfigError due to discovery failure
         match result {
-            Err(AuthError::ConfigError(msg)) => {
-                // Expected: error should mention the discovery failure
-                assert!(msg.contains("Failed to parse discovery document"));
-            }
+            Err(AuthError::HttpError(_)) => {}
             other => {
                 panic!(
                     "Expected ConfigError for discovery failure, but got: {:?}",
@@ -1112,18 +1094,20 @@ mod tests {
         let result = provider.fetch_new_token().await;
         assert!(result.is_err());
 
-        // Should get a GetTokenError due to the OAuth2 error response
+        // Should get an OAuth2Request (boxed RequestTokenError) due to the OAuth2 error response
         match result {
-            Err(AuthError::GetTokenError(msg)) => {
-                // Expected: error should mention the OAuth2 error - oauth2 crate format
+            Err(AuthError::OAuth2Request(e)) => {
+                // The typed RequestTokenError implements Display; inspect its message
+                let msg = e.to_string();
                 assert!(
-                    msg.contains("Failed to exchange token")
-                        && msg.contains("Server returned error response")
+                    msg.contains("Server returned error response"),
+                    "OAuth2 error message did not contain expected text: {}",
+                    msg
                 );
             }
             other => {
                 panic!(
-                    "Expected GetTokenError containing OAuth2 error, but got: {:?}",
+                    "Expected OAuth2Request containing OAuth2 error, but got: {:?}",
                     other
                 );
             }

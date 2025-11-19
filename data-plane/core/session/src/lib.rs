@@ -5,7 +5,7 @@ mod common;
 pub mod completion_handle;
 pub mod context;
 pub mod controller_sender;
-mod errors;
+pub mod errors;
 pub mod interceptor;
 pub mod interceptor_mls;
 mod mls_state;

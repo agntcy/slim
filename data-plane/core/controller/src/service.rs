@@ -531,13 +531,9 @@ fn create_channel_message(
     auth_provider: &Option<AuthProvider>,
 ) -> Result<DataPlaneMessage, ControllerError> {
     // if the auth_provider is set try to get an identity
-    let identity_token = if let Some(auth) = auth_provider {
-        let token = auth.get_token().map_err(|e| {
-            error!("failed to generate identity token: {}", e);
-            ControllerError::Auth(e)
-        })?;
-    } else {
-        "".to_string()
+    let identity_token = match auth_provider {
+        Some(auth) => auth.get_token()?,
+        None => String::new(),
     };
 
     let message = DataPlaneMessage::builder()
@@ -552,7 +548,7 @@ fn create_channel_message(
             payload.ok_or(ControllerError::PayloadMissing)?
         )
         .build_publish()
-        .map_err(|e| ControllerError::Datapath(e.to_string()))?;
+        .map_err(|e| ControllerError::Datapath(slim_datapath::errors::DataPathError::InvalidMessage(e)))?;
 
     Ok(message)
 }
@@ -753,13 +749,9 @@ impl ControllerService {
                         }
 
                         // if the auth_provider is set try to get an identity
-                        let identity_token = if let Some(auth) = &self.inner.auth_provider {
-                            let token = auth.get_token().map_err(|e| {
-                                error!("failed to generate identity token: {}", e);
-                                ControllerError::Auth(e)
-                            })?;
-                        } else {
-                            "".to_string()
+                        let identity_token = match &self.inner.auth_provider {
+                            Some(auth) => auth.get_token()?,
+                            None => String::new(),
                         };
 
                         // Process subscriptions to set
@@ -1238,7 +1230,7 @@ impl ControllerService {
     async fn send_control_message(&self, msg: DataPlaneMessage) -> Result<(), ControllerError> {
         self.inner.tx_slim.send(Ok(msg)).await.map_err(|e| {
             error!("error sending message into datapath: {}", e);
-            ControllerError::Datapath(slim_datapath::errors::DataPathError::MessageSendError(e.to_string()))
+            ControllerError::Datapath(slim_datapath::errors::DataPathError::ConnectionError)
         })
     }
 

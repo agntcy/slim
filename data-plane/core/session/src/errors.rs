@@ -5,24 +5,21 @@
 use thiserror::Error;
 
 // Local crate
-use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType};
+use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType};
 use slim_datapath::messages::utils::MessageError;
 use slim_auth::errors::AuthError;
 use slim_mls::errors::MlsError;
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug)]
 pub enum SessionError {
     // Legacy generic String variants (scheduled for removal as call sites are migrated)
     #[error("error receiving message from slim instance: {0}")]
     SlimReception(String),
-    #[error("error sending message to slim instance: {0}")]
-    SlimTransmission(String),
+    // Removed legacy SlimTransmission / AppTransmission; use ChannelSendFailure or AppChannelSendFailure
     #[error("error in message forwarding: {0}")]
     Forward(String),
     #[error("error receiving message from app: {0}")]
     AppReception(String),
-    #[error("error sending message to app: {0}")]
-    AppTransmission(String),
     #[error("error processing message: {0}")]
     Processing(String),
     #[error("error sending message to session: {0}")]
@@ -39,8 +36,6 @@ pub enum SessionError {
     MissingChannelName,
     #[error("session unknown: {0}")]
     SessionUnknown(String),
-    #[error("session not found: {0}")]
-    SessionNotFound(u32),
     #[error("subscription not found: {0}")]
     SubscriptionNotFound(String),
     #[error("default for session not supported: {0}")]
@@ -49,6 +44,12 @@ pub enum SessionError {
     MissingSessionId(String),
     #[error("error during message validation: {0}")]
     ValidationError(String),
+
+    // Not found errors
+    #[error("session not found")]
+    SessionNotFound,
+    #[error("session not found: {id}")]
+    SessionNotFoundWithId { id: u32 },
 
     // Timeouts
     #[error("message={message_id} session={session_id}: timeout")]
@@ -71,12 +72,8 @@ pub enum SessionError {
     InterceptorError(String),
 
     // MLS encryption/decryption
-    #[error("MLS encryption failed")]
-    MlsEncryptionFailed,
-    #[error("MLS decryption failed")]
-    MlsDecryptionFailed,
-    #[error("Encrypted message has no payload")]
-    MlsNoPayload,
+    #[error("mls operation error: {0}")]
+    MlsOp(#[from] MlsError),
 
     // Identity
     #[error("identity error: {0}")]
@@ -87,8 +84,6 @@ pub enum SessionError {
     // Auth / MLS typed propagation
     #[error("auth error: {0}")]
     Auth(#[from] AuthError),
-    #[error("mls operation error: {0}")]
-    MlsOp(#[from] MlsError),
 
     // Handles
     #[error("no session handle available: session might be closed")]
@@ -128,22 +123,23 @@ pub enum SessionError {
     #[error("missing removed participant in GroupRemove message")]
     MissingRemovedParticipant,
 
-    #[error("missing MLS payload in {context} message")]
-    MissingMlsPayload { context: &'static str },
+    #[error("channel send failure: {0}")]
+    ChannelSendFailure(String),
 
-    #[error("channel send failure: {source}")]
-    ChannelSendFailure {
-        #[from]
-        source: tokio::sync::mpsc::error::SendError<Message>,
+    // Typed propagation of slim_datapath MessageError instead of stringly Processing(...)
+    #[error("datapath message error: {0}")]
+    DatapathMessage(#[from] MessageError),
+
+    // More specific extraction/build contexts (optional use at call sites)
+    #[error("message build failed: {0}")]
+    MessageBuild(MessageError),
+    #[error("message payload extract failed in {context}: {source}")]
+    PayloadExtract {
+        context: &'static str,
+        source: MessageError,
     },
 
     // Channel Endpoint (remaining legacy variants to be migrated)
-    #[error("msl state is None")]
-    NoMls,
-    #[error("error generating key package: {0}")]
-    MLSKeyPackage(String),
-    #[error("invalid id message: {0}")]
-    MLSIdMessage(String),
     #[error("error processing welcome message: {0}")]
     WelcomeMessage(String),
     #[error("error processing proposal message: {0}")]
@@ -162,9 +158,12 @@ pub enum SessionError {
     ModeratorTask(String),
 }
 
-impl From<MessageError> for SessionError {
-    fn from(err: MessageError) -> Self {
-        // Prefer structured variants where possible; default to Processing for now.
-        SessionError::Processing(err.to_string())
+impl SessionError {
+    // Helper constructors for structured mapping without repeating strings.
+    pub fn build_error(err: MessageError) -> Self {
+        SessionError::MessageBuild(err)
+    }
+    pub fn extract_error(context: &'static str, err: MessageError) -> Self {
+        SessionError::PayloadExtract { context, source: err }
     }
 }

@@ -78,8 +78,7 @@ impl<S, T: TokenProvider + Clone> AddJwtToken<S, T> {
     /// Get a JWT token, either from cache or by signing a new one
     pub fn get_token(&mut self) -> Result<HeaderValue, AuthError> {
         let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|e| AuthError::ConfigError(format!("Failed to get current time: {}", e)))?
+            .duration_since(std::time::UNIX_EPOCH)?
             .as_secs();
 
         if let Some(cached_token) = &self.cached_token
