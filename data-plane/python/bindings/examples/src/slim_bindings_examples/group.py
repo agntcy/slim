@@ -222,12 +222,10 @@ async def run_client(
 
         await handle
 
-        # Invite each provided participant. Route is set before inviting to ensure
-        # outbound control messages can reach them. For more info see
+        # Invite each provided participant. For more info see
         # https://github.com/agntcy/slim/blob/main/data-plane/python/bindings/SESSION.md#invite-a-new-participant
         for invite in invites:
             invite_name = split_id(invite)
-            await local_app.set_route(invite_name)
             handle = await created_session.invite(invite_name)
             await handle
             print(f"{local} -> add {invite_name} to the group")
