@@ -3,13 +3,13 @@
 High-level asynchronous Python bindings for the SLIM data‑plane service (Rust core).
 They let you embed SLIM directly into your Python application to:
 
-- Instantiate a local SLIM service (`Slim.new`)
+- Instantiate a local SLIM service
 - Run a server listener (start / stop a SLIM endpoint)
 - Establish outbound client connections (`connect` / `disconnect`)
 - Create, accept, configure, and delete sessions (Point2Point / Group)
 - Publish / receive messages (point‑to‑point or group (channel) based)
 - Manage routing and subscriptions (add / remove routes, subscribe / unsubscribe)
-- Configure identity & trust (shared secret, static JWT, dynamic signing JWT, JWKS auto‑resolve)
+- Configure identity & trust (shared secret, static JWT, dynamic signing JWT, JWKS auto‑resolve, Spire)
 - Integrate tracing / OpenTelemetry
 
 ---
@@ -62,7 +62,7 @@ async def main():
     verifier = slim_bindings.IdentityVerifier.SharedSecret(identity="demo", shared_secret="secret")
 
     local_name = slim_bindings.Name("org", "namespace", "demo")
-    slim = await slim_bindings.Slim.new(local_name, provider, verifier)
+    slim = slim_bindings.Slim(local_name, provider, verifier)
 
     # 2. (Optionally) connect as a client to a remote endpoint
     # await slim.connect({"endpoint": "http://127.0.0.1:50000", "tls": {"insecure": True}})
