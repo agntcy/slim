@@ -20,7 +20,7 @@ class Slim:
     """
     High-level façade over the underlying Service (Rust core) providing a
     Pythonic API for:
-      * Service initialization & authentication (via Slim.new)
+      * Service initialization & authentication
       * Client connections to remote Slim services (connect / disconnect)
       * Server lifecycle management (run_server / stop_server)
       * Subscription & routing management (subscribe / unsubscribe / set_route / remove_route)
@@ -36,7 +36,7 @@ class Slim:
         towards this service (set via set_default_session_config).
 
     Typical Lifecycle (Client):
-      1. slim = await Slim.new(local_name, identity_provider, identity_verifier)
+      1. slim = Slim(local_name, identity_provider, identity_verifier)
       2. await slim.connect({"endpoint": "...", "tls": {"insecure": True}})
       3. await slim.set_route(remote_name)
       4. session = await slim.create_session(SessionConfiguration.PointToPoint(peer_name=remote_name, ...))
@@ -45,7 +45,7 @@ class Slim:
       7. await slim.disconnect("endpoint-string")
 
     Typical Lifecycle (Server):
-      1. slim = await Slim.new(local_name, provider, verifier)
+      1. slim = Slim(local_name, provider, verifier)
       2. await slim.run_server({"endpoint": "127.0.0.1:12345", "tls": {"insecure": True}})
       3. inbound = await slim.listen_for_session()
       4. msg_ctx, data = await inbound.get_message()

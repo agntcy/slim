@@ -14,6 +14,7 @@ logging:
   level: DEBUG
 
 database:
-  filePath: db/controlplane.db
+  # By default, Controller use in-memory database, set filePath to use a file-based SQLite database
+  #filePath: db/controlplane.db
 
 

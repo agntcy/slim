@@ -21,22 +21,23 @@ The script first initializes a local SLIM application instance using the
 following configuration options:
 
 ```python
-local_app = await create_local_app(
-    local,
-    slim,
-    enable_opentelemetry=enable_opentelemetry,  # (bool, default False)
-    shared_secret=shared_secret,                # (str | None)
-    jwt=jwt,                                    # (str | None)
-    spire_trust_bundle=spire_trust_bundle,      # (str | None)
-    audience=audience,                          # (list[str] | None)
-)
+    # Create & connect the local Slim instance (auth derived from args).
+    local_app = await create_local_app(
+        local,
+        slim,
+        enable_opentelemetry=enable_opentelemetry,
+        shared_secret=shared_secret,
+        jwt=jwt,
+        spire_trust_bundle=spire_trust_bundle,
+        audience=audience,
+        spire_socket_path=spire_socket_path,
+        spire_target_spiffe_id=spire_target_spiffe_id,
+        spire_jwt_audience=spire_jwt_audience,
+    )
 ```
-
-
 
 `create_local_app` (in `common.py`) creates and configures a new SLIM
 application instance. Main parameters:
-
 
 
 - `local` (str): The SLIM name of the local application in the form
@@ -66,6 +67,9 @@ application instance. Main parameters:
     ```
 - `audience` (list[str] | None, default: `None`): List of allowed audiences for
     JWT authentication.
+- `spire_socket_path` (str | None, default: `None`): Path to SPIRE agent socket for workload API access.
+- `spire_target_spiffe_id` (str | None, default: `None`): Target SPIFFE ID for mTLS authentication with SPIRE.
+- `spire_jwt_audience` (list[str] | None, default: `None`): Audience list for SPIRE JWT-SVID validation.
 
 If `jwt`, `spire-trust-bundle` and `audience` are not provided, `shared_secret` must be set (only
 recommended for local testing / examples, not production).
@@ -73,11 +77,23 @@ recommended for local testing / examples, not production).
 The code that creates the local application and connects it to the remote
 SLIM node is:
 ```python
-local_app = await slim_bindings.Slim.new(local_name, provider, verifier)
-format_message_print(f"{local_app.id}", "Created app")
-_ = await local_app.connect(slim)
-format_message_print(f"{local_app.id}", f"Connected to {slim['endpoint']}")
+
+    # Convert local identifier to a strongly typed Name.
+    local_name = split_id(local)
+
+    # Instantiate Slim (async constructor prepares underlying Service).
+    local_app = slim_bindings.Slim(local_name, provider, verifier)
+
+    # Provide feedback to user (instance numeric id).
+    format_message_print(f"{local_app.id_str}", "Created app")
+
+    # Establish outbound connection using provided parameters.
+    _ = await local_app.connect(slim)
+
+    # Confirm endpoint connectivity.
+    format_message_print(f"{local_app.id_str}", f"Connected to {slim['endpoint']}")
 ```
+
 ### 2. Create the session and invite participants
 
 If the application is started with both a `--remote` (group channel name)
@@ -85,32 +101,40 @@ and at least one `--invites` flag, it becomes the creator of a new group
 session and can invite participants.
 
 ```python
-chat_channel = split_id(remote)  # e.g. agntcy/ns/chat
-created_session = await local_app.create_session(
-    slim_bindings.SessionConfiguration.Group(  # Build group session configuration
-        channel_name=chat_channel,  # Logical group channel (Name) all participants join; acts as group/topic identifier.
+    # We are the moderator; create the group session now.
+    format_message_print(
+        f"Creating new group session (moderator)... {split_id(local)}"
+    )
+    config = slim_bindings.SessionConfiguration.Group(
         max_retries=5,  # Max per-message resend attempts upon missing ack before reporting a delivery failure.
         timeout=datetime.timedelta(
             seconds=5
         ),  # Ack / delivery wait window; after this duration a retry is triggered (until max_retries).
         mls_enabled=enable_mls,  # Enable Messaging Layer Security for end-to-end encrypted & authenticated group communication.
     )
-)
 
-# Small delay so underlying routing / session creation stabilizes.
-await asyncio.sleep(1)
+    created_session, handle = await local_app.create_session(
+        chat_channel,  # Logical group channel (Name) all participants join; acts as group/topic identifier.
+        config,  # session configuration
+    )
 
-# Invite each provided participant. Route is set before inviting to ensure
-# outbound control messages can reach them. For more info see
-# https://github.com/agntcy/slim/blob/main/data-plane/python/bindings/SESSION.md#invite-a-new-participant
-for invite in invites:
-    invite_name = split_id(invite)
-    await local_app.set_route(invite_name)
-    await created_session.invite(invite_name)
-    print(f"{local} -> add {invite_name} to the group")
+    await handle
+
+    # Invite each provided participant. Route is set before inviting to ensure
+    # outbound control messages can reach them. For more info see
+    # https://github.com/agntcy/slim/blob/main/data-plane/python/bindings/SESSION.md#invite-a-new-participant
+    for invite in invites:
+        invite_name = split_id(invite)
+        await local_app.set_route(invite_name)
+        handle = await created_session.invite(invite_name)
+        await handle
+        print(f"{local} -> add {invite_name} to the group")
 ```
 
-The `session.invite(...)` is executed asynchronously. The background protocol
+The `local_app.create_session(...)` creates the session and returns a handler `handle`. 
+The `await handle` guarantees that the session is fully established when it returns.  
+The `session.invite(...)` works in the same way. The `await handle` returns when the
+remote participant is correctly added to the group. During the invite the background protocol
 exchanges (and MLS key schedule if enabled) may take a short time before the
 participant fully joins. See [SESSION.md](../../../SESSION.md) for deeper
 protocol details.
@@ -121,8 +145,8 @@ Non-moderator participants (clients) start without a session and wait to be
 invited:
 
 ```python
-print_formatted_text("Waiting for session...", style=custom_style)
-session = await local_app.listen_for_session()
+    print_formatted_text("Waiting for session...", style=custom_style)
+    session = await local_app.listen_for_session()
 ```
 
 Once a session is available (from creation or invite), messages are received in a loop:
@@ -149,18 +173,18 @@ Every participant also runs an interactive input loop that allows typing
 messages which are immediately published to the group:
 
 ```python
-while True:
-    # Run blocking input() in a worker thread so we do not block the event loop.
-    user_input = await prompt_session.prompt_async(
-        f"{shared_session_container[0].src} > "
-    )
+    while True:
+        # Run blocking input() in a worker thread so we do not block the event loop.
+        user_input = await prompt_session.prompt_async(
+            f"{shared_session_container[0].src} > "
+        )
 
-    if user_input.lower() in ("exit", "quit"):
-        # Also terminate the receive loop.
-        await local_app.delete_session(shared_session_container[0])
-        break
+        if user_input.lower() in ("exit", "quit"):
+            # Also terminate the receive loop.
+            handle = await local_app.delete_session(shared_session_container[0])
+            await handle
+            break
 
-    try:
         # Send message to the channel_name specified when creating the session.
         # As the session is group, all participants will receive it.
         await shared_session_container[0].publish(user_input.encode())
@@ -168,6 +192,11 @@ while True:
 
 The message is published using `shared_session_container[0].publish(user_input.encode())`
 and delivered to all the participants connected to the group.
+
+In case the user inputs the string "exit" or "quit" the `local_app.delete_session(shared_session_container[0])`
+is executed and this deletes the session. If `delete_session` is called on a moderator 
+the session is deleted on all the participants in the group. The `await handle` guarantees
+that all the participants have been notified and correctly removed from the group.
 
 ## Usage
 

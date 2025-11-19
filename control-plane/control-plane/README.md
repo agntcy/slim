@@ -61,24 +61,23 @@ Example default configuration can be found in `config/config.yaml` or below:
 northbound:
   httpHost: localhost
   httpPort: 50051
-  logging:
-    level: DEBUG
 
 southbound:
   httpHost: localhost
   httpPort: 50052
-  logging:
-    level: DEBUG
 
 reconciler:
+  # Max number of times a failed reconcile will be retried
   maxRequeues: 15
+  # Max number of reconciles that can be run in parallel for different nodes
   maxNumOfParallelReconciles: 1000
 
 logging:
   level: DEBUG
 
 database:
-  filePath: db/controlplane.db
+  # By default, Controller use in-memory database, set filePath to use a file-based SQLite database
+  #filePath: db/controlplane.db
 ```
 
 ## Examples

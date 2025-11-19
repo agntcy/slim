@@ -21,7 +21,7 @@
 //   1. Create a Key (if using a JWT signing or verification scenario)
 //   2. Build an IdentityProvider (e.g. Jwt {...})
 //   3. Build an IdentityVerifier (e.g. Jwt {...})
-//   4. Pass provider + verifier into Slim.new(...)
+//   4. Pass provider + verifier into Slim(...)
 //
 // Error Handling:
 //   Construction helpers will panic only in unrecoverable internal
@@ -260,7 +260,7 @@ pub(crate) type IdentityProvider = AuthProvider;
 /// provider = IdentityProvider.SharedSecret(identity="svc-a", shared_secret="dev-secret")
 /// verifier = IdentityVerifier.SharedSecret(identity="svc-a", shared_secret="dev-secret")
 ///
-/// # Pass both into Slim.new(local_name, provider, verifier)
+/// # Pass both into Slim(local_name, provider, verifier)
 /// ```
 ///
 /// Jwt variant quick start (full):
@@ -470,7 +470,7 @@ pub(crate) type IdentityVerifier = AuthVerifier;
 ///     identity="service-a",
 ///     shared_secret="super-secret-value",
 /// )
-/// slim = await Slim.new(local_name, provider, verifier)
+/// slim = Slim(local_name, provider, verifier)
 /// ```
 ///
 /// Enforcing strict claims (reject tokens missing aud/sub):
