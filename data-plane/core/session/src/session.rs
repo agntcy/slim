@@ -1,6 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use slim_datapath::{
     api::{ProtoMessage as Message, ProtoSessionMessageType},
@@ -92,14 +94,22 @@ impl Session {
                 message_id,
                 message_type,
                 name,
+                metadata,
                 timeouts: _,
-            } => self.on_timer_timeout(message_id, message_type, name).await,
+            } => {
+                self.on_timer_timeout(message_id, message_type, name, metadata)
+                    .await
+            }
             SessionMessage::TimerFailure {
                 message_id,
                 message_type,
                 name,
+                metadata,
                 timeouts: _,
-            } => self.on_timer_failure(message_id, message_type, name).await,
+            } => {
+                self.on_timer_failure(message_id, message_type, name, metadata)
+                    .await
+            }
             SessionMessage::StartDrain { grace_period: _ } => {
                 self.processing_state = ProcessingState::Draining;
                 self.sender.start_drain();
@@ -175,9 +185,10 @@ impl Session {
         id: u32,
         message_type: ProtoSessionMessageType,
         name: Option<Name>,
+        metadata: Option<HashMap<String, String>>,
     ) -> Result<(), SessionError> {
         match message_type {
-            ProtoSessionMessageType::Msg => self.sender.on_timer_timeout(id).await,
+            ProtoSessionMessageType::Msg => self.sender.on_timer_timeout(id, metadata).await,
             ProtoSessionMessageType::RtxRequest => {
                 self.receiver.on_timer_timeout(id, name.unwrap()).await
             }
@@ -193,9 +204,10 @@ impl Session {
         id: u32,
         message_type: ProtoSessionMessageType,
         name: Option<Name>,
+        metadata: Option<HashMap<String, String>>,
     ) -> Result<(), SessionError> {
         match message_type {
-            ProtoSessionMessageType::Msg => self.sender.on_timer_failure(id).await,
+            ProtoSessionMessageType::Msg => self.sender.on_timer_failure(id, metadata).await,
             ProtoSessionMessageType::RtxRequest => {
                 self.receiver.on_timer_failure(id, name.unwrap()).await
             }

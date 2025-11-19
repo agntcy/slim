@@ -4,6 +4,7 @@
 use std::collections::{HashMap, HashSet};
 
 use slim_datapath::api::ProtoSessionType;
+use slim_datapath::messages::utils::PUBLISH_TO;
 use slim_datapath::{api::ProtoMessage as Message, messages::Name};
 use tokio::sync::mpsc::Sender;
 use tokio::sync::oneshot;
@@ -47,6 +48,12 @@ pub struct SessionSender {
     /// list of pending acks for each message
     pending_acks: HashMap<u32, GroupTimer>,
 
+    /// list of pending acks for messages sent with publish_to
+    /// this is used only in case of a multicast session
+    /// if a message is sent using publish_to in a p2p session
+    /// it is handled as a normal message
+    pending_acks_send_to: HashMap<u32, (GroupTimer, Message)>,
+
     /// list of timer ids associated for each endpoint
     pending_acks_per_endpoint: HashMap<Name, HashSet<u32>>,
 
@@ -75,7 +82,10 @@ pub struct SessionSender {
     draining_state: SenderDrainStatus,
 
     /// oneshot senders to signal when network acks are received for each message
-    ack_notifiers: HashMap<u32, oneshot::Sender<Result<(), SessionError>>>,
+    /// the key is composed by the message id plus a flag that indicates if the
+    /// message was sent as a normal message (false) or as a publish_to (true)
+    /// this allows to avoid collisions with the message ids
+    ack_notifiers: HashMap<(u32, bool), oneshot::Sender<Result<(), SessionError>>>,
 }
 
 #[allow(dead_code)]
@@ -101,6 +111,7 @@ impl SessionSender {
             buffer: ProducerBuffer::with_capacity(512),
             timer_factory: factory,
             pending_acks: HashMap::new(),
+            pending_acks_send_to: HashMap::new(),
             pending_acks_per_endpoint: HashMap::new(),
             endpoints_list: HashSet::new(),
             next_id: 0,
@@ -116,7 +127,7 @@ impl SessionSender {
     /// Send a message with optional acknowledgment notification
     pub async fn on_message(
         &mut self,
-        message: Message,
+        mut message: Message,
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
     ) -> Result<(), SessionError> {
         if self.draining_state == SenderDrainStatus::Completed {
@@ -142,6 +153,11 @@ impl SessionSender {
                     return Err(SessionError::Processing(
                         "drain started do no accept new messages".to_string(),
                     ));
+                }
+                if self.session_type == ProtoSessionType::PointToPoint {
+                    // if the session is point to point publish_to falls back
+                    // to the standard publish function
+                    message.remove_metadata(PUBLISH_TO);
                 }
                 self.on_publish_message(message, ack_tx).await?;
             }
@@ -182,11 +198,26 @@ impl SessionSender {
         mut message: Message,
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
     ) -> Result<(), SessionError> {
+        let is_publish_to = message.metadata.contains_key(PUBLISH_TO);
+        // if is_publish_to and the message destination is non
+        // in the endpoint list we drop the messages
+
+        if is_publish_to && !self.endpoints_list.contains(&message.get_dst()) {
+            debug!("cannot forward the message to the select destination");
+            return Err(SessionError::SlimTransmission(
+                "Unkwon destination".to_string(),
+            ));
+        }
+
         // compute message id
-        // by increasing next_id before assign it to message_id
-        // we always skip message 0 (used as drain timer id)
-        self.next_id += 1;
-        let message_id = self.next_id;
+        let message_id = if is_publish_to {
+            rand::random::<u32>()
+        } else {
+            // by increasing next_id before assign it to message_id
+            // we always skip message 0 (used as drain timer id)
+            self.next_id += 1;
+            self.next_id
+        };
 
         // Set the session id, message id and session type
         let session_header = message.get_session_header_mut();
@@ -196,14 +227,16 @@ impl SessionSender {
 
         // set the fanout
         let slim_header = message.get_slim_header_mut();
-        if self.session_type == ProtoSessionType::Multicast {
+        if self.session_type == ProtoSessionType::Multicast && !is_publish_to {
             slim_header.set_fanout(Self::MAX_FANOUT);
         } else {
             slim_header.set_fanout(1);
         }
 
-        // add the message to the producer buffer.
-        self.buffer.push(message.clone());
+        if !is_publish_to {
+            // add the message to the producer buffer.
+            self.buffer.push(message.clone());
+        }
 
         // Store the ack notifier if provided
         if let Some(tx) = ack_tx {
@@ -212,7 +245,7 @@ impl SessionSender {
             if self.timer_factory.is_none() {
                 let _ = tx.send(Ok(()));
             } else {
-                self.ack_notifiers.insert(message_id, tx);
+                self.ack_notifiers.insert((message_id, is_publish_to), tx);
             }
         }
 
@@ -229,32 +262,48 @@ impl SessionSender {
 
     async fn set_timer_and_send(&mut self, message: Message) -> Result<(), SessionError> {
         let message_id = message.get_id();
+        let is_publish_to = message.metadata.contains_key(PUBLISH_TO);
         debug!("send new message with id {}", message_id);
 
         if self.timer_factory.is_some() {
             debug!("reliable sender, set all timers");
+            // set the list of missing timers according to the destination of message
+            let (missing_timers, metadata) = if is_publish_to {
+                let mut m = HashSet::new();
+                m.insert(message.get_dst());
+                (m, Some(message.metadata.clone()))
+            } else {
+                (self.endpoints_list.clone(), None)
+            };
+
             // create a timer for the new packet and update the state
             let gt = GroupTimer {
-                missing_timers: self.endpoints_list.clone(),
+                missing_timers,
                 timer: self.timer_factory.as_ref().unwrap().create_and_start_timer(
                     message_id,
                     message.get_session_message_type(),
                     None,
+                    metadata,
                 ),
             };
 
             // insert in pending acks
-            self.pending_acks.insert(message_id, gt);
+            if is_publish_to {
+                self.pending_acks_send_to
+                    .insert(message_id, (gt, message.clone()));
+            } else {
+                self.pending_acks.insert(message_id, gt);
 
-            // insert in pending acks per endpoint
-            for n in &self.endpoints_list {
-                debug!("add timer for message {} for remote {}", message_id, n);
-                if let Some(acks) = self.pending_acks_per_endpoint.get_mut(n) {
-                    acks.insert(message_id);
-                } else {
-                    let mut set = HashSet::new();
-                    set.insert(message_id);
-                    self.pending_acks_per_endpoint.insert(n.clone(), set);
+                // insert in pending acks per endpoint
+                for n in &self.endpoints_list {
+                    debug!("add timer for message {} for remote {}", message_id, n);
+                    if let Some(acks) = self.pending_acks_per_endpoint.get_mut(n) {
+                        acks.insert(message_id);
+                    } else {
+                        let mut set = HashSet::new();
+                        set.insert(message_id);
+                        self.pending_acks_per_endpoint.insert(n.clone(), set);
+                    }
                 }
             }
         }
@@ -272,6 +321,18 @@ impl SessionSender {
         let message_id = message.get_id();
         debug!("received ack message for id {} from {}", message_id, source);
 
+        if message.metadata.contains_key(PUBLISH_TO) {
+            // remove pending ack and signal success
+            if let Some((mut gt, _m)) = self.pending_acks_send_to.remove(&message_id) {
+                gt.timer.stop();
+            }
+            if let Some(tx) = self.ack_notifiers.remove(&(message_id, true)) {
+                let _ = tx.send(Ok(()));
+            }
+
+            return;
+        }
+
         let mut delete = false;
         // remove the source from the pending acks
         // notice that the state for this ack id may not exist if all the endpoints
@@ -286,7 +347,7 @@ impl SessionSender {
                 delete = true;
 
                 // Signal success to the ack notifier if present
-                if let Some(tx) = self.ack_notifiers.remove(&message_id) {
+                if let Some(tx) = self.ack_notifiers.remove(&(message_id, false)) {
                     let _ = tx.send(Ok(()));
                 }
             }
@@ -361,8 +422,49 @@ impl SessionSender {
         }
     }
 
-    pub async fn on_timer_timeout(&mut self, id: u32) -> Result<(), SessionError> {
+    pub async fn on_timer_timeout(
+        &mut self,
+        id: u32,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<(), SessionError> {
         debug!("timeout for message {}", id);
+
+        if let Some(ref m) = metadata {
+            if m.contains_key(PUBLISH_TO) {
+                if let Some((gt, m)) = self.pending_acks_send_to.get_mut(&id) {
+                    // check if the destination is still in the group list
+                    if self.endpoints_list.contains(&m.get_dst()) {
+                        debug!("resend message {}", id);
+                        // send the message as is
+                        return self
+                            .tx
+                            .send_to_slim(Ok(m.clone()))
+                            .await
+                            .map_err(|e| SessionError::SlimTransmission(e.to_string()));
+                    } else {
+                        // the endpoint was removed from the group so we can clean the timer
+                        gt.timer.stop();
+                        self.pending_acks_send_to.remove(&id);
+
+                        // Signal failure to the ack notifier if present
+                        if let Some(tx) = self.ack_notifiers.remove(&(id, true)) {
+                            let _ = tx.send(Err(SessionError::Processing(format!(
+                                "error send message {}. stop retrying",
+                                id
+                            ))));
+                        }
+                        return Ok(());
+                    }
+                }
+            } else {
+                // if metadata is set and PUBLISH_TO is not included we don't know how to process the timeout
+                return Err(SessionError::SlimTransmission(
+                    "unable to process received timeout".to_string(),
+                ));
+            }
+        }
+
+        // this is a message sent to the group
         if let Some(message) = self.buffer.get(id as usize) {
             debug!("the message is still in the buffer, try to send it again to all the remotes");
             // get the names for which we are missing the acks
@@ -386,27 +488,50 @@ impl SessionSender {
                 "the message {} is not in the buffer anymore, delete the associated timer",
                 id
             );
-            return self.on_timer_failure(id).await;
+            return self.on_timer_failure(id, metadata).await;
         }
+
         Ok(())
     }
 
-    pub async fn on_timer_failure(&mut self, id: u32) -> Result<(), SessionError> {
+    pub async fn on_timer_failure(
+        &mut self,
+        id: u32,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<(), SessionError> {
         debug!("timer failure for message id {}, clear state", id);
-        // remove all the state related to this timer
-        if let Some(gt) = self.pending_acks.get_mut(&id) {
-            for n in &gt.missing_timers {
-                if let Some(set) = self.pending_acks_per_endpoint.get_mut(n) {
-                    set.remove(&id);
+
+        let mut is_publish_to = false;
+        if let Some(ref m) = metadata {
+            if m.contains_key(PUBLISH_TO) {
+                if let Some((gt, _m)) = self.pending_acks_send_to.get_mut(&id) {
+                    // stop the timer
+                    gt.timer.stop();
+                    self.pending_acks_send_to.remove(&id);
                 }
+                is_publish_to = true;
+            } else {
+                // if metadata is set and PUBLISH_TO is not included we don't know how to process the timeout
+                return Err(SessionError::SlimTransmission(
+                    "unable to process received timeout".to_string(),
+                ));
             }
-            gt.timer.stop();
+        } else {
+            // remove all the state related to this timer
+            if let Some(gt) = self.pending_acks.get_mut(&id) {
+                for n in &gt.missing_timers {
+                    if let Some(set) = self.pending_acks_per_endpoint.get_mut(n) {
+                        set.remove(&id);
+                    }
+                }
+                gt.timer.stop();
+            }
+
+            self.pending_acks.remove(&id);
         }
 
-        self.pending_acks.remove(&id);
-
         // Signal failure to the ack notifier if present
-        if let Some(tx) = self.ack_notifiers.remove(&id) {
+        if let Some(tx) = self.ack_notifiers.remove(&(id, is_publish_to)) {
             let _ = tx.send(Err(SessionError::Processing(format!(
                 "error send message {}. stop retrying",
                 id
@@ -670,7 +795,7 @@ mod tests {
         match signal {
             crate::common::SessionMessage::TimerTimeout { message_id, .. } => {
                 sender
-                    .on_timer_timeout(message_id)
+                    .on_timer_timeout(message_id, None)
                     .await
                     .expect("error handling timeout");
             }
@@ -696,7 +821,7 @@ mod tests {
         match signal {
             crate::common::SessionMessage::TimerTimeout { message_id, .. } => {
                 sender
-                    .on_timer_timeout(message_id)
+                    .on_timer_timeout(message_id, None)
                     .await
                     .expect("error handling timeout");
             }
@@ -722,7 +847,7 @@ mod tests {
         match signal {
             crate::common::SessionMessage::TimerFailure { message_id, .. } => {
                 sender
-                    .on_timer_failure(message_id)
+                    .on_timer_failure(message_id, None)
                     .await
                     .expect("error handling timer failure");
             }
@@ -1063,7 +1188,7 @@ mod tests {
         match signal {
             crate::common::SessionMessage::TimerTimeout { message_id, .. } => {
                 sender
-                    .on_timer_timeout(message_id)
+                    .on_timer_timeout(message_id, None)
                     .await
                     .expect("error handling timeout");
             }
@@ -1095,7 +1220,7 @@ mod tests {
         match signal {
             crate::common::SessionMessage::TimerTimeout { message_id, .. } => {
                 sender
-                    .on_timer_timeout(message_id)
+                    .on_timer_timeout(message_id, None)
                     .await
                     .expect("error handling timeout");
             }
@@ -1449,7 +1574,7 @@ mod tests {
         match signal {
             crate::common::SessionMessage::TimerTimeout { message_id, .. } => {
                 sender
-                    .on_timer_timeout(message_id)
+                    .on_timer_timeout(message_id, None)
                     .await
                     .expect("error handling timeout");
             }
@@ -1596,5 +1721,632 @@ mod tests {
             slim_datapath::api::ProtoSessionMessageType::Msg
         );
         assert_eq!(received.get_id(), 1);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_publish_to_in_multicast_session() {
+        // Test sending a message with PUBLISH_TO metadata in a multicast session
+        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(1);
+
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+        let mut sender = SessionSender::new(
+            Some(settings),
+            10,
+            ProtoSessionType::Multicast,
+            tx,
+            Some(tx_signal),
+        );
+        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
+        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
+        let remote3 = Name::from_strings(["org", "ns", "remote3"]);
+
+        sender
+            .add_endpoint(&remote1)
+            .await
+            .expect("error adding participant");
+        sender
+            .add_endpoint(&remote2)
+            .await
+            .expect("error adding participant");
+        sender
+            .add_endpoint(&remote3)
+            .await
+            .expect("error adding participant");
+
+        // Create a test message with PUBLISH_TO targeting remote2
+        let source = Name::from_strings(["org", "ns", "source"]);
+        let mut message = Message::builder()
+            .source(source.clone())
+            .destination(remote2.clone())
+            .application_payload("test_payload", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
+
+        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
+        message
+            .metadata
+            .insert(PUBLISH_TO.to_string(), String::new());
+
+        // Send the message
+        sender
+            .on_message(message.clone(), None)
+            .await
+            .expect("error sending message");
+
+        // Wait for the message to arrive at rx_slim
+        let received = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for message")
+            .expect("channel closed")
+            .expect("error message");
+
+        // Verify the message properties
+        assert_eq!(
+            received.get_session_message_type(),
+            slim_datapath::api::ProtoSessionMessageType::Msg
+        );
+        // For publish_to messages, fanout should be 1 (not MAX_FANOUT)
+        assert_eq!(received.get_slim_header().get_fanout(), 1);
+        assert_eq!(received.get_dst(), remote2);
+
+        // Verify the message is NOT in the producer buffer (publish_to messages aren't buffered)
+        assert!(sender.buffer.get(received.get_id() as usize).is_none());
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_publish_to_with_unknown_destination() {
+        // Test sending a message with PUBLISH_TO to a destination not in the endpoints list
+        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(1);
+
+        let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+        let mut sender = SessionSender::new(
+            Some(settings),
+            10,
+            ProtoSessionType::Multicast,
+            tx,
+            Some(tx_signal),
+        );
+        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
+        let unknown_remote = Name::from_strings(["org", "ns", "unknown"]);
+
+        sender
+            .add_endpoint(&remote1)
+            .await
+            .expect("error adding participant");
+
+        // Create a message with PUBLISH_TO targeting an unknown endpoint
+        let source = Name::from_strings(["org", "ns", "source"]);
+        let mut message = Message::builder()
+            .source(source.clone())
+            .destination(unknown_remote.clone())
+            .application_payload("test_payload", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
+
+        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
+        message
+            .metadata
+            .insert(PUBLISH_TO.to_string(), String::new());
+
+        // Send the message - should fail
+        let result = sender.on_message(message, None).await;
+
+        assert!(result.is_err());
+        match result {
+            Err(SessionError::SlimTransmission(msg)) => {
+                assert!(msg.contains("Unkwon destination"));
+            }
+            _ => panic!("Expected SlimTransmission error"),
+        }
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_publish_to_in_p2p_session_fallback() {
+        // Test that PUBLISH_TO metadata is removed in point-to-point sessions
+        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(1);
+
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+        let mut sender = SessionSender::new(
+            Some(settings),
+            10,
+            ProtoSessionType::PointToPoint,
+            tx,
+            Some(tx_signal),
+        );
+        let remote = Name::from_strings(["org", "ns", "remote"]);
+
+        sender
+            .add_endpoint(&remote)
+            .await
+            .expect("error adding participant");
+
+        // Create a message with PUBLISH_TO metadata
+        let source = Name::from_strings(["org", "ns", "source"]);
+        let mut message = Message::builder()
+            .source(source.clone())
+            .destination(remote.clone())
+            .application_payload("test_payload", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
+
+        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
+        message
+            .metadata
+            .insert(PUBLISH_TO.to_string(), String::new());
+
+        // Send the message
+        sender
+            .on_message(message, None)
+            .await
+            .expect("error sending message");
+
+        // Wait for the message
+        let received = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for message")
+            .expect("channel closed")
+            .expect("error message");
+
+        // Message should be treated as normal (sequential ID, buffered)
+        assert_eq!(received.get_id(), 1); // Sequential ID
+        assert!(sender.buffer.get(1).is_some()); // Should be buffered
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_publish_to_ack_handling() {
+        // Test that acks for PUBLISH_TO messages are handled correctly
+        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(1);
+
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+        let mut sender = SessionSender::new(
+            Some(settings),
+            10,
+            ProtoSessionType::Multicast,
+            tx,
+            Some(tx_signal),
+        );
+        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
+        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
+
+        sender
+            .add_endpoint(&remote1)
+            .await
+            .expect("error adding participant");
+        sender
+            .add_endpoint(&remote2)
+            .await
+            .expect("error adding participant");
+
+        // Create a PUBLISH_TO message
+        let source = Name::from_strings(["org", "ns", "source"]);
+        let mut message = Message::builder()
+            .source(source.clone())
+            .destination(remote2.clone())
+            .application_payload("test_payload", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
+
+        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
+        message
+            .metadata
+            .insert(PUBLISH_TO.to_string(), String::new());
+
+        sender
+            .on_message(message, None)
+            .await
+            .expect("error sending message");
+
+        let received = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for message")
+            .expect("channel closed")
+            .expect("error message");
+
+        let message_id = received.get_id();
+
+        // Send an ack with PUBLISH_TO metadata
+        let mut ack = Message::builder()
+            .source(remote2.clone())
+            .destination(source.clone())
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
+        ack.get_session_header_mut().set_message_id(message_id);
+        ack.get_session_header_mut()
+            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
+        ack.metadata.insert(PUBLISH_TO.to_string(), String::new());
+
+        sender
+            .on_message(ack, None)
+            .await
+            .expect("error sending ack");
+
+        // Verify the pending_acks_send_to is cleared
+        assert!(sender.pending_acks_send_to.is_empty());
+
+        // Wait for timeout - no timers should trigger
+        let res = timeout(Duration::from_millis(800), rx_slim.recv()).await;
+        assert!(res.is_err(), "Expected timeout but got: {:?}", res);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_publish_to_timeout_retransmission() {
+        // Test timeout and retransmission for PUBLISH_TO messages
+        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(1);
+
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+        let mut sender = SessionSender::new(
+            Some(settings),
+            10,
+            ProtoSessionType::Multicast,
+            tx,
+            Some(tx_signal),
+        );
+        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
+        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
+
+        sender
+            .add_endpoint(&remote1)
+            .await
+            .expect("error adding participant");
+        sender
+            .add_endpoint(&remote2)
+            .await
+            .expect("error adding participant");
+
+        // Create a PUBLISH_TO message
+        let source = Name::from_strings(["org", "ns", "source"]);
+        let mut message = Message::builder()
+            .source(source.clone())
+            .destination(remote2.clone())
+            .application_payload("test_payload", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
+
+        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
+        message
+            .metadata
+            .insert(PUBLISH_TO.to_string(), String::new());
+
+        sender
+            .on_message(message, None)
+            .await
+            .expect("error sending message");
+
+        let received = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for message")
+            .expect("channel closed")
+            .expect("error message");
+
+        let message_id = received.get_id();
+
+        // Wait for timeout signal
+        let signal = timeout(Duration::from_millis(800), rx_signal.recv())
+            .await
+            .expect("timeout waiting for timer signal")
+            .expect("channel closed");
+
+        match signal {
+            crate::common::SessionMessage::TimerTimeout {
+                message_id: timer_id,
+                metadata,
+                ..
+            } => {
+                assert_eq!(timer_id, message_id);
+                sender
+                    .on_timer_timeout(timer_id, metadata)
+                    .await
+                    .expect("error handling timeout");
+            }
+            _ => panic!("Expected TimerTimeout signal, got: {:?}", signal),
+        }
+
+        // Wait for retransmission
+        let retransmission = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for retransmission")
+            .expect("channel closed")
+            .expect("error message");
+
+        assert_eq!(retransmission.get_id(), message_id);
+        assert_eq!(retransmission.get_dst(), remote2);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_publish_to_endpoint_removed_before_timeout() {
+        // Test that PUBLISH_TO timer is cleaned up when endpoint is removed
+        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(1);
+
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+        let mut sender = SessionSender::new(
+            Some(settings),
+            10,
+            ProtoSessionType::Multicast,
+            tx,
+            Some(tx_signal),
+        );
+        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
+        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
+
+        sender
+            .add_endpoint(&remote1)
+            .await
+            .expect("error adding participant");
+        sender
+            .add_endpoint(&remote2)
+            .await
+            .expect("error adding participant");
+
+        // Create a PUBLISH_TO message
+        let source = Name::from_strings(["org", "ns", "source"]);
+        let mut message = Message::builder()
+            .source(source.clone())
+            .destination(remote2.clone())
+            .application_payload("test_payload", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
+
+        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
+        message
+            .metadata
+            .insert(PUBLISH_TO.to_string(), String::new());
+
+        sender
+            .on_message(message, None)
+            .await
+            .expect("error sending message");
+
+        let _received = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for message")
+            .expect("channel closed")
+            .expect("error message");
+
+        // Remove the endpoint before timeout
+        sender.remove_endpoint(&remote2);
+
+        // Wait for timeout signal
+        let signal = timeout(Duration::from_millis(800), rx_signal.recv())
+            .await
+            .expect("timeout waiting for timer signal")
+            .expect("channel closed");
+
+        match signal {
+            crate::common::SessionMessage::TimerTimeout {
+                message_id,
+                metadata,
+                ..
+            } => {
+                sender
+                    .on_timer_timeout(message_id, metadata)
+                    .await
+                    .expect("error handling timeout");
+            }
+            _ => panic!("Expected TimerTimeout signal, got: {:?}", signal),
+        }
+
+        // No retransmission should occur since endpoint was removed
+        let res = timeout(Duration::from_millis(100), rx_slim.recv()).await;
+        assert!(res.is_err(), "Expected timeout but got: {:?}", res);
+
+        // Verify pending_acks_send_to is cleaned up
+        assert!(sender.pending_acks_send_to.is_empty());
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_ack_notifiers_with_publish_to() {
+        // Test that ack notifiers work correctly with PUBLISH_TO messages
+        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(1);
+
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+        let mut sender = SessionSender::new(
+            Some(settings),
+            10,
+            ProtoSessionType::Multicast,
+            tx,
+            Some(tx_signal),
+        );
+        let remote = Name::from_strings(["org", "ns", "remote"]);
+
+        sender
+            .add_endpoint(&remote)
+            .await
+            .expect("error adding participant");
+
+        // Create a PUBLISH_TO message
+        let source = Name::from_strings(["org", "ns", "source"]);
+        let mut message = Message::builder()
+            .source(source.clone())
+            .destination(remote.clone())
+            .application_payload("test_payload", vec![1, 2, 3, 4])
+            .build_publish()
+            .unwrap();
+
+        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
+        message
+            .metadata
+            .insert(PUBLISH_TO.to_string(), String::new());
+
+        // Create oneshot channel for ack notification
+        let (ack_tx, ack_rx) = oneshot::channel();
+
+        sender
+            .on_message(message, Some(ack_tx))
+            .await
+            .expect("error sending message");
+
+        let received = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for message")
+            .expect("channel closed")
+            .expect("error message");
+
+        let message_id = received.get_id();
+
+        // Send an ack
+        let mut ack = Message::builder()
+            .source(remote.clone())
+            .destination(source.clone())
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
+        ack.get_session_header_mut().set_message_id(message_id);
+        ack.get_session_header_mut()
+            .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
+        ack.metadata.insert(PUBLISH_TO.to_string(), String::new());
+
+        sender
+            .on_message(ack, None)
+            .await
+            .expect("error sending ack");
+
+        // Verify ack notifier receives success
+        let ack_result = timeout(Duration::from_millis(100), ack_rx)
+            .await
+            .expect("timeout waiting for ack notification")
+            .expect("ack notification channel closed");
+
+        assert!(ack_result.is_ok());
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_mixed_normal_and_publish_to_messages() {
+        // Test sending both normal and PUBLISH_TO messages in the same session
+        let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(1);
+
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
+        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+        let mut sender = SessionSender::new(
+            Some(settings),
+            10,
+            ProtoSessionType::Multicast,
+            tx,
+            Some(tx_signal),
+        );
+        let group = Name::from_strings(["org", "ns", "group"]);
+        let remote1 = Name::from_strings(["org", "ns", "remote1"]);
+        let remote2 = Name::from_strings(["org", "ns", "remote2"]);
+
+        sender
+            .add_endpoint(&remote1)
+            .await
+            .expect("error adding participant");
+        sender
+            .add_endpoint(&remote2)
+            .await
+            .expect("error adding participant");
+
+        let source = Name::from_strings(["org", "ns", "source"]);
+
+        // Send a normal multicast message
+        let mut normal_msg = Message::builder()
+            .source(source.clone())
+            .destination(group.clone())
+            .application_payload("normal", vec![1])
+            .build_publish()
+            .unwrap();
+        normal_msg.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
+
+        sender
+            .on_message(normal_msg, None)
+            .await
+            .expect("error sending normal message");
+
+        let received_normal = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for message")
+            .expect("channel closed")
+            .expect("error message");
+
+        assert_eq!(received_normal.get_id(), 1); // Sequential ID
+        assert_eq!(
+            received_normal.get_slim_header().get_fanout(),
+            SessionSender::MAX_FANOUT
+        );
+
+        // Send a PUBLISH_TO message
+        let mut publish_to_msg = Message::builder()
+            .source(source.clone())
+            .destination(remote1.clone())
+            .application_payload("publish_to", vec![2])
+            .build_publish()
+            .unwrap();
+        publish_to_msg.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
+        publish_to_msg
+            .metadata
+            .insert(PUBLISH_TO.to_string(), String::new());
+
+        sender
+            .on_message(publish_to_msg, None)
+            .await
+            .expect("error sending publish_to message");
+
+        let received_publish_to = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for message")
+            .expect("channel closed")
+            .expect("error message");
+
+        // PUBLISH_TO should have random ID (not sequential)
+        assert_ne!(received_publish_to.get_id(), 2);
+        assert_eq!(received_publish_to.get_slim_header().get_fanout(), 1);
+        assert_eq!(received_publish_to.get_dst(), remote1);
+
+        // Verify normal message is in buffer but PUBLISH_TO is not
+        assert!(sender.buffer.get(1).is_some());
+        assert!(
+            sender
+                .buffer
+                .get(received_publish_to.get_id() as usize)
+                .is_none()
+        );
     }
 }
