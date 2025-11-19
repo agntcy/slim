@@ -15,8 +15,7 @@ This example can operate in two primary modes:
    - Echoes replies for each received payload, tagging them with the local instance ID.
 
 Key concepts demonstrated:
-  - Slim.new() construction and connection.
-  - Route establishment (set_route) prior to establishing a session.
+  - Slim() construction and connection.
   - PointToPoint session creation logic.
   - Publish / receive loop with per-message reply.
   - Simple flow control via iteration count and sleeps (demo-friendly).
