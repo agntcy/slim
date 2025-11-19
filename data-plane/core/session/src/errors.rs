@@ -130,7 +130,6 @@ pub enum SessionError {
     #[error("channel closed")]
     ChannelClosed,
 
-    // Structured drain / closed states replacing generic Processing(String) usages
     #[error("sender closed; drop message")]
     SenderClosedDrop,
     #[error("receiver closed; drop message")]
@@ -146,7 +145,6 @@ pub enum SessionError {
     #[error("message receive retries exhausted for id={id}")]
     MessageReceiveRetryFailed { id: u32 },
 
-    // Typed propagation of slim_datapath MessageError instead of stringly Processing(...)
     #[error("datapath message error: {0}")]
     DatapathMessage(#[from] MessageError),
 
