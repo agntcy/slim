@@ -1,4 +1,4 @@
-package slim_bindings
+package slimbindings
 
 // #include <slimbindings.h>
 import "C"
@@ -344,7 +344,7 @@ func uniffiCheckChecksums() {
 	})
 	if bindingsContractVersion != int(scaffoldingContractVersion) {
 		// If this happens try cleaning and rebuilding your project
-		panic("slim_bindings: UniFFI contract version mismatch")
+		panic("slimbindings: UniFFI contract version mismatch")
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
@@ -352,7 +352,7 @@ func uniffiCheckChecksums() {
 		})
 		if checksum != 17765 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_bindings: uniffi_slim_go_bindings_checksum_func_get_version: UniFFI API checksum mismatch")
+			panic("slimbindings: uniffi_slim_go_bindings_checksum_func_get_version: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -361,7 +361,7 @@ func uniffiCheckChecksums() {
 		})
 		if checksum != 43273 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_bindings: uniffi_slim_go_bindings_checksum_func_initialize_crypto: UniFFI API checksum mismatch")
+			panic("slimbindings: uniffi_slim_go_bindings_checksum_func_initialize_crypto: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -370,7 +370,7 @@ func uniffiCheckChecksums() {
 		})
 		if checksum != 22321 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_bindings: uniffi_slim_go_bindings_checksum_method_app_create_session: UniFFI API checksum mismatch")
+			panic("slimbindings: uniffi_slim_go_bindings_checksum_method_app_create_session: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -379,7 +379,7 @@ func uniffiCheckChecksums() {
 		})
 		if checksum != 48463 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_bindings: uniffi_slim_go_bindings_checksum_method_app_delete_session: UniFFI API checksum mismatch")
+			panic("slimbindings: uniffi_slim_go_bindings_checksum_method_app_delete_session: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -388,7 +388,7 @@ func uniffiCheckChecksums() {
 		})
 		if checksum != 26200 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_bindings: uniffi_slim_go_bindings_checksum_method_app_id: UniFFI API checksum mismatch")
+			panic("slimbindings: uniffi_slim_go_bindings_checksum_method_app_id: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -397,7 +397,7 @@ func uniffiCheckChecksums() {
 		})
 		if checksum != 17329 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_bindings: uniffi_slim_go_bindings_checksum_method_app_listen_for_session: UniFFI API checksum mismatch")
+			panic("slimbindings: uniffi_slim_go_bindings_checksum_method_app_listen_for_session: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -406,7 +406,7 @@ func uniffiCheckChecksums() {
 		})
 		if checksum != 50181 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_bindings: uniffi_slim_go_bindings_checksum_method_app_name: UniFFI API checksum mismatch")
+			panic("slimbindings: uniffi_slim_go_bindings_checksum_method_app_name: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -415,7 +415,7 @@ func uniffiCheckChecksums() {
 		})
 		if checksum != 12403 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_bindings: uniffi_slim_go_bindings_checksum_method_app_remove_route: UniFFI API checksum mismatch")
+			panic("slimbindings: uniffi_slim_go_bindings_checksum_method_app_remove_route: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -424,7 +424,7 @@ func uniffiCheckChecksums() {
 		})
 		if checksum != 24135 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_bindings: uniffi_slim_go_bindings_checksum_method_app_set_route: UniFFI API checksum mismatch")
+			panic("slimbindings: uniffi_slim_go_bindings_checksum_method_app_set_route: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -433,7 +433,7 @@ func uniffiCheckChecksums() {
 		})
 		if checksum != 6892 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_bindings: uniffi_slim_go_bindings_checksum_method_app_subscribe: UniFFI API checksum mismatch")
+			panic("slimbindings: uniffi_slim_go_bindings_checksum_method_app_subscribe: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -442,7 +442,7 @@ func uniffiCheckChecksums() {
 		})
 		if checksum != 7256 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_bindings: uniffi_slim_go_bindings_checksum_method_app_unsubscribe: UniFFI API checksum mismatch")
+			panic("slimbindings: uniffi_slim_go_bindings_checksum_method_app_unsubscribe: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -451,7 +451,7 @@ func uniffiCheckChecksums() {
 		})
 		if checksum != 20426 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_bindings: uniffi_slim_go_bindings_checksum_method_service_create_app: UniFFI API checksum mismatch")
+			panic("slimbindings: uniffi_slim_go_bindings_checksum_method_service_create_app: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -460,7 +460,7 @@ func uniffiCheckChecksums() {
 		})
 		if checksum != 64930 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_bindings: uniffi_slim_go_bindings_checksum_method_sessioncontext_get_message: UniFFI API checksum mismatch")
+			panic("slimbindings: uniffi_slim_go_bindings_checksum_method_sessioncontext_get_message: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -469,7 +469,7 @@ func uniffiCheckChecksums() {
 		})
 		if checksum != 29148 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_bindings: uniffi_slim_go_bindings_checksum_method_sessioncontext_invite: UniFFI API checksum mismatch")
+			panic("slimbindings: uniffi_slim_go_bindings_checksum_method_sessioncontext_invite: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -478,7 +478,7 @@ func uniffiCheckChecksums() {
 		})
 		if checksum != 49064 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_bindings: uniffi_slim_go_bindings_checksum_method_sessioncontext_publish: UniFFI API checksum mismatch")
+			panic("slimbindings: uniffi_slim_go_bindings_checksum_method_sessioncontext_publish: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -487,7 +487,7 @@ func uniffiCheckChecksums() {
 		})
 		if checksum != 23168 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_bindings: uniffi_slim_go_bindings_checksum_method_sessioncontext_publish_to: UniFFI API checksum mismatch")
+			panic("slimbindings: uniffi_slim_go_bindings_checksum_method_sessioncontext_publish_to: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -496,7 +496,7 @@ func uniffiCheckChecksums() {
 		})
 		if checksum != 42961 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_bindings: uniffi_slim_go_bindings_checksum_method_sessioncontext_remove: UniFFI API checksum mismatch")
+			panic("slimbindings: uniffi_slim_go_bindings_checksum_method_sessioncontext_remove: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -505,7 +505,7 @@ func uniffiCheckChecksums() {
 		})
 		if checksum != 1659 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_bindings: uniffi_slim_go_bindings_checksum_constructor_service_new: UniFFI API checksum mismatch")
+			panic("slimbindings: uniffi_slim_go_bindings_checksum_constructor_service_new: UniFFI API checksum mismatch")
 		}
 	}
 }

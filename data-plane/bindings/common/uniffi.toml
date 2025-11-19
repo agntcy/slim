@@ -4,6 +4,4 @@
 # Go package name
 package_name = "slimbindings"
 
-# Module name
-module_name = "github.com/agntcy/slim/bindings"
 

@@ -1,7 +1,7 @@
 // UniFFI Definition Language (UDL) for SLIM Go Bindings
 // This file defines the interface exposed to Go
 
-namespace slim_bindings {
+namespace slimbindings {
     // Initialize the crypto provider
     void initialize_crypto();
     
