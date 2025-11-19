@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/agntcy/slim/compare/control-plane-v0.7.0...control-plane-v0.7.1) (2025-11-19)
+
+
+### Bug Fixes
+
+* set groupName as trust domain ([#968](https://github.com/agntcy/slim/issues/968)) ([32137ef](https://github.com/agntcy/slim/commit/32137ef9412d99c4db8a471e360b783eb83eb75e))
+
 ## [0.6.1](https://github.com/agntcy/slim/compare/control-plane-v0.6.0...control-plane-v0.7.0) (2025-11-18)
 
 

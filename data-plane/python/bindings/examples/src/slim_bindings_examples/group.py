@@ -171,6 +171,9 @@ async def run_client(
         jwt: Path to static JWT token (if using JWT auth).
         spire_trust_bundle: SPIRE trust bundle file path.
         audience: Audience list for JWT verification.
+        spire_socket_path: Path to SPIRE agent socket for workload API access.
+        spire_target_spiffe_id: Target SPIFFE ID for mTLS authentication with SPIRE.
+        spire_jwt_audience: Audience list for SPIRE JWT-SVID validation.
         invites: List of participant IDs to invite (moderator only).
     """
     # Create & connect the local Slim instance (auth derived from args).
@@ -219,8 +222,7 @@ async def run_client(
 
         await handle
 
-        # Invite each provided participant. Route is set before inviting to ensure
-        # outbound control messages can reach them. For more info see
+        # Invite each provided participant. For more info see
         # https://github.com/agntcy/slim/blob/main/data-plane/python/bindings/SESSION.md#invite-a-new-participant
         for invite in invites:
             invite_name = split_id(invite)

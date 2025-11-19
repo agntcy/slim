@@ -116,7 +116,7 @@ If `timeout` is not set the session is best‑effort.
 
 In Point2Point the session is bound to a single remote instance after discovery, so
 outbound messages use the implicit destination. Use `publish` for normal sends
-and `publish_to` to reply using a previously received message context.
+and to reply back to the sender.
 
 ```python
 # Send a request
@@ -127,7 +127,7 @@ msg_ctx, payload = await session.get_message()
 print(payload.decode())
 
 # Send a correlated response back (echo style)
-await session.publish_to(msg_ctx, b"hi")
+await session.publish(b"hi")
 ```
 
 ## Group

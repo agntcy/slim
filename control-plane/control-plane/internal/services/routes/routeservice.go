@@ -440,7 +440,7 @@ func (s *RouteService) getConnectionDetails(route db.Route) (endpoint string, co
 	}
 
 	connDetails, localConnection := selectConnection(destNode, srcNode)
-	connID, configData, err := generateConfigData(connDetails, localConnection)
+	connID, configData, err := generateConfigData(connDetails, localConnection, destNode)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to generate config data for route %v: %w", route, err)
 	}
@@ -468,7 +468,7 @@ func selectConnection(dstNode *db.Node, srcNode *db.Node) (db.ConnectionDetails,
 	return dstNode.ConnDetails[0], false
 }
 
-func generateConfigData(detail db.ConnectionDetails, localConnection bool) (string, string, error) {
+func generateConfigData(detail db.ConnectionDetails, localConnection bool, destNode *db.Node) (string, string, error) {
 	truev := true
 	falsev := false
 	skipVerify := false
@@ -494,13 +494,14 @@ func generateConfigData(detail db.ConnectionDetails, localConnection bool) (stri
 			Source: &TLSSource{
 				Type:       "spire",
 				SocketPath: stringPtr("unix:/tmp/spire-agent/public/api.sock"),
-				//TargetSpiffeID: stringPtr("spiffe://example.local/ns/slim/sa/slim"),
 			},
 			CaSource: &CaSource{
 				Type:       "spire",
 				SocketPath: stringPtr("unix:/tmp/spire-agent/public/api.sock"),
-				//TrustDomains: &[]string{"example.org"},
 			},
+		}
+		if destNode.GroupName != nil {
+			config.TLS.CaSource.TrustDomains = &[]string{*destNode.GroupName}
 		}
 	}
 	var bufferSize int64 = 1024
@@ -529,7 +530,8 @@ func generateConfigData(detail db.ConnectionDetails, localConnection bool) (stri
 	if err != nil {
 		return "", "", fmt.Errorf("failed to encode connection config: %w", err)
 	}
-
+	fmt.Println("Generated connection config:")
+	fmt.Println(buf.String())
 	return config.Endpoint, buf.String(), nil
 }
 
