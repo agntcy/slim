@@ -67,14 +67,17 @@ southbound:
   httpPort: 50052
 
 reconciler:
+  # Max number of times a failed reconcile will be retried
   maxRequeues: 15
+  # Max number of reconciles that can be run in parallel for different nodes
   maxNumOfParallelReconciles: 1000
 
 logging:
   level: DEBUG
 
 database:
-  filePath: db/controlplane.db
+  # By default, Controller use in-memory database, set filePath to use a file-based SQLite database
+  #filePath: db/controlplane.db
 ```
 
 ## Examples

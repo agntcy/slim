@@ -196,8 +196,8 @@ func TestSouthbound_RouteWithConnectionError(t *testing.T) {
 		"wait for 2 nodes to register")
 
 	// slim-0 sends subscription
-	if err := slim0.updateSubscription(ctx, "org", "test", "client",
-		0, false); err != nil {
+	if err := slim0.updateSubscription(ctx, "orgx", "testx", "clientx",
+		1, false); err != nil {
 		t.Fatalf("send sub: %v", err)
 	}
 
@@ -209,7 +209,7 @@ func TestSouthbound_RouteWithConnectionError(t *testing.T) {
 			}
 		}
 		return false
-	}, "wait for route slim-1:org/test/client/->slim-0 to be marked as failed")
+	}, "wait for route slim-1:orgx/testx/clientx/->slim-0 to be marked as failed")
 
 	_ = slim0.Close()
 	_ = slim1.Close()
