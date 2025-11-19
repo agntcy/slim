@@ -111,7 +111,7 @@ class IdentityProvider:
     provider = IdentityProvider.SharedSecret(identity="svc-a", shared_secret="dev-secret")
     verifier = IdentityVerifier.SharedSecret(identity="svc-a", shared_secret="dev-secret")
     
-    # Pass both into Slim.new(local_name, provider, verifier)
+    # Pass both into Slim(local_name, provider, verifier)
     ```
     
     Jwt variant quick start (full):
@@ -261,7 +261,7 @@ class IdentityVerifier:
         identity="service-a",
         shared_secret="super-secret-value",
     )
-    slim = await Slim.new(local_name, provider, verifier)
+    slim = Slim(local_name, provider, verifier)
     ```
     
     Enforcing strict claims (reject tokens missing aud/sub):
@@ -468,7 +468,7 @@ class SessionConfiguration:
     
     ## Python: Using a config when creating a session
     ```python
-    slim = await Slim.new(local_name, provider, verifier)
+    slim = Slim(local_name, provider, verifier)
     session = await slim.create_session(p2p_cfg)
     print("Session ID:", session.id)
     print("Type:", session.session_type)
