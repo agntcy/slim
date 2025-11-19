@@ -9,8 +9,8 @@ use parking_lot::{RawRwLock, RwLock, lock_api::RwLockWriteGuard};
 use rand::Rng;
 use tracing::{debug, error, warn};
 
-use super::pool::Pool;
 use super::SubscriptionTable;
+use super::pool::Pool;
 use crate::errors::DataPathError;
 use crate::messages::Name;
 
@@ -208,12 +208,7 @@ impl NameState {
         }
     }
 
-    fn remove(
-        &mut self,
-        id: &u64,
-        conn: u64,
-        is_local: bool,
-    ) -> Result<(), DataPathError> {
+    fn remove(&mut self, id: &u64, conn: u64, is_local: bool) -> Result<(), DataPathError> {
         match self.ids.get_mut(id) {
             None => {
                 warn!("id {} not found", id);
@@ -538,12 +533,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         }
     }
 
-    fn add_subscription(
-        &self,
-        name: Name,
-        conn: u64,
-        is_local: bool,
-    ) -> Result<(), Self::Error> {
+    fn add_subscription(&self, name: Name, conn: u64, is_local: bool) -> Result<(), Self::Error> {
         {
             let conn_table = self.connections.read();
             match conn_table.get(&conn) {
@@ -587,11 +577,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         Ok(())
     }
 
-    fn remove_connection(
-        &self,
-        conn: u64,
-        is_local: bool,
-    ) -> Result<HashSet<Name>, Self::Error> {
+    fn remove_connection(&self, conn: u64, is_local: bool) -> Result<HashSet<Name>, Self::Error> {
         let removed_subscriptions = self
             .connections
             .write()
@@ -633,11 +619,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         }
     }
 
-    fn match_all(
-        &self,
-        name: &Name,
-        incoming_conn: u64,
-    ) -> Result<Vec<u64>, Self::Error> {
+    fn match_all(&self, name: &Name, incoming_conn: u64) -> Result<Vec<u64>, Self::Error> {
         let table = self.table.read();
 
         let query_name = unsafe { std::mem::transmute::<&Name, &InternalName>(name) };

@@ -359,12 +359,14 @@ impl MessageProcessor {
                 ///////////////////////////////////////////////////////////////////
 
                 match conn.channel() {
-                    Channel::Server(s) => {
-                        s.send(Ok(msg)).await.map_err(|_e| DataPathError::ConnectionNotFound)
-                    }
-                    Channel::Client(s) => {
-                        s.send(msg).await.map_err(|_e| DataPathError::ConnectionNotFound)
-                    }
+                    Channel::Server(s) => s
+                        .send(Ok(msg))
+                        .await
+                        .map_err(|_e| DataPathError::ConnectionNotFound),
+                    Channel::Client(s) => s
+                        .send(msg)
+                        .await
+                        .map_err(|_e| DataPathError::ConnectionNotFound),
                     _ => Err(DataPathError::ConnectionNotFound),
                 }
             }
@@ -388,7 +390,7 @@ impl MessageProcessor {
         // without performing any match in the subscription table
         if let Some(val) = msg.get_forward_to() {
             debug!("forwarding message to connection {}", val);
-            return self.send_msg(msg, val).await.map_err(DataPathError::from);
+            return self.send_msg(msg, val).await;
         }
 
         match self
@@ -400,14 +402,10 @@ impl MessageProcessor {
                 // in the other cases clone only len - 1 times.
                 let mut i = 0;
                 while i < out_vec.len() - 1 {
-                    self.send_msg(msg.clone(), out_vec[i])
-                        .await
-                        .map_err(DataPathError::from)?;
+                    self.send_msg(msg.clone(), out_vec[i]).await?;
                     i += 1;
                 }
-                self.send_msg(msg, out_vec[i])
-                    .await
-                    .map_err(DataPathError::from)?;
+                self.send_msg(msg, out_vec[i]).await?;
                 Ok(())
             }
             Err(e) => Err(e),

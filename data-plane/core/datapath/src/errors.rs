@@ -1,8 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use thiserror::Error;
 use crate::messages::utils::MessageError;
+use thiserror::Error;
 
 /// DataPath and subscription table errors merged into a single enum.
 #[derive(Error, Debug, PartialEq)]
@@ -20,20 +20,20 @@ pub enum DataPathError {
     InvalidMessage(MessageError),
 
     // Subscription / matching
-        #[error("no matching found for {0}")]
-        NoMatch(String),
-        #[error("subscription not found")]
-        SubscriptionNotFound,
-        #[error("id not found")]
-        IdNotFound,
+    #[error("no matching found for {0}")]
+    NoMatch(String),
+    #[error("subscription not found")]
+    SubscriptionNotFound,
+    #[error("id not found")]
+    IdNotFound,
 
-        // Connection lookup
-        #[error("connection not found")]
-        ConnectionNotFound,
-        #[error("connection id not found")]
-        ConnectionIdNotFound,
+    // Connection lookup
+    #[error("connection not found")]
+    ConnectionNotFound,
+    #[error("connection id not found")]
+    ConnectionIdNotFound,
 
-        // Generic processing
-        #[error("message processing error: {0}")]
-        ProcessingError(MessageError),
+    // Processing
+    #[error("message processing error: {0}")]
+    ProcessingError(MessageError),
 }

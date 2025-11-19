@@ -133,11 +133,8 @@ impl From<SessionContext> for PySessionContext {
 
 // Internal helper to obtain a strong session reference or raise a Python exception
 fn strong_session(weak: &Weak<SessionController>) -> PyResult<Arc<SessionController>> {
-    weak.upgrade().ok_or_else(|| {
-        PyErr::new::<PyException, _>(
-            SessionError::SessionClosed.to_string(),
-        )
-    })
+    weak.upgrade()
+        .ok_or_else(|| PyErr::new::<PyException, _>(SessionError::SessionClosed.to_string()))
 }
 
 #[gen_stub_pymethods]
@@ -157,11 +154,7 @@ impl PySessionContext {
             .bindings_ctx
             .session
             .upgrade()
-            .ok_or_else(|| {
-                PyErr::new::<PyException, _>(
-                    SessionError::SessionClosed.to_string(),
-                )
-            })?;
+            .ok_or_else(|| PyErr::new::<PyException, _>(SessionError::SessionClosed.to_string()))?;
 
         Ok(session.metadata())
     }

@@ -4,10 +4,10 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use super::tables::SubscriptionTable;
 use super::tables::connection_table::ConnectionTable;
 use super::tables::remote_subscription_table::RemoteSubscriptions;
 use super::tables::subscription_table::SubscriptionTableImpl;
-use super::tables::SubscriptionTable;
 use crate::errors::DataPathError;
 use crate::messages::Name;
 use crate::tables::remote_subscription_table::SubscriptionInfo;

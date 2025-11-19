@@ -424,7 +424,9 @@ impl SessionController {
                 }
                 self.invite_participant_internal(destination).await
             }
-            _ => Err(SessionError::UnexpectedMessageType { message_type: ProtoSessionMessageType::Msg }),
+            _ => Err(SessionError::UnexpectedMessageType {
+                message_type: ProtoSessionMessageType::Msg,
+            }),
         }
     }
 
@@ -451,7 +453,9 @@ impl SessionController {
                     .map_err(|e| SessionError::extract_error("leave_request", e))?;
                 self.publish_message(msg).await
             }
-            _ => Err(SessionError::UnexpectedMessageType { message_type: ProtoSessionMessageType::LeaveRequest }),
+            _ => Err(SessionError::UnexpectedMessageType {
+                message_type: ProtoSessionMessageType::LeaveRequest,
+            }),
         }
     }
 }
@@ -591,9 +595,7 @@ where
             builder = builder.fanout(256);
         }
 
-        builder
-            .build_publish()
-            .map_err(SessionError::build_error)
+        builder.build_publish().map_err(SessionError::build_error)
     }
 
     /// Send control message without creating ack channel (for internal use by moderator)

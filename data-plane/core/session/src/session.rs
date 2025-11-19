@@ -180,9 +180,7 @@ impl Session {
             ProtoSessionMessageType::RtxRequest => {
                 self.receiver.on_timer_timeout(id, name.unwrap()).await
             }
-            _ => Err(SessionError::UnexpectedMessageType {
-                message_type,
-            }),
+            _ => Err(SessionError::UnexpectedMessageType { message_type }),
         }
     }
 
@@ -197,9 +195,7 @@ impl Session {
             ProtoSessionMessageType::RtxRequest => {
                 self.receiver.on_timer_failure(id, name.unwrap()).await
             }
-            _ => Err(SessionError::UnexpectedMessageType {
-                message_type,
-            }),
+            _ => Err(SessionError::UnexpectedMessageType { message_type }),
         }
     }
 }

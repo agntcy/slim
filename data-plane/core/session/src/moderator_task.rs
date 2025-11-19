@@ -529,8 +529,8 @@ impl TaskUpdate for UpdateParticipant {
 
 #[cfg(test)]
 mod tests {
-    use tracing_test::traced_test;
     use super::*;
+    use tracing_test::traced_test;
 
     #[derive(Debug)]
     enum StepExpectation {
@@ -552,7 +552,12 @@ mod tests {
             f: F,
             expect_complete: bool,
         ) -> Self {
-            Step { name, action: Box::new(f), expectation: StepExpectation::Ok, expect_complete }
+            Step {
+                name,
+                action: Box::new(f),
+                expectation: StepExpectation::Ok,
+                expect_complete,
+            }
         }
         fn err<F: 'static + Fn(&mut ModeratorTask) -> Result<(), SessionError>>(
             name: &'static str,
@@ -560,14 +565,24 @@ mod tests {
             msg: &'static str,
             expect_complete: bool,
         ) -> Self {
-            Step { name, action: Box::new(f), expectation: StepExpectation::ModeratorTaskErr(msg), expect_complete }
+            Step {
+                name,
+                action: Box::new(f),
+                expectation: StepExpectation::ModeratorTaskErr(msg),
+                expect_complete,
+            }
         }
         fn unsupported<F: 'static + Fn(&mut ModeratorTask) -> Result<(), SessionError>>(
             name: &'static str,
             f: F,
             expect_complete: bool,
         ) -> Self {
-            Step { name, action: Box::new(f), expectation: StepExpectation::UnsupportedPhase, expect_complete }
+            Step {
+                name,
+                action: Box::new(f),
+                expectation: StepExpectation::UnsupportedPhase,
+                expect_complete,
+            }
         }
     }
 
@@ -581,26 +596,38 @@ mod tests {
                         panic!("step {} ({}) expected Ok, got Err {:?}", i, step.name, e);
                     }
                 }
-                StepExpectation::ModeratorTaskErr(msg) => {
-                    match res {
-                        Err(SessionError::ModeratorTask(actual)) => {
-                            assert_eq!(actual, msg, "step {} ({}) msg mismatch", i, step.name);
-                        }
-                        other => panic!("step {} ({}) expected ModeratorTask('{}'), got {:?}", i, step.name, msg, other),
+                StepExpectation::ModeratorTaskErr(msg) => match res {
+                    Err(SessionError::ModeratorTask(actual)) => {
+                        assert_eq!(actual, msg, "step {} ({}) msg mismatch", i, step.name);
                     }
-                }
-                StepExpectation::UnsupportedPhase => {
-                    match res {
-                        Err(SessionError::ModeratorTask(actual)) => {
-                            assert_eq!(actual, "this phase is not supported in this task", "step {} ({}) unsupported phase msg mismatch", i, step.name);
-                        }
-                        other => {
-                            panic!("step {} ({}) expected unsupported phase error, got {:?}", i, step.name, other);
-                        }
+                    other => panic!(
+                        "step {} ({}) expected ModeratorTask('{}'), got {:?}",
+                        i, step.name, msg, other
+                    ),
+                },
+                StepExpectation::UnsupportedPhase => match res {
+                    Err(SessionError::ModeratorTask(actual)) => {
+                        assert_eq!(
+                            actual, "this phase is not supported in this task",
+                            "step {} ({}) unsupported phase msg mismatch",
+                            i, step.name
+                        );
                     }
-                }
+                    other => {
+                        panic!(
+                            "step {} ({}) expected unsupported phase error, got {:?}",
+                            i, step.name, other
+                        );
+                    }
+                },
             }
-            assert_eq!(task.task_complete(), step.expect_complete, "step {} ({}) completion mismatch", i, step.name);
+            assert_eq!(
+                task.task_complete(),
+                step.expect_complete,
+                "step {} ({}) completion mismatch",
+                i,
+                step.name
+            );
         }
     }
 
@@ -612,15 +639,37 @@ mod tests {
             ModeratorTask::Add(AddParticipant::default()),
             vec![
                 Step::ok("discovery_start", move |t| t.discovery_start(base), false),
-                Step::err("discovery_complete_wrong", move |t| t.discovery_complete(base + 1), "unexpected timer id", false),
-                Step::err("leave_start_unsupported", move |t| t.leave_start(base), "this phase is not supported in this task", false),
-                Step::ok("discovery_complete_ok", move |t| t.discovery_complete(base), false),
+                Step::err(
+                    "discovery_complete_wrong",
+                    move |t| t.discovery_complete(base + 1),
+                    "unexpected timer id",
+                    false,
+                ),
+                Step::err(
+                    "leave_start_unsupported",
+                    move |t| t.leave_start(base),
+                    "this phase is not supported in this task",
+                    false,
+                ),
+                Step::ok(
+                    "discovery_complete_ok",
+                    move |t| t.discovery_complete(base),
+                    false,
+                ),
                 Step::ok("join_start", move |t| t.join_start(base + 1), false),
                 Step::ok("join_complete", move |t| t.join_complete(base + 1), false),
                 Step::ok("welcome_start", move |t| t.welcome_start(base + 2), false),
                 Step::ok("commit_start", move |t| t.commit_start(base + 3), false),
-                Step::ok("welcome_phase_completed", move |t| t.update_phase_completed(base + 2), false),
-                Step::ok("commit_phase_completed", move |t| t.update_phase_completed(base + 3), true),
+                Step::ok(
+                    "welcome_phase_completed",
+                    move |t| t.update_phase_completed(base + 2),
+                    false,
+                ),
+                Step::ok(
+                    "commit_phase_completed",
+                    move |t| t.update_phase_completed(base + 3),
+                    true,
+                ),
             ],
         );
     }
@@ -633,11 +682,28 @@ mod tests {
             ModeratorTask::Remove(RemoveParticipant::default()),
             vec![
                 Step::ok("commit_start", move |t| t.commit_start(base), false),
-                Step::ok("commit_completed", move |t| t.update_phase_completed(base), false),
+                Step::ok(
+                    "commit_completed",
+                    move |t| t.update_phase_completed(base),
+                    false,
+                ),
                 Step::ok("leave_start", move |t| t.leave_start(base + 1), false),
-                Step::err("leave_complete_wrong", move |t| t.leave_complete(base + 2), "unexpected timer id", false),
-                Step::unsupported("discovery_start_unsupported", move |t| t.discovery_start(base), false),
-                Step::ok("leave_complete_ok", move |t| t.leave_complete(base + 1), true),
+                Step::err(
+                    "leave_complete_wrong",
+                    move |t| t.leave_complete(base + 2),
+                    "unexpected timer id",
+                    false,
+                ),
+                Step::unsupported(
+                    "discovery_start_unsupported",
+                    move |t| t.discovery_start(base),
+                    false,
+                ),
+                Step::ok(
+                    "leave_complete_ok",
+                    move |t| t.leave_complete(base + 1),
+                    true,
+                ),
             ],
         );
     }
@@ -650,9 +716,17 @@ mod tests {
             ModeratorTask::Update(UpdateParticipant::default()),
             vec![
                 Step::ok("commit_start", move |t| t.commit_start(base), false),
-                Step::ok("commit_completed", move |t| t.update_phase_completed(base), false),
+                Step::ok(
+                    "commit_completed",
+                    move |t| t.update_phase_completed(base),
+                    false,
+                ),
                 Step::ok("proposal_start", move |t| t.proposal_start(base), false),
-                Step::ok("proposal_completed", move |t| t.update_phase_completed(base), true),
+                Step::ok(
+                    "proposal_completed",
+                    move |t| t.update_phase_completed(base),
+                    true,
+                ),
             ],
         );
     }

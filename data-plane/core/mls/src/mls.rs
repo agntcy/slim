@@ -327,10 +327,7 @@ where
         let commit = commit.build().await?;
 
         // create the commit message to broadcast in the group
-        let commit_msg = commit
-            .commit_message
-            .to_bytes()
-            .map_err(MlsError::from)?;
+        let commit_msg = commit.commit_message.to_bytes().map_err(MlsError::from)?;
 
         // extract and serialize the first welcome message
         let welcome = commit
@@ -467,7 +464,9 @@ where
 
         match group.process_incoming_message(message).await? {
             ReceivedMessage::ApplicationMessage(app_msg) => Ok(app_msg.data().to_vec()),
-            _ => Err(MlsError::verification_failed("Message was not an application message")),
+            _ => Err(MlsError::verification_failed(
+                "Message was not an application message",
+            )),
         }
     }
 
@@ -505,9 +504,7 @@ where
             "Created credential rotation proposal, stored new keys and incremented credential version"
         );
 
-        update_proposal
-            .to_bytes()
-            .map_err(MlsError::from)
+        update_proposal.to_bytes().map_err(MlsError::from)
     }
 
     /// Get a token from the identity provider
@@ -1004,10 +1001,7 @@ mod tests {
             .await;
 
         assert!(
-            matches!(
-                validation_res,
-                Err(MlsError::PublicKeyMismatch { .. })
-            ),
+            matches!(validation_res, Err(MlsError::PublicKeyMismatch { .. })),
             "Expected PublicKeyMismatch for stolen token + different key"
         );
 

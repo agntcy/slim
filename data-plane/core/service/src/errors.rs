@@ -9,7 +9,7 @@ pub enum ServiceError {
     // Configuration / setup
     #[error("no server or client configured")]
     NoServerOrClientConfigured,
-    #[error("grpc configuration error")]
+    #[error("grpc configuration error: {0}")]
     GrpcConfigError(#[from] slim_config::grpc::errors::ConfigError),
     #[error("invalid configuration: {0}")]
     InvalidConfig(String),

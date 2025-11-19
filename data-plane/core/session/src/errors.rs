@@ -5,9 +5,9 @@
 use thiserror::Error;
 
 // Local crate
+use slim_auth::errors::AuthError;
 use slim_datapath::api::{ProtoMessage as Message, ProtoSessionMessageType};
 use slim_datapath::messages::utils::MessageError;
-use slim_auth::errors::AuthError;
 use slim_mls::errors::MlsError;
 
 #[derive(Error, Debug)]
@@ -95,7 +95,9 @@ pub enum SessionError {
 
     // Structured (new) variants
     #[error("unexpected message type: {message_type:?}")]
-    UnexpectedMessageType { message_type: ProtoSessionMessageType },
+    UnexpectedMessageType {
+        message_type: ProtoSessionMessageType,
+    },
 
     #[error("missing payload: {context}")]
     MissingPayload { context: &'static str },
@@ -164,6 +166,9 @@ impl SessionError {
         SessionError::MessageBuild(err)
     }
     pub fn extract_error(context: &'static str, err: MessageError) -> Self {
-        SessionError::PayloadExtract { context, source: err }
+        SessionError::PayloadExtract {
+            context,
+            source: err,
+        }
     }
 }

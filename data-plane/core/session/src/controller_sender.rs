@@ -127,7 +127,7 @@ impl ControllerSender {
                     payload
                         .new_participant
                         .as_ref()
-                        .ok_or(SessionError::MissingNewParticipant)?
+                        .ok_or(SessionError::MissingNewParticipant)?,
                 );
                 new_participant.reset_id();
                 for p in &payload.participants {
@@ -161,7 +161,7 @@ impl ControllerSender {
                     payload
                         .removed_participant
                         .as_ref()
-                        .ok_or(SessionError::MissingRemovedParticipant)?
+                        .ok_or(SessionError::MissingRemovedParticipant)?,
                 );
                 if to_remove != self.local_name {
                     missing_replies.insert(to_remove);
@@ -200,10 +200,7 @@ impl ControllerSender {
         };
 
         self.pending_replies.insert(id, pending);
-        self.tx
-            .send_to_slim(Ok(message.clone()))
-            .await
-            .map_err(SessionError::from)
+        self.tx.send_to_slim(Ok(message.clone())).await
     }
 
     fn on_reply_message(&mut self, message: &Message) {
@@ -240,11 +237,7 @@ impl ControllerSender {
         debug!("timeout for message {}", id);
 
         if let Some(pending) = self.pending_replies.get(&id) {
-            return self
-                .tx
-                .send_to_slim(Ok(pending.message.clone()))
-                .await
-                .map_err(SessionError::from);
+            return self.tx.send_to_slim(Ok(pending.message.clone())).await;
         };
 
         Err(SessionError::TimerNotFound(format!("{}", id)))

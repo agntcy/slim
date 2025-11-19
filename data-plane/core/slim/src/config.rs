@@ -31,18 +31,27 @@ pub struct ConfigResult {
 
 #[derive(Error, Debug)]
 pub enum ConfigError {
+    // File / I/O
     #[error("not found: {0}")]
     NotFound(String),
+
+    // Parsing / structural validity
     #[error("invalid configuration - impossible to parse yaml")]
     InvalidYaml,
     #[error("invalid configuration - key {0} not valid")]
     InvalidKey(String),
+    #[error("invalid configuration")]
+    Invalid(String),
+
+    // YAML decoding (typed propagation)
+    #[error("yaml parse error: {0}")]
+    YamlError(#[from] serde_yaml::Error),
+
+    // Services / resolution
     #[error("invalid configuration - missing services")]
     InvalidNoServices,
     #[error("invalid configuration - resolver not found")]
     ResolverError,
-    #[error("invalid configuration")]
-    Invalid(String),
 }
 
 lazy_static! {
@@ -65,8 +74,8 @@ where
     B::Config: Configuration + std::fmt::Debug,
     for<'de> <B as ComponentBuilder>::Config: Deserialize<'de>,
 {
-    let config: B::Config = serde_yaml::from_value(component_config)
-        .map_err(|e| ConfigError::Invalid(e.to_string()))?;
+    // Typed YAML value conversion (produces ConfigError::YamlError)
+    let config: B::Config = serde_yaml::from_value(component_config)?;
 
     // Validate the configuration
     config
@@ -96,7 +105,8 @@ fn build_service(name: &Value, config: &Value) -> Result<Service, ConfigError> {
 pub fn load_config(config_file: &str) -> Result<ConfigResult, ConfigError> {
     let config_str =
         std::fs::read_to_string(config_file).map_err(|e| ConfigError::NotFound(e.to_string()))?;
-    let mut config: Value = from_str(&config_str).map_err(|_| ConfigError::InvalidYaml)?;
+    // Typed YAML file parse (produces ConfigError::YamlError)
+    let mut config: Value = from_str(&config_str)?;
 
     // Validate fields in configuration
     for key in config.as_mapping().unwrap().keys() {
@@ -115,15 +125,13 @@ pub fn load_config(config_file: &str) -> Result<ConfigResult, ConfigError> {
     // Configure tracing
     let tracing_config = config.get("tracing");
     let tracing = match tracing_config {
-        Some(tracing) => serde_yaml::from_value(tracing.clone())
-            .map_err(|e| ConfigError::Invalid(e.to_string()))?,
+        Some(tracing) => serde_yaml::from_value(tracing.clone())?,
         None => TracingConfiguration::default(),
     };
 
     // configure runtime
     let runtime = match config.get("runtime") {
-        Some(runtime) => serde_yaml::from_value(runtime.clone())
-            .map_err(|e| ConfigError::Invalid(e.to_string()))?,
+        Some(runtime) => serde_yaml::from_value(runtime.clone())?,
         None => RuntimeConfiguration::default(),
     };
 

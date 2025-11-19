@@ -233,13 +233,8 @@ impl OidcTokenProvider {
             "{}/.well-known/openid-configuration",
             self.config.issuer_url
         );
-        let discovery_response: serde_json::Value = self
-            .client
-            .get(&discovery_url)
-            .send()
-            .await?
-            .json()
-            .await?;
+        let discovery_response: serde_json::Value =
+            self.client.get(&discovery_url).send().await?.json().await?;
 
         let token_endpoint = discovery_response
             .get("token_endpoint")
@@ -428,22 +423,14 @@ impl OidcVerifier {
             .http_client
             .get(&discovery_url)
             .send()
-            .await
-            .map_err(|e| {
-                AuthError::ConfigError(format!("Failed to fetch discovery document: {}", e))
-            })?
+            .await?
             .json()
-            .await
-            .map_err(|e| {
-                AuthError::ConfigError(format!("Failed to parse discovery document: {}", e))
-            })?;
+            .await?;
 
         let jwks_uri = discovery_response
             .get("jwks_uri")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                AuthError::ConfigError("jwks_uri not found in discovery document".to_string())
-            })?;
+            .ok_or_else(|| AuthError::OidcDiscoveryMissingJwksUri)?;
 
         // Now fetch the JWKS from the discovered jwks_uri
         let jwks: JwkSet = self.http_client.get(jwks_uri).send().await?.json().await?;

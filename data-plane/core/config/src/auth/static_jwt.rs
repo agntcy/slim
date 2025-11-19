@@ -4,8 +4,8 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use slim_auth::errors::AuthError;
 use crate::auth::ConfigAuthError;
+use slim_auth::errors::AuthError;
 
 use super::ClientAuthenticator;
 
@@ -82,7 +82,6 @@ impl Config {
         JwtBuilder::new()
             .token_file(self.source.file.clone())
             .build()
-
     }
 }
 

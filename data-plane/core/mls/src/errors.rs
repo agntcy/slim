@@ -61,7 +61,9 @@ pub enum MlsError {
     ExternalSenderFailed(String),
     #[error("Public key not found in signed identity")]
     PublicKeyNotFound,
-    #[error("Public key mismatch: identity public key does not match provided public key: expected: {expected}, found: {found}")]
+    #[error(
+        "Public key mismatch: identity public key does not match provided public key: expected: {expected}, found: {found}"
+    )]
     PublicKeyMismatch { expected: String, found: String },
     #[error("Subject not found")]
     SubjectNotFound,

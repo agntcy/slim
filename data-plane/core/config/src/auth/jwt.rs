@@ -8,8 +8,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use slim_auth::builder::JwtBuilder;
 
-use slim_auth::errors::AuthError;
 use crate::auth::ConfigAuthError;
+use slim_auth::errors::AuthError;
 
 use super::{ClientAuthenticator, ServerAuthenticator};
 use slim_auth::jwt::{Key, SignerJwt, VerifierJwt};
@@ -195,14 +195,8 @@ impl Config {
     /// Returns an error if neither a decoding key nor autoresolve=true are configured.
     pub fn get_verifier(&self) -> Result<VerifierJwt, AuthError> {
         match self.key() {
-            JwtKey::Decoding(key) => self
-                .jwt_builder()
-                .public_key(key)
-                .build(),
-            JwtKey::Autoresolve => self
-                .jwt_builder()
-                .auto_resolve_keys(true)
-                .build(),
+            JwtKey::Decoding(key) => self.jwt_builder().public_key(key).build(),
+            JwtKey::Autoresolve => self.jwt_builder().auto_resolve_keys(true).build(),
             _ => Err(AuthError::ConfigError(
                 "Decoding key or autoresolve = true is required for server authentication"
                     .to_string(),

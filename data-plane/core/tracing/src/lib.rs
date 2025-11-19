@@ -25,9 +25,11 @@ const OTEL_EXPORTER_OTLP_ENDPOINT: &str = "http://localhost:4317";
 
 #[derive(Error, Debug)]
 pub enum ConfigError {
+    // gRPC / remote configuration
     #[error("error loading GRPC config: {0}")]
     GRPCError(String),
 
+    // Filter parsing / directives
     #[error("error parsing filter directives: {0}")]
     FilterParseError(#[from] tracing_subscriber::filter::ParseError),
 }

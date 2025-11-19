@@ -242,8 +242,7 @@ impl TlsServerConfig {
             // SPIRE server path
             #[cfg(not(target_family = "windows"))]
             TlsSource::Spire { config: spire_cfg } => Arc::new(
-                SpireCertResolver::new(spire_cfg.clone(), config_builder.crypto_provider())
-                    .await?,
+                SpireCertResolver::new(spire_cfg.clone(), config_builder.crypto_provider()).await?,
             ),
             // Static file-based certificates
             TlsSource::File { cert, key, .. } => Arc::new(WatcherCertResolver::new(

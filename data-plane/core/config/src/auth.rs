@@ -14,21 +14,23 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum ConfigAuthError {
+    // Configuration
     #[error("config error: {0}")]
     ConfigError(String),
 
+    // Token lifecycle
     #[error("token expired")]
     TokenExpired,
-
     #[error("token invalid: {0}")]
     TokenInvalid(String),
 
+    // Signing / headers
     #[error("sign error: {0}")]
     SigningError(String),
-
     #[error("invalid header: {0}")]
     InvalidHeader(String),
 
+    // Propagated auth library errors
     #[error("internal auth error: {0}")]
     InternalError(#[from] SlimAuthError),
 }

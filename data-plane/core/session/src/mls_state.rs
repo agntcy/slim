@@ -143,14 +143,13 @@ where
         trace!("processing stored commit {}", mls_payload.commit_id);
 
         // process the commit message
-        let ret = self
-            .mls
+        self.mls
             .lock()
             .await
             .process_commit(&mls_payload.mls_content)
             .await?;
 
-        Ok(ret)
+        Ok(())
     }
 
     async fn process_proposal_message(

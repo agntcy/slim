@@ -511,7 +511,7 @@ fn get_name_from_string(string_name: &String) -> Result<Name, ControllerError> {
                 return Err(ControllerError::ConfigError(format!(
                     "invalid moderator ID: {}",
                     parts[3]
-                )))
+                )));
             }
         };
         return Ok(Name::from_strings([parts[0], parts[1], parts[2]]).with_id(id));
@@ -544,11 +544,11 @@ fn create_channel_message(
         .session_message_type(request_type)
         .session_id(session_id)
         .message_id(message_id)
-        .payload(
-            payload.ok_or(ControllerError::PayloadMissing)?
-        )
+        .payload(payload.ok_or(ControllerError::PayloadMissing)?)
         .build_publish()
-        .map_err(|e| ControllerError::Datapath(slim_datapath::errors::DataPathError::InvalidMessage(e)))?;
+        .map_err(|e| {
+            ControllerError::Datapath(slim_datapath::errors::DataPathError::InvalidMessage(e))
+        })?;
 
     Ok(message)
 }

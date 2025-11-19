@@ -524,9 +524,7 @@ impl ClientConfig {
     }
 
     /// Generic helper to parse a HashMap<String, String> into HeaderMap
-    fn parse_header_map(
-        headers: &HashMap<String, String>,
-    ) -> Result<HeaderMap, ConfigError> {
+    fn parse_header_map(headers: &HashMap<String, String>) -> Result<HeaderMap, ConfigError> {
         let mut header_map = HeaderMap::new();
         for (key, value) in headers {
             let header_name = HeaderName::from_str(key)?;
@@ -621,12 +619,7 @@ impl ClientConfig {
 
         // Check if the proxy URL uses HTTPS
         if proxy_uri.scheme_str() == Some("https") {
-            let proxy_tls_config = self
-                .proxy
-                .tls_setting
-                .load_rustls_config()
-                .await?
-                .unwrap();
+            let proxy_tls_config = self.proxy.tls_setting.load_rustls_config().await?.unwrap();
 
             // Create HTTPS connector for the proxy itself
             let https_connector = hyper_rustls::HttpsConnectorBuilder::new()

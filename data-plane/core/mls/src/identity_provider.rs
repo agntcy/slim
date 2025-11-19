@@ -73,11 +73,7 @@ where
         Ok(identity_claims)
     }
 
-    fn verify_public_key_match(
-        expected: &str,
-        found: &str,
-        subject: &str,
-    ) -> Result<(), MlsError> {
+    fn verify_public_key_match(expected: &str, found: &str, subject: &str) -> Result<(), MlsError> {
         if found != expected {
             tracing::error!(
                 expected = %expected, found = %found, subject = %subject, "Public key mismatch",

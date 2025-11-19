@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use tower_http::auth::{AddAuthorizationLayer, require_authorization::Basic};
 use tower_http::validate_request::ValidateRequestHeaderLayer;
 
-use super::{ConfigAuthError, ClientAuthenticator, ServerAuthenticator};
+use super::{ClientAuthenticator, ConfigAuthError, ServerAuthenticator};
 use crate::opaque::OpaqueString;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
@@ -53,8 +53,12 @@ impl ClientAuthenticator for Config {
 
     fn get_client_layer(&self) -> Result<Self::ClientLayer, ConfigAuthError> {
         match (self.username(), self.password().as_ref()) {
-            ("", _) => Err(ConfigAuthError::ConfigError("username is empty".to_string())),
-            (_, "") => Err(ConfigAuthError::ConfigError("password is empty".to_string())),
+            ("", _) => Err(ConfigAuthError::ConfigError(
+                "username is empty".to_string(),
+            )),
+            (_, "") => Err(ConfigAuthError::ConfigError(
+                "password is empty".to_string(),
+            )),
             _ => Ok(AddAuthorizationLayer::basic(
                 self.username(),
                 self.password(),

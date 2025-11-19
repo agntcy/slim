@@ -6,7 +6,7 @@ use std::time::Duration;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::{ConfigAuthError, ClientAuthenticator, ServerAuthenticator};
+use super::{ClientAuthenticator, ConfigAuthError, ServerAuthenticator};
 use slim_auth::oidc::{OidcProviderConfig, OidcTokenProvider, OidcVerifier};
 use slim_auth::traits::TokenProvider; // bring trait into scope for initialize()
 
@@ -163,7 +163,9 @@ impl Config {
     /// Convert to the auth crate's OidcProviderConfig
     fn to_auth_config(&self) -> Result<OidcProviderConfig, ConfigAuthError> {
         let client_id = self.client_id.as_ref().ok_or_else(|| {
-            ConfigAuthError::ConfigError("client_id is required for provider functionality".to_string())
+            ConfigAuthError::ConfigError(
+                "client_id is required for provider functionality".to_string(),
+            )
         })?;
         let client_secret = self.client_secret.as_ref().ok_or_else(|| {
             ConfigAuthError::ConfigError(
@@ -195,7 +197,9 @@ impl Config {
     /// Create an OIDC verifier from this configuration
     pub fn create_verifier(&self) -> Result<OidcVerifier, ConfigAuthError> {
         let audience = self.audience.as_ref().ok_or_else(|| {
-            ConfigAuthError::ConfigError("audience is required for verifier functionality".to_string())
+            ConfigAuthError::ConfigError(
+                "audience is required for verifier functionality".to_string(),
+            )
         })?;
 
         let verifier = OidcVerifier::new(&self.issuer_url, audience);

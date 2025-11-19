@@ -204,7 +204,7 @@ impl Service {
         );
 
         // run controller service
-                controller.run().await?;
+        controller.run().await?;
 
         // save controller service
         self.controller = Some(controller);
@@ -272,8 +272,6 @@ impl Service {
     }
 
     pub async fn run_server(&self, config: &ServerConfig) -> Result<(), ServiceError> {
-        info!(%config, "server configured: setting it up");
-
         let cancellation_token = config
             .run_server(
                 &[DataPlaneServiceServer::from_arc(
@@ -303,7 +301,9 @@ impl Service {
     pub async fn connect(&self, config: &ClientConfig) -> Result<u64, ServiceError> {
         // ensure there is no other client connected to the same endpoint
         if self.clients.read().contains_key(&config.endpoint) {
-            return Err(ServiceError::ClientAlreadyConnected(config.endpoint.clone()));
+            return Err(ServiceError::ClientAlreadyConnected(
+                config.endpoint.clone(),
+            ));
         }
 
         let channel = config.to_channel().await?;
@@ -315,7 +315,9 @@ impl Service {
             .await?;
 
         // register the client
-        self.clients.write().insert(config.endpoint.clone(), conn_id);
+        self.clients
+            .write()
+            .insert(config.endpoint.clone(), conn_id);
 
         Ok(conn_id)
     }

@@ -401,12 +401,11 @@ where
                     session_type,
                 )?;
 
-                self.transmitter
-                    .send_to_slim(Ok(msg))
-                    .await
-                    .map_err(SessionError::from)
+                self.transmitter.send_to_slim(Ok(msg)).await
             }
-            _ => Err(SessionError::UnexpectedMessageType { message_type: session_message_type }),
+            _ => Err(SessionError::UnexpectedMessageType {
+                message_type: session_message_type,
+            }),
         }
     }
 

@@ -261,10 +261,7 @@ impl SessionSender {
 
         debug!("send message");
         // send the message
-        self.tx
-            .send_to_slim(Ok(message))
-            .await
-            .map_err(SessionError::from)
+        self.tx.send_to_slim(Ok(message)).await
     }
 
     fn on_ack_message(&mut self, message: &Message) {
@@ -335,10 +332,7 @@ impl SessionSender {
                 .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxReply);
 
             // send the message
-            self.tx
-                .send_to_slim(Ok(msg))
-                .await
-                .map_err(SessionError::from)
+            self.tx.send_to_slim(Ok(msg)).await
         } else {
             debug!("the message does not exists anymore, send and error");
             let msg = new_message_from_session_fields(
@@ -354,10 +348,7 @@ impl SessionSender {
             .map_err(|e| SessionError::Processing(e.to_string()))?;
 
             // send the message
-            self.tx
-                .send_to_slim(Ok(msg))
-                .await
-                .map_err(SessionError::from)
+            self.tx.send_to_slim(Ok(msg)).await
         }
     }
 
@@ -374,10 +365,7 @@ impl SessionSender {
                     m.get_slim_header_mut().set_destination(n);
 
                     // send the message
-                    self.tx
-                        .send_to_slim(Ok(m))
-                        .await
-                        .map_err(SessionError::from)?;
+                    self.tx.send_to_slim(Ok(m)).await?;
                 }
             }
         } else {

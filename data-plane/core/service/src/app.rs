@@ -146,9 +146,7 @@ where
     async fn send_message_without_context(&self, mut msg: Message) -> Result<(), ServiceError> {
         // these messages are not associated to a session yet
         // so they will bypass the interceptors. Add the identity
-        let identity = self
-            .session_layer
-            .get_identity_token()?;
+        let identity = self.session_layer.get_identity_token()?;
 
         // Add the identity to the message metadata
         msg.get_slim_header_mut().set_identity(identity);

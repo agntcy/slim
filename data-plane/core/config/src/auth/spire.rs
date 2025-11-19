@@ -20,7 +20,7 @@
 //! This configuration is local to the config crate. When constructing runtime SPIRE
 //! components it is converted into the auth crate's `slim_auth::spire::SpireConfig`.
 
-use super::{ConfigAuthError, ClientAuthenticator, ServerAuthenticator};
+use super::{ClientAuthenticator, ConfigAuthError, ServerAuthenticator};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use slim_auth::jwt_middleware::{AddJwtLayer, ValidateJwtLayer};

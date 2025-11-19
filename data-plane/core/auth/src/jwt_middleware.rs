@@ -91,9 +91,7 @@ impl<S, T: TokenProvider + Clone> AddJwtToken<S, T> {
             }
         }
 
-        let token = self
-            .provider
-            .get_token()?;
+        let token = self.provider.get_token()?;
 
         let header_value = HeaderValue::try_from(format!("Bearer {}", token))?;
 

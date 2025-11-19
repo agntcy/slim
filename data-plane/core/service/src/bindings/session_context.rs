@@ -144,10 +144,7 @@ impl BindingsSessionContext {
         let mut rx = self.rx.write().await;
 
         let recv_future = async {
-            let msg = rx
-                .recv()
-                .await
-                .ok_or(ServiceError::ReceiveChannelClosed)?;
+            let msg = rx.recv().await.ok_or(ServiceError::ReceiveChannelClosed)?;
 
             let msg = msg.map_err(|e| {
                 ServiceError::ReceiveDecodeFailure(format!("failed to decode message: {}", e))
