@@ -1,11 +1,11 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
-import typing
 from datetime import timedelta
 
 from slim_bindings._slim_bindings import (
     App,
+    CompletionHandle,
     IdentityProvider,
     IdentityVerifier,
     Name,
@@ -140,7 +140,7 @@ class Slim:
         self,
         destination: Name,
         session_config: SessionConfiguration,
-    ) -> typing.Any:
+    ) -> tuple[Session, CompletionHandle]:
         """Create a new session and return its high-level Session wrapper.
 
         Args:
@@ -155,7 +155,7 @@ class Slim:
         )
         return Session(ctx), completion_handle
 
-    async def delete_session(self, session: Session) -> typing.Any:
+    async def delete_session(self, session: Session) -> CompletionHandle:
         """
         Terminate and remove an existing session.
 
