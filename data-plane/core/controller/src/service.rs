@@ -1725,7 +1725,10 @@ mod tests {
                 })),
             };
             controller
-                .send_or_queue_subscription_notification(ctrl_msg, &[client_config.clone()])
+                .send_or_queue_subscription_notification(
+                    ctrl_msg,
+                    std::slice::from_ref(&client_config),
+                )
                 .await;
         }
         assert_eq!(controller.inner.pending_notifications.lock().len(), N);
