@@ -272,6 +272,7 @@ impl SessionController {
             })
             .await
             .map_err(|e| {
+                // Channel send failure kept as Processing; not an unexpected message type.
                 SessionError::Processing(format!(
                     "Failed to send message to session controller: {}",
                     e
@@ -416,18 +417,14 @@ impl SessionController {
         destination: &Name,
     ) -> Result<CompletionHandle, SessionError> {
         match self.session_type() {
-            ProtoSessionType::PointToPoint => Err(SessionError::Processing(
-                "cannot invite participant to point-to-point session".into(),
-            )),
+            ProtoSessionType::PointToPoint => Err(SessionError::CannotInviteToP2P),
             ProtoSessionType::Multicast => {
                 if !self.is_initiator() {
-                    return Err(SessionError::Processing(
-                        "cannot invite participant to this session session".into(),
-                    ));
+                    return Err(SessionError::NotInitiator);
                 }
                 self.invite_participant_internal(destination).await
             }
-            _ => Err(SessionError::Processing("unexpected session type".into())),
+            _ => Err(SessionError::UnexpectedMessageType { message_type: ProtoSessionMessageType::Msg }),
         }
     }
 
@@ -436,14 +433,10 @@ impl SessionController {
         destination: &Name,
     ) -> Result<CompletionHandle, SessionError> {
         match self.session_type() {
-            ProtoSessionType::PointToPoint => Err(SessionError::Processing(
-                "cannot remove participant to point-to-point session".into(),
-            )),
+            ProtoSessionType::PointToPoint => Err(SessionError::CannotRemoveFromP2P),
             ProtoSessionType::Multicast => {
                 if !self.is_initiator() {
-                    return Err(SessionError::Processing(
-                        "cannot remove participant from this session session".into(),
-                    ));
+                    return Err(SessionError::NotInitiator);
                 }
                 let msg = Message::builder()
                     .source(self.source().clone())
@@ -455,10 +448,10 @@ impl SessionController {
                     .message_id(rand::random::<u32>())
                     .payload(CommandPayload::builder().leave_request(None).as_content())
                     .build_publish()
-                    .map_err(|e| SessionError::Processing(e.to_string()))?;
+                    .map_err(|_e| SessionError::MissingPayload { context: "leave_request" })?;
                 self.publish_message(msg).await
             }
-            _ => Err(SessionError::Processing("unexpected session type".into())),
+            _ => Err(SessionError::UnexpectedMessageType { message_type: ProtoSessionMessageType::LeaveRequest }),
         }
     }
 }

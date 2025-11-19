@@ -486,7 +486,7 @@ impl OidcVerifier {
         Claims: serde::de::DeserializeOwned,
     {
         // Decode header to get kid
-        let header = decode_header(token).map_err(AuthError::JwtAwsLcError)?;
+        let header = decode_header(token)?;
 
         // Find matching key
         let jwk = match header.kid {
@@ -518,7 +518,7 @@ impl OidcVerifier {
         };
 
         // Create decoding key directly from JWK using the aws-lc method
-        let decoding_key = DecodingKey::from_jwk(jwk).map_err(AuthError::JwtAwsLcError)?;
+        let decoding_key = DecodingKey::from_jwk(jwk)?;
 
         // Set up validation
         let mut validation = Validation::new(header.alg);
@@ -526,8 +526,7 @@ impl OidcVerifier {
         validation.set_issuer(&[&self.issuer_url]);
 
         // Decode and validate token
-        let token_data = decode::<Claims>(token, &decoding_key, &validation)
-            .map_err(AuthError::JwtAwsLcError)?;
+        let token_data = decode::<Claims>(token, &decoding_key, &validation)?;
         Ok(token_data.claims)
     }
 

@@ -99,12 +99,7 @@ impl ControllerSender {
                 self.on_send_message(message, missing_replies).await?;
             }
             slim_datapath::api::ProtoSessionMessageType::GroupClose => {
-                let payload = message.extract_group_close().map_err(|e| {
-                    SessionError::Processing(format!(
-                        "failed to extract group close payload: {}",
-                        e
-                    ))
-                })?;
+                let payload = message.extract_group_close()?;
                 let mut missing_replies = HashSet::new();
                 for n in &payload.participants {
                     let name = Name::from(n);
@@ -126,15 +121,14 @@ impl ControllerSender {
             }
             slim_datapath::api::ProtoSessionMessageType::GroupAdd => {
                 // compute the list of participants that needs to send an ack
-                let payload = message.extract_group_add().map_err(|e| {
-                    SessionError::Processing(format!("failed to extract group add payload: {}", e))
-                })?;
+                let payload = message.extract_group_add()?;
                 let mut missing_replies = HashSet::new();
-                let mut new_participant = Name::from(payload.new_participant.as_ref().ok_or(
-                    SessionError::Processing(
-                        "missing new participant in GroupAdd message".to_string(),
-                    ),
-                )?);
+                let mut new_participant = Name::from(
+                    payload
+                        .new_participant
+                        .as_ref()
+                        .ok_or(SessionError::MissingNewParticipant)?
+                );
                 new_participant.reset_id();
                 for p in &payload.participants {
                     // exclude the local name and the new participant
@@ -148,12 +142,7 @@ impl ControllerSender {
             }
             slim_datapath::api::ProtoSessionMessageType::GroupRemove => {
                 // compute the list of participants that needs to send an ack
-                let payload = message.extract_group_remove().map_err(|e| {
-                    SessionError::Processing(format!(
-                        "failed to extract group remove payload: {}",
-                        e
-                    ))
-                })?;
+                let payload = message.extract_group_remove()?;
 
                 let mut missing_replies = HashSet::new();
                 for p in &payload.participants {
@@ -168,11 +157,12 @@ impl ControllerSender {
                 // also the message that we are removing will get the update
                 // so we need to add it in the list of endpoint from where
                 // we expected to receive an ack
-                let to_remove = Name::from(payload.removed_participant.as_ref().ok_or(
-                    SessionError::Processing(
-                        "missing removed participant in GroupRemove message".to_string(),
-                    ),
-                )?);
+                let to_remove = Name::from(
+                    payload
+                        .removed_participant
+                        .as_ref()
+                        .ok_or(SessionError::MissingRemovedParticipant)?
+                );
                 if to_remove != self.local_name {
                     missing_replies.insert(to_remove);
                 }

@@ -341,19 +341,23 @@ impl JwtBuilder<state::WithPrivateKey> {
             | Algorithm::PS384
             | Algorithm::PS512 => {
                 // PEM-encoded private key
-                EncodingKey::from_rsa_pem(key_str.as_bytes())
-                    .map_err(|e| AuthError::ConfigError(format!("Invalid RSA private key: {}", e)))
+                {
+                    let ek = EncodingKey::from_rsa_pem(key_str.as_bytes())
+                        .map_err(|e| AuthError::ConfigError(format!("Invalid RSA private key: {}", e)))?;
+                    Ok(ek)
+                }
             }
             Algorithm::ES256 | Algorithm::ES384 => {
                 // PEM-encoded EC private key
-                EncodingKey::from_ec_pem(key_str.as_bytes())
-                    .map_err(|e| AuthError::ConfigError(format!("Invalid EC private key: {}", e)))
+                let ek = EncodingKey::from_ec_pem(key_str.as_bytes())
+                    .map_err(|e| AuthError::ConfigError(format!("Invalid EC private key: {}", e)))?;
+                Ok(ek)
             }
             Algorithm::EdDSA => {
                 // PEM-encoded EdDSA private key
-                EncodingKey::from_ed_pem(key_str.as_bytes()).map_err(|e| {
-                    AuthError::ConfigError(format!("Invalid EdDSA private key: {}", e))
-                })
+                let ek = EncodingKey::from_ed_pem(key_str.as_bytes())
+                    .map_err(|e| AuthError::ConfigError(format!("Invalid EdDSA private key: {}", e)))?;
+                Ok(ek)
             }
         }
     }
@@ -420,25 +424,22 @@ impl JwtBuilder<state::WithPublicKey> {
                     | Algorithm::PS384
                     | Algorithm::PS512 => {
                         // PEM-encoded public key
-                        let ret = DecodingKey::from_rsa_pem(key_str.as_bytes()).map_err(|e| {
-                            AuthError::ConfigError(format!("Invalid RSA public key: {}", e))
-                        });
+                        let ret = DecodingKey::from_rsa_pem(key_str.as_bytes())
+                            .map_err(|e| AuthError::ConfigError(format!("Invalid RSA public key: {}", e)));
 
                         ret.map(DecodingKeyInternal::DecKey)
                     }
                     Algorithm::ES256 | Algorithm::ES384 => {
                         // PEM-encoded EC public key
-                        let ret = DecodingKey::from_ec_pem(key_str.as_bytes()).map_err(|e| {
-                            AuthError::ConfigError(format!("Invalid EC public key: {}", e))
-                        });
+                        let ret = DecodingKey::from_ec_pem(key_str.as_bytes())
+                            .map_err(|e| AuthError::ConfigError(format!("Invalid EC public key: {}", e)));
 
                         ret.map(DecodingKeyInternal::DecKey)
                     }
                     Algorithm::EdDSA => {
                         // PEM-encoded EdDSA public key
-                        let ret = DecodingKey::from_ed_pem(key_str.as_bytes()).map_err(|e| {
-                            AuthError::ConfigError(format!("Invalid EdDSA public key: {}", e))
-                        });
+                        let ret = DecodingKey::from_ed_pem(key_str.as_bytes())
+                            .map_err(|e| AuthError::ConfigError(format!("Invalid EdDSA public key: {}", e)));
 
                         ret.map(DecodingKeyInternal::DecKey)
                     }

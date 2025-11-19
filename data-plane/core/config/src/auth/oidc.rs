@@ -6,7 +6,7 @@ use std::time::Duration;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::{AuthError, ClientAuthenticator, ServerAuthenticator};
+use super::{ConfigAuthError, ClientAuthenticator, ServerAuthenticator};
 use slim_auth::oidc::{OidcProviderConfig, OidcTokenProvider, OidcVerifier};
 use slim_auth::traits::TokenProvider; // bring trait into scope for initialize()
 
@@ -161,12 +161,12 @@ impl Config {
     }
 
     /// Convert to the auth crate's OidcProviderConfig
-    fn to_auth_config(&self) -> Result<OidcProviderConfig, AuthError> {
+    fn to_auth_config(&self) -> Result<OidcProviderConfig, ConfigAuthError> {
         let client_id = self.client_id.as_ref().ok_or_else(|| {
-            AuthError::ConfigError("client_id is required for provider functionality".to_string())
+            ConfigAuthError::ConfigError("client_id is required for provider functionality".to_string())
         })?;
         let client_secret = self.client_secret.as_ref().ok_or_else(|| {
-            AuthError::ConfigError(
+            ConfigAuthError::ConfigError(
                 "client_secret is required for provider functionality".to_string(),
             )
         })?;
@@ -181,21 +181,21 @@ impl Config {
     }
 
     /// Create an OIDC token provider from this configuration
-    pub async fn create_provider(&self) -> Result<OidcTokenProvider, AuthError> {
+    pub async fn create_provider(&self) -> Result<OidcTokenProvider, ConfigAuthError> {
         let config = self.to_auth_config()?;
         let mut provider = OidcTokenProvider::new(config).map_err(|e| {
-            AuthError::ConfigError(format!("Failed to create OIDC provider: {}", e))
+            ConfigAuthError::ConfigError(format!("Failed to create OIDC provider: {}", e))
         })?;
         provider.initialize().await.map_err(|e| {
-            AuthError::ConfigError(format!("Failed to initialize OIDC provider: {}", e))
+            ConfigAuthError::ConfigError(format!("Failed to initialize OIDC provider: {}", e))
         })?;
         Ok(provider)
     }
 
     /// Create an OIDC verifier from this configuration
-    pub fn create_verifier(&self) -> Result<OidcVerifier, AuthError> {
+    pub fn create_verifier(&self) -> Result<OidcVerifier, ConfigAuthError> {
         let audience = self.audience.as_ref().ok_or_else(|| {
-            AuthError::ConfigError("audience is required for verifier functionality".to_string())
+            ConfigAuthError::ConfigError("audience is required for verifier functionality".to_string())
         })?;
 
         let verifier = OidcVerifier::new(&self.issuer_url, audience);
@@ -240,15 +240,15 @@ impl OidcVerifierLayer {
 impl ClientAuthenticator for Config {
     type ClientLayer = OidcProviderLayer;
 
-    fn get_client_layer(&self) -> Result<Self::ClientLayer, AuthError> {
+    fn get_client_layer(&self) -> Result<Self::ClientLayer, ConfigAuthError> {
         if !self.can_provide() {
-            return Err(AuthError::ConfigError(
+            return Err(ConfigAuthError::ConfigError(
                 "Configuration missing client credentials for provider functionality".to_string(),
             ));
         }
 
         // OidcTokenProvider::new is now sync, but initialization is async
-        Err(AuthError::ConfigError(
+        Err(ConfigAuthError::ConfigError(
             "OIDC provider requires async initialization. Use create_provider() instead."
                 .to_string(),
         ))
@@ -262,9 +262,9 @@ where
 {
     type ServerLayer = OidcVerifierLayer;
 
-    fn get_server_layer(&self) -> Result<Self::ServerLayer, AuthError> {
+    fn get_server_layer(&self) -> Result<Self::ServerLayer, ConfigAuthError> {
         if !self.can_verify() {
-            return Err(AuthError::ConfigError(
+            return Err(ConfigAuthError::ConfigError(
                 "Configuration missing audience for verifier functionality".to_string(),
             ));
         }
@@ -370,7 +370,7 @@ mod tests {
 
         let config = Config::verifier("https://auth.example.com", "test-audience");
 
-        let layer: Result<OidcVerifierLayer, AuthError> =
+        let layer: Result<OidcVerifierLayer, ConfigAuthError> =
             <Config as ServerAuthenticator<()>>::get_server_layer(&config);
         assert!(layer.is_ok(), "Should be able to create server layer");
     }
@@ -379,7 +379,7 @@ mod tests {
     fn test_server_layer_creation_fails_without_audience() {
         let config = Config::provider("client-id", "client-secret", "https://auth.example.com");
 
-        let layer: Result<OidcVerifierLayer, AuthError> =
+        let layer: Result<OidcVerifierLayer, ConfigAuthError> =
             <Config as ServerAuthenticator<()>>::get_server_layer(&config);
         assert!(
             layer.is_err(),

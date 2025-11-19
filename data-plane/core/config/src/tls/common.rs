@@ -304,6 +304,8 @@ pub enum ConfigError {
     InvalidPem(rustls_pki_types::pem::Error),
     #[error("error reading cert/key from file: {0}")]
     InvalidFile(String),
+    #[error("file I/O error: {0}")]
+    FileIo(#[from] std::io::Error),
     #[error("error in spire configuration: {details}, config={config:?}")]
     #[cfg(not(target_family = "windows"))]
     InvalidSpireConfig {
@@ -315,13 +317,13 @@ pub enum ConfigError {
     SpireError(String),
 
     #[error("root store error: {0}")]
-    RootStore(rustls::Error),
-    #[error("config builder error")]
+    RootStore(#[from] rustls::Error),
+    #[error("config builder error: {0}")]
     ConfigBuilder(rustls::Error),
     #[error("missing server cert and key")]
     MissingServerCertAndKey,
-    #[error("verifier builder error")]
-    VerifierBuilder(VerifierBuilderError),
+    #[error("verifier builder error: {0}")]
+    VerifierBuilder(#[from] VerifierBuilderError),
     #[error("unknown error")]
     Unknown,
 

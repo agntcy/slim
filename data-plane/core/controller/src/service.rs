@@ -455,16 +455,19 @@ impl ControlPlane {
             )));
         }
 
-        let token = config
+        let token = match config
             .run_server(
                 &[ControllerServiceServer::new(self.controller.clone())],
                 self.controller.inner.drain_rx.clone(),
             )
             .await
-            .map_err(|e| {
+        {
+            Ok(t) => t,
+            Err(e) => {
                 error!("failed to run server {}: {}", config.endpoint, e);
-                ControllerError::ConfigError(e.to_string())
-            })?;
+                return Err(ControllerError::ConfigError(e.to_string()));
+            }
+        };
 
         // Store the cancellation token in the controller service
         self.controller
@@ -502,13 +505,19 @@ fn get_name_from_string(string_name: &String) -> Result<Name, ControllerError> {
     }
 
     if parts.len() == 4 {
-        let id = parts[3].parse::<u64>().map_err(|_| {
-            ControllerError::ConfigError(format!("invalid moderator ID: {}", parts[3]))
-        })?;
-        Ok(Name::from_strings([parts[0], parts[1], parts[2]]).with_id(id))
-    } else {
-        Ok(Name::from_strings([parts[0], parts[1], parts[2]]))
+        let id = match parts[3].parse::<u64>() {
+            Ok(v) => v,
+            Err(_) => {
+                return Err(ControllerError::ConfigError(format!(
+                    "invalid moderator ID: {}",
+                    parts[3]
+                )))
+            }
+        };
+        return Ok(Name::from_strings([parts[0], parts[1], parts[2]]).with_id(id));
     }
+
+    Ok(Name::from_strings([parts[0], parts[1], parts[2]]))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -523,12 +532,10 @@ fn create_channel_message(
 ) -> Result<DataPlaneMessage, ControllerError> {
     // if the auth_provider is set try to get an identity
     let identity_token = if let Some(auth) = auth_provider {
-        auth.get_token()
-            .map_err(|e| {
-                error!("failed to generate identity token: {}", e);
-                ControllerError::DatapathError(e.to_string())
-            })
-            .unwrap()
+        let token = auth.get_token().map_err(|e| {
+            error!("failed to generate identity token: {}", e);
+            ControllerError::Auth(e)
+        })?;
     } else {
         "".to_string()
     };
@@ -542,11 +549,10 @@ fn create_channel_message(
         .session_id(session_id)
         .message_id(message_id)
         .payload(
-            payload
-                .ok_or_else(|| ControllerError::DatapathError("payload is required".to_string()))?,
+            payload.ok_or(ControllerError::PayloadMissing)?
         )
         .build_publish()
-        .map_err(|e| ControllerError::DatapathError(e.to_string()))?;
+        .map_err(|e| ControllerError::Datapath(e.to_string()))?;
 
     Ok(message)
 }
@@ -748,12 +754,10 @@ impl ControllerService {
 
                         // if the auth_provider is set try to get an identity
                         let identity_token = if let Some(auth) = &self.inner.auth_provider {
-                            auth.get_token()
-                                .map_err(|e| {
-                                    error!("failed to generate identity token: {}", e);
-                                    ControllerError::DatapathError(e.to_string())
-                                })
-                                .unwrap()
+                            let token = auth.get_token().map_err(|e| {
+                                error!("failed to generate identity token: {}", e);
+                                ControllerError::Auth(e)
+                            })?;
                         } else {
                             "".to_string()
                         };
@@ -1234,7 +1238,7 @@ impl ControllerService {
     async fn send_control_message(&self, msg: DataPlaneMessage) -> Result<(), ControllerError> {
         self.inner.tx_slim.send(Ok(msg)).await.map_err(|e| {
             error!("error sending message into datapath: {}", e);
-            ControllerError::DatapathError(e.to_string())
+            ControllerError::Datapath(slim_datapath::errors::DataPathError::MessageSendError(e.to_string()))
         })
     }
 

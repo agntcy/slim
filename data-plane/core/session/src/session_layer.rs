@@ -160,10 +160,9 @@ where
     }
 
     /// Get identity token from the identity provider
-    pub fn get_identity_token(&self) -> Result<String, String> {
-        self.identity_provider
-            .get_token()
-            .map_err(|e| e.to_string())
+    pub fn get_identity_token(&self) -> Result<String, SessionError> {
+        let token = self.identity_provider.get_token()?;
+        Ok(token)
     }
 
     /// Public interface to create a new session

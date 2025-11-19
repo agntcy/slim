@@ -329,7 +329,6 @@ impl<S> Jwt<S> {
 
     fn sign_claims<Claims: Serialize>(&self, claims: &Claims) -> Result<String, AuthError> {
         // Ensure we have an encoding key for signing
-
         let encoding_key = self.encoding_key.as_ref().ok_or_else(|| {
             AuthError::ConfigError("Private key not configured for signing".to_string())
         })?;
@@ -337,9 +336,9 @@ impl<S> Jwt<S> {
         // Create the JWT header
         let header = JwtHeader::new(self.validation.algorithms[0]);
 
-        // Encode the claims into a JWT token
-        encode(&header, claims, &encoding_key.read())
-            .map_err(|e| AuthError::SigningError(format!("{}", e)))
+        // Encode the claims into a JWT token (use #[from] JwtError for propagation)
+        let token = encode(&header, claims, &encoding_key.read())?;
+        Ok(token)
     }
 
     fn sign_internal_claims(&self) -> Result<String, AuthError> {
@@ -417,10 +416,8 @@ impl<V> Jwt<V> {
     ) -> Result<Claims, AuthError> {
         let token = token.into();
 
-        // Get the token header
-        let token_header = decode_header(&token).map_err(|e| {
-            AuthError::TokenInvalid(format!("Failed to decode token header: {}", e))
-        })?;
+        // Get the token header (propagate underlying jsonwebtoken error directly)
+        let token_header = decode_header(&token)?;
 
         // Derive a validation using the same algorithm
         let mut validation = self.get_validation(token_header.alg);
@@ -460,7 +457,6 @@ impl<V> Jwt<V> {
 
             let token_data: TokenData<Claims> =
                 decode(token, &DecodingKey::from_secret(b"notused"), &validation)
-                    .map_err(|e| AuthError::VerificationError(format!("{}", e)))
                     .ok()?;
 
             // Return the claims from the cached token

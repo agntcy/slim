@@ -106,10 +106,10 @@ impl Session {
                 self.receiver.start_drain();
                 Ok(())
             }
-            _ => Err(SessionError::Processing(format!(
-                "Unexpected message type {:?}",
-                message
-            ))),
+            _ => Err(SessionError::UnexpectedMessageType {
+                // Fallback: treat non-session specific enum case as generic Msg
+                message_type: ProtoSessionMessageType::Msg,
+            }),
         }
     }
 
@@ -162,10 +162,9 @@ impl Session {
                 if let Some(tx) = ack_tx {
                     let _ = tx.send(Ok(()));
                 }
-                Err(SessionError::Processing(format!(
-                    "Unexpected message type {:?}",
-                    message.get_session_message_type()
-                )))
+                Err(SessionError::UnexpectedMessageType {
+                    message_type: message.get_session_message_type(),
+                })
             }
         }
     }
@@ -181,10 +180,9 @@ impl Session {
             ProtoSessionMessageType::RtxRequest => {
                 self.receiver.on_timer_timeout(id, name.unwrap()).await
             }
-            _ => Err(SessionError::Processing(format!(
-                "Unexpected message type {:?}",
-                message_type
-            ))),
+            _ => Err(SessionError::UnexpectedMessageType {
+                message_type,
+            }),
         }
     }
 
@@ -199,10 +197,9 @@ impl Session {
             ProtoSessionMessageType::RtxRequest => {
                 self.receiver.on_timer_failure(id, name.unwrap()).await
             }
-            _ => Err(SessionError::Processing(format!(
-                "Unexpected message type {:?}",
-                message_type
-            ))),
+            _ => Err(SessionError::UnexpectedMessageType {
+                message_type,
+            }),
         }
     }
 }

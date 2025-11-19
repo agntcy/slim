@@ -53,19 +53,17 @@ impl StoredIdentity {
 
     fn load_from_storage(storage_path: &std::path::Path) -> Result<Self, MlsError> {
         let identity_file = storage_path.join(IDENTITY_FILENAME);
-        let mut file = File::open(&identity_file).map_err(|e| MlsError::Io(e.to_string()))?;
+        let mut file = File::open(&identity_file)?;
         let mut buf = Vec::new();
-        file.read_to_end(&mut buf)
-            .map_err(|e| MlsError::Io(e.to_string()))?;
-        serde_json::from_slice(&buf).map_err(|e| MlsError::Serde(e.to_string()))
+        file.read_to_end(&mut buf)?;
+        serde_json::from_slice(&buf)
     }
 
     fn save_to_storage(&self, storage_path: &std::path::Path) -> Result<(), MlsError> {
         let identity_file = storage_path.join(IDENTITY_FILENAME);
-        let json = serde_json::to_vec_pretty(self).map_err(|e| MlsError::Serde(e.to_string()))?;
-        let mut file = File::create(&identity_file).map_err(|e| MlsError::Io(e.to_string()))?;
-        file.write_all(&json)
-            .map_err(|e| MlsError::Io(e.to_string()))?;
+        let json = serde_json::to_vec_pretty(self)?;
+        let mut file = File::create(&identity_file)?;
+        file.write_all(&json)?;
         file.sync_all()
             .map_err(|e| MlsError::FileSyncFailed(e.to_string()))?;
         Ok(())

@@ -26,8 +26,14 @@ pub enum AuthError {
     #[error("invalid header: {0}")]
     InvalidHeader(String),
 
-    #[error("JWT AWS LC error: {0}")]
-    JwtAwsLcError(#[from] jsonwebtoken_aws_lc::errors::Error),
+    #[error("invalid header value: {0}")]
+    HeaderValueError(#[from] http::header::InvalidHeaderValue),
+
+    #[error("file watcher error: {0}")]
+    FileWatcherError(#[from] crate::file_watcher::FileWatcherError),
+
+    #[error("JWT error: {0}")]
+    JwtError(#[from] jsonwebtoken_aws_lc::errors::Error),
 
     #[error("unsupported operation: {0}")]
     UnsupportedOperation(String),

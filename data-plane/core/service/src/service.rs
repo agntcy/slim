@@ -285,8 +285,7 @@ impl Service {
                 )],
                 self.watch.clone(),
             )
-            .await
-            .map_err(|e| ServiceError::ConfigError(format!("failed to run server: {}", e)))?;
+            .await?;
 
         self.cancellation_tokens
             .write()
@@ -315,36 +314,32 @@ impl Service {
             ));
         }
 
-        match config.to_channel().await {
+        let channel = config.to_channel().await.map_err(|e| {
+            error!("error reading channel config {:?}", e);
+            ServiceError::ConfigError(e.to_string())
+        })?;
+
+        let ret = self
+            .message_processor
+            .connect(channel, Some(config.clone()), None, None)
+            .await
+            .map_err(|e| ServiceError::ConnectionError(e.to_string()));
+
+        let conn_id = match ret {
             Err(e) => {
-                error!("error reading channel config {:?}", e);
-                Err(ServiceError::ConfigError(e.to_string()))
+                error!("connection error: {:?}", e);
+                return Err(ServiceError::ConnectionError(e.to_string()));
             }
-            Ok(channel) => {
-                //let client_config = config.clone();
-                let ret = self
-                    .message_processor
-                    .connect(channel, Some(config.clone()), None, None)
-                    .await
-                    .map_err(|e| ServiceError::ConnectionError(e.to_string()));
+            Ok(conn_id) => conn_id.1,
+        };
 
-                let conn_id = match ret {
-                    Err(e) => {
-                        error!("connection error: {:?}", e);
-                        return Err(ServiceError::ConnectionError(e.to_string()));
-                    }
-                    Ok(conn_id) => conn_id.1,
-                };
+        // register the client
+        self.clients
+            .write()
+            .insert(config.endpoint.clone(), conn_id);
 
-                // register the client
-                self.clients
-                    .write()
-                    .insert(config.endpoint.clone(), conn_id);
-
-                // return the connection id
-                Ok(conn_id)
-            }
-        }
+        // return the connection id
+        Ok(conn_id)
     }
 
     pub fn disconnect(&self, conn: u64) -> Result<(), ServiceError> {

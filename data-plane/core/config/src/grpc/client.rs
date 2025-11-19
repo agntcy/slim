@@ -76,9 +76,7 @@ macro_rules! create_connector {
 /// Macro to create authenticated service layers for auth types that don't need initialization
 macro_rules! create_auth_service_no_init {
     ($self:expr, $auth_config:expr, $header_map:expr, $channel:expr) => {{
-        let auth_layer = $auth_config
-            .get_client_layer()
-            .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;
+        let auth_layer = $auth_config.get_client_layer()?;
 
         $self.warn_insecure_auth();
 
@@ -93,14 +91,10 @@ macro_rules! create_auth_service_no_init {
 /// Macro to create authenticated service layers for auth types that need initialization
 macro_rules! create_auth_service_with_init {
     ($self:expr, $auth_config:expr, $header_map:expr, $channel:expr) => {{
-        let mut auth_layer = $auth_config
-            .get_client_layer()
-            .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;
+        let mut auth_layer = $auth_config.get_client_layer()?;
 
         // Initialize the auth layer
-        auth_layer.initialize().await.map_err(|e| {
-            ConfigError::AuthConfigError(format!("Failed to initialize auth layer: {}", e))
-        })?;
+        auth_layer.initialize().await?;
 
         $self.warn_insecure_auth();
 

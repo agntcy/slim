@@ -83,14 +83,10 @@ where
         use_local_service: bool,
     ) -> Result<(Self, ServiceRef), ServiceError> {
         // Validate token
-        let _identity_token = identity_provider.get_token().map_err(|e| {
-            ServiceError::ConfigError(format!("Failed to get token from provider: {}", e))
-        })?;
+        let _identity_token = identity_provider.get_token()?;
 
         // Get ID from token and generate name with token ID
-        let token_id = identity_provider.get_id().map_err(|e| {
-            ServiceError::ConfigError(format!("Failed to get ID from token: {}", e))
-        })?;
+        let token_id = identity_provider.get_id()?;
 
         // Use a hash of the token ID to convert to u64 for name generation
         let id_hash = {
@@ -105,9 +101,7 @@ where
         let service_ref = if use_local_service {
             let svc = Service::builder()
                 .build("local-bindings-service".to_string())
-                .map_err(|e| {
-                    ServiceError::ConfigError(format!("Failed to create local service: {}", e))
-                })?;
+                .map_err(|e| ServiceError::ConfigError(e.to_string()))?;
             ServiceRef::Local(Box::new(svc))
         } else {
             ServiceRef::Global(get_or_init_global_service())

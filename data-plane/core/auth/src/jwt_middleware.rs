@@ -94,11 +94,9 @@ impl<S, T: TokenProvider + Clone> AddJwtToken<S, T> {
 
         let token = self
             .provider
-            .get_token()
-            .map_err(|e| AuthError::GetTokenError(e.to_string()))?;
+            .get_token()?;
 
-        let header_value = HeaderValue::try_from(format!("Bearer {}", token))
-            .map_err(|e| AuthError::InvalidHeader(e.to_string()))?;
+        let header_value = HeaderValue::try_from(format!("Bearer {}", token))?;
 
         self.cached_token = Some(header_value.clone());
         self.valid_until = Some(now + self.duration);

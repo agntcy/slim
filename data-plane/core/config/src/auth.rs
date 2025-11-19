@@ -8,10 +8,12 @@ pub mod oidc;
 pub mod spire;
 pub mod static_jwt;
 
+use slim_auth::errors::AuthError as SlimAuthError;
+
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum AuthError {
+pub enum ConfigAuthError {
     #[error("config error: {0}")]
     ConfigError(String),
 
@@ -26,18 +28,21 @@ pub enum AuthError {
 
     #[error("invalid header: {0}")]
     InvalidHeader(String),
+
+    #[error("internal auth error: {0}")]
+    InternalError(#[from] SlimAuthError),
 }
 
 pub trait ClientAuthenticator {
     // associated types
     type ClientLayer;
 
-    fn get_client_layer(&self) -> Result<Self::ClientLayer, AuthError>;
+    fn get_client_layer(&self) -> Result<Self::ClientLayer, ConfigAuthError>;
 }
 
 pub trait ServerAuthenticator<Response: Default> {
     // associated types
     type ServerLayer;
 
-    fn get_server_layer(&self) -> Result<Self::ServerLayer, AuthError>;
+    fn get_server_layer(&self) -> Result<Self::ServerLayer, ConfigAuthError>;
 }

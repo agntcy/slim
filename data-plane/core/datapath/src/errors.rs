@@ -2,35 +2,64 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use thiserror::Error;
+use crate::messages::utils::MessageError;
 
+/// DataPath and subscription table errors merged into a single enum.
 #[derive(Error, Debug, PartialEq)]
 pub enum DataPathError {
-    #[error("connection error: {0}")]
-    ConnectionError(String),
-    #[error("disconnection error: {0}")]
-    DisconnectionError(String),
-    #[error("unkwon message type {0}")]
-    UnknownMsgType(String),
+    // Connection lifecycle
+    #[error("connection error")]
+    ConnectionError,
+    #[error("disconnection error")]
+    DisconnectionError,
+
+    // Message classification / validation
+    #[error("unknown message type")]
+    UnknownMsgType,
     #[error("invalid message: {0}")]
-    InvalidMessage(String),
+    InvalidMessage(MessageError),
+
+    // Incoming setup
     #[error("unable to set incoming connection")]
-    ErrorSettingInConnection(String),
-    #[error("error handling subscription: {0}")]
-    SubscriptionError(String),
-    #[error("error handling unsubscription: {0}")]
-    UnsubscriptionError(String),
-    #[error("error handling publish: {0}")]
-    PublicationError(String),
-    #[error("error parsing command message: {0}")]
-    CommandError(String),
-    #[error("connection not found: {0}")]
-    ConnectionNotFound(String),
+    ErrorSettingInConnection,
+
+    // Subscription operations
+    #[error("subscription failure: {0}")]
+    SubscriptionError(MessageError),
+    #[error("unsubscription failure: {0}")]
+    UnsubscriptionError(MessageError),
+    #[error("publish failure: {0}")]
+    PublicationError(MessageError),
+    #[error("no matching found for {0}")]
+    NoMatch(String),
+    #[error("subscription not found")]
+    SubscriptionNotFound,
+    #[error("id not found")]
+    IdNotFound,
+
+    // Connection lookup
+    #[error("connection not found: {connection}")]
+    ConnectionNotFound {
+        connection: u64,
+    },
+    #[error("connection id not found")]
+    ConnectionIdNotFound,
+
+    // Command parsing
+    #[error("command parse error: {0}")]
+    CommandError(MessageError),
+
+    // Channel / stream types
     #[error("wrong channel type")]
     WrongChannelType,
-    #[error("error sending message: {0}")]
-    MessageSendError(String),
-    #[error("stream error: {0}")]
-    StreamError(String),
-    #[error("error processing message: {0}")]
-    ProcessingError(String),
+    #[error("stream error")]
+    StreamError,
+
+    // Channel send failures
+    #[error("error sending message to channel: {0}")]
+    ChannelSendFailure(String),
+
+    // Generic processing
+    #[error("message processing error: {0}")]
+    ProcessingError(MessageError),
 }

@@ -353,9 +353,7 @@ impl ServerConfig {
 
         match &self.auth {
             AuthenticationConfig::Basic(basic) => {
-                let auth_layer = basic
-                    .get_server_layer()
-                    .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;
+                let auth_layer = basic.get_server_layer()?;
 
                 let mut builder = builder.layer(auth_layer);
 
@@ -380,13 +378,9 @@ impl ServerConfig {
                 // resolution or background tasks are ready prior to handling requests.
                 let mut auth_layer = <JwtAuthenticationConfig as ServerAuthenticator<
                     http::Response<tonic::body::Body>,
-                >>::get_server_layer(jwt)
-                .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;
+                >>::get_server_layer(jwt)?;
 
-                auth_layer
-                    .initialize()
-                    .await
-                    .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;
+                auth_layer.initialize().await?;
 
                 let mut builder = builder.layer(auth_layer);
 

@@ -10,7 +10,8 @@ use rand::Rng;
 use tracing::{debug, error, warn};
 
 use super::pool::Pool;
-use super::{SubscriptionTable, errors::SubscriptionTableError};
+use super::SubscriptionTable;
+use crate::errors::DataPathError;
 use crate::messages::Name;
 
 #[derive(Debug, Clone)]
@@ -85,17 +86,17 @@ impl Connections {
         }
     }
 
-    fn remove(&mut self, conn: u64) -> Result<(), SubscriptionTableError> {
+    fn remove(&mut self, conn: u64) -> Result<(), DataPathError> {
         let conn_index_opt = self.index.get(&conn);
         if conn_index_opt.is_none() {
             error!("cannot find the index for connection {}", conn);
-            return Err(SubscriptionTableError::ConnectionIdNotFound);
+            return Err(DataPathError::ConnectionIdNotFound);
         }
         let conn_index = conn_index_opt.unwrap();
         let conn_id_opt = self.pool.get_mut(*conn_index);
         if conn_id_opt.is_none() {
             error!("cannot find the connection {} in the pool", conn);
-            return Err(SubscriptionTableError::ConnectionIdNotFound);
+            return Err(DataPathError::ConnectionIdNotFound);
         }
         let conn_id = conn_id_opt.unwrap();
         if conn_id.counter == 1 {
@@ -212,11 +213,11 @@ impl NameState {
         id: &u64,
         conn: u64,
         is_local: bool,
-    ) -> Result<(), SubscriptionTableError> {
+    ) -> Result<(), DataPathError> {
         match self.ids.get_mut(id) {
             None => {
                 warn!("id {} not found", id);
-                Err(SubscriptionTableError::IdNotFound)
+                Err(DataPathError::IdNotFound)
             }
             Some(connection_ids) => {
                 let mut index = 0;
@@ -433,7 +434,7 @@ fn add_subscription_to_connection(
     name: Name,
     conn_index: u64,
     mut map: RwLockWriteGuard<'_, RawRwLock, HashMap<u64, HashSet<Name>>>,
-) -> Result<(), SubscriptionTableError> {
+) -> Result<(), DataPathError> {
     let name_str = name.to_string();
 
     let set = map.get_mut(&conn_index);
@@ -474,7 +475,7 @@ fn remove_subscription_from_sub_table(
     conn_index: u64,
     is_local: bool,
     table: &mut RwLockWriteGuard<'_, RawRwLock, HashMap<InternalName, NameState>>,
-) -> Result<(), SubscriptionTableError> {
+) -> Result<(), DataPathError> {
     // Convert &Name to &InternalName. This is unsafe, but we know the types are compatible.
     let query_name = unsafe { std::mem::transmute::<&Name, &InternalName>(name) };
 
@@ -498,7 +499,7 @@ fn remove_subscription_from_connection(
     name: &Name,
     conn_index: u64,
     mut map: RwLockWriteGuard<'_, RawRwLock, HashMap<u64, HashSet<Name>>>,
-) -> Result<(), SubscriptionTableError> {
+) -> Result<(), DataPathError> {
     let set = map.get_mut(&conn_index);
     match set {
         None => {
@@ -526,6 +527,8 @@ fn remove_subscription_from_connection(
 }
 
 impl SubscriptionTable for SubscriptionTableImpl {
+    type Error = DataPathError;
+
     fn for_each<F>(&self, mut f: F)
     where
         F: FnMut(&Name, u64, &[u64], &[u64]),
@@ -544,7 +547,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         name: Name,
         conn: u64,
         is_local: bool,
-    ) -> Result<(), SubscriptionTableError> {
+    ) -> Result<(), Self::Error> {
         {
             let conn_table = self.connections.read();
             match conn_table.get(&conn) {
@@ -576,7 +579,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         name: &Name,
         conn: u64,
         is_local: bool,
-    ) -> Result<(), SubscriptionTableError> {
+    ) -> Result<(), Self::Error> {
         {
             let mut table = self.table.write();
             remove_subscription_from_sub_table(name, conn, is_local, &mut table)?;
@@ -592,7 +595,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         &self,
         conn: u64,
         is_local: bool,
-    ) -> Result<HashSet<Name>, SubscriptionTableError> {
+    ) -> Result<HashSet<Name>, Self::Error> {
         let removed_subscriptions = self
             .connections
             .write()
@@ -606,7 +609,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         Ok(removed_subscriptions)
     }
 
-    fn match_one(&self, name: &Name, incoming_conn: u64) -> Result<u64, SubscriptionTableError> {
+    fn match_one(&self, name: &Name, incoming_conn: u64) -> Result<u64, Self::Error> {
         let table = self.table.read();
 
         let query_name = unsafe { std::mem::transmute::<&Name, &InternalName>(name) };
@@ -614,7 +617,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         match table.get(query_name) {
             None => {
                 debug!("match not found for type {:}", name);
-                Err(SubscriptionTableError::NoMatch(format!("{}", name)))
+                Err(DataPathError::NoMatch(format!("{}", name)))
             }
             Some(state) => {
                 // first try to send the message to the local connections
@@ -629,7 +632,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
                     return Ok(out);
                 }
                 error!("no output connection available");
-                Err(SubscriptionTableError::NoMatch(format!("{}", name)))
+                Err(DataPathError::NoMatch(format!("{}", name)))
             }
         }
     }
@@ -638,7 +641,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         &self,
         name: &Name,
         incoming_conn: u64,
-    ) -> Result<Vec<u64>, SubscriptionTableError> {
+    ) -> Result<Vec<u64>, Self::Error> {
         let table = self.table.read();
 
         let query_name = unsafe { std::mem::transmute::<&Name, &InternalName>(name) };

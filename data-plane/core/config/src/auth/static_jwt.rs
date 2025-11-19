@@ -4,7 +4,10 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::{AuthError, ClientAuthenticator};
+use slim_auth::errors::AuthError;
+use crate::auth::ConfigAuthError;
+
+use super::ClientAuthenticator;
 
 use slim_auth::builder::JwtBuilder;
 use slim_auth::jwt::StaticTokenProvider;
@@ -79,14 +82,14 @@ impl Config {
         JwtBuilder::new()
             .token_file(self.source.file.clone())
             .build()
-            .map_err(|e| AuthError::ConfigError(e.to_string()))
+
     }
 }
 
 impl ClientAuthenticator for Config {
     type ClientLayer = AddJwtLayer<StaticTokenProvider>;
 
-    fn get_client_layer(&self) -> Result<Self::ClientLayer, AuthError> {
+    fn get_client_layer(&self) -> Result<Self::ClientLayer, ConfigAuthError> {
         let provider = self.build_static_token_provider()?;
         Ok(AddJwtLayer::new(provider, self.duration()))
     }

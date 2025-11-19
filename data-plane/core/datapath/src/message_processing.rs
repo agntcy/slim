@@ -209,9 +209,7 @@ impl MessageProcessor {
                         .on_connection_established(connection, existing_conn_index);
                     if opt.is_none() {
                         error!("error adding connection to the connection table");
-                        return Err(DataPathError::ConnectionError(
-                            "error adding connection to the connection tables".to_string(),
-                        ));
+                        return Err(DataPathError::ConnectionError);
                     }
 
                     let conn_index = opt.unwrap();
@@ -242,9 +240,7 @@ impl MessageProcessor {
         }
 
         error!("unable to connect to the endpoint");
-        Err(DataPathError::ConnectionError(
-            "reached max connection retries".to_string(),
-        ))
+        Err(DataPathError::ConnectionError)
     }
 
     pub async fn connect<C>(
@@ -372,20 +368,15 @@ impl MessageProcessor {
                     Channel::Server(s) => s
                         .send(Ok(msg))
                         .await
-                        .map_err(|e| DataPathError::MessageSendError(e.to_string())),
+                        .map_err(|e| DataPathError::ChannelSendFailure(e.to_string())),
                     Channel::Client(s) => s
                         .send(msg)
                         .await
-                        .map_err(|e| DataPathError::MessageSendError(e.to_string())),
-                    _ => Err(DataPathError::MessageSendError(
-                        "connection not found".to_string(),
-                    )),
+                        .map_err(|e| DataPathError::ChannelSendFailure(e.to_string())),
+                    _ => Err(DataPathError::ConnectionNotFound),
                 }
             }
-            None => Err(DataPathError::MessageSendError(format!(
-                "connection {:?} not found",
-                out_conn
-            ))),
+            None => Err(DataPathError::ConnectionNotFound),
         }
     }
 
@@ -405,10 +396,7 @@ impl MessageProcessor {
         // without performing any match in the subscription table
         if let Some(val) = msg.get_forward_to() {
             debug!("forwarding message to connection {}", val);
-            return self
-                .send_msg(msg, val)
-                .await
-                .map_err(|e| DataPathError::PublicationError(e.to_string()));
+            return self.send_msg(msg, val).await.map_err(DataPathError::from);
         }
 
         match self
@@ -422,15 +410,15 @@ impl MessageProcessor {
                 while i < out_vec.len() - 1 {
                     self.send_msg(msg.clone(), out_vec[i])
                         .await
-                        .map_err(|e| DataPathError::PublicationError(e.to_string()))?;
+                        .map_err(DataPathError::from)?;
                     i += 1;
                 }
                 self.send_msg(msg, out_vec[i])
                     .await
-                    .map_err(|e| DataPathError::PublicationError(e.to_string()))?;
+                    .map_err(DataPathError::from)?;
                 Ok(())
             }
-            Err(e) => Err(DataPathError::PublicationError(e.to_string())),
+            Err(e) => Err(e),
         }
     }
 
@@ -498,7 +486,7 @@ impl MessageProcessor {
         let connection = self
             .forwarder()
             .get_connection(conn)
-            .ok_or_else(|| DataPathError::SubscriptionError("connection not found".to_string()))?;
+            .ok_or(DataPathError::ConnectionNotFound { connection: conn })?;
 
         debug!(
             "subscription update (add = {}) for name: {} - connection: {}",

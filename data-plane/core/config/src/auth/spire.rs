@@ -20,7 +20,7 @@
 //! This configuration is local to the config crate. When constructing runtime SPIRE
 //! components it is converted into the auth crate's `slim_auth::spire::SpireConfig`.
 
-use super::{AuthError, ClientAuthenticator, ServerAuthenticator};
+use super::{ConfigAuthError, ClientAuthenticator, ServerAuthenticator};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use slim_auth::jwt_middleware::{AddJwtLayer, ValidateJwtLayer};
@@ -100,7 +100,7 @@ impl SpireConfig {
 
     /// Internal helper to build & initialize a spire identity manager.
     /// If `include_target` is true and `target_spiffe_id` is set, the target is included.
-    async fn build_identity_manager(&self) -> Result<SpireIdentityManager, AuthError> {
+    async fn build_identity_manager(&self) -> Result<SpireIdentityManager, ConfigAuthError> {
         let mut builder =
             SpireIdentityManager::builder().with_jwt_audiences(self.jwt_audiences.clone());
 
@@ -113,21 +113,19 @@ impl SpireConfig {
         }
 
         let mut mgr = builder.build();
-        mgr.initialize()
-            .await
-            .map_err(|e| AuthError::ConfigError(e.to_string()))?;
+        mgr.initialize().await?;
         Ok(mgr)
     }
 
     /// Create a spire provider from this configuration using the builder.
     /// Returns an initialized SpireIdentityManager that will rotate X.509 & JWT SVIDs.
-    pub async fn create_provider(&self) -> Result<SpireIdentityManager, AuthError> {
+    pub async fn create_provider(&self) -> Result<SpireIdentityManager, ConfigAuthError> {
         self.build_identity_manager().await
     }
 
     /// Create a spire verifier (identity manager used only for verification).
     /// The target SPIFFE ID (if configured) is intentionally not set.
-    pub async fn create_jwt_verifier(&self) -> Result<SpireIdentityManager, AuthError> {
+    pub async fn create_jwt_verifier(&self) -> Result<SpireIdentityManager, ConfigAuthError> {
         self.build_identity_manager().await
     }
 }
@@ -135,9 +133,9 @@ impl SpireConfig {
 impl ClientAuthenticator for SpireConfig {
     type ClientLayer = AddJwtLayer<SpireIdentityManager>;
 
-    fn get_client_layer(&self) -> Result<Self::ClientLayer, AuthError> {
+    fn get_client_layer(&self) -> Result<Self::ClientLayer, ConfigAuthError> {
         // Creation requires async context due to initialization
-        Err(AuthError::ConfigError(
+        Err(ConfigAuthError::ConfigError(
             "spire client layer creation requires async context".to_string(),
         ))
     }
@@ -149,8 +147,8 @@ where
 {
     type ServerLayer = ValidateJwtLayer<serde_json::Value, SpireIdentityManager>;
 
-    fn get_server_layer(&self) -> Result<Self::ServerLayer, AuthError> {
-        Err(AuthError::ConfigError(
+    fn get_server_layer(&self) -> Result<Self::ServerLayer, ConfigAuthError> {
+        Err(ConfigAuthError::ConfigError(
             "spire server layer creation requires async context".to_string(),
         ))
     }
@@ -161,7 +159,7 @@ impl SpireConfig {
     /// Create a client authentication layer asynchronously
     pub async fn get_client_layer_async(
         &self,
-    ) -> Result<AddJwtLayer<SpireIdentityManager>, AuthError> {
+    ) -> Result<AddJwtLayer<SpireIdentityManager>, ConfigAuthError> {
         let provider = self.create_provider().await?;
         let duration = 3600; // 1 hour token duration
         Ok(AddJwtLayer::new(provider, duration))
@@ -170,7 +168,7 @@ impl SpireConfig {
     /// Create a server authentication layer asynchronously
     pub async fn get_server_layer_async<Response>(
         &self,
-    ) -> Result<ValidateJwtLayer<serde_json::Value, SpireIdentityManager>, AuthError>
+    ) -> Result<ValidateJwtLayer<serde_json::Value, SpireIdentityManager>, ConfigAuthError>
     where
         Response: Default + Send + Sync + 'static,
     {

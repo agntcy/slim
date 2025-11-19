@@ -7,9 +7,9 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum MlsError {
     #[error("I/O error: {0}")]
-    Io(String),
+    Io(#[from] std::io::Error),
     #[error("Serialization/Deserialization error: {0}")]
-    Serde(String),
+    Serde(#[from] serde_json::Error),
     #[error("MLS error: {0}")]
     Mls(String),
     #[error("Requested ciphersuite is unavailable")]
@@ -21,7 +21,7 @@ pub enum MlsError {
     #[error("No welcome message generated")]
     NoWelcomeMessage,
     #[error("Failed to create storage directory: {0}")]
-    StorageDirectoryCreation(#[from] std::io::Error),
+    StorageDirectoryCreation(std::io::Error),
     #[error("Failed to get token: {0}")]
     TokenRetrievalFailed(String),
     #[error("Failed to sync file: {0}")]

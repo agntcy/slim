@@ -8,8 +8,10 @@ use thiserror::Error;
 pub enum ServiceError {
     #[error("configuration error {0}")]
     ConfigError(String),
-    #[error("auth error: {0}")]
-    AuthError(#[from] AuthError),
+    // Converted generic AuthError variant into a provider-specific one to clarify source.
+    // This still enables use of the ? operator on AuthError.
+    #[error("provider auth error: {0}")]
+    ProviderAuthError(#[from] AuthError),
     #[error("app already registered")]
     AppAlreadyRegistered,
     #[error("app not found: {0}")]

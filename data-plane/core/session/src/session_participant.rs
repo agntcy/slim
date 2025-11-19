@@ -167,10 +167,10 @@ where
                 self.common.sender.start_drain();
                 Ok(())
             }
-            _ => Err(SessionError::Processing(format!(
-                "Unexpected message type {:?}",
-                message
-            ))),
+            _ => Err(SessionError::UnexpectedMessageType {
+                // Fallback: treat unknown SessionMessage variant as generic Msg
+                message_type: ProtoSessionMessageType::Msg,
+            }),
         }
     }
 

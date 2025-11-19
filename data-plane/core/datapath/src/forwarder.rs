@@ -7,7 +7,8 @@ use std::sync::Arc;
 use super::tables::connection_table::ConnectionTable;
 use super::tables::remote_subscription_table::RemoteSubscriptions;
 use super::tables::subscription_table::SubscriptionTableImpl;
-use super::tables::{SubscriptionTable, errors::SubscriptionTableError};
+use super::tables::SubscriptionTable;
+use crate::errors::DataPathError;
 use crate::messages::Name;
 use crate::tables::remote_subscription_table::SubscriptionInfo;
 
@@ -98,7 +99,7 @@ where
         conn_index: u64,
         is_local: bool,
         add: bool,
-    ) -> Result<(), SubscriptionTableError> {
+    ) -> Result<(), DataPathError> {
         if add {
             self.subscription_table
                 .add_subscription(name, conn_index, is_local)
@@ -138,12 +139,11 @@ where
         name: Name,
         incoming_conn: u64,
         fanout: u32,
-    ) -> Result<Vec<u64>, SubscriptionTableError> {
+    ) -> Result<Vec<u64>, DataPathError> {
         if fanout == 1 {
-            match self.subscription_table.match_one(&name, incoming_conn) {
-                Ok(out) => Ok(vec![out]),
-                Err(e) => Err(e),
-            }
+            self.subscription_table
+                .match_one(&name, incoming_conn)
+                .map(|out| vec![out])
         } else {
             self.subscription_table.match_all(&name, incoming_conn)
         }
@@ -189,7 +189,7 @@ mod tests {
         let expected = name.clone().with_id(2);
         assert_eq!(
             fwd.on_publish_msg_match(expected.clone(), 100, 1),
-            Err(SubscriptionTableError::NoMatch(format!("{}", expected)))
+            Err(DataPathError::NoMatch(format!("{}", expected)))
         );
         assert_eq!(
             fwd.on_subscription_msg(name.clone(), 10, false, false),
@@ -197,7 +197,7 @@ mod tests {
         );
         assert_eq!(
             fwd.on_subscription_msg(name.clone(), 10, false, false),
-            Err(SubscriptionTableError::IdNotFound)
+            Err(DataPathError::IdNotFound)
         );
     }
 }

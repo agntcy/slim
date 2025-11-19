@@ -240,10 +240,10 @@ where
                 // send it to all the participants
                 self.delete_all(leave_msg, None).await
             }
-            _ => Err(SessionError::Processing(format!(
-                "Unexpected message type {:?}",
-                message
-            ))),
+            _ => Err(SessionError::UnexpectedMessageType {
+                // Moderator-level fallback: treat unknown SessionMessage variant as generic Msg
+                message_type: ProtoSessionMessageType::Msg,
+            }),
         }
     }
 
@@ -683,7 +683,7 @@ where
         let id = match self.group_list.get(&dst_without_id) {
             Some(id) => *id,
             None => {
-                let err = SessionError::RemoveParticipant("participant not found".to_string());
+                let err = SessionError::ParticipantNotFound;
                 return Err(self.handle_task_error(err));
             }
         };

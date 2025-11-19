@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use thiserror::Error;
+use slim_auth::errors::AuthError;
+use crate::auth::ConfigAuthError as ConfigAuthError;
 
 /// Errors for Config.
 /// This is a custom error type for handling configuration-related errors.
@@ -24,8 +26,10 @@ pub enum ConfigError {
     RateLimitParseError(String),
     #[error("tls setting error: {0}")]
     TLSSettingError(String),
-    #[error("auth config error: {0}")]
-    AuthConfigError(String),
+    #[error("auth error")]
+    AuthError(#[from] AuthError),
+    #[error("auth config error")]
+    AuthConfigError(#[from] ConfigAuthError),
     #[error("resolution error")]
     ResolutionError,
     #[error("invalid uri: {0}")]
