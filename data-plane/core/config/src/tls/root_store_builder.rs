@@ -73,9 +73,9 @@ impl RootStoreBuilder {
     /// Add CA certificates from a file containing one or more PEM-encoded certificates.
     pub fn add_file(mut self, path: &str) -> Result<Self, ConfigError> {
         let cert_path = Path::new(path);
-        let iter = CertificateDer::pem_file_iter(cert_path).map_err(ConfigError::InvalidPem)?;
+        let iter = CertificateDer::pem_file_iter(cert_path)?;
         for item in iter {
-            let cert = item.map_err(ConfigError::InvalidPem)?;
+            let cert = item?;
             self.store.add(cert)?;
         }
         Ok(self)
@@ -84,7 +84,7 @@ impl RootStoreBuilder {
     /// Add CA certificates from a PEM string containing one or more concatenated certs.
     pub fn add_pem(mut self, data: &str) -> Result<Self, ConfigError> {
         for item in CertificateDer::pem_slice_iter(data.as_bytes()) {
-            let cert = item.map_err(ConfigError::InvalidPem)?;
+            let cert = item?;
             self.store.add(cert)?;
         }
         Ok(self)

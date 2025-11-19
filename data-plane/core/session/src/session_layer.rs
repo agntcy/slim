@@ -368,9 +368,10 @@ where
                     // Spawn a task to await the join handle and send the result through a oneshot channel
                     let (tx, rx) = tokio::sync::oneshot::channel();
                     tokio::spawn(async move {
-                        let result = join_handle.await.map(|_| ()).map_err(|e| {
-                            SessionError::Processing(format!("Session cleanup failed: {}", e))
-                        });
+                        let result = join_handle
+                            .await
+                            .map(|_| ())
+                            .map_err(SessionError::cleanup_failed);
                         let _ = tx.send(result);
                     });
                     CompletionHandle::from_oneshot_receiver(rx)
@@ -483,17 +484,15 @@ where
                             .map_err(|e| SessionError::extract_error("join_request", e))?;
 
                         if payload.timer_settings.is_none() {
-                            return Err(SessionError::Processing(
-                                "missing timer options".to_string(),
-                            ));
+                            return Err(SessionError::MissingPayload {
+                                context: "timer options",
+                            });
                         }
 
                         let channel = if let Some(c) = &payload.channel {
                             Name::from(c)
                         } else {
-                            return Err(SessionError::Processing(
-                                "missing channel name".to_string(),
-                            ));
+                            return Err(SessionError::MissingChannelName);
                         };
 
                         // Determine initiator (moderator) before building metadata snapshot.
@@ -564,7 +563,7 @@ where
         self.tx_app
             .send(Ok(Notification::NewSession(new_session)))
             .await
-            .map_err(|e| SessionError::Processing(format!("error sending new session: {}", e)))
+            .map_err(SessionError::from)
     }
 
     /// Handle a discovery request message.

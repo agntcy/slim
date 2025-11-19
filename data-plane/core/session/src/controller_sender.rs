@@ -76,9 +76,7 @@ impl ControllerSender {
 
     pub async fn on_message(&mut self, message: &Message) -> Result<(), SessionError> {
         if self.draining_state == ControllerSenderDrainStatus::Completed {
-            return Err(SessionError::Processing(
-                "sender closed, drop message".to_string(),
-            ));
+            return Err(SessionError::SenderClosedDrop);
         }
 
         match message.get_session_message_type() {
@@ -87,10 +85,8 @@ impl ControllerSender {
             | slim_datapath::api::ProtoSessionMessageType::LeaveRequest
             | slim_datapath::api::ProtoSessionMessageType::GroupWelcome => {
                 if self.draining_state == ControllerSenderDrainStatus::Initiated {
-                    // draining period is started, do no accept any new message
-                    return Err(SessionError::Processing(
-                        "draining period started, do not accept new messages".to_string(),
-                    ));
+                    // draining period started; reject new messages
+                    return Err(SessionError::DrainStartedRejectNew);
                 }
                 let mut missing_replies = HashSet::new();
                 let mut name = message.get_dst();

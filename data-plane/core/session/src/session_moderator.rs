@@ -295,7 +295,7 @@ where
                 ModeratorTask::Close(t) => t.ack_tx,
             };
             if let Some(tx) = ack_tx {
-                let _ = tx.send(Err(SessionError::Processing(error.to_string())));
+                let _ = tx.send(Err(SessionError::cleanup_failed(&error)));
             }
         }
 
@@ -333,11 +333,11 @@ where
                 // local one, call the delete all anyway
                 if let Some(n) = message
                     .get_payload()
-                    .ok_or_else(|| SessionError::Processing("Missing payload".to_string()))?
-                    .as_command_payload()
-                    .map_err(SessionError::from)?
-                    .as_leave_request_payload()
-                    .map_err(SessionError::from)?
+                    .ok_or_else(|| SessionError::MissingPayload {
+                        context: "control_message",
+                    })?
+                    .as_command_payload()?
+                    .as_leave_request_payload()?
                     .destination
                     .as_ref()
                     && Name::from(n) == self.common.settings.source
@@ -355,14 +355,12 @@ where
             | ProtoSessionMessageType::GroupRemove
             | ProtoSessionMessageType::GroupWelcome
             | ProtoSessionMessageType::GroupClose
-            | ProtoSessionMessageType::GroupNack => Err(SessionError::Processing(format!(
-                "Unexpected control message type {:?}",
-                message.get_session_message_type()
-            ))),
-            _ => Err(SessionError::Processing(format!(
-                "Unexpected message type {:?}",
-                message.get_session_message_type()
-            ))),
+            | ProtoSessionMessageType::GroupNack => Err(SessionError::UnexpectedMessageType {
+                message_type: message.get_session_message_type(),
+            }),
+            _ => Err(SessionError::UnexpectedMessageType {
+                message_type: message.get_session_message_type(),
+            }),
         }
     }
 
@@ -391,10 +389,7 @@ where
         // check if there is a destination name in the payload. If yes recreate the message
         // with the right destination and send it out
         let payload = msg.extract_discovery_request().map_err(|e| {
-            let err = SessionError::Processing(format!(
-                "failed to extract discovery request payload: {}",
-                e
-            ));
+            let err = SessionError::extract_error("discovery_request", e);
             self.handle_task_error(err)
         })?;
 
@@ -664,10 +659,7 @@ where
         let payload_destination = msg
             .extract_leave_request()
             .map_err(|e| {
-                let err = SessionError::Processing(format!(
-                    "failed to extract leave request payload: {}",
-                    e
-                ));
+                let err = SessionError::extract_error("leave_request", e);
                 self.handle_task_error(err)
             })?
             .destination

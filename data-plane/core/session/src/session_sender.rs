@@ -121,13 +121,9 @@ impl SessionSender {
     ) -> Result<(), SessionError> {
         if self.draining_state == SenderDrainStatus::Completed {
             if let Some(tx) = ack_tx {
-                let _ = tx.send(Err(SessionError::Processing(
-                    "sender closed, drop message".to_string(),
-                )));
+                let _ = tx.send(Err(SessionError::SenderClosedDrop));
             }
-            return Err(SessionError::Processing(
-                "sender closed, drop message".to_string(),
-            ));
+            return Err(SessionError::SenderClosedDrop);
         }
 
         match message.get_session_message_type() {
@@ -135,13 +131,9 @@ impl SessionSender {
                 debug!("received message");
                 if self.draining_state == SenderDrainStatus::Initiated {
                     if let Some(tx) = ack_tx {
-                        let _ = tx.send(Err(SessionError::Processing(
-                            "drain started do no accept new messages".to_string(),
-                        )));
+                        let _ = tx.send(Err(SessionError::DrainStartedRejectNew));
                     }
-                    return Err(SessionError::Processing(
-                        "drain started do no accept new messages".to_string(),
-                    ));
+                    return Err(SessionError::DrainStartedRejectNew);
                 }
                 self.on_publish_message(message, ack_tx).await?;
             }
@@ -345,7 +337,7 @@ impl SessionSender {
                 self.session_id,
                 message_id,
             )
-            .map_err(|e| SessionError::Processing(e.to_string()))?;
+            .map_err(SessionError::build_error)?;
 
             // send the message
             self.tx.send_to_slim(Ok(msg)).await
@@ -395,18 +387,12 @@ impl SessionSender {
 
         // Signal failure to the ack notifier if present
         if let Some(tx) = self.ack_notifiers.remove(&id) {
-            let _ = tx.send(Err(SessionError::Processing(format!(
-                "error send message {}. stop retrying",
-                id
-            ))));
+            let _ = tx.send(Err(SessionError::send_retry_failed(id)));
         }
 
         // notify the application that the message was not delivered correctly
         self.tx
-            .send_to_app(Err(SessionError::Processing(format!(
-                "error send message {}. stop retrying",
-                id
-            ))))
+            .send_to_app(Err(SessionError::send_retry_failed(id)))
             .await
     }
 
@@ -496,7 +482,7 @@ impl SessionSender {
 
         // Notify all pending ack notifiers that the sender is closed
         for (_, tx) in self.ack_notifiers.drain() {
-            let _ = tx.send(Err(SessionError::Processing("sender closed".to_string())));
+            let _ = tx.send(Err(SessionError::SenderClosedDrop));
         }
 
         self.draining_state = SenderDrainStatus::Completed;
@@ -729,15 +715,11 @@ mod tests {
 
         // Check that we received an error as expected
         match res {
-            Err(SessionError::Processing(msg)) => {
-                assert!(
-                    msg.contains("error send message 1. stop retrying"),
-                    "Expected timer failure error message, got: {}",
-                    msg
-                );
+            Err(SessionError::MessageSendRetryFailed { id }) => {
+                assert_eq!(id, 1, "Expected retry failure for message id 1");
             }
             _ => panic!(
-                "Expected SessionError::Processing with timer failure message, got: {:?}",
+                "Expected SessionError::MessageSendRetryFailed, got: {:?}",
                 res
             ),
         }

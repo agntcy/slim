@@ -39,8 +39,7 @@ where
             .credential
             .as_basic()
             .ok_or(MlsError::NotBasicCredential)?;
-        let credential_data =
-            std::str::from_utf8(&basic_cred.identifier).map_err(MlsError::InvalidUtf8)?;
+        let credential_data = std::str::from_utf8(&basic_cred.identifier)?;
 
         // Verify token and extract claims
         let claims: serde_json::Value = match self.identity_verifier.try_get_claims(credential_data)

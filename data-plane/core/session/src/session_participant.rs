@@ -434,7 +434,7 @@ where
                 session_id: self.common.settings.id,
             }))
             .await
-            .map_err(|e| SessionError::Processing(format!("failed to notify session layer: {}", e)))
+            .map_err(SessionError::from)
     }
 
     async fn join(&mut self, msg: &Message) -> Result<(), SessionError> {

@@ -184,7 +184,7 @@ impl SessionController {
                             if draining && matches!(session_message, SessionMessage::OnMessage { direction: MessageDirection::South, .. }) {
                                 tracing::debug!("session is draining, rejecting new messages from application");
                                 if let SessionMessage::OnMessage { ack_tx: Some(ack_tx), .. } = session_message {
-                                    let _ = ack_tx.send(Err(SessionError::Processing("Session is draining, cannot accept new messages".to_string())));
+                                    let _ = ack_tx.send(Err(SessionError::DrainStartedRejectNew));
                                 }
                                 continue;
                             }
@@ -271,13 +271,7 @@ impl SessionController {
                 ack_tx,
             })
             .await
-            .map_err(|e| {
-                // Channel send failure kept as Processing; not an unexpected message type.
-                SessionError::Processing(format!(
-                    "Failed to send message to session controller: {}",
-                    e
-                ))
-            })
+            .map_err(|_e| SessionError::ChannelSend)
     }
 
     /// Send a message to the controller for processing
@@ -306,7 +300,7 @@ impl SessionController {
         self.handle
             .lock()
             .take()
-            .ok_or(SessionError::Generic("Session already closed".to_string()))
+            .ok_or(SessionError::already_closed())
     }
 
     pub async fn publish_message(
@@ -1031,10 +1025,10 @@ mod tests {
         let result = controller.close();
         assert!(result.is_err());
         match result {
-            Err(SessionError::Generic(msg)) => {
-                assert_eq!(msg, "Session already closed");
+            Err(SessionError::SessionAlreadyClosed) => {
+                // expected
             }
-            _ => panic!("Expected SessionError::Generic with 'Session already closed' message"),
+            _ => panic!("Expected SessionError::SessionAlreadyClosed"),
         }
     }
 

@@ -240,7 +240,7 @@ impl Service {
         // switched to typed variant: HomeDirUnavailable
         // previous StorageError(String) mapping removed
         let storage_path = home_dir.join(".slim").join(hashed_name.to_string());
-        std::fs::create_dir_all(&storage_path).map_err(ServiceError::StorageIo)?;
+        std::fs::create_dir_all(&storage_path)?;
         // switched to typed variant StorageIo
         // previous StorageError(String) mapping removed
 
@@ -359,7 +359,7 @@ impl Component for Service {
     }
 
     async fn start(&mut self) -> Result<(), ComponentError> {
-        info!("starting service");
+        debug!("starting service");
         self.run()
             .await
             .map_err(|e| ComponentError::RuntimeError(e.to_string()))

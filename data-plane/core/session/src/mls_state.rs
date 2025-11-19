@@ -126,9 +126,9 @@ where
                 }
                 _ => {
                     error!("unknown control message type, drop it");
-                    return Err(SessionError::Processing(
-                        "unknown control message type".to_string(),
-                    ));
+                    return Err(SessionError::UnexpectedMessageType {
+                        message_type: msg.get_session_message_type(),
+                    });
                 }
             }
         }

@@ -125,8 +125,26 @@ pub enum SessionError {
     #[error("missing removed participant in GroupRemove message")]
     MissingRemovedParticipant,
 
-    #[error("channel send failure: {0}")]
-    ChannelSendFailure(String),
+    #[error("channel send failure")]
+    ChannelSend,
+    #[error("channel closed")]
+    ChannelClosed,
+
+    // Structured drain / closed states replacing generic Processing(String) usages
+    #[error("sender closed; drop message")]
+    SenderClosedDrop,
+    #[error("receiver closed; drop message")]
+    ReceiverClosedDrop,
+    #[error("drain initiated; reject new messages")]
+    DrainStartedRejectNew,
+    #[error("session already closed")]
+    SessionAlreadyClosed,
+    #[error("session cleanup failed: {details}")]
+    SessionCleanupFailed { details: String },
+    #[error("message send retries exhausted for id={id}")]
+    MessageSendRetryFailed { id: u32 },
+    #[error("message receive retries exhausted for id={id}")]
+    MessageReceiveRetryFailed { id: u32 },
 
     // Typed propagation of slim_datapath MessageError instead of stringly Processing(...)
     #[error("datapath message error: {0}")]
@@ -170,5 +188,30 @@ impl SessionError {
             context,
             source: err,
         }
+    }
+    pub fn cleanup_failed<E: std::fmt::Display>(e: E) -> Self {
+        SessionError::SessionCleanupFailed {
+            details: e.to_string(),
+        }
+    }
+    pub fn already_closed() -> Self {
+        SessionError::SessionAlreadyClosed
+    }
+
+    // Helpers to construct new structured retry failure variants
+    pub fn send_retry_failed(id: u32) -> Self {
+        SessionError::MessageSendRetryFailed { id }
+    }
+
+    pub fn receive_retry_failed(id: u32) -> Self {
+        SessionError::MessageReceiveRetryFailed { id }
+    }
+}
+
+// Generic conversion from tokio mpsc SendError into a structured variant.
+// The payload type is discarded; callers can still log details if needed.
+impl<T> From<tokio::sync::mpsc::error::SendError<T>> for SessionError {
+    fn from(_e: tokio::sync::mpsc::error::SendError<T>) -> Self {
+        SessionError::ChannelSend
     }
 }

@@ -21,6 +21,7 @@ agntcy-slim-config = { workspace = true }
 agntcy-slim-service = { workspace = true }
 agntcy-slim-signal = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
+anyhow = { workspace = true }
 clap = { workspace = true }
 duration-string = { workspace = true }
 lazy_static = { workspace = true }
