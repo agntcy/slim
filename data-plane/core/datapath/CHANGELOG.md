@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.2](https://github.com/agntcy/slim/compare/slim-datapath-v0.10.1...slim-datapath-v0.10.2) - 2025-11-17
+
+### Added
+
+- *(session)* graceful session draining + reliable blocking API completion ([#924](https://github.com/agntcy/slim/pull/924))
+- connection drop controller update ([#901](https://github.com/agntcy/slim/pull/901))
+- Integrate SPIRE-based mTLS & identity, unify TLS sources, enhance gRPC config, and add flexible metadata support ([#892](https://github.com/agntcy/slim/pull/892))
+- *(auth)* add support for setting custom claims while getting the token ([#879](https://github.com/agntcy/slim/pull/879))
+- expand SharedSecret Auth from simple secret:id to HMAC tokens ([#858](https://github.com/agntcy/slim/pull/858))
+
+### Fixed
+
+- *(service)* disconnect API ([#890](https://github.com/agntcy/slim/pull/890))
+
+### Other
+
+- unify multicast and P2P session handling ([#904](https://github.com/agntcy/slim/pull/904))
+- implement all control message payload in protobuf ([#862](https://github.com/agntcy/slim/pull/862))
+- *(data-plane)* update project dependencies ([#861](https://github.com/agntcy/slim/pull/861))
+
 ## [0.10.1](https://github.com/agntcy/slim/compare/slim-datapath-v0.10.0...slim-datapath-v0.10.1) - 2025-10-17
 
 ### Fixed

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0](https://github.com/agntcy/slim/compare/slim-v0.6.1...slim-v0.7.0) - 2025-11-17
+
+### Added
+
+- improve logging configuration ([#943](https://github.com/agntcy/slim/pull/943))
+
+### Other
+
+- *(data-plane)* update project dependencies ([#861](https://github.com/agntcy/slim/pull/861))
+
 ## [0.6.1](https://github.com/agntcy/slim/compare/slim-v0.6.0...slim-v0.6.1) - 2025-10-17
 
 ### Other

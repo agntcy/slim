@@ -121,7 +121,7 @@ impl RootStoreBuilder {
         root_store: &mut RootCertStore,
         spiffe_cfg: &spire::SpireConfig,
     ) -> Result<(), ConfigError> {
-        let spire_identity_manager = spiffe_cfg.create_provider().await.map_err(|e| {
+        let mut spire_identity_manager = spiffe_cfg.create_provider().await.map_err(|e| {
             ConfigError::InvalidFile(format!("failed to create SPIFFE provider: {}", e))
         })?;
 
@@ -129,6 +129,7 @@ impl RootStoreBuilder {
             for domain in &spiffe_cfg.trust_domains {
                 let bundle = spire_identity_manager
                     .get_x509_bundle_for_trust_domain(domain)
+                    .await
                     .map_err(|e| {
                         ConfigError::Spire(format!(
                             "failed to get X.509 bundle for trust domain {}: {}",

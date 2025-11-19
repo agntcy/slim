@@ -3,7 +3,7 @@ cask "slimctl" do
   name "slimctl"
   desc "A CLI tool for managing SLIM Devices"
   homepage "https://github.com/agntcy/slim/control-plane/slimctl"
-  version "slimctl-v0.0.100-SNAPSHOT-f15a5a6"
+  version "slimctl-v0.7.0-SNAPSHOT-35c37ab"
 
   livecheck do
     skip "Auto-generated on release."
@@ -13,27 +13,34 @@ cask "slimctl" do
 
   on_macos do
     on_intel do
-      url "https://github.com/agntcy/slim/releases/download/slimctl-v0.0.100/slimctl_#{version}_darwin_amd64.tar.gz",
+      url "https://github.com/agntcy/slim/releases/download/slimctl-v0.7.0/slimctl_#{version}_darwin_amd64.tar.gz",
         using: :homebrew_curl
-      sha256 "7e667d715964805009bcae29512f3f5a87adf60f210ea56e1ecacf65743e6c6e"
+      sha256 "856ae983e233b6de6409cdc0ce0ad05e451a6ae7b02baf9296dcddc0a0e50584"
     end
     on_arm do
-      url "https://github.com/agntcy/slim/releases/download/slimctl-v0.0.100/slimctl_#{version}_darwin_arm64.tar.gz",
+      url "https://github.com/agntcy/slim/releases/download/slimctl-v0.7.0/slimctl_#{version}_darwin_arm64.tar.gz",
         using: :homebrew_curl
-      sha256 "15898ed3698a79c96e15b1195fb8c39a624ba3c56b355c1a89ae2efa90cb78ea"
+      sha256 "d741a515cc430ed33763cbe9e0cd0b32d30e78881f31e56b4e84bfdd9ac06c6c"
     end
   end
 
   on_linux do
     on_intel do
-      url "https://github.com/agntcy/slim/releases/download/slimctl-v0.0.100/slimctl_#{version}_linux_amd64.tar.gz",
+      url "https://github.com/agntcy/slim/releases/download/slimctl-v0.7.0/slimctl_#{version}_linux_amd64.tar.gz",
         using: :homebrew_curl
-      sha256 "0c29b351cf8cc1da3a7a8573b868fac80e696d74a6599f8ef2226f16320ff96d"
+      sha256 "2e977139e1589b5d9c80f9cef289e83b22dd2bb390f02d959a21b756650877de"
     end
     on_arm do
-      url "https://github.com/agntcy/slim/releases/download/slimctl-v0.0.100/slimctl_#{version}_linux_arm64.tar.gz",
+      url "https://github.com/agntcy/slim/releases/download/slimctl-v0.7.0/slimctl_#{version}_linux_arm64.tar.gz",
         using: :homebrew_curl
-      sha256 "2aac337ae830562a6e88cdc58f00996c7b46a2ec71610152ce96cc9a74b05069"
+      sha256 "a197d04034fcaf1c976afa16dbbc05043794ca95fd8006a6114a2ce68f1e2f47"
+    end
+  end
+
+  postflight do
+    system "chmod", "+x", "#{staged_path}/slimctl"
+    if OS.mac?
+      system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/slimctl"]
     end
   end
 
