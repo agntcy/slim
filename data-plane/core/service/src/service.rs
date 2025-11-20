@@ -78,7 +78,7 @@ impl ServiceConfiguration {
     }
 
     pub fn build_server(&self, id: ID) -> Result<Service, ServiceError> {
-        let service = Service::new(id).with_config(self.clone());
+        let service = Service::new_with_config(id, self.clone());
         Ok(service)
     }
 }
@@ -131,31 +131,41 @@ impl std::fmt::Debug for Service {
     }
 }
 
+impl Drop for Service {
+    fn drop(&mut self) {
+        // Trigger all cancellation tokens to stop servers
+        for (endpoint, token) in self.cancellation_tokens.write().drain() {
+            debug!(%endpoint, "cancelling server on drop");
+            token.cancel();
+        }
+
+        // Disconnect all clients
+        for (endpoint, conn_id) in self.clients.write().drain() {
+            debug!(%endpoint, conn_id = %conn_id, "disconnecting client on drop");
+            if let Err(e) = self.message_processor.disconnect(conn_id) {
+                error!("disconnect error for endpoint {}: {}", endpoint, e);
+            }
+        }
+    }
+}
+
 impl Service {
     /// Create a new Service
     pub fn new(id: ID) -> Self {
+        Service::new_with_config(id, ServiceConfiguration::new())
+    }
+
+    /// Create a new Service with configuration
+    pub fn new_with_config(id: ID, config: ServiceConfiguration) -> Self {
         let message_processor = Arc::new(MessageProcessor::new());
 
         Service {
             id,
             message_processor,
             controller: None,
-            config: ServiceConfiguration::new(),
+            config,
             cancellation_tokens: parking_lot::RwLock::new(HashMap::new()),
             clients: parking_lot::RwLock::new(HashMap::new()),
-        }
-    }
-
-    /// Set the configuration of the service
-    pub fn with_config(self, config: ServiceConfiguration) -> Self {
-        Service { config, ..self }
-    }
-
-    /// Set the message processor of the service
-    pub fn with_message_processor(self, message_processor: Arc<MessageProcessor>) -> Self {
-        Service {
-            message_processor,
-            ..self
         }
     }
 
@@ -369,9 +379,10 @@ impl Service {
         match self.message_processor.disconnect(conn) {
             Ok(cfg) => {
                 let endpoint = cfg.endpoint.clone();
-                if let Some(stored_conn) = self.clients.read().get(&endpoint) {
+                let mut clients = self.clients.write();
+                if let Some(stored_conn) = clients.get(&endpoint) {
                     if *stored_conn == conn {
-                        self.clients.write().remove(&endpoint);
+                        clients.remove(&endpoint);
                         info!("removed client mapping for endpoint {}", endpoint);
                     } else {
                         debug!(
@@ -498,7 +509,10 @@ mod tests {
         assert!(logs_contain("starting server main loop"));
 
         // graceful shutdown
-        //service.
+        service
+            .shutdown()
+            .await
+            .expect("failed to shutdown service");
 
         assert!(logs_contain("shutting down server"));
     }

@@ -233,3 +233,6 @@ async def test_group(server, mls_enabled):  # noqa: C901
     # Wait for the task to complete
     for task in participants:
         await task
+
+    # # Stop the server
+    # await server.service.stop_server(server.endpoint)
