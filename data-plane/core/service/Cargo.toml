@@ -7,8 +7,12 @@ description = "Main service and public API to interact with SLIM data plane."
 
 [lib]
 name = "slim_service"
+crate-type = ["lib", "staticlib", "cdylib"]
 
 [dependencies]
+# UniFFI for language bindings
+uniffi = { version = "0.28.3", features = ["cli"] }
+
 agntcy-slim-auth = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-controller = { workspace = true }
@@ -28,3 +32,6 @@ tracing = { workspace = true }
 agntcy-slim-testing = { workspace = true }
 tokio-test = { workspace = true }
 tracing-test = { workspace = true }
+
+[build-dependencies]
+uniffi = { version = "0.28.3", features = ["build"] }
