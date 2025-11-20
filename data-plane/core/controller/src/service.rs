@@ -51,6 +51,9 @@ pub static CONTROLLER_SOURCE_NAME: std::sync::LazyLock<slim_datapath::messages::
             .with_id(0)
     });
 
+/// Maximum number of queued subscription notifications
+const MAX_QUEUED_NOTIFICATIONS: usize = 1000; // Prevent unbounded growth
+
 /// Settings struct for creating a ControlPlane instance
 #[derive(Clone)]
 pub struct ControlPlaneSettings {
@@ -111,6 +114,9 @@ struct ControllerServiceInternal {
 
     /// authentication verifier for verifying incoming messages from clients
     _auth_verifier: Option<AuthVerifier>,
+
+    /// queue for pending subscription notifications when connections are down
+    pending_notifications: Arc<parking_lot::Mutex<Vec<ControlMessage>>>,
 }
 
 #[derive(Clone)]
@@ -220,6 +226,7 @@ impl ControlPlane {
                     connection_details,
                     auth_provider: config.auth_provider,
                     _auth_verifier: config.auth_verifier,
+                    pending_notifications: Arc::new(parking_lot::Mutex::new(Vec::new())),
                 }),
             },
             rx_slim_option: Some(rx_slim),
@@ -247,6 +254,11 @@ impl ControlPlane {
     pub async fn run(&mut self) -> Result<(), ControllerError> {
         info!("starting controller service");
 
+        let rx = self
+            .rx_slim_option
+            .take()
+            .ok_or(ControllerError::ConfigError("Already running.".to_string()))?;
+
         // Collect servers to avoid borrowing self both mutably and immutably
         let servers = self.servers.clone();
         let clients = self.clients.clone();
@@ -261,8 +273,7 @@ impl ControlPlane {
             self.run_client(client).await?;
         }
 
-        let rx = self.rx_slim_option.take();
-        self.listen_from_data_plane(rx.unwrap()).await;
+        self.listen_from_data_plane(rx).await;
 
         Ok(())
     }
@@ -282,7 +293,7 @@ impl ControlPlane {
             .insert("DATA_PLANE".to_string(), cancellation_token_clone);
 
         let clients = self.clients.clone();
-        let inner = self.controller.inner.clone();
+        let controller = self.controller.clone();
 
         // Send subscription to data-plane to receive messages for the controller source name
         let subscribe_msg = DataPlaneMessage::builder()
@@ -293,7 +304,7 @@ impl ControlPlane {
             .unwrap();
 
         // Send the subscribe message to the data plane
-        if let Err(e) = inner.tx_slim.send(Ok(subscribe_msg)).await {
+        if let Err(e) = controller.inner.tx_slim.send(Ok(subscribe_msg)).await {
             error!("failed to send subscribe message to data plane: {}", e);
         }
 
@@ -343,16 +354,8 @@ impl ControlPlane {
                                                 })),
                                         };
 
-                                        for c in &clients {
-                                            let tx = match inner.tx_channels.read().get(&c.endpoint) {
-                                                Some(tx) => tx.clone(),
-                                                None => continue,
-                                            };
-                                            if (tx.send(Ok(ctrl.clone())).await).is_err() {
-                                                error!("error while notifiyng the control plane");
-                                            };
-
-                                        }
+                                        // Use the new queuing mechanism for subscription notifications
+                                        controller.send_or_queue_subscription_notification(ctrl, &clients).await;
                                     }
                                     Err(e) => {
                                         error!("received error from the data plane {}", e.to_string());
@@ -1234,6 +1237,92 @@ impl ControllerService {
         })
     }
 
+    /// Send subscription notification to control plane or queue it if no connection is available.
+    async fn send_or_queue_subscription_notification(
+        &self,
+        ctrl_msg: ControlMessage,
+        clients: &[ClientConfig],
+    ) {
+        let mut has_active_connection = false;
+
+        // Try to send to all active connections
+        for c in clients {
+            let tx = match self.inner.tx_channels.read().get(&c.endpoint) {
+                Some(tx) => tx.clone(),
+                None => continue,
+            };
+
+            if tx.send(Ok(ctrl_msg.clone())).await.is_ok() {
+                has_active_connection = true;
+            } else {
+                debug!(
+                    "failed to send notification to control plane {}",
+                    c.endpoint
+                );
+            }
+        }
+
+        // If no active connections, queue the notification
+        if !has_active_connection {
+            info!("no active control plane connections, queuing subscription notification");
+
+            let mut queue = self.inner.pending_notifications.lock();
+            if queue.len() >= MAX_QUEUED_NOTIFICATIONS {
+                // Remove oldest notification to make room for new one
+                queue.remove(0);
+                debug!("queue full, removed oldest notification");
+            }
+            queue.push(ctrl_msg);
+        }
+    }
+
+    /// Send all queued subscription notifications when connection is restored.
+    async fn send_queued_notifications(
+        &self,
+        tx: &mpsc::Sender<Result<ControlMessage, Status>>,
+        endpoint: &str,
+    ) {
+        let notifications = {
+            let mut queue = self.inner.pending_notifications.lock();
+            if queue.is_empty() {
+                return;
+            }
+            queue.drain(..).collect::<Vec<_>>()
+        };
+
+        if notifications.is_empty() {
+            return;
+        }
+
+        info!(
+            "sending {} queued subscription notifications to {}",
+            notifications.len(),
+            endpoint
+        );
+
+        let mut failed_notifications = Vec::new();
+        for notification in notifications {
+            if let Err(e) = tx.send(Ok(notification)).await {
+                error!(
+                    "failed to send queued notification to control plane {}: {}",
+                    endpoint,
+                    e.to_string()
+                );
+
+                // we can unwrap here because we know we sent a Ok(ControlMessage)
+                failed_notifications.push(e.0.unwrap());
+            }
+        }
+
+        // Re-queue any failed notifications
+        if !failed_notifications.is_empty() {
+            self.inner
+                .pending_notifications
+                .lock()
+                .extend(failed_notifications);
+        }
+    }
+
     /// Process the control message stream.
     fn process_control_message_stream(
         &self,
@@ -1380,12 +1469,16 @@ impl ControllerService {
 
         match result {
             Ok((tx, stream)) => {
+                // Send any queued notifications after successful connection
+                self.send_queued_notifications(&tx, &config.endpoint).await;
+
                 self.process_control_message_stream(
                     Some(config),
                     stream.into_inner(),
                     tx.clone(),
                     cancellation_token.clone(),
                 );
+
                 Ok(tx)
             }
 
@@ -1466,41 +1559,40 @@ mod tests {
     use slim_testing::utils::TEST_VALID_SECRET;
     use tracing_test::traced_test;
 
-    #[tokio::test]
-    #[traced_test]
-    async fn test_end_to_end() {
-        // Create an ID for slim instance
-        let id_server =
-            ID::new_with_name(Kind::new("slim").unwrap(), "test-server-instance").unwrap();
-        let id_client =
-            ID::new_with_name(Kind::new("slim").unwrap(), "test-client-instance").unwrap();
+    /// Helper to build a server and client control plane pair with shared-secret auth.
+    async fn setup_control_planes(
+        server_endpoint: &str,
+        server_name: &str,
+        client_name: &str,
+    ) -> (
+        ControlPlane,
+        ControlPlane,
+        drain::Signal,
+        drain::Signal,
+        ClientConfig,
+    ) {
+        let id_server = ID::new_with_name(Kind::new("slim").unwrap(), server_name).unwrap();
+        let id_client = ID::new_with_name(Kind::new("slim").unwrap(), client_name).unwrap();
 
-        // Create a server configuration
-        let server_config = ServerConfig::with_endpoint("127.0.0.1:50051")
+        let server_config = ServerConfig::with_endpoint(server_endpoint)
             .with_tls_settings(slim_config::tls::server::TlsServerConfig::insecure());
-
-        // create a client configuration
-        let client_config = ClientConfig::with_endpoint("http://127.0.0.1:50051")
+        let client_config = ClientConfig::with_endpoint(&format!("http://{}", server_endpoint))
             .with_tls_setting(slim_config::tls::client::TlsClientConfig::insecure());
 
-        // create drain channels
         let (signal_server, watch_server) = drain::channel();
         let (signal_client, watch_client) = drain::channel();
 
-        // Create a message processor
-        let message_processor_client = MessageProcessor::with_drain_channel(watch_client.clone());
         let message_processor_server = MessageProcessor::with_drain_channel(watch_server.clone());
+        let message_processor_client = MessageProcessor::with_drain_channel(watch_client.clone());
 
-        // Create a control plane instance for server
-        let pubsub_servers = [server_config.clone()];
-        let mut control_plane_server = ControlPlane::new(ControlPlaneSettings {
+        let control_plane_server = ControlPlane::new(ControlPlaneSettings {
             id: id_server,
             group_name: None,
-            servers: vec![server_config],
+            servers: vec![server_config.clone()],
             clients: vec![],
             drain_rx: watch_server,
             message_processor: Arc::new(message_processor_server),
-            pubsub_servers: pubsub_servers.to_vec(),
+            pubsub_servers: vec![server_config.clone()],
             auth_provider: Some(AuthProvider::SharedSecret(SharedSecret::new(
                 "server",
                 TEST_VALID_SECRET,
@@ -1511,14 +1603,14 @@ mod tests {
             ))),
         });
 
-        let mut control_plane_client = ControlPlane::new(ControlPlaneSettings {
+        let control_plane_client = ControlPlane::new(ControlPlaneSettings {
             id: id_client,
             group_name: None,
             servers: vec![],
-            clients: vec![client_config],
+            clients: vec![client_config.clone()],
             drain_rx: watch_client,
             message_processor: Arc::new(message_processor_client),
-            pubsub_servers: pubsub_servers.to_vec(),
+            pubsub_servers: vec![],
             auth_provider: Some(AuthProvider::SharedSecret(SharedSecret::new(
                 "client",
                 TEST_VALID_SECRET,
@@ -1529,27 +1621,40 @@ mod tests {
             ))),
         });
 
-        // Start the server
+        (
+            control_plane_server,
+            control_plane_client,
+            signal_server,
+            signal_client,
+            client_config,
+        )
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_end_to_end() {
+        let (
+            mut control_plane_server,
+            mut control_plane_client,
+            signal_server,
+            signal_client,
+            _client_cfg,
+        ) = setup_control_planes(
+            "127.0.0.1:50051",
+            "test-server-instance",
+            "test-client-instance",
+        )
+        .await;
+
         control_plane_server.run().await.unwrap();
-
-        // Sleep for a short duration to ensure the server is ready
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
-        // Start the client
         control_plane_client.run().await.unwrap();
-
-        // Sleep for a short duration to ensure the client is ready
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        // Check if the server received the connection
         assert!(logs_contain("received a register node request"));
 
-        // drop the server and the client. This should also cancel the running listeners
-        // and close the connections gracefully.
         drop(control_plane_server);
         drop(control_plane_client);
-
-        // Make sure there is nothing left to drain (this should not block)
         signal_server.drain().await;
         signal_client.drain().await;
     }
@@ -1576,5 +1681,69 @@ mod tests {
             id1 != 0 && id3 != 0 && id4 != 0,
             "session ids should not be zero"
         );
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_subscription_notification_queue_drain() {
+        // Reuse common setup with a different port to avoid clash with other tests.
+        let (
+            mut control_plane_server,
+            mut control_plane_client,
+            signal_server,
+            signal_client,
+            client_config,
+        ) = setup_control_planes(
+            "127.0.0.1:50061",
+            "queue-drain-server",
+            "queue-drain-client",
+        )
+        .await;
+
+        let controller = control_plane_client.controller.clone();
+        assert_eq!(controller.inner.pending_notifications.lock().len(), 0);
+
+        const N: usize = 5;
+        for i in 0..N {
+            let ctrl_msg = ControlMessage {
+                message_id: uuid::Uuid::new_v4().to_string(),
+                payload: Some(Payload::ConfigCommand(v1::ConfigurationCommand {
+                    connections_to_create: vec![],
+                    subscriptions_to_set: vec![v1::Subscription {
+                        component_0: "queued".to_string(),
+                        component_1: "sub".to_string(),
+                        component_2: format!("name-{i}"),
+                        id: Some(i as u64),
+                        connection_id: "test-conn".to_string(),
+                        node_id: None,
+                    }],
+                    subscriptions_to_delete: vec![],
+                })),
+            };
+            controller
+                .send_or_queue_subscription_notification(
+                    ctrl_msg,
+                    std::slice::from_ref(&client_config),
+                )
+                .await;
+        }
+        assert_eq!(controller.inner.pending_notifications.lock().len(), N);
+
+        control_plane_server.run().await.expect("server run failed");
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        control_plane_client.run().await.expect("client run failed");
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+
+        assert_eq!(controller.inner.pending_notifications.lock().len(), 0);
+        assert!(
+            logs_contain(&format!("sending {} queued subscription notifications", N)),
+            "Expected log about sending queued subscription notifications"
+        );
+
+        drop(controller);
+        drop(control_plane_server);
+        drop(control_plane_client);
+        signal_server.drain().await;
+        signal_client.drain().await;
     }
 }
