@@ -111,6 +111,7 @@ mod builder;
 mod message_context;
 mod service_ref;
 mod session_context;
+pub mod uniffi_bindings;
 
 // Public re-exports
 pub use adapter::BindingsAdapter;
