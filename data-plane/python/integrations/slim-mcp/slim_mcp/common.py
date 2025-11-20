@@ -17,9 +17,6 @@ from slim_mcp.helpers import create_local_app
 
 logger = logging.getLogger(__name__)
 
-# Configuration constants
-CONFIG_ENDPOINT_KEY = "endpoint"
-
 
 class SLIMBase(ABC):
     """Base class for SLIM communication.
@@ -39,7 +36,7 @@ class SLIMBase(ABC):
 
     def __init__(
         self,
-        config: dict[str, Any],
+        slim_client_configs: list[dict[str, Any]],
         local_organization: str,
         local_namespace: str,
         local_agent: str,
@@ -65,12 +62,7 @@ class SLIMBase(ABC):
         Raises:
             ValueError: If required configuration is missing
         """
-        if CONFIG_ENDPOINT_KEY not in config:
-            raise ValueError(
-                f"Missing required configuration key: {CONFIG_ENDPOINT_KEY}"
-            )
-
-        self.config = config
+        self.slim_client_configs = slim_client_configs
         self.local = slim_bindings.PyName(
             local_organization, local_namespace, local_agent
         )
@@ -103,14 +95,14 @@ class SLIMBase(ABC):
     @abstractmethod
     async def _send_message(
         self,
-        session: slim_bindings.PySessionInfo,
+        session: slim_bindings.PySession,
         message: bytes,
     ):
         """
         Send a message to the SLIM server.
 
         Args:
-            session (slim_bindings.PySessionInfo): SLIM session info.
+            session (slim_bindings.PySession): SLIM session.
             message (bytes): Message to send.
         """
 
@@ -119,7 +111,7 @@ class SLIMBase(ABC):
 
     def _filter_message(
         self,
-        session: slim_bindings.PySessionInfo,
+        session: slim_bindings.PySession,
         message: types.JSONRPCMessage,
         pendin_pings: list[int],
     ) -> bool:
@@ -128,7 +120,7 @@ class SLIMBase(ABC):
         dropped and not pass to the application
 
         Args:
-            session (slim_bindings.PySessionInfo): SLIM session info.
+            session (slim_bindings.PySession): SLIM session.
             message (types.JSONRPCMessage): Message to control.
 
         Returns:
@@ -139,14 +131,14 @@ class SLIMBase(ABC):
 
     async def _ping(
         self,
-        session: slim_bindings.PySessionInfo,
+        session: slim_bindings.PySession,
         pendin_pings: list[int],
     ):
         """
         Send an MCP ping message to the other endpoint
 
         Args:
-            session (slim_bindings.PySessionInfo): SLIM session info.
+            session (slim_bindings.PySession): SLIM session.
         """
 
         pass
@@ -166,13 +158,13 @@ class SLIMBase(ABC):
             # Initialize the SLIM instance
             self.slim = await create_local_app(
                 self.local,
-                self.config,
+                self.slim_client_configs,
                 enable_opentelemetry=self.enable_opentelemetry,
                 shared_secret=self.shared_secret,
             )
 
             # Set route if remote details are provided
-            if self.remote_svc_name is not None:
+            if self.remote_svc_name is not None and len(self.slim_client_configs) > 0:
                 try:
                     await self.slim.set_route(
                         self.remote_svc_name,
@@ -188,9 +180,7 @@ class SLIMBase(ABC):
                         "Failed to set route",
                         extra={
                             "error": str(e),
-                            "remote_org": self.remote_organization,
-                            "remote_namespace": self.remote_namespace,
-                            "remote_agent": self.remote_mcp_agent,
+                            "remote_svc": str(self.remote_svc_name),
                         },
                         exc_info=True,
                     )
@@ -199,9 +189,12 @@ class SLIMBase(ABC):
             # Set default fire and forget session configuration to be reliable
             try:
                 await self.slim.set_default_session_config(
-                    slim_bindings.PySessionConfiguration.FireAndForget(
-                        timeout=self.message_timeout,
+                    slim_bindings.PySessionConfiguration.PointToPoint(
+                        peer_name=self.remote_svc_name
+                        if self.remote_svc_name
+                        else self.local,
                         max_retries=self.message_retries,
+                        timeout=self.message_timeout,
                     )
                 )
             except Exception as e:
@@ -219,15 +212,6 @@ class SLIMBase(ABC):
                     f"Failed to set default session configuration: {str(e)}"
                 ) from e
 
-            # start receiving messages
-            try:
-                await self.slim.__aenter__()
-            except Exception as e:
-                logger.error("Failed to start receiving messages", exc_info=True)
-                raise RuntimeError(
-                    f"Failed to start receiving messages: {str(e)}"
-                ) from e
-
             return self
 
         except Exception as e:
@@ -237,18 +221,17 @@ class SLIMBase(ABC):
     async def __aexit__(self, exc_type: type[Any], exc_value: Any, traceback: Any):
         # Disconnect from the SLIM server
         if self.slim:
-            await self.slim.__aexit__(exc_type, exc_value, traceback)
             self.slim = None
 
     @asynccontextmanager
     async def new_streams(
         self,
-        accepted_session: slim_bindings.PySessionInfo,
+        accepted_session: slim_bindings.PySession,
     ):
         """Create a new session for message exchange.
 
         Args:
-            accepted_session: Optional session info to use instead of the default session
+            accepted_session: Session to use for message exchange
 
         Yields:
             Tuple[MemoryObjectReceiveStream, MemoryObjectSendStream]: Streams for reading and writing messages
@@ -273,7 +256,7 @@ class SLIMBase(ABC):
             try:
                 while True:
                     try:
-                        session, msg = await self.slim.receive(session=session.id)
+                        msg_ctx, msg = await session.get_message()
                         logger.debug(
                             "Received message", extra={"message": msg.decode()}
                         )
@@ -327,4 +310,4 @@ class SLIMBase(ABC):
                 logger.info(
                     f"Closing session: {accepted_session.id}",
                 )
-                await self.slim.delete_session(accepted_session.id)
+                await self.slim.delete_session(accepted_session)

@@ -56,7 +56,14 @@ class {{SERVICE_NAME}}Servicer():
 {{METHOD_SERVICERS}}
 "#;
 
-const METHOD_SERVICER_TEMPLATE: &str = r#"    def {{METHOD_NAME}}(self, {{REQUEST_ARG}}, context):
+const STREAM_METHOD_SERVICER_TEMPLATE: &str = r#"    def {{METHOD_NAME}}(self, request_iterator, session_context):
+        """Method for {{METHOD_NAME}}. Implement your service logic here."""
+        raise slimrpc_rpc.SRPCResponseError(
+            code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
+        )
+"#;
+
+const UNARY_METHOD_SERVICER_TEMPLATE: &str = r#"    def {{METHOD_NAME}}(self, request, msg_context, session_context):
         """Method for {{METHOD_NAME}}. Implement your service logic here."""
         raise slimrpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
@@ -95,6 +102,16 @@ fn main() -> Result<()> {
     let request = CodeGeneratorRequest::decode(input_bytes.as_ref())
         .context("Failed to decode CodeGeneratorRequest")?;
 
+    let response = handle_code_generation(request)?;
+
+    // Write the CodeGeneratorResponse to stdout
+    let output_bytes = response.encode_to_vec();
+    io::stdout().write_all(&output_bytes)?;
+
+    Ok(())
+}
+
+fn handle_code_generation(request: CodeGeneratorRequest) -> Result<CodeGeneratorResponse> {
     let mut types_module_import = String::new();
 
     // Parse parameters, if any
@@ -249,10 +266,10 @@ fn main() -> Result<()> {
                     (true, true) => "stream_stream",
                 };
 
-                let request_arg = if is_client_streaming {
-                    "request_iterator"
+                let method_template = if is_client_streaming {
+                    STREAM_METHOD_SERVICER_TEMPLATE
                 } else {
-                    "request"
+                    UNARY_METHOD_SERVICER_TEMPLATE
                 };
 
                 // Populate method stub initializer template
@@ -266,9 +283,8 @@ fn main() -> Result<()> {
                 method_stub_initializers_content.push_str(&current_method_stub_initializer);
 
                 // Populate method servicer template
-                let current_method_servicer = METHOD_SERVICER_TEMPLATE
+                let current_method_servicer = method_template
                     .replace("{{METHOD_NAME}}", &method_name)
-                    .replace("{{REQUEST_ARG}}", request_arg)
                     .replace("{{INPUT_TYPE_FULL_PATH}}", &input_type_full_path);
                 method_servicers_content.push_str(&current_method_servicer);
 
@@ -323,9 +339,500 @@ fn main() -> Result<()> {
         }
     }
 
-    // Write the CodeGeneratorResponse to stdout
-    let output_bytes = response.encode_to_vec();
-    io::stdout().write_all(&output_bytes)?;
+    Ok(response)
+}
 
-    Ok(())
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use prost_types::{FileDescriptorProto, MethodDescriptorProto, ServiceDescriptorProto};
+
+    /// Helper function to create a basic FileDescriptorProto for testing
+    fn create_test_file_descriptor(
+        name: &str,
+        package: &str,
+        services: Vec<ServiceDescriptorProto>,
+    ) -> FileDescriptorProto {
+        FileDescriptorProto {
+            name: Some(name.to_string()),
+            package: Some(package.to_string()),
+            service: services,
+            message_type: vec![],
+            enum_type: vec![],
+            dependency: vec![],
+            public_dependency: vec![],
+            weak_dependency: vec![],
+            extension: vec![],
+            options: None,
+            source_code_info: None,
+            syntax: None,
+        }
+    }
+
+    /// Helper function to create a basic MethodDescriptorProto for testing
+    fn create_test_method(
+        name: &str,
+        input_type: &str,
+        output_type: &str,
+        client_streaming: bool,
+        server_streaming: bool,
+    ) -> MethodDescriptorProto {
+        MethodDescriptorProto {
+            name: Some(name.to_string()),
+            input_type: Some(input_type.to_string()),
+            output_type: Some(output_type.to_string()),
+            client_streaming: Some(client_streaming),
+            server_streaming: Some(server_streaming),
+            options: None,
+        }
+    }
+
+    /// Helper function to create a basic ServiceDescriptorProto for testing
+    fn create_test_service(
+        name: &str,
+        methods: Vec<MethodDescriptorProto>,
+    ) -> ServiceDescriptorProto {
+        ServiceDescriptorProto {
+            name: Some(name.to_string()),
+            method: methods,
+            options: None,
+        }
+    }
+
+    #[test]
+    fn test_handle_code_generation_no_services() {
+        // Test with a proto file that has no services
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test.proto".to_string()],
+            parameter: None,
+            proto_file: vec![create_test_file_descriptor(
+                "test.proto",
+                "test.package",
+                vec![],
+            )],
+            compiler_version: None,
+        };
+
+        let response = handle_code_generation(request).unwrap();
+
+        // Should not generate any files since there are no services
+        assert_eq!(response.file.len(), 0);
+    }
+
+    #[test]
+    fn test_handle_code_generation_with_unary_unary_method() {
+        // Test with a simple unary-unary RPC method
+        let method = create_test_method(
+            "GetUser",
+            ".test.package.GetUserRequest",
+            ".test.package.GetUserResponse",
+            false,
+            false,
+        );
+        let service = create_test_service("UserService", vec![method]);
+        let file_descriptor =
+            create_test_file_descriptor("user.proto", "test.package", vec![service]);
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["user.proto".to_string()],
+            parameter: None,
+            proto_file: vec![file_descriptor],
+            compiler_version: None,
+        };
+
+        let response = handle_code_generation(request).unwrap();
+
+        assert_eq!(response.file.len(), 1);
+        let generated_file = &response.file[0];
+        assert_eq!(generated_file.name.as_ref().unwrap(), "user_pb2_slimrpc.py");
+
+        let content = generated_file.content.as_ref().unwrap();
+        assert!(content.contains("class UserServiceStub:"));
+        assert!(content.contains("class UserServiceServicer():"));
+        assert!(content.contains("def GetUser(self, request, msg_context, session_context):"));
+        assert!(
+            content.contains(
+                "def add_UserServiceServicer_to_server(servicer, server: slimrpc.Server):"
+            )
+        );
+        assert!(content.contains("unary_unary"));
+    }
+
+    #[test]
+    fn test_handle_code_generation_with_streaming_methods() {
+        // Test with all streaming combinations
+        let methods = vec![
+            create_test_method(
+                "UnaryToStream",
+                ".pkg.Request",
+                ".pkg.Response",
+                false,
+                true,
+            ),
+            create_test_method(
+                "StreamToUnary",
+                ".pkg.Request",
+                ".pkg.Response",
+                true,
+                false,
+            ),
+            create_test_method(
+                "StreamToStream",
+                ".pkg.Request",
+                ".pkg.Response",
+                true,
+                true,
+            ),
+        ];
+        let service = create_test_service("StreamService", methods);
+        let file_descriptor = create_test_file_descriptor("stream.proto", "pkg", vec![service]);
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["stream.proto".to_string()],
+            parameter: None,
+            proto_file: vec![file_descriptor],
+            compiler_version: None,
+        };
+
+        let response = handle_code_generation(request).unwrap();
+
+        assert_eq!(response.file.len(), 1);
+        let content = response.file[0].content.as_ref().unwrap();
+
+        assert!(content.contains("unary_stream"));
+        assert!(content.contains("stream_unary"));
+        assert!(content.contains("stream_stream"));
+        assert!(
+            content.contains("def UnaryToStream(self, request, msg_context, session_context):")
+        );
+        assert!(content.contains("def StreamToUnary(self, request_iterator, session_context):"));
+        assert!(content.contains("def StreamToStream(self, request_iterator, session_context):"));
+    }
+
+    #[test]
+    fn test_handle_code_generation_with_types_import_parameter() {
+        // Test with custom types_import parameter
+        let method = create_test_method("Echo", ".test.Echo", ".test.Echo", false, false);
+        let service = create_test_service("TestService", vec![method]);
+        let file_descriptor = create_test_file_descriptor("test.proto", "test", vec![service]);
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test.proto".to_string()],
+            parameter: Some("types_import=from mymodule import types as pb2".to_string()),
+            proto_file: vec![file_descriptor],
+            compiler_version: None,
+        };
+
+        let response = handle_code_generation(request).unwrap();
+
+        assert_eq!(response.file.len(), 1);
+        let content = response.file[0].content.as_ref().unwrap();
+        assert!(content.contains("from mymodule import types as pb2"));
+    }
+
+    #[test]
+    fn test_handle_code_generation_with_invalid_parameter() {
+        // Test with an unknown parameter
+        let method = create_test_method("Test", ".test.Req", ".test.Res", false, false);
+        let service = create_test_service("TestService", vec![method]);
+        let file_descriptor = create_test_file_descriptor("test.proto", "test", vec![service]);
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test.proto".to_string()],
+            parameter: Some("unknown_param=value".to_string()),
+            proto_file: vec![file_descriptor],
+            compiler_version: None,
+        };
+
+        let result = handle_code_generation(request);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Unknown parameter")
+        );
+    }
+
+    #[test]
+    fn test_handle_code_generation_with_invalid_parameter_format() {
+        // Test with invalid parameter format (no equals sign)
+        let method = create_test_method("Test", ".test.Req", ".test.Res", false, false);
+        let service = create_test_service("TestService", vec![method]);
+        let file_descriptor = create_test_file_descriptor("test.proto", "test", vec![service]);
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test.proto".to_string()],
+            parameter: Some("invalid_format".to_string()),
+            proto_file: vec![file_descriptor],
+            compiler_version: None,
+        };
+
+        let result = handle_code_generation(request);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid parameter format")
+        );
+    }
+
+    #[test]
+    fn test_handle_code_generation_multiple_services() {
+        // Test with multiple services in the same file
+        let method1 = create_test_method("Method1", ".pkg.Req1", ".pkg.Res1", false, false);
+        let method2 = create_test_method("Method2", ".pkg.Req2", ".pkg.Res2", false, false);
+
+        let service1 = create_test_service("Service1", vec![method1]);
+        let service2 = create_test_service("Service2", vec![method2]);
+
+        let file_descriptor =
+            create_test_file_descriptor("multi.proto", "pkg", vec![service1, service2]);
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["multi.proto".to_string()],
+            parameter: None,
+            proto_file: vec![file_descriptor],
+            compiler_version: None,
+        };
+
+        let response = handle_code_generation(request).unwrap();
+
+        assert_eq!(response.file.len(), 1);
+        let content = response.file[0].content.as_ref().unwrap();
+
+        assert!(content.contains("class Service1Stub:"));
+        assert!(content.contains("class Service1Servicer():"));
+        assert!(content.contains("class Service2Stub:"));
+        assert!(content.contains("class Service2Servicer():"));
+        assert!(content.contains("def add_Service1Servicer_to_server"));
+        assert!(content.contains("def add_Service2Servicer_to_server"));
+    }
+
+    #[test]
+    fn test_handle_code_generation_not_in_files_to_generate() {
+        // Test that files not in file_to_generate are skipped
+        let method = create_test_method("Test", ".pkg.Req", ".pkg.Res", false, false);
+        let service = create_test_service("TestService", vec![method]);
+        let file_descriptor = create_test_file_descriptor("test.proto", "pkg", vec![service]);
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["other.proto".to_string()], // Different file
+            parameter: None,
+            proto_file: vec![file_descriptor],
+            compiler_version: None,
+        };
+
+        let response = handle_code_generation(request).unwrap();
+
+        // Should not generate any files since test.proto is not in file_to_generate
+        assert_eq!(response.file.len(), 0);
+    }
+
+    #[test]
+    fn test_handle_code_generation_snake_case_file_name() {
+        // Test that file names are converted to snake_case
+        let method = create_test_method("Test", ".pkg.Req", ".pkg.Res", false, false);
+        let service = create_test_service("TestService", vec![method]);
+        let file_descriptor =
+            create_test_file_descriptor("CamelCaseFile.proto", "pkg", vec![service]);
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["CamelCaseFile.proto".to_string()],
+            parameter: None,
+            proto_file: vec![file_descriptor],
+            compiler_version: None,
+        };
+
+        let response = handle_code_generation(request).unwrap();
+
+        assert_eq!(response.file.len(), 1);
+        assert_eq!(
+            response.file[0].name.as_ref().unwrap(),
+            "camel_case_file_pb2_slimrpc.py"
+        );
+    }
+
+    #[test]
+    fn test_handle_code_generation_empty_package_name() {
+        // Test with empty package name
+        let method = create_test_method("Test", ".Req", ".Res", false, false);
+        let service = create_test_service("TestService", vec![method]);
+        let file_descriptor = create_test_file_descriptor("test.proto", "", vec![service]);
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test.proto".to_string()],
+            parameter: None,
+            proto_file: vec![file_descriptor],
+            compiler_version: None,
+        };
+
+        let response = handle_code_generation(request).unwrap();
+
+        assert_eq!(response.file.len(), 1);
+        // Should still generate valid code
+        let content = response.file[0].content.as_ref().unwrap();
+        assert!(content.contains("class TestServiceStub:"));
+    }
+
+    #[test]
+    fn test_handle_code_generation_multiple_parameters() {
+        // Test with multiple comma-separated parameters
+        let method = create_test_method("Test", ".test.Req", ".test.Res", false, false);
+        let service = create_test_service("TestService", vec![method]);
+        let file_descriptor = create_test_file_descriptor("test.proto", "test", vec![service]);
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test.proto".to_string()],
+            parameter: Some("types_import=from custom import pb2".to_string()),
+            proto_file: vec![file_descriptor],
+            compiler_version: None,
+        };
+
+        let response = handle_code_generation(request).unwrap();
+
+        assert_eq!(response.file.len(), 1);
+        let content = response.file[0].content.as_ref().unwrap();
+        assert!(content.contains("from custom import pb2"));
+    }
+
+    #[test]
+    fn test_handle_code_generation_google_protobuf_types() {
+        // Test with google.protobuf types (like Empty)
+        let method = create_test_method(
+            "TestEmpty",
+            ".google.protobuf.Empty",
+            ".test.Response",
+            false,
+            false,
+        );
+        let service = create_test_service("TestService", vec![method]);
+        let file_descriptor = create_test_file_descriptor("test.proto", "test", vec![service]);
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["test.proto".to_string()],
+            parameter: None,
+            proto_file: vec![file_descriptor],
+            compiler_version: None,
+        };
+
+        let response = handle_code_generation(request).unwrap();
+
+        assert_eq!(response.file.len(), 1);
+        let content = response.file[0].content.as_ref().unwrap();
+        // Should import google.protobuf types correctly
+        assert!(content.contains("google.protobuf.empty_pb2"));
+    }
+
+    #[test]
+    fn test_handle_code_generation_service_with_multiple_methods() {
+        // Test service with multiple methods
+        let methods = vec![
+            create_test_method("Create", ".pkg.CreateReq", ".pkg.CreateRes", false, false),
+            create_test_method("Read", ".pkg.ReadReq", ".pkg.ReadRes", false, false),
+            create_test_method("Update", ".pkg.UpdateReq", ".pkg.UpdateRes", false, false),
+            create_test_method("Delete", ".pkg.DeleteReq", ".pkg.DeleteRes", false, false),
+        ];
+        let service = create_test_service("CrudService", methods);
+        let file_descriptor = create_test_file_descriptor("crud.proto", "pkg", vec![service]);
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["crud.proto".to_string()],
+            parameter: None,
+            proto_file: vec![file_descriptor],
+            compiler_version: None,
+        };
+
+        let response = handle_code_generation(request).unwrap();
+
+        assert_eq!(response.file.len(), 1);
+        let content = response.file[0].content.as_ref().unwrap();
+
+        assert!(content.contains("def Create("));
+        assert!(content.contains("def Read("));
+        assert!(content.contains("def Update("));
+        assert!(content.contains("def Delete("));
+        assert!(content.contains("self.Create = channel.unary_unary"));
+        assert!(content.contains("self.Read = channel.unary_unary"));
+        assert!(content.contains("self.Update = channel.unary_unary"));
+        assert!(content.contains("self.Delete = channel.unary_unary"));
+    }
+
+    #[test]
+    fn test_handle_code_generation_cross_package_dependency() {
+        // Test the else branch where package_path != current_file_package (line 214)
+        // This tests types from a different package that IS found in file_to_package
+
+        // Create a dependency proto file with its own package
+        let dep_file_descriptor = create_test_file_descriptor(
+            "common/types.proto",
+            "common.types",
+            vec![], // No services in dependency
+        );
+
+        // Create the main service that uses types from the dependency package
+        let method = create_test_method(
+            "ProcessRequest",
+            ".common.types.CommonRequest", // Type from different package
+            ".service.pkg.ServiceResponse", // Type from current package
+            false,
+            false,
+        );
+        let service = create_test_service("MyService", vec![method]);
+        let main_file_descriptor =
+            create_test_file_descriptor("service/api.proto", "service.pkg", vec![service]);
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["service/api.proto".to_string()],
+            parameter: None,
+            proto_file: vec![dep_file_descriptor, main_file_descriptor],
+            compiler_version: None,
+        };
+
+        let response = handle_code_generation(request).unwrap();
+
+        assert_eq!(response.file.len(), 1);
+        let content = response.file[0].content.as_ref().unwrap();
+
+        // Should import the dependency package
+        assert!(content.contains("from . import common_types_pb2 as common_types_pb2"));
+        // Should use the imported module for the cross-package type
+        assert!(content.contains("common_types_pb2.CommonRequest"));
+        // Should use pb2 prefix for local package type
+        assert!(content.contains("pb2.ServiceResponse"));
+    }
+
+    #[test]
+    fn test_handle_code_generation_cross_package_type_not_found() {
+        // Test the fallback else case when package is not found (lines 234-237)
+        // This happens when a type references a package not in file_to_package map
+        let method = create_test_method(
+            "ProcessData",
+            ".unknown.package.Request", // Package not in proto_file list
+            ".test.package.Response",
+            false,
+            false,
+        );
+        let service = create_test_service("DataService", vec![method]);
+        let file_descriptor =
+            create_test_file_descriptor("data.proto", "test.package", vec![service]);
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["data.proto".to_string()],
+            parameter: None,
+            proto_file: vec![file_descriptor],
+            compiler_version: None,
+        };
+
+        let response = handle_code_generation(request).unwrap();
+
+        assert_eq!(response.file.len(), 1);
+        let content = response.file[0].content.as_ref().unwrap();
+
+        // When package is not found, it should fallback to local pb2 import
+        assert!(content.contains("pb2.Request"));
+        assert!(content.contains("request_deserializer=pb2.Request.FromString"));
+        assert!(content.contains("class DataServiceStub:"));
+    }
 }

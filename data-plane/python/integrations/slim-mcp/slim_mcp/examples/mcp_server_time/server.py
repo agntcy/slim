@@ -385,7 +385,7 @@ async def serve_slim(
     time_app = TimeServerApp(local_timezone)
     tasks: set[asyncio.Task] = set()
 
-    async with SLIMServer(config, organization, namespace, mcp_server) as slim_server:
+    async with SLIMServer([config], organization, namespace, mcp_server) as slim_server:
         try:
             async for new_session in slim_server:
                 task = asyncio.create_task(
