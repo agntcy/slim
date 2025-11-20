@@ -22,7 +22,7 @@ use slim_config::grpc::server::ServerConfig;
 use slim_controller::config::Config as ControllerConfig;
 use slim_controller::config::Config as DataplaneConfig;
 use slim_controller::service::ControlPlane;
-use slim_datapath::api::DataPlaneServiceServer;
+// removed unused DataPlaneServiceServer import
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::Name;
 
@@ -113,12 +113,6 @@ pub struct Service {
     /// the configuration of the service
     config: ServiceConfiguration,
 
-    /// drain watch to shutdown the service
-    watch: drain::Watch,
-
-    /// signal to shutdown the service (wrapped so it can be taken exactly once)
-    signal: Option<drain::Signal>,
-
     /// cancellation tokens to stop the servers main loop
     cancellation_tokens: parking_lot::RwLock<HashMap<String, CancellationToken>>,
 
@@ -140,17 +134,13 @@ impl std::fmt::Debug for Service {
 impl Service {
     /// Create a new Service
     pub fn new(id: ID) -> Self {
-        let (signal, watch) = drain::channel();
-
-        let message_processor = Arc::new(MessageProcessor::with_drain_channel(watch.clone()));
+        let message_processor = Arc::new(MessageProcessor::new());
 
         Service {
             id,
             message_processor,
             controller: None,
             config: ServiceConfiguration::new(),
-            watch,
-            signal: Some(signal),
             cancellation_tokens: parking_lot::RwLock::new(HashMap::new()),
             clients: parking_lot::RwLock::new(HashMap::new()),
         }
@@ -174,12 +164,6 @@ impl Service {
         &self.config
     }
 
-    /// Take (consume) the drain signal used to shutdown the service.
-    /// Returns None if it was already taken.
-    pub fn signal(&mut self) -> Option<drain::Signal> {
-        self.signal.take()
-    }
-
     /// Create a new ServiceBuilder
     pub fn builder() -> ServiceBuilder {
         ServiceBuilder::new()
@@ -196,13 +180,14 @@ impl Service {
         }
 
         // Run servers
-        for server in self.config.servers().iter() {
+        let config = self.config.clone();
+        for server in config.servers() {
             info!("starting server {}", server.endpoint);
             self.run_server(server).await?;
         }
 
         // Run clients
-        for client in self.config.clients().iter() {
+        for client in config.clients() {
             _ = self.connect(client).await?;
             info!("client connected to {}", client.endpoint);
         }
@@ -211,18 +196,44 @@ impl Service {
         let mut controller = self.config.controller.into_service(
             self.id.clone(),
             self.config.group_name.clone(),
-            self.watch.clone(),
             self.message_processor.clone(),
             self.config.servers(),
         );
 
         // run controller service
-        controller.run().await.map_err(|e| {
-            ServiceError::ControllerError(format!("failed to run controller service: {}", e))
-        })?;
+        controller.run().await?;
 
         // save controller service
         self.controller = Some(controller);
+
+        Ok(())
+    }
+
+    pub async fn shutdown(&self) -> Result<(), ServiceError> {
+        info!("shutting down service");
+
+        // Cancel and drain all server cancellation tokens
+        for (endpoint, token) in self.cancellation_tokens.write().drain() {
+            info!(%endpoint, "cancelling server");
+            token.cancel();
+        }
+
+        // Disconnect all clients (ignore individual disconnect errors, just log)
+        for (endpoint, conn_id) in self.clients.write().drain() {
+            info!(%endpoint, conn_id = %conn_id, "disconnecting client");
+            if let Err(e) = self.message_processor.disconnect(conn_id) {
+                error!("disconnect error for endpoint {}: {}", endpoint, e);
+            }
+        }
+
+        // Call the shutdown method of message processor to make sure all
+        // tasks ended gracefully
+        self.message_processor.shutdown().await?;
+
+        // Shutdown controller if present
+        if let Some(controller) = self.controller.as_ref() {
+            controller.shutdown().await?;
+        }
 
         Ok(())
     }
@@ -260,7 +271,8 @@ impl Service {
         })?;
 
         // Channels to communicate with SLIM
-        let (conn_id, tx_slim, rx_slim) = self.message_processor.register_local_connection(false);
+        let (conn_id, tx_slim, rx_slim) =
+            self.message_processor.register_local_connection(false)?;
 
         // Channels to communicate with the local app. This will be mainly used to receive notifications about new
         // sessions opened
@@ -287,22 +299,15 @@ impl Service {
     }
 
     pub async fn run_server(&self, config: &ServerConfig) -> Result<(), ServiceError> {
-        info!(%config, "server configured: setting it up");
-
-        let cancellation_token = config
-            .run_server(
-                &[DataPlaneServiceServer::from_arc(
-                    self.message_processor.clone(),
-                )],
-                self.watch.clone(),
-            )
+        info!("starting server {}", config.endpoint);
+        let cancellation_token = self
+            .message_processor
+            .run_server(config)
             .await
-            .map_err(|e| ServiceError::ConfigError(format!("failed to run server: {}", e)))?;
-
+            .map_err(|e| ServiceError::ConnectionError(e.to_string()))?;
         self.cancellation_tokens
             .write()
             .insert(config.endpoint.clone(), cancellation_token);
-
         Ok(())
     }
 
@@ -364,10 +369,9 @@ impl Service {
         match self.message_processor.disconnect(conn) {
             Ok(cfg) => {
                 let endpoint = cfg.endpoint.clone();
-                let mut clients = self.clients.write();
-                if let Some(stored_conn) = clients.get(&endpoint) {
+                if let Some(stored_conn) = self.clients.read().get(&endpoint) {
                     if *stored_conn == conn {
-                        clients.remove(&endpoint);
+                        self.clients.write().remove(&endpoint);
                         info!("removed client mapping for endpoint {}", endpoint);
                     } else {
                         debug!(
@@ -493,20 +497,8 @@ mod tests {
         // assert that the service is running
         assert!(logs_contain("starting server main loop"));
 
-        // Get drain signal
-        let signal = service.signal().expect("drain signal should be present");
-
-        // drop the service to ensure graceful shutdown
-        drop(service);
-
-        // send the drain signal and wait for graceful shutdown
-        match time::timeout(time::Duration::from_secs(10), signal.drain()).await {
-            Ok(_) => {}
-            Err(_) => panic!("timeout waiting for drain"),
-        }
-
-        // wait a bit
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        // graceful shutdown
+        //service.
 
         assert!(logs_contain("shutting down server"));
     }

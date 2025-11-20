@@ -3,7 +3,6 @@
 
 use clap::Parser;
 use slim_config::tls::provider;
-use tokio::time;
 use tracing::{debug, info, span};
 
 use slim::args;
@@ -38,7 +37,7 @@ fn main() {
     let runtime = runtime::build(runtime_config).expect("failed to build runtime");
 
     runtime.runtime.block_on(async move {
-        // tracing subscriber initialization
+        // tracing subscriber initialization must be called from the runtime
         let tracing_conf = config.tracing();
         let _guard = tracing_conf.setup_tracing_subscriber();
 
@@ -70,23 +69,10 @@ fn main() {
             }
         }
 
-        // Get all signals from services
-        let signals = services
-            .iter_mut()
-            .filter_map(|svc| svc.1.signal().map(|signal| (svc.0.clone(), signal)))
-            .collect::<Vec<_>>();
-
-        // Drop confis to release any resources before draining
-        drop(config);
-
-        // Send a drain signal to all services
-        for (id, signal) in signals {
-            info!("Draining service: {}", id);
-
-            match time::timeout(runtime.config.drain_timeout(), signal.drain()).await {
-                Ok(()) => {}
-                Err(_) => panic!("timeout waiting for drain for service {}", id),
-            }
+        // Gracefully stop services
+        for service in services.iter_mut() {
+            info!("Stopping service: {}", service.0);
+            service.1.shutdown().await.expect("failed to stop service")
         }
     });
 }

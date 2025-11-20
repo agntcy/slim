@@ -4,12 +4,15 @@
 use std::net::SocketAddr;
 use std::{pin::Pin, sync::Arc};
 
+use crate::api::DataPlaneServiceServer;
 use opentelemetry::propagation::{Extractor, Injector};
 use opentelemetry::trace::TraceContextExt;
 use parking_lot::RwLock;
 use slim_config::grpc::client::ClientConfig;
+use slim_config::grpc::server::ServerConfig;
 use slim_tracing::utils::INSTANCE_ID;
 use tokio::sync::mpsc::{self, Sender};
+use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::{Stream, StreamExt};
 use tokio_util::sync::CancellationToken;
@@ -107,8 +110,16 @@ fn create_span(function: &str, out_conn: u64, msg: &Message) -> Span {
 
 #[derive(Debug)]
 struct MessageProcessorInternal {
+    /// The forwarder to handle processing events
     forwarder: Forwarder<Connection>,
-    drain_channel: drain::Watch,
+
+    /// Drain signal to gracefully close all pending tasks
+    drain_signal: parking_lot::RwLock<Option<drain::Signal>>,
+
+    ///Drain watch to receive drain signal
+    drain_watch: parking_lot::RwLock<Option<drain::Watch>>,
+
+    /// Tx channel towards control plane
     tx_control_plane: RwLock<Option<Sender<Result<Message, Status>>>>,
 }
 
@@ -117,34 +128,60 @@ pub struct MessageProcessor {
     internal: Arc<MessageProcessorInternal>,
 }
 
-impl MessageProcessor {
-    pub fn new() -> (Self, drain::Signal) {
+impl Default for MessageProcessor {
+    fn default() -> Self {
         let (signal, watch) = drain::channel();
         let forwarder = Forwarder::new();
         let forwarder = MessageProcessorInternal {
             forwarder,
-            drain_channel: watch,
+            drain_signal: RwLock::new(Some(signal)),
+            drain_watch: RwLock::new(Some(watch)),
             tx_control_plane: RwLock::new(None),
         };
 
-        (
-            Self {
-                internal: Arc::new(forwarder),
-            },
-            signal,
-        )
-    }
-
-    pub fn with_drain_channel(watch: drain::Watch) -> Self {
-        let forwarder = Forwarder::new();
-        let forwarder = MessageProcessorInternal {
-            forwarder,
-            drain_channel: watch,
-            tx_control_plane: RwLock::new(None),
-        };
         Self {
             internal: Arc::new(forwarder),
         }
+    }
+}
+
+impl MessageProcessor {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Run a data plane gRPC server using this message processor's drain watch.
+    /// Returns a cancellation token that can be used to stop the server task.
+    pub async fn run_server(
+        &self,
+        config: &ServerConfig,
+    ) -> Result<CancellationToken, DataPathError> {
+        info!(%config, "starting dataplane server");
+        let watch = self.get_drain_watch()?;
+        // Wrap self in an Arc since the server builder expects an Arc<MessageProcessor>
+        let svc = Arc::new(self.clone());
+        config
+            .run_server(&[DataPlaneServiceServer::from_arc(svc)], watch)
+            .await
+            .map_err(|e| DataPathError::ConnectionError(format!("failed to run server: {}", e)))
+    }
+
+    pub async fn shutdown(&self) -> Result<(), DataPathError> {
+        // Take the drain signal
+        let signal = self
+            .internal
+            .drain_signal
+            .write()
+            .take()
+            .ok_or(DataPathError::AlreadyCloseError)?;
+
+        // Take drain watch
+        self.internal.drain_watch.write().take();
+
+        // Signal completion to all tasks
+        tokio::time::timeout(std::time::Duration::from_secs(10), signal.drain())
+            .await
+            .map_err(|_e| DataPathError::CloseTimeoutError)
     }
 
     fn set_tx_control_plane(&self, tx: Sender<Result<Message, Status>>) {
@@ -161,8 +198,14 @@ impl MessageProcessor {
         &self.internal.forwarder
     }
 
-    fn get_drain_watch(&self) -> drain::Watch {
-        self.internal.drain_channel.clone()
+    fn get_drain_watch(&self) -> Result<drain::Watch, DataPathError> {
+        self.internal
+            .drain_watch
+            .read()
+            .clone()
+            .ok_or(DataPathError::ConnectionError(
+                "data plane is shutting down".to_string(),
+            ))
     }
 
     async fn try_to_connect<C>(
@@ -173,7 +216,7 @@ impl MessageProcessor {
         remote: Option<SocketAddr>,
         existing_conn_index: Option<u64>,
         max_retry: u32,
-    ) -> Result<(tokio::task::JoinHandle<()>, u64), DataPathError>
+    ) -> Result<(JoinHandle<()>, u64), DataPathError>
     where
         C: tonic::client::GrpcService<tonic::body::Body>,
         C::Error: Into<StdError>,
@@ -228,7 +271,7 @@ impl MessageProcessor {
                         cancellation_token,
                         false,
                         false,
-                    );
+                    )?;
                     return Ok((ret, conn_index));
                 }
                 Err(e) => {
@@ -253,7 +296,7 @@ impl MessageProcessor {
         client_config: Option<ClientConfig>,
         local: Option<SocketAddr>,
         remote: Option<SocketAddr>,
-    ) -> Result<(tokio::task::JoinHandle<()>, u64), DataPathError>
+    ) -> Result<(JoinHandle<()>, u64), DataPathError>
     where
         C: tonic::client::GrpcService<tonic::body::Body>,
         C::Error: Into<StdError>,
@@ -299,11 +342,14 @@ impl MessageProcessor {
     pub fn register_local_connection(
         &self,
         from_control_plane: bool,
-    ) -> (
-        u64,
-        tokio::sync::mpsc::Sender<Result<Message, Status>>,
-        tokio::sync::mpsc::Receiver<Result<Message, Status>>,
-    ) {
+    ) -> Result<
+        (
+            u64,
+            tokio::sync::mpsc::Sender<Result<Message, Status>>,
+            tokio::sync::mpsc::Receiver<Result<Message, Status>>,
+        ),
+        DataPathError,
+    > {
         // create a pair tx, rx to be able to send messages with the standard processing loop
         let (tx1, rx1) = mpsc::channel(512);
 
@@ -341,10 +387,10 @@ impl MessageProcessor {
             cancellation_token,
             true,
             from_control_plane,
-        );
+        )?;
 
         // return the conn_id and  handles to be used to send and receive messages
-        (conn_id, tx1, rx2)
+        Ok((conn_id, tx1, rx2))
     }
 
     pub async fn send_msg(&self, mut msg: Message, out_conn: u64) -> Result<(), DataPathError> {
@@ -678,7 +724,7 @@ impl MessageProcessor {
                         debug!("cancellation token signaled, stopping reconnection process");
                         false
                     }
-                    _ = self.get_drain_watch().signaled() => {
+                    _ = self.get_drain_watch().unwrap().signaled() => {
                         debug!("drain watch signaled, stopping reconnection process");
                         false
                     }
@@ -720,15 +766,18 @@ impl MessageProcessor {
         cancellation_token: CancellationToken,
         is_local: bool,
         from_control_plane: bool,
-    ) -> tokio::task::JoinHandle<()> {
+    ) -> Result<JoinHandle<()>, DataPathError> {
         // Clone self to be able to move it into the spawned task
         let self_clone = self.clone();
         let token_clone = cancellation_token.clone();
         let client_conf_clone = client_config.clone();
         let tx_cp: Option<Sender<Result<Message, Status>>> = self.get_tx_control_plane();
+        let watch = self.get_drain_watch()?;
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let mut try_to_reconnect = true;
+
+            let mut watch = std::pin::pin!(watch.signaled());
             loop {
                 tokio::select! {
                     next = stream.next() => {
@@ -779,7 +828,7 @@ impl MessageProcessor {
                             }
                         }
                     }
-                    _ = self_clone.get_drain_watch().signaled() => {
+                    _ = &mut watch => {
                         debug!("shutting down stream on drain: {}", conn_index);
                         try_to_reconnect = false;
                         break;
@@ -837,7 +886,9 @@ impl MessageProcessor {
 
                 info!(telemetry = true, counter.num_active_connections = -1);
             }
-        })
+        });
+
+        Ok(handle)
     }
 
     fn match_for_io_error(err_status: &Status) -> Option<&std::io::Error> {
@@ -908,7 +959,11 @@ impl DataPlaneService for MessageProcessor {
             CancellationToken::new(),
             false,
             false,
-        );
+        )
+        .map_err(|e| {
+            error!("error starting new processing stream: {:?}", e);
+            Status::unavailable(format!("error processing stream: {:?}", e))
+        })?;
 
         let out_stream = ReceiverStream::new(rx);
         Ok(Response::new(
