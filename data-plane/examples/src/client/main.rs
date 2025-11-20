@@ -186,16 +186,18 @@ async fn main() -> Result<()> {
 
     info!("client shutting down");
 
-    if let Some(signal) = svc.signal() {
-        match time::timeout(loader.runtime().drain_timeout(), signal.drain()).await {
-            Ok(()) => info!("service drained"),
-            Err(_) => error!(
-                "timeout waiting for service drain after {:?}",
-                loader.runtime().drain_timeout()
-            ),
-        }
-    } else {
-        info!("service drain signal already taken");
+    let signal = svc
+        .signal()
+        .expect("service signal missing during shutdown");
+
+    drop(svc);
+
+    match time::timeout(loader.runtime().drain_timeout(), signal.drain()).await {
+        Ok(()) => info!("service drained"),
+        Err(_) => error!(
+            "timeout waiting for service drain after {:?}",
+            loader.runtime().drain_timeout()
+        ),
     }
 
     Ok(())

@@ -242,12 +242,17 @@ async fn main() {
     }
 
     // consume the service and get the drain signal (handle Option)
-    if let Some(signal) = svc.signal() {
-        match time::timeout(loader.runtime().drain_timeout(), signal.drain()).await {
-            Ok(()) => {}
-            Err(_) => panic!("timeout waiting for drain for service"),
-        }
-    } else {
-        info!("service drain signal already taken");
+    let signal = svc
+        .signal()
+        .expect("service signal missing during shutdown");
+
+    drop(svc);
+
+    match time::timeout(loader.runtime().drain_timeout(), signal.drain()).await {
+        Ok(()) => info!("service drained"),
+        Err(_) => panic!(
+            "timeout waiting for service drain after {:?}",
+            loader.runtime().drain_timeout()
+        ),
     }
 }
