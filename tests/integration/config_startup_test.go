@@ -117,7 +117,7 @@ var _ = Describe("SLIM server + client connection using configuration files", fu
 			serverSession, err := gexec.Start(serverCmd, GinkgoWriter, GinkgoWriter)
 			Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("failed to start server SLIM with config %s", c.ServerPath))
 
-			Eventually(serverSession, 15*time.Second).Should(gbytes.Say("running service"))
+			Eventually(serverSession, 15*time.Second).Should(gbytes.Say("Started service"))
 
 			// Ensure server cleanup
 			defer func() {

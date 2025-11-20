@@ -54,12 +54,12 @@ fn main() -> Result<()> {
 
         // start services
         for service in config.services.iter_mut() {
-            info!("Starting service: {}", service.0);
             service
                 .1
                 .start()
                 .await
-                .with_context(|| format!("failed to start service {}", service.0))?
+                .with_context(|| format!("failed to start service {}", service.0))?;
+            info!("Started service: {}", service.0);
         }
 
         // wait for shutdown signal

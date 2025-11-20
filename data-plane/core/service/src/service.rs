@@ -184,8 +184,8 @@ impl Service {
 
         // Run servers
         for server in self.config.servers().iter() {
-            info!("starting server {}", server.endpoint);
             self.run_server(server).await?;
+            info!("started server {}", server.endpoint);
         }
 
         // Run clients
