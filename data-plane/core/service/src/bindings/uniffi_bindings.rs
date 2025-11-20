@@ -124,11 +124,18 @@ impl From<ServiceError> for SlimError {
     }
 }
 
+impl From<slim_session::SessionError> for SlimError {
+    fn from(err: slim_session::SessionError) -> Self {
+        SlimError::SessionError {
+            message: err.to_string(),
+        }
+    }
+}
+
 /// Service manages the SLIM service lifecycle
 #[derive(uniffi::Object)]
 pub struct Service {
-    // We don't actually store anything here - service is managed globally
-    _marker: std::marker::PhantomData<()>,
+    runtime: Arc<tokio::runtime::Runtime>,
 }
 
 #[uniffi::export]
@@ -139,8 +146,15 @@ impl Service {
         // Initialize crypto
         initialize_crypto();
         
+        // Create a Tokio runtime for internal operations that need it
+        // (BindingsAdapter::new internally spawns tasks)
+        let runtime = tokio::runtime::Runtime::new()
+            .map_err(|e| SlimError::InternalError {
+                message: format!("Failed to create Tokio runtime: {}", e),
+            })?;
+        
         Ok(Arc::new(Self {
-            _marker: std::marker::PhantomData,
+            runtime: Arc::new(runtime),
         }))
     }
     
@@ -153,16 +167,9 @@ impl Service {
         );
         let verifier = provider.clone();
         
-        // Create runtime for async operations
-        let runtime = Arc::new(
-            tokio::runtime::Runtime::new()
-                .map_err(|e| SlimError::InternalError {
-                    message: format!("Failed to create runtime: {}", e),
-                })?
-        );
-        
-        // Create adapter using the complete constructor
-        let (adapter, service_ref) = runtime.block_on(async {
+        // BindingsAdapter::new() is synchronous but internally uses Tokio primitives
+        // We need to call it within a runtime context using spawn_blocking
+        let (adapter, service_ref) = self.runtime.block_on(async {
             tokio::task::spawn_blocking(move || {
                 BindingsAdapter::new(slim_name, provider, verifier, false)
             })
@@ -173,7 +180,7 @@ impl Service {
         Ok(Arc::new(App {
             adapter,
             _service_ref: service_ref,
-            runtime,
+            runtime: Arc::clone(&self.runtime),
         }))
     }
 }
@@ -208,9 +215,8 @@ impl App {
         let slim_dest: SlimName = destination.into();
         
         let adapter = &self.adapter;
-        let session_ctx = self.runtime.block_on(async {
-            let (ctx, _completion) = adapter.create_session(slim_config, slim_dest).await?;
-            Ok::<_, ServiceError>(ctx)
+        let (session_ctx, _completion) = self.runtime.block_on(async {
+            adapter.create_session(slim_config, slim_dest).await
         })?;
         
         // Convert SessionContext to BindingsSessionContext
@@ -240,8 +246,9 @@ impl App {
     /// Subscribe to a name
     pub fn subscribe(&self, name: Name, connection_id: Option<u64>) -> Result<(), SlimError> {
         let slim_name: SlimName = name.into();
+        let adapter = &self.adapter;
         self.runtime.block_on(async {
-            self.adapter.subscribe(&slim_name, connection_id).await
+            adapter.subscribe(&slim_name, connection_id).await
         })?;
         Ok(())
     }
@@ -249,8 +256,9 @@ impl App {
     /// Unsubscribe from a name
     pub fn unsubscribe(&self, name: Name, connection_id: Option<u64>) -> Result<(), SlimError> {
         let slim_name: SlimName = name.into();
+        let adapter = &self.adapter;
         self.runtime.block_on(async {
-            self.adapter.unsubscribe(&slim_name, connection_id).await
+            adapter.unsubscribe(&slim_name, connection_id).await
         })?;
         Ok(())
     }
@@ -258,8 +266,9 @@ impl App {
     /// Set a route to a name for a specific connection
     pub fn set_route(&self, name: Name, connection_id: u64) -> Result<(), SlimError> {
         let slim_name: SlimName = name.into();
+        let adapter = &self.adapter;
         self.runtime.block_on(async {
-            self.adapter.set_route(&slim_name, connection_id).await
+            adapter.set_route(&slim_name, connection_id).await
         })?;
         Ok(())
     }
@@ -267,8 +276,9 @@ impl App {
     /// Remove a route
     pub fn remove_route(&self, name: Name, connection_id: u64) -> Result<(), SlimError> {
         let slim_name: SlimName = name.into();
+        let adapter = &self.adapter;
         self.runtime.block_on(async {
-            self.adapter.remove_route(&slim_name, connection_id).await
+            adapter.remove_route(&slim_name, connection_id).await
         })?;
         Ok(())
     }
@@ -277,8 +287,9 @@ impl App {
     pub fn listen_for_session(&self, timeout_ms: Option<u32>) -> Result<Arc<SessionContext>, SlimError> {
         let timeout = timeout_ms.map(|ms| std::time::Duration::from_millis(ms as u64));
         
+        let adapter = &self.adapter;
         let session_ctx = self.runtime.block_on(async {
-            self.adapter.listen_for_session(timeout).await
+            adapter.listen_for_session(timeout).await
         })?;
         
         // Convert SessionContext to BindingsSessionContext
@@ -311,45 +322,44 @@ impl SessionContext {
         metadata: Option<std::collections::HashMap<String, String>>,
     ) -> Result<(), SlimError> {
         let slim_dest: SlimName = destination.into();
+        let inner = &self.inner;
         
         self.runtime.block_on(async {
-            self.inner
+            inner
                 .publish(&slim_dest, fanout, data, connection_out, payload_type, metadata)
                 .await
-                .map(|_| ())
-                .map_err(|e| SlimError::SendError {
-                    message: e.to_string(),
-                })
+        })
+        .map(|_| ())
+        .map_err(|e| SlimError::SendError {
+            message: e.to_string(),
         })
     }
     
     /// Invite a participant to the session
     pub fn invite(&self, participant: Name) -> Result<(), SlimError> {
         let slim_name: SlimName = participant.into();
+        let inner = &self.inner;
         
         self.runtime.block_on(async {
-            self.inner
-                .invite(&slim_name)
-                .await
-                .map(|_| ())
-                .map_err(|e| SlimError::SessionError {
-                    message: e.to_string(),
-                })
+            inner.invite(&slim_name).await
+        })
+        .map(|_| ())
+        .map_err(|e| SlimError::SessionError {
+            message: e.to_string(),
         })
     }
     
     /// Remove a participant from the session
     pub fn remove(&self, participant: Name) -> Result<(), SlimError> {
         let slim_name: SlimName = participant.into();
+        let inner = &self.inner;
         
         self.runtime.block_on(async {
-            self.inner
-                .remove(&slim_name)
-                .await
-                .map(|_| ())
-                .map_err(|e| SlimError::SessionError {
-                    message: e.to_string(),
-                })
+            inner.remove(&slim_name).await
+        })
+        .map(|_| ())
+        .map_err(|e| SlimError::SessionError {
+            message: e.to_string(),
         })
     }
 }
