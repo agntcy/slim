@@ -8,7 +8,7 @@ LIB_NAME = slim_service
 .PHONY: all build generate clean test example help
 
 # Default target
-all: build generate
+all: build generate example
 
 help:
 	@echo "SLIM Go Bindings (Proc Macro Approach) - Makefile targets:"
@@ -42,7 +42,7 @@ clean:
 	rm -rf generated/
 	@echo "✅ Clean complete"
 
-example: all
+example:
 	@echo "🚀 Running simple example..."
 	@cd examples/simple && \
 		go mod init github.com/agntcy/slim/examples/simple 2>/dev/null || true && \
