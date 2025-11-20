@@ -297,11 +297,13 @@ impl Proxy {
         self.connections.clear();
 
         // consume the service and get the drain signal
-        let signal = svc.signal();
-
-        match time::timeout(self.config.runtime.drain_timeout(), signal.drain()).await {
-            Ok(()) => {}
-            Err(_) => panic!("timeout waiting for drain for service"),
+        if let Some(signal) = svc.signal() {
+            match time::timeout(self.config.runtime.drain_timeout(), signal.drain()).await {
+                Ok(()) => {}
+                Err(_) => panic!("timeout waiting for drain for service"),
+            }
+        } else {
+            debug!("drain signal already taken for service");
         }
     }
 }
