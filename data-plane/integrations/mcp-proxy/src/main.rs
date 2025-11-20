@@ -84,5 +84,5 @@ async fn main() {
     );
 
     info!("starting MCP proxy");
-    proxy.start(service, config.runtime().drain_timeout()).await;
+    proxy.start(service).await;
 }

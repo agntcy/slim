@@ -202,7 +202,6 @@ dependencies = [
  "agntcy-slim-mls",
  "agntcy-slim-session",
  "dirs",
- "drain",
  "futures",
  "parking_lot",
  "serde",
