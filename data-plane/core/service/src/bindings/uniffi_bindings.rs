@@ -1,10 +1,16 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-//! UniFFI bindings using proc macros
-//! 
-//! This module provides a synchronous, non-generic wrapper around BindingsAdapter
-//! for use with UniFFI language bindings.
+//! # UniFFI Bindings Layer
+//!
+//! This module provides a language-agnostic FFI interface to SLIM.
+//! It acts as an adapter between UniFFI's requirements and SLIM's internal API.
+//!
+//! ## Why a separate wrapper?
+//! 1. Eliminates generics (UniFFI doesn't support them well)
+//! 2. Manages Tokio runtime for blocking FFI calls
+//! 3. Provides stable API independent of internal changes
+//! 4. Keeps UniFFI dependencies isolated to bindings crate
 
 use std::sync::Arc;
 use slim_auth::shared_secret::SharedSecret;
