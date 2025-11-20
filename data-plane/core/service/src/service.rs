@@ -493,8 +493,14 @@ mod tests {
         // assert that the service is running
         assert!(logs_contain("starting server main loop"));
 
+        // Get drain signal
+        let signal = service.signal().expect("drain signal should be present");
+
+        // drop the service to ensure graceful shutdown
+        drop(service);
+
         // send the drain signal and wait for graceful shutdown
-        match time::timeout(time::Duration::from_secs(10), service.signal().drain()).await {
+        match time::timeout(time::Duration::from_secs(10), signal.drain()).await {
             Ok(_) => {}
             Err(_) => panic!("timeout waiting for drain"),
         }

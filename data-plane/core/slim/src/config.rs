@@ -240,7 +240,7 @@ mod tests {
         let _runtime = loader.runtime();
 
         let services = loader.services().expect("services should load");
-        assert!(services.len() > 0, "services map should not be empty");
+        assert!(!services.is_empty(), "services map should not be empty");
     }
 
     #[test]
