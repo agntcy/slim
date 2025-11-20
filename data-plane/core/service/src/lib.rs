@@ -62,3 +62,6 @@ pub use bindings::{
 };
 pub use errors::ServiceError;
 pub use service::{KIND, Service, ServiceBuilder, ServiceConfiguration};
+
+// UniFFI scaffolding setup (must be at crate root)
+uniffi::setup_scaffolding!();
