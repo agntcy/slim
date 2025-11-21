@@ -10,7 +10,7 @@ use rmcp::{
     },
     transport::{IntoTransport, SseTransport, sse::SseTransportError},
 };
-use slim::config::ConfigResult;
+
 use slim_auth::shared_secret::SharedSecret;
 use slim_datapath::messages::Name;
 use slim_session::{
@@ -65,8 +65,6 @@ struct SessionId {
 
 pub struct Proxy {
     name: Name,
-    config: ConfigResult,
-    svc_id: slim_config::component::id::ID,
     mcp_server: String,
     // retain mapping for active session ids to help with cleanup / debugging
     connections: HashMap<SessionId, ()>,
@@ -210,28 +208,22 @@ fn start_proxy_session(ctx: SessionContext, mcp_server: String) {
 }
 
 impl Proxy {
-    pub fn new(
-        name: Name,
-        config: ConfigResult,
-        svc_id: slim_config::component::id::ID,
-        mcp_server: String,
-    ) -> Self {
+    pub fn new(name: Name, mcp_server: String) -> Self {
         Self {
             name,
-            config,
-            svc_id,
             mcp_server,
             connections: HashMap::new(),
         }
     }
 
-    pub async fn start(&mut self) {
-        // create service from config
-        let mut svc = self.config.services.remove(&self.svc_id).unwrap();
-
+    pub async fn start(
+        &mut self,
+        mut service: slim_service::Service,
+        drain_timeout: std::time::Duration,
+    ) {
         const SECRET: &str = "tUDNjNmc4s6om6yziR4nmBVKKTFCXhfJEiP";
 
-        let (app, mut slim_rx) = svc
+        let (app, mut slim_rx) = service
             .create_app(
                 &self.name,
                 SharedSecret::new("id", SECRET),
@@ -240,11 +232,11 @@ impl Proxy {
             .expect("failed to create app");
 
         // run the service - this will create all the connections provided via the config file.
-        svc.run().await.unwrap();
+        service.run().await.unwrap();
 
         // get the connection id
-        let conn_id = svc
-            .get_connection_id(&svc.config().clients()[0].endpoint)
+        let conn_id = service
+            .get_connection_id(&service.config().clients()[0].endpoint)
             .unwrap();
 
         // subscribe for local name
@@ -296,10 +288,11 @@ impl Proxy {
         info!("shutting down proxy server");
         self.connections.clear();
 
-        // consume the service and get the drain signal
-        let signal = svc.signal();
+        let signal = service.signal().expect("service signal missing");
 
-        match time::timeout(self.config.runtime.drain_timeout(), signal.drain()).await {
+        drop(service);
+
+        match time::timeout(drain_timeout, signal.drain()).await {
             Ok(()) => {}
             Err(_) => panic!("timeout waiting for drain for service"),
         }

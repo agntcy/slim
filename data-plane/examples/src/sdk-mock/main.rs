@@ -114,15 +114,16 @@ async fn main() {
     // get MLS group identifier
     let mls_group_id = args.mls_group_id();
 
-    // create configured components
-    let mut config = config::load_config(config_file).expect("failed to load configuration");
-    let _guard = config.tracing.setup_tracing_subscriber();
+    // create configured components using ConfigLoader
+    let mut loader = config::ConfigLoader::new(config_file).expect("failed to load configuration");
+    let _guard = loader.tracing().setup_tracing_subscriber();
 
     info!(%config_file, %local_name, %remote_name, "starting client");
 
     // get service
     let id = slim_config::component::id::ID::new_with_str("slim/0").unwrap();
-    let mut svc = config.services.remove(&id).unwrap();
+    let services = loader.services().expect("failed to load services");
+    let mut svc = services.remove(&id).unwrap();
 
     // create local app
     let id = 0;
@@ -240,11 +241,18 @@ async fn main() {
         app.delete_session(&session).unwrap();
     }
 
-    // consume the service and get the drain signal
-    let signal = svc.signal();
+    // consume the service and get the drain signal (handle Option)
+    let signal = svc
+        .signal()
+        .expect("service signal missing during shutdown");
 
-    match time::timeout(config.runtime.drain_timeout(), signal.drain()).await {
-        Ok(()) => {}
-        Err(_) => panic!("timeout waiting for drain for service"),
+    drop(svc);
+
+    match time::timeout(loader.runtime().drain_timeout(), signal.drain()).await {
+        Ok(()) => info!("service drained"),
+        Err(_) => panic!(
+            "timeout waiting for service drain after {:?}",
+            loader.runtime().drain_timeout()
+        ),
     }
 }

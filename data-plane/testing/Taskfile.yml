@@ -1,14 +1,18 @@
-version: '3'
+version: "3"
 
 silent: true
 set: [pipefail]
 shopt: [globstar]
 
-verbose: false
-
 env:
   CONFIG_CLIENT: ../config/base/client-config.yaml
   CONFIG_SERVER: ./config/base/server-config.yaml
+
+includes:
+  testing:
+    taskfile: ../../tasks/rust.yaml
+    vars:
+      GLOBAL_ARGS: "--workspace"
 
 tasks:
   default:
@@ -19,49 +23,90 @@ tasks:
     desc: "Run the SLIM server"
     dir: ".."
     cmds:
-      - cargo run --release --bin slim -- --config $CONFIG_SERVER
+      - task: testing:toolchain:run
+        vars:
+          BIN: "slim"
+          ARGS: ""
+          BIN_ARGS: "--config $CONFIG_SERVER"
 
   channel-example:moderator:mls:
     desc: "start moderator for test channel"
     cmds:
-      - cargo run --release --bin channel -- --config $CONFIG_CLIENT --name org/ns/moderator/1 --is-moderator --participants org/ns/t1 org/ns/t2
+      - task: testing:toolchain:run
+        vars:
+          BIN: "channel"
+          ARGS: ""
+          BIN_ARGS: "--config $CONFIG_CLIENT --name org/ns/moderator/1 --is-moderator --participants org/ns/t1 org/ns/t2"
 
   channel-example:participant-1:mls:
     desc: "start participant-1 for test channel"
     cmds:
-      - cargo run --release --bin channel -- --config $CONFIG_CLIENT --name org/ns/t1/1 --moderator-name org/ns/moderator/1
+      - task: testing:toolchain:run
+        vars:
+          BIN: "channel"
+          ARGS: ""
+          BIN_ARGS: "--config $CONFIG_CLIENT --name org/ns/t1/1 --moderator-name org/ns/moderator/1"
 
   channel-example:participant-2:mls:
     desc: "start participant-2 for test channel"
     cmds:
-      - cargo run --release --bin channel -- --config $CONFIG_CLIENT --name org/ns/t2/1 --moderator-name org/ns/moderator/1
+      - task: testing:toolchain:run
+        vars:
+          BIN: "channel"
+          ARGS: ""
+          BIN_ARGS: "--config $CONFIG_CLIENT --name org/ns/t2/1 --moderator-name org/ns/moderator/1"
 
   channel-example:moderator:no-mls:
     desc: "start moderator for test channel"
     cmds:
-      - cargo run --release --bin channel -- --config $CONFIG_CLIENT --name org/ns/moderator/1 --is-moderator --participants org/ns/t1 org/ns/t2 --mls-disabled
+      - task: testing:toolchain:run
+        vars:
+          BIN: "channel"
+          ARGS: ""
+          BIN_ARGS: "--config $CONFIG_CLIENT --name org/ns/moderator/1 --is-moderator --participants org/ns/t1 org/ns/t2 --mls-disabled"
 
   channel-example:participant-1:no-mls:
     desc: "start participant-1 for test channel"
     cmds:
-      - cargo run --release --bin channel -- --config $CONFIG_CLIENT --name org/ns/t1/1 --moderator-name org/ns/moderator/1 --mls-disabled
+      - task: testing:toolchain:run
+        vars:
+          BIN: "channel"
+          ARGS: ""
+          BIN_ARGS: "--config $CONFIG_CLIENT --name org/ns/t1/1 --moderator-name org/ns/moderator/1 --mls-disabled"
 
   channel-example:participant-2:no-mls:
     desc: "start participant-2 for test channel"
     cmds:
-      - cargo run --release --bin channel -- --config $CONFIG_CLIENT --name org/ns/t2/1 --moderator-name org/ns/moderator/1 --mls-disabled
+      - task: testing:toolchain:run
+        vars:
+          BIN: "channel"
+          ARGS: ""
+          BIN_ARGS: "--config $CONFIG_CLIENT --name org/ns/t2/1 --moderator-name org/ns/moderator/1 --mls-disabled"
 
   test:group-session:
     desc: "start MLS dynamic group test"
     cmds:
-      - |
-        cargo run --release --bin test-group
-        cargo run --release --bin test-group -- --mls-disabled
+      - task: testing:toolchain:run
+        vars:
+          BIN: "test-group"
+          ARGS: ""
+          BIN_ARGS: ""
+      - task: testing:toolchain:run
+        vars:
+          BIN: "test-group"
+          ARGS: ""
+          BIN_ARGS: "--mls-disabled"
 
   test:point-to-point-session:
     desc: "start test for point to point session"
     cmds:
-      - |
-        cargo run --release --bin test-p2p -- --mls-disabled
-        cargo run --release --bin test-p2p
-
+      - task: testing:toolchain:run
+        vars:
+          BIN: "test-p2p"
+          ARGS: ""
+          BIN_ARGS: "--mls-disabled"
+      - task: testing:toolchain:run
+        vars:
+          BIN: "test-p2p"
+          ARGS: ""
+          BIN_ARGS: ""

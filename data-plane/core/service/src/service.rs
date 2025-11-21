@@ -116,14 +116,25 @@ pub struct Service {
     /// drain watch to shutdown the service
     watch: drain::Watch,
 
-    /// signal to shutdown the service
-    signal: drain::Signal,
+    /// signal to shutdown the service (wrapped so it can be taken exactly once)
+    signal: Option<drain::Signal>,
 
     /// cancellation tokens to stop the servers main loop
     cancellation_tokens: parking_lot::RwLock<HashMap<String, CancellationToken>>,
 
     /// clients created by the service
     clients: parking_lot::RwLock<HashMap<String, u64>>,
+}
+
+impl std::fmt::Debug for Service {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Service")
+            .field("id", &self.id)
+            .field("servers", &self.config.servers())
+            .field("clients", &self.config.clients())
+            .field("group_name", &self.config.group_name)
+            .finish()
+    }
 }
 
 impl Service {
@@ -139,7 +150,7 @@ impl Service {
             controller: None,
             config: ServiceConfiguration::new(),
             watch,
-            signal,
+            signal: Some(signal),
             cancellation_tokens: parking_lot::RwLock::new(HashMap::new()),
             clients: parking_lot::RwLock::new(HashMap::new()),
         }
@@ -163,10 +174,10 @@ impl Service {
         &self.config
     }
 
-    /// get signal used to shutdown the service
-    /// NOTE: this method consumes the service!
-    pub fn signal(self) -> drain::Signal {
-        self.signal
+    /// Take (consume) the drain signal used to shutdown the service.
+    /// Returns None if it was already taken.
+    pub fn signal(&mut self) -> Option<drain::Signal> {
+        self.signal.take()
     }
 
     /// Create a new ServiceBuilder
@@ -482,8 +493,14 @@ mod tests {
         // assert that the service is running
         assert!(logs_contain("starting server main loop"));
 
+        // Get drain signal
+        let signal = service.signal().expect("drain signal should be present");
+
+        // drop the service to ensure graceful shutdown
+        drop(service);
+
         // send the drain signal and wait for graceful shutdown
-        match time::timeout(time::Duration::from_secs(10), service.signal().drain()).await {
+        match time::timeout(time::Duration::from_secs(10), signal.drain()).await {
             Ok(_) => {}
             Err(_) => panic!("timeout waiting for drain"),
         }
