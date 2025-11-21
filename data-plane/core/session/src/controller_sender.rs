@@ -107,13 +107,14 @@ impl ControllerSender {
                         e
                     ))
                 })?;
-                let mut missing_replies = HashSet::new();
-                for n in &payload.participants {
-                    let name = Name::from(n);
-                    if name != self.local_name {
-                        missing_replies.insert(name);
-                    }
-                }
+
+                let missing_replies: HashSet<Name> = payload
+                    .participants
+                    .iter()
+                    .map(Name::from)
+                    .filter(|n| *n != self.local_name)
+                    .collect();
+
                 self.on_send_message(message, missing_replies).await?;
             }
             slim_datapath::api::ProtoSessionMessageType::DiscoveryReply
@@ -133,19 +134,20 @@ impl ControllerSender {
                 let payload = message.extract_group_add().map_err(|e| {
                     SessionError::Processing(format!("failed to extract group add payload: {}", e))
                 })?;
-                let mut missing_replies = HashSet::new();
+
                 let new_participant = Name::from(payload.new_participant.as_ref().ok_or(
                     SessionError::Processing(
                         "missing new participant in GroupAdd message".to_string(),
                     ),
                 )?);
-                for p in &payload.participants {
-                    // exclude the local name and the new participant
-                    let name = Name::from(p);
-                    if name != self.local_name && name != new_participant {
-                        missing_replies.insert(name);
-                    }
-                }
+
+                let missing_replies: HashSet<Name> = payload
+                    .participants
+                    .iter()
+                    .map(Name::from)
+                    .filter(|n| *n != self.local_name && *n != new_participant)
+                    .collect();
+
                 self.on_send_message(message, missing_replies).await?;
             }
             slim_datapath::api::ProtoSessionMessageType::GroupRemove => {
@@ -157,14 +159,12 @@ impl ControllerSender {
                     ))
                 })?;
 
-                let mut missing_replies = HashSet::new();
-                for p in &payload.participants {
-                    // exclude only the local name
-                    let name = Name::from(p);
-                    if name != self.local_name {
-                        missing_replies.insert(name);
-                    }
-                }
+                let mut missing_replies: HashSet<Name> = payload
+                    .participants
+                    .iter()
+                    .map(Name::from)
+                    .filter(|n| *n != self.local_name)
+                    .collect();
 
                 // also the participant that we are removing will get the update
                 // so we need to add it in the list of endpoint from where
@@ -174,6 +174,7 @@ impl ControllerSender {
                         "missing removed participant in GroupRemove message".to_string(),
                     ),
                 )?);
+
                 if to_remove != self.local_name {
                     missing_replies.insert(to_remove);
                 }
