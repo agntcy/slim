@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use serde::Deserialize;
 use serde_yaml::{Value, from_str};
 use thiserror::Error;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::runtime::RuntimeConfiguration;
 use slim_config::component::configuration::Configuration;
