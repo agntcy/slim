@@ -78,7 +78,7 @@ async fn run_slim_node() -> Result<(), String> {
 }
 
 async fn run_participant_task(name: Name) -> Result<(), String> {
-    println!("Participant {:?} task starting...", name);
+    println!("Participant {} task starting...", name);
 
     let dataplane_client_config =
         GrpcClientConfig::with_endpoint(&format!("http://localhost:{}", DEFAULT_DATAPLANE_PORT))
@@ -124,10 +124,11 @@ async fn run_participant_task(name: Name) -> Result<(), String> {
         tokio::select! {
             msg_result = rx.recv() => {
                 match msg_result {
-                    None => { println!("Participant {}: end of stream", name_clone); break; }
+                    None => { println!("Participant {}: end of stream, close app", name_clone); break; }
                     Some(res) => match res {
                         Ok(notification) => match notification {
                             Notification::NewSession(session_ctx) => {
+                                println!("New session created on participant {}", name_clone);
                                 let session_moderator_clone = moderator_clone.clone();
                                 let session_channel_name_clone = channel_name_clone.clone();
                                 let session_name = name_clone.clone();
@@ -135,7 +136,7 @@ async fn run_participant_task(name: Name) -> Result<(), String> {
                                     loop{
                                         match rx.recv().await {
                                             None => {
-                                                println!("Session receiver: end of stream");
+                                                println!("Session receiver: end of stream on participant {}", session_name);
                                                 break;
                                             }
                                             Some(Ok(msg)) => {
@@ -146,6 +147,7 @@ async fn run_participant_task(name: Name) -> Result<(), String> {
                                                     if let Ok(val) = String::from_utf8(blob.to_vec()) {
                                                         if publisher == session_moderator_clone {
                                                             if val != *"hello there" { continue; }
+                                                            println!("received message {} on participant {}", msg_id, session_name);
                                                             let payload = msg_id.to_ne_bytes().to_vec();
                                                             let flags = SlimHeaderFlags::new(10, None, None, None, None);
                                                             if let Some(session_arc) = weak.upgrade() &&
@@ -300,7 +302,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             if blob.len() >= 4 {
                                 let bytes_array: [u8; 4] = blob[0..4].try_into().unwrap();
                                 let id = u32::from_ne_bytes(bytes_array) as usize;
-                                println!("recv msg {} from {}", id, msg.get_source());
                                 let mut lock = recv_msgs_clone.write();
                                 if id < lock.len() {
                                     lock[id] += 1;
@@ -345,10 +346,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &participants[to_remove], &participants[to_add]
             );
 
-            let _ = session_arc
+            let handler = session_arc
                 .remove_participant(&participants[to_remove])
-                .await;
-            let _ = session_arc.invite_participant(&participants[to_add]).await;
+                .await
+                .expect("error removing participant");
+            handler
+                .await
+                .expect("error awaiting the execution of the participant remove");
+
+            let handler = session_arc
+                .invite_participant(&participants[to_add])
+                .await
+                .expect("error adding participant");
+            handler
+                .await
+                .expect("error awaiting the execution of the participant add");
             to_remove = (to_remove + 1) % tot_participants;
             to_add = (to_add + 1) % tot_participants;
 
@@ -369,9 +381,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // close session
-    let handle = session_arc.close().expect("error closing session");
-    handle.await.expect("error waiting the handler");
+    // delete session
+    let handle = app.delete_session(session_arc.as_ref())?;
+    drop(session_arc);
+    handle.await.expect("error deleting session");
     println!("test succeeded");
     Ok(())
 }

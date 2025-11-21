@@ -109,7 +109,7 @@ async fn run_slim_node() -> Result<(), String> {
 
 async fn run_client_task(name: Name) -> Result<(), String> {
     /* this is the same */
-    println!("client {:?} task starting...", name);
+    println!("client {} task starting...", name);
 
     let mut svc = build_client_service(DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID)
         .map_err(|e| format!("Failed to build client service: {}", e))?;
@@ -376,6 +376,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Timeout waiting for all messages to be received");
         }
     }
+
+    // delete the session
+    let handle = app
+        .delete_session(session_arc.as_ref())
+        .expect("an error occurred deleting the session");
+    drop(session_arc);
+
+    // await handle
+    handle
+        .await
+        .expect("an error occurred waiting for session deletion");
 
     // the total number of packets received must be max_packets
     let mut sum = 0;
