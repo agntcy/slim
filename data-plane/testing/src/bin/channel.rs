@@ -151,10 +151,14 @@ async fn main() {
 
     // start local app
     // get service
-    let mut config = config::load_config(config_file).expect("failed to load configuration");
-    let _guard = config.tracing.setup_tracing_subscriber();
+    let mut config = config::ConfigLoader::new(config_file).expect("failed to load configuration");
+    let _guard = config.tracing().setup_tracing_subscriber();
     let svc_id = slim_config::component::id::ID::new_with_str("slim/0").unwrap();
-    let svc = config.services.get_mut(&svc_id).unwrap();
+    let svc = config
+        .services()
+        .expect("failed to load services")
+        .get_mut(&svc_id)
+        .unwrap();
 
     // parse local name string
     let local_name = parse_string_name(local_name_str.clone());

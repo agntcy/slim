@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use slim_auth::errors::AuthError;
+use slim_controller::errors::ControllerError;
+use slim_datapath::errors::DataPathError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -10,6 +12,10 @@ pub enum ServiceError {
     ConfigError(String),
     #[error("auth error: {0}")]
     AuthError(#[from] AuthError),
+    #[error("data path error: {0}")]
+    DataPathError(#[from] DataPathError),
+    #[error("controller error: {0}")]
+    ControllerError(#[from] ControllerError),
     #[error("app already registered")]
     AppAlreadyRegistered,
     #[error("app not found: {0}")]
@@ -42,8 +48,6 @@ pub enum ServiceError {
     ServerNotFound(String),
     #[error("error sending message: {0}")]
     MessageSendingError(String),
-    #[error("error in controller: {0}")]
-    ControllerError(String),
     #[error("storage error: {0}")]
     StorageError(String),
     #[error("drain signal missing")]

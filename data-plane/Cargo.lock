@@ -246,7 +246,6 @@ dependencies = [
  "agntcy-slim-session",
  "agntcy-slim-testing",
  "dirs",
- "drain",
  "futures",
  "parking_lot",
  "serde",

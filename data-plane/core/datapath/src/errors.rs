@@ -31,6 +31,10 @@ pub enum DataPathError {
     MessageSendError(String),
     #[error("stream error: {0}")]
     StreamError(String),
+    #[error("message processor already closed")]
+    AlreadyCloseError,
+    #[error("timeout waiting for tasks to drain")]
+    CloseTimeoutError,
     #[error("error processing message: {0}")]
     ProcessingError(String),
 }

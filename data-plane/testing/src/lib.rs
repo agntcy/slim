@@ -5,8 +5,27 @@ pub mod utils;
 
 use std::str::SplitWhitespace;
 
+use slim_config::component::id::ID;
+use slim_config::grpc::client::ClientConfig as GrpcClientConfig;
+use slim_config::tls::client::TlsClientConfig;
 use slim_datapath::messages::Name;
+use slim_service::{Service, ServiceConfiguration};
 use thiserror::Error;
+
+/// Build a client-only Service configured to connect to a local dataplane port.
+/// This helper is shared across test programs.
+/// - port: dataplane server port
+/// - service_id: component identifier string, e.g. "slim/0"
+pub fn build_client_service(port: u16, service_id: &str) -> Result<Service, String> {
+    let endpoint = format!("http://localhost:{}", port);
+    let client_cfg = GrpcClientConfig::with_endpoint(&endpoint)
+        .with_tls_setting(TlsClientConfig::default().with_insecure(true));
+    let service_cfg = ServiceConfiguration::new().with_client(vec![client_cfg]);
+    let svc_id = ID::new_with_str(service_id).map_err(|e| format!("Invalid service id: {}", e))?;
+    service_cfg
+        .build_server(svc_id)
+        .map_err(|e| format!("Failed to build client service: {}", e))
+}
 
 #[derive(Error, Debug, PartialEq)]
 pub enum ParsingError {
