@@ -425,10 +425,6 @@ where
 
         self.common.send_to_slim(reply).await?;
 
-        // Add a small delay before cleaning up routes to allow the ack to be delivered
-        // and processed by the moderator, reducing race conditions during shutdown.
-        tokio::time::sleep(Duration::from_millis(500)).await;
-
         self.leave(&msg).await?;
 
         self.common

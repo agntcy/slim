@@ -178,36 +178,20 @@ where
                     self.common.sender.on_timer_failure(message_id).await;
                     // the current task failed:
                     // 1. create the right error message and notify via ack_tx if present
-                    // Helper to signal failure and return error message
-                    let signal_failure =
-                        |task_ack_tx: &mut Option<oneshot::Sender<Result<(), SessionError>>>,
-                         msg: &str| {
-                            if let Some(tx) = task_ack_tx.take() {
-                                let _ = tx.send(Err(SessionError::ModeratorTask(msg.to_string())));
-                            }
-                            msg.to_string()
-                        };
-
                     let message = match &self.common.settings.config.session_type {
                         ProtoSessionType::PointToPoint => "session handshake failed",
                         ProtoSessionType::Multicast => "failed to add a participant to the group",
                         _ => panic!("session type not specified"),
                     };
 
-                    match self.current_task.as_mut().unwrap() {
-                        ModeratorTask::Add(task) => signal_failure(&mut task.ack_tx, message),
-                        ModeratorTask::Remove(task) => signal_failure(
-                            &mut task.ack_tx,
-                            "failed to remove a participant from the group",
-                        ),
-                        ModeratorTask::Update(task) => signal_failure(
-                            &mut task.ack_tx,
-                            "failed to update state of the participant",
-                        ),
-                        ModeratorTask::Close(task) => {
-                            signal_failure(&mut task.ack_tx, "failed to close the session")
-                        }
-                    };
+                    // the task should always exist a this point
+                    if let Some(task) = self.current_task.as_mut()
+                        && let Some(ack_tx) = task.ack_tx_take()
+                    {
+                        let _ = ack_tx.send(Err(SessionError::ModeratorTask(
+                            task.failure_message(message).to_string(),
+                        )));
+                    }
 
                     // 2. delete current task and pick a new one
                     self.current_task = None;
@@ -807,18 +791,12 @@ where
             .await?;
         self.common.sender.start_drain();
 
-        // Remove the local name from the participants list
-        let mut local = self.common.settings.source.clone();
-        local.reset_id();
-        self.group_list.remove(&local);
-
         // Collect the participants and create the close message
-        //let mut participants = vec![];
-        //for (k, v) in self.group_list.iter() {
-        //    let name = k.clone().with_id(*v);
-        //    participants.push(name);
-        //}
-        let participants = self.group_list.keys().cloned().collect();
+        let participants: Vec<_> = self
+            .group_list
+            .iter()
+            .map(|(k, v)| k.clone().with_id(*v))
+            .collect();
 
         let destination = self.common.settings.destination.clone();
         let close_id = rand::random::<u32>();

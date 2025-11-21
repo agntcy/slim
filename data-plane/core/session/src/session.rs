@@ -131,6 +131,7 @@ impl Session {
     pub fn remove_endpoint(&mut self, endpoint: &Name) {
         debug!("remove participant {} on {}", endpoint, self.local_name);
         self.sender.remove_endpoint(endpoint);
+        self.receiver.remove_endpoint(endpoint);
     }
 
     pub fn close(&mut self) {
