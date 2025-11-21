@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use serde::Deserialize;
 use serde_yaml::{Value, from_str};
 use thiserror::Error;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::runtime::RuntimeConfiguration;
 use slim_config::component::configuration::Configuration;
@@ -115,7 +115,7 @@ impl ConfigLoader {
                 .cloned()
                 .map(|v| {
                     serde_yaml::from_value(v).unwrap_or_else(|e| {
-                        debug!(error = ?e, "invalid tracing config, falling back to default");
+                        warn!(error = ?e, "invalid tracing config, falling back to default");
                         TracingConfiguration::default()
                     })
                 })
@@ -134,7 +134,7 @@ impl ConfigLoader {
                 .cloned()
                 .map(|v| {
                     serde_yaml::from_value(v).unwrap_or_else(|e| {
-                        debug!(error = ?e, "invalid runtime config, falling back to default");
+                        warn!(error = ?e, "invalid runtime config, falling back to default");
                         RuntimeConfiguration::default()
                     })
                 })

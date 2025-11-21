@@ -86,6 +86,11 @@ async def receive_loop(
                 f"{ctx.source_name} > {payload.decode()}",
                 style=custom_style,
             )
+            # if the message metadata contains publish to this message is a reply
+            # to a previous one. In this case we do not reply to avoid loops
+            if "PUBLISH_TO" not in ctx.metadata:
+                reply = f"message received by {session.src}"
+                await session.publish_to(ctx, reply.encode())
         except asyncio.CancelledError:
             # Graceful shutdown path (ctrl-c or program exit).
             break
