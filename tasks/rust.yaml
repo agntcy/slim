@@ -26,30 +26,7 @@ vars:
   OSTYPE:
     sh: bash -c 'echo $OSTYPE'
   LLVM_VERSION: '{{ .LLVM_VERSION | default "19" }}'
-  CLANG:
-    sh: "[[ {{.OSTYPE}} == darwin* ]] && xcrun --sdk macosx --find clang || echo 'clang-{{.LLVM_VERSION}}'"
-  STRIP:
-    sh: "[[ {{.OSTYPE}} == darwin* ]] && xcrun --sdk macosx --find strip || echo 'llvm-strip-{{.LLVM_VERSION}}'"
-  AR:
-    sh: "[[ {{.OSTYPE}} == darwin* ]] && xcrun --sdk macosx --find ar || echo 'llvm-ar-{{.LLVM_VERSION}}'"
-  OBJCOPY:
-    sh: "echo 'llvm-objcopy-{{.LLVM_VERSION}}'"
-  RUSTFLAGS_SELF_CONTAINED: "-Clink-self-contained=yes -Clinker=rust-lld -Clink-arg=-fuse-ld=lld -Clink-arg=-Wl,--no-rosegment"
-  LINKER:
-    sh: '[[ "$(uname -m)" == "{{.TARGET_ARCH}}" ]] && echo "/usr/bin/ld" || echo "/usr/{{.TARGET_ARCH}}-linux-gnu/bin/ld"'
-
-env:
-  # linux/arm64 + gnu
-  AR_aarch64_unknown_linux_gnu: "{{.AR}}"
-  CC_aarch64_unknown_linux_gnu: "{{.CLANG}}"
-  CFLAGS_aarch64_unknown_linux_gnu: "-fuse-ld={{.LINKER}}"
-  STRIP_aarch64_unknown_linux_gnu: "{{.STRIP}}"
-
-  # linux/amd64 + gnu
-  AR_x86_64_unknown_linux_gnu: "{{.AR}}"
-  CC_x86_64_unknown_linux_gnu: "{{.CLANG}}"
-  CFLAGS_x86_64_unknown_linux_gnu: "-fuse-ld={{.LINKER}}"
-  STRIP_x86_64_unknown_linux_gnu: "{{.STRIP}}"
+  OBJCOPY: 'llvm-objcopy-{{.LLVM_VERSION}}'
 
 tasks:
   print-vars:
