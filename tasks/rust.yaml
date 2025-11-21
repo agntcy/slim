@@ -22,9 +22,6 @@ vars:
   TARGET_ARCH:
     sh: "echo {{.TARGET}} | cut -d'-' -f1"
 
-  TOOLCHAIN: ""
-  OSTYPE:
-    sh: bash -c 'echo $OSTYPE'
   LLVM_VERSION: '{{ .LLVM_VERSION | default "19" }}'
   OBJCOPY: 'llvm-objcopy-{{.LLVM_VERSION}}'
 
@@ -39,26 +36,8 @@ tasks:
         echo "  TARGET: {{.TARGET}}"
         echo "  TARGET_ARGS: {{.TARGET_ARGS}}"
         echo "  TARGET_ARCH: {{.TARGET_ARCH}}"
-        echo "  TOOLCHAIN: {{.TOOLCHAIN}}"
-        echo "  OSTYPE: {{.OSTYPE}}"
         echo "  LLVM_VERSION: {{.LLVM_VERSION}}"
-        echo "  CLANG: {{.CLANG}}"
-        echo "  STRIP: {{.STRIP}}"
-        echo "  AR: {{.AR}}"
         echo "  OBJCOPY: {{.OBJCOPY}}"
-        echo "  RUSTFLAGS_SELF_CONTAINED: {{.RUSTFLAGS_SELF_CONTAINED}}"
-        echo "  LINKER: {{.LINKER}}"
-        echo "  AR_aarch64_unknown_linux_gnu: ${AR_aarch64_unknown_linux_gnu}"
-        echo "  CC_aarch64_unknown_linux_gnu: ${CC_aarch64_unknown_linux_gnu}"
-        echo "  CFLAGS_aarch64_unknown_linux_gnu: ${CFLAGS_aarch64_unknown_linux_gnu}"
-        echo "  STRIP_aarch64_unknown_linux_gnu: ${STRIP_aarch64_unknown_linux_gnu}"
-        echo "  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER}"
-        echo "  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS: ${CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS}"
-        echo "  AR_x86_64_unknown_linux_gnu: ${AR_x86_64_unknown_linux_gnu}"
-        echo "  CC_x86_64_unknown_linux_gnu: ${CC_x86_64_unknown_linux_gnu}"
-        echo "  CFLAGS_x86_64_unknown_linux_gnu: ${CFLAGS_x86_64_unknown_linux_gnu}"
-        echo "  STRIP_x86_64_unknown_linux_gnu: ${STRIP_x86_64_unknown_linux_gnu}"
-        echo "  CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: ${CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER}"
         echo ""
 
   fmt:
