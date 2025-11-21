@@ -407,9 +407,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // close session
-    let handle = session_arc.close().expect("error closing session");
-    handle.await.expect("error waiting the handler");
+    // delete session
+    let handle = app.delete_session(session_arc.as_ref())?;
+    drop(session_arc);
+    handle.await.expect("error deleting session");
     println!("test succeeded");
     Ok(())
 }

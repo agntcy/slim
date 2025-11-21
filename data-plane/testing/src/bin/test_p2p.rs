@@ -421,6 +421,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // delete the session
+    let handle = app
+        .delete_session(session_arc.as_ref())
+        .expect("an error occurred deleting the session");
+    drop(session_arc);
+
+    // await handle
+    handle
+        .await
+        .expect("an error occurred waiting for session deletion");
+
     // the total number of packets received must be max_packets
     let mut sum = 0;
     // if unicast we must see a single sendere
