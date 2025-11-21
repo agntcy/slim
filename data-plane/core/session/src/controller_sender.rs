@@ -76,9 +76,7 @@ impl ControllerSender {
 
     pub async fn on_message(&mut self, message: &Message) -> Result<(), SessionError> {
         if self.draining_state == ControllerSenderDrainStatus::Completed {
-            return Err(SessionError::Processing(
-                "sender closed, drop message".to_string(),
-            ));
+            return Err(SessionError::SenderClosedDrop);
         }
 
         match message.get_session_message_type() {
@@ -87,10 +85,8 @@ impl ControllerSender {
             | slim_datapath::api::ProtoSessionMessageType::LeaveRequest
             | slim_datapath::api::ProtoSessionMessageType::GroupWelcome => {
                 if self.draining_state == ControllerSenderDrainStatus::Initiated {
-                    // draining period is started, do no accept any new message
-                    return Err(SessionError::Processing(
-                        "draining period started, do not accept new messages".to_string(),
-                    ));
+                    // draining period started; reject new messages
+                    return Err(SessionError::DrainStartedRejectNew);
                 }
                 let mut missing_replies = HashSet::new();
                 let mut name = message.get_dst();
@@ -99,12 +95,7 @@ impl ControllerSender {
                 self.on_send_message(message, missing_replies).await?;
             }
             slim_datapath::api::ProtoSessionMessageType::GroupClose => {
-                let payload = message.extract_group_close().map_err(|e| {
-                    SessionError::Processing(format!(
-                        "failed to extract group close payload: {}",
-                        e
-                    ))
-                })?;
+                let payload = message.extract_group_close()?;
                 let mut missing_replies = HashSet::new();
                 for n in &payload.participants {
                     let name = Name::from(n);
@@ -126,15 +117,14 @@ impl ControllerSender {
             }
             slim_datapath::api::ProtoSessionMessageType::GroupAdd => {
                 // compute the list of participants that needs to send an ack
-                let payload = message.extract_group_add().map_err(|e| {
-                    SessionError::Processing(format!("failed to extract group add payload: {}", e))
-                })?;
+                let payload = message.extract_group_add()?;
                 let mut missing_replies = HashSet::new();
-                let mut new_participant = Name::from(payload.new_participant.as_ref().ok_or(
-                    SessionError::Processing(
-                        "missing new participant in GroupAdd message".to_string(),
-                    ),
-                )?);
+                let mut new_participant = Name::from(
+                    payload
+                        .new_participant
+                        .as_ref()
+                        .ok_or(SessionError::MissingNewParticipant)?,
+                );
                 new_participant.reset_id();
                 for p in &payload.participants {
                     // exclude the local name and the new participant
@@ -148,12 +138,7 @@ impl ControllerSender {
             }
             slim_datapath::api::ProtoSessionMessageType::GroupRemove => {
                 // compute the list of participants that needs to send an ack
-                let payload = message.extract_group_remove().map_err(|e| {
-                    SessionError::Processing(format!(
-                        "failed to extract group remove payload: {}",
-                        e
-                    ))
-                })?;
+                let payload = message.extract_group_remove()?;
 
                 let mut missing_replies = HashSet::new();
                 for p in &payload.participants {
@@ -168,11 +153,12 @@ impl ControllerSender {
                 // also the message that we are removing will get the update
                 // so we need to add it in the list of endpoint from where
                 // we expected to receive an ack
-                let to_remove = Name::from(payload.removed_participant.as_ref().ok_or(
-                    SessionError::Processing(
-                        "missing removed participant in GroupRemove message".to_string(),
-                    ),
-                )?);
+                let to_remove = Name::from(
+                    payload
+                        .removed_participant
+                        .as_ref()
+                        .ok_or(SessionError::MissingRemovedParticipant)?,
+                );
                 if to_remove != self.local_name {
                     missing_replies.insert(to_remove);
                 }
@@ -210,10 +196,7 @@ impl ControllerSender {
         };
 
         self.pending_replies.insert(id, pending);
-        self.tx
-            .send_to_slim(Ok(message.clone()))
-            .await
-            .map_err(|e| SessionError::SlimTransmission(e.to_string()))
+        self.tx.send_to_slim(Ok(message.clone())).await
     }
 
     fn on_reply_message(&mut self, message: &Message) {
@@ -250,17 +233,10 @@ impl ControllerSender {
         debug!("timeout for message {}", id);
 
         if let Some(pending) = self.pending_replies.get(&id) {
-            return self
-                .tx
-                .send_to_slim(Ok(pending.message.clone()))
-                .await
-                .map_err(|e| SessionError::SlimTransmission(e.to_string()));
+            return self.tx.send_to_slim(Ok(pending.message.clone())).await;
         };
 
-        Err(SessionError::SlimTransmission(format!(
-            "timer {} does not exists",
-            id
-        )))
+        Err(SessionError::TimerNotFound(format!("{}", id)))
     }
 
     pub async fn on_timer_failure(&mut self, id: u32) {

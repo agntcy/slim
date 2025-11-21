@@ -304,11 +304,7 @@ impl TlsClientConfig {
                 // Dynamic spire client cert resolver (no manual cert/key injection)
                 let spire_resolver =
                     SpireCertResolver::new(spire_cfg.clone(), config_builder.crypto_provider())
-                        .await
-                        .map_err(|e| ConfigError::InvalidSpireConfig {
-                            details: format!("failed to create spire cert resolver: {}", e),
-                            config: spire_cfg.clone(),
-                        })?;
+                        .await?;
                 config_builder.with_client_cert_resolver(Arc::new(spire_resolver))
             }
             TlsSource::File { cert, key, .. } => {

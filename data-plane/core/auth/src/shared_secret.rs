@@ -370,9 +370,7 @@ impl SharedSecret {
     }
 
     fn verify_hmac(&self, message: &str, expected_b64: &str) -> Result<(), AuthError> {
-        let expected = URL_SAFE_NO_PAD
-            .decode(expected_b64.as_bytes())
-            .map_err(|_| AuthError::TokenInvalid("invalid mac encoding".to_string()))?;
+        let expected = URL_SAFE_NO_PAD.decode(expected_b64.as_bytes())?;
         if expected.len() != 32 {
             return Err(AuthError::TokenInvalid(
                 "hmac verification failed".to_string(),
@@ -476,9 +474,7 @@ impl TokenProvider for SharedSecret {
         let claims_b64 = if custom_claims.is_empty() {
             String::new()
         } else {
-            let claims_json = serde_json::to_string(&custom_claims).map_err(|e| {
-                AuthError::TokenInvalid(format!("failed to serialize claims: {}", e))
-            })?;
+            let claims_json = serde_json::to_string(&custom_claims)?;
             URL_SAFE_NO_PAD.encode(claims_json.as_bytes())
         };
 
@@ -540,13 +536,10 @@ impl Verifier for SharedSecret {
 
         // Decode custom claims if present
         let custom_claims: serde_json::Value = if !claims_b64.is_empty() {
-            let claims_json = URL_SAFE_NO_PAD
-                .decode(claims_b64.as_bytes())
-                .map_err(|_| AuthError::TokenInvalid("invalid claims encoding".to_string()))?;
+            let claims_json = URL_SAFE_NO_PAD.decode(claims_b64.as_bytes())?;
             let claims_str = String::from_utf8(claims_json)
                 .map_err(|_| AuthError::TokenInvalid("invalid claims utf8".to_string()))?;
-            serde_json::from_str(&claims_str)
-                .map_err(|_| AuthError::TokenInvalid("invalid claims json".to_string()))?
+            serde_json::from_str(&claims_str)?
         } else {
             serde_json::json!({})
         };
@@ -717,12 +710,7 @@ mod tests {
         let truncated = &mac[..mac.len() / 2];
         let token = format!("{}:{}:{}::{}", s.id(), ts, nonce, truncated);
         let res = s.try_verify(token);
-        assert!(res.is_err());
-        assert!(
-            res.unwrap_err()
-                .to_string()
-                .contains("invalid mac encoding")
-        );
+        assert!(res.is_err_and(|e| matches!(e, AuthError::Base64DecodeError(_))));
     }
 
     #[test]
@@ -735,8 +723,7 @@ mod tests {
         thread::sleep(Duration::from_secs(2));
         let res = s.try_verify(token);
         // Expiration still trumps; token expired.
-        assert!(res.is_err());
-        assert!(res.unwrap_err().to_string().contains("expired"));
+        assert!(res.is_err_and(|e| matches!(e, AuthError::TokenInvalid(_))));
     }
 
     #[test]
@@ -764,12 +751,7 @@ mod tests {
         let bad_mac = "*invalid*mac*";
         let token = format!("{}:{}:{}::{}", s.id(), ts, nonce, bad_mac);
         let res = s.try_verify(token);
-        assert!(res.is_err());
-        assert!(
-            res.unwrap_err()
-                .to_string()
-                .contains("invalid mac encoding")
-        );
+        assert!(res.is_err_and(|e| matches!(e, AuthError::Base64DecodeError(_))));
     }
 
     #[test]

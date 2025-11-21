@@ -119,9 +119,7 @@ impl SessionReceiver {
 
     pub async fn on_message(&mut self, message: Message) -> Result<(), SessionError> {
         if self.draining_state == ReceiverDrainStatus::Completed {
-            return Err(SessionError::Processing(
-                "receiver closed, drop message".to_string(),
-            ));
+            return Err(SessionError::ReceiverClosedDrop);
         }
 
         match message.get_session_message_type() {
@@ -129,9 +127,7 @@ impl SessionReceiver {
                 debug!("received message");
                 if self.draining_state == ReceiverDrainStatus::Initiated {
                     // draining period is started, do no accept any new message
-                    return Err(SessionError::Processing(
-                        "drain started do no accept new messages".to_string(),
-                    ));
+                    return Err(SessionError::DrainStartedRejectNew);
                 }
                 if self.timer_factory.is_some() {
                     self.send_ack(&message).await?;
@@ -180,7 +176,7 @@ impl SessionReceiver {
             message.get_session_header().session_id,
             message.get_id(),
         )
-        .map_err(|e| SessionError::Processing(e.to_string()))?;
+        .map_err(SessionError::build_error)?;
 
         self.tx.send_to_slim(Ok(ack)).await
     }
@@ -208,9 +204,12 @@ impl SessionReceiver {
             return self.on_publish_message(message).await;
         }
 
-        let buffer = self.buffer.get_mut(&source).ok_or_else(|| {
-            SessionError::Processing("missing receiver buffer for incoming rtx reply".to_string())
-        })?;
+        let buffer = self
+            .buffer
+            .get_mut(&source)
+            .ok_or_else(|| SessionError::MissingPayload {
+                context: "receiver_buffer_rtx_reply",
+            })?;
         let recv_vec = buffer.on_lost_message(id);
         self.handle_recv_and_rtx_vectors(source, in_conn, recv_vec, vec![])
             .await
@@ -258,7 +257,7 @@ impl SessionReceiver {
                 self.session_id,
                 rtx_id,
             )
-            .map_err(|e| SessionError::Processing(e.to_string()))?;
+            .map_err(SessionError::build_error)?;
 
             // for each RTX start a timer
             debug!("create rtx timer for message {} form {}", rtx_id, source);
@@ -290,9 +289,12 @@ impl SessionReceiver {
     pub async fn on_timer_timeout(&mut self, id: u32, name: Name) -> Result<(), SessionError> {
         debug!("timeout for message {} from {}", id, name);
         let key = PendingRtxKey { name, id };
-        let pending = self.pending_rtxs.get(&key).ok_or_else(|| {
-            SessionError::Processing("missing pending rtx associated to timer".to_string())
-        })?;
+        let pending = self
+            .pending_rtxs
+            .get(&key)
+            .ok_or_else(|| SessionError::MissingPayload {
+                context: "pending_rtx_timer",
+            })?;
 
         debug!("send rtx {} request again", id);
         self.tx.send_to_slim(Ok(pending.message.clone())).await
@@ -304,19 +306,19 @@ impl SessionReceiver {
             id, name
         );
         let key = PendingRtxKey { name, id };
-        let mut pending = self.pending_rtxs.remove(&key).ok_or_else(|| {
-            SessionError::Processing("missing pending rtx associated to timer".to_string())
-        })?;
+        let mut pending =
+            self.pending_rtxs
+                .remove(&key)
+                .ok_or_else(|| SessionError::MissingPayload {
+                    context: "pending_rtx_timer",
+                })?;
 
         // stop the timer and remove the name if no pending rtx left
         pending.timer.stop();
 
         // notify the application that the message was not delivered correctly
         self.tx
-            .send_to_app(Err(SessionError::Processing(format!(
-                "error receiving message {}. stop retrying",
-                id
-            ))))
+            .send_to_app(Err(SessionError::receive_retry_failed(id)))
             .await
     }
 
@@ -679,11 +681,11 @@ mod tests {
 
         // Check that we received an error as expected
         match app_error {
-            Err(SessionError::Processing(msg)) => {
-                assert!(msg.contains("error receiving message 2. stop retrying"),);
+            Err(SessionError::MessageReceiveRetryFailed { id }) => {
+                assert_eq!(id, 2, "Expected retry failure for message id 2");
             }
             _ => panic!(
-                "Expected SessionError::Processing with max retries, got: {:?}",
+                "Expected SessionError::MessageReceiveRetryFailed with id 2, got: {:?}",
                 app_error
             ),
         }

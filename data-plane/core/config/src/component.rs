@@ -9,10 +9,15 @@ pub mod id;
 // Define the trait for the base component
 #[derive(Error, Debug)]
 pub enum ComponentError {
+    // Configuration / build-time
     #[error("configuration error {0}")]
     ConfigError(String),
+
+    // Runtime / operational
     #[error("runtime error: {0}")]
     RuntimeError(String),
+
+    // Unknown / catch-all
     #[error("unknown error")]
     Unknown,
 }

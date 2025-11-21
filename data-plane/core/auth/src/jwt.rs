@@ -10,7 +10,7 @@ use jsonwebtoken_aws_lc::jwk::KeyAlgorithm;
 pub use jsonwebtoken_aws_lc::{Algorithm, Validation};
 use jsonwebtoken_aws_lc::{
     DecodingKey, EncodingKey, Header as JwtHeader, TokenData, decode, decode_header, encode,
-    errors::ErrorKind, jwk::Jwk,
+    jwk::Jwk,
 };
 
 use parking_lot::RwLock;
@@ -96,8 +96,7 @@ fn key_alg_to_algorithm(key: &KeyAlgorithm) -> Result<Algorithm, AuthError> {
 }
 
 pub fn algorithm_from_jwk(jwk: &str) -> Result<Algorithm, AuthError> {
-    let jwk: Jwk = serde_json::from_str(jwk)
-        .map_err(|e| AuthError::ConfigError(format!("Failed to parse JWK: {}", e)))?;
+    let jwk: Jwk = serde_json::from_str(jwk)?;
 
     tracing::info!(?jwk, "JWK parsed successfully");
 
@@ -329,7 +328,6 @@ impl<S> Jwt<S> {
 
     fn sign_claims<Claims: Serialize>(&self, claims: &Claims) -> Result<String, AuthError> {
         // Ensure we have an encoding key for signing
-
         let encoding_key = self.encoding_key.as_ref().ok_or_else(|| {
             AuthError::ConfigError("Private key not configured for signing".to_string())
         })?;
@@ -337,9 +335,9 @@ impl<S> Jwt<S> {
         // Create the JWT header
         let header = JwtHeader::new(self.validation.algorithms[0]);
 
-        // Encode the claims into a JWT token
-        encode(&header, claims, &encoding_key.read())
-            .map_err(|e| AuthError::SigningError(format!("{}", e)))
+        // Encode the claims into a JWT token (use #[from] JwtError for propagation)
+        let token = encode(&header, claims, &encoding_key.read())?;
+        Ok(token)
     }
 
     fn sign_internal_claims(&self) -> Result<String, AuthError> {
@@ -417,29 +415,21 @@ impl<V> Jwt<V> {
     ) -> Result<Claims, AuthError> {
         let token = token.into();
 
-        // Get the token header
-        let token_header = decode_header(&token).map_err(|e| {
-            AuthError::TokenInvalid(format!("Failed to decode token header: {}", e))
-        })?;
+        // Get the token header (propagate underlying jsonwebtoken error directly)
+        let token_header = decode_header(&token)?;
 
         // Derive a validation using the same algorithm
         let mut validation = self.get_validation(token_header.alg);
 
         // Decode and verify the token
         let token_data: TokenData<Claims> =
-            decode(&token, &decoding_key, &validation).map_err(|e| match e.kind() {
-                ErrorKind::ExpiredSignature => AuthError::TokenExpired,
-                _ => AuthError::VerificationError(format!("{}", e)),
-            })?;
+            decode(&token, &decoding_key, &validation).map_err(map_jwt_error)?;
 
         // Get the exp to cache the token
         validation.insecure_disable_signature_validation();
         // Decode and verify the exp
-        let token_exp_data: TokenData<ExpClaim> = decode(&token, &decoding_key, &validation)
-            .map_err(|e| match e.kind() {
-                ErrorKind::ExpiredSignature => AuthError::TokenExpired,
-                _ => AuthError::VerificationError(format!("{}", e)),
-            })?;
+        let token_exp_data: TokenData<ExpClaim> =
+            decode(&token, &decoding_key, &validation).map_err(map_jwt_error)?;
 
         // Cache the token with its expiry
         self.cache(token, token_exp_data.claims.exp);
@@ -459,9 +449,7 @@ impl<V> Jwt<V> {
             validation.insecure_disable_signature_validation();
 
             let token_data: TokenData<Claims> =
-                decode(token, &DecodingKey::from_secret(b"notused"), &validation)
-                    .map_err(|e| AuthError::VerificationError(format!("{}", e)))
-                    .ok()?;
+                decode(token, &DecodingKey::from_secret(b"notused"), &validation).ok()?;
 
             // Return the claims from the cached token
             return Some(token_data.claims);
@@ -492,8 +480,7 @@ impl<V> Jwt<V> {
         let decoding_key = DecodingKey::from_secret(b"unused");
 
         // Get issuer from claims
-        decode(token, &decoding_key, &validation)
-            .map_err(|e| AuthError::VerificationError(format!("Failed to decode token: {}", e)))
+        decode(token, &decoding_key, &validation).map_err(map_jwt_error)
     }
 
     /// Get decoding key for verification
@@ -512,10 +499,8 @@ impl<V> Jwt<V> {
             let decoding_key = DecodingKey::from_secret(b"unused");
 
             // Get issuer from claims
-            let token_data: TokenData<StandardClaims> = decode(token, &decoding_key, &validation)
-                .map_err(|e| {
-                AuthError::VerificationError(format!("Failed to decode token: {}", e))
-            })?;
+            let token_data: TokenData<StandardClaims> =
+                decode(token, &decoding_key, &validation).map_err(map_jwt_error)?;
 
             let issuer = token_data.claims.iss.as_ref().ok_or_else(|| {
                 AuthError::ConfigError("no issuer found in JWT claims".to_string())
@@ -668,6 +653,17 @@ impl Verifier for VerifierJwt {
     }
 }
 
+fn map_jwt_error(e: jsonwebtoken_aws_lc::errors::Error) -> AuthError {
+    if matches!(
+        e.kind(),
+        jsonwebtoken_aws_lc::errors::ErrorKind::ExpiredSignature
+    ) {
+        AuthError::TokenExpired
+    } else {
+        AuthError::JwtLibraryError(e)
+    }
+}
+
 /// Helper function to extract the 'sub' claim from a JWT token without signature validation
 pub(crate) fn extract_sub_claim_unsafe(token: &str) -> Result<String, AuthError> {
     let mut validation = Validation::default();
@@ -678,8 +674,7 @@ pub(crate) fn extract_sub_claim_unsafe(token: &str) -> Result<String, AuthError>
         token,
         &DecodingKey::from_secret(&[]), // Empty key since we're not validating
         &validation,
-    )
-    .map_err(|e| AuthError::TokenInvalid(format!("Failed to decode token: {}", e)))?;
+    )?;
 
     // Extract the 'sub' claim
     token_data
@@ -1273,13 +1268,7 @@ mod tests {
         .with_static_token(Arc::new(RwLock::new("invalid.token.here".to_string())));
 
         let result = provider.get_id();
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Failed to decode token")
-        );
+        assert!(result.is_err_and(|e| matches!(e, AuthError::JwtLibraryError(_))));
     }
 
     #[tokio::test]

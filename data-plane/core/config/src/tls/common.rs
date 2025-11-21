@@ -109,10 +109,8 @@ impl StaticCertResolver {
         let cert_pem = cert_pem.into();
 
         // Read the cert and the key
-        let key_der =
-            PrivateKeyDer::from_pem_slice(key_pem.as_bytes()).map_err(ConfigError::InvalidPem)?;
-        let cert_der =
-            CertificateDer::from_pem_slice(cert_pem.as_bytes()).map_err(ConfigError::InvalidPem)?;
+        let key_der = PrivateKeyDer::from_pem_slice(key_pem.as_bytes())?;
+        let cert_der = CertificateDer::from_pem_slice(cert_pem.as_bytes())?;
         let cert_key = to_certified_key(vec![cert_der], key_der, crypto_provider);
 
         Ok(Self {
@@ -298,12 +296,20 @@ impl rustls::server::ResolvesServerCert for SpireCertResolver {
 /// Errors for Config
 #[derive(Error, Debug)]
 pub enum ConfigError {
+    // Version / format parsing
+    // TLS version validation
     #[error("invalid tls version: {0}")]
     InvalidTlsVersion(String),
+    // PEM / certificate/key parsing
     #[error("invalid pem format: {0}")]
-    InvalidPem(rustls_pki_types::pem::Error),
+    InvalidPem(#[from] rustls_pki_types::pem::Error),
+    // File content/read validation
     #[error("error reading cert/key from file: {0}")]
     InvalidFile(String),
+    // Low-level I/O
+    #[error("file I/O error: {0}")]
+    FileIo(#[from] std::io::Error),
+    // SPIRE integration / configuration
     #[error("error in spire configuration: {details}, config={config:?}")]
     #[cfg(not(target_family = "windows"))]
     InvalidSpireConfig {
@@ -314,17 +320,23 @@ pub enum ConfigError {
     #[cfg(not(target_family = "windows"))]
     SpireError(String),
 
-    #[error("root store error: {0}")]
-    RootStore(rustls::Error),
-    #[error("config builder error")]
-    ConfigBuilder(rustls::Error),
-    #[error("missing server cert and key")]
+    // rustls library errors
+    #[error("rustls error: {0}")]
+    Rustls(#[from] rustls::Error),
+    // Builder pattern errors
+    #[error("config builder error: {0}")]
+    ConfigBuilder(String),
+    // Required artifacts
+    #[error("missing server cert or key")]
     MissingServerCertAndKey,
-    #[error("verifier builder error")]
-    VerifierBuilder(VerifierBuilderError),
+    // Verifier construction errors
+    #[error("verifier builder error: {0}")]
+    VerifierBuilder(#[from] VerifierBuilderError),
+    // Unknown / catch-all
     #[error("unknown error")]
     Unknown,
 
+    // SPIRE runtime errors
     #[error("spire error: {0}")]
     #[cfg(not(target_family = "windows"))]
     Spire(String),

@@ -8,7 +8,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use slim_auth::builder::JwtBuilder;
 
-use super::{AuthError, ClientAuthenticator, ServerAuthenticator};
+use crate::auth::ConfigAuthError;
+use slim_auth::errors::AuthError;
+
+use super::{ClientAuthenticator, ServerAuthenticator};
 use slim_auth::jwt::{Key, SignerJwt, VerifierJwt};
 use slim_auth::jwt_middleware::{AddJwtLayer, ValidateJwtLayer};
 use slim_auth::metadata::MetadataMap;
@@ -181,7 +184,6 @@ impl Config {
                     .private_key(key)
                     .custom_claims(custom_claims)
                     .build()
-                    .map_err(|e| AuthError::ConfigError(e.to_string()))
             }
             _ => Err(AuthError::ConfigError(
                 "Encoding key is required for client authentication".to_string(),
@@ -193,16 +195,8 @@ impl Config {
     /// Returns an error if neither a decoding key nor autoresolve=true are configured.
     pub fn get_verifier(&self) -> Result<VerifierJwt, AuthError> {
         match self.key() {
-            JwtKey::Decoding(key) => self
-                .jwt_builder()
-                .public_key(key)
-                .build()
-                .map_err(|e| AuthError::ConfigError(e.to_string())),
-            JwtKey::Autoresolve => self
-                .jwt_builder()
-                .auto_resolve_keys(true)
-                .build()
-                .map_err(|e| AuthError::ConfigError(e.to_string())),
+            JwtKey::Decoding(key) => self.jwt_builder().public_key(key).build(),
+            JwtKey::Autoresolve => self.jwt_builder().auto_resolve_keys(true).build(),
             _ => Err(AuthError::ConfigError(
                 "Decoding key or autoresolve = true is required for server authentication"
                     .to_string(),
@@ -217,7 +211,7 @@ impl ClientAuthenticator for Config {
     // Associated types
     type ClientLayer = AddJwtLayer<SignerJwt>;
 
-    fn get_client_layer(&self) -> Result<Self::ClientLayer, AuthError> {
+    fn get_client_layer(&self) -> Result<Self::ClientLayer, ConfigAuthError> {
         let signer = self.get_provider()?;
         let duration = self.duration.as_secs();
         Ok(AddJwtLayer::new(signer, duration))
@@ -231,7 +225,7 @@ where
     // Associated types
     type ServerLayer = ValidateJwtLayer<MetadataMap, VerifierJwt>;
 
-    fn get_server_layer(&self) -> Result<Self::ServerLayer, AuthError> {
+    fn get_server_layer(&self) -> Result<Self::ServerLayer, ConfigAuthError> {
         let verifier = self.get_verifier()?;
         let custom_claims = self.custom_claims();
         Ok(ValidateJwtLayer::new(verifier, custom_claims))

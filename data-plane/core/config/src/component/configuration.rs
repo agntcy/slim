@@ -5,8 +5,11 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum ConfigurationError {
+    // Configuration / validation
     #[error("configuration error: {0}")]
     ConfigError(String),
+
+    // Unknown / catch-all
     #[error("unknown error")]
     Unknown,
 }

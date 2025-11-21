@@ -209,9 +209,7 @@ impl MessageProcessor {
                         .on_connection_established(connection, existing_conn_index);
                     if opt.is_none() {
                         error!("error adding connection to the connection table");
-                        return Err(DataPathError::ConnectionError(
-                            "error adding connection to the connection tables".to_string(),
-                        ));
+                        return Err(DataPathError::ConnectionError);
                     }
 
                     let conn_index = opt.unwrap();
@@ -242,9 +240,7 @@ impl MessageProcessor {
         }
 
         error!("unable to connect to the endpoint");
-        Err(DataPathError::ConnectionError(
-            "reached max connection retries".to_string(),
-        ))
+        Err(DataPathError::ConnectionError)
     }
 
     pub async fn connect<C>(
@@ -269,9 +265,7 @@ impl MessageProcessor {
             Some(c) => c,
             None => {
                 error!("error handling disconnect: connection unknown");
-                return Err(DataPathError::DisconnectionError(
-                    "connection not found".to_string(),
-                ));
+                return Err(DataPathError::DisconnectionError);
             }
         };
 
@@ -279,9 +273,7 @@ impl MessageProcessor {
             Some(t) => t,
             None => {
                 error!("error handling disconnect: missing cancellation token");
-                return Err(DataPathError::DisconnectionError(
-                    "missing cancellation token".to_string(),
-                ));
+                return Err(DataPathError::DisconnectionError);
             }
         };
 
@@ -291,9 +283,7 @@ impl MessageProcessor {
         connection
             .config_data()
             .cloned()
-            .ok_or(DataPathError::DisconnectionError(
-                "missing client config data".to_string(),
-            ))
+            .ok_or(DataPathError::DisconnectionError)
     }
 
     pub fn register_local_connection(
@@ -372,20 +362,15 @@ impl MessageProcessor {
                     Channel::Server(s) => s
                         .send(Ok(msg))
                         .await
-                        .map_err(|e| DataPathError::MessageSendError(e.to_string())),
+                        .map_err(|_e| DataPathError::ConnectionNotFound),
                     Channel::Client(s) => s
                         .send(msg)
                         .await
-                        .map_err(|e| DataPathError::MessageSendError(e.to_string())),
-                    _ => Err(DataPathError::MessageSendError(
-                        "connection not found".to_string(),
-                    )),
+                        .map_err(|_e| DataPathError::ConnectionNotFound),
+                    _ => Err(DataPathError::ConnectionNotFound),
                 }
             }
-            None => Err(DataPathError::MessageSendError(format!(
-                "connection {:?} not found",
-                out_conn
-            ))),
+            None => Err(DataPathError::ConnectionNotFound),
         }
     }
 
@@ -405,10 +390,7 @@ impl MessageProcessor {
         // without performing any match in the subscription table
         if let Some(val) = msg.get_forward_to() {
             debug!("forwarding message to connection {}", val);
-            return self
-                .send_msg(msg, val)
-                .await
-                .map_err(|e| DataPathError::PublicationError(e.to_string()));
+            return self.send_msg(msg, val).await;
         }
 
         match self
@@ -420,17 +402,13 @@ impl MessageProcessor {
                 // in the other cases clone only len - 1 times.
                 let mut i = 0;
                 while i < out_vec.len() - 1 {
-                    self.send_msg(msg.clone(), out_vec[i])
-                        .await
-                        .map_err(|e| DataPathError::PublicationError(e.to_string()))?;
+                    self.send_msg(msg.clone(), out_vec[i]).await?;
                     i += 1;
                 }
-                self.send_msg(msg, out_vec[i])
-                    .await
-                    .map_err(|e| DataPathError::PublicationError(e.to_string()))?;
+                self.send_msg(msg, out_vec[i]).await?;
                 Ok(())
             }
-            Err(e) => Err(DataPathError::PublicationError(e.to_string())),
+            Err(e) => Err(e),
         }
     }
 
@@ -498,21 +476,19 @@ impl MessageProcessor {
         let connection = self
             .forwarder()
             .get_connection(conn)
-            .ok_or_else(|| DataPathError::SubscriptionError("connection not found".to_string()))?;
+            .ok_or(DataPathError::ConnectionNotFound)?;
 
         debug!(
             "subscription update (add = {}) for name: {} - connection: {}",
             add, dst, conn
         );
 
-        if let Err(e) = self.forwarder().on_subscription_msg(
+        self.forwarder().on_subscription_msg(
             dst.clone(),
             conn,
             connection.is_local_connection(),
             add,
-        ) {
-            return Err(DataPathError::SubscriptionError(e.to_string()));
-        }
+        )?;
 
         match forward {
             None => {
@@ -527,14 +503,10 @@ impl MessageProcessor {
                 let identity = msg.get_identity();
 
                 // send message
-                match self.send_msg(msg, out_conn).await {
-                    Ok(_) => {
-                        self.forwarder()
-                            .on_forwarded_subscription(source, dst, identity, out_conn, add);
-                        Ok(())
-                    }
-                    Err(e) => Err(DataPathError::UnsubscriptionError(e.to_string())),
-                }
+                self.send_msg(msg, out_conn).await.map(|_| {
+                    self.forwarder()
+                        .on_forwarded_subscription(source, dst, identity, out_conn, add);
+                })
             }
         }
     }
@@ -572,7 +544,7 @@ impl MessageProcessor {
                 message_type = "none"
             );
 
-            return Err(DataPathError::InvalidMessage(err.to_string()));
+            return Err(DataPathError::InvalidMessage(err));
         }
 
         // add incoming connection to the SLIM header
@@ -617,7 +589,7 @@ impl MessageProcessor {
                 //////////////////////////////////////////////////////
 
                 // drop message
-                Err(DataPathError::ProcessingError(e.to_string()))
+                Err(e)
             }
         }
     }

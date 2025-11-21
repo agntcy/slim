@@ -97,7 +97,7 @@ impl Transmitter for MockTransmitter {
     async fn send_to_slim(&self, message: Result<Message, Status>) -> Result<(), SessionError> {
         self.slim_tx
             .send(message)
-            .map_err(|_| SessionError::Processing("channel closed".to_string()))
+            .map_err(|_| SessionError::ChannelClosed)
     }
 
     async fn send_to_app(

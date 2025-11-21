@@ -11,7 +11,7 @@ use std::sync::Arc;
 use serde::Deserialize;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info};
+use tracing::{debug, info};
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_config::component::configuration::{Configuration, ConfigurationError};
@@ -179,15 +179,13 @@ impl Service {
         // Check that at least one client or server is configured
 
         if self.config.servers().is_empty() && self.config.clients().is_empty() {
-            return Err(ServiceError::ConfigError(
-                "no dataplane server or clients configured".to_string(),
-            ));
+            return Err(ServiceError::NoServerOrClientConfigured);
         }
 
         // Run servers
         for server in self.config.servers().iter() {
-            info!("starting server {}", server.endpoint);
             self.run_server(server).await?;
+            info!("started server {}", server.endpoint);
         }
 
         // Run clients
@@ -206,9 +204,7 @@ impl Service {
         );
 
         // run controller service
-        controller.run().await.map_err(|e| {
-            ServiceError::ControllerError(format!("failed to run controller service: {}", e))
-        })?;
+        controller.run().await?;
 
         // save controller service
         self.controller = Some(controller);
@@ -240,13 +236,13 @@ impl Service {
         app_name.to_string().hash(&mut hasher);
         let hashed_name = hasher.finish();
 
-        let home_dir = dirs::home_dir().ok_or_else(|| {
-            ServiceError::StorageError("Unable to determine home directory".to_string())
-        })?;
+        let home_dir = dirs::home_dir().ok_or(ServiceError::HomeDirUnavailable)?;
+        // switched to typed variant: HomeDirUnavailable
+        // previous StorageError(String) mapping removed
         let storage_path = home_dir.join(".slim").join(hashed_name.to_string());
-        std::fs::create_dir_all(&storage_path).map_err(|e| {
-            ServiceError::StorageError(format!("Failed to create storage directory: {}", e))
-        })?;
+        std::fs::create_dir_all(&storage_path)?;
+        // switched to typed variant StorageIo
+        // previous StorageError(String) mapping removed
 
         // Channels to communicate with SLIM
         let (conn_id, tx_slim, rx_slim) = self.message_processor.register_local_connection(false);
@@ -276,8 +272,6 @@ impl Service {
     }
 
     pub async fn run_server(&self, config: &ServerConfig) -> Result<(), ServiceError> {
-        info!(%config, "server configured: setting it up");
-
         let cancellation_token = config
             .run_server(
                 &[DataPlaneServiceServer::from_arc(
@@ -285,8 +279,7 @@ impl Service {
                 )],
                 self.watch.clone(),
             )
-            .await
-            .map_err(|e| ServiceError::ConfigError(format!("failed to run server: {}", e)))?;
+            .await?;
 
         self.cancellation_tokens
             .write()
@@ -306,45 +299,27 @@ impl Service {
     }
 
     pub async fn connect(&self, config: &ClientConfig) -> Result<u64, ServiceError> {
-        // make sure there is no other client connected to the same endpoint
-        // TODO(msardara): we might want to allow multiple clients to connect to the same endpoint,
-        // but we need to introduce an identifier in the configuration for it
+        // ensure there is no other client connected to the same endpoint
         if self.clients.read().contains_key(&config.endpoint) {
             return Err(ServiceError::ClientAlreadyConnected(
                 config.endpoint.clone(),
             ));
         }
 
-        match config.to_channel().await {
-            Err(e) => {
-                error!("error reading channel config {:?}", e);
-                Err(ServiceError::ConfigError(e.to_string()))
-            }
-            Ok(channel) => {
-                //let client_config = config.clone();
-                let ret = self
-                    .message_processor
-                    .connect(channel, Some(config.clone()), None, None)
-                    .await
-                    .map_err(|e| ServiceError::ConnectionError(e.to_string()));
+        let channel = config.to_channel().await?;
 
-                let conn_id = match ret {
-                    Err(e) => {
-                        error!("connection error: {:?}", e);
-                        return Err(ServiceError::ConnectionError(e.to_string()));
-                    }
-                    Ok(conn_id) => conn_id.1,
-                };
+        // Propagate DataPathError directly (ServiceError::DataPath via #[from])
+        let (_idx, conn_id) = self
+            .message_processor
+            .connect(channel, Some(config.clone()), None, None)
+            .await?;
 
-                // register the client
-                self.clients
-                    .write()
-                    .insert(config.endpoint.clone(), conn_id);
+        // register the client
+        self.clients
+            .write()
+            .insert(config.endpoint.clone(), conn_id);
 
-                // return the connection id
-                Ok(conn_id)
-            }
-        }
+        Ok(conn_id)
     }
 
     pub fn disconnect(&self, conn: u64) -> Result<(), ServiceError> {
@@ -384,7 +359,7 @@ impl Component for Service {
     }
 
     async fn start(&mut self) -> Result<(), ComponentError> {
-        info!("starting service");
+        debug!("starting service");
         self.run()
             .await
             .map_err(|e| ComponentError::RuntimeError(e.to_string()))

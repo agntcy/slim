@@ -9,7 +9,7 @@ use serde_json::Value as JsonValue;
 use slim_auth::metadata::MetadataMap;
 use std::collections::HashMap;
 
-use crate::errors::SlimIdentityError;
+use crate::errors::MlsError;
 
 /// Claim key constants to ensure consistency across the codebase
 pub mod claim_keys {
@@ -43,7 +43,7 @@ impl IdentityClaims {
     ///
     /// Tries to get the public key from the top-level claims first,
     /// then falls back to custom_claims if not found.
-    pub fn from_json(claims: &JsonValue) -> Result<Self, SlimIdentityError> {
+    pub fn from_json(claims: &JsonValue) -> Result<Self, MlsError> {
         // Try to get the public key from claims, falling back to custom_claims
         let public_key = claims
             .get(claim_keys::PUBKEY)
@@ -55,7 +55,7 @@ impl IdentityClaims {
                     .and_then(|cc| cc.get(claim_keys::PUBKEY))
                     .and_then(|pk| pk.as_str())
             })
-            .ok_or(SlimIdentityError::PublicKeyNotFound)?;
+            .ok_or(MlsError::PublicKeyNotFound)?;
 
         // Get the subject of this identity
         // Fall back to "id" field if "sub" is not present (for SharedSecret compatibility)
@@ -63,7 +63,7 @@ impl IdentityClaims {
             .get(claim_keys::SUBJECT)
             .and_then(|s| s.as_str())
             .or_else(|| claims.get("id").and_then(|s| s.as_str()))
-            .ok_or(SlimIdentityError::SubjectNotFound)?;
+            .ok_or(MlsError::SubjectNotFound)?;
 
         Ok(Self {
             subject: subject.to_string(),
@@ -142,7 +142,7 @@ mod tests {
         });
 
         let result = IdentityClaims::from_json(&claims);
-        assert!(matches!(result, Err(SlimIdentityError::PublicKeyNotFound)));
+        assert!(matches!(result, Err(MlsError::PublicKeyNotFound)));
     }
 
     #[test]
@@ -152,7 +152,7 @@ mod tests {
         });
 
         let result = IdentityClaims::from_json(&claims);
-        assert!(matches!(result, Err(SlimIdentityError::SubjectNotFound)));
+        assert!(matches!(result, Err(MlsError::SubjectNotFound)));
     }
 
     #[test]

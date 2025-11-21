@@ -12,8 +12,10 @@ mod file;
 
 #[derive(Error, Debug)]
 pub enum ProviderError {
+    // Lookup / resolution
     #[error("not found")]
     NotFound,
+    // Unknown / catch-all
     #[error("unknown error")]
     Unknown,
 }
