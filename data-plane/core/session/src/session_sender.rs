@@ -197,47 +197,26 @@ impl SessionSender {
     ) -> Result<(), SessionError> {
         let is_publish_to = message.metadata.contains_key(PUBLISH_TO);
 
-        // if is_publish_to and the message destination is non
+        // if is_publish_to and the message destination is not
         // in the endpoint list we drop the messages
         if is_publish_to && !self.endpoints_list.contains(&message.get_dst()) {
-            debug!("cannot forward the message to the select destination");
-            return Err(SessionError::SlimTransmission(
-                "Unkwon destination".to_string(),
+            debug!(
+                "cannot forward the message to the select destination {}",
+                message.get_dst()
+            );
+            return Err(SessionError::UnknownDestination(
+                message.get_dst().to_string(),
             ));
         }
 
-        // compute message id
-        let message_id = if is_publish_to {
-            // if the message is sent using the publish_to the message
-            // id is taken randomly and it must be > u16::MAX
-            // Use modulo to ensure uniform distribution in range [u16::MAX + 1, u32::MAX - 1]
-            rand::random::<u32>() % (u32::MAX - u16::MAX as u32) + u16::MAX as u32 + 1
-        } else {
-            // by increasing next_id before assign it to message_id
-            // we always start the sequence from 1. The max message_id
-            // is u16::MAX. after that we wrap to 0.
-            self.next_id = (self.next_id + 1) % (u16::MAX as u32 + 1);
-            self.next_id
-        };
+        let (message_id, fanout) = self.id_and_fanout(is_publish_to, &message);
 
         // Set the session id, message id and session type
         let session_header = message.get_session_header_mut();
         session_header.set_message_id(message_id);
         session_header.set_session_id(self.session_id);
         session_header.set_session_type(self.session_type);
-
-        // set the fanout
-        let slim_header = message.get_slim_header_mut();
-        if self.session_type == ProtoSessionType::Multicast && !is_publish_to {
-            slim_header.set_fanout(Self::MAX_FANOUT);
-        } else {
-            slim_header.set_fanout(1);
-        }
-
-        if !is_publish_to {
-            // add the message to the producer buffer.
-            self.buffer.push(message.clone());
-        }
+        message.get_slim_header_mut().set_fanout(fanout);
 
         // Store the ack notifier if provided
         if let Some(tx) = ack_tx {
@@ -261,6 +240,30 @@ impl SessionSender {
         self.set_timer_and_send(message).await
     }
 
+    fn id_and_fanout(&mut self, is_publish_to: bool, message: &Message) -> (u32, u32) {
+        if is_publish_to {
+            // if the message is sent using the publish_to the message
+            // id is taken randomly and it must be > u16::MAX
+            // Use modulo to ensure uniform distribution in range [u16::MAX + 1, u32::MAX - 1]
+            let id = rand::random::<u32>() % (u32::MAX - u16::MAX as u32) + u16::MAX as u32 + 1;
+            return (id, 1);
+        }
+
+        // by increasing next_id before assign it to message_id
+        // we always start the sequence from 1. The max message_id
+        // is u16::MAX. after that we wrap to 0.
+        self.next_id = (self.next_id + 1) % (u16::MAX as u32 + 1);
+        let id = self.next_id;
+
+        let fanout = match self.session_type {
+            ProtoSessionType::Multicast => Self::MAX_FANOUT,
+            _ => 1,
+        };
+
+        self.buffer.push(message.clone());
+        (id, fanout)
+    }
+
     async fn set_timer_and_send(&mut self, message: Message) -> Result<(), SessionError> {
         let message_id = message.get_id();
         let is_publish_to = message.metadata.contains_key(PUBLISH_TO);
@@ -270,9 +273,7 @@ impl SessionSender {
             debug!("reliable sender, set all timers");
             // set the list of missing timers according to the destination of message
             let missing_timers = if is_publish_to {
-                let mut m = HashSet::new();
-                m.insert(message.get_dst());
-                m
+                std::iter::once(message.get_dst()).collect::<HashSet<_>>()
             } else {
                 self.endpoints_list.clone()
             };
@@ -399,6 +400,7 @@ impl SessionSender {
                 slim_datapath::api::ProtoSessionMessageType::RtxReply,
                 self.session_id,
                 message_id,
+                None,
             )
             .map_err(|e| SessionError::Processing(e.to_string()))?;
 

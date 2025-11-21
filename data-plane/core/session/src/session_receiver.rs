@@ -177,7 +177,12 @@ impl SessionReceiver {
     }
 
     pub async fn send_ack(&mut self, message: &Message) -> Result<(), SessionError> {
-        let mut ack = new_message_from_session_fields(
+        let publish_meta = message.contains_metadata(PUBLISH_TO).then(|| {
+            std::iter::once((PUBLISH_TO.to_string(), TRUE_VAL.to_string()))
+                .collect::<std::collections::HashMap<_, _>>()
+        });
+
+        let ack = new_message_from_session_fields(
             &self.local_name,
             &message.get_source(),
             message.get_incoming_conn(),
@@ -186,12 +191,9 @@ impl SessionReceiver {
             slim_datapath::api::ProtoSessionMessageType::MsgAck,
             message.get_session_header().session_id,
             message.get_id(),
+            publish_meta,
         )
         .map_err(|e| SessionError::Processing(e.to_string()))?;
-
-        if message.contains_metadata(PUBLISH_TO) {
-            ack.insert_metadata(PUBLISH_TO.to_string(), TRUE_VAL.to_string());
-        }
 
         self.tx.send_to_slim(Ok(ack)).await
     }
@@ -268,6 +270,7 @@ impl SessionReceiver {
                 slim_datapath::api::ProtoSessionMessageType::RtxRequest,
                 self.session_id,
                 rtx_id,
+                None,
             )
             .map_err(|e| SessionError::Processing(e.to_string()))?;
 
