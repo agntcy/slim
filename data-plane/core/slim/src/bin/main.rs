@@ -76,7 +76,7 @@ fn main() {
             .filter_map(|svc| svc.1.signal().map(|signal| (svc.0.clone(), signal)))
             .collect::<Vec<_>>();
 
-        // Drop confis to release any resources before draining
+        // Drop config to release any resources before draining
         drop(config);
 
         // Send a drain signal to all services
