@@ -26,7 +26,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tokio::{sync::mpsc, time};
+use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace};
 
 use async_trait::async_trait;
@@ -219,7 +219,7 @@ impl Proxy {
     pub async fn start(
         &mut self,
         mut service: slim_service::Service,
-        drain_timeout: std::time::Duration,
+        _drain_timeout: std::time::Duration,
     ) {
         const SECRET: &str = "tUDNjNmc4s6om6yziR4nmBVKKTFCXhfJEiP";
 
@@ -288,13 +288,6 @@ impl Proxy {
         info!("shutting down proxy server");
         self.connections.clear();
 
-        let signal = service.signal().expect("service signal missing");
-
-        drop(service);
-
-        match time::timeout(drain_timeout, signal.drain()).await {
-            Ok(()) => {}
-            Err(_) => panic!("timeout waiting for drain for service"),
-        }
+        service.shutdown().await.unwrap();
     }
 }

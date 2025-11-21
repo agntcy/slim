@@ -4,6 +4,7 @@
 use clap::Parser;
 use slim::config;
 use slim_datapath::messages::Name;
+use std::time::Duration;
 use tracing::{error, info};
 
 mod proxy;
@@ -84,5 +85,5 @@ async fn main() {
     );
 
     info!("starting MCP proxy");
-    proxy.start(service, config.runtime().drain_timeout()).await;
+    proxy.start(service, Duration::from_secs(10)).await;
 }

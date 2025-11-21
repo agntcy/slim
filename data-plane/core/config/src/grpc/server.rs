@@ -13,7 +13,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 use tonic::transport::server::TcpIncoming;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 use super::errors::ConfigError;
 use crate::auth::ServerAuthenticator;
@@ -459,18 +459,18 @@ impl ServerConfig {
                 res = server_future => {
                     match res {
                         Ok(_) => {
-                            info!("server shutdown");
+                            debug!("server shutdown");
                         }
                         Err(e) => {
-                            info!("server error: {:?}", e);
+                            error!("server error: {:?}", e);
                         }
                     }
                 }
                 _ = shutdown => {
-                    info!("shutting down server");
+                    debug!("shutting down server");
                 }
                 _ = token.cancelled() => {
-                    info!("cancellation token triggered: shutting down server");
+                    debug!("cancellation token triggered: shutting down server");
                 }
             }
         });
