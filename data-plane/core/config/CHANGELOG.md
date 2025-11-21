@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.3](https://github.com/agntcy/slim/compare/slim-config-v0.4.2...slim-config-v0.4.3) - 2025-11-21
+
+### Fixed
+
+- flaky integration test ([#981](https://github.com/agntcy/slim/pull/981))
+
 ## [0.4.2](https://github.com/agntcy/slim/compare/slim-config-v0.4.1...slim-config-v0.4.2) - 2025-11-17
 
 ### Added
