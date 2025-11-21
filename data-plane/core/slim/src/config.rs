@@ -115,7 +115,7 @@ impl ConfigLoader {
                 .cloned()
                 .map(|v| {
                     serde_yaml::from_value(v).unwrap_or_else(|e| {
-                        debug!(error = ?e, "invalid tracing config, falling back to default");
+                        warn!(error = ?e, "invalid tracing config, falling back to default");
                         TracingConfiguration::default()
                     })
                 })
@@ -134,7 +134,7 @@ impl ConfigLoader {
                 .cloned()
                 .map(|v| {
                     serde_yaml::from_value(v).unwrap_or_else(|e| {
-                        debug!(error = ?e, "invalid runtime config, falling back to default");
+                        warn!(error = ?e, "invalid runtime config, falling back to default");
                         RuntimeConfiguration::default()
                     })
                 })
