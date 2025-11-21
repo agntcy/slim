@@ -191,20 +191,23 @@ where
                         _ => panic!("session type not specified"),
                     };
 
-                    match self.current_task.as_mut().unwrap() {
-                        ModeratorTask::Add(task) => signal_failure(&mut task.ack_tx, message),
-                        ModeratorTask::Remove(task) => signal_failure(
-                            &mut task.ack_tx,
-                            "failed to remove a participant from the group",
-                        ),
-                        ModeratorTask::Update(task) => signal_failure(
-                            &mut task.ack_tx,
-                            "failed to update state of the participant",
-                        ),
-                        ModeratorTask::Close(task) => {
-                            signal_failure(&mut task.ack_tx, "failed to close the session")
-                        }
-                    };
+                    // this should be always true here
+                    if self.current_task.is_some() {
+                        match self.current_task.as_mut().unwrap() {
+                            ModeratorTask::Add(task) => signal_failure(&mut task.ack_tx, message),
+                            ModeratorTask::Remove(task) => signal_failure(
+                                &mut task.ack_tx,
+                                "failed to remove a participant from the group",
+                            ),
+                            ModeratorTask::Update(task) => signal_failure(
+                                &mut task.ack_tx,
+                                "failed to update state of the participant",
+                            ),
+                            ModeratorTask::Close(task) => {
+                                signal_failure(&mut task.ack_tx, "failed to close the session")
+                            }
+                        };
+                    }
 
                     // 2. delete current task and pick a new one
                     self.current_task = None;
@@ -803,18 +806,12 @@ where
             .await?;
         self.common.sender.start_drain();
 
-        // Remove the local name from the participants list
-        let mut local = self.common.settings.source.clone();
-        local.reset_id();
-        self.group_list.remove(&local);
-
         // Collect the participants and create the close message
-        //let mut participants = vec![];
-        //for (k, v) in self.group_list.iter() {
-        //    let name = k.clone().with_id(*v);
-        //    participants.push(name);
-        //}
-        let participants = self.group_list.keys().cloned().collect();
+        let mut participants = vec![];
+        for (k, v) in self.group_list.iter() {
+            let name = k.clone().with_id(*v);
+            participants.push(name);
+        }
 
         let destination = self.common.settings.destination.clone();
         let close_id = rand::random::<u32>();
