@@ -42,6 +42,27 @@ pub enum ModeratorTask {
     Update(UpdateParticipant),
 }
 
+impl ModeratorTask {
+    /// Takes (moves) the underlying ack channel sender out of the task
+    pub(crate) fn ack_tx_take(&mut self) -> Option<oneshot::Sender<Result<(), SessionError>>> {
+        match self {
+            ModeratorTask::Add(t) => t.ack_tx.take(),
+            ModeratorTask::Remove(t) => t.ack_tx.take(),
+            ModeratorTask::Close(t) => t.ack_tx.take(),
+            ModeratorTask::Update(t) => t.ack_tx.take(),
+        }
+    }
+
+    pub(crate) fn failure_message<'a>(&self, add_msg: &'a str) -> &'a str {
+        match self {
+            ModeratorTask::Add(_) => add_msg,
+            ModeratorTask::Remove(_) => "failed to remove a participant from the group",
+            ModeratorTask::Update(_) => "failed to update state of the participant",
+            ModeratorTask::Close(_) => "failed to close the session",
+        }
+    }
+}
+
 impl TaskUpdate for ModeratorTask {
     fn discovery_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
         match self {
