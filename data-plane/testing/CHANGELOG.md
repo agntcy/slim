@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.7.1](https://github.com/agntcy/slim/compare/slim-testutils-v0.7.0...slim-testutils-v0.7.1) (2025-11-21)
+
+
+### Bug Fixes
+
+* early tracing initialization ([#978](https://github.com/agntcy/slim/issues/978)) ([d7d8b93](https://github.com/agntcy/slim/commit/d7d8b9350b38d287ea5f3501bb8d17d8472707ff))
+* properly delete session in tests ([#983](https://github.com/agntcy/slim/issues/983)) ([252d33d](https://github.com/agntcy/slim/commit/252d33d953ad17f8f1face13b16e8342251b58b2))
+* remove participants and ack management in controller sender ([#987](https://github.com/agntcy/slim/issues/987)) ([3de0331](https://github.com/agntcy/slim/commit/3de03314652031e80ab5b47a2b55fa1b7e9abf72))
+
 ## [0.7.0](https://github.com/agntcy/slim/compare/slim-testutils-v0.6.1...slim-testutils-v0.7.0) (2025-11-18)
 
 

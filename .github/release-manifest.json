@@ -5,7 +5,7 @@
   "control-plane/slimctl": "0.7.0",
   "data-plane/python/integrations/slim-mcp/examples/llamaindex-time-agent": "0.1.2",
   "data-plane/python/integrations/slim-mcp/examples/mcp-server-time": "0.1.2",
-  "data-plane/testing": "0.7.0",
+  "data-plane/testing": "0.7.1",
   "control-plane/control-plane": "0.7.1",
   "charts/slim-control-plane": "0.7.0",
   "data-plane/python/bindings/examples": "0.7.1",
