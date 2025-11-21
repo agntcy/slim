@@ -111,7 +111,7 @@ fn create_service_configuration(
 }
 
 async fn run_participant_task(name: Name) -> Result<(), String> {
-    println!("Participant {:?} task starting...", name);
+    println!("Participant {} task starting...", name);
 
     let dataplane_client_config =
         GrpcClientConfig::with_endpoint(&format!("http://localhost:{}", DEFAULT_DATAPLANE_PORT))

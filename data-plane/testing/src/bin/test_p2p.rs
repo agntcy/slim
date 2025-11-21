@@ -141,7 +141,7 @@ fn create_service_configuration(
 
 async fn run_client_task(name: Name) -> Result<(), String> {
     /* this is the same */
-    println!("client {:?} task starting...", name);
+    println!("client {} task starting...", name);
 
     let client_config =
         GrpcClientConfig::with_endpoint(&format!("http://localhost:{}", DEFAULT_DATAPLANE_PORT))
