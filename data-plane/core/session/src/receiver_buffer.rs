@@ -7,7 +7,7 @@ use std::collections::HashSet;
 // Third-party crates
 use tracing::{debug, info, trace};
 
-use slim_datapath::api::ProtoMessage as Message;
+use slim_datapath::{api::ProtoMessage as Message, messages::utils::MAX_PUBLISH_ID};
 
 pub(crate) struct ReceiverBuffer {
     // ID of the last packet sent to the application
@@ -40,6 +40,32 @@ impl Default for ReceiverBuffer {
 }
 
 impl ReceiverBuffer {
+    const MAX_ID: usize = MAX_PUBLISH_ID as usize;
+
+    // Helper function to compute distance between two IDs with wraparound
+    // Returns the forward distance from 'from' to 'to'
+    fn id_distance(from: usize, to: usize) -> usize {
+        if to >= from {
+            to - from
+        } else {
+            // Wraparound case: from is near MAX_ID, to wrapped around
+            (Self::MAX_ID + 1 - from) + to
+        }
+    }
+
+    // Helper function to check if 'a' comes after 'b' in sequence (accounting for wraparound)
+    // Returns true if 'a' is sequentially after 'b' within a reasonable window
+    fn is_after(a: usize, b: usize) -> bool {
+        let distance = Self::id_distance(b, a);
+        // If distance is more than half the sequence space, assume it's actually before
+        distance > 0 && distance <= Self::MAX_ID.div_ceil(2)
+    }
+
+    // Helper function to add offset to ID with wraparound
+    fn add_with_wraparound(base: usize, offset: usize) -> usize {
+        (base + offset) % (Self::MAX_ID + 1)
+    }
+
     // returns a vec of messages to send to the application
     // in case the vector contains a None it means that the packet is lost
     // and cannot be recovered. the second vector contains the ids of the
@@ -71,23 +97,28 @@ impl ReceiverBuffer {
             return false;
         }
 
-        if msg_id <= self.last_sent {
+        if !Self::is_after(msg_id, self.last_sent) {
             // this message was already delivered to the app
             // or it is impossible to recover it, no need
             // for RTX messages
             return true;
         }
 
+        let next_expected = Self::add_with_wraparound(self.last_sent, 1);
+        let buffer_end =
+            Self::add_with_wraparound(self.last_sent, self.buffer.len() - self.first_entry);
+
         if self.buffer.is_empty()
-            || msg_id > (self.last_sent + (self.buffer.len() - self.first_entry))
+            || !Self::is_after(msg_id, self.last_sent)
+            || Self::is_after(msg_id, buffer_end)
         {
-            // in this case the buffer is empty or the message id > the buffer range
+            // in this case the buffer is empty or the message id is outside the buffer range
             // this packet is still missing
             return false;
         }
 
         // the message is in the buffer range, check if it was received or not
-        let pos = msg_id - (self.last_sent + 1) + self.first_entry;
+        let pos = Self::id_distance(next_expected, msg_id) + self.first_entry;
         self.buffer[pos].is_some()
     }
 
@@ -98,9 +129,13 @@ impl ReceiverBuffer {
     ) -> (Vec<Option<Message>>, Vec<u32>) {
         debug!("Received message id {}", msg_id);
 
-        if self.last_sent == usize::MAX
-            || (msg_id == (self.last_sent + 1)) && (self.buffer.is_empty())
-        {
+        let next_expected = if self.last_sent == usize::MAX {
+            usize::MAX // Special value indicating no message received yet
+        } else {
+            Self::add_with_wraparound(self.last_sent, 1)
+        };
+
+        if self.last_sent == usize::MAX || (msg_id == next_expected) && (self.buffer.is_empty()) {
             match msg {
                 Some(m) => {
                     // no loss detected, return message
@@ -119,7 +154,7 @@ impl ReceiverBuffer {
         }
 
         // the message is an OOO check what to do with the message
-        if msg_id <= self.last_sent {
+        if !Self::is_after(msg_id, self.last_sent) {
             // this message is not useful anymore because we have already sent
             // content for this ID to the application. It can be a duplicated
             // msg or a message that arrived too late. Log and drop
@@ -133,23 +168,32 @@ impl ReceiverBuffer {
             // fill the buffer with an empty entry for each hole
             // detected in the message stream
             let mut rtx: Vec<u32> = Vec::new();
+            let next_expected = Self::add_with_wraparound(self.last_sent, 1);
+            let num_missing = Self::id_distance(next_expected, msg_id);
+
             match msg {
                 Some(m) => {
-                    self.buffer = vec![None; msg_id - (self.last_sent + 1)];
+                    self.buffer = vec![None; num_missing];
                     debug!("Losses found, missing {} packets", self.buffer.len());
                     self.buffer.push(Some(m));
-                    for i in (self.last_sent + 1)..(msg_id) {
-                        trace!("add {} to rtx vector", i);
-                        rtx.push(i as u32);
+                    // Add RTX requests for all missing packets
+                    let mut current = next_expected;
+                    for _ in 0..num_missing {
+                        trace!("add {} to rtx vector", current);
+                        rtx.push(current as u32);
+                        current = Self::add_with_wraparound(current, 1);
                     }
                 }
                 None => {
                     // we got a beacon message so we miss also msg_id
-                    self.buffer = vec![None; msg_id - (self.last_sent + 1) + 1];
+                    self.buffer = vec![None; num_missing + 1];
                     debug!("Losses found, missing {} packets", self.buffer.len());
-                    for i in (self.last_sent + 1)..=(msg_id) {
-                        trace!("add {} to rtx vector", i);
-                        rtx.push(i as u32);
+                    // Add RTX requests for all missing packets including msg_id
+                    let mut current = next_expected;
+                    for _ in 0..=num_missing {
+                        trace!("add {} to rtx vector", current);
+                        rtx.push(current as u32);
+                        current = Self::add_with_wraparound(current, 1);
                     }
                 }
             }
@@ -165,13 +209,19 @@ impl ReceiverBuffer {
                 self.first_entry,
                 self.buffer.len()
             );
+
+            let next_expected = Self::add_with_wraparound(self.last_sent, 1);
+            let buffer_end =
+                Self::add_with_wraparound(self.last_sent, self.buffer.len() - self.first_entry);
+
             // check if the msg_id fits inside the buffer range
-            if msg_id <= (self.last_sent + (self.buffer.len() - self.first_entry)) {
+            let msg_in_range =
+                Self::is_after(msg_id, self.last_sent) && !Self::is_after(msg_id, buffer_end);
+
+            if msg_in_range {
                 debug!(
                     "message {} is inside the buffer range {} - {}",
-                    msg_id,
-                    (self.last_sent + 1),
-                    (self.buffer.len() - self.first_entry)
+                    msg_id, next_expected, buffer_end
                 );
                 // if mgs is None there is nothing to do here
                 if msg.is_none() {
@@ -179,7 +229,7 @@ impl ReceiverBuffer {
                 }
 
                 // find the position of the message in the buffer
-                let pos = msg_id - (self.last_sent + 1) + self.first_entry;
+                let pos = Self::id_distance(next_expected, msg_id) + self.first_entry;
                 debug!("try to insert message {} at pos {}", msg_id, pos);
                 if self.buffer[pos].is_some() {
                     // this is a duplicate message, drop it and do nothing
@@ -199,15 +249,21 @@ impl ReceiverBuffer {
             } else {
                 // the message is out of the current buffer
                 // add more entries to it and return an empty vec
-                // the next id to add at the end of the buffer is
-                // ((self.last_sent + 1) + (self.buffer.len() - self.first_entry))
-                // loop up to msg_id - 1 (the last element is not in the range)
                 let mut rtx = Vec::new();
-                for i in ((self.last_sent + 1) + (self.buffer.len() - self.first_entry))..msg_id {
+                let buffer_next = Self::add_with_wraparound(buffer_end, 1);
+                let num_new_entries = Self::id_distance(buffer_next, msg_id);
+
+                let mut current = buffer_next;
+                for _ in 0..num_new_entries {
                     self.buffer.push(None);
-                    rtx.push(i as u32);
-                    debug!("detect packet loss {} to add at the end of the buffer", i);
+                    rtx.push(current as u32);
+                    debug!(
+                        "detect packet loss {} to add at the end of the buffer",
+                        current
+                    );
+                    current = Self::add_with_wraparound(current, 1);
                 }
+
                 match msg {
                     Some(m) => {
                         debug!("add packet {} at the end of the buffer", msg_id);
@@ -230,24 +286,24 @@ impl ReceiverBuffer {
             if self.buffer[i].is_some() {
                 // this message can be sent to the app
                 ret.push(self.buffer[i].take());
-                // increase last_sent on first_entry
-                self.last_sent += 1;
+                // increase last_sent with wraparound
+                self.last_sent = Self::add_with_wraparound(self.last_sent, 1);
                 self.first_entry += 1;
                 debug!(
                     "return message at pos {}, new buffer state: last_sent {}, first_index {}",
                     i, self.last_sent, self.first_entry
                 );
             } else {
-                // check is the mgs id is in the set of lost messages
-                // the id of the message to look for is self.last_sent + 1
-                if self.lost_msgs.contains(&(self.last_sent + 1)) {
+                // check if the msg id is in the set of lost messages
+                let next_id = Self::add_with_wraparound(self.last_sent, 1);
+                if self.lost_msgs.contains(&next_id) {
                     // this message cannot be recovered anymore
                     // add a None in the ret vec and release it
                     ret.push(None);
-                    self.lost_msgs.remove(&(self.last_sent + 1));
+                    self.lost_msgs.remove(&next_id);
                     // increase all counters anyway because this
                     // position of the buffer will not be used anymore
-                    self.last_sent += 1;
+                    self.last_sent = next_id;
                     self.first_entry += 1;
                     debug!(
                         "message {} is lost, return none, new buffer state: last_sent {}, first_index {}",
@@ -263,18 +319,19 @@ impl ReceiverBuffer {
         // check if the buffer is now empty
         if self.first_entry == self.buffer.len() {
             debug!("clean reception buffer which is empty now");
-            // rest the buffer
+            // reset the buffer
             self.first_entry = 0;
             self.buffer = vec![];
         }
-        // check if the next message in line is the lost set
+        // check if the next message in line is in the lost set
         // this should never happen in reality
         let mut stop = false;
         while !stop {
-            if self.lost_msgs.contains(&(self.last_sent + 1)) {
-                self.last_sent += 1;
+            let next_id = Self::add_with_wraparound(self.last_sent, 1);
+            if self.lost_msgs.contains(&next_id) {
+                self.last_sent = next_id;
                 ret.push(None);
-                self.lost_msgs.remove(&(self.last_sent));
+                self.lost_msgs.remove(&self.last_sent);
                 debug!(
                     "found another lost message to release, last_sent {}",
                     self.last_sent
@@ -655,5 +712,169 @@ mod tests {
         assert!(buffer.message_already_received(1));
         // 3 is still missing
         assert!(!buffer.message_already_received(3));
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_receiver_buffer_wraparound() {
+        // Test wraparound behavior at MAX_PUBLISH_ID
+        let src = Name::from_strings(["org", "ns", "type"]).with_id(0);
+        let src_id = src.to_string();
+        let name_type = Name::from_strings(["org", "ns", "type"]).with_id(1);
+
+        let slim_header = SlimHeader::new(&src, &name_type, &src_id, None);
+
+        // Create messages near MAX_PUBLISH_ID and wrapping around to 0
+        let id_max_minus_1 = MAX_PUBLISH_ID - 1;
+        let id_max = MAX_PUBLISH_ID;
+        let id_zero = 0;
+        let id_one = 1;
+        let id_two = 2;
+
+        let h_max_minus_1 = SessionHeader::new(
+            ProtoSessionType::PointToPoint.into(),
+            ProtoSessionMessageType::Msg.into(),
+            0,
+            id_max_minus_1,
+        );
+        let h_max = SessionHeader::new(
+            ProtoSessionType::PointToPoint.into(),
+            ProtoSessionMessageType::Msg.into(),
+            0,
+            id_max,
+        );
+        let h_zero = SessionHeader::new(
+            ProtoSessionType::PointToPoint.into(),
+            ProtoSessionMessageType::Msg.into(),
+            0,
+            id_zero,
+        );
+        let h_one = SessionHeader::new(
+            ProtoSessionType::PointToPoint.into(),
+            ProtoSessionMessageType::Msg.into(),
+            0,
+            id_one,
+        );
+        let h_two = SessionHeader::new(
+            ProtoSessionType::PointToPoint.into(),
+            ProtoSessionMessageType::Msg.into(),
+            0,
+            id_two,
+        );
+
+        let p_max_minus_1 = Message::builder()
+            .with_slim_header(slim_header.clone())
+            .with_session_header(h_max_minus_1)
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
+        let p_max = Message::builder()
+            .with_slim_header(slim_header.clone())
+            .with_session_header(h_max)
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
+        let p_zero = Message::builder()
+            .with_slim_header(slim_header.clone())
+            .with_session_header(h_zero)
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
+        let p_one = Message::builder()
+            .with_slim_header(slim_header.clone())
+            .with_session_header(h_one)
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
+        let p_two = Message::builder()
+            .with_slim_header(slim_header.clone())
+            .with_session_header(h_two)
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
+
+        // Test Case 1: Sequential messages across wraparound
+        let mut buffer = ReceiverBuffer::default();
+
+        // Receive MAX-1
+        let (recv, rtx) = buffer.on_received_message(p_max_minus_1.clone());
+        assert_eq!(recv.len(), 1);
+        assert_eq!(rtx.len(), 0);
+        assert_eq!(recv[0], Some(p_max_minus_1.clone()));
+
+        // Receive MAX
+        let (recv, rtx) = buffer.on_received_message(p_max.clone());
+        assert_eq!(recv.len(), 1);
+        assert_eq!(rtx.len(), 0);
+        assert_eq!(recv[0], Some(p_max.clone()));
+
+        // Receive 0 (wraparound)
+        let (recv, rtx) = buffer.on_received_message(p_zero.clone());
+        assert_eq!(recv.len(), 1);
+        assert_eq!(rtx.len(), 0);
+        assert_eq!(recv[0], Some(p_zero.clone()));
+
+        // Receive 1
+        let (recv, rtx) = buffer.on_received_message(p_one.clone());
+        assert_eq!(recv.len(), 1);
+        assert_eq!(rtx.len(), 0);
+        assert_eq!(recv[0], Some(p_one.clone()));
+
+        // Test Case 2: Out-of-order across wraparound
+        let mut buffer = ReceiverBuffer::default();
+
+        // Start with MAX-1
+        let (recv, rtx) = buffer.on_received_message(p_max_minus_1.clone());
+        assert_eq!(recv.len(), 1);
+        assert_eq!(rtx.len(), 0);
+
+        // Receive 1 (skipping MAX and 0) - should detect loss
+        let (recv, rtx) = buffer.on_received_message(p_one.clone());
+        assert_eq!(recv.len(), 0);
+        assert_eq!(rtx.len(), 2);
+        assert_eq!(rtx[0], id_max);
+        assert_eq!(rtx[1], id_zero);
+
+        // Now receive MAX
+        let (recv, rtx) = buffer.on_received_message(p_max.clone());
+        assert_eq!(recv.len(), 1);
+        assert_eq!(rtx.len(), 0);
+        assert_eq!(recv[0], Some(p_max.clone()));
+
+        // Now receive 0 - should release both 0 and 1
+        let (recv, rtx) = buffer.on_received_message(p_zero.clone());
+        assert_eq!(recv.len(), 2);
+        assert_eq!(rtx.len(), 0);
+        assert_eq!(recv[0], Some(p_zero.clone()));
+        assert_eq!(recv[1], Some(p_one.clone()));
+
+        // Test Case 3: Large gap across wraparound
+        let mut buffer = ReceiverBuffer::default();
+
+        // Start with MAX-1
+        let (recv, rtx) = buffer.on_received_message(p_max_minus_1.clone());
+        assert_eq!(recv.len(), 1);
+        assert_eq!(rtx.len(), 0);
+
+        // Skip to 2 (missing MAX, 0, 1)
+        let (recv, rtx) = buffer.on_received_message(p_two.clone());
+        assert_eq!(recv.len(), 0);
+        assert_eq!(rtx.len(), 3);
+        assert_eq!(rtx[0], id_max);
+        assert_eq!(rtx[1], id_zero);
+        assert_eq!(rtx[2], id_one);
+
+        // Test message_already_received with wraparound
+        let mut buffer = ReceiverBuffer::default();
+        let (_recv, _rtx) = buffer.on_received_message(p_max_minus_1.clone());
+        let (_recv, _rtx) = buffer.on_received_message(p_max.clone());
+        let (_recv, _rtx) = buffer.on_received_message(p_zero.clone());
+
+        // MAX-1, MAX, and 0 should be marked as received
+        assert!(buffer.message_already_received(id_max_minus_1 as usize));
+        assert!(buffer.message_already_received(id_max as usize));
+        assert!(buffer.message_already_received(id_zero as usize));
+        // 1 should not be received yet
+        assert!(!buffer.message_already_received(id_one as usize));
     }
 }

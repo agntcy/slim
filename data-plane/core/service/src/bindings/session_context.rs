@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use tokio::sync::RwLock;
 
 use slim_datapath::messages::Name;
-use slim_datapath::messages::utils::SlimHeaderFlags;
+use slim_datapath::messages::utils::{PUBLISH_TO, SlimHeaderFlags, TRUE_VAL};
 use slim_session::SessionError;
 use slim_session::context::SessionContext;
 
@@ -94,13 +94,16 @@ impl BindingsSessionContext {
             None,
         );
 
+        let mut final_metadata = metadata.unwrap_or_default();
+        final_metadata.insert(PUBLISH_TO.to_string(), TRUE_VAL.to_string());
+
         session
             .publish_with_flags(
                 &message_ctx.source_name, // reply to the original source
                 flags,
                 blob,
                 payload_type,
-                metadata,
+                Some(final_metadata),
             )
             .await
             .map_err(|e| ServiceError::SessionError(e.to_string()))

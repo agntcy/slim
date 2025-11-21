@@ -483,8 +483,8 @@ mod tests {
                 SessionMessage::TimerTimeout {
                     message_id,
                     message_type: _,
-                    timeouts,
                     name: _,
+                    timeouts,
                 } => {
                     received_ids.push(message_id);
                     assert_eq!(timeouts, 1);
@@ -579,8 +579,8 @@ mod tests {
             SessionMessage::TimerTimeout {
                 message_id,
                 message_type,
-                timeouts,
                 name: received_name,
+                timeouts,
             } => {
                 assert_eq!(message_id, timer_id);
                 assert_eq!(message_type, ProtoSessionMessageType::DiscoveryRequest);
