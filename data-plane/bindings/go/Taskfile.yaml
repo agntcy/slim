@@ -1,0 +1,120 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+version: '3'
+
+vars:
+  SERVICE_DIR: ../../core/service
+  SERVICE_TARGET: ../../target/release
+  LIB_NAME: slim_service
+  # Get absolute path for CGO flags
+  ROOT_DIR:
+    sh: pwd
+
+tasks:
+  default:
+    desc: Build and generate (default task)
+    deps: [build, generate, example]
+
+  help:
+    desc: Show available tasks
+    cmds:
+      - |
+        echo "SLIM Go Bindings (Proc Macro Approach) - Available tasks:"
+        echo ""
+        echo "  task                - Build and generate (default)"
+        echo "  task build          - Build the Rust library with UniFFI (release mode)"
+        echo "  task build-debug    - Build the Rust library (debug mode)"
+        echo "  task generate       - Generate Go bindings from compiled library"
+        echo "  task test           - Run all tests"
+        echo "  task test-coverage  - Run tests with coverage report"
+        echo "  task clean          - Clean build artifacts"
+        echo "  task example        - Run the simple example"
+        echo "  task help           - Show this help message"
+    silent: true
+
+  build:
+    desc: Build the Rust library with UniFFI (release mode)
+    dir: "{{.SERVICE_DIR}}"
+    cmds:
+      - echo "🦀 Building Rust library with UniFFI (release mode)..."
+      - cargo build --release
+    silent: true
+
+  build-debug:
+    desc: Build the Rust library (debug mode)
+    dir: "{{.SERVICE_DIR}}"
+    cmds:
+      - echo "🦀 Building Rust library (debug mode)..."
+      - cargo build
+    silent: true
+
+  generate:
+    desc: Generate Go bindings from compiled library
+    cmds:
+      - echo "🔧 Generating Go bindings from compiled library..."
+      - |
+        uniffi-bindgen-go \
+          --library '{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.dylib' \
+          --out-dir generated
+      - cd generated && go mod init github.com/agntcy/slim/bindings/generated 2>/dev/null || true
+      - echo "✅ Bindings generated in generated/"
+    silent: true
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - echo "🧹 Cleaning build artifacts..."
+      - cd {{.SERVICE_DIR}} && cargo clean
+      - rm -rf generated/
+      - echo "✅ Clean complete"
+    silent: true
+
+  example:
+    desc: Run the simple example
+    dir: examples/simple
+    env:
+      CGO_LDFLAGS: -L{{.ROOT_DIR}}/{{.SERVICE_TARGET}} -l{{.LIB_NAME}}
+      DYLD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${DYLD_LIBRARY_PATH}"
+      LD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${LD_LIBRARY_PATH}"
+    cmds:
+      - echo "🚀 Running simple example..."
+      - go mod init github.com/agntcy/slim/examples/simple 2>/dev/null || true
+      - go mod edit -replace github.com/agntcy/slim/bindings/generated=../../generated
+      - go mod tidy
+      - go run main.go
+    silent: true
+
+  test:
+    desc: Run all tests
+    dir: tests
+    env:
+      CGO_LDFLAGS: -L{{.ROOT_DIR}}/{{.SERVICE_TARGET}} -l{{.LIB_NAME}}
+      DYLD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${DYLD_LIBRARY_PATH}"
+      LD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${LD_LIBRARY_PATH}"
+    cmds:
+      - echo "🧪 Running all tests..."
+      - go mod tidy
+      - go test -v .
+      - echo "✅ All tests passed"
+    silent: true
+
+  test-coverage:
+    desc: Run tests with coverage report
+    dir: tests
+    env:
+      CGO_LDFLAGS: -L{{.ROOT_DIR}}/{{.SERVICE_TARGET}} -l{{.LIB_NAME}}
+      DYLD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${DYLD_LIBRARY_PATH}"
+      LD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${LD_LIBRARY_PATH}"
+    cmds:
+      - echo "📊 Running tests with coverage..."
+      - go mod tidy
+      - go test -v -coverprofile=coverage.out .
+      - go tool cover -html=coverage.out -o coverage.html
+      - echo "✅ Coverage report generated in tests/coverage.html"
+    silent: true
+
+  all:
+    desc: Build, generate, and run example
+    deps: [build, generate, example]
+
