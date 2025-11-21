@@ -216,7 +216,15 @@ impl Proxy {
         }
     }
 
+<<<<<<< HEAD
     pub async fn start(&mut self, mut service: slim_service::Service) {
+=======
+    pub async fn start(
+        &mut self,
+        mut service: slim_service::Service,
+        drain_timeout: std::time::Duration,
+    ) {
+>>>>>>> d7d8b935 (fix: early tracing initialization (#978))
         const SECRET: &str = "tUDNjNmc4s6om6yziR4nmBVKKTFCXhfJEiP";
 
         let (app, mut slim_rx) = service
