@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.7.1](https://github.com/agntcy/slim/compare/slim-bindings-examples-v0.7.0...slim-bindings-examples-v0.7.1) (2025-11-21)
+
+
+### Features
+
+* add publish_to on group session ([#975](https://github.com/agntcy/slim/issues/975)) ([68eb0d0](https://github.com/agntcy/slim/commit/68eb0d08e315bcf934f686f79a4c97a1f21b2ee0))
+
+
+### Documentation
+
+* update readmes in python examples ([#962](https://github.com/agntcy/slim/issues/962)) ([1e8472d](https://github.com/agntcy/slim/commit/1e8472dd356a4d9eef3570bba20971e363da9216))
+
 ## [0.7.0](https://github.com/agntcy/slim/compare/slim-bindings-examples-v0.6.0...slim-bindings-examples-v0.7.0) (2025-11-18)
 
 
