@@ -111,7 +111,7 @@ fn create_service_configuration(
 }
 
 async fn run_participant_task(name: Name) -> Result<(), String> {
-    println!("Participant {:?} task starting...", name);
+    println!("Participant {} task starting...", name);
 
     let dataplane_client_config =
         GrpcClientConfig::with_endpoint(&format!("http://localhost:{}", DEFAULT_DATAPLANE_PORT))
@@ -419,9 +419,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // close session
-    let handle = session_arc.close().expect("error closing session");
-    handle.await.expect("error waiting the handler");
+    // delete session
+    let handle = app.delete_session(session_arc.as_ref())?;
+    drop(session_arc);
+    handle.await.expect("error deleting session");
     println!("test succeeded");
     Ok(())
 }
