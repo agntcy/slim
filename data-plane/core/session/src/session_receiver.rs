@@ -278,7 +278,6 @@ impl SessionReceiver {
                 rtx_id,
                 slim_datapath::api::ProtoSessionMessageType::RtxRequest,
                 Some(source.clone()),
-                None,
             );
 
             let key = PendingRtxKey {
@@ -595,7 +594,6 @@ mod tests {
                 message_id,
                 message_type: _,
                 name,
-                metadata: _,
                 timeouts: _,
             } => {
                 receiver
@@ -632,7 +630,6 @@ mod tests {
                 message_id,
                 message_type: _,
                 name,
-                metadata: _,
                 timeouts: _,
             } => {
                 receiver
@@ -668,7 +665,6 @@ mod tests {
                 message_id,
                 message_type: _,
                 name,
-                metadata: _,
                 timeouts: _,
             } => {
                 receiver

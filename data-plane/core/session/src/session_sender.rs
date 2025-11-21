@@ -46,15 +46,14 @@ pub struct SessionSender {
     timer_factory: Option<TimerFactory>,
 
     /// list of pending acks for each message
-    pending_acks: HashMap<u32, GroupTimer>,
-
-    /// list of pending acks for messages sent with publish_to
-    /// this is used only in case of a multicast session
-    /// if a message is sent using publish_to in a p2p session
-    /// it is handled as a normal message
-    pending_acks_send_to: HashMap<u32, (GroupTimer, Message)>,
+    /// Message sent to the group are stored in the buffer and there
+    /// is no need to store them elsewhere. The message filed will be
+    /// set to None in this case. Instead messages sent to a particolar
+    /// endpoint (using the publish_to) need to be stored in the map
+    pending_acks: HashMap<u32, (GroupTimer, Option<Message>)>,
 
     /// list of timer ids associated for each endpoint
+    /// this list do not ta
     pending_acks_per_endpoint: HashMap<Name, HashSet<u32>>,
 
     /// list of the endpoints in the conversation
@@ -62,7 +61,9 @@ pub struct SessionSender {
     /// on endpoint remove, delete all the acks to the endpoint
     endpoints_list: HashSet<Name>,
 
-    /// message id, used if the session is sequential
+    /// message id, used to send sequential messages
+    /// it goes from 0 to 2^16. higher ids are used for messages
+    /// sent using the publish_to function.
     next_id: u32,
 
     /// session id to had in the message header
@@ -82,10 +83,7 @@ pub struct SessionSender {
     draining_state: SenderDrainStatus,
 
     /// oneshot senders to signal when network acks are received for each message
-    /// the key is composed by the message id plus a flag that indicates if the
-    /// message was sent as a normal message (false) or as a publish_to (true)
-    /// this allows to avoid collisions with the message ids
-    ack_notifiers: HashMap<(u32, bool), oneshot::Sender<Result<(), SessionError>>>,
+    ack_notifiers: HashMap<u32, oneshot::Sender<Result<(), SessionError>>>,
 }
 
 #[allow(dead_code)]
@@ -111,7 +109,6 @@ impl SessionSender {
             buffer: ProducerBuffer::with_capacity(512),
             timer_factory: factory,
             pending_acks: HashMap::new(),
-            pending_acks_send_to: HashMap::new(),
             pending_acks_per_endpoint: HashMap::new(),
             endpoints_list: HashSet::new(),
             next_id: 0,
@@ -199,9 +196,9 @@ impl SessionSender {
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
     ) -> Result<(), SessionError> {
         let is_publish_to = message.metadata.contains_key(PUBLISH_TO);
+
         // if is_publish_to and the message destination is non
         // in the endpoint list we drop the messages
-
         if is_publish_to && !self.endpoints_list.contains(&message.get_dst()) {
             debug!("cannot forward the message to the select destination");
             return Err(SessionError::SlimTransmission(
@@ -211,11 +208,15 @@ impl SessionSender {
 
         // compute message id
         let message_id = if is_publish_to {
-            rand::random::<u32>()
+            // if the message is sent using the publish_to the message
+            // id is taken randomly and it must be > u16::MAX
+            // Use modulo to ensure uniform distribution in range [u16::MAX + 1, u32::MAX - 1]
+            rand::random::<u32>() % (u32::MAX - u16::MAX as u32) + u16::MAX as u32 + 1
         } else {
             // by increasing next_id before assign it to message_id
-            // we always skip message 0 (used as drain timer id)
-            self.next_id += 1;
+            // we always start the sequence from 1. The max message_id
+            // is u16::MAX. after that we wrap to 0.
+            self.next_id = (self.next_id + 1) % (u16::MAX as u32 + 1);
             self.next_id
         };
 
@@ -245,7 +246,7 @@ impl SessionSender {
             if self.timer_factory.is_none() {
                 let _ = tx.send(Ok(()));
             } else {
-                self.ack_notifiers.insert((message_id, is_publish_to), tx);
+                self.ack_notifiers.insert(message_id, tx);
             }
         }
 
@@ -268,12 +269,12 @@ impl SessionSender {
         if self.timer_factory.is_some() {
             debug!("reliable sender, set all timers");
             // set the list of missing timers according to the destination of message
-            let (missing_timers, metadata) = if is_publish_to {
+            let missing_timers = if is_publish_to {
                 let mut m = HashSet::new();
                 m.insert(message.get_dst());
-                (m, Some(message.metadata.clone()))
+                m
             } else {
-                (self.endpoints_list.clone(), None)
+                self.endpoints_list.clone()
             };
 
             // create a timer for the new packet and update the state
@@ -283,27 +284,26 @@ impl SessionSender {
                     message_id,
                     message.get_session_message_type(),
                     None,
-                    metadata,
                 ),
             };
 
             // insert in pending acks
             if is_publish_to {
-                self.pending_acks_send_to
-                    .insert(message_id, (gt, message.clone()));
+                self.pending_acks
+                    .insert(message_id, (gt, Some(message.clone())));
             } else {
-                self.pending_acks.insert(message_id, gt);
+                self.pending_acks.insert(message_id, (gt, None));
+            }
 
-                // insert in pending acks per endpoint
-                for n in &self.endpoints_list {
-                    debug!("add timer for message {} for remote {}", message_id, n);
-                    if let Some(acks) = self.pending_acks_per_endpoint.get_mut(n) {
-                        acks.insert(message_id);
-                    } else {
-                        let mut set = HashSet::new();
-                        set.insert(message_id);
-                        self.pending_acks_per_endpoint.insert(n.clone(), set);
-                    }
+            // insert in pending acks per endpoint
+            for n in &self.endpoints_list {
+                debug!("add timer for message {} for remote {}", message_id, n);
+                if let Some(acks) = self.pending_acks_per_endpoint.get_mut(n) {
+                    acks.insert(message_id);
+                } else {
+                    let mut set = HashSet::new();
+                    set.insert(message_id);
+                    self.pending_acks_per_endpoint.insert(n.clone(), set);
                 }
             }
         }
@@ -321,23 +321,11 @@ impl SessionSender {
         let message_id = message.get_id();
         debug!("received ack message for id {} from {}", message_id, source);
 
-        if message.metadata.contains_key(PUBLISH_TO) {
-            // remove pending ack and signal success
-            if let Some((mut gt, _m)) = self.pending_acks_send_to.remove(&message_id) {
-                gt.timer.stop();
-            }
-            if let Some(tx) = self.ack_notifiers.remove(&(message_id, true)) {
-                let _ = tx.send(Ok(()));
-            }
-
-            return;
-        }
-
         let mut delete = false;
         // remove the source from the pending acks
         // notice that the state for this ack id may not exist if all the endpoints
         // associated to it where removed before getting the acks
-        if let Some(gt) = self.pending_acks.get_mut(&message_id) {
+        if let Some((gt, _m)) = self.pending_acks.get_mut(&message_id) {
             debug!("try to remove {} from pending acks", source);
             gt.missing_timers.remove(&source);
             if gt.missing_timers.is_empty() {
@@ -347,7 +335,7 @@ impl SessionSender {
                 delete = true;
 
                 // Signal success to the ack notifier if present
-                if let Some(tx) = self.ack_notifiers.remove(&(message_id, false)) {
+                if let Some(tx) = self.ack_notifiers.remove(&message_id) {
                     let _ = tx.send(Ok(()));
                 }
             }
@@ -422,45 +410,19 @@ impl SessionSender {
         }
     }
 
-    pub async fn on_timer_timeout(
-        &mut self,
-        id: u32,
-        metadata: Option<HashMap<String, String>>,
-    ) -> Result<(), SessionError> {
+    pub async fn on_timer_timeout(&mut self, id: u32) -> Result<(), SessionError> {
         debug!("timeout for message {}", id);
 
-        if let Some(ref m) = metadata {
-            if m.contains_key(PUBLISH_TO) {
-                if let Some((gt, m)) = self.pending_acks_send_to.get_mut(&id) {
-                    // check if the destination is still in the group list
-                    if self.endpoints_list.contains(&m.get_dst()) {
-                        debug!("resend message {}", id);
-                        // send the message as is
-                        return self
-                            .tx
-                            .send_to_slim(Ok(m.clone()))
-                            .await
-                            .map_err(|e| SessionError::SlimTransmission(e.to_string()));
-                    } else {
-                        // the endpoint was removed from the group so we can clean the timer
-                        gt.timer.stop();
-                        self.pending_acks_send_to.remove(&id);
-
-                        // Signal failure to the ack notifier if present
-                        if let Some(tx) = self.ack_notifiers.remove(&(id, true)) {
-                            let _ = tx.send(Err(SessionError::Processing(format!(
-                                "error send message {}. stop retrying",
-                                id
-                            ))));
-                        }
-                        return Ok(());
-                    }
-                }
+        if id >= u16::MAX as u32 {
+            // this must be a message sent with publih_to, so get the message from the pending acks map
+            if let Some((_gt, Some(msg))) = self.pending_acks.get_mut(&id) {
+                return self
+                    .tx
+                    .send_to_slim(Ok(msg.clone()))
+                    .await
+                    .map_err(|e| SessionError::SlimTransmission(e.to_string()));
             } else {
-                // if metadata is set and PUBLISH_TO is not included we don't know how to process the timeout
-                return Err(SessionError::SlimTransmission(
-                    "unable to process received timeout".to_string(),
-                ));
+                return self.on_timer_failure(id).await;
             }
         }
 
@@ -469,7 +431,7 @@ impl SessionSender {
             debug!("the message is still in the buffer, try to send it again to all the remotes");
             // get the names for which we are missing the acks
             // send the message to those destinations
-            if let Some(gt) = self.pending_acks.get(&id) {
+            if let Some((gt, _)) = self.pending_acks.get(&id) {
                 for n in &gt.missing_timers {
                     debug!("resend message {} to {}", id, n);
                     let mut m = message.clone();
@@ -488,50 +450,28 @@ impl SessionSender {
                 "the message {} is not in the buffer anymore, delete the associated timer",
                 id
             );
-            return self.on_timer_failure(id, metadata).await;
+            return self.on_timer_failure(id).await;
         }
 
         Ok(())
     }
 
-    pub async fn on_timer_failure(
-        &mut self,
-        id: u32,
-        metadata: Option<HashMap<String, String>>,
-    ) -> Result<(), SessionError> {
+    pub async fn on_timer_failure(&mut self, id: u32) -> Result<(), SessionError> {
         debug!("timer failure for message id {}, clear state", id);
-
-        let mut is_publish_to = false;
-        if let Some(ref m) = metadata {
-            if m.contains_key(PUBLISH_TO) {
-                if let Some((gt, _m)) = self.pending_acks_send_to.get_mut(&id) {
-                    // stop the timer
-                    gt.timer.stop();
-                    self.pending_acks_send_to.remove(&id);
+        // remove all the state related to this timer
+        if let Some((gt, _)) = self.pending_acks.get_mut(&id) {
+            for n in &gt.missing_timers {
+                if let Some(set) = self.pending_acks_per_endpoint.get_mut(n) {
+                    set.remove(&id);
                 }
-                is_publish_to = true;
-            } else {
-                // if metadata is set and PUBLISH_TO is not included we don't know how to process the timeout
-                return Err(SessionError::SlimTransmission(
-                    "unable to process received timeout".to_string(),
-                ));
             }
-        } else {
-            // remove all the state related to this timer
-            if let Some(gt) = self.pending_acks.get_mut(&id) {
-                for n in &gt.missing_timers {
-                    if let Some(set) = self.pending_acks_per_endpoint.get_mut(n) {
-                        set.remove(&id);
-                    }
-                }
-                gt.timer.stop();
-            }
-
-            self.pending_acks.remove(&id);
+            gt.timer.stop();
         }
 
+        self.pending_acks.remove(&id);
+
         // Signal failure to the ack notifier if present
-        if let Some(tx) = self.ack_notifiers.remove(&(id, is_publish_to)) {
+        if let Some(tx) = self.ack_notifiers.remove(&id) {
             let _ = tx.send(Err(SessionError::Processing(format!(
                 "error send message {}. stop retrying",
                 id
@@ -581,7 +521,7 @@ impl SessionSender {
         if let Some(set) = self.pending_acks_per_endpoint.get(endpoint) {
             for id in set {
                 let mut delete = false;
-                if let Some(gt) = self.pending_acks.get_mut(id) {
+                if let Some((gt, _)) = self.pending_acks.get_mut(id) {
                     debug!(
                         "try to remove timer {} for removed endpoint {}",
                         id, endpoint
@@ -625,7 +565,7 @@ impl SessionSender {
 
     pub fn close(&mut self) {
         for (_, mut p) in self.pending_acks.drain() {
-            p.timer.stop();
+            p.0.timer.stop();
         }
 
         self.pending_acks.clear();
@@ -795,7 +735,7 @@ mod tests {
         match signal {
             crate::common::SessionMessage::TimerTimeout { message_id, .. } => {
                 sender
-                    .on_timer_timeout(message_id, None)
+                    .on_timer_timeout(message_id)
                     .await
                     .expect("error handling timeout");
             }
@@ -821,7 +761,7 @@ mod tests {
         match signal {
             crate::common::SessionMessage::TimerTimeout { message_id, .. } => {
                 sender
-                    .on_timer_timeout(message_id, None)
+                    .on_timer_timeout(message_id)
                     .await
                     .expect("error handling timeout");
             }
@@ -847,7 +787,7 @@ mod tests {
         match signal {
             crate::common::SessionMessage::TimerFailure { message_id, .. } => {
                 sender
-                    .on_timer_failure(message_id, None)
+                    .on_timer_failure(message_id)
                     .await
                     .expect("error handling timer failure");
             }
@@ -1188,7 +1128,7 @@ mod tests {
         match signal {
             crate::common::SessionMessage::TimerTimeout { message_id, .. } => {
                 sender
-                    .on_timer_timeout(message_id, None)
+                    .on_timer_timeout(message_id)
                     .await
                     .expect("error handling timeout");
             }
@@ -1220,7 +1160,7 @@ mod tests {
         match signal {
             crate::common::SessionMessage::TimerTimeout { message_id, .. } => {
                 sender
-                    .on_timer_timeout(message_id, None)
+                    .on_timer_timeout(message_id)
                     .await
                     .expect("error handling timeout");
             }
@@ -1574,7 +1514,7 @@ mod tests {
         match signal {
             crate::common::SessionMessage::TimerTimeout { message_id, .. } => {
                 sender
-                    .on_timer_timeout(message_id, None)
+                    .on_timer_timeout(message_id)
                     .await
                     .expect("error handling timeout");
             }
@@ -1985,8 +1925,8 @@ mod tests {
             .await
             .expect("error sending ack");
 
-        // Verify the pending_acks_send_to is cleared
-        assert!(sender.pending_acks_send_to.is_empty());
+        // Verify the pending_acks is cleared after ack is received
+        assert!(!sender.pending_acks.contains_key(&message_id));
 
         // Wait for timeout - no timers should trigger
         let res = timeout(Duration::from_millis(800), rx_slim.recv()).await;
@@ -2060,12 +2000,11 @@ mod tests {
         match signal {
             crate::common::SessionMessage::TimerTimeout {
                 message_id: timer_id,
-                metadata,
                 ..
             } => {
                 assert_eq!(timer_id, message_id);
                 sender
-                    .on_timer_timeout(timer_id, metadata)
+                    .on_timer_timeout(timer_id)
                     .await
                     .expect("error handling timeout");
             }
@@ -2142,32 +2081,17 @@ mod tests {
         // Remove the endpoint before timeout
         sender.remove_endpoint(&remote2);
 
-        // Wait for timeout signal
-        let signal = timeout(Duration::from_millis(800), rx_signal.recv())
-            .await
-            .expect("timeout waiting for timer signal")
-            .expect("channel closed");
-
-        match signal {
-            crate::common::SessionMessage::TimerTimeout {
-                message_id,
-                metadata,
-                ..
-            } => {
-                sender
-                    .on_timer_timeout(message_id, metadata)
-                    .await
-                    .expect("error handling timeout");
-            }
-            _ => panic!("Expected TimerTimeout signal, got: {:?}", signal),
-        }
+        // No timeout signal should arrive since the timer was cleaned up when endpoint was removed
+        // Wait to ensure no signal arrives
+        let res = timeout(Duration::from_millis(800), rx_signal.recv()).await;
+        assert!(res.is_err(), "Expected no timer signal but got: {:?}", res);
 
         // No retransmission should occur since endpoint was removed
         let res = timeout(Duration::from_millis(100), rx_slim.recv()).await;
         assert!(res.is_err(), "Expected timeout but got: {:?}", res);
 
-        // Verify pending_acks_send_to is cleaned up
-        assert!(sender.pending_acks_send_to.is_empty());
+        // Verify pending_acks is cleaned up (since the target endpoint was removed)
+        assert!(sender.pending_acks.is_empty());
     }
 
     #[tokio::test]

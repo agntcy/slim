@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, time::Duration};
+use std::time::Duration;
 
 // Third-party crates
 use tonic::Status;
@@ -88,7 +88,6 @@ pub enum SessionMessage {
         message_id: u32,
         message_type: ProtoSessionMessageType,
         name: Option<Name>,
-        metadata: Option<HashMap<String, String>>,
         timeouts: u32,
     },
     /// timer failure, signal to the owner of the packet that
@@ -97,7 +96,6 @@ pub enum SessionMessage {
         message_id: u32,
         message_type: ProtoSessionMessageType,
         name: Option<Name>,
-        metadata: Option<HashMap<String, String>>,
         timeouts: u32,
     },
     /// message from session layer to the session controller

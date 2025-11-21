@@ -150,7 +150,6 @@ where
                 message_id,
                 message_type,
                 name,
-                metadata,
                 timeouts,
             } => {
                 if message_type.is_command_message() {
@@ -161,7 +160,6 @@ where
                             message_id,
                             message_type,
                             name,
-                            metadata,
                             timeouts,
                         })
                         .await
@@ -171,7 +169,6 @@ where
                 message_id,
                 message_type,
                 name,
-                metadata,
                 timeouts,
             } => {
                 if message_type.is_command_message() {
@@ -202,7 +199,6 @@ where
                             message_id,
                             message_type,
                             name,
-                            metadata,
                             timeouts,
                         })
                         .await
@@ -1363,7 +1359,6 @@ mod tests {
                 message_id: 100,
                 message_type: ProtoSessionMessageType::DiscoveryRequest,
                 name: None,
-                metadata: None,
                 timeouts: 1,
             })
             .await;
@@ -1382,7 +1377,6 @@ mod tests {
                 message_id: 100,
                 message_type: ProtoSessionMessageType::Msg,
                 name: None,
-                metadata: None,
                 timeouts: 1,
             })
             .await;

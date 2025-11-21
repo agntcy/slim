@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use slim_datapath::{api::ProtoSessionMessageType, messages::Name};
 use tokio::sync::mpsc::Sender;
@@ -17,7 +17,6 @@ struct ReliableTimerObserver {
     tx: Sender<SessionMessage>,
     message_type: ProtoSessionMessageType,
     name: Option<Name>,
-    metadata: Option<HashMap<String, String>>,
 }
 
 #[async_trait]
@@ -28,7 +27,6 @@ impl TimerObserver for ReliableTimerObserver {
                 message_id,
                 message_type: self.message_type,
                 name: self.name.clone(),
-                metadata: self.metadata.clone(),
                 timeouts,
             })
             .await
@@ -42,7 +40,6 @@ impl TimerObserver for ReliableTimerObserver {
                 message_id,
                 message_type: self.message_type,
                 name: self.name.clone(),
-                metadata: self.metadata.clone(),
                 timeouts,
             })
             .await
@@ -134,7 +131,6 @@ impl TimerFactory {
         id: u32,
         message_type: ProtoSessionMessageType,
         name: Option<Name>,
-        metadata: Option<HashMap<String, String>>,
     ) -> Timer {
         let t = Timer::new(
             id,
@@ -143,7 +139,7 @@ impl TimerFactory {
             self.settings.max_duration,
             self.settings.max_retries,
         );
-        self.start_timer(&t, message_type, name, metadata);
+        self.start_timer(&t, message_type, name);
         t
     }
 
@@ -152,14 +148,12 @@ impl TimerFactory {
         timer: &Timer,
         message_type: ProtoSessionMessageType,
         name: Option<Name>,
-        metadata: Option<HashMap<String, String>>,
     ) {
         // start timer
         let observer = ReliableTimerObserver {
             tx: self.tx.clone(),
             message_type,
             name,
-            metadata,
         };
         timer.start(Arc::new(observer));
     }
@@ -213,7 +207,6 @@ mod tests {
             timer_id,
             ProtoSessionMessageType::DiscoveryRequest,
             Some(name.clone()),
-            None,
         );
 
         // Assert - we should receive a timeout message
@@ -227,7 +220,6 @@ mod tests {
                 message_id,
                 message_type,
                 name: received_name,
-                metadata: _,
                 timeouts,
             } => {
                 assert_eq!(message_id, timer_id);
@@ -259,7 +251,6 @@ mod tests {
             &timer,
             ProtoSessionMessageType::DiscoveryRequest,
             Some(name.clone()),
-            None,
         );
 
         // Assert - we should receive multiple timeout messages
@@ -273,7 +264,6 @@ mod tests {
                 message_id,
                 message_type,
                 name: received_name,
-                metadata: _,
                 timeouts,
             } => {
                 assert_eq!(message_id, timer_id);
@@ -294,7 +284,6 @@ mod tests {
                 message_id,
                 message_type,
                 name: received_name,
-                metadata: _,
                 timeouts,
             } => {
                 assert_eq!(message_id, timer_id);
@@ -326,7 +315,6 @@ mod tests {
             &timer,
             ProtoSessionMessageType::DiscoveryRequest,
             Some(name.clone()),
-            None,
         );
 
         // Assert - we should receive a timeout followed by a failure
@@ -340,7 +328,6 @@ mod tests {
                 message_id,
                 message_type,
                 name: received_name,
-                metadata: _,
                 timeouts,
             } => {
                 assert_eq!(message_id, timer_id);
@@ -361,7 +348,6 @@ mod tests {
                 message_id,
                 message_type,
                 name: received_name,
-                metadata: _,
                 timeouts,
             } => {
                 assert_eq!(message_id, timer_id);
@@ -393,7 +379,6 @@ mod tests {
             &timer,
             ProtoSessionMessageType::DiscoveryRequest,
             Some(name.clone()),
-            None,
         );
 
         // Assert - we should receive timeouts with exponentially increasing intervals
@@ -407,7 +392,6 @@ mod tests {
                 message_id,
                 message_type,
                 name: received_name,
-                metadata: _,
                 timeouts,
             } => {
                 assert_eq!(message_id, timer_id);
@@ -428,7 +412,6 @@ mod tests {
                 message_id,
                 message_type,
                 name: received_name,
-                metadata: _,
                 timeouts,
             } => {
                 assert_eq!(message_id, timer_id);
@@ -480,13 +463,11 @@ mod tests {
             100,
             ProtoSessionMessageType::DiscoveryRequest,
             Some(name1.clone()),
-            None,
         );
         let timer2 = factory.create_and_start_timer(
             200,
             ProtoSessionMessageType::DiscoveryRequest,
             Some(name2.clone()),
-            None,
         );
 
         // Assert - we should receive messages from both timers
@@ -503,7 +484,6 @@ mod tests {
                     message_id,
                     message_type: _,
                     name: _,
-                    metadata: _,
                     timeouts,
                 } => {
                     received_ids.push(message_id);
@@ -587,7 +567,6 @@ mod tests {
             timer_id,
             ProtoSessionMessageType::DiscoveryRequest,
             Some(name.clone()),
-            None,
         );
 
         // Assert
@@ -601,7 +580,6 @@ mod tests {
                 message_id,
                 message_type,
                 name: received_name,
-                metadata: _,
                 timeouts,
             } => {
                 assert_eq!(message_id, timer_id);

@@ -208,7 +208,6 @@ impl ControllerSender {
                 id,
                 message.get_session_message_type(),
                 None,
-                None,
             ),
         };
 
