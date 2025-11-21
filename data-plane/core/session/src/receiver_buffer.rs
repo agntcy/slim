@@ -7,7 +7,7 @@ use std::collections::HashSet;
 // Third-party crates
 use tracing::{debug, info, trace};
 
-use slim_datapath::api::ProtoMessage as Message;
+use slim_datapath::{api::ProtoMessage as Message, messages::utils::MAX_PUBLISH_ID};
 
 pub(crate) struct ReceiverBuffer {
     // ID of the last packet sent to the application
@@ -40,7 +40,7 @@ impl Default for ReceiverBuffer {
 }
 
 impl ReceiverBuffer {
-    const MAX_ID: usize = u16::MAX as usize;
+    const MAX_ID: usize = MAX_PUBLISH_ID as usize;
 
     // Helper function to compute distance between two IDs with wraparound
     // Returns the forward distance from 'from' to 'to'
@@ -717,16 +717,16 @@ mod tests {
     #[test]
     #[traced_test]
     fn test_receiver_buffer_wraparound() {
-        // Test wraparound behavior at u16::MAX
+        // Test wraparound behavior at MAX_PUBLISH_ID
         let src = Name::from_strings(["org", "ns", "type"]).with_id(0);
         let src_id = src.to_string();
         let name_type = Name::from_strings(["org", "ns", "type"]).with_id(1);
 
         let slim_header = SlimHeader::new(&src, &name_type, &src_id, None);
 
-        // Create messages near u16::MAX and wrapping around to 0
-        let id_max_minus_1 = u16::MAX as u32 - 1;
-        let id_max = u16::MAX as u32;
+        // Create messages near MAX_PUBLISH_ID and wrapping around to 0
+        let id_max_minus_1 = MAX_PUBLISH_ID - 1;
+        let id_max = MAX_PUBLISH_ID;
         let id_zero = 0;
         let id_one = 1;
         let id_two = 2;

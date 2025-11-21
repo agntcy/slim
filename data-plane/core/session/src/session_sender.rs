@@ -3,8 +3,9 @@
 
 use std::collections::{HashMap, HashSet};
 
+use rand::Rng;
 use slim_datapath::api::ProtoSessionType;
-use slim_datapath::messages::utils::PUBLISH_TO;
+use slim_datapath::messages::utils::{MAX_PUBLISH_ID, PUBLISH_TO};
 use slim_datapath::{api::ProtoMessage as Message, messages::Name};
 use tokio::sync::mpsc::Sender;
 use tokio::sync::oneshot;
@@ -47,7 +48,7 @@ pub struct SessionSender {
 
     /// list of pending acks for each message
     /// Message sent to the group are stored in the buffer and there
-    /// is no need to store them elsewhere. The message filed will be
+    /// is no need to store them elsewhere. The message field will be
     /// set to None in this case. Instead messages sent to a particolar
     /// endpoint (using the publish_to) need to be stored in the map
     pending_acks: HashMap<u32, (GroupTimer, Option<Message>)>,
@@ -209,7 +210,7 @@ impl SessionSender {
             ));
         }
 
-        let (message_id, fanout) = self.id_and_fanout(is_publish_to, &message);
+        let (message_id, fanout) = self.id_and_fanout(is_publish_to);
 
         // Set the session id, message id and session type
         let session_header = message.get_session_header_mut();
@@ -217,6 +218,11 @@ impl SessionSender {
         session_header.set_session_id(self.session_id);
         session_header.set_session_type(self.session_type);
         message.get_slim_header_mut().set_fanout(fanout);
+
+        // Buffer the message after setting the ID (only for non-publish_to messages)
+        if !is_publish_to {
+            self.buffer.push(message.clone());
+        }
 
         // Store the ack notifier if provided
         if let Some(tx) = ack_tx {
@@ -240,19 +246,18 @@ impl SessionSender {
         self.set_timer_and_send(message).await
     }
 
-    fn id_and_fanout(&mut self, is_publish_to: bool, message: &Message) -> (u32, u32) {
+    fn id_and_fanout(&mut self, is_publish_to: bool) -> (u32, u32) {
         if is_publish_to {
             // if the message is sent using the publish_to the message
-            // id is taken randomly and it must be > u16::MAX
-            // Use modulo to ensure uniform distribution in range [u16::MAX + 1, u32::MAX - 1]
-            let id = rand::random::<u32>() % (u32::MAX - u16::MAX as u32) + u16::MAX as u32 + 1;
+            // id is taken randomly and it must be in range [MAX_PUBLISH_ID + 1, u32::MAX - 1]
+            let id = rand::rng().random_range((MAX_PUBLISH_ID + 1)..u32::MAX);
             return (id, 1);
         }
 
         // by increasing next_id before assign it to message_id
         // we always start the sequence from 1. The max message_id
-        // is u16::MAX. after that we wrap to 0.
-        self.next_id = (self.next_id + 1) % (u16::MAX as u32 + 1);
+        // is MAX_PUBLISH_ID. after that we wrap to 0.
+        self.next_id = (self.next_id + 1) % (MAX_PUBLISH_ID + 1);
         let id = self.next_id;
 
         let fanout = match self.session_type {
@@ -260,7 +265,6 @@ impl SessionSender {
             _ => 1,
         };
 
-        self.buffer.push(message.clone());
         (id, fanout)
     }
 
@@ -288,16 +292,17 @@ impl SessionSender {
                 ),
             };
 
-            // insert in pending acks
-            if is_publish_to {
+            // insert in pending acks and get the endpoint_to_track
+            let endpoints_to_track = if is_publish_to {
                 self.pending_acks
                     .insert(message_id, (gt, Some(message.clone())));
+                std::iter::once(message.get_dst()).collect::<Vec<_>>()
             } else {
                 self.pending_acks.insert(message_id, (gt, None));
-            }
+                self.endpoints_list.iter().cloned().collect::<Vec<_>>()
+            };
 
-            // insert in pending acks per endpoint
-            for n in &self.endpoints_list {
+            for n in &endpoints_to_track {
                 debug!("add timer for message {} for remote {}", message_id, n);
                 if let Some(acks) = self.pending_acks_per_endpoint.get_mut(n) {
                     acks.insert(message_id);
@@ -415,8 +420,8 @@ impl SessionSender {
     pub async fn on_timer_timeout(&mut self, id: u32) -> Result<(), SessionError> {
         debug!("timeout for message {}", id);
 
-        if id >= u16::MAX as u32 {
-            // this must be a message sent with publih_to, so get the message from the pending acks map
+        if id > MAX_PUBLISH_ID {
+            // this must be a message sent with publish_to, so get the message from the pending acks map
             if let Some((_gt, Some(msg))) = self.pending_acks.get_mut(&id) {
                 return self
                     .tx
@@ -1787,10 +1792,10 @@ mod tests {
 
         assert!(result.is_err());
         match result {
-            Err(SessionError::SlimTransmission(msg)) => {
-                assert!(msg.contains("Unkwon destination"));
+            Err(SessionError::UnknownDestination(msg)) => {
+                assert!(msg.contains("unknown"));
             }
-            _ => panic!("Expected SlimTransmission error"),
+            _ => panic!("Expected UnknownDestination error, got: {:?}", result),
         }
     }
 
