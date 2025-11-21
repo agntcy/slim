@@ -370,7 +370,7 @@ async def test_error_on_nonexistent_subscription(server):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("server", ["127.0.0.1:12345", None], indirect=True)
+@pytest.mark.parametrize("server", ["127.0.0.1:12348", None], indirect=True)
 async def test_listen_for_session_timeout(server):
     """Test that listen_for_session times out appropriately when no session is available."""
     alice_name = slim_bindings.Name("org", "default", "alice_timeout")
@@ -381,7 +381,7 @@ async def test_listen_for_session_timeout(server):
     if server.local_service:
         # Connect to the service to get connection ID
         conn_id_alice = await svc_alice.connect(
-            {"endpoint": "http://127.0.0.1:12345", "tls": {"insecure": True}},
+            {"endpoint": "http://127.0.0.1:12348", "tls": {"insecure": True}},
         )
 
     # Test with a short timeout - should raise an exception
@@ -415,7 +415,7 @@ async def test_listen_for_session_timeout(server):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("server", ["127.0.0.1:12346", None], indirect=True)
+@pytest.mark.parametrize("server", ["127.0.0.1:12349", None], indirect=True)
 async def test_get_message_timeout(server):
     """Test that get_message times out appropriately when no message is available."""
     alice_name = slim_bindings.Name("org", "default", "alice_msg_timeout")
@@ -428,7 +428,7 @@ async def test_get_message_timeout(server):
     if server.local_service:
         # Connect to the service to get connection ID
         conn_id_alice = await svc_alice.connect(
-            {"endpoint": "http://127.0.0.1:12346", "tls": {"insecure": True}},
+            {"endpoint": "http://127.0.0.1:12349", "tls": {"insecure": True}},
         )
 
     # Create a session (with dummy peer for timeout testing)

@@ -4,7 +4,6 @@
 use std::collections::HashMap;
 
 use clap::Parser;
-use tokio::time;
 use tracing::info;
 
 use slim::config;
@@ -241,18 +240,6 @@ async fn main() {
         app.delete_session(&session).unwrap();
     }
 
-    // consume the service and get the drain signal (handle Option)
-    let signal = svc
-        .signal()
-        .expect("service signal missing during shutdown");
-
-    drop(svc);
-
-    match time::timeout(loader.runtime().drain_timeout(), signal.drain()).await {
-        Ok(()) => info!("service drained"),
-        Err(_) => panic!(
-            "timeout waiting for service drain after {:?}",
-            loader.runtime().drain_timeout()
-        ),
-    }
+    // Gracefully shutdown the app
+    svc.shutdown().await.unwrap();
 }

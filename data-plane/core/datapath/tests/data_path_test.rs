@@ -11,6 +11,7 @@ mod tests {
 
     use slim_config::grpc::{client::ClientConfig, server::ServerConfig};
     use slim_datapath::api::{DataPlaneServiceServer, ProtoMessage as Message};
+    use slim_datapath::errors::DataPathError;
     use slim_datapath::message_processing::MessageProcessor;
 
     #[tokio::test]
@@ -20,7 +21,7 @@ mod tests {
         let mut server_conf = ServerConfig::with_endpoint("127.0.0.1:50051");
         server_conf.tls_setting.insecure = true;
 
-        let (processor, _signal) = MessageProcessor::new();
+        let processor = MessageProcessor::new();
         let svc = Arc::new(processor);
         let msg_processor = svc.clone();
         let ep_server = server_conf
@@ -98,7 +99,7 @@ mod tests {
         assert!(logs_contain(&expected_msg));
 
         // test the local connections
-        let (_conn_id, tx, mut rx) = msg_processor.register_local_connection(false);
+        let (_conn_id, tx, mut rx) = msg_processor.register_local_connection(false).unwrap();
 
         // send messages from tx and verify that they are received by rx
         let msg = make_message("org", "namespace", "type");
@@ -155,7 +156,7 @@ mod tests {
         let mut server_conf = ServerConfig::with_endpoint("127.0.0.1:50052");
         server_conf.tls_setting.insecure = true;
 
-        let (processor, _signal) = MessageProcessor::new();
+        let processor = MessageProcessor::new();
         let svc = Arc::new(processor);
         let msg_processor = svc.clone();
 
@@ -244,5 +245,30 @@ mod tests {
             .flags(SlimHeaderFlags::default().with_forward_to(to_conn))
             .build_subscribe()
             .unwrap()
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_message_processor_shutdown() {
+        // create a message processor
+        let processor = MessageProcessor::new();
+        // register a local connection to create background tasks
+        let (_conn_id, tx, _rx) = processor.register_local_connection(false).unwrap();
+        // send a message to exercise processing path
+        let msg = make_message("org", "ns", "type");
+        tx.send(Ok(msg)).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+        // first shutdown succeeds
+        processor.shutdown().await.expect("shutdown should succeed");
+        // second shutdown must fail with AlreadyCloseError
+        let err = processor
+            .shutdown()
+            .await
+            .expect_err("second shutdown must fail");
+        assert_eq!(
+            err,
+            DataPathError::AlreadyCloseError,
+            "expected AlreadyCloseError on second shutdown"
+        );
     }
 }

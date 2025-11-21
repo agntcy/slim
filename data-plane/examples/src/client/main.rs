@@ -4,7 +4,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use prost::Message;
-use tokio::time;
 use tracing::{error, info};
 
 use slim::config;
@@ -186,19 +185,5 @@ async fn main() -> Result<()> {
 
     info!("client shutting down");
 
-    let signal = svc
-        .signal()
-        .expect("service signal missing during shutdown");
-
-    drop(svc);
-
-    match time::timeout(loader.runtime().drain_timeout(), signal.drain()).await {
-        Ok(()) => info!("service drained"),
-        Err(_) => error!(
-            "timeout waiting for service drain after {:?}",
-            loader.runtime().drain_timeout()
-        ),
-    }
-
-    Ok(())
+    svc.shutdown().await.context("Service shutdown failed")
 }
