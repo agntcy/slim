@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.7.1](https://github.com/agntcy/slim/compare/slim-bindings-v0.7.0...slim-bindings-v0.7.1) (2025-11-21)
+
+
+### Bug Fixes
+
+* flaky integration test ([#981](https://github.com/agntcy/slim/issues/981)) ([45a7eaa](https://github.com/agntcy/slim/commit/45a7eaada2a211280cdbdfb5739597d958e88e6b))
+
+
+### Documentation
+
+* update readmes in python examples ([#962](https://github.com/agntcy/slim/issues/962)) ([1e8472d](https://github.com/agntcy/slim/commit/1e8472dd356a4d9eef3570bba20971e363da9216))
+
 ## [0.6.2](https://github.com/agntcy/slim/compare/slim-bindings-v0.6.1...slim-bindings-v0.7.0) (2025-11-18)
 
 
