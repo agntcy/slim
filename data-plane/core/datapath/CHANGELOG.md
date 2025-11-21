@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.3](https://github.com/agntcy/slim/compare/slim-datapath-v0.10.2...slim-datapath-v0.10.3) - 2025-11-21
+
+### Added
+
+- add publish_to on group session ([#975](https://github.com/agntcy/slim/pull/975))
+
+### Fixed
+
+- flaky integration test ([#981](https://github.com/agntcy/slim/pull/981))
+
 ## [0.10.2](https://github.com/agntcy/slim/compare/slim-datapath-v0.10.1...slim-datapath-v0.10.2) - 2025-11-17
 
 ### Added
