@@ -82,7 +82,7 @@ Here's an example of the default `ClusterSPIFFEID` which applies to all pods unl
           .PodSpec.ServiceAccountName }}
 ```
 
-The Spire agent exposes a local API endpoint on each node, used by applications to fetch certificates and certificate bundles. Applications may support Spire natively (Controller) or they run [Spiffe helper](https://github.com/spiffe/spiffe-helper) as a side-car, which takes care or fetching and rotating certificates and tokens. (SLIM nodes and clients)
+The Spire agent exposes a local API endpoint on each node, used by applications to fetch certificates and certificate bundles. SLIM nodes (server nodes and python clients) and Controller support Spire natively.
 
 For troubleshooting connection problems, use the following command to list created entries:
 
@@ -136,35 +136,41 @@ task slim:deploy
 
 This step deploys three replicas of SLIM servers and a `ClusterIP` service.
 
-In each SLIM pod, there is a `spire-helper` container running fetching generated X509 certificates, keys, and certificate bundles to the configured path. SLIM nodes must be configured to use MTLS using the same path.
+SLIM nodes must be configured to use MTLS with Spire:
 
 ```yaml
-  services:
-    slim/0:
-      node_id: ${env:SLIM_SVC_ID}
-      dataplane:
-        servers:
-          - endpoint: "0.0.0.0:{{ .Values.slim.service.data.port }}"
-            tls:
-              #insecure: true
-              insecure_skip_verify: false
-              cert_file: "/svids/tls.crt"
-              key_file: "/svids/tls.key"
-              ca_file: "/svids/svid_bundle.pem"                
-
-        clients: []
-      controller:
-        clients:
-          - endpoint: "https://slim-control:50052"
-            tls:
-              #insecure: true
-              insecure_skip_verify: false
-              cert_file: "/svids/tls.crt"
-              key_file: "/svids/tls.key"
-              ca_file: "/svids/svid_bundle.pem"
+    services:
+      slim/0:
+        node_id: ${env:SLIM_SVC_ID}
+        dataplane:
+          servers:
+            - endpoint: "0.0.0.0:{{ .Values.slim.service.data.port }}"
+              tls: 
+                source:
+                  type: spire
+                  socket_path: unix:/tmp/spire-agent/public/api.sock
+                  target_spiffe_id: spiffe://example.local/ns/slim/sa/slim                  
+                client_ca:
+                  type: spire
+                  socket_path: unix:/tmp/spire-agent/public/api.sock                     
+          clients: []
+        controller:
+          clients:
+            - endpoint: "https://slim-control:50052"
+              tls:
+                source:
+                  type: spire
+                  socket_path: unix:/tmp/spire-agent/public/api.sock               
+                ca_source:
+                  type: spire
+                  socket_path: unix:/tmp/spire-agent/public/api.sock
+                  trust_domains:
+                    - example.local
 ```
 
-> **Note:** `node_id` should be a unique ID within the cluster, since this is used by Controller to identify SLIM server.
+> **Note:** 
+> - `node_id` should be a unique ID within the cluster, since this is used by Controller to identify SLIM server.
+> - `socket_path` is the path where Spire API socket is mounted. 
 
 See [SLIM Helm chart values](statefulset-values.yaml) for more information.
 
@@ -185,7 +191,7 @@ The sample applications demonstrate in-cluster communication with centralized co
 - Alice (receiver) subscribes to messages and replies to received messages.
 - Bob (sender) creates a new MLS session publishes messages and waits for reply.
 
-Each client uses SPIRE federation for authentication, running spiffe-helper as a side-car.
+Each client uses JWT tokens for authentication, which is provided by Spire.
   
 The centralized Controller automatically creates routes when Alice subscribes, enabling Bob's messages to reach Alice through the controller coordination.
   
@@ -224,15 +230,6 @@ In case of connection problems, check the following:
     ```
 
     There should be an entry for Controller, one entry for each SLIM node.
-
-* Check `spiffe-helper` side-car logs in SLIM nodes and client apps:
-
-    ```bash
-    kubectl logs -n slim slim-0 spiffe-helper
-    kubectl logs -n slim slim-1 spiffe-helper
-    kubectl logs alice spiffe-helper
-    kubectl logs bob spiffe-helper
-    ```
 
 </details>
 
