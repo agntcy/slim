@@ -320,6 +320,13 @@ impl SessionReceiver {
             .await
     }
 
+    pub fn remove_endpoint(&mut self, endpoint: &Name) {
+        // remove the buffer related to an endpoint so that if it is added again
+        // the messages will not be dropped as duplicated
+        tracing::debug!("remove endpoint on the receiver {}", endpoint);
+        self.buffer.remove(endpoint);
+    }
+
     pub fn start_drain(&mut self) {
         self.draining_state = ReceiverDrainStatus::Initiated;
         if self.pending_rtxs.is_empty() {
