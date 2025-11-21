@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use slim_auth::errors::AuthError;
+use slim_session::SessionError as SlimSessionError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -52,4 +53,10 @@ pub enum ServiceError {
     DrainTimeoutError,
     #[error("unknown error")]
     Unknown,
+}
+
+impl From<SlimSessionError> for ServiceError {
+    fn from(err: SlimSessionError) -> Self {
+        ServiceError::SessionError(err.to_string())
+    }
 }
