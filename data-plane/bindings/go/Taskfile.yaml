@@ -22,15 +22,16 @@ tasks:
       - |
         echo "SLIM Go Bindings - Available tasks:"
         echo ""
-        echo "  task                - Build and generate (default)"
-        echo "  task build          - Build the Rust library with UniFFI (release mode)"
-        echo "  task build-debug    - Build the Rust library (debug mode)"
-        echo "  task generate       - Generate Go bindings from compiled library"
-        echo "  task test           - Run all tests"
-        echo "  task test-coverage  - Run tests with coverage report"
-        echo "  task clean          - Clean build artifacts"
-        echo "  task example        - Run the simple example"
-        echo "  task help           - Show this help message"
+        echo "  task                           - Build and generate (default)"
+        echo "  task build                     - Build the Rust library with UniFFI (release mode)"
+        echo "  task build-debug               - Build the Rust library (debug mode)"
+        echo "  task install-uniffi-bindgen-go - Install uniffi-bindgen-go"
+        echo "  task generate                  - Generate Go bindings from compiled library"
+        echo "  task test                      - Run all tests"
+        echo "  task test-coverage             - Run tests with coverage report"
+        echo "  task clean                     - Clean build artifacts"
+        echo "  task example                   - Run the simple example"
+        echo "  task help                      - Show this help message"
     silent: true
 
   build:
@@ -118,3 +119,7 @@ tasks:
     desc: Build, generate, and run example
     deps: [build, generate, example]
 
+  install-uniffi-bindgen-go:
+    desc: Install uniffi-bindgen-go
+    cmds:
+      - cargo install uniffi-bindgen-go --git https://github.com/NordSecurity/uniffi-bindgen-go.git --tag v0.4.0+v0.28.3 --config net.git-fetch-with-cli=true
