@@ -13,7 +13,7 @@ version: "3"
 vars:
   SPIRE_NAMESPACE: '{{ .SPIRE_NAMESPACE | default "spire" }}'
   SLIM_NAMESPACE: '{{ .SLIM_NAMESPACE | default "slim" }}'
-  SLIM_IMAGE_TAG: '{{ .SLIM_IMAGE_TAG | default "0.7.0" }}'
+  SLIM_IMAGE_TAG: '{{ .SLIM_IMAGE_TAG | default "0.7.1" }}'
   SLIM_CONTROLLER_IMAGE_TAG: '{{ .SLIM_CONTROLLER_IMAGE_TAG | default "0.7.1" }}'
 
 
