@@ -127,6 +127,7 @@ impl std::fmt::Debug for Service {
             .field("servers", &self.config.servers())
             .field("clients", &self.config.clients())
             .field("group_name", &self.config.group_name)
+            .field("controller", &self.config.controller)
             .finish()
     }
 }
