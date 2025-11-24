@@ -55,8 +55,8 @@ services:
     dataplane:
       # GRPC Server configuration
       servers:
-          # The endpoint to listen on.
-          # No default, this must be specified.
+        # The endpoint to listen on.
+        # No default, this must be specified.
         - endpoint: "0.0.0.0:46357"
 
           # Authentication configuration
@@ -327,8 +327,8 @@ services:
     controller:
       # GRPC Server configuration
       servers:
-          # The endpoint to listen on.
-          # No default, this must be specified.
+        # The endpoint to listen on.
+        # No default, this must be specified.
         - endpoint: "0.0.0.0:46358"
 
           # Authentication configuration
@@ -478,8 +478,8 @@ services:
 
       # GRPC Client configuration.
       clients:
-          # The endpoint to connect to.
-          # No default, this must be specified.
+        # The endpoint to connect to.
+        # No default, this must be specified.
         - endpoint: "1.2.3.4:54321"
 
           # Authentication configuration
@@ -592,3 +592,15 @@ services:
             # The certificate reload interval. If set, the client will reload the certificate
             # every time the interval is reached.
             # reload_interval: 10s
+          # Backoff strategy configuration used to reconnect to the controller
+          backoff:
+            # this is the default type of the backoff strategy,
+            type: exponential
+            # the reconnection base delay in milliseconds
+            base: 500
+            # the reconnection factor determines how fast the delay increases
+            factor: 1
+            # the maximum delay between reconnection attempts in milliseconds
+            max_delay: 1500
+            # whether to apply jitter to the backoff delay
+            jitter: true

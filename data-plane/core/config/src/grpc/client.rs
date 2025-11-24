@@ -29,6 +29,9 @@ use crate::auth::ClientAuthenticator;
 use crate::auth::basic::Config as BasicAuthenticationConfig;
 use crate::auth::jwt::Config as JwtAuthenticationConfig;
 use crate::auth::static_jwt::Config as BearerAuthenticationConfig;
+use crate::backoff::Strategy;
+use crate::backoff::exponential::Config as ExponentialBackoff;
+use crate::backoff::fixedinterval::Config as FixedIntervalBackoff;
 use crate::component::configuration::{Configuration, ConfigurationError};
 use crate::grpc::proxy::ProxyConfig;
 use crate::tls::{client::TlsClientConfig as TLSSetting, common::RustlsConfigLoader};
@@ -191,6 +194,31 @@ pub enum AuthenticationConfig {
     None,
 }
 
+/// Enum holding one configuration for the client.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case", tag = "type")]
+pub enum BackoffConfig {
+    // Exponential backoff retry config.
+    Exponential(ExponentialBackoff),
+    /// FixedInterval backoff retry config.
+    FixedInterval(FixedIntervalBackoff),
+}
+
+impl Default for BackoffConfig {
+    fn default() -> Self {
+        BackoffConfig::Exponential(ExponentialBackoff::default())
+    }
+}
+
+impl Strategy for BackoffConfig {
+    fn get_strategy(&self) -> Box<dyn Iterator<Item = Duration> + Send> {
+        match self {
+            BackoffConfig::Exponential(b) => b.get_strategy(),
+            BackoffConfig::FixedInterval(b) => b.get_strategy(),
+        }
+    }
+}
+
 /// Struct for the client configuration.
 /// This struct contains the endpoint, origin, compression type, rate limit,
 /// TLS settings, keepalive settings, proxy settings, timeout settings, buffer size settings,
@@ -246,6 +274,10 @@ pub struct ClientConfig {
     #[serde(default)]
     pub auth: AuthenticationConfig,
 
+    /// Backoff retry configuration.
+    #[serde(default)]
+    pub backoff: BackoffConfig,
+
     /// Arbitrary user-provided metadata.
     pub metadata: Option<MetadataMap>,
 }
@@ -267,6 +299,7 @@ impl Default for ClientConfig {
             buffer_size: None,
             headers: HashMap::new(),
             auth: AuthenticationConfig::None,
+            backoff: BackoffConfig::default(),
             metadata: None,
         }
     }
@@ -285,7 +318,7 @@ impl std::fmt::Display for ClientConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "ClientConfig {{ endpoint: {}, origin: {:?}, server_name: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, proxy: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?}, metadata: {:?} }}",
+            "ClientConfig {{ endpoint: {}, origin: {:?}, server_name: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, proxy: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?}, backoff: {:?}, metadata: {:?} }}",
             self.endpoint,
             self.origin,
             self.server_name,
@@ -299,6 +332,7 @@ impl std::fmt::Display for ClientConfig {
             self.buffer_size,
             self.headers,
             self.auth,
+            self.backoff,
             self.metadata
         )
     }
