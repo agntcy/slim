@@ -565,3 +565,114 @@ func BenchmarkDataAccess_GetRoutesForNodeID(b *testing.B) {
 		})
 	}
 }
+
+// TestDataAccess_GetDestinationNodeIDForName tests GetDestinationNodeIDForName
+func TestDataAccess_GetDestinationNodeIDForName(t *testing.T) {
+	implementations := getDataAccessImplementations()
+
+	for _, impl := range implementations {
+		t.Run(impl.Name, func(t *testing.T) {
+			da := impl.Factory()
+			defer impl.Cleanup(da)
+
+			testGetDestinationNodeIDForName(t, da)
+		})
+	}
+}
+
+func testGetDestinationNodeIDForName(t *testing.T, da DataAccess) {
+	// Add routes with AllNodesID as source
+	route1 := Route{
+		SourceNodeID: AllNodesID,
+		DestNodeID:   "node1",
+		Component0:   "org",
+		Component1:   "namespace",
+		Component2:   "agent",
+		ComponentID:  wrapperspb.UInt64(123),
+		Status:       RouteStatusApplied,
+		LastUpdated:  time.Now().Add(-2 * time.Hour), // Older route
+	}
+
+	_, err := da.AddRoute(route1)
+	require.NoError(t, err, "AddRoute should not return error")
+
+	// Add a more recent route with the same components
+	route2 := Route{
+		SourceNodeID: AllNodesID,
+		DestNodeID:   "node2",
+		Component0:   "org",
+		Component1:   "namespace",
+		Component2:   "agent",
+		ComponentID:  wrapperspb.UInt64(123),
+		Status:       RouteStatusApplied,
+		LastUpdated:  time.Now(), // Most recent route
+	}
+
+	_, err = da.AddRoute(route2)
+	require.NoError(t, err, "AddRoute should not return error")
+
+	// Add a route with different ComponentID
+	route3 := Route{
+		SourceNodeID: AllNodesID,
+		DestNodeID:   "node3",
+		Component0:   "org",
+		Component1:   "namespace",
+		Component2:   "agent",
+		ComponentID:  wrapperspb.UInt64(456),
+		Status:       RouteStatusApplied,
+		LastUpdated:  time.Now(),
+	}
+
+	_, err = da.AddRoute(route3)
+	require.NoError(t, err, "AddRoute should not return error")
+
+	// Add a route with different source (not AllNodesID)
+	route4 := Route{
+		SourceNodeID: "specific-node",
+		DestNodeID:   "node4",
+		Component0:   "org",
+		Component1:   "namespace",
+		Component2:   "agent",
+		ComponentID:  wrapperspb.UInt64(123),
+		Status:       RouteStatusApplied,
+		LastUpdated:  time.Now(),
+	}
+
+	_, err = da.AddRoute(route4)
+	require.NoError(t, err, "AddRoute should not return error")
+
+	// Add a route with nil ComponentID
+	route5 := Route{
+		SourceNodeID: AllNodesID,
+		DestNodeID:   "node5",
+		Component0:   "org",
+		Component1:   "namespace",
+		Component2:   "agent2",
+		ComponentID:  nil,
+		Status:       RouteStatusApplied,
+		LastUpdated:  time.Now(),
+	}
+
+	_, err = da.AddRoute(route5)
+	require.NoError(t, err, "AddRoute should not return error")
+
+	// Test 1: Should return the most recent route (node2) for the given component
+	destNodeID := da.GetDestinationNodeIDForName("org", "namespace", "agent", wrapperspb.UInt64(123))
+	assert.Equal(t, "node2", destNodeID, "Should return the most recent route's destination node ID")
+
+	// Test 2: Should return node3 for different ComponentID
+	destNodeID = da.GetDestinationNodeIDForName("org", "namespace", "agent", wrapperspb.UInt64(456))
+	assert.Equal(t, "node3", destNodeID, "Should return node3 for ComponentID 456")
+
+	// Test 3: Should return empty string for non-existent component
+	destNodeID = da.GetDestinationNodeIDForName("org", "namespace", "nonexistent", wrapperspb.UInt64(123))
+	assert.Equal(t, "", destNodeID, "Should return empty string for non-existent component")
+
+	// Test 4: Should return node5 for nil ComponentID
+	destNodeID = da.GetDestinationNodeIDForName("org", "namespace", "agent2", nil)
+	assert.Equal(t, "node5", destNodeID, "Should return node5 for nil ComponentID")
+
+	// Test 5: Should return empty string for mismatched ComponentID (nil vs non-nil)
+	destNodeID = da.GetDestinationNodeIDForName("org", "namespace", "agent2", wrapperspb.UInt64(123))
+	assert.Equal(t, "", destNodeID, "Should return empty string when ComponentID doesn't match")
+}

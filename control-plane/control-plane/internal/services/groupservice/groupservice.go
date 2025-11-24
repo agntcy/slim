@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
@@ -24,22 +25,18 @@ type GroupManager interface {
 	CreateChannel(
 		ctx context.Context,
 		createChannelRequest *controlplaneApi.CreateChannelRequest,
-		node *controlplaneApi.NodeEntry,
 	) (*controlplaneApi.CreateChannelResponse, error)
 	DeleteChannel(
 		ctx context.Context,
 		deleteChannelRequest *controllerapi.DeleteChannelRequest,
-		node *controlplaneApi.NodeEntry,
 	) (*controllerapi.Ack, error)
 	AddParticipant(
 		ctx context.Context,
 		addParticipantRequest *controllerapi.AddParticipantRequest,
-		node *controlplaneApi.NodeEntry,
 	) (*controllerapi.Ack, error)
 	DeleteParticipant(
 		ctx context.Context,
 		deleteParticipantRequest *controllerapi.DeleteParticipantRequest,
-		node *controlplaneApi.NodeEntry,
 	) (*controllerapi.Ack, error)
 	ListChannels(
 		ctx context.Context,
@@ -61,6 +58,7 @@ type DataAccess interface {
 	GetChannel(channelID string) (db.Channel, error)
 	UpdateChannel(channel db.Channel) error
 	ListChannels() ([]db.Channel, error)
+	GetDestinationNodeIDForName(Component0 string, Component1 string, Component2 string, ComponentID *wrapperspb.UInt64Value) string
 }
 
 type GroupService struct {
@@ -78,7 +76,6 @@ func NewGroupService(dbService DataAccess, cmdHandler nodecontrol.NodeCommandHan
 func (s *GroupService) CreateChannel(
 	ctx context.Context,
 	createChannelRequest *controlplaneApi.CreateChannelRequest,
-	nodeEntry *controlplaneApi.NodeEntry,
 ) (*controlplaneApi.CreateChannelResponse, error) {
 	zlog := zerolog.Ctx(ctx)
 
@@ -106,6 +103,12 @@ func (s *GroupService) CreateChannel(
 
 	zlog.Debug().Msgf("Generated channel name: %s", channelName)
 
+	// Find the node where the moderator is located
+	nodeID, err := s.getModeratorNode(ctx, createChannelRequest.Moderators)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find moderator node: %w", err)
+	}
+
 	// Sending control message
 	messageID := uuid.NewString()
 	msg := &controllerapi.ControlMessage{
@@ -117,14 +120,14 @@ func (s *GroupService) CreateChannel(
 			},
 		},
 	}
-	zlog.Debug().Msgf("Sending CreateChannelRequest for channel %s to node: %s", channelName, nodeEntry.Id)
-	if sendErr := s.cmdHandler.SendMessage(ctx, nodeEntry.Id, msg); sendErr != nil {
+	zlog.Debug().Msgf("Sending CreateChannelRequest for channel %s to node: %s", channelName, nodeID)
+	if sendErr := s.cmdHandler.SendMessage(ctx, nodeID, msg); sendErr != nil {
 		return nil, fmt.Errorf("failed to send message: %w", sendErr)
 	}
 	// wait for ACK response
 	response, err := s.cmdHandler.WaitForResponse(
 		ctx,
-		nodeEntry.Id,
+		nodeID,
 		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
 		messageID,
 	)
@@ -155,7 +158,6 @@ func (s *GroupService) CreateChannel(
 func (s *GroupService) DeleteChannel(
 	ctx context.Context,
 	deleteChannelRequest *controllerapi.DeleteChannelRequest,
-	nodeEntry *controlplaneApi.NodeEntry,
 ) (*controllerapi.Ack, error) {
 	zlog := zerolog.Ctx(ctx)
 
@@ -172,6 +174,12 @@ func (s *GroupService) DeleteChannel(
 
 	deleteChannelRequest.Moderators = channel.Moderators
 
+	// Find the node where the moderator is located
+	nodeID, err := s.getModeratorNode(ctx, channel.Moderators)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find moderator node: %w", err)
+	}
+
 	// Sending control message
 	messageID := uuid.NewString()
 	msg := &controllerapi.ControlMessage{
@@ -182,15 +190,15 @@ func (s *GroupService) DeleteChannel(
 	}
 
 	zlog.Debug().Msgf("Sending DeleteChannelRequest for channel %s to node: %s",
-		deleteChannelRequest.ChannelName, nodeEntry.Id)
-	if handlerError := s.cmdHandler.SendMessage(ctx, nodeEntry.Id, msg); handlerError != nil {
+		deleteChannelRequest.ChannelName, nodeID)
+	if handlerError := s.cmdHandler.SendMessage(ctx, nodeID, msg); handlerError != nil {
 		return nil, fmt.Errorf("failed to send message: %w", handlerError)
 	}
 
 	// wait for ACK response
 	response, err := s.cmdHandler.WaitForResponse(
 		ctx,
-		nodeEntry.Id,
+		nodeID,
 		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
 		messageID,
 	)
@@ -220,7 +228,6 @@ func (s *GroupService) DeleteChannel(
 func (s *GroupService) AddParticipant(
 	ctx context.Context,
 	addParticipantRequest *controllerapi.AddParticipantRequest,
-	nodeEntry *controlplaneApi.NodeEntry,
 ) (*controllerapi.Ack, error) {
 	zlog := zerolog.Ctx(ctx)
 
@@ -242,6 +249,12 @@ func (s *GroupService) AddParticipant(
 
 	addParticipantRequest.Moderators = channel.Moderators
 
+	// Find the node where the moderator is located
+	nodeID, err := s.getModeratorNode(ctx, channel.Moderators)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find moderator node: %w", err)
+	}
+
 	// Sending control message
 	messageID := uuid.NewString()
 	msg := &controllerapi.ControlMessage{
@@ -252,15 +265,15 @@ func (s *GroupService) AddParticipant(
 	}
 
 	zlog.Debug().Msgf("Sending AddParticipantRequest for channel %s to node: %s",
-		addParticipantRequest.ChannelName, nodeEntry.Id)
-	if err = s.cmdHandler.SendMessage(ctx, nodeEntry.Id, msg); err != nil {
+		addParticipantRequest.ChannelName, nodeID)
+	if err = s.cmdHandler.SendMessage(ctx, nodeID, msg); err != nil {
 		return nil, fmt.Errorf("failed to send message: %w", err)
 	}
 
 	// wait for ACK response
 	response, err := s.cmdHandler.WaitForResponse(
 		ctx,
-		nodeEntry.Id,
+		nodeID,
 		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
 		messageID,
 	)
@@ -296,7 +309,6 @@ func (s *GroupService) AddParticipant(
 func (s *GroupService) DeleteParticipant(
 	ctx context.Context,
 	deleteParticipantRequest *controllerapi.DeleteParticipantRequest,
-	nodeEntry *controlplaneApi.NodeEntry,
 ) (*controllerapi.Ack, error) {
 	zlog := zerolog.Ctx(ctx)
 	if deleteParticipantRequest.ChannelName == "" {
@@ -324,6 +336,12 @@ func (s *GroupService) DeleteParticipant(
 
 	deleteParticipantRequest.Moderators = channel.Moderators
 
+	// Find the node where the moderator is located
+	nodeID, err := s.getModeratorNode(ctx, channel.Moderators)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find moderator node: %w", err)
+	}
+
 	// Sending control message
 	messageID := uuid.NewString()
 	msg := &controllerapi.ControlMessage{
@@ -334,15 +352,15 @@ func (s *GroupService) DeleteParticipant(
 	}
 
 	zlog.Debug().Msgf("Sending DeleteParticipantRequest for channel %s to node: %s",
-		deleteParticipantRequest.ChannelName, nodeEntry.Id)
-	if handlerError := s.cmdHandler.SendMessage(ctx, nodeEntry.Id, msg); handlerError != nil {
+		deleteParticipantRequest.ChannelName, nodeID)
+	if handlerError := s.cmdHandler.SendMessage(ctx, nodeID, msg); handlerError != nil {
 		return nil, fmt.Errorf("failed to send message: %w", handlerError)
 	}
 
 	// wait for ACK response
 	response, err := s.cmdHandler.WaitForResponse(
 		ctx,
-		nodeEntry.Id,
+		nodeID,
 		reflect.TypeOf(&controllerapi.ControlMessage_Ack{}),
 		messageID,
 	)
@@ -440,4 +458,38 @@ func logAckMessage(ctx context.Context, ack *controllerapi.Ack) {
 			zlog.Debug().Msgf("    [%d] %s\n", i+1, ackMsg)
 		}
 	}
+}
+
+// getModeratorNode returns the node ID where the moderator is located
+func (s *GroupService) getModeratorNode(ctx context.Context, moderators []string) (string, error) {
+	if len(moderators) == 0 {
+		return "", fmt.Errorf("no moderators provided")
+	}
+
+	moderatorToFind := moderators[0]
+	parts, err := commonutil.ValidateName(moderatorToFind, 4)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse moderator route: %w", err)
+	}
+
+	organization := parts[0]
+	namespace := parts[1]
+	agentType := parts[2]
+	var appInstance *wrapperspb.UInt64Value
+	if len(parts) > 3 && parts[3] != "" {
+		// Parse the appInstance as uint64
+		var instanceID uint64
+		_, parseErr := fmt.Sscanf(parts[3], "%d", &instanceID)
+		if parseErr == nil {
+			appInstance = wrapperspb.UInt64(instanceID)
+		}
+	}
+
+	// Use the new method to find the node where the moderator is located
+	destNodeID := s.dbService.GetDestinationNodeIDForName(organization, namespace, agentType, appInstance)
+	if destNodeID == "" {
+		return "", fmt.Errorf("no node found for moderator %s", moderatorToFind)
+	}
+
+	return destNodeID, nil
 }

@@ -24,6 +24,10 @@ type DataAccess interface {
 	GetRouteForSrcAndDestinationAndName(srcNodeID string, Component0 string, Component1 string,
 		Component2 string, ComponentID *wrapperspb.UInt64Value, destNodeID string, destEndpoint string) (Route, error)
 
+	// GetDestinationNodeIDForName queries for routes with srcNodeID = ALL and component names,
+	// orders routes by last updated time (first being the latest) and returns dest nodeID of first route.
+	GetDestinationNodeIDForName(Component0 string, Component1 string, Component2 string, ComponentID *wrapperspb.UInt64Value) string
+
 	GetRouteByID(routeID uint64) *Route
 	DeleteRoute(routeID uint64) error
 	MarkRouteAsDeleted(routeID uint64) error

@@ -250,6 +250,29 @@ func (s *SQLiteDBService) FilterRoutesBySourceAndDestination(sourceNodeID string
 	return routes
 }
 
+func (s *SQLiteDBService) GetDestinationNodeIDForName(component0 string, component1 string, component2 string, componentID *wrapperspb.UInt64Value) string {
+	query := s.db.Model(&RouteModel{}).
+		Where("source_node_id = ? AND component0 = ? AND component1 = ? AND component2 = ?",
+			AllNodesID, component0, component1, component2)
+
+	if componentID == nil {
+		query = query.Where("component_id IS NULL")
+	} else {
+		componentIDStr := strconv.FormatUint(componentID.Value, 10)
+		query = query.Where("component_id = ?", componentIDStr)
+	}
+
+	// Order by last_updated descending to get the most recent route first
+	query = query.Order("last_updated DESC")
+
+	var routeModel RouteModel
+	if err := query.First(&routeModel).Error; err != nil {
+		return ""
+	}
+
+	return routeModel.DestNodeID
+}
+
 func (s *SQLiteDBService) GetRouteByID(routeID uint64) *Route {
 	var routeModel RouteModel
 	if err := s.db.First(&routeModel, "id = ?", routeID).Error; err != nil {
