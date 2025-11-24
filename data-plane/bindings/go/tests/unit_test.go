@@ -27,31 +27,9 @@ func TestGetVersion(t *testing.T) {
 	t.Logf("SLIM version: %s", version)
 }
 
-// TestServiceCreation tests Service creation
-func TestServiceCreation(t *testing.T) {
-	slim.InitializeCrypto()
-	
-	service, err := slim.NewService()
-	if err != nil {
-		t.Fatalf("Failed to create service: %v", err)
-	}
-	
-	if service == nil {
-		t.Fatal("Service should not be nil")
-	}
-	
-	service.Destroy()
-}
-
 // TestAppCreation tests App creation
 func TestAppCreation(t *testing.T) {
 	slim.InitializeCrypto()
-	
-	service, err := slim.NewService()
-	if err != nil {
-		t.Fatalf("Failed to create service: %v", err)
-	}
-	defer service.Destroy()
 	
 	appName := slim.Name{
 		Components: []string{"org", "testapp", "v1"},
@@ -60,7 +38,7 @@ func TestAppCreation(t *testing.T) {
 	
 	sharedSecret := "test-shared-secret-must-be-at-least-32-bytes-long!"
 	
-	app, err := service.CreateApp(appName, sharedSecret)
+	app, err := slim.CreateAppWithSecret(appName, sharedSecret)
 	if err != nil {
 		t.Fatalf("Failed to create app: %v", err)
 	}
@@ -180,12 +158,6 @@ func TestSessionConfig(t *testing.T) {
 func TestErrorHandling(t *testing.T) {
 	slim.InitializeCrypto()
 	
-	service, err := slim.NewService()
-	if err != nil {
-		t.Fatalf("Failed to create service: %v", err)
-	}
-	defer service.Destroy()
-	
 	// Test with too-short shared secret (should fail or panic)
 	appName := slim.Name{
 		Components: []string{"org", "testapp", "v1"},
@@ -198,47 +170,21 @@ func TestErrorHandling(t *testing.T) {
 	
 	// Test with valid secret
 	sharedSecret := "valid-shared-secret-must-be-at-least-32-bytes!"
-	app, err := service.CreateApp(appName, sharedSecret)
+	app, err := slim.CreateAppWithSecret(appName, sharedSecret)
 	if err != nil {
 		t.Fatalf("Failed to create app with valid secret: %v", err)
 	}
 	app.Destroy()
 }
 
-// TestMultipleServices tests creating multiple services
-func TestMultipleServices(t *testing.T) {
-	slim.InitializeCrypto()
-	
-	service1, err := slim.NewService()
-	if err != nil {
-		t.Fatalf("Failed to create service1: %v", err)
-	}
-	defer service1.Destroy()
-	
-	service2, err := slim.NewService()
-	if err != nil {
-		t.Fatalf("Failed to create service2: %v", err)
-	}
-	defer service2.Destroy()
-	
-	// Both should be valid
-	t.Log("Multiple services created successfully")
-}
-
-// TestMultipleApps tests creating multiple apps in one service
+// TestMultipleApps tests creating multiple apps
 func TestMultipleApps(t *testing.T) {
 	slim.InitializeCrypto()
-	
-	service, err := slim.NewService()
-	if err != nil {
-		t.Fatalf("Failed to create service: %v", err)
-	}
-	defer service.Destroy()
 	
 	sharedSecret := "test-shared-secret-must-be-at-least-32-bytes-long!"
 	
 	// Create first app
-	app1, err := service.CreateApp(
+	app1, err := slim.CreateAppWithSecret(
 		slim.Name{Components: []string{"org", "app1", "v1"}, Id: nil},
 		sharedSecret,
 	)
@@ -248,7 +194,7 @@ func TestMultipleApps(t *testing.T) {
 	defer app1.Destroy()
 	
 	// Create second app
-	app2, err := service.CreateApp(
+	app2, err := slim.CreateAppWithSecret(
 		slim.Name{Components: []string{"org", "app2", "v1"}, Id: nil},
 		sharedSecret,
 	)
@@ -285,12 +231,7 @@ func TestNameWithID(t *testing.T) {
 func TestCleanup(t *testing.T) {
 	slim.InitializeCrypto()
 	
-	service, err := slim.NewService()
-	if err != nil {
-		t.Fatalf("Failed to create service: %v", err)
-	}
-	
-	app, err := service.CreateApp(
+	app, err := slim.CreateAppWithSecret(
 		slim.Name{Components: []string{"org", "cleanup", "v1"}, Id: nil},
 		"test-shared-secret-must-be-at-least-32-bytes-long!",
 	)
@@ -298,9 +239,8 @@ func TestCleanup(t *testing.T) {
 		t.Fatalf("Failed to create app: %v", err)
 	}
 	
-	// Cleanup in reverse order
+	// Cleanup
 	app.Destroy()
-	service.Destroy()
 	
 	t.Log("Cleanup completed successfully")
 }
