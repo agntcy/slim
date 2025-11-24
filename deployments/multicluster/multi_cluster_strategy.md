@@ -305,7 +305,8 @@ services:
                 - cluster-b.example  
 ```
 
-Group name identifies SLIM nodes in the same cluster (nodes can directly connect to each other using their pod IP `local_endpoint`) which must be the same as the trust_domain. To enable MTLS secure connection `trust_domains` must be set for CA for nodes in other groups.
+Group name identifies SLIM nodes in the same cluster (nodes can directly connect to each other using their pod IP `local_endpoint`).
+Group name must be set to the same values as the SPIRE trust_domain. To enable MTLS secure connection `trust_domains` must be set for CA for nodes in other groups.
 
 
 **Cross-Cluster Controller Connection (to Admin Cluster):**
