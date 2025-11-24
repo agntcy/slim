@@ -10,14 +10,9 @@ import (
 	slim "github.com/agntcy/slim/bindings/generated/slim_service"
 )
 
-// setupTestApp creates a test service and app for integration tests
-func setupTestApp(t *testing.T, appNameStr string) (*slim.Service, *slim.App) {
+// setupTestApp creates a test app for integration tests
+func setupTestApp(t *testing.T, appNameStr string) *slim.BindingsAdapter {
 	slim.InitializeCrypto()
-	
-	service, err := slim.NewService()
-	if err != nil {
-		t.Fatalf("Failed to create service: %v", err)
-	}
 	
 	appName := slim.Name{
 		Components: []string{"org", appNameStr, "v1"},
@@ -26,20 +21,18 @@ func setupTestApp(t *testing.T, appNameStr string) (*slim.Service, *slim.App) {
 	
 	sharedSecret := "test-shared-secret-must-be-at-least-32-bytes-long!"
 	
-	app, err := service.CreateApp(appName, sharedSecret)
+	app, err := slim.CreateAppWithSecret(appName, sharedSecret)
 	if err != nil {
-		service.Destroy()
 		t.Fatalf("Failed to create app: %v", err)
 	}
 	
-	return service, app
+	return app
 }
 
 // TestSessionCreation tests creating a session
 func TestSessionCreation(t *testing.T) {
-	service, app := setupTestApp(t, "session-test")
+	app := setupTestApp(t, "session-test")
 	defer app.Destroy()
-	defer service.Destroy()
 	
 	sessionConfig := slim.SessionConfig{
 		SessionType: slim.SessionTypePointToPoint,
@@ -66,9 +59,8 @@ func TestSessionCreation(t *testing.T) {
 
 // TestSessionDelete tests creating and deleting a session
 func TestSessionDelete(t *testing.T) {
-	service, app := setupTestApp(t, "delete-test")
+	app := setupTestApp(t, "delete-test")
 	defer app.Destroy()
-	defer service.Destroy()
 	
 	sessionConfig := slim.SessionConfig{
 		SessionType: slim.SessionTypePointToPoint,
@@ -97,9 +89,8 @@ func TestSessionDelete(t *testing.T) {
 
 // TestPublishMessage tests publishing a message (will fail without network)
 func TestPublishMessage(t *testing.T) {
-	service, app := setupTestApp(t, "publish-test")
+	app := setupTestApp(t, "publish-test")
 	defer app.Destroy()
-	defer service.Destroy()
 	
 	sessionConfig := slim.SessionConfig{
 		SessionType: slim.SessionTypePointToPoint,
@@ -132,9 +123,8 @@ func TestPublishMessage(t *testing.T) {
 
 // TestSubscribeUnsubscribe tests subscribing and unsubscribing
 func TestSubscribeUnsubscribe(t *testing.T) {
-	service, app := setupTestApp(t, "subscribe-test")
+	app := setupTestApp(t, "subscribe-test")
 	defer app.Destroy()
-	defer service.Destroy()
 	
 	subscribeName := slim.Name{
 		Components: []string{"org", "sub", "topic"},
@@ -160,9 +150,8 @@ func TestSubscribeUnsubscribe(t *testing.T) {
 
 // TestSubscribeWithConnectionID tests subscribing with a specific connection ID
 func TestSubscribeWithConnectionID(t *testing.T) {
-	service, app := setupTestApp(t, "subscribe-conn-test")
+	app := setupTestApp(t, "subscribe-conn-test")
 	defer app.Destroy()
-	defer service.Destroy()
 	
 	subscribeName := slim.Name{
 		Components: []string{"org", "sub", "conn-topic"},
@@ -184,9 +173,8 @@ func TestSubscribeWithConnectionID(t *testing.T) {
 
 // TestRouteOperations tests set_route and remove_route
 func TestRouteOperations(t *testing.T) {
-	service, app := setupTestApp(t, "route-test")
+	app := setupTestApp(t, "route-test")
 	defer app.Destroy()
-	defer service.Destroy()
 	
 	routeName := slim.Name{
 		Components: []string{"org", "route", "target"},
@@ -214,9 +202,8 @@ func TestRouteOperations(t *testing.T) {
 
 // TestMulticastSession tests creating a multicast session
 func TestMulticastSession(t *testing.T) {
-	service, app := setupTestApp(t, "multicast-test")
+	app := setupTestApp(t, "multicast-test")
 	defer app.Destroy()
-	defer service.Destroy()
 	
 	sessionConfig := slim.SessionConfig{
 		SessionType: slim.SessionTypeMulticast,
@@ -239,9 +226,8 @@ func TestMulticastSession(t *testing.T) {
 
 // TestSessionInviteRemove tests inviting and removing participants
 func TestSessionInviteRemove(t *testing.T) {
-	service, app := setupTestApp(t, "invite-test")
+	app := setupTestApp(t, "invite-test")
 	defer app.Destroy()
-	defer service.Destroy()
 	
 	sessionConfig := slim.SessionConfig{
 		SessionType: slim.SessionTypeMulticast,
@@ -283,9 +269,8 @@ func TestSessionInviteRemove(t *testing.T) {
 
 // TestPublishWithMetadata tests publishing a message with metadata
 func TestPublishWithMetadata(t *testing.T) {
-	service, app := setupTestApp(t, "metadata-test")
+	app := setupTestApp(t, "metadata-test")
 	defer app.Destroy()
-	defer service.Destroy()
 	
 	sessionConfig := slim.SessionConfig{
 		SessionType: slim.SessionTypePointToPoint,
@@ -321,9 +306,8 @@ func TestPublishWithMetadata(t *testing.T) {
 
 // TestMultipleSessions tests creating multiple sessions in parallel
 func TestMultipleSessions(t *testing.T) {
-	service, app := setupTestApp(t, "multi-session-test")
+	app := setupTestApp(t, "multi-session-test")
 	defer app.Destroy()
-	defer service.Destroy()
 	
 	sessionConfig := slim.SessionConfig{
 		SessionType: slim.SessionTypePointToPoint,
@@ -331,7 +315,7 @@ func TestMultipleSessions(t *testing.T) {
 	}
 	
 	numSessions := 3
-	sessions := make([]*slim.SessionContext, numSessions)
+	sessions := make([]*slim.FfiSessionContext, numSessions)
 	
 	for i := 0; i < numSessions; i++ {
 		destination := slim.Name{
@@ -359,9 +343,8 @@ func TestMultipleSessions(t *testing.T) {
 
 // TestConcurrentOperations tests concurrent operations on the same app
 func TestConcurrentOperations(t *testing.T) {
-	service, app := setupTestApp(t, "concurrent-test")
+	app := setupTestApp(t, "concurrent-test")
 	defer app.Destroy()
-	defer service.Destroy()
 	
 	// Create a session
 	sessionConfig := slim.SessionConfig{
@@ -416,9 +399,8 @@ func TestConcurrentOperations(t *testing.T) {
 
 // TestListenForSessionTimeout tests listening for sessions with timeout
 func TestListenForSessionTimeout(t *testing.T) {
-	service, app := setupTestApp(t, "listen-timeout-test")
+	app := setupTestApp(t, "listen-timeout-test")
 	defer app.Destroy()
-	defer service.Destroy()
 	
 	timeout := uint32(100) // 100ms timeout
 	
@@ -443,10 +425,9 @@ func TestFullWorkflow(t *testing.T) {
 	t.Log("Starting full workflow test")
 	
 	// Step 1: Setup
-	service, app := setupTestApp(t, "workflow-test")
+	app := setupTestApp(t, "workflow-test")
 	defer func() {
 		app.Destroy()
-		service.Destroy()
 		t.Log("Cleanup completed")
 	}()
 	

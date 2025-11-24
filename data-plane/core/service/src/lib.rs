@@ -57,8 +57,11 @@ pub use slim_datapath::messages::utils::SlimHeaderFlags;
 
 // Local crate
 pub use bindings::{
-    AppAdapterBuilder, BindingsAdapter, BindingsSessionContext, MessageContext, ServiceRef,
+    BindingsAdapter, BindingsSessionContext, MessageContext, ServiceRef,
     get_or_init_global_service,
+    // FFI-specific exports
+    FFISessionContext, Name, SessionConfig, SessionType, SlimError,
+    initialize_crypto, get_version, create_app_with_secret,
 };
 pub use errors::ServiceError;
 pub use service::{KIND, Service, ServiceBuilder, ServiceConfiguration};

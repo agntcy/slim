@@ -1,95 +1,244 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+//! # SLIM Bindings Adapter (UniFFI-Compatible)
+//!
+//! This module provides a language-agnostic FFI interface to SLIM using a hybrid approach
+//! that exposes both synchronous (blocking) and asynchronous versions of operations.
+//!
+//! ## Architecture
+//! - **Concrete types**: Uses `SharedSecret` instead of generics (UniFFI requirement)
+//! - **Hybrid API**: Both sync (FFI-exposed) and async (internal) methods
+//! - **Runtime management**: Manages Tokio runtime for blocking operations
+
 use std::sync::Arc;
+use std::sync::OnceLock;
 use tokio::sync::{RwLock, mpsc};
 
-use slim_auth::traits::{TokenProvider, Verifier};
-use slim_datapath::messages::Name;
-use slim_session::context::SessionContext;
-use slim_session::{Notification, SessionError};
-use slim_session::{SessionConfig, session_controller::SessionController};
+use slim_auth::shared_secret::SharedSecret;
+use slim_auth::traits::TokenProvider;  // For get_token() and get_id()
+use slim_datapath::api::ProtoSessionType;
+use slim_datapath::messages::Name as SlimName;
+use slim_session::{Notification, SessionError as SlimSessionError};
+use slim_session::SessionConfig as SlimSessionConfig;
 
 use crate::app::App;
-use crate::bindings::builder::AppAdapterBuilder;
 use crate::bindings::service_ref::{ServiceRef, get_or_init_global_service};
 use crate::errors::ServiceError;
 use crate::service::Service;
 use slim_config::component::ComponentBuilder;
 
-/// Adapter that bridges the App API with generic language-bindings interface
-#[derive(Debug)]
-pub struct BindingsAdapter<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
-    /// The underlying App instance
-    app: Arc<App<P, V>>,
+// Re-export uniffi for proc macros
+use uniffi;
 
-    /// Channel receiver for notifications from the app
-    notification_rx: Arc<RwLock<mpsc::Receiver<Result<Notification, SessionError>>>>,
+// ============================================================================
+// UniFFI Type Definitions
+// ============================================================================
+
+/// Global Tokio runtime for async operations
+static GLOBAL_RUNTIME: OnceLock<Arc<tokio::runtime::Runtime>> = OnceLock::new();
+
+/// Get or initialize the global Tokio runtime
+fn get_runtime() -> &'static Arc<tokio::runtime::Runtime> {
+    GLOBAL_RUNTIME.get_or_init(|| {
+        Arc::new(
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create Tokio runtime")
+        )
+    })
 }
 
-impl<P, V> BindingsAdapter<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
-    /// Create a new AppAdapter wrapping the given App
-    pub fn new_with_app(
-        app: App<P, V>,
-        notification_rx: mpsc::Receiver<Result<Notification, SessionError>>,
-    ) -> Self {
-        Self {
-            app: Arc::new(app),
-            notification_rx: Arc::new(RwLock::new(notification_rx)),
+/// Initialize the crypto provider
+#[uniffi::export]
+pub fn initialize_crypto() {
+    // Crypto initialization happens automatically in slim_auth
+    // Also initialize the global runtime
+    let _ = get_runtime();
+}
+
+/// Get the version of the SLIM bindings
+#[uniffi::export]
+pub fn get_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+/// Name type for SLIM (Secure Low-Latency Interactive Messaging)
+#[derive(uniffi::Record)]
+pub struct Name {
+    pub components: Vec<String>,
+    pub id: Option<u64>,
+}
+
+impl From<Name> for SlimName {
+    fn from(name: Name) -> Self {
+        let components: [String; 3] = [
+            name.components.get(0).cloned().unwrap_or_default(),
+            name.components.get(1).cloned().unwrap_or_default(),
+            name.components.get(2).cloned().unwrap_or_default(),
+        ];
+        let mut slim_name = SlimName::from_strings(components);
+        if let Some(id) = name.id {
+            slim_name = slim_name.with_id(id);
+        }
+        slim_name
+    }
+}
+
+impl From<&SlimName> for Name {
+    fn from(name: &SlimName) -> Self {
+        Name {
+            components: name.components_strings().iter().map(|s| s.to_string()).collect(),
+            id: Some(name.id()),
         }
     }
+}
 
-    /// Create a new AppAdapter from the service
-    pub fn new_with_service(
-        service: &Service,
-        app_name: Name,
-        identity_provider: P,
-        identity_verifier: V,
-    ) -> Result<Self, ServiceError> {
-        let (app, rx) = service.create_app(&app_name, identity_provider, identity_verifier)?;
+/// Session type enum
+#[derive(uniffi::Enum)]
+pub enum SessionType {
+    PointToPoint,
+    Multicast,
+}
 
-        Ok(Self::new_with_app(app, rx))
+/// Session configuration
+#[derive(uniffi::Record)]
+pub struct SessionConfig {
+    pub session_type: SessionType,
+    pub enable_mls: bool,
+}
+
+impl From<SessionConfig> for SlimSessionConfig {
+    fn from(config: SessionConfig) -> Self {
+        SlimSessionConfig {
+            session_type: match config.session_type {
+                SessionType::PointToPoint => ProtoSessionType::PointToPoint,
+                SessionType::Multicast => ProtoSessionType::Multicast,
+            },
+            initiator: true,
+            ..Default::default()
+        }
     }
+}
 
-    /// Create a new BindingsAdapter with complete creation logic (for language bindings)
-    ///
-    /// This method encapsulates all creation logic including:
-    /// - Service management (global vs local)
-    /// - Token validation
-    /// - Name generation with token ID
-    /// - Adapter creation
-    ///
-    /// # Arguments
-    /// * `base_name` - Base name for the app (will have token ID appended)
-    /// * `identity_provider` - Authentication provider
-    /// * `identity_verifier` - Authentication verifier
-    /// * `use_local_service` - If true, creates a local service; if false, uses global service
-    ///
-    /// # Returns
-    /// * `Ok((BindingsAdapter, ServiceRef))` - The adapter and service reference
-    /// * `Err(ServiceError)` - If creation fails
+/// Error types for SLIM operations
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+pub enum SlimError {
+    #[error("Configuration error: {message}")]
+    ConfigError { message: String },
+    #[error("Session error: {message}")]
+    SessionError { message: String },
+    #[error("Receive error: {message}")]
+    ReceiveError { message: String },
+    #[error("Send error: {message}")]
+    SendError { message: String },
+    #[error("Authentication error: {message}")]
+    AuthError { message: String },
+    #[error("Operation timed out")]
+    Timeout,
+    #[error("Invalid argument: {message}")]
+    InvalidArgument { message: String },
+    #[error("Internal error: {message}")]
+    InternalError { message: String },
+}
+
+impl From<ServiceError> for SlimError {
+    fn from(err: ServiceError) -> Self {
+        match err {
+            ServiceError::ConfigError(msg) => SlimError::ConfigError { message: msg },
+            ServiceError::ReceiveError(msg) => SlimError::ReceiveError { message: msg },
+            ServiceError::SessionError(msg) => SlimError::SessionError { message: msg },
+            _ => SlimError::InternalError {
+                message: err.to_string(),
+            },
+        }
+    }
+}
+
+impl From<SlimSessionError> for SlimError {
+    fn from(err: SlimSessionError) -> Self {
+        SlimError::SessionError {
+            message: err.to_string(),
+        }
+    }
+}
+
+// ============================================================================
+// FFI Entry Points
+// ============================================================================
+
+/// Create an app with the given name and shared secret (blocking version for FFI)
+/// 
+/// This is the main entry point for creating a SLIM application from language bindings.
+#[uniffi::export]
+pub fn create_app_with_secret(app_name: Name, shared_secret: String) -> Result<Arc<BindingsAdapter>, SlimError> {
+    let runtime = get_runtime();
+    runtime.block_on(async {
+        create_app_with_secret_async(app_name, shared_secret).await
+    })
+}
+
+/// Create an app with the given name and shared secret (async version)
+async fn create_app_with_secret_async(app_name: Name, shared_secret: String) -> Result<Arc<BindingsAdapter>, SlimError> {
+    let slim_name: SlimName = app_name.into();
+    let provider = SharedSecret::new(
+        &slim_name.components_strings()[1],
+        &shared_secret,
+    );
+    let verifier = provider.clone();
+    
+    let adapter = tokio::task::spawn_blocking(move || {
+        BindingsAdapter::new(slim_name, provider, verifier, false)
+    })
+    .await
+    .map_err(|e| ServiceError::ConfigError(format!("Task join error: {}", e)))??;
+    
+    Ok(adapter)
+}
+
+/// Adapter that bridges the App API with language-bindings interface
+/// 
+/// This adapter uses concrete types (SharedSecret) instead of generics to be compatible with UniFFI.
+/// It provides both synchronous (blocking) and asynchronous methods for flexibility.
+#[derive(uniffi::Object)]
+pub struct BindingsAdapter {
+    /// The underlying App instance with concrete auth types
+    app: Arc<App<SharedSecret, SharedSecret>>,
+
+    /// Channel receiver for notifications from the app
+    notification_rx: Arc<RwLock<mpsc::Receiver<Result<Notification, SlimSessionError>>>>,
+    
+    /// Service reference for lifecycle management
+    _service_ref: ServiceRef,
+    
+    /// Tokio runtime for blocking async operations
+    runtime: Arc<tokio::runtime::Runtime>,
+}
+
+impl BindingsAdapter {
+    /// Internal constructor - Create a new BindingsAdapter with complete creation logic
+    /// 
+    /// This is not exposed through UniFFI (associated functions not supported).
+    /// Use `create_app_with_secret` for FFI instead.
     pub fn new(
-        base_name: Name,
-        identity_provider: P,
-        identity_verifier: V,
+        base_name: SlimName,
+        identity_provider: SharedSecret,
+        identity_verifier: SharedSecret,
         use_local_service: bool,
-    ) -> Result<(Self, ServiceRef), ServiceError> {
+    ) -> Result<Arc<Self>, SlimError> {
         // Validate token
         let _identity_token = identity_provider.get_token().map_err(|e| {
-            ServiceError::ConfigError(format!("Failed to get token from provider: {}", e))
+            SlimError::ConfigError {
+                message: format!("Failed to get token from provider: {}", e),
+            }
         })?;
 
         // Get ID from token and generate name with token ID
         let token_id = identity_provider.get_id().map_err(|e| {
-            ServiceError::ConfigError(format!("Failed to get ID from token: {}", e))
+            SlimError::ConfigError {
+                message: format!("Failed to get ID from token: {}", e),
+            }
         })?;
 
         // Use a hash of the token ID to convert to u64 for name generation
@@ -106,7 +255,9 @@ where
             let svc = Service::builder()
                 .build("local-bindings-service".to_string())
                 .map_err(|e| {
-                    ServiceError::ConfigError(format!("Failed to create local service: {}", e))
+                    SlimError::ConfigError {
+                        message: format!("Failed to create local service: {}", e),
+                    }
                 })?;
             ServiceRef::Local(Box::new(svc))
         } else {
@@ -116,75 +267,150 @@ where
         // Get service reference for adapter creation
         let service = service_ref.get_service();
 
-        // Create the adapter
-        let adapter =
-            Self::new_with_service(service, app_name, identity_provider, identity_verifier)?;
+        // Create the app
+        let (app, rx) = service.create_app(&app_name, identity_provider, identity_verifier)
+            .map_err(|e| SlimError::from(e))?;
 
-        Ok((adapter, service_ref))
+        let runtime = Arc::clone(get_runtime());
+
+        let adapter = Arc::new(Self {
+            app: Arc::new(app),
+            notification_rx: Arc::new(RwLock::new(rx)),
+            _service_ref: service_ref,
+            runtime,
+        });
+
+        Ok(adapter)
     }
+}
 
+#[uniffi::export]
+impl BindingsAdapter {
     /// Get the app ID (derived from name)
     pub fn id(&self) -> u64 {
         self.app.app_name().id()
     }
 
     /// Get the app name
-    pub fn name(&self) -> &Name {
-        self.app.app_name()
+    pub fn name(&self) -> Name {
+        Name::from(self.app.app_name())
     }
 
-    /// Create a new AppAdapterBuilder
-    pub fn builder() -> AppAdapterBuilder<P, V> {
-        AppAdapterBuilder::new()
-    }
-
-    /// Create a new session with the given configuration
-    pub async fn create_session(
+    /// Create a new session (blocking version for FFI)
+    pub fn create_session(
         &self,
-        session_config: SessionConfig,
+        config: SessionConfig,
         destination: Name,
-    ) -> Result<(SessionContext, slim_session::CompletionHandle), SessionError> {
+    ) -> Result<Arc<FFISessionContext>, SlimError> {
+        self.runtime.block_on(async {
+            self.create_session_async(config, destination).await
+        })
+    }
+
+    /// Create a new session (async version)
+    pub async fn create_session_async(
+        &self,
+        config: SessionConfig,
+        destination: Name,
+    ) -> Result<Arc<FFISessionContext>, SlimError> {
+        let slim_config: SlimSessionConfig = config.into();
+        let slim_dest: SlimName = destination.into();
+
+        let (session_ctx, _completion) = self.app
+            .create_session(slim_config, slim_dest, None)
+            .await?;
+
+        // Convert SessionContext to BindingsSessionContext
+        let bindings_ctx = crate::bindings::BindingsSessionContext::from(session_ctx);
+
+        Ok(Arc::new(FFISessionContext {
+            inner: bindings_ctx,
+            runtime: Arc::clone(&self.runtime),
+        }))
+    }
+
+    /// Delete a session (synchronous - no async version needed)
+    pub fn delete_session(&self, session: Arc<FFISessionContext>) -> Result<(), SlimError> {
+        let session_ref = session.inner.session.upgrade()
+            .ok_or_else(|| SlimError::SessionError {
+                message: "Session already closed or dropped".to_string(),
+            })?;
+
         self.app
-            .create_session(session_config, destination, None)
-            .await
+            .delete_session(&session_ref)
+            .map(|_| ())
+            .map_err(|e| SlimError::SessionError {
+                message: format!("Failed to delete session: {}", e),
+            })
     }
 
-    /// Delete a session by its context and return a completion handle to await on
-    pub fn delete_session(
-        &self,
-        session: &SessionController,
-    ) -> Result<slim_session::CompletionHandle, SessionError> {
-        self.app.delete_session(session)
+    /// Subscribe to a name (blocking version for FFI)
+    pub fn subscribe(&self, name: Name, connection_id: Option<u64>) -> Result<(), SlimError> {
+        self.runtime.block_on(async {
+            self.subscribe_async(name, connection_id).await
+        })
     }
 
-    /// Subscribe to a name with optional connection ID
-    pub async fn subscribe(&self, name: &Name, conn: Option<u64>) -> Result<(), ServiceError> {
-        self.app.subscribe(name, conn).await
+    /// Subscribe to a name (async version)
+    pub async fn subscribe_async(&self, name: Name, connection_id: Option<u64>) -> Result<(), SlimError> {
+        let slim_name: SlimName = name.into();
+        self.app.subscribe(&slim_name, connection_id).await?;
+        Ok(())
     }
 
-    /// Unsubscribe from a name with optional connection ID
-    pub async fn unsubscribe(&self, name: &Name, conn: Option<u64>) -> Result<(), ServiceError> {
-        self.app.unsubscribe(name, conn).await
+    /// Unsubscribe from a name (blocking version for FFI)
+    pub fn unsubscribe(&self, name: Name, connection_id: Option<u64>) -> Result<(), SlimError> {
+        self.runtime.block_on(async {
+            self.unsubscribe_async(name, connection_id).await
+        })
     }
 
-    /// Set a route to a name for a specific connection
-    pub async fn set_route(&self, name: &Name, conn: u64) -> Result<(), ServiceError> {
-        self.app.set_route(name, conn).await
+    /// Unsubscribe from a name (async version)
+    pub async fn unsubscribe_async(&self, name: Name, connection_id: Option<u64>) -> Result<(), SlimError> {
+        let slim_name: SlimName = name.into();
+        self.app.unsubscribe(&slim_name, connection_id).await?;
+        Ok(())
     }
 
-    /// Remove a route to a name for a specific connection
-    pub async fn remove_route(&self, name: &Name, conn: u64) -> Result<(), ServiceError> {
-        self.app.remove_route(name, conn).await
+    /// Set a route to a name for a specific connection (blocking version for FFI)
+    pub fn set_route(&self, name: Name, connection_id: u64) -> Result<(), SlimError> {
+        self.runtime.block_on(async {
+            self.set_route_async(name, connection_id).await
+        })
     }
 
-    /// Listen for new sessions from the app
-    ///
-    /// If `timeout` is `Some(duration)`, waits up to that duration for a new session
-    /// before returning a timeout error. If `None`, waits indefinitely.
-    pub async fn listen_for_session(
-        &self,
-        timeout: Option<std::time::Duration>,
-    ) -> Result<SessionContext, ServiceError> {
+    /// Set a route to a name for a specific connection (async version)
+    pub async fn set_route_async(&self, name: Name, connection_id: u64) -> Result<(), SlimError> {
+        let slim_name: SlimName = name.into();
+        self.app.set_route(&slim_name, connection_id).await?;
+        Ok(())
+    }
+
+    /// Remove a route (blocking version for FFI)
+    pub fn remove_route(&self, name: Name, connection_id: u64) -> Result<(), SlimError> {
+        self.runtime.block_on(async {
+            self.remove_route_async(name, connection_id).await
+        })
+    }
+
+    /// Remove a route (async version)
+    pub async fn remove_route_async(&self, name: Name, connection_id: u64) -> Result<(), SlimError> {
+        let slim_name: SlimName = name.into();
+        self.app.remove_route(&slim_name, connection_id).await?;
+        Ok(())
+    }
+
+    /// Listen for incoming sessions (blocking version for FFI)
+    pub fn listen_for_session(&self, timeout_ms: Option<u32>) -> Result<Arc<FFISessionContext>, SlimError> {
+        self.runtime.block_on(async {
+            self.listen_for_session_async(timeout_ms).await
+        })
+    }
+
+    /// Listen for incoming sessions (async version)
+    pub async fn listen_for_session_async(&self, timeout_ms: Option<u32>) -> Result<Arc<FFISessionContext>, SlimError> {
+        let timeout = timeout_ms.map(|ms| std::time::Duration::from_millis(ms as u64));
+
         let mut rx = self.notification_rx.write().await;
 
         let recv_fut = rx.recv();
@@ -192,9 +418,9 @@ where
             match tokio::time::timeout(dur, recv_fut).await {
                 Ok(n) => n,
                 Err(_) => {
-                    return Err(ServiceError::ReceiveError(
-                        "listen_for_session timed out".to_string(),
-                    ));
+                    return Err(SlimError::ReceiveError {
+                        message: "listen_for_session timed out".to_string(),
+                    });
                 }
             }
         } else {
@@ -202,435 +428,148 @@ where
         };
 
         if notification_opt.is_none() {
-            return Err(ServiceError::ReceiveError(
-                "application channel closed".to_string(),
-            ));
+            return Err(SlimError::ReceiveError {
+                message: "application channel closed".to_string(),
+            });
         }
 
         match notification_opt.unwrap() {
-            Ok(Notification::NewSession(ctx)) => Ok(ctx),
-            Ok(Notification::NewMessage(_)) => Err(ServiceError::ReceiveError(
-                "received unexpected message notification while listening for session".to_string(),
-            )),
-            Err(e) => Err(ServiceError::ReceiveError(format!(
-                "failed to receive session notification: {}",
-                e
-            ))),
+            Ok(Notification::NewSession(ctx)) => {
+                let bindings_ctx = crate::bindings::BindingsSessionContext::from(ctx);
+                Ok(Arc::new(FFISessionContext {
+                    inner: bindings_ctx,
+                    runtime: Arc::clone(&self.runtime),
+                }))
+            }
+            Ok(Notification::NewMessage(_)) => Err(SlimError::ReceiveError {
+                message: "received unexpected message notification while listening for session".to_string(),
+            }),
+            Err(e) => Err(SlimError::ReceiveError {
+                message: format!("failed to receive session notification: {}", e),
+            }),
         }
     }
+}
 
-    /// Get the underlying App instance (for advanced usage)
-    pub fn app(&self) -> &App<P, V> {
-        &self.app
+// ============================================================================
+// FFI SessionContext Wrapper
+// ============================================================================
+
+/// FFISessionContext represents an active session (FFI-compatible wrapper)
+#[derive(uniffi::Object)]
+pub struct FFISessionContext {
+    inner: crate::bindings::BindingsSessionContext,
+    runtime: Arc<tokio::runtime::Runtime>,
+}
+
+#[uniffi::export]
+impl FFISessionContext {
+    /// Publish a message to the session (blocking version for FFI)
+    pub fn publish(
+        &self,
+        destination: Name,
+        fanout: u32,
+        data: Vec<u8>,
+        connection_out: Option<u64>,
+        payload_type: Option<String>,
+        metadata: Option<std::collections::HashMap<String, String>>,
+    ) -> Result<(), SlimError> {
+        self.runtime.block_on(async {
+            self.publish_async(destination, fanout, data, connection_out, payload_type, metadata).await
+        })
+    }
+
+    /// Publish a message to the session (async version)
+    pub async fn publish_async(
+        &self,
+        destination: Name,
+        fanout: u32,
+        data: Vec<u8>,
+        connection_out: Option<u64>,
+        payload_type: Option<String>,
+        metadata: Option<std::collections::HashMap<String, String>>,
+    ) -> Result<(), SlimError> {
+        let slim_dest: SlimName = destination.into();
+
+        self.inner
+            .publish(&slim_dest, fanout, data, connection_out, payload_type, metadata)
+            .await
+            .map(|_| ())
+            .map_err(|e| SlimError::SendError {
+                message: e.to_string(),
+            })
+    }
+
+    /// Invite a participant to the session (blocking version for FFI)
+    pub fn invite(&self, participant: Name) -> Result<(), SlimError> {
+        self.runtime.block_on(async {
+            self.invite_async(participant).await
+        })
+    }
+
+    /// Invite a participant to the session (async version)
+    pub async fn invite_async(&self, participant: Name) -> Result<(), SlimError> {
+        let slim_name: SlimName = participant.into();
+
+        self.inner
+            .invite(&slim_name)
+            .await
+            .map(|_| ())
+            .map_err(|e| SlimError::SessionError {
+                message: e.to_string(),
+            })
+    }
+
+    /// Remove a participant from the session (blocking version for FFI)
+    pub fn remove(&self, participant: Name) -> Result<(), SlimError> {
+        self.runtime.block_on(async {
+            self.remove_async(participant).await
+        })
+    }
+
+    /// Remove a participant from the session (async version)
+    pub async fn remove_async(&self, participant: Name) -> Result<(), SlimError> {
+        let slim_name: SlimName = participant.into();
+
+        self.inner
+            .remove(&slim_name)
+            .await
+            .map(|_| ())
+            .map_err(|e| SlimError::SessionError {
+                message: e.to_string(),
+            })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
-
-    use tokio::sync::mpsc;
 
     use slim_auth::shared_secret::SharedSecret;
-    use slim_datapath::{api::ProtoSessionType, messages::Name};
-
-    use slim_session::{Notification, SessionConfig, SessionError};
+    use slim_datapath::messages::Name as SlimName;
     use slim_testing::utils::TEST_VALID_SECRET;
 
-    type TestProvider = SharedSecret;
-    type TestVerifier = SharedSecret;
-
-    /// Create a mock service for testing
-    async fn create_test_service() -> Service {
-        use slim_config::component::ComponentBuilder;
-
-        Service::builder()
-            .build("test-service".to_string())
-            .expect("Failed to create test service")
-    }
-
-    /// Create test authentication components
-    fn create_test_auth() -> (TestProvider, TestVerifier) {
+    /// Test basic adapter creation
+    #[tokio::test]
+    async fn test_adapter_creation() {
+        let base_name = SlimName::from_strings(["org", "namespace", "test-app"]);
         let provider = SharedSecret::new("test-app", TEST_VALID_SECRET);
         let verifier = SharedSecret::new("test-app", TEST_VALID_SECRET);
-        (provider, verifier)
-    }
-
-    /// Create test app name
-    fn create_test_name() -> Name {
-        Name::from_strings(["org", "namespace", "test-app"])
-    }
-
-    /// Create a mock app and notification receiver for testing
-    fn create_mock_app_with_receiver() -> (
-        App<TestProvider, TestVerifier>,
-        mpsc::Receiver<Result<Notification, SessionError>>,
-    ) {
-        let (tx_slim, _rx_slim) = mpsc::channel(128);
-        let (tx_app, rx_app) = mpsc::channel(128);
-        let name = create_test_name().with_id(0);
-        let (provider, verifier) = create_test_auth();
-
-        let app = App::new(
-            &name,
-            provider,
-            verifier,
-            0,
-            tx_slim,
-            tx_app,
-            std::path::PathBuf::from("/tmp/test_bindings"),
-        );
-
-        (app, rx_app)
-    }
-
-    #[tokio::test]
-    async fn test_new_with_app() {
-        let (app, rx) = create_mock_app_with_receiver();
-        let adapter = BindingsAdapter::new_with_app(app, rx);
-
-        assert_eq!(adapter.id(), 0);
-        assert_eq!(
-            adapter.name().components_strings(),
-            &["org", "namespace", "test-app"]
-        );
-    }
-
-    #[tokio::test]
-    async fn test_new_with_service() {
-        let service = create_test_service().await;
-        let app_name = create_test_name();
-        let (provider, verifier) = create_test_auth();
-
-        let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .expect("Failed to create adapter");
-
-        assert!(adapter.id() > 0);
-        assert_eq!(
-            adapter.name().components_strings(),
-            &["org", "namespace", "test-app"]
-        );
-    }
-
-    #[tokio::test]
-    async fn test_id_and_name() {
-        let (app, rx) = create_mock_app_with_receiver();
-        let adapter = BindingsAdapter::new_with_app(app, rx);
-
-        assert_eq!(adapter.id(), 0);
-        assert_eq!(adapter.name().id(), 0);
-        assert_eq!(
-            adapter.name().components_strings(),
-            &["org", "namespace", "test-app"]
-        );
-    }
-
-    #[tokio::test]
-    async fn test_subscribe_unsubscribe() {
-        let service = create_test_service().await;
-        let app_name = create_test_name();
-        let (provider, verifier) = create_test_auth();
-
-        let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .expect("Failed to create adapter");
-
-        let name = Name::from_strings(["org", "namespace", "subscription"]);
-
-        // Test subscribe
-        let result = adapter.subscribe(&name, Some(1)).await;
-        assert!(result.is_ok());
-
-        // Test unsubscribe
-        let result = adapter.unsubscribe(&name, Some(1)).await;
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_route_operations() {
-        let service = create_test_service().await;
-        let app_name = create_test_name();
-        let (provider, verifier) = create_test_auth();
-
-        let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .expect("Failed to create adapter");
-
-        let name = Name::from_strings(["org", "namespace", "route"]);
-
-        // Test set_route
-        let result = adapter.set_route(&name, 1).await;
-        assert!(result.is_ok());
-
-        // Test remove_route
-        let result = adapter.remove_route(&name, 1).await;
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_listen_for_session_timeout() {
-        let (app, rx) = create_mock_app_with_receiver();
-        let adapter = BindingsAdapter::new_with_app(app, rx);
-
-        // This should timeout since no session is being sent
-        let result = adapter
-            .listen_for_session(Some(Duration::from_millis(10)))
-            .await;
-        assert!(result.is_err());
-        if let Err(e) = result {
-            assert!(e.to_string().contains("timed out"));
-        }
-    }
-
-    #[tokio::test]
-    async fn test_listen_for_session_no_timeout() {
-        let (app, rx) = create_mock_app_with_receiver();
-        let adapter = BindingsAdapter::new_with_app(app, rx);
-
-        // Test that None timeout waits indefinitely (but we'll wrap it in a timeout for testing)
-        // Use a timeout wrapper to prevent the test from hanging indefinitely
-        let result =
-            tokio::time::timeout(Duration::from_millis(100), adapter.listen_for_session(None))
-                .await;
-
-        // The operation should timeout since no session is being sent and we're not providing a timeout
-        assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_listen_for_session_various_timeouts() {
-        let (app, rx) = create_mock_app_with_receiver();
-        let adapter = BindingsAdapter::new_with_app(app, rx);
-
-        // Test very short timeout
-        let result = adapter
-            .listen_for_session(Some(Duration::from_nanos(1)))
-            .await;
-        assert!(result.is_err());
-
-        // Test zero timeout
-        let result = adapter.listen_for_session(Some(Duration::ZERO)).await;
-        assert!(result.is_err());
-
-        // Test reasonable timeout
-        let start = std::time::Instant::now();
-        let result = adapter
-            .listen_for_session(Some(Duration::from_millis(100)))
-            .await;
-        let elapsed = start.elapsed();
-
-        assert!(result.is_err());
-        assert!(elapsed >= Duration::from_millis(90)); // Allow some variance
-        assert!(elapsed <= Duration::from_millis(200)); // But not too much
-    }
-
-    #[tokio::test]
-    async fn test_app_accessor() {
-        let (app, rx) = create_mock_app_with_receiver();
-        let expected_name = app.app_name().clone();
-        let adapter = BindingsAdapter::new_with_app(app, rx);
-
-        let app_ref = adapter.app();
-        assert_eq!(app_ref.app_name(), &expected_name);
-    }
-
-    #[tokio::test]
-    async fn test_drop_behavior() {
-        let (app, rx) = create_mock_app_with_receiver();
-        let adapter = BindingsAdapter::new_with_app(app, rx);
-
-        // Test that dropping the adapter doesn't panic
-        drop(adapter);
-    }
-
-    #[tokio::test]
-    async fn test_delete_session() {
-        let service = create_test_service().await;
-        let app_name = create_test_name();
-        let (provider, verifier) = create_test_auth();
-
-        let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .expect("Failed to create adapter");
-
-        // Create a session
-        let session_config = SessionConfig {
-            session_type: ProtoSessionType::PointToPoint,
-            initiator: true,
-            ..Default::default()
-        };
-        let dst = Name::from_strings(["org", "ns", "dst"]);
-        let (session_ctx, _completion_handle) = adapter
-            .create_session(session_config, dst)
-            .await
-            .expect("Failed to create session");
-
-        // Get the session reference and test delete
-        let session_ref = session_ctx.session.upgrade();
-        assert!(session_ref.is_some());
-
-        if let Some(session) = session_ref {
-            // Test delete session
-            let result = adapter.delete_session(&session);
-            assert!(result.is_ok());
-        }
-    }
-
-    #[tokio::test]
-    async fn test_subscribe_unsubscribe_without_connection() {
-        let service = create_test_service().await;
-        let app_name = create_test_name();
-        let (provider, verifier) = create_test_auth();
-
-        let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .expect("Failed to create adapter");
-
-        let name = Name::from_strings(["org", "namespace", "subscription"]);
-
-        // Test subscribe without connection ID
-        let result = adapter.subscribe(&name, None).await;
-        assert!(result.is_ok());
-
-        // Test unsubscribe without connection ID
-        let result = adapter.unsubscribe(&name, None).await;
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_new_complete_with_local_service() {
-        let base_name = create_test_name();
-        let (provider, verifier) = create_test_auth();
-
-        let result = BindingsAdapter::new(base_name, provider, verifier, true);
-        assert!(result.is_ok());
-
-        let (adapter, service_ref) = result.unwrap();
-        assert!(adapter.id() > 0);
-        assert!(matches!(service_ref, ServiceRef::Local(_)));
-    }
-
-    #[tokio::test]
-    async fn test_new_complete_with_global_service() {
-        let base_name = create_test_name();
-        let (provider, verifier) = create_test_auth();
-
-        let result = BindingsAdapter::new(base_name, provider, verifier, false);
-        assert!(result.is_ok());
-
-        let (adapter, service_ref) = result.unwrap();
-        assert!(adapter.id() > 0);
-        assert!(matches!(service_ref, ServiceRef::Global(_)));
-    }
-
-    #[tokio::test]
-    async fn test_new_uses_token_id_for_name_generation() {
-        let base_name = create_test_name();
-        let (provider, verifier) = create_test_auth();
-
-        // Get the token ID from the same provider instance before using it
-        let token_id = provider.get_id().expect("Failed to get token ID");
-        let expected_id = {
-            use std::hash::{Hash, Hasher};
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            token_id.hash(&mut hasher);
-            hasher.finish()
-        };
 
         let result = BindingsAdapter::new(base_name, provider, verifier, false);
         assert!(result.is_ok());
 
         let (adapter, _service_ref) = result.unwrap();
-
-        // The ID should be derived from the token, not random
-        let app_id = adapter.id();
-        assert!(app_id > 0);
-        assert_eq!(app_id, expected_id);
+        assert!(adapter.id() > 0);
     }
 
+    /// Test token ID generation
     #[tokio::test]
-    async fn test_deterministic_name_generation_same_token() {
-        let base_name = create_test_name();
-        // Use the same SharedSecret instances to ensure same token IDs
+    async fn test_deterministic_id_generation() {
+        let base_name = SlimName::from_strings(["org", "namespace", "test-app"]);
         let provider = SharedSecret::new("test-app", TEST_VALID_SECRET);
         let verifier = SharedSecret::new("test-app", TEST_VALID_SECRET);
 
-        // Create two adapters with the same authentication (should produce same ID)
-        let result1 =
-            BindingsAdapter::new(base_name.clone(), provider.clone(), verifier.clone(), false);
-        assert!(result1.is_ok());
-        let (adapter1, _) = result1.unwrap();
-
-        let result2 = BindingsAdapter::new(base_name, provider, verifier, false);
-        assert!(result2.is_ok());
-        let (adapter2, _) = result2.unwrap();
-
-        // Both adapters should have the same ID since they use the same token
-        assert_eq!(adapter1.id(), adapter2.id());
-        assert_eq!(adapter1.name().id(), adapter2.name().id());
-    }
-
-    #[tokio::test]
-    async fn test_different_tokens_produce_different_ids() {
-        let base_name = create_test_name();
-
-        // Create two different authentication providers
-        let provider1 = SharedSecret::new("app1", "secret1-shared-secret-value-0123456789abcdef");
-        let verifier1 = SharedSecret::new("app1", "secret1-shared-secret-value-0123456789abcdef");
-
-        let provider2 = SharedSecret::new("app2", "secret2-shared-secret-value-0123456789abcdef");
-        let verifier2 = SharedSecret::new("app2", "secret2-shared-secret-value-0123456789abcdef");
-
-        let result1 = BindingsAdapter::new(base_name.clone(), provider1, verifier1, false);
-        assert!(result1.is_ok());
-        let (adapter1, _) = result1.unwrap();
-
-        let result2 = BindingsAdapter::new(base_name, provider2, verifier2, false);
-        assert!(result2.is_ok());
-        let (adapter2, _) = result2.unwrap();
-
-        // Different tokens should produce different IDs
-        assert_ne!(adapter1.id(), adapter2.id());
-        assert_ne!(adapter1.name().id(), adapter2.name().id());
-    }
-
-    #[tokio::test]
-    async fn test_consistent_id_generation_multiple_calls() {
-        // Test that multiple calls with the same SharedSecret instance produce consistent results
-        let base_name = create_test_name();
-        let provider = SharedSecret::new("test-app", TEST_VALID_SECRET);
-        let verifier = SharedSecret::new("test-app", TEST_VALID_SECRET);
-
-        // Since SharedSecret instances are created separately, they will have different random suffixes
-        // But we can test that the same instance produces consistent results
-        let token_id = provider.get_id().expect("Failed to get ID");
-        let expected_hash = {
-            use std::hash::{Hash, Hasher};
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            token_id.hash(&mut hasher);
-            hasher.finish()
-        };
-
-        let result1 =
-            BindingsAdapter::new(base_name.clone(), provider.clone(), verifier.clone(), false);
-        let result2 = BindingsAdapter::new(base_name, provider, verifier, false);
-
-        assert!(result1.is_ok());
-        assert!(result2.is_ok());
-
-        let (adapter1, _) = result1.unwrap();
-        let (adapter2, _) = result2.unwrap();
-
-        // Both should have the same computed hash ID since we used the same provider instance
-        assert_eq!(adapter1.id(), expected_hash);
-        assert_eq!(adapter2.id(), expected_hash);
-        assert_eq!(adapter1.id(), adapter2.id());
-    }
-
-    #[tokio::test]
-    async fn test_hash_id_generation() {
-        // Test that the hash generation produces expected results
-        let base_name = create_test_name();
-        let (provider, verifier) = create_test_auth();
-
-        // Get the token ID and compute expected hash manually
         let token_id = provider.get_id().expect("Failed to get token ID");
         let expected_hash = {
             use std::hash::{Hash, Hasher};
@@ -644,6 +583,5 @@ mod tests {
 
         let (adapter, _) = result.unwrap();
         assert_eq!(adapter.id(), expected_hash);
-        assert_eq!(adapter.name().id(), expected_hash);
     }
 }

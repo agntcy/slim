@@ -20,7 +20,7 @@ tasks:
     desc: Show available tasks
     cmds:
       - |
-        echo "SLIM Go Bindings (Proc Macro Approach) - Available tasks:"
+        echo "SLIM Go Bindings - Available tasks:"
         echo ""
         echo "  task                - Build and generate (default)"
         echo "  task build          - Build the Rust library with UniFFI (release mode)"
