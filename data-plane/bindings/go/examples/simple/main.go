@@ -22,13 +22,6 @@ func main() {
 	version := slim.GetVersion()
 	fmt.Printf("📦 SLIM Bindings Version: %s\n\n", version)
 
-	// Create a service
-	service, err := slim.NewService()
-	if err != nil {
-		log.Fatalf("❌ Failed to create service: %v", err)
-	}
-	fmt.Println("✅ Service created")
-
 	// Create an app with shared secret authentication
 	appName := slim.Name{
 		Components: []string{"org", "myapp", "v1"},
@@ -38,7 +31,7 @@ func main() {
 	// Note: Shared secret must be at least 32 bytes
 	sharedSecret := "my-shared-secret-value-must-be-at-least-32-bytes-long!"
 
-	app, err := service.CreateApp(appName, sharedSecret)
+	app, err := slim.CreateAppWithSecret(appName, sharedSecret)
 	if err != nil {
 		log.Fatalf("❌ Failed to create app: %v", err)
 	}
@@ -82,7 +75,7 @@ func main() {
 		Id:         nil,
 	}
 	fanout := uint32(1)
-	
+
 	fmt.Println("\n📤 Publishing message...")
 	err = session.Publish(targetName, fanout, message, nil, nil, nil)
 	if err != nil {
@@ -132,4 +125,3 @@ func main() {
 	fmt.Println("\n📝 Note: Some operations may fail without a running SLIM network,")
 	fmt.Println("   but the bindings are working correctly if you see this message.")
 }
-
