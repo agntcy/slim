@@ -23,6 +23,59 @@ tasks:
     vars:
       EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
 
+  python:example:otel:otel-receiver-moderator:
+    desc: "Run the OpenTelemetry HTTP receiver as moderator (creates session and invites participants)"
+    cmds:
+      - |
+        uv run --package slim-bindings-examples otel-receiver                        \
+          --local agntcy/ns/otel-receiver                                            \
+          --remote agntcy/ns/otel-channel                                            \
+          --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}' \
+          --shared-secret $SHARED_SECRET                                             \
+          --invites agntcy/ns/participant {{.EXTRA_ARGS}}
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  python:example:otel:otel-receiver-participant:
+    desc: "Run the OpenTelemetry HTTP receiver as participant (waits for session invitation)"
+    cmds:
+      - |
+        uv run --package slim-bindings-examples otel-receiver                        \
+          --local agntcy/ns/otel-participant                                         \
+          --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}' \
+          --shared-secret $SHARED_SECRET {{.EXTRA_ARGS}}
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+
+  python:example:otel:slim-moderator:
+    desc: "otel example - create a moderator that invites an otel receiver to the channel"
+    cmds:
+      - |
+        uv run --package slim-bindings-examples group                                 \
+          --local agntcy/ns/moderator                                                 \
+          --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}'  \
+          --shared-secret $SHARED_SECRET                                              \
+          --remote agntcy/ns/otel-channel                                             \
+          --invites agntcy/ns/otel-participant                                        \
+          --enable-mls                                                                \
+          --decode-otel {{.EXTRA_ARGS}}
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  python:example:otel:slim-participant:
+    desc: "otel example - create a participant that is invited by an otel receiver to the channel"
+    cmds:
+      - |
+        uv run --package slim-bindings-examples group                                 \
+          --local agntcy/ns/participant                                               \
+          --slim '{"endpoint": "http://localhost:46357", "tls": {"insecure": true}}'  \
+          --shared-secret $SHARED_SECRET                                              \
+          --decode-otel{{.EXTRA_ARGS}}
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+  
+
   python:example:p2p:alice:
     desc: "Point to Point example - Alice will listen for messages and echo them"
     cmds:

@@ -7,7 +7,7 @@ version = "0.7.1"
 description = "Example apps using SLIM Rust bindings for Python"
 requires-python = ">=3.10"
 license = "Apache-2.0"
-dependencies = ["slim-bindings>=0.5.0", "pyjwt>=2.10.1", "click>=8.1.8", "prompt-toolkit>=3.0.52"]
+dependencies = ["slim-bindings>=0.5.0", "pyjwt>=2.10.1", "click>=8.1.8", "prompt-toolkit>=3.0.52", "quart>=0.19.0", "hypercorn>=0.16.0"]
 
 [tool.uv.sources]
 slim-bindings = { workspace = true }
@@ -17,6 +17,7 @@ examples = "slim_bindings_examples:main"
 slim = "slim_bindings_examples:slim_main"
 p2p = "slim_bindings_examples:p2p_main"
 group = "slim_bindings_examples:group_main"
+otel-receiver = "slim_bindings_examples.otel_receiver:run_server"
 
 [build-system]
 requires = ["hatchling"]

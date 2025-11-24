@@ -287,6 +287,12 @@ def common_options(function):
         help="Enable MLS (Message Layer Security) for the session.",
     )(function)
 
+    function = click.option(
+        "--decode-otel",
+        is_flag=True,
+        help="Enable decoding of OpenTelemetry binary payloads (for debugging).",
+    )(function)
+
     return function
 
 

@@ -32,6 +32,7 @@ Notes:
 
 import asyncio
 import datetime
+import json
 
 from prompt_toolkit.shortcuts import PromptSession, print_formatted_text
 from prompt_toolkit.styles import Style
@@ -55,8 +56,37 @@ custom_style = Style.from_dict(
 )
 
 
+def try_parse_otel_data(payload):
+    """
+    Attempt to parse OpenTelemetry data and return a readable representation.
+    
+    OpenTelemetry can send data in different formats:
+    - Protobuf (binary)
+    - JSON (if configured)
+    
+    Returns a formatted string or None if parsing fails.
+    """
+    # First try JSON (some exporters use JSON over HTTP)
+    try:
+        data = json.loads(payload.decode('utf-8'))
+        return json.dumps(data, indent=2)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        pass
+    
+    # For protobuf, we'd need the proto definitions, but we can at least
+    # show a hex dump and some basic info
+    try:
+        # Show first 200 bytes as hex for debugging
+        hex_preview = payload[:200].hex()
+        hex_formatted = ' '.join(hex_preview[i:i+2] for i in range(0, len(hex_preview), 2))
+        
+        return f"Binary OpenTelemetry data ({len(payload)} bytes)\nHex preview (first 200 bytes):\n{hex_formatted}"
+    except Exception:
+        return None
+
+
 async def receive_loop(
-    local_app, created_session, session_ready, shared_session_container
+    local_app, created_session, session_ready, shared_session_container, decode_otel
 ):
     """
     Receive messages for the bound session.
@@ -65,6 +95,10 @@ async def receive_loop(
       * If not moderator: wait for a new group session (listen_for_session()).
       * If moderator: reuse the created_session reference.
       * Loop forever until cancellation or an error occurs.
+    
+    Args:
+        decode_otel: If True, attempt to decode OpenTelemetry binary data; 
+                     if False, raise error on non-UTF-8 data.
     """
     if created_session is None:
         print_formatted_text("Waiting for session...", style=custom_style)
@@ -82,10 +116,45 @@ async def receive_loop(
             # The returned parameters are a message context and the raw payload bytes.
             # Check session.py for details on MessageContext contents.
             ctx, payload = await session.get_message()
-            print_formatted_text(
-                f"{ctx.source_name} > {payload.decode()}",
-                style=custom_style,
-            )
+            
+            # Try to decode as UTF-8 text first
+            try:
+                decoded_payload = payload.decode('utf-8')
+                print_formatted_text(
+                    f"{ctx.source_name} > {decoded_payload}",
+                    style=custom_style,
+                )
+            except UnicodeDecodeError:
+                # Binary data - check if OTel decoding is enabled
+                if decode_otel:
+                    # Try to parse as OpenTelemetry
+                    parsed = try_parse_otel_data(payload)
+                    if parsed:
+                        print_formatted_text(
+                            f"\n{'='*80}",
+                            style=custom_style,
+                        )
+                        print_formatted_text(
+                            f"{ctx.source_name} > OpenTelemetry Data:",
+                            style=custom_style,
+                        )
+                        print_formatted_text(parsed, style=custom_style)
+                        print_formatted_text(
+                            f"{'='*80}\n",
+                            style=custom_style,
+                        )
+                    else:
+                        print_formatted_text(
+                            f"{ctx.source_name} > [Binary data: {len(payload)} bytes]",
+                            style=custom_style,
+                        )
+                else:
+                    # OTel decoding not enabled, raise error and exit
+                    raise UnicodeDecodeError(
+                        'utf-8', payload[:10], 0, len(payload[:10]),
+                        'Cannot decode binary data. Use --decode-otel flag to handle OpenTelemetry payloads.'
+                    )
+            
             # if the message metadata contains publish to this message is a reply
             # to a previous one. In this case we do not reply to avoid loops
             if "PUBLISH_TO" not in ctx.metadata:
@@ -158,6 +227,7 @@ async def run_client(
     spire_target_spiffe_id: str | None = None,
     spire_jwt_audience: list[str] | None = None,
     invites: list[str] | None = None,
+    decode_otel: bool = False,
 ):
     """
     Orchestrate one group-capable client instance.
@@ -180,6 +250,7 @@ async def run_client(
         spire_target_spiffe_id: Target SPIFFE ID for mTLS authentication with SPIRE.
         spire_jwt_audience: Audience list for SPIRE JWT-SVID validation.
         invites: List of participant IDs to invite (moderator only).
+        decode_otel: Enable OpenTelemetry binary payload decoding.
     """
     # Create & connect the local Slim instance (auth derived from args).
     local_app = await create_local_app(
@@ -240,7 +311,7 @@ async def run_client(
     tasks.append(
         asyncio.create_task(
             receive_loop(
-                local_app, created_session, session_ready, shared_session_container
+                local_app, created_session, session_ready, shared_session_container, decode_otel
             )
         )
     )
@@ -289,6 +360,7 @@ def group_main(
     spire_target_spiffe_id: str | None = None,
     spire_jwt_audience: list[str] | None = None,
     invites: list[str] | None = None,
+    decode_otel: bool = False,
 ):
     """
     Synchronous entry-point for the group example (wrapped by Click).
@@ -311,6 +383,7 @@ def group_main(
                 spire_target_spiffe_id=spire_target_spiffe_id,
                 spire_jwt_audience=spire_jwt_audience,
                 invites=invites,
+                decode_otel=decode_otel,
             )
         )
     except KeyboardInterrupt:
