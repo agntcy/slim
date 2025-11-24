@@ -7,14 +7,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use slim_auth::metadata::MetadataValue;
+use slim_config::backoff::Strategy;
 use slim_config::component::id::ID;
 use slim_config::grpc::server::ServerConfig;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_retry::Retry;
-use tokio_retry::strategy::{ExponentialBackoff, jitter};
-//use tokio_retry::strategy::FixedInterval;
-
 use tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
 use tokio_util::sync::CancellationToken;
 use tonic::{Request, Response, Status};
@@ -1512,11 +1510,7 @@ impl ControllerService {
     ) -> Result<mpsc::Sender<Result<ControlMessage, Status>>, ControllerError> {
         info!(%config.endpoint, "connecting to control plane");
 
-        let backoff_strategy = ExponentialBackoff::from_millis(1000)
-            .factor(2)
-            .max_delay(Duration::from_secs(10))
-            .map(jitter);
-
+        let backoff_strategy = config.backoff.get_strategy();
         let channel = config.to_channel().await.map_err(|e| {
             error!("error reading channel config: {}", e);
             ControllerError::ConfigError(e.to_string())
