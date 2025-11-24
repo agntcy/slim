@@ -32,7 +32,7 @@ slim:
     services:
       slim/0:
         node_id: ${env:SLIM_SVC_ID}
-        group_name: "cluster-a"
+        group_name: "cluster-a.example"
         dataplane:
           servers:
             - endpoint: "0.0.0.0:{{ .Values.slim.service.data.port }}"
@@ -40,20 +40,30 @@ slim:
                 local_endpoint: ${env:MY_POD_IP}
                 external_endpoint: "slim.cluster-a.example:{{ .Values.slim.service.data.port }}"             
               tls:
-                insecure_skip_verify: false
-                cert_file: "/svids/tls.crt"
-                key_file: "/svids/tls.key"
-                ca_file: "/svids/svid_bundle.pem"
-
-          clients: []
+                #insecure: true
+                insecure_skip_verify: false   
+                source:
+                  type: spire
+                  socket_path: unix:/tmp/spire-agent/public/api.sock              
+                ca_source:
+                  type: spire
+                  socket_path: unix:/tmp/spire-agent/public/api.sock        
+                  trust_domains:
+                    - cluster-b.example    
         controller:
           clients:
             - endpoint: "https://slim-control.admin.example:50052"
               tls:
-                insecure_skip_verify: false
-                cert_file: "/svids/tls.crt"
-                key_file: "/svids/tls.key"
-                ca_file: "/svids/svid_bundle.pem"
+                #insecure: true
+                #insecure_skip_verify: false
+                source:
+                  type: spire
+                  socket_path: unix:/tmp/spire-agent/public/api.sock               
+                ca_source:
+                  type: spire
+                  socket_path: unix:/tmp/spire-agent/public/api.sock
+                  trust_domains:
+                    - admin.example 
 
   # This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
   service:
@@ -84,12 +94,6 @@ slim:
 
 spire:
   enabled: true
-  helperImage:
-    repository: ghcr.io/spiffe/spiffe-helper
-    # This sets the pull policy for images.
-    pullPolicy: IfNotPresent
-    # Overrides the image tag whose default is the chart appVersion.
-    tag: "0.10.0"
   trustedDomains:
   - spiffe://admin.example
   - spiffe://cluster-b.example
