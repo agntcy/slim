@@ -315,7 +315,8 @@ func (d *dbService) FilterRoutesBySourceAndDestination(sourceNodeID string, dest
 	return routes
 }
 
-func (d *dbService) GetDestinationNodeIDForName(component0 string, component1 string, component2 string, componentID *wrapperspb.UInt64Value) string {
+func (d *dbService) GetDestinationNodeIDForName(component0 string, component1 string, component2 string,
+	componentID *wrapperspb.UInt64Value) string {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 

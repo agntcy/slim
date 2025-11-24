@@ -58,7 +58,8 @@ type DataAccess interface {
 	GetChannel(channelID string) (db.Channel, error)
 	UpdateChannel(channel db.Channel) error
 	ListChannels() ([]db.Channel, error)
-	GetDestinationNodeIDForName(Component0 string, Component1 string, Component2 string, ComponentID *wrapperspb.UInt64Value) string
+	GetDestinationNodeIDForName(Component0 string, Component1 string, Component2 string,
+		ComponentID *wrapperspb.UInt64Value) string
 }
 
 type GroupService struct {
@@ -461,7 +462,7 @@ func logAckMessage(ctx context.Context, ack *controllerapi.Ack) {
 }
 
 // getModeratorNode returns the node ID where the moderator is located
-func (s *GroupService) getModeratorNode(ctx context.Context, moderators []string) (string, error) {
+func (s *GroupService) getModeratorNode(_ context.Context, moderators []string) (string, error) {
 	if len(moderators) == 0 {
 		return "", fmt.Errorf("no moderators provided")
 	}

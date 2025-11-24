@@ -250,7 +250,8 @@ func (s *SQLiteDBService) FilterRoutesBySourceAndDestination(sourceNodeID string
 	return routes
 }
 
-func (s *SQLiteDBService) GetDestinationNodeIDForName(component0 string, component1 string, component2 string, componentID *wrapperspb.UInt64Value) string {
+func (s *SQLiteDBService) GetDestinationNodeIDForName(component0 string, component1 string, component2 string,
+	componentID *wrapperspb.UInt64Value) string {
 	query := s.db.Model(&RouteModel{}).
 		Where("source_node_id = ? AND component0 = ? AND component1 = ? AND component2 = ?",
 			AllNodesID, component0, component1, component2)
