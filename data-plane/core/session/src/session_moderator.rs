@@ -153,7 +153,10 @@ where
                 timeouts,
             } => {
                 if message_type.is_command_message() {
-                    self.common.sender.on_timer_timeout(message_id).await
+                    self.common
+                        .sender
+                        .on_timer_timeout(message_id, message_type)
+                        .await
                 } else {
                     self.inner
                         .on_message(SessionMessage::TimerTimeout {
@@ -172,7 +175,10 @@ where
                 timeouts,
             } => {
                 if message_type.is_command_message() {
-                    self.common.sender.on_timer_failure(message_id).await;
+                    self.common
+                        .sender
+                        .on_timer_failure(message_id, message_type)
+                        .await;
                     // the current task failed:
                     // 1. create the right error message and notify via ack_tx if present
                     let message = match &self.common.settings.config.session_type {

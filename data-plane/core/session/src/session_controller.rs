@@ -527,10 +527,20 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     pub(crate) fn new(settings: SessionSettings<P, V>) -> Self {
+        let ping_interval = if settings.config.initiator {
+            Some(Duration::from_secs(10))
+        } else {
+            None
+        };
+
         // create the controller sender
         let controller_sender = ControllerSender::new(
             settings.config.get_timer_settings(),
             settings.source.clone(),
+            settings.destination.clone(),
+            settings.config.session_type,
+            settings.id,
+            ping_interval,
             // send messages to slim/app
             settings.tx.clone(),
             // send signal to the controller

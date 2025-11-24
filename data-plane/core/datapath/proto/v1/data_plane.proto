@@ -99,6 +99,7 @@ enum SessionMessageType {
   SESSION_MESSAGE_TYPE_GROUP_PROPOSAL = 15;
   SESSION_MESSAGE_TYPE_GROUP_ACK = 16;
   SESSION_MESSAGE_TYPE_GROUP_NACK = 17;
+  SESSION_MESSAGE_TYPE_PING = 18;
 }
 
 // SLIM message content
@@ -129,6 +130,7 @@ message CommandPayload {
     GroupProposalPayload group_proposal = 11;
     GroupAckPayload group_ack = 12;
     GroupNackPayload group_nack = 13;
+    PingPayload ping = 14;
   }
 }
 
@@ -240,3 +242,7 @@ message GroupAckPayload {}
 
 // Group Nack
 message GroupNackPayload {}
+
+// Ping 
+message PingPayload {}
+
