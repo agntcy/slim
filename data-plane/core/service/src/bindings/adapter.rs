@@ -164,6 +164,57 @@ impl From<SlimSessionError> for SlimError {
     }
 }
 
+/// TLS configuration for server/client
+#[derive(uniffi::Record)]
+pub struct TlsConfig {
+    pub insecure: bool,
+}
+
+/// Server configuration for running a SLIM server
+#[derive(uniffi::Record)]
+pub struct ServerConfig {
+    pub endpoint: String,
+    pub tls: TlsConfig,
+}
+
+/// Client configuration for connecting to a SLIM server
+#[derive(uniffi::Record)]
+pub struct ClientConfig {
+    pub endpoint: String,
+    pub tls: TlsConfig,
+}
+
+/// Message context for received messages
+#[derive(uniffi::Record)]
+pub struct MessageContext {
+    pub source_name: Name,
+    pub destination_name: Option<Name>,
+    pub payload_type: String,
+    pub metadata: std::collections::HashMap<String, String>,
+    pub input_connection: u64,
+    pub identity: String,
+}
+
+impl From<crate::bindings::MessageContext> for MessageContext {
+    fn from(ctx: crate::bindings::MessageContext) -> Self {
+        Self {
+            source_name: Name::from(&ctx.source_name),
+            destination_name: ctx.destination_name.as_ref().map(Name::from),
+            payload_type: ctx.payload_type,
+            metadata: ctx.metadata,
+            input_connection: ctx.input_connection,
+            identity: ctx.identity,
+        }
+    }
+}
+
+/// Received message containing context and payload
+#[derive(uniffi::Record)]
+pub struct ReceivedMessage {
+    pub context: MessageContext,
+    pub payload: Vec<u8>,
+}
+
 // ============================================================================
 // FFI Entry Points
 // ============================================================================
@@ -210,7 +261,7 @@ pub struct BindingsAdapter {
     notification_rx: Arc<RwLock<mpsc::Receiver<Result<Notification, SlimSessionError>>>>,
     
     /// Service reference for lifecycle management
-    _service_ref: ServiceRef,
+    service_ref: ServiceRef,
     
     /// Tokio runtime for blocking async operations
     runtime: Arc<tokio::runtime::Runtime>,
@@ -276,7 +327,7 @@ impl BindingsAdapter {
         let adapter = Arc::new(Self {
             app: Arc::new(app),
             notification_rx: Arc::new(RwLock::new(rx)),
-            _service_ref: service_ref,
+            service_ref: service_ref,
             runtime,
         });
 
@@ -449,6 +500,107 @@ impl BindingsAdapter {
             }),
         }
     }
+    
+    /// Run a SLIM server on the specified endpoint (blocking version for FFI)
+    /// 
+    /// # Arguments
+    /// * `config` - Server configuration (endpoint and TLS settings)
+    /// 
+    /// # Returns
+    /// * `Ok(())` - Server started successfully
+    /// * `Err(SlimError)` - If server startup fails
+    pub fn run_server(&self, config: ServerConfig) -> Result<(), SlimError> {
+        self.runtime.block_on(async {
+            self.run_server_async(config).await
+        })
+    }
+    
+    /// Run a SLIM server (async version)
+    pub async fn run_server_async(&self, config: ServerConfig) -> Result<(), SlimError> {
+        use slim_config::grpc::server::ServerConfig as GrpcServerConfig;
+        use slim_config::tls::server::TlsServerConfig;
+        
+        let tls_config = TlsServerConfig::new().with_insecure(config.tls.insecure);
+        let server_config = GrpcServerConfig::with_endpoint(&config.endpoint)
+            .with_tls_settings(tls_config);
+        
+        self.service_ref
+            .get_service()
+            .run_server(&server_config)
+            .await
+            .map_err(|e| SlimError::ConfigError {
+                message: format!("Failed to run server: {}", e),
+            })
+    }
+    
+    /// Connect to a SLIM server as a client (blocking version for FFI)
+    /// 
+    /// # Arguments
+    /// * `config` - Client configuration (endpoint and TLS settings)
+    /// 
+    /// # Returns
+    /// * `Ok(connection_id)` - Connected successfully, returns the connection ID
+    /// * `Err(SlimError)` - If connection fails
+    pub fn connect(&self, config: ClientConfig) -> Result<u64, SlimError> {
+        self.runtime.block_on(async {
+            self.connect_async(config).await
+        })
+    }
+    
+    /// Connect to a SLIM server (async version)
+    /// 
+    /// Note: Automatically subscribes to the app's own name after connecting
+    /// to enable receiving inbound messages and sessions.
+    pub async fn connect_async(&self, config: ClientConfig) -> Result<u64, SlimError> {
+        use slim_config::grpc::client::ClientConfig as GrpcClientConfig;
+        use slim_config::tls::client::TlsClientConfig;
+        
+        let tls_config = TlsClientConfig::new().with_insecure(config.tls.insecure);
+        let client_config = GrpcClientConfig::with_endpoint(&config.endpoint)
+            .with_tls_setting(tls_config);
+        
+        let conn_id = self.service_ref
+            .get_service()
+            .connect(&client_config)
+            .await
+            .map_err(|e| SlimError::ConfigError {
+                message: format!("Failed to connect: {}", e),
+            })?;
+        
+        // Automatically subscribe to our own name so we can receive messages.
+        // If subscription fails, clean up the connection to avoid resource leaks.
+        let self_name = self.app.app_name();
+        if let Err(e) = self.app.subscribe(self_name, Some(conn_id)).await {
+            let _ = self.service_ref.get_service().disconnect(conn_id);
+            return Err(e.into());
+        }
+        
+        Ok(conn_id)
+    }
+
+    /// Disconnect from a SLIM server (blocking version for FFI)
+    /// 
+    /// # Arguments
+    /// * `connection_id` - The connection ID returned from `connect()`
+    /// 
+    /// # Returns
+    /// * `Ok(())` - Disconnected successfully
+    /// * `Err(SlimError)` - If disconnection fails
+    pub fn disconnect(&self, connection_id: u64) -> Result<(), SlimError> {
+        self.runtime.block_on(async {
+            self.disconnect_async(connection_id).await
+        })
+    }
+    
+    /// Disconnect from a SLIM server (async version)
+    pub async fn disconnect_async(&self, connection_id: u64) -> Result<(), SlimError> {
+        self.service_ref
+            .get_service()
+            .disconnect(connection_id)
+            .map_err(|e| SlimError::ConfigError {
+                message: format!("Failed to disconnect: {}", e),
+            })
+    }
 }
 
 // ============================================================================
@@ -498,6 +650,37 @@ impl FFISessionContext {
             .map_err(|e| SlimError::SendError {
                 message: e.to_string(),
             })
+    }
+
+    /// Receive a message from the session (blocking version for FFI)
+    /// 
+    /// # Arguments
+    /// * `timeout_ms` - Optional timeout in milliseconds
+    /// 
+    /// # Returns
+    /// * `Ok(ReceivedMessage)` - Message with context and payload bytes
+    /// * `Err(SlimError)` - If the receive fails or times out
+    pub fn get_message(&self, timeout_ms: Option<u32>) -> Result<ReceivedMessage, SlimError> {
+        self.runtime.block_on(async {
+            self.get_message_async(timeout_ms).await
+        })
+    }
+    
+    /// Receive a message from the session (async version)
+    pub async fn get_message_async(&self, timeout_ms: Option<u32>) -> Result<ReceivedMessage, SlimError> {
+        let timeout = timeout_ms.map(|ms| std::time::Duration::from_millis(ms as u64));
+        
+        let (ctx, payload) = self.inner
+            .get_session_message(timeout)
+            .await
+            .map_err(|e| SlimError::ReceiveError {
+                message: e.to_string(),
+            })?;
+        
+        Ok(ReceivedMessage {
+            context: MessageContext::from(ctx),
+            payload,
+        })
     }
 
     /// Invite a participant to the session (blocking version for FFI)
@@ -559,7 +742,7 @@ mod tests {
         let result = BindingsAdapter::new(base_name, provider, verifier, false);
         assert!(result.is_ok());
 
-        let (adapter, _service_ref) = result.unwrap();
+        let adapter = result.unwrap();
         assert!(adapter.id() > 0);
     }
 
@@ -581,7 +764,7 @@ mod tests {
         let result = BindingsAdapter::new(base_name, provider, verifier, false);
         assert!(result.is_ok());
 
-        let (adapter, _) = result.unwrap();
+        let adapter = result.unwrap();
         assert_eq!(adapter.id(), expected_hash);
     }
 }

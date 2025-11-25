@@ -376,6 +376,24 @@ func uniffiCheckChecksums() {
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_service_checksum_method_bindingsadapter_connect()
+		})
+		if checksum != 48008 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_service: uniffi_slim_service_checksum_method_bindingsadapter_connect: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_service_checksum_method_bindingsadapter_connect_async()
+		})
+		if checksum != 42152 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_service: uniffi_slim_service_checksum_method_bindingsadapter_connect_async: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_service_checksum_method_bindingsadapter_create_session()
 		})
 		if checksum != 48429 {
@@ -399,6 +417,24 @@ func uniffiCheckChecksums() {
 		if checksum != 11000 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_service: uniffi_slim_service_checksum_method_bindingsadapter_delete_session: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_service_checksum_method_bindingsadapter_disconnect()
+		})
+		if checksum != 1820 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_service: uniffi_slim_service_checksum_method_bindingsadapter_disconnect: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_service_checksum_method_bindingsadapter_disconnect_async()
+		})
+		if checksum != 60557 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_service: uniffi_slim_service_checksum_method_bindingsadapter_disconnect_async: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -457,6 +493,24 @@ func uniffiCheckChecksums() {
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_service_checksum_method_bindingsadapter_run_server()
+		})
+		if checksum != 16193 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_service: uniffi_slim_service_checksum_method_bindingsadapter_run_server: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_service_checksum_method_bindingsadapter_run_server_async()
+		})
+		if checksum != 764 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_service: uniffi_slim_service_checksum_method_bindingsadapter_run_server_async: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_service_checksum_method_bindingsadapter_set_route()
 		})
 		if checksum != 18642 {
@@ -507,6 +561,24 @@ func uniffiCheckChecksums() {
 		if checksum != 43766 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_service: uniffi_slim_service_checksum_method_bindingsadapter_unsubscribe_async: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_service_checksum_method_ffisessioncontext_get_message()
+		})
+		if checksum != 59165 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_service: uniffi_slim_service_checksum_method_ffisessioncontext_get_message: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_service_checksum_method_ffisessioncontext_get_message_async()
+		})
+		if checksum != 58295 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_service: uniffi_slim_service_checksum_method_ffisessioncontext_get_message_async: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -806,12 +878,37 @@ func (ffiObject *FfiObject) freeRustArcPtr() {
 // This adapter uses concrete types (SharedSecret) instead of generics to be compatible with UniFFI.
 // It provides both synchronous (blocking) and asynchronous methods for flexibility.
 type BindingsAdapterInterface interface {
+	// Connect to a SLIM server as a client (blocking version for FFI)
+	//
+	// # Arguments
+	// * `config` - Client configuration (endpoint and TLS settings)
+	//
+	// # Returns
+	// * `Ok(connection_id)` - Connected successfully, returns the connection ID
+	// * `Err(SlimError)` - If connection fails
+	Connect(config ClientConfig) (uint64, error)
+	// Connect to a SLIM server (async version)
+	//
+	// Note: Automatically subscribes to the app's own name after connecting
+	// to enable receiving inbound messages and sessions.
+	ConnectAsync(config ClientConfig) (uint64, error)
 	// Create a new session (blocking version for FFI)
 	CreateSession(config SessionConfig, destination Name) (*FfiSessionContext, error)
 	// Create a new session (async version)
 	CreateSessionAsync(config SessionConfig, destination Name) (*FfiSessionContext, error)
 	// Delete a session (synchronous - no async version needed)
 	DeleteSession(session *FfiSessionContext) error
+	// Disconnect from a SLIM server (blocking version for FFI)
+	//
+	// # Arguments
+	// * `connection_id` - The connection ID returned from `connect()`
+	//
+	// # Returns
+	// * `Ok(())` - Disconnected successfully
+	// * `Err(SlimError)` - If disconnection fails
+	Disconnect(connectionId uint64) error
+	// Disconnect from a SLIM server (async version)
+	DisconnectAsync(connectionId uint64) error
 	// Get the app ID (derived from name)
 	Id() uint64
 	// Listen for incoming sessions (blocking version for FFI)
@@ -824,6 +921,17 @@ type BindingsAdapterInterface interface {
 	RemoveRoute(name Name, connectionId uint64) error
 	// Remove a route (async version)
 	RemoveRouteAsync(name Name, connectionId uint64) error
+	// Run a SLIM server on the specified endpoint (blocking version for FFI)
+	//
+	// # Arguments
+	// * `config` - Server configuration (endpoint and TLS settings)
+	//
+	// # Returns
+	// * `Ok(())` - Server started successfully
+	// * `Err(SlimError)` - If server startup fails
+	RunServer(config ServerConfig) error
+	// Run a SLIM server (async version)
+	RunServerAsync(config ServerConfig) error
 	// Set a route to a name for a specific connection (blocking version for FFI)
 	SetRoute(name Name, connectionId uint64) error
 	// Set a route to a name for a specific connection (async version)
@@ -844,6 +952,62 @@ type BindingsAdapterInterface interface {
 // It provides both synchronous (blocking) and asynchronous methods for flexibility.
 type BindingsAdapter struct {
 	ffiObject FfiObject
+}
+
+// Connect to a SLIM server as a client (blocking version for FFI)
+//
+// # Arguments
+// * `config` - Client configuration (endpoint and TLS settings)
+//
+// # Returns
+// * `Ok(connection_id)` - Connected successfully, returns the connection ID
+// * `Err(SlimError)` - If connection fails
+func (_self *BindingsAdapter) Connect(config ClientConfig) (uint64, error) {
+	_pointer := _self.ffiObject.incrementPointer("*BindingsAdapter")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) C.uint64_t {
+		return C.uniffi_slim_service_fn_method_bindingsadapter_connect(
+			_pointer, FfiConverterClientConfigINSTANCE.Lower(config), _uniffiStatus)
+	})
+	if _uniffiErr != nil {
+		var _uniffiDefaultValue uint64
+		return _uniffiDefaultValue, _uniffiErr
+	} else {
+		return FfiConverterUint64INSTANCE.Lift(_uniffiRV), nil
+	}
+}
+
+// Connect to a SLIM server (async version)
+//
+// Note: Automatically subscribes to the app's own name after connecting
+// to enable receiving inbound messages and sessions.
+func (_self *BindingsAdapter) ConnectAsync(config ClientConfig) (uint64, error) {
+	_pointer := _self.ffiObject.incrementPointer("*BindingsAdapter")
+	defer _self.ffiObject.decrementPointer()
+	res, err := uniffiRustCallAsync[SlimError](
+		FfiConverterSlimErrorINSTANCE,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) C.uint64_t {
+			res := C.ffi_slim_service_rust_future_complete_u64(handle, status)
+			return res
+		},
+		// liftFn
+		func(ffi C.uint64_t) uint64 {
+			return FfiConverterUint64INSTANCE.Lift(ffi)
+		},
+		C.uniffi_slim_service_fn_method_bindingsadapter_connect_async(
+			_pointer, FfiConverterClientConfigINSTANCE.Lower(config)),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_service_rust_future_poll_u64(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_service_rust_future_free_u64(handle)
+		},
+	)
+
+	return res, err
 }
 
 // Create a new session (blocking version for FFI)
@@ -902,6 +1066,53 @@ func (_self *BindingsAdapter) DeleteSession(session *FfiSessionContext) error {
 		return false
 	})
 	return _uniffiErr.AsError()
+}
+
+// Disconnect from a SLIM server (blocking version for FFI)
+//
+// # Arguments
+// * `connection_id` - The connection ID returned from `connect()`
+//
+// # Returns
+// * `Ok(())` - Disconnected successfully
+// * `Err(SlimError)` - If disconnection fails
+func (_self *BindingsAdapter) Disconnect(connectionId uint64) error {
+	_pointer := _self.ffiObject.incrementPointer("*BindingsAdapter")
+	defer _self.ffiObject.decrementPointer()
+	_, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) bool {
+		C.uniffi_slim_service_fn_method_bindingsadapter_disconnect(
+			_pointer, FfiConverterUint64INSTANCE.Lower(connectionId), _uniffiStatus)
+		return false
+	})
+	return _uniffiErr.AsError()
+}
+
+// Disconnect from a SLIM server (async version)
+func (_self *BindingsAdapter) DisconnectAsync(connectionId uint64) error {
+	_pointer := _self.ffiObject.incrementPointer("*BindingsAdapter")
+	defer _self.ffiObject.decrementPointer()
+	_, err := uniffiRustCallAsync[SlimError](
+		FfiConverterSlimErrorINSTANCE,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
+			C.ffi_slim_service_rust_future_complete_void(handle, status)
+			return struct{}{}
+		},
+		// liftFn
+		func(_ struct{}) struct{} { return struct{}{} },
+		C.uniffi_slim_service_fn_method_bindingsadapter_disconnect_async(
+			_pointer, FfiConverterUint64INSTANCE.Lower(connectionId)),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_service_rust_future_poll_void(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_service_rust_future_free_void(handle)
+		},
+	)
+
+	return err
 }
 
 // Get the app ID (derived from name)
@@ -999,6 +1210,53 @@ func (_self *BindingsAdapter) RemoveRouteAsync(name Name, connectionId uint64) e
 		func(_ struct{}) struct{} { return struct{}{} },
 		C.uniffi_slim_service_fn_method_bindingsadapter_remove_route_async(
 			_pointer, FfiConverterNameINSTANCE.Lower(name), FfiConverterUint64INSTANCE.Lower(connectionId)),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_service_rust_future_poll_void(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_service_rust_future_free_void(handle)
+		},
+	)
+
+	return err
+}
+
+// Run a SLIM server on the specified endpoint (blocking version for FFI)
+//
+// # Arguments
+// * `config` - Server configuration (endpoint and TLS settings)
+//
+// # Returns
+// * `Ok(())` - Server started successfully
+// * `Err(SlimError)` - If server startup fails
+func (_self *BindingsAdapter) RunServer(config ServerConfig) error {
+	_pointer := _self.ffiObject.incrementPointer("*BindingsAdapter")
+	defer _self.ffiObject.decrementPointer()
+	_, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) bool {
+		C.uniffi_slim_service_fn_method_bindingsadapter_run_server(
+			_pointer, FfiConverterServerConfigINSTANCE.Lower(config), _uniffiStatus)
+		return false
+	})
+	return _uniffiErr.AsError()
+}
+
+// Run a SLIM server (async version)
+func (_self *BindingsAdapter) RunServerAsync(config ServerConfig) error {
+	_pointer := _self.ffiObject.incrementPointer("*BindingsAdapter")
+	defer _self.ffiObject.decrementPointer()
+	_, err := uniffiRustCallAsync[SlimError](
+		FfiConverterSlimErrorINSTANCE,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
+			C.ffi_slim_service_rust_future_complete_void(handle, status)
+			return struct{}{}
+		},
+		// liftFn
+		func(_ struct{}) struct{} { return struct{}{} },
+		C.uniffi_slim_service_fn_method_bindingsadapter_run_server_async(
+			_pointer, FfiConverterServerConfigINSTANCE.Lower(config)),
 		// pollFn
 		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
 			C.ffi_slim_service_rust_future_poll_void(handle, continuation, data)
@@ -1182,6 +1440,17 @@ func (_ FfiDestroyerBindingsAdapter) Destroy(value *BindingsAdapter) {
 
 // FFISessionContext represents an active session (FFI-compatible wrapper)
 type FfiSessionContextInterface interface {
+	// Receive a message from the session (blocking version for FFI)
+	//
+	// # Arguments
+	// * `timeout_ms` - Optional timeout in milliseconds
+	//
+	// # Returns
+	// * `Ok(ReceivedMessage)` - Message with context and payload bytes
+	// * `Err(SlimError)` - If the receive fails or times out
+	GetMessage(timeoutMs *uint32) (ReceivedMessage, error)
+	// Receive a message from the session (async version)
+	GetMessageAsync(timeoutMs *uint32) (ReceivedMessage, error)
 	// Invite a participant to the session (blocking version for FFI)
 	Invite(participant Name) error
 	// Invite a participant to the session (async version)
@@ -1199,6 +1468,63 @@ type FfiSessionContextInterface interface {
 // FFISessionContext represents an active session (FFI-compatible wrapper)
 type FfiSessionContext struct {
 	ffiObject FfiObject
+}
+
+// Receive a message from the session (blocking version for FFI)
+//
+// # Arguments
+// * `timeout_ms` - Optional timeout in milliseconds
+//
+// # Returns
+// * `Ok(ReceivedMessage)` - Message with context and payload bytes
+// * `Err(SlimError)` - If the receive fails or times out
+func (_self *FfiSessionContext) GetMessage(timeoutMs *uint32) (ReceivedMessage, error) {
+	_pointer := _self.ffiObject.incrementPointer("*FfiSessionContext")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer{
+			inner: C.uniffi_slim_service_fn_method_ffisessioncontext_get_message(
+				_pointer, FfiConverterOptionalUint32INSTANCE.Lower(timeoutMs), _uniffiStatus),
+		}
+	})
+	if _uniffiErr != nil {
+		var _uniffiDefaultValue ReceivedMessage
+		return _uniffiDefaultValue, _uniffiErr
+	} else {
+		return FfiConverterReceivedMessageINSTANCE.Lift(_uniffiRV), nil
+	}
+}
+
+// Receive a message from the session (async version)
+func (_self *FfiSessionContext) GetMessageAsync(timeoutMs *uint32) (ReceivedMessage, error) {
+	_pointer := _self.ffiObject.incrementPointer("*FfiSessionContext")
+	defer _self.ffiObject.decrementPointer()
+	res, err := uniffiRustCallAsync[SlimError](
+		FfiConverterSlimErrorINSTANCE,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) RustBufferI {
+			res := C.ffi_slim_service_rust_future_complete_rust_buffer(handle, status)
+			return GoRustBuffer{
+				inner: res,
+			}
+		},
+		// liftFn
+		func(ffi RustBufferI) ReceivedMessage {
+			return FfiConverterReceivedMessageINSTANCE.Lift(ffi)
+		},
+		C.uniffi_slim_service_fn_method_ffisessioncontext_get_message_async(
+			_pointer, FfiConverterOptionalUint32INSTANCE.Lower(timeoutMs)),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_service_rust_future_poll_rust_buffer(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_service_rust_future_free_rust_buffer(handle)
+		},
+	)
+
+	return res, err
 }
 
 // Invite a participant to the session (blocking version for FFI)
@@ -1369,6 +1695,104 @@ func (_ FfiDestroyerFfiSessionContext) Destroy(value *FfiSessionContext) {
 	value.Destroy()
 }
 
+// Client configuration for connecting to a SLIM server
+type ClientConfig struct {
+	Endpoint string
+	Tls      TlsConfig
+}
+
+func (r *ClientConfig) Destroy() {
+	FfiDestroyerString{}.Destroy(r.Endpoint)
+	FfiDestroyerTlsConfig{}.Destroy(r.Tls)
+}
+
+type FfiConverterClientConfig struct{}
+
+var FfiConverterClientConfigINSTANCE = FfiConverterClientConfig{}
+
+func (c FfiConverterClientConfig) Lift(rb RustBufferI) ClientConfig {
+	return LiftFromRustBuffer[ClientConfig](c, rb)
+}
+
+func (c FfiConverterClientConfig) Read(reader io.Reader) ClientConfig {
+	return ClientConfig{
+		FfiConverterStringINSTANCE.Read(reader),
+		FfiConverterTlsConfigINSTANCE.Read(reader),
+	}
+}
+
+func (c FfiConverterClientConfig) Lower(value ClientConfig) C.RustBuffer {
+	return LowerIntoRustBuffer[ClientConfig](c, value)
+}
+
+func (c FfiConverterClientConfig) Write(writer io.Writer, value ClientConfig) {
+	FfiConverterStringINSTANCE.Write(writer, value.Endpoint)
+	FfiConverterTlsConfigINSTANCE.Write(writer, value.Tls)
+}
+
+type FfiDestroyerClientConfig struct{}
+
+func (_ FfiDestroyerClientConfig) Destroy(value ClientConfig) {
+	value.Destroy()
+}
+
+// Message context for received messages
+type MessageContext struct {
+	SourceName      Name
+	DestinationName *Name
+	PayloadType     string
+	Metadata        map[string]string
+	InputConnection uint64
+	Identity        string
+}
+
+func (r *MessageContext) Destroy() {
+	FfiDestroyerName{}.Destroy(r.SourceName)
+	FfiDestroyerOptionalName{}.Destroy(r.DestinationName)
+	FfiDestroyerString{}.Destroy(r.PayloadType)
+	FfiDestroyerMapStringString{}.Destroy(r.Metadata)
+	FfiDestroyerUint64{}.Destroy(r.InputConnection)
+	FfiDestroyerString{}.Destroy(r.Identity)
+}
+
+type FfiConverterMessageContext struct{}
+
+var FfiConverterMessageContextINSTANCE = FfiConverterMessageContext{}
+
+func (c FfiConverterMessageContext) Lift(rb RustBufferI) MessageContext {
+	return LiftFromRustBuffer[MessageContext](c, rb)
+}
+
+func (c FfiConverterMessageContext) Read(reader io.Reader) MessageContext {
+	return MessageContext{
+		FfiConverterNameINSTANCE.Read(reader),
+		FfiConverterOptionalNameINSTANCE.Read(reader),
+		FfiConverterStringINSTANCE.Read(reader),
+		FfiConverterMapStringStringINSTANCE.Read(reader),
+		FfiConverterUint64INSTANCE.Read(reader),
+		FfiConverterStringINSTANCE.Read(reader),
+	}
+}
+
+func (c FfiConverterMessageContext) Lower(value MessageContext) C.RustBuffer {
+	return LowerIntoRustBuffer[MessageContext](c, value)
+}
+
+func (c FfiConverterMessageContext) Write(writer io.Writer, value MessageContext) {
+	FfiConverterNameINSTANCE.Write(writer, value.SourceName)
+	FfiConverterOptionalNameINSTANCE.Write(writer, value.DestinationName)
+	FfiConverterStringINSTANCE.Write(writer, value.PayloadType)
+	FfiConverterMapStringStringINSTANCE.Write(writer, value.Metadata)
+	FfiConverterUint64INSTANCE.Write(writer, value.InputConnection)
+	FfiConverterStringINSTANCE.Write(writer, value.Identity)
+}
+
+type FfiDestroyerMessageContext struct{}
+
+func (_ FfiDestroyerMessageContext) Destroy(value MessageContext) {
+	value.Destroy()
+}
+
 // Name type for SLIM (Secure Low-Latency Interactive Messaging)
 type Name struct {
 	Components []string
@@ -1410,6 +1834,88 @@ func (_ FfiDestroyerName) Destroy(value Name) {
 	value.Destroy()
 }
 
+// Received message containing context and payload
+type ReceivedMessage struct {
+	Context MessageContext
+	Payload []byte
+}
+
+func (r *ReceivedMessage) Destroy() {
+	FfiDestroyerMessageContext{}.Destroy(r.Context)
+	FfiDestroyerBytes{}.Destroy(r.Payload)
+}
+
+type FfiConverterReceivedMessage struct{}
+
+var FfiConverterReceivedMessageINSTANCE = FfiConverterReceivedMessage{}
+
+func (c FfiConverterReceivedMessage) Lift(rb RustBufferI) ReceivedMessage {
+	return LiftFromRustBuffer[ReceivedMessage](c, rb)
+}
+
+func (c FfiConverterReceivedMessage) Read(reader io.Reader) ReceivedMessage {
+	return ReceivedMessage{
+		FfiConverterMessageContextINSTANCE.Read(reader),
+		FfiConverterBytesINSTANCE.Read(reader),
+	}
+}
+
+func (c FfiConverterReceivedMessage) Lower(value ReceivedMessage) C.RustBuffer {
+	return LowerIntoRustBuffer[ReceivedMessage](c, value)
+}
+
+func (c FfiConverterReceivedMessage) Write(writer io.Writer, value ReceivedMessage) {
+	FfiConverterMessageContextINSTANCE.Write(writer, value.Context)
+	FfiConverterBytesINSTANCE.Write(writer, value.Payload)
+}
+
+type FfiDestroyerReceivedMessage struct{}
+
+func (_ FfiDestroyerReceivedMessage) Destroy(value ReceivedMessage) {
+	value.Destroy()
+}
+
+// Server configuration for running a SLIM server
+type ServerConfig struct {
+	Endpoint string
+	Tls      TlsConfig
+}
+
+func (r *ServerConfig) Destroy() {
+	FfiDestroyerString{}.Destroy(r.Endpoint)
+	FfiDestroyerTlsConfig{}.Destroy(r.Tls)
+}
+
+type FfiConverterServerConfig struct{}
+
+var FfiConverterServerConfigINSTANCE = FfiConverterServerConfig{}
+
+func (c FfiConverterServerConfig) Lift(rb RustBufferI) ServerConfig {
+	return LiftFromRustBuffer[ServerConfig](c, rb)
+}
+
+func (c FfiConverterServerConfig) Read(reader io.Reader) ServerConfig {
+	return ServerConfig{
+		FfiConverterStringINSTANCE.Read(reader),
+		FfiConverterTlsConfigINSTANCE.Read(reader),
+	}
+}
+
+func (c FfiConverterServerConfig) Lower(value ServerConfig) C.RustBuffer {
+	return LowerIntoRustBuffer[ServerConfig](c, value)
+}
+
+func (c FfiConverterServerConfig) Write(writer io.Writer, value ServerConfig) {
+	FfiConverterStringINSTANCE.Write(writer, value.Endpoint)
+	FfiConverterTlsConfigINSTANCE.Write(writer, value.Tls)
+}
+
+type FfiDestroyerServerConfig struct{}
+
+func (_ FfiDestroyerServerConfig) Destroy(value ServerConfig) {
+	value.Destroy()
+}
+
 // Session configuration
 type SessionConfig struct {
 	SessionType SessionType
@@ -1448,6 +1954,43 @@ func (c FfiConverterSessionConfig) Write(writer io.Writer, value SessionConfig) 
 type FfiDestroyerSessionConfig struct{}
 
 func (_ FfiDestroyerSessionConfig) Destroy(value SessionConfig) {
+	value.Destroy()
+}
+
+// TLS configuration for server/client
+type TlsConfig struct {
+	Insecure bool
+}
+
+func (r *TlsConfig) Destroy() {
+	FfiDestroyerBool{}.Destroy(r.Insecure)
+}
+
+type FfiConverterTlsConfig struct{}
+
+var FfiConverterTlsConfigINSTANCE = FfiConverterTlsConfig{}
+
+func (c FfiConverterTlsConfig) Lift(rb RustBufferI) TlsConfig {
+	return LiftFromRustBuffer[TlsConfig](c, rb)
+}
+
+func (c FfiConverterTlsConfig) Read(reader io.Reader) TlsConfig {
+	return TlsConfig{
+		FfiConverterBoolINSTANCE.Read(reader),
+	}
+}
+
+func (c FfiConverterTlsConfig) Lower(value TlsConfig) C.RustBuffer {
+	return LowerIntoRustBuffer[TlsConfig](c, value)
+}
+
+func (c FfiConverterTlsConfig) Write(writer io.Writer, value TlsConfig) {
+	FfiConverterBoolINSTANCE.Write(writer, value.Insecure)
+}
+
+type FfiDestroyerTlsConfig struct{}
+
+func (_ FfiDestroyerTlsConfig) Destroy(value TlsConfig) {
 	value.Destroy()
 }
 
@@ -1948,6 +2491,43 @@ type FfiDestroyerOptionalString struct{}
 func (_ FfiDestroyerOptionalString) Destroy(value *string) {
 	if value != nil {
 		FfiDestroyerString{}.Destroy(*value)
+	}
+}
+
+type FfiConverterOptionalName struct{}
+
+var FfiConverterOptionalNameINSTANCE = FfiConverterOptionalName{}
+
+func (c FfiConverterOptionalName) Lift(rb RustBufferI) *Name {
+	return LiftFromRustBuffer[*Name](c, rb)
+}
+
+func (_ FfiConverterOptionalName) Read(reader io.Reader) *Name {
+	if readInt8(reader) == 0 {
+		return nil
+	}
+	temp := FfiConverterNameINSTANCE.Read(reader)
+	return &temp
+}
+
+func (c FfiConverterOptionalName) Lower(value *Name) C.RustBuffer {
+	return LowerIntoRustBuffer[*Name](c, value)
+}
+
+func (_ FfiConverterOptionalName) Write(writer io.Writer, value *Name) {
+	if value == nil {
+		writeInt8(writer, 0)
+	} else {
+		writeInt8(writer, 1)
+		FfiConverterNameINSTANCE.Write(writer, *value)
+	}
+}
+
+type FfiDestroyerOptionalName struct{}
+
+func (_ FfiDestroyerOptionalName) Destroy(value *Name) {
+	if value != nil {
+		FfiDestroyerName{}.Destroy(*value)
 	}
 }
 

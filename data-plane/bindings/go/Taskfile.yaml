@@ -13,8 +13,9 @@ vars:
 
 tasks:
   default:
-    desc: Build and generate (default task)
-    deps: [build, generate, example]
+    desc: Show help (default task)
+    cmds:
+      - task: help
 
   help:
     desc: Show available tasks
@@ -22,32 +23,32 @@ tasks:
       - |
         echo "SLIM Go Bindings - Available tasks:"
         echo ""
-        echo "  task                           - Build and generate (default)"
-        echo "  task build                     - Build the Rust library with UniFFI (release mode)"
-        echo "  task build-debug               - Build the Rust library (debug mode)"
-        echo "  task install-uniffi-bindgen-go - Install uniffi-bindgen-go"
+        echo "Build & Generate:"
+        echo "  task rust-build                - Build the Rust library with UniFFI (release mode)"
         echo "  task generate                  - Generate Go bindings from compiled library"
+        echo "  task install-uniffi-bindgen-go - Install uniffi-bindgen-go"
+        echo ""
+        echo "Testing:"
         echo "  task test                      - Run all tests"
         echo "  task test-coverage             - Run tests with coverage report"
+        echo ""
+        echo "Utilities:"
         echo "  task clean                     - Clean build artifacts"
-        echo "  task example                   - Run the simple example"
         echo "  task help                      - Show this help message"
+        echo ""
+        echo "Examples:"
+        echo "  task example                   - Run the simple example"
+        echo "  task example:server            - Run the SLIM server"
+        echo "  task example:p2p:alice         - Run Alice (receiver) for point-to-point"
+        echo "  task example:p2p:bob           - Run Bob (sender) for point-to-point"
     silent: true
 
-  build:
+  rust-build:
     desc: Build the Rust library with UniFFI (release mode)
     dir: "{{.SERVICE_DIR}}"
     cmds:
       - echo "🦀 Building Rust library with UniFFI (release mode)..."
       - cargo build --release
-    silent: true
-
-  build-debug:
-    desc: Build the Rust library (debug mode)
-    dir: "{{.SERVICE_DIR}}"
-    cmds:
-      - echo "🦀 Building Rust library (debug mode)..."
-      - cargo build
     silent: true
 
   generate:
@@ -62,29 +63,10 @@ tasks:
       - echo "✅ Bindings generated in generated/"
     silent: true
 
-  clean:
-    desc: Clean build artifacts
+  install-uniffi-bindgen-go:
+    desc: Install uniffi-bindgen-go
     cmds:
-      - echo "🧹 Cleaning build artifacts..."
-      - cd {{.SERVICE_DIR}} && cargo clean
-      - rm -rf generated/
-      - echo "✅ Clean complete"
-    silent: true
-
-  example:
-    desc: Run the simple example
-    dir: examples/simple
-    env:
-      CGO_LDFLAGS: -L{{.ROOT_DIR}}/{{.SERVICE_TARGET}} -l{{.LIB_NAME}}
-      DYLD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${DYLD_LIBRARY_PATH}"
-      LD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${LD_LIBRARY_PATH}"
-    cmds:
-      - echo "🚀 Running simple example..."
-      - go mod init github.com/agntcy/slim/examples/simple 2>/dev/null || true
-      - go mod edit -replace github.com/agntcy/slim/bindings/generated=../../generated
-      - go mod tidy
-      - go run main.go
-    silent: true
+      - cargo install uniffi-bindgen-go --git https://github.com/NordSecurity/uniffi-bindgen-go.git --tag v0.4.0+v0.28.3 --config net.git-fetch-with-cli=true
 
   test:
     desc: Run all tests
@@ -115,11 +97,68 @@ tasks:
       - echo "✅ Coverage report generated in tests/coverage.html"
     silent: true
 
-  all:
-    desc: Build, generate, and run example
-    deps: [build, generate, example]
-
-  install-uniffi-bindgen-go:
-    desc: Install uniffi-bindgen-go
+  clean:
+    desc: Clean build artifacts
     cmds:
-      - cargo install uniffi-bindgen-go --git https://github.com/NordSecurity/uniffi-bindgen-go.git --tag v0.4.0+v0.28.3 --config net.git-fetch-with-cli=true
+      - echo "🧹 Cleaning build artifacts..."
+      - cd {{.SERVICE_DIR}} && cargo clean
+      - rm -rf generated/
+      - echo "✅ Clean complete"
+    silent: true
+
+  # Examples
+  example:
+    desc: Run the simple example
+    dir: examples/simple
+    env:
+      CGO_LDFLAGS: -L{{.ROOT_DIR}}/{{.SERVICE_TARGET}} -l{{.LIB_NAME}}
+      DYLD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${DYLD_LIBRARY_PATH}"
+      LD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${LD_LIBRARY_PATH}"
+    cmds:
+      - echo "🚀 Running simple example..."
+      - go mod init github.com/agntcy/slim/bindings/go/examples/simple 2>/dev/null || true
+      - go mod edit -replace github.com/agntcy/slim/bindings/generated=../../generated
+      - go mod tidy
+      - go run main.go
+    silent: true
+
+  example:server:
+    desc: Run the SLIM server
+    dir: cmd/server
+    env:
+      CGO_LDFLAGS: -L{{.ROOT_DIR}}/{{.SERVICE_TARGET}} -l{{.LIB_NAME}}
+      DYLD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${DYLD_LIBRARY_PATH}"
+      LD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${LD_LIBRARY_PATH}"
+    cmds:
+      - echo "🚀 Starting SLIM server..."
+      - go mod init github.com/agntcy/slim/cmd/server 2>/dev/null || true
+      - go mod edit -replace github.com/agntcy/slim/bindings/generated=../../generated
+      - go mod tidy
+      - go run main.go {{.CLI_ARGS}}
+    silent: true
+
+  example:p2p:alice:
+    desc: Run Alice (receiver) for point-to-point example
+    dir: examples/point_to_point
+    env:
+      CGO_LDFLAGS: -L{{.ROOT_DIR}}/{{.SERVICE_TARGET}} -l{{.LIB_NAME}}
+      DYLD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${DYLD_LIBRARY_PATH}"
+      LD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${LD_LIBRARY_PATH}"
+    cmds:
+      - echo "👩 Starting Alice (receiver)..."
+      - go mod tidy
+      - go run main.go --local="org/alice/app" --server="http://localhost:46357" {{.CLI_ARGS}}
+    silent: true
+
+  example:p2p:bob:
+    desc: Run Bob (sender) for point-to-point example
+    dir: examples/point_to_point
+    env:
+      CGO_LDFLAGS: -L{{.ROOT_DIR}}/{{.SERVICE_TARGET}} -l{{.LIB_NAME}}
+      DYLD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${DYLD_LIBRARY_PATH}"
+      LD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${LD_LIBRARY_PATH}"
+    cmds:
+      - echo "👨 Starting Bob (sender)..."
+      - go mod tidy
+      - go run main.go --local="org/bob/app" --remote="org/alice/app" --message="Hello SLIM" --iterations=5 --server="http://localhost:46357" {{.CLI_ARGS}}
+    silent: true

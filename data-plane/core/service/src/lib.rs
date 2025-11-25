@@ -60,7 +60,8 @@ pub use bindings::{
     BindingsAdapter, BindingsSessionContext, MessageContext, ServiceRef,
     get_or_init_global_service,
     // FFI-specific exports
-    FFISessionContext, Name, SessionConfig, SessionType, SlimError,
+    FFISessionContext, FFIMessageContext, ReceivedMessage, Name, SessionConfig, SessionType, SlimError,
+    TlsConfig, ServerConfig, ClientConfig,
     initialize_crypto, get_version, create_app_with_secret,
 };
 pub use errors::ServiceError;

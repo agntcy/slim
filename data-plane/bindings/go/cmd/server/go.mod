@@ -1,4 +1,4 @@
-module github.com/agntcy/slim/bindings/go/examples/simple
+module github.com/agntcy/slim/cmd/server
 
 go 1.25.4
 
