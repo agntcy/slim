@@ -115,6 +115,7 @@ def run_server(
     spire_target_spiffe_id: str | None = None,
     spire_jwt_audience: list[str] | None = None,
     invites: list[str] | None = None,
+    decode_otel: bool = False,
 ):
     """
     Entry point for the OTel receiver (wrapped by Click).
