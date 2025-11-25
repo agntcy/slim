@@ -16,11 +16,11 @@ use std::sync::OnceLock;
 use tokio::sync::{RwLock, mpsc};
 
 use slim_auth::shared_secret::SharedSecret;
-use slim_auth::traits::TokenProvider;  // For get_token() and get_id()
+use slim_auth::traits::TokenProvider; // For get_token() and get_id()
 use slim_datapath::api::ProtoSessionType;
 use slim_datapath::messages::Name as SlimName;
-use slim_session::{Notification, SessionError as SlimSessionError};
 use slim_session::SessionConfig as SlimSessionConfig;
+use slim_session::{Notification, SessionError as SlimSessionError};
 
 use crate::app::App;
 use crate::bindings::service_ref::{ServiceRef, get_or_init_global_service};
@@ -45,7 +45,7 @@ fn get_runtime() -> &'static Arc<tokio::runtime::Runtime> {
             tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
-                .expect("Failed to create Tokio runtime")
+                .expect("Failed to create Tokio runtime"),
         )
     })
 }
@@ -89,7 +89,11 @@ impl From<Name> for SlimName {
 impl From<&SlimName> for Name {
     fn from(name: &SlimName) -> Self {
         Name {
-            components: name.components_strings().iter().map(|s| s.to_string()).collect(),
+            components: name
+                .components_strings()
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
             id: Some(name.id()),
         }
     }
@@ -220,36 +224,37 @@ pub struct ReceivedMessage {
 // ============================================================================
 
 /// Create an app with the given name and shared secret (blocking version for FFI)
-/// 
+///
 /// This is the main entry point for creating a SLIM application from language bindings.
 #[uniffi::export]
-pub fn create_app_with_secret(app_name: Name, shared_secret: String) -> Result<Arc<BindingsAdapter>, SlimError> {
+pub fn create_app_with_secret(
+    app_name: Name,
+    shared_secret: String,
+) -> Result<Arc<BindingsAdapter>, SlimError> {
     let runtime = get_runtime();
-    runtime.block_on(async {
-        create_app_with_secret_async(app_name, shared_secret).await
-    })
+    runtime.block_on(async { create_app_with_secret_async(app_name, shared_secret).await })
 }
 
 /// Create an app with the given name and shared secret (async version)
-async fn create_app_with_secret_async(app_name: Name, shared_secret: String) -> Result<Arc<BindingsAdapter>, SlimError> {
+async fn create_app_with_secret_async(
+    app_name: Name,
+    shared_secret: String,
+) -> Result<Arc<BindingsAdapter>, SlimError> {
     let slim_name: SlimName = app_name.into();
-    let provider = SharedSecret::new(
-        &slim_name.components_strings()[1],
-        &shared_secret,
-    );
+    let provider = SharedSecret::new(&slim_name.components_strings()[1], &shared_secret);
     let verifier = provider.clone();
-    
+
     let adapter = tokio::task::spawn_blocking(move || {
         BindingsAdapter::new(slim_name, provider, verifier, false)
     })
     .await
     .map_err(|e| ServiceError::ConfigError(format!("Task join error: {}", e)))??;
-    
+
     Ok(adapter)
 }
 
 /// Adapter that bridges the App API with language-bindings interface
-/// 
+///
 /// This adapter uses concrete types (SharedSecret) instead of generics to be compatible with UniFFI.
 /// It provides both synchronous (blocking) and asynchronous methods for flexibility.
 #[derive(uniffi::Object)]
@@ -259,17 +264,17 @@ pub struct BindingsAdapter {
 
     /// Channel receiver for notifications from the app
     notification_rx: Arc<RwLock<mpsc::Receiver<Result<Notification, SlimSessionError>>>>,
-    
+
     /// Service reference for lifecycle management
     service_ref: ServiceRef,
-    
+
     /// Tokio runtime for blocking async operations
     runtime: Arc<tokio::runtime::Runtime>,
 }
 
 impl BindingsAdapter {
     /// Internal constructor - Create a new BindingsAdapter with complete creation logic
-    /// 
+    ///
     /// This is not exposed through UniFFI (associated functions not supported).
     /// Use `create_app_with_secret` for FFI instead.
     pub fn new(
@@ -279,18 +284,19 @@ impl BindingsAdapter {
         use_local_service: bool,
     ) -> Result<Arc<Self>, SlimError> {
         // Validate token
-        let _identity_token = identity_provider.get_token().map_err(|e| {
-            SlimError::ConfigError {
-                message: format!("Failed to get token from provider: {}", e),
-            }
-        })?;
+        let _identity_token =
+            identity_provider
+                .get_token()
+                .map_err(|e| SlimError::ConfigError {
+                    message: format!("Failed to get token from provider: {}", e),
+                })?;
 
         // Get ID from token and generate name with token ID
-        let token_id = identity_provider.get_id().map_err(|e| {
-            SlimError::ConfigError {
+        let token_id = identity_provider
+            .get_id()
+            .map_err(|e| SlimError::ConfigError {
                 message: format!("Failed to get ID from token: {}", e),
-            }
-        })?;
+            })?;
 
         // Use a hash of the token ID to convert to u64 for name generation
         let id_hash = {
@@ -305,10 +311,8 @@ impl BindingsAdapter {
         let service_ref = if use_local_service {
             let svc = Service::builder()
                 .build("local-bindings-service".to_string())
-                .map_err(|e| {
-                    SlimError::ConfigError {
-                        message: format!("Failed to create local service: {}", e),
-                    }
+                .map_err(|e| SlimError::ConfigError {
+                    message: format!("Failed to create local service: {}", e),
                 })?;
             ServiceRef::Local(Box::new(svc))
         } else {
@@ -319,10 +323,76 @@ impl BindingsAdapter {
         let service = service_ref.get_service();
 
         // Create the app
-        let (app, rx) = service.create_app(&app_name, identity_provider, identity_verifier)
+        let (app, rx) = service
+            .create_app(&app_name, identity_provider, identity_verifier)
             .map_err(|e| SlimError::from(e))?;
 
         let runtime = Arc::clone(get_runtime());
+
+        let adapter = Arc::new(Self {
+            app: Arc::new(app),
+            notification_rx: Arc::new(RwLock::new(rx)),
+            service_ref: service_ref,
+            runtime,
+        });
+
+        Ok(adapter)
+    }
+
+    /// Test-only constructor - Create a new BindingsAdapter with a provided service
+    ///
+    /// This method allows tests to pass in their own Service instance for better
+    /// control and isolation during testing. Not exposed via FFI.
+    ///
+    /// # Arguments
+    /// * `service` - Pre-configured Service instance to use
+    /// * `base_name` - Base name for the app (ID will be generated from token)
+    /// * `identity_provider` - Authentication provider
+    /// * `identity_verifier` - Authentication verifier
+    ///
+    /// # Returns
+    /// * `Ok(Arc<BindingsAdapter>)` - Successfully created adapter
+    /// * `Err(SlimError)` - If creation fails
+    #[cfg(test)]
+    pub fn new_with_service(
+        service: &Service,
+        base_name: SlimName,
+        identity_provider: SharedSecret,
+        identity_verifier: SharedSecret,
+    ) -> Result<Arc<Self>, SlimError> {
+        // Validate token
+        let _identity_token =
+            identity_provider
+                .get_token()
+                .map_err(|e| SlimError::ConfigError {
+                    message: format!("Failed to get token from provider: {}", e),
+                })?;
+
+        // Get ID from token and generate name with token ID
+        let token_id = identity_provider
+            .get_id()
+            .map_err(|e| SlimError::ConfigError {
+                message: format!("Failed to get ID from token: {}", e),
+            })?;
+
+        // Use a hash of the token ID to convert to u64 for name generation
+        let id_hash = {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            token_id.hash(&mut hasher);
+            hasher.finish()
+        };
+        let app_name = base_name.with_id(id_hash);
+
+        // Create the app using the provided service
+        let (app, rx) = service
+            .create_app(&app_name, identity_provider, identity_verifier)
+            .map_err(|e| SlimError::from(e))?;
+
+        let runtime = Arc::clone(get_runtime());
+
+        // Use a global service reference since we don't own the service
+        let service_ref = ServiceRef::Global(get_or_init_global_service());
 
         let adapter = Arc::new(Self {
             app: Arc::new(app),
@@ -353,9 +423,8 @@ impl BindingsAdapter {
         config: SessionConfig,
         destination: Name,
     ) -> Result<Arc<FFISessionContext>, SlimError> {
-        self.runtime.block_on(async {
-            self.create_session_async(config, destination).await
-        })
+        self.runtime
+            .block_on(async { self.create_session_async(config, destination).await })
     }
 
     /// Create a new session (async version)
@@ -367,7 +436,8 @@ impl BindingsAdapter {
         let slim_config: SlimSessionConfig = config.into();
         let slim_dest: SlimName = destination.into();
 
-        let (session_ctx, _completion) = self.app
+        let (session_ctx, _completion) = self
+            .app
             .create_session(slim_config, slim_dest, None)
             .await?;
 
@@ -382,10 +452,14 @@ impl BindingsAdapter {
 
     /// Delete a session (synchronous - no async version needed)
     pub fn delete_session(&self, session: Arc<FFISessionContext>) -> Result<(), SlimError> {
-        let session_ref = session.inner.session.upgrade()
-            .ok_or_else(|| SlimError::SessionError {
-                message: "Session already closed or dropped".to_string(),
-            })?;
+        let session_ref =
+            session
+                .inner
+                .session
+                .upgrade()
+                .ok_or_else(|| SlimError::SessionError {
+                    message: "Session already closed or dropped".to_string(),
+                })?;
 
         self.app
             .delete_session(&session_ref)
@@ -397,13 +471,16 @@ impl BindingsAdapter {
 
     /// Subscribe to a name (blocking version for FFI)
     pub fn subscribe(&self, name: Name, connection_id: Option<u64>) -> Result<(), SlimError> {
-        self.runtime.block_on(async {
-            self.subscribe_async(name, connection_id).await
-        })
+        self.runtime
+            .block_on(async { self.subscribe_async(name, connection_id).await })
     }
 
     /// Subscribe to a name (async version)
-    pub async fn subscribe_async(&self, name: Name, connection_id: Option<u64>) -> Result<(), SlimError> {
+    pub async fn subscribe_async(
+        &self,
+        name: Name,
+        connection_id: Option<u64>,
+    ) -> Result<(), SlimError> {
         let slim_name: SlimName = name.into();
         self.app.subscribe(&slim_name, connection_id).await?;
         Ok(())
@@ -411,13 +488,16 @@ impl BindingsAdapter {
 
     /// Unsubscribe from a name (blocking version for FFI)
     pub fn unsubscribe(&self, name: Name, connection_id: Option<u64>) -> Result<(), SlimError> {
-        self.runtime.block_on(async {
-            self.unsubscribe_async(name, connection_id).await
-        })
+        self.runtime
+            .block_on(async { self.unsubscribe_async(name, connection_id).await })
     }
 
     /// Unsubscribe from a name (async version)
-    pub async fn unsubscribe_async(&self, name: Name, connection_id: Option<u64>) -> Result<(), SlimError> {
+    pub async fn unsubscribe_async(
+        &self,
+        name: Name,
+        connection_id: Option<u64>,
+    ) -> Result<(), SlimError> {
         let slim_name: SlimName = name.into();
         self.app.unsubscribe(&slim_name, connection_id).await?;
         Ok(())
@@ -425,9 +505,8 @@ impl BindingsAdapter {
 
     /// Set a route to a name for a specific connection (blocking version for FFI)
     pub fn set_route(&self, name: Name, connection_id: u64) -> Result<(), SlimError> {
-        self.runtime.block_on(async {
-            self.set_route_async(name, connection_id).await
-        })
+        self.runtime
+            .block_on(async { self.set_route_async(name, connection_id).await })
     }
 
     /// Set a route to a name for a specific connection (async version)
@@ -439,27 +518,35 @@ impl BindingsAdapter {
 
     /// Remove a route (blocking version for FFI)
     pub fn remove_route(&self, name: Name, connection_id: u64) -> Result<(), SlimError> {
-        self.runtime.block_on(async {
-            self.remove_route_async(name, connection_id).await
-        })
+        self.runtime
+            .block_on(async { self.remove_route_async(name, connection_id).await })
     }
 
     /// Remove a route (async version)
-    pub async fn remove_route_async(&self, name: Name, connection_id: u64) -> Result<(), SlimError> {
+    pub async fn remove_route_async(
+        &self,
+        name: Name,
+        connection_id: u64,
+    ) -> Result<(), SlimError> {
         let slim_name: SlimName = name.into();
         self.app.remove_route(&slim_name, connection_id).await?;
         Ok(())
     }
 
     /// Listen for incoming sessions (blocking version for FFI)
-    pub fn listen_for_session(&self, timeout_ms: Option<u32>) -> Result<Arc<FFISessionContext>, SlimError> {
-        self.runtime.block_on(async {
-            self.listen_for_session_async(timeout_ms).await
-        })
+    pub fn listen_for_session(
+        &self,
+        timeout_ms: Option<u32>,
+    ) -> Result<Arc<FFISessionContext>, SlimError> {
+        self.runtime
+            .block_on(async { self.listen_for_session_async(timeout_ms).await })
     }
 
     /// Listen for incoming sessions (async version)
-    pub async fn listen_for_session_async(&self, timeout_ms: Option<u32>) -> Result<Arc<FFISessionContext>, SlimError> {
+    pub async fn listen_for_session_async(
+        &self,
+        timeout_ms: Option<u32>,
+    ) -> Result<Arc<FFISessionContext>, SlimError> {
         let timeout = timeout_ms.map(|ms| std::time::Duration::from_millis(ms as u64));
 
         let mut rx = self.notification_rx.write().await;
@@ -493,37 +580,37 @@ impl BindingsAdapter {
                 }))
             }
             Ok(Notification::NewMessage(_)) => Err(SlimError::ReceiveError {
-                message: "received unexpected message notification while listening for session".to_string(),
+                message: "received unexpected message notification while listening for session"
+                    .to_string(),
             }),
             Err(e) => Err(SlimError::ReceiveError {
                 message: format!("failed to receive session notification: {}", e),
             }),
         }
     }
-    
+
     /// Run a SLIM server on the specified endpoint (blocking version for FFI)
-    /// 
+    ///
     /// # Arguments
     /// * `config` - Server configuration (endpoint and TLS settings)
-    /// 
+    ///
     /// # Returns
     /// * `Ok(())` - Server started successfully
     /// * `Err(SlimError)` - If server startup fails
     pub fn run_server(&self, config: ServerConfig) -> Result<(), SlimError> {
-        self.runtime.block_on(async {
-            self.run_server_async(config).await
-        })
+        self.runtime
+            .block_on(async { self.run_server_async(config).await })
     }
-    
+
     /// Run a SLIM server (async version)
     pub async fn run_server_async(&self, config: ServerConfig) -> Result<(), SlimError> {
         use slim_config::grpc::server::ServerConfig as GrpcServerConfig;
         use slim_config::tls::server::TlsServerConfig;
-        
+
         let tls_config = TlsServerConfig::new().with_insecure(config.tls.insecure);
-        let server_config = GrpcServerConfig::with_endpoint(&config.endpoint)
-            .with_tls_settings(tls_config);
-        
+        let server_config =
+            GrpcServerConfig::with_endpoint(&config.endpoint).with_tls_settings(tls_config);
+
         self.service_ref
             .get_service()
             .run_server(&server_config)
@@ -532,41 +619,41 @@ impl BindingsAdapter {
                 message: format!("Failed to run server: {}", e),
             })
     }
-    
+
     /// Connect to a SLIM server as a client (blocking version for FFI)
-    /// 
+    ///
     /// # Arguments
     /// * `config` - Client configuration (endpoint and TLS settings)
-    /// 
+    ///
     /// # Returns
     /// * `Ok(connection_id)` - Connected successfully, returns the connection ID
     /// * `Err(SlimError)` - If connection fails
     pub fn connect(&self, config: ClientConfig) -> Result<u64, SlimError> {
-        self.runtime.block_on(async {
-            self.connect_async(config).await
-        })
+        self.runtime
+            .block_on(async { self.connect_async(config).await })
     }
-    
+
     /// Connect to a SLIM server (async version)
-    /// 
+    ///
     /// Note: Automatically subscribes to the app's own name after connecting
     /// to enable receiving inbound messages and sessions.
     pub async fn connect_async(&self, config: ClientConfig) -> Result<u64, SlimError> {
         use slim_config::grpc::client::ClientConfig as GrpcClientConfig;
         use slim_config::tls::client::TlsClientConfig;
-        
+
         let tls_config = TlsClientConfig::new().with_insecure(config.tls.insecure);
-        let client_config = GrpcClientConfig::with_endpoint(&config.endpoint)
-            .with_tls_setting(tls_config);
-        
-        let conn_id = self.service_ref
+        let client_config =
+            GrpcClientConfig::with_endpoint(&config.endpoint).with_tls_setting(tls_config);
+
+        let conn_id = self
+            .service_ref
             .get_service()
             .connect(&client_config)
             .await
             .map_err(|e| SlimError::ConfigError {
                 message: format!("Failed to connect: {}", e),
             })?;
-        
+
         // Automatically subscribe to our own name so we can receive messages.
         // If subscription fails, clean up the connection to avoid resource leaks.
         let self_name = self.app.app_name();
@@ -574,24 +661,23 @@ impl BindingsAdapter {
             let _ = self.service_ref.get_service().disconnect(conn_id);
             return Err(e.into());
         }
-        
+
         Ok(conn_id)
     }
 
     /// Disconnect from a SLIM server (blocking version for FFI)
-    /// 
+    ///
     /// # Arguments
     /// * `connection_id` - The connection ID returned from `connect()`
-    /// 
+    ///
     /// # Returns
     /// * `Ok(())` - Disconnected successfully
     /// * `Err(SlimError)` - If disconnection fails
     pub fn disconnect(&self, connection_id: u64) -> Result<(), SlimError> {
-        self.runtime.block_on(async {
-            self.disconnect_async(connection_id).await
-        })
+        self.runtime
+            .block_on(async { self.disconnect_async(connection_id).await })
     }
-    
+
     /// Disconnect from a SLIM server (async version)
     pub async fn disconnect_async(&self, connection_id: u64) -> Result<(), SlimError> {
         self.service_ref
@@ -610,7 +696,7 @@ impl BindingsAdapter {
 /// FFISessionContext represents an active session (FFI-compatible wrapper)
 #[derive(uniffi::Object)]
 pub struct FFISessionContext {
-    inner: crate::bindings::BindingsSessionContext,
+    pub(crate) inner: crate::bindings::BindingsSessionContext,
     runtime: Arc<tokio::runtime::Runtime>,
 }
 
@@ -627,7 +713,15 @@ impl FFISessionContext {
         metadata: Option<std::collections::HashMap<String, String>>,
     ) -> Result<(), SlimError> {
         self.runtime.block_on(async {
-            self.publish_async(destination, fanout, data, connection_out, payload_type, metadata).await
+            self.publish_async(
+                destination,
+                fanout,
+                data,
+                connection_out,
+                payload_type,
+                metadata,
+            )
+            .await
         })
     }
 
@@ -644,7 +738,14 @@ impl FFISessionContext {
         let slim_dest: SlimName = destination.into();
 
         self.inner
-            .publish(&slim_dest, fanout, data, connection_out, payload_type, metadata)
+            .publish(
+                &slim_dest,
+                fanout,
+                data,
+                connection_out,
+                payload_type,
+                metadata,
+            )
             .await
             .map(|_| ())
             .map_err(|e| SlimError::SendError {
@@ -653,30 +754,33 @@ impl FFISessionContext {
     }
 
     /// Receive a message from the session (blocking version for FFI)
-    /// 
+    ///
     /// # Arguments
     /// * `timeout_ms` - Optional timeout in milliseconds
-    /// 
+    ///
     /// # Returns
     /// * `Ok(ReceivedMessage)` - Message with context and payload bytes
     /// * `Err(SlimError)` - If the receive fails or times out
     pub fn get_message(&self, timeout_ms: Option<u32>) -> Result<ReceivedMessage, SlimError> {
-        self.runtime.block_on(async {
-            self.get_message_async(timeout_ms).await
-        })
+        self.runtime
+            .block_on(async { self.get_message_async(timeout_ms).await })
     }
-    
+
     /// Receive a message from the session (async version)
-    pub async fn get_message_async(&self, timeout_ms: Option<u32>) -> Result<ReceivedMessage, SlimError> {
+    pub async fn get_message_async(
+        &self,
+        timeout_ms: Option<u32>,
+    ) -> Result<ReceivedMessage, SlimError> {
         let timeout = timeout_ms.map(|ms| std::time::Duration::from_millis(ms as u64));
-        
-        let (ctx, payload) = self.inner
-            .get_session_message(timeout)
-            .await
-            .map_err(|e| SlimError::ReceiveError {
-                message: e.to_string(),
-            })?;
-        
+
+        let (ctx, payload) =
+            self.inner
+                .get_session_message(timeout)
+                .await
+                .map_err(|e| SlimError::ReceiveError {
+                    message: e.to_string(),
+                })?;
+
         Ok(ReceivedMessage {
             context: MessageContext::from(ctx),
             payload,
@@ -685,9 +789,8 @@ impl FFISessionContext {
 
     /// Invite a participant to the session (blocking version for FFI)
     pub fn invite(&self, participant: Name) -> Result<(), SlimError> {
-        self.runtime.block_on(async {
-            self.invite_async(participant).await
-        })
+        self.runtime
+            .block_on(async { self.invite_async(participant).await })
     }
 
     /// Invite a participant to the session (async version)
@@ -705,9 +808,8 @@ impl FFISessionContext {
 
     /// Remove a participant from the session (blocking version for FFI)
     pub fn remove(&self, participant: Name) -> Result<(), SlimError> {
-        self.runtime.block_on(async {
-            self.remove_async(participant).await
-        })
+        self.runtime
+            .block_on(async { self.remove_async(participant).await })
     }
 
     /// Remove a participant from the session (async version)

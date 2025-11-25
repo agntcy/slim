@@ -114,20 +114,9 @@ mod session_context;
 
 // Public re-exports
 pub use adapter::{
-    BindingsAdapter, 
-    FFISessionContext,
-    Name, 
-    SessionConfig, 
-    SessionType, 
-    SlimError,
-    MessageContext as FFIMessageContext,
-    ReceivedMessage,
-    TlsConfig,
-    ServerConfig,
-    ClientConfig,
-    initialize_crypto,
-    get_version,
-    create_app_with_secret,
+    BindingsAdapter, ClientConfig, FFISessionContext, MessageContext as FFIMessageContext, Name,
+    ReceivedMessage, ServerConfig, SessionConfig, SessionType, SlimError, TlsConfig,
+    create_app_with_secret, get_version, initialize_crypto,
 };
 // pub use builder::AppAdapterBuilder;  // Disabled - not compatible with concrete FFI types
 pub use message_context::MessageContext;

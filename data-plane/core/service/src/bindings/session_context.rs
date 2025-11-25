@@ -172,15 +172,12 @@ impl BindingsSessionContext {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::collections::HashMap;
     use std::time::Duration;
 
     use slim_auth::shared_secret::SharedSecret;
     use slim_config::component::ComponentBuilder;
-    use slim_datapath::api::ProtoSessionType;
     use slim_datapath::messages::Name;
-    use slim_session::SessionConfig;
     use slim_testing::utils::TEST_VALID_SECRET;
 
     use crate::bindings::adapter::BindingsAdapter;
@@ -217,21 +214,21 @@ mod tests {
         let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
             .expect("Failed to create adapter");
 
-        let config = SessionConfig {
-            session_type: ProtoSessionType::PointToPoint,
-            initiator: true,
-            ..Default::default()
+        let config = crate::bindings::adapter::SessionConfig {
+            session_type: crate::bindings::adapter::SessionType::PointToPoint,
+            enable_mls: false,
         };
-        let dst = Name::from_strings(["org", "ns", "dst"]);
-        let (session_ctx, _init_ack) = adapter
-            .create_session(config, dst)
+        let dst = crate::bindings::adapter::Name {
+            components: vec!["org".to_string(), "ns".to_string(), "dst".to_string()],
+            id: None,
+        };
+        let session_ffi = adapter
+            .create_session_async(config, dst)
             .await
             .expect("Failed to create session");
 
-        let bindings_ctx = BindingsSessionContext::from(session_ctx);
-
-        // Verify session reference is valid
-        assert!(bindings_ctx.session.upgrade().is_some());
+        // Verify session reference is valid through the FFI wrapper
+        assert!(session_ffi.inner.session.upgrade().is_some());
     }
 
     #[tokio::test]
@@ -243,19 +240,24 @@ mod tests {
         let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
             .expect("Failed to create adapter");
 
-        // Create a session and convert to BindingsSessionContext
-        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
-        let dst = Name::from_strings(["org", "ns", "dst"]);
-        let (session_ctx, _init_ack) = adapter
-            .create_session(config, dst)
+        // Create a session using FFI types
+        let config = crate::bindings::adapter::SessionConfig {
+            session_type: crate::bindings::adapter::SessionType::PointToPoint,
+            enable_mls: false,
+        };
+        let dst = crate::bindings::adapter::Name {
+            components: vec!["org".to_string(), "ns".to_string(), "dst".to_string()],
+            id: None,
+        };
+        let session_ffi = adapter
+            .create_session_async(config, dst)
             .await
             .expect("Failed to create session");
 
-        let bindings_ctx = BindingsSessionContext::from(session_ctx);
-
         // Test that get_session_message times out when no messages are sent
-        let result = bindings_ctx
-            .get_session_message(Some(Duration::from_millis(50)))
+        // Use the async version since we're in an async test
+        let result = session_ffi
+            .get_message_async(Some(50)) // 50ms timeout
             .await;
         assert!(result.is_err()); // Should timeout
         if let Err(e) = result {
@@ -272,21 +274,25 @@ mod tests {
         let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
             .expect("Failed to create adapter");
 
-        // Create a session and convert to BindingsSessionContext
-        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
-        let dst = Name::from_strings(["org", "ns", "dst"]);
-        let (session_ctx, _init_ack) = adapter
-            .create_session(config, dst)
+        // Create a session using FFI types
+        let config = crate::bindings::adapter::SessionConfig {
+            session_type: crate::bindings::adapter::SessionType::PointToPoint,
+            enable_mls: false,
+        };
+        let dst = crate::bindings::adapter::Name {
+            components: vec!["org".to_string(), "ns".to_string(), "dst".to_string()],
+            id: None,
+        };
+        let session_ffi = adapter
+            .create_session_async(config, dst)
             .await
             .expect("Failed to create session");
-
-        let bindings_ctx = BindingsSessionContext::from(session_ctx);
 
         // Test with None timeout - should wait indefinitely until channel is closed
         // Use a timeout wrapper to prevent the test from hanging indefinitely
         let result = tokio::time::timeout(
             Duration::from_millis(100),
-            bindings_ctx.get_session_message(None),
+            session_ffi.get_message_async(None),
         )
         .await;
 
@@ -303,31 +309,31 @@ mod tests {
         let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
             .expect("Failed to create adapter");
 
-        // Create a session and convert to BindingsSessionContext
-        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
-        let dst = Name::from_strings(["org", "ns", "dst"]);
-        let (session_ctx, _init_ack) = adapter
-            .create_session(config, dst)
+        // Create a session using FFI types
+        let config = crate::bindings::adapter::SessionConfig {
+            session_type: crate::bindings::adapter::SessionType::PointToPoint,
+            enable_mls: false,
+        };
+        let dst = crate::bindings::adapter::Name {
+            components: vec!["org".to_string(), "ns".to_string(), "dst".to_string()],
+            id: None,
+        };
+        let session_ffi = adapter
+            .create_session_async(config, dst)
             .await
             .expect("Failed to create session");
 
-        let bindings_ctx = BindingsSessionContext::from(session_ctx);
-
-        // Test very short timeout
-        let result = bindings_ctx
-            .get_session_message(Some(Duration::from_nanos(1)))
-            .await;
+        // Test very short timeout (1 nanosecond = 0 milliseconds, rounds down)
+        let result = session_ffi.get_message_async(Some(0)).await;
         assert!(result.is_err());
 
         // Test zero timeout
-        let result = bindings_ctx.get_session_message(Some(Duration::ZERO)).await;
+        let result = session_ffi.get_message_async(Some(0)).await;
         assert!(result.is_err());
 
         // Test reasonable timeout with timing verification
         let start = std::time::Instant::now();
-        let result = bindings_ctx
-            .get_session_message(Some(Duration::from_millis(100)))
-            .await;
+        let result = session_ffi.get_message_async(Some(100)).await;
         let elapsed = start.elapsed();
 
         assert!(result.is_err());
@@ -344,40 +350,41 @@ mod tests {
         let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
             .expect("Failed to create adapter");
 
-        // Create a session first
-        // Create a session and convert to BindingsSessionContext
-        let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
-        let dst = Name::from_strings(["org", "ns", "dst"]);
-        let (session_ctx, _init_ack) = adapter
-            .create_session(config, dst)
+        // Create a session using FFI types
+        let config = crate::bindings::adapter::SessionConfig {
+            session_type: crate::bindings::adapter::SessionType::PointToPoint,
+            enable_mls: false,
+        };
+        let dst = crate::bindings::adapter::Name {
+            components: vec!["org".to_string(), "ns".to_string(), "dst".to_string()],
+            id: None,
+        };
+        let session_ffi = adapter
+            .create_session_async(config, dst)
             .await
             .expect("Failed to create session");
 
-        let bindings_ctx = BindingsSessionContext::from(session_ctx);
-
-        // Create a message context (simulating a received message)
-        let source_name = Name::from_strings(["sender", "org", "service"]);
-        let destination_name = Some(Name::from_strings(["receiver", "org", "service"]));
-        let mut metadata = HashMap::new();
-        metadata.insert("reply_to".to_string(), "original_message_id".to_string());
-
-        let message_ctx = MessageContext::new(
-            source_name,
-            destination_name,
-            "application/json".to_string(),
-            metadata.clone(),
-            42, // input_connection
-            "unique-identity".to_string(),
-        );
+        // Create a destination name for publishing
+        let destination = crate::bindings::adapter::Name {
+            components: vec![
+                "sender".to_string(),
+                "org".to_string(),
+                "service".to_string(),
+            ],
+            id: None,
+        };
 
         let reply_message = b"reply payload".to_vec();
-        let reply_metadata = metadata;
+        let mut reply_metadata = HashMap::new();
+        reply_metadata.insert("reply_to".to_string(), "original_message_id".to_string());
 
-        // Test publish_to - this should work without errors
-        let result = bindings_ctx
-            .publish_to(
-                &message_ctx,
+        // Test publish - this should work without errors
+        let result = session_ffi
+            .publish_async(
+                destination,
+                1,
                 reply_message,
+                None,
                 Some("text/plain".to_string()),
                 Some(reply_metadata),
             )
