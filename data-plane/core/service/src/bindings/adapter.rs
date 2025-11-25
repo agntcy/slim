@@ -74,7 +74,7 @@ pub struct Name {
 impl From<Name> for SlimName {
     fn from(name: Name) -> Self {
         let components: [String; 3] = [
-            name.components.get(0).cloned().unwrap_or_default(),
+            name.components.first().cloned().unwrap_or_default(),
             name.components.get(1).cloned().unwrap_or_default(),
             name.components.get(2).cloned().unwrap_or_default(),
         ];
@@ -325,14 +325,14 @@ impl BindingsAdapter {
         // Create the app
         let (app, rx) = service
             .create_app(&app_name, identity_provider, identity_verifier)
-            .map_err(|e| SlimError::from(e))?;
+            .map_err(SlimError::from)?;
 
         let runtime = Arc::clone(get_runtime());
 
         let adapter = Arc::new(Self {
             app: Arc::new(app),
             notification_rx: Arc::new(RwLock::new(rx)),
-            service_ref: service_ref,
+            service_ref,
             runtime,
         });
 
@@ -387,7 +387,7 @@ impl BindingsAdapter {
         // Create the app using the provided service
         let (app, rx) = service
             .create_app(&app_name, identity_provider, identity_verifier)
-            .map_err(|e| SlimError::from(e))?;
+            .map_err(SlimError::from)?;
 
         let runtime = Arc::clone(get_runtime());
 
@@ -397,7 +397,7 @@ impl BindingsAdapter {
         let adapter = Arc::new(Self {
             app: Arc::new(app),
             notification_rx: Arc::new(RwLock::new(rx)),
-            service_ref: service_ref,
+            service_ref,
             runtime,
         });
 
