@@ -73,7 +73,7 @@ mod tests {
         let (provider, verifier) = create_test_auth();
 
         // Get global service instance
-        let global_service = get_or_init_global_service();
+        let _global_service = get_or_init_global_service();
 
         // Test local service ref - just ensure it creates without error
         let _local_adapter =
