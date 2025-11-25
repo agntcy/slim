@@ -308,9 +308,9 @@ type mockGroupService struct {
 }
 
 func (m *mockGroupService) CreateChannel(
-	ctx context.Context, req *controlplaneApi.CreateChannelRequest, node *controlplaneApi.NodeEntry) (
+	ctx context.Context, req *controlplaneApi.CreateChannelRequest) (
 	*controlplaneApi.CreateChannelResponse, error) {
-	args := m.Called(ctx, req, node)
+	args := m.Called(ctx, req)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -318,9 +318,9 @@ func (m *mockGroupService) CreateChannel(
 }
 
 func (m *mockGroupService) DeleteChannel(
-	ctx context.Context, req *controllerapi.DeleteChannelRequest, node *controlplaneApi.NodeEntry) (
+	ctx context.Context, req *controllerapi.DeleteChannelRequest) (
 	*controllerapi.Ack, error) {
-	args := m.Called(ctx, req, node)
+	args := m.Called(ctx, req)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -328,9 +328,9 @@ func (m *mockGroupService) DeleteChannel(
 }
 
 func (m *mockGroupService) AddParticipant(
-	ctx context.Context, req *controllerapi.AddParticipantRequest, node *controlplaneApi.NodeEntry) (
+	ctx context.Context, req *controllerapi.AddParticipantRequest) (
 	*controllerapi.Ack, error) {
-	args := m.Called(ctx, req, node)
+	args := m.Called(ctx, req)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -338,9 +338,9 @@ func (m *mockGroupService) AddParticipant(
 }
 
 func (m *mockGroupService) DeleteParticipant(
-	ctx context.Context, req *controllerapi.DeleteParticipantRequest, node *controlplaneApi.NodeEntry) (
+	ctx context.Context, req *controllerapi.DeleteParticipantRequest) (
 	*controllerapi.Ack, error) {
-	args := m.Called(ctx, req, node)
+	args := m.Called(ctx, req)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
