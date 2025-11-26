@@ -7,7 +7,8 @@
 //! that exposes both synchronous (blocking) and asynchronous versions of operations.
 //!
 //! ## Architecture
-//! - **Concrete types**: Uses `SharedSecret` instead of generics (UniFFI requirement)
+//! - **Flexible Authentication**: Uses `AuthProvider`/`AuthVerifier` enums supporting multiple auth types
+//!   (SharedSecret, JWT, SPIRE, StaticToken) instead of generics (UniFFI requirement)
 //! - **Hybrid API**: Both sync (FFI-exposed) and async (internal) methods
 //! - **Runtime management**: Manages Tokio runtime for blocking operations
 
@@ -15,6 +16,7 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 use tokio::sync::{RwLock, mpsc};
 
+use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::shared_secret::SharedSecret;
 use slim_auth::traits::TokenProvider; // For get_token() and get_id()
 use slim_datapath::api::ProtoSessionType;
@@ -241,8 +243,11 @@ async fn create_app_with_secret_async(
     shared_secret: String,
 ) -> Result<Arc<BindingsAdapter>, SlimError> {
     let slim_name: SlimName = app_name.into();
-    let provider = SharedSecret::new(&slim_name.components_strings()[1], &shared_secret);
-    let verifier = provider.clone();
+    let shared_secret_impl = SharedSecret::new(&slim_name.components_strings()[1], &shared_secret);
+
+    // Wrap in enum types for flexible auth support
+    let provider = AuthProvider::SharedSecret(shared_secret_impl.clone());
+    let verifier = AuthVerifier::SharedSecret(shared_secret_impl);
 
     let adapter = tokio::task::spawn_blocking(move || {
         BindingsAdapter::new(slim_name, provider, verifier, false)
@@ -255,12 +260,14 @@ async fn create_app_with_secret_async(
 
 /// Adapter that bridges the App API with language-bindings interface
 ///
-/// This adapter uses concrete types (SharedSecret) instead of generics to be compatible with UniFFI.
-/// It provides both synchronous (blocking) and asynchronous methods for flexibility.
+/// This adapter uses enum-based auth types (`AuthProvider`/`AuthVerifier`) instead of generics
+/// to be compatible with UniFFI, supporting multiple authentication mechanisms (SharedSecret,
+/// JWT, SPIRE, StaticToken). It provides both synchronous (blocking) and asynchronous methods
+/// for flexibility.
 #[derive(uniffi::Object)]
 pub struct BindingsAdapter {
-    /// The underlying App instance with concrete auth types
-    app: Arc<App<SharedSecret, SharedSecret>>,
+    /// The underlying App instance with enum-based auth types (supports SharedSecret, JWT, SPIRE)
+    app: Arc<App<AuthProvider, AuthVerifier>>,
 
     /// Channel receiver for notifications from the app
     notification_rx: Arc<RwLock<mpsc::Receiver<Result<Notification, SlimSessionError>>>>,
@@ -277,10 +284,16 @@ impl BindingsAdapter {
     ///
     /// This is not exposed through UniFFI (associated functions not supported).
     /// Use `create_app_with_secret` for FFI instead.
+    ///
+    /// Accepts `AuthProvider` and `AuthVerifier` enums, supporting multiple auth types:
+    /// - SharedSecret
+    /// - JWT (JwtSigner/JwtVerifier)
+    /// - SPIRE (SpireIdentityManager)
+    /// - StaticToken
     pub fn new(
         base_name: SlimName,
-        identity_provider: SharedSecret,
-        identity_verifier: SharedSecret,
+        identity_provider: AuthProvider,
+        identity_verifier: AuthVerifier,
         use_local_service: bool,
     ) -> Result<Arc<Self>, SlimError> {
         // Validate token
@@ -347,8 +360,8 @@ impl BindingsAdapter {
     /// # Arguments
     /// * `service` - Pre-configured Service instance to use
     /// * `base_name` - Base name for the app (ID will be generated from token)
-    /// * `identity_provider` - Authentication provider
-    /// * `identity_verifier` - Authentication verifier
+    /// * `identity_provider` - Authentication provider (AuthProvider enum)
+    /// * `identity_verifier` - Authentication verifier (AuthVerifier enum)
     ///
     /// # Returns
     /// * `Ok(Arc<BindingsAdapter>)` - Successfully created adapter
@@ -357,8 +370,8 @@ impl BindingsAdapter {
     pub fn new_with_service(
         service: &Service,
         base_name: SlimName,
-        identity_provider: SharedSecret,
-        identity_verifier: SharedSecret,
+        identity_provider: AuthProvider,
+        identity_verifier: AuthVerifier,
     ) -> Result<Arc<Self>, SlimError> {
         // Validate token
         let _identity_token =
@@ -830,6 +843,7 @@ impl FFISessionContext {
 mod tests {
     use super::*;
 
+    use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
     use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::messages::Name as SlimName;
     use slim_testing::utils::TEST_VALID_SECRET;
@@ -838,8 +852,9 @@ mod tests {
     #[tokio::test]
     async fn test_adapter_creation() {
         let base_name = SlimName::from_strings(["org", "namespace", "test-app"]);
-        let provider = SharedSecret::new("test-app", TEST_VALID_SECRET);
-        let verifier = SharedSecret::new("test-app", TEST_VALID_SECRET);
+        let shared_secret = SharedSecret::new("test-app", TEST_VALID_SECRET);
+        let provider = AuthProvider::SharedSecret(shared_secret.clone());
+        let verifier = AuthVerifier::SharedSecret(shared_secret);
 
         let result = BindingsAdapter::new(base_name, provider, verifier, false);
         assert!(result.is_ok());
@@ -852,8 +867,9 @@ mod tests {
     #[tokio::test]
     async fn test_deterministic_id_generation() {
         let base_name = SlimName::from_strings(["org", "namespace", "test-app"]);
-        let provider = SharedSecret::new("test-app", TEST_VALID_SECRET);
-        let verifier = SharedSecret::new("test-app", TEST_VALID_SECRET);
+        let shared_secret = SharedSecret::new("test-app", TEST_VALID_SECRET);
+        let provider = AuthProvider::SharedSecret(shared_secret.clone());
+        let verifier = AuthVerifier::SharedSecret(shared_secret);
 
         let token_id = provider.get_id().expect("Failed to get token ID");
         let expected_hash = {
