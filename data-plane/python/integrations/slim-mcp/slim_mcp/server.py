@@ -52,31 +52,9 @@ class SLIMServer(SLIMBase):
             local_agent,
         )
 
-    async def _send_message(
-        self,
-        session: slim_bindings.PySession,
-        message: bytes,
-    ):
-        """
-        Send a message to the next slim instance.
-
-        Args:
-            session (slim_bindings.PySession): Session.
-            message (bytes): Message to send.
-
-        Raises:
-            RuntimeError: If SLIM is not connected.
-        """
-
-        if not self.slim:
-            raise RuntimeError("SLIM is not connected. Please use the with statement.")
-
-        # Send message via session
-        await session.publish(message)
-
     def _filter_message(
         self,
-        session: slim_bindings.PySession,
+        session: slim_bindings.Session,
         message: types.JSONRPCMessage,
         pending_pings: list[int],
     ) -> bool:
@@ -90,7 +68,7 @@ class SLIMServer(SLIMBase):
 
         return False
 
-    async def _ping(self, session: slim_bindings.PySession, pending_pings: list[int]):
+    async def _ping(self, session: slim_bindings.Session, pending_pings: list[int]):
         while True:
             id = random.randint(0, sys.maxsize)
             pending_pings.append(id)
@@ -105,7 +83,8 @@ class SLIMServer(SLIMBase):
                 root=types.JSONRPCRequest(jsonrpc="2.0", id=id, method="ping")
             )
             json = message.model_dump_json(by_alias=True, exclude_none=True)
-            await self._send_message(session, json.encode())
+            ack = await session.publish(json.encode())
+            await ack
             await asyncio.sleep(PING_INTERVAL)
 
     def __aiter__(self):
@@ -132,7 +111,7 @@ class SLIMServer(SLIMBase):
         and receives the next session from the SLIM.
 
         Returns:
-            slim_bindings.PySession: The received session.
+            slim_bindings.Session: The received session.
         """
 
         session = await self.slim.listen_for_session()

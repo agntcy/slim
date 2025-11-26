@@ -66,7 +66,7 @@ async def main() -> None:
                     "insecure": True,
                 },
             },
-            shared_secret="secret",
+            shared_secret="secretsecretsecretsecretsecretsecret",
         ),
     )
 

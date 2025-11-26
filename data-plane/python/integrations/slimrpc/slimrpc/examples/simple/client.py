@@ -21,7 +21,7 @@ async def amain() -> None:
                 },
             },
             enable_opentelemetry=False,
-            shared_secret="my_shared_secret",
+            shared_secret="my_shared_secret_for_testing_purposes_only",
         ),
     )
 

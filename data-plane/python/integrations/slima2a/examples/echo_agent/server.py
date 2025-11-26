@@ -63,7 +63,7 @@ async def main() -> None:
                             "insecure": True,
                         },
                     },
-                    shared_secret="secret",
+                    shared_secret="secretsecretsecretsecretsecretsecret",
                 )
             )
             add_A2AServiceServicer_to_server(

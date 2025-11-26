@@ -3,7 +3,7 @@
 
 import asyncio
 import logging
-from abc import ABC, abstractmethod
+from abc import ABC
 from contextlib import asynccontextmanager
 import datetime
 from typing import Any
@@ -43,7 +43,7 @@ class SLIMBase(ABC):
         remote_organization: str | None = None,
         remote_namespace: str | None = None,
         remote_mcp_agent: str | None = None,
-        shared_secret: str = "secret",
+        shared_secret: str = "secretsecretsecretsecretsecretsecret",
         enable_opentelemetry: bool = False,
         message_timeout: datetime.timedelta = datetime.timedelta(seconds=15),
         message_retries: int = 2,
@@ -63,23 +63,21 @@ class SLIMBase(ABC):
             ValueError: If required configuration is missing
         """
         self.slim_client_configs = slim_client_configs
-        self.local = slim_bindings.PyName(
+        self.local = slim_bindings.Name(
             local_organization, local_namespace, local_agent
         )
         self.shared_secret = shared_secret
         self.enable_opentelemetry = enable_opentelemetry
 
-        self.remote_svc_name = (
-            slim_bindings.PyName(
+        self.remote_svc_name: slim_bindings.Name | None = None
+        if remote_organization and remote_namespace and remote_mcp_agent:
+            self.remote_svc_name = slim_bindings.Name(
                 remote_organization,
                 remote_namespace,
                 remote_mcp_agent,
             )
-            if all([remote_organization, remote_namespace, remote_mcp_agent])
-            else None
-        )
 
-        self.slim: slim_bindings.Slim
+        self.slim: slim_bindings.Slim | None
 
         self.message_timeout = message_timeout
         self.message_retries = message_retries
@@ -92,26 +90,9 @@ class SLIMBase(ABC):
         """
         return self.slim is not None
 
-    @abstractmethod
-    async def _send_message(
-        self,
-        session: slim_bindings.PySession,
-        message: bytes,
-    ):
-        """
-        Send a message to the SLIM server.
-
-        Args:
-            session (slim_bindings.PySession): SLIM session.
-            message (bytes): Message to send.
-        """
-
-        # This method should be implemented in subclasses.
-        pass
-
     def _filter_message(
         self,
-        session: slim_bindings.PySession,
+        session: slim_bindings.Session,
         message: types.JSONRPCMessage,
         pendin_pings: list[int],
     ) -> bool:
@@ -120,7 +101,7 @@ class SLIMBase(ABC):
         dropped and not pass to the application
 
         Args:
-            session (slim_bindings.PySession): SLIM session.
+            session (slim_bindings.Session): SLIM session.
             message (types.JSONRPCMessage): Message to control.
 
         Returns:
@@ -131,14 +112,14 @@ class SLIMBase(ABC):
 
     async def _ping(
         self,
-        session: slim_bindings.PySession,
+        session: slim_bindings.Session,
         pendin_pings: list[int],
     ):
         """
         Send an MCP ping message to the other endpoint
 
         Args:
-            session (slim_bindings.PySession): SLIM session.
+            session (slim_bindings.Session): SLIM session.
         """
 
         pass
@@ -186,32 +167,6 @@ class SLIMBase(ABC):
                     )
                     raise RuntimeError(f"Failed to set route: {str(e)}") from e
 
-            # Set default fire and forget session configuration to be reliable
-            try:
-                await self.slim.set_default_session_config(
-                    slim_bindings.PySessionConfiguration.PointToPoint(
-                        peer_name=self.remote_svc_name
-                        if self.remote_svc_name
-                        else self.local,
-                        max_retries=self.message_retries,
-                        timeout=self.message_timeout,
-                    )
-                )
-            except Exception as e:
-                logger.error(
-                    "Failed to set default session configuration",
-                    extra={
-                        "error": str(e),
-                        "remote_org": self.remote_organization,
-                        "remote_namespace": self.remote_namespace,
-                        "remote_agent": self.remote_mcp_agent,
-                    },
-                    exc_info=True,
-                )
-                raise RuntimeError(
-                    f"Failed to set default session configuration: {str(e)}"
-                ) from e
-
             return self
 
         except Exception as e:
@@ -226,7 +181,7 @@ class SLIMBase(ABC):
     @asynccontextmanager
     async def new_streams(
         self,
-        accepted_session: slim_bindings.PySession,
+        accepted_session: slim_bindings.Session,
     ):
         """Create a new session for message exchange.
 
@@ -251,8 +206,10 @@ class SLIMBase(ABC):
 
         pending_pings: list = []
 
-        async def slim_reader():
-            session = accepted_session
+        class TerminateTaskGroup(Exception):
+            pass
+
+        async def slim_reader(session: slim_bindings.Session):
             try:
                 while True:
                     try:
@@ -267,47 +224,56 @@ class SLIMBase(ABC):
                         ):
                             await read_stream_writer.send(message)
                     except Exception as exc:
+                        # The client closes the session when it wants to
+                        # terminate the session, raise TerminateTaskGroup to
+                        # cancel the task group and all the streams.
+                        if "session channel closed" in str(exc):
+                            raise TerminateTaskGroup()
+
                         logger.error("Error receiving message", exc_info=True)
                         await read_stream_writer.send(exc)
                         break
             finally:
                 await read_stream_writer.aclose()
 
-        async def slim_writer():
+        async def slim_writer(session: slim_bindings.Session):
+            session = accepted_session
             try:
                 async for message in write_stream_reader:
                     try:
                         json = message.model_dump_json(by_alias=True, exclude_none=True)
-                        logger.debug("Sending message", extra={"message": json})
-                        await self._send_message(accepted_session, json.encode())
+                        logger.debug("Sending message", extra={"mcp_message": json})
+                        ack = await session.publish(json.encode())
+                        await ack
                     except Exception:
                         logger.error("Error sending message", exc_info=True)
                         raise
             finally:
                 await write_stream_reader.aclose()
 
-        async def ping():
-            session = accepted_session
+        async def ping(group, session: slim_bindings.Session):
             try:
                 t1 = asyncio.create_task(self._ping(session, pending_pings))
                 await t1
             finally:
                 if len(pending_pings) != 0:
-                    tg.cancel_scope.cancel()
+                    raise TerminateTaskGroup()
                 else:
                     t1.cancel()
 
-        async with anyio.create_task_group() as tg:
-            tg.start_soon(slim_reader)
-            tg.start_soon(slim_writer)
-            tg.start_soon(ping)
-            try:
+        async def force_termination():
+            raise TerminateTaskGroup()
+
+        try:
+            async with asyncio.TaskGroup() as tg:
+                tg.create_task(slim_reader(accepted_session))
+                tg.create_task(slim_writer(accepted_session))
+                tg.create_task(ping(tg, accepted_session))
+
                 yield read_stream, write_stream
-            finally:
-                # cancel the task group
-                tg.cancel_scope.cancel()
-                # delete the session
-                logger.info(
-                    f"Closing session: {accepted_session.id}",
-                )
-                await self.slim.delete_session(accepted_session)
+
+                # cancel the task group when the context manager hands back
+                # control indicating the consumer is done.
+                tg.create_task(force_termination())
+        except* TerminateTaskGroup:
+            pass

@@ -50,7 +50,7 @@ class Channel:
 
     async def _common_setup(
         self, method: str, metadata: dict[str, str] | None = None
-    ) -> tuple[slim_bindings.PyName, slim_bindings.PySession, dict[str, str]]:
+    ) -> tuple[slim_bindings.Name, slim_bindings.Session, dict[str, str]]:
         service_name = service_and_method_to_pyname(self.remote, method)
 
         await self.local_app.set_route(
@@ -60,24 +60,28 @@ class Channel:
         logger.info(f"creating session for service {service_name}")
 
         # Create a session using PointToPoint configuration
-        session = await self.local_app.create_session(
-            slim_bindings.PySessionConfiguration.PointToPoint(
-                peer_name=service_name,
+        session, ack = await self.local_app.create_session(
+            destination=service_name,
+            session_config=slim_bindings.SessionConfiguration.PointToPoint(
                 max_retries=10,
                 timeout=datetime.timedelta(seconds=1),
-            )
+            ),
         )
+        await ack
 
         return service_name, session, metadata or {}
 
-    async def _delete_session(self, session: slim_bindings.PySession) -> None:
-        await self.local_app.delete_session(session)
+    async def _delete_session(self, session: slim_bindings.Session) -> None:
+        try:
+            await self.local_app.delete_session(session)
+        except Exception as e:
+            logger.warn(f"Error deleting session: {e}")
 
     async def _send_unary(
         self,
         request: RequestType,
-        session: slim_bindings.PySession,
-        service_name: slim_bindings.PyName,
+        session: slim_bindings.Session,
+        service_name: slim_bindings.Name,
         metadata: dict[str, str],
         request_serializer: Callable,
         deadline: float,
@@ -87,16 +91,17 @@ class Channel:
 
         # Send the request
         request_bytes = request_serializer(request)
-        await session.publish(
+        ack = await session.publish(
             request_bytes,
             metadata=metadata,
         )
+        await ack
 
     async def _send_stream(
         self,
         request_stream: AsyncIterable,
-        session: slim_bindings.PySession,
-        service_name: slim_bindings.PyName,
+        session: slim_bindings.Session,
+        service_name: slim_bindings.Name,
         metadata: dict[str, str],
         request_serializer: Callable,
         deadline: float,
@@ -107,23 +112,25 @@ class Channel:
         # Send requests
         async for request in request_stream:
             request_bytes = request_serializer(request)
-            await session.publish(
+            ack = await session.publish(
                 request_bytes,
                 metadata=metadata,
             )
+            await ack
 
         # Send end of streaming message
-        await session.publish(
+        ack = await session.publish(
             b"",
             metadata={**metadata, "code": str(code_pb2.OK)},
         )
+        await ack
 
     async def _receive_unary(
         self,
-        session: slim_bindings.PySession,
+        session: slim_bindings.Session,
         response_deserializer: Callable,
         deadline: float,
-    ) -> tuple[slim_bindings.PyMessageContext, Any]:
+    ) -> tuple[slim_bindings.MessageContext, Any]:
         # Wait for the response
         async with asyncio_timeout_at(
             _compute_loop_deadline_from_real_deadline(deadline)
@@ -140,7 +147,7 @@ class Channel:
 
     async def _receive_stream(
         self,
-        session: slim_bindings.PySession,
+        session: slim_bindings.Session,
         response_deserializer: Callable,
         deadline: float,
     ) -> AsyncIterable:
