@@ -32,7 +32,7 @@ fn py_name_to_ffi(py_name: &PyName) -> slim_service::Name {
     slim_service::Name {
         components: internal_name
             .components_strings()
-            .into_iter()
+            .iter()
             .map(|s| s.to_string())
             .collect(),
         id: Some(internal_name.id()),
