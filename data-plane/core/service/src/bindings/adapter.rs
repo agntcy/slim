@@ -22,6 +22,7 @@ use slim_auth::traits::TokenProvider; // For get_token() and get_id()
 use slim_datapath::api::ProtoSessionType;
 use slim_datapath::messages::Name as SlimName;
 use slim_session::SessionConfig as SlimSessionConfig;
+use slim_session::session_controller::SessionController;
 use slim_session::{Notification, SessionError as SlimSessionError};
 
 use crate::app::App;
@@ -709,7 +710,8 @@ impl BindingsAdapter {
 /// FFISessionContext represents an active session (FFI-compatible wrapper)
 #[derive(uniffi::Object)]
 pub struct FFISessionContext {
-    pub(crate) inner: crate::bindings::BindingsSessionContext,
+    /// The inner BindingsSessionContext (public for Python bindings access)
+    pub inner: crate::bindings::BindingsSessionContext,
     runtime: Arc<tokio::runtime::Runtime>,
 }
 
@@ -838,6 +840,89 @@ impl FFISessionContext {
             })
     }
 }
+
+// ============================================================================
+// Internal methods for PyO3 bindings (not exported through UniFFI)
+// ============================================================================
+
+impl BindingsAdapter {
+    /// Create a new session returning internal SessionContext (for PyO3 bindings)
+    ///
+    /// This method is for Python bindings to bypass the FFI layer and get
+    /// a proper SessionContext with its CompletionHandle.
+    pub async fn create_session_internal(
+        &self,
+        config: SlimSessionConfig,
+        destination: SlimName,
+    ) -> Result<
+        (
+            slim_session::context::SessionContext,
+            slim_session::CompletionHandle,
+        ),
+        SlimError,
+    > {
+        let (session_ctx, completion) = self.app.create_session(config, destination, None).await?;
+
+        Ok((session_ctx, completion))
+    }
+
+    /// Listen for incoming sessions returning internal SessionContext (for PyO3 bindings)
+    pub async fn listen_for_session_internal(
+        &self,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<slim_session::context::SessionContext, SlimError> {
+        let mut rx = self.notification_rx.write().await;
+
+        let recv_fut = rx.recv();
+        let notification_opt = if let Some(dur) = timeout {
+            match tokio::time::timeout(dur, recv_fut).await {
+                Ok(n) => n,
+                Err(_) => {
+                    return Err(SlimError::ReceiveError {
+                        message: "listen_for_session timed out".to_string(),
+                    });
+                }
+            }
+        } else {
+            recv_fut.await
+        };
+
+        if notification_opt.is_none() {
+            return Err(SlimError::ReceiveError {
+                message: "application channel closed".to_string(),
+            });
+        }
+
+        match notification_opt.unwrap() {
+            Ok(Notification::NewSession(ctx)) => Ok(ctx),
+            Ok(Notification::NewMessage(_)) => Err(SlimError::ReceiveError {
+                message: "received unexpected message notification while listening for session"
+                    .to_string(),
+            }),
+            Err(e) => Err(SlimError::ReceiveError {
+                message: format!("failed to receive session notification: {}", e),
+            }),
+        }
+    }
+
+    /// Delete a session returning CompletionHandle (for PyO3 bindings)
+    ///
+    /// This method is for Python bindings to get the CompletionHandle when deleting a session.
+    pub fn delete_session_internal(
+        &self,
+        session: &SessionController,
+    ) -> Result<slim_session::CompletionHandle, SlimError> {
+        self.app
+            .delete_session(session)
+            .map_err(|e| SlimError::SessionError {
+                message: format!("Failed to delete session: {}", e),
+            })
+    }
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
 
 #[cfg(test)]
 mod tests {
