@@ -43,7 +43,7 @@ class Server:
     ) -> None:
         self._local_app = local_app
         self.handlers: dict[ServiceMethod, RPCHandler] = {}
-        self._pyname_to_handler: dict[slim_bindings.PyName, RPCHandler] = {}
+        self._pyname_to_handler: dict[slim_bindings.Name, RPCHandler] = {}
 
     @classmethod
     async def from_slim_app_config(cls, slim_app_config: SLIMAppConfig) -> "Server":
@@ -93,7 +93,7 @@ class Server:
                 service_method.method,
             )
             strs = subscription_name.components_strings()
-            s_clone = slim_bindings.PyName(
+            s_clone = slim_bindings.Name(
                 strs[0], strs[1], strs[2], self._local_app.local_name.id
             )
             logger.info(
@@ -117,20 +117,22 @@ class Server:
 
     async def handle_session(
         self,
-        session: slim_bindings.PySession,
+        session: slim_bindings.Session,
     ) -> None:
         logger.info(f"new session from {session.dst} to {session.src}")
 
-        # Find the RPC handler for the session
-        rpc_handler: RPCHandler | None = self._pyname_to_handler.get(session.src, None)
-        if rpc_handler is None:
-            logger.error(
-                f"no handler found for session {session.id} with destination {session.src}",
-            )
-            return
-
         # Call the RPC handler
         try:
+            # Find the RPC handler for the session
+            rpc_handler: RPCHandler | None = self._pyname_to_handler.get(
+                session.src, None
+            )
+            if rpc_handler is None:
+                logger.error(
+                    f"no handler found for session {session.id} with destination {session.src}",
+                )
+                return
+
             # Get deadline from request
             deadline_str = session.metadata.get(DEADLINE_KEY, "")
             timeout = (
@@ -148,27 +150,41 @@ class Server:
                     logger.info(
                         f"sending response for session {session.id} with code {code}"
                     )
-                    await session.publish(
+                    ack = await session.publish(
                         rpc_handler.response_serializer(response),
                         metadata={"code": str(code)},
                     )
+                    await ack
 
                 # Send end of stream message if the response was streaming
                 if rpc_handler.response_streaming:
-                    await session.publish(
+                    ack = await session.publish(
                         b"",
                         metadata={"code": str(code_pb2.OK)},
                     )
-        except asyncio.TimeoutError:
-            logger.warn(f"session {session.id} timed out after {timeout} seconds")
-            pass
-        finally:
-            logger.info(f"deleting session {session.id}")
+                    await ack
+        except Exception as e:
+            if isinstance(e, asyncio.TimeoutError):
+                logger.warn(f"session {session.id} timed out after {timeout} seconds")
+            else:
+                logger.error(f"error handling session {session.id}: {e}")
+
+            # Only close the session if there is an uncaught exception, most
+            # errors should be caught and bubbled up to the client in the RPC
+            # communication, but if there is another issue or we timeout we
+            # close our own session because it'll let the client know something
+            # went wrong.
+            await self.try_close_session(session)
+
+    async def try_close_session(self, session: slim_bindings.Session) -> None:
+        try:
             await self._local_app.delete_session(session)
+        except Exception as e:
+            logger.error(f"Error closing session: {e}")
 
 
 async def request_generator(
-    session: slim_bindings.PySession,
+    session: slim_bindings.Session,
     request_deserializer: Callable,
 ) -> AsyncGenerator[Any, MessageContext]:
     try:
@@ -189,7 +205,7 @@ async def request_generator(
 
 async def call_handler(
     handler: RPCHandler,
-    session: slim_bindings.PySession,
+    session: slim_bindings.Session,
 ) -> AsyncGenerator[Tuple[Any, Any], None]:
     """
     Call the handler with the given arguments.

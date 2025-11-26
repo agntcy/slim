@@ -3,7 +3,7 @@
 
 from dataclasses import dataclass
 
-from slim_bindings import PyMessageContext, PySession
+import slim_bindings
 
 
 @dataclass
@@ -18,7 +18,7 @@ class SessionContext:
     metadata: dict[str, str] | None = None
 
     @classmethod
-    def from_session(cls, session: PySession) -> "SessionContext":
+    def from_session(cls, session: slim_bindings.Session) -> "SessionContext":
         """
         Create a SessionContext from session.
         """
@@ -42,7 +42,9 @@ class MessageContext:
     metadata: dict[str, str] | None = None
 
     @classmethod
-    def from_message_context(cls, msg_ctx: PyMessageContext) -> "MessageContext":
+    def from_message_context(
+        cls, msg_ctx: slim_bindings.MessageContext
+    ) -> "MessageContext":
         """
         Create a MessageContext from message context.
         """

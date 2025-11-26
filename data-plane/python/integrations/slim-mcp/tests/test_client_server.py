@@ -45,6 +45,8 @@ async def handle_sessions(mcp_app: Server, slim_server: SLIMServer):
 
     try:
         async for new_session in slim_server:
+            session_id = new_session.id
+
             # Create a new task for this session
             async def handle_session(session):
                 try:
@@ -56,8 +58,8 @@ async def handle_sessions(mcp_app: Server, slim_server: SLIMServer):
                         )
                 except Exception:
                     logger.error(
-                        f"Error handling session {session.id}",
-                        extra={"session_id": session.id},
+                        f"Error handling session {session_id}",
+                        extra={"session_id": session_id},
                         exc_info=True,
                     )
                     raise
@@ -71,7 +73,7 @@ async def handle_sessions(mcp_app: Server, slim_server: SLIMServer):
             # Log new session
             logger.info(
                 "New session started",
-                extra={"session_id": new_session.id, "active_sessions": len(tasks)},
+                extra={"session_id": session_id, "active_sessions": len(tasks)},
             )
     except Exception:
         logger.error("Error in session handler", exc_info=True)
