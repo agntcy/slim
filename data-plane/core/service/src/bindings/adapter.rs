@@ -839,6 +839,77 @@ impl FFISessionContext {
                 message: e.to_string(),
             })
     }
+
+    /// Get the destination name for this session
+    pub fn destination(&self) -> Result<Name, SlimError> {
+        let session = self
+            .inner
+            .session
+            .upgrade()
+            .ok_or_else(|| SlimError::SessionError {
+                message: "Session already closed or dropped".to_string(),
+            })?;
+
+        Ok(Name::from(session.dst()))
+    }
+
+    /// Get the source name for this session
+    pub fn source(&self) -> Result<Name, SlimError> {
+        let session = self
+            .inner
+            .session
+            .upgrade()
+            .ok_or_else(|| SlimError::SessionError {
+                message: "Session already closed or dropped".to_string(),
+            })?;
+
+        Ok(Name::from(session.source()))
+    }
+
+    /// Get the session ID
+    pub fn session_id(&self) -> Result<u32, SlimError> {
+        let session = self
+            .inner
+            .session
+            .upgrade()
+            .ok_or_else(|| SlimError::SessionError {
+                message: "Session already closed or dropped".to_string(),
+            })?;
+
+        Ok(session.id())
+    }
+
+    /// Get the session type (PointToPoint or Multicast)
+    pub fn session_type(&self) -> Result<SessionType, SlimError> {
+        let session = self
+            .inner
+            .session
+            .upgrade()
+            .ok_or_else(|| SlimError::SessionError {
+                message: "Session already closed or dropped".to_string(),
+            })?;
+
+        match session.session_type() {
+            ProtoSessionType::PointToPoint => Ok(SessionType::PointToPoint),
+            ProtoSessionType::Multicast => Ok(SessionType::Multicast),
+            ProtoSessionType::Unspecified => Err(SlimError::InvalidArgument {
+                message: "Session has unspecified type".to_string(),
+            }),
+        }
+    }
+
+    /// Check if this session is the initiator
+    pub fn is_initiator(&self) -> Result<bool, SlimError> {
+        let session = self
+            .inner
+            .session
+            .upgrade()
+            .ok_or_else(|| SlimError::SessionError {
+                message: "Session already closed or dropped".to_string(),
+            })?;
+
+        Ok(session.is_initiator())
+    }
 }
 
 // ============================================================================
