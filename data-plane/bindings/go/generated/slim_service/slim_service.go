@@ -565,6 +565,15 @@ func uniffiCheckChecksums() {
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_service_checksum_method_ffisessioncontext_destination()
+		})
+		if checksum != 21116 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_service: uniffi_slim_service_checksum_method_ffisessioncontext_destination: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_service_checksum_method_ffisessioncontext_get_message()
 		})
 		if checksum != 59165 {
@@ -601,6 +610,15 @@ func uniffiCheckChecksums() {
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_service_checksum_method_ffisessioncontext_is_initiator()
+		})
+		if checksum != 50359 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_service: uniffi_slim_service_checksum_method_ffisessioncontext_is_initiator: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_service_checksum_method_ffisessioncontext_publish()
 		})
 		if checksum != 26365 {
@@ -633,6 +651,33 @@ func uniffiCheckChecksums() {
 		if checksum != 29332 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_service: uniffi_slim_service_checksum_method_ffisessioncontext_remove_async: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_service_checksum_method_ffisessioncontext_session_id()
+		})
+		if checksum != 17475 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_service: uniffi_slim_service_checksum_method_ffisessioncontext_session_id: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_service_checksum_method_ffisessioncontext_session_type()
+		})
+		if checksum != 18788 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_service: uniffi_slim_service_checksum_method_ffisessioncontext_session_type: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_service_checksum_method_ffisessioncontext_source()
+		})
+		if checksum != 14596 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_service: uniffi_slim_service_checksum_method_ffisessioncontext_source: UniFFI API checksum mismatch")
 		}
 	}
 }
@@ -1444,6 +1489,8 @@ func (_ FfiDestroyerBindingsAdapter) Destroy(value *BindingsAdapter) {
 
 // FFISessionContext represents an active session (FFI-compatible wrapper)
 type FfiSessionContextInterface interface {
+	// Get the destination name for this session
+	Destination() (Name, error)
 	// Receive a message from the session (blocking version for FFI)
 	//
 	// # Arguments
@@ -1459,6 +1506,8 @@ type FfiSessionContextInterface interface {
 	Invite(participant Name) error
 	// Invite a participant to the session (async version)
 	InviteAsync(participant Name) error
+	// Check if this session is the initiator
+	IsInitiator() (bool, error)
 	// Publish a message to the session (blocking version for FFI)
 	Publish(destination Name, fanout uint32, data []byte, connectionOut *uint64, payloadType *string, metadata *map[string]string) error
 	// Publish a message to the session (async version)
@@ -1467,11 +1516,35 @@ type FfiSessionContextInterface interface {
 	Remove(participant Name) error
 	// Remove a participant from the session (async version)
 	RemoveAsync(participant Name) error
+	// Get the session ID
+	SessionId() (uint32, error)
+	// Get the session type (PointToPoint or Multicast)
+	SessionType() (SessionType, error)
+	// Get the source name for this session
+	Source() (Name, error)
 }
 
 // FFISessionContext represents an active session (FFI-compatible wrapper)
 type FfiSessionContext struct {
 	ffiObject FfiObject
+}
+
+// Get the destination name for this session
+func (_self *FfiSessionContext) Destination() (Name, error) {
+	_pointer := _self.ffiObject.incrementPointer("*FfiSessionContext")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer{
+			inner: C.uniffi_slim_service_fn_method_ffisessioncontext_destination(
+				_pointer, _uniffiStatus),
+		}
+	})
+	if _uniffiErr != nil {
+		var _uniffiDefaultValue Name
+		return _uniffiDefaultValue, _uniffiErr
+	} else {
+		return FfiConverterNameINSTANCE.Lift(_uniffiRV), nil
+	}
 }
 
 // Receive a message from the session (blocking version for FFI)
@@ -1571,6 +1644,22 @@ func (_self *FfiSessionContext) InviteAsync(participant Name) error {
 	return err
 }
 
+// Check if this session is the initiator
+func (_self *FfiSessionContext) IsInitiator() (bool, error) {
+	_pointer := _self.ffiObject.incrementPointer("*FfiSessionContext")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) C.int8_t {
+		return C.uniffi_slim_service_fn_method_ffisessioncontext_is_initiator(
+			_pointer, _uniffiStatus)
+	})
+	if _uniffiErr != nil {
+		var _uniffiDefaultValue bool
+		return _uniffiDefaultValue, _uniffiErr
+	} else {
+		return FfiConverterBoolINSTANCE.Lift(_uniffiRV), nil
+	}
+}
+
 // Publish a message to the session (blocking version for FFI)
 func (_self *FfiSessionContext) Publish(destination Name, fanout uint32, data []byte, connectionOut *uint64, payloadType *string, metadata *map[string]string) error {
 	_pointer := _self.ffiObject.incrementPointer("*FfiSessionContext")
@@ -1649,6 +1738,58 @@ func (_self *FfiSessionContext) RemoveAsync(participant Name) error {
 	)
 
 	return err
+}
+
+// Get the session ID
+func (_self *FfiSessionContext) SessionId() (uint32, error) {
+	_pointer := _self.ffiObject.incrementPointer("*FfiSessionContext")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) C.uint32_t {
+		return C.uniffi_slim_service_fn_method_ffisessioncontext_session_id(
+			_pointer, _uniffiStatus)
+	})
+	if _uniffiErr != nil {
+		var _uniffiDefaultValue uint32
+		return _uniffiDefaultValue, _uniffiErr
+	} else {
+		return FfiConverterUint32INSTANCE.Lift(_uniffiRV), nil
+	}
+}
+
+// Get the session type (PointToPoint or Multicast)
+func (_self *FfiSessionContext) SessionType() (SessionType, error) {
+	_pointer := _self.ffiObject.incrementPointer("*FfiSessionContext")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer{
+			inner: C.uniffi_slim_service_fn_method_ffisessioncontext_session_type(
+				_pointer, _uniffiStatus),
+		}
+	})
+	if _uniffiErr != nil {
+		var _uniffiDefaultValue SessionType
+		return _uniffiDefaultValue, _uniffiErr
+	} else {
+		return FfiConverterSessionTypeINSTANCE.Lift(_uniffiRV), nil
+	}
+}
+
+// Get the source name for this session
+func (_self *FfiSessionContext) Source() (Name, error) {
+	_pointer := _self.ffiObject.incrementPointer("*FfiSessionContext")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer{
+			inner: C.uniffi_slim_service_fn_method_ffisessioncontext_source(
+				_pointer, _uniffiStatus),
+		}
+	})
+	if _uniffiErr != nil {
+		var _uniffiDefaultValue Name
+		return _uniffiDefaultValue, _uniffiErr
+	} else {
+		return FfiConverterNameINSTANCE.Lift(_uniffiRV), nil
+	}
 }
 func (object *FfiSessionContext) Destroy() {
 	runtime.SetFinalizer(object, nil)
@@ -1922,13 +2063,27 @@ func (_ FfiDestroyerServerConfig) Destroy(value ServerConfig) {
 
 // Session configuration
 type SessionConfig struct {
+	// Session type (PointToPoint or Multicast)
 	SessionType SessionType
-	EnableMls   bool
+	// Enable MLS encryption for this session
+	EnableMls bool
+	// Maximum number of retries for message transmission (None = use default)
+	MaxRetries *uint32
+	// Interval between retries in milliseconds (None = use default)
+	IntervalMs *uint64
+	// Whether this endpoint is the session initiator
+	Initiator bool
+	// Custom metadata key-value pairs for the session
+	Metadata map[string]string
 }
 
 func (r *SessionConfig) Destroy() {
 	FfiDestroyerSessionType{}.Destroy(r.SessionType)
 	FfiDestroyerBool{}.Destroy(r.EnableMls)
+	FfiDestroyerOptionalUint32{}.Destroy(r.MaxRetries)
+	FfiDestroyerOptionalUint64{}.Destroy(r.IntervalMs)
+	FfiDestroyerBool{}.Destroy(r.Initiator)
+	FfiDestroyerMapStringString{}.Destroy(r.Metadata)
 }
 
 type FfiConverterSessionConfig struct{}
@@ -1943,6 +2098,10 @@ func (c FfiConverterSessionConfig) Read(reader io.Reader) SessionConfig {
 	return SessionConfig{
 		FfiConverterSessionTypeINSTANCE.Read(reader),
 		FfiConverterBoolINSTANCE.Read(reader),
+		FfiConverterOptionalUint32INSTANCE.Read(reader),
+		FfiConverterOptionalUint64INSTANCE.Read(reader),
+		FfiConverterBoolINSTANCE.Read(reader),
+		FfiConverterMapStringStringINSTANCE.Read(reader),
 	}
 }
 
@@ -1953,6 +2112,10 @@ func (c FfiConverterSessionConfig) Lower(value SessionConfig) C.RustBuffer {
 func (c FfiConverterSessionConfig) Write(writer io.Writer, value SessionConfig) {
 	FfiConverterSessionTypeINSTANCE.Write(writer, value.SessionType)
 	FfiConverterBoolINSTANCE.Write(writer, value.EnableMls)
+	FfiConverterOptionalUint32INSTANCE.Write(writer, value.MaxRetries)
+	FfiConverterOptionalUint64INSTANCE.Write(writer, value.IntervalMs)
+	FfiConverterBoolINSTANCE.Write(writer, value.Initiator)
+	FfiConverterMapStringStringINSTANCE.Write(writer, value.Metadata)
 }
 
 type FfiDestroyerSessionConfig struct{}
