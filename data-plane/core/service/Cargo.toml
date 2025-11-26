@@ -10,9 +10,6 @@ name = "slim_service"
 crate-type = ["lib", "staticlib", "cdylib"]
 
 [dependencies]
-# UniFFI for language bindings
-uniffi = { version = "0.28.3", features = ["cli"] }
-
 agntcy-slim-auth = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-controller = { workspace = true }
@@ -27,11 +24,12 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
+uniffi = { version = "0.28.3", features = ["cli"] }
+
+[build-dependencies]
+uniffi = { version = "0.28.3", features = ["build"] }
 
 [dev-dependencies]
 agntcy-slim-testing = { workspace = true }
 tokio-test = { workspace = true }
 tracing-test = { workspace = true }
-
-[build-dependencies]
-uniffi = { version = "0.28.3", features = ["build"] }
