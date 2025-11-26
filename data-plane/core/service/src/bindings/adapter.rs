@@ -112,8 +112,23 @@ pub enum SessionType {
 /// Session configuration
 #[derive(uniffi::Record)]
 pub struct SessionConfig {
+    /// Session type (PointToPoint or Multicast)
     pub session_type: SessionType,
+
+    /// Enable MLS encryption for this session
     pub enable_mls: bool,
+
+    /// Maximum number of retries for message transmission (None = use default)
+    pub max_retries: Option<u32>,
+
+    /// Interval between retries in milliseconds (None = use default)
+    pub interval_ms: Option<u64>,
+
+    /// Whether this endpoint is the session initiator
+    pub initiator: bool,
+
+    /// Custom metadata key-value pairs for the session
+    pub metadata: std::collections::HashMap<String, String>,
 }
 
 impl From<SessionConfig> for SlimSessionConfig {
@@ -123,8 +138,11 @@ impl From<SessionConfig> for SlimSessionConfig {
                 SessionType::PointToPoint => ProtoSessionType::PointToPoint,
                 SessionType::Multicast => ProtoSessionType::Multicast,
             },
-            initiator: true,
-            ..Default::default()
+            max_retries: config.max_retries,
+            interval: config.interval_ms.map(std::time::Duration::from_millis),
+            mls_enabled: config.enable_mls,
+            initiator: config.initiator,
+            metadata: config.metadata,
         }
     }
 }

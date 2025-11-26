@@ -36,7 +36,6 @@ impl From<SessionContext> for BindingsSessionContext {
     }
 }
 
-
 impl BindingsSessionContext {
     /// Publish a message through this session
     pub async fn publish(
@@ -217,6 +216,10 @@ mod tests {
         let config = crate::bindings::adapter::SessionConfig {
             session_type: crate::bindings::adapter::SessionType::PointToPoint,
             enable_mls: false,
+            max_retries: None,
+            interval_ms: None,
+            initiator: true,
+            metadata: std::collections::HashMap::new(),
         };
         let dst = crate::bindings::adapter::Name {
             components: vec!["org".to_string(), "ns".to_string(), "dst".to_string()],
@@ -244,6 +247,10 @@ mod tests {
         let config = crate::bindings::adapter::SessionConfig {
             session_type: crate::bindings::adapter::SessionType::PointToPoint,
             enable_mls: false,
+            max_retries: None,
+            interval_ms: None,
+            initiator: true,
+            metadata: std::collections::HashMap::new(),
         };
         let dst = crate::bindings::adapter::Name {
             components: vec!["org".to_string(), "ns".to_string(), "dst".to_string()],
@@ -278,6 +285,10 @@ mod tests {
         let config = crate::bindings::adapter::SessionConfig {
             session_type: crate::bindings::adapter::SessionType::PointToPoint,
             enable_mls: false,
+            max_retries: None,
+            interval_ms: None,
+            initiator: true,
+            metadata: std::collections::HashMap::new(),
         };
         let dst = crate::bindings::adapter::Name {
             components: vec!["org".to_string(), "ns".to_string(), "dst".to_string()],
@@ -313,6 +324,10 @@ mod tests {
         let config = crate::bindings::adapter::SessionConfig {
             session_type: crate::bindings::adapter::SessionType::PointToPoint,
             enable_mls: false,
+            max_retries: None,
+            interval_ms: None,
+            initiator: true,
+            metadata: std::collections::HashMap::new(),
         };
         let dst = crate::bindings::adapter::Name {
             components: vec!["org".to_string(), "ns".to_string(), "dst".to_string()],
@@ -354,6 +369,10 @@ mod tests {
         let config = crate::bindings::adapter::SessionConfig {
             session_type: crate::bindings::adapter::SessionType::PointToPoint,
             enable_mls: false,
+            max_retries: None,
+            interval_ms: None,
+            initiator: true,
+            metadata: std::collections::HashMap::new(),
         };
         let dst = crate::bindings::adapter::Name {
             components: vec!["org".to_string(), "ns".to_string(), "dst".to_string()],
