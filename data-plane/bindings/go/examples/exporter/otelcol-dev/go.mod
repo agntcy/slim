@@ -2,9 +2,10 @@
 
 module go.opentelemetry.io/collector/cmd/builder
 
-go 1.24.0
+go 1.25.4
 
 require (
+	github.com/agntcy/slim/data-plane/bindings/go/examples/exporter/slimexporter v0.0.1
 	go.opentelemetry.io/collector/component v1.46.0
 	go.opentelemetry.io/collector/confmap v1.46.0
 	go.opentelemetry.io/collector/confmap/provider/envprovider v1.18.0
@@ -14,7 +15,6 @@ require (
 	go.opentelemetry.io/collector/confmap/provider/yamlprovider v1.18.0
 	go.opentelemetry.io/collector/connector v0.140.0
 	go.opentelemetry.io/collector/exporter v1.46.0
-	go.opentelemetry.io/collector/exporter/debugexporter v0.140.0
 	go.opentelemetry.io/collector/exporter/otlpexporter v0.140.0
 	go.opentelemetry.io/collector/extension v1.46.0
 	go.opentelemetry.io/collector/otelcol v0.140.0
@@ -27,6 +27,8 @@ require (
 )
 
 require (
+	github.com/agntcy/slim/bindings/generated v0.0.0-00010101000000-000000000000 // indirect
+	github.com/agntcy/slim/bindings/go/examples/common v0.0.0-00010101000000-000000000000 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -164,4 +166,8 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace go.opentelemetry.io/collector/exporter/debugexporter v0.140.0 => /Users/micpapal/Documents/code/agntcy/slim/data-plane/bindings/go/examples/exporter/opentelemetry-collector/exporter/debugexporter
+replace github.com/agntcy/slim/data-plane/bindings/go/examples/exporter/slimexporter v0.0.1 => /Users/micpapal/Documents/code/agntcy/slim/data-plane/bindings/go/examples/exporter/slimexporter
+
+replace github.com/agntcy/slim/bindings/generated => /Users/micpapal/Documents/code/agntcy/slim/data-plane/bindings/go/generated
+
+replace github.com/agntcy/slim/bindings/go/examples/common => /Users/micpapal/Documents/code/agntcy/slim/data-plane/bindings/go/examples/common

@@ -31,7 +31,11 @@ func NewFactory() exporter.Factory {
 // createDefaultConfig creates the default configuration for the exporter
 func createDefaultConfig() component.Config {
 	return &Config{
-		Endpoint: "http://localhost:8080",
+		SlimEndpoint:     "http://127.0.0.1:46357",
+		LocalName:        "agntcy/otel/exporter",
+		ChannelName:      "agntcy/otel/telemetry",
+		MlsEnabled:       false,
+		ParticipantsList: []string{},
 	}
 }
 
@@ -47,7 +51,10 @@ func createTracesExporter(
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
-	exp := newSlimExporter(exporterConfig, set.Logger)
+	exp, err := newSlimExporter(exporterConfig, set.Logger, SignalTraces)
+	if err != nil {
+		return nil, fmt.Errorf("error creating the exporter: %w", err)
+	}
 
 	return exporterhelper.NewTraces(
 		ctx,
@@ -72,7 +79,10 @@ func createMetricsExporter(
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
-	exp := newSlimExporter(exporterConfig, set.Logger)
+	exp, err := newSlimExporter(exporterConfig, set.Logger, SignalMetrics)
+	if err != nil {
+		return nil, fmt.Errorf("error creating the exporter: %w", err)
+	}
 
 	return exporterhelper.NewMetrics(
 		ctx,
@@ -97,7 +107,10 @@ func createLogsExporter(
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
-	exp := newSlimExporter(exporterConfig, set.Logger)
+	exp, err := newSlimExporter(exporterConfig, set.Logger, SignalLogs)
+	if err != nil {
+		return nil, fmt.Errorf("error creating the exporter: %w", err)
+	}
 
 	return exporterhelper.NewLogs(
 		ctx,

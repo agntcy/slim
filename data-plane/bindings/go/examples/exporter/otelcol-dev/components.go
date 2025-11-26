@@ -6,15 +6,15 @@ import (
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/connector"
 	"go.opentelemetry.io/collector/exporter"
-	"go.opentelemetry.io/collector/exporter/debugexporter"
-	otlpexporter "go.opentelemetry.io/collector/exporter/otlpexporter"
 	"go.opentelemetry.io/collector/extension"
 	"go.opentelemetry.io/collector/otelcol"
 	"go.opentelemetry.io/collector/processor"
-	batchprocessor "go.opentelemetry.io/collector/processor/batchprocessor"
 	"go.opentelemetry.io/collector/receiver"
-	otlpreceiver "go.opentelemetry.io/collector/receiver/otlpreceiver"
 	"go.opentelemetry.io/collector/service/telemetry/otelconftelemetry"
+	slimexporter "github.com/agntcy/slim/data-plane/bindings/go/examples/exporter/slimexporter"
+	otlpexporter "go.opentelemetry.io/collector/exporter/otlpexporter"
+	batchprocessor "go.opentelemetry.io/collector/processor/batchprocessor"
+	otlpreceiver "go.opentelemetry.io/collector/receiver/otlpreceiver"
 )
 
 func components() (otelcol.Factories, error) {
@@ -23,7 +23,8 @@ func components() (otelcol.Factories, error) {
 		Telemetry: otelconftelemetry.NewFactory(),
 	}
 
-	factories.Extensions, err = otelcol.MakeFactoryMap[extension.Factory]()
+	factories.Extensions, err = otelcol.MakeFactoryMap[extension.Factory](
+	)
 	if err != nil {
 		return otelcol.Factories{}, err
 	}
@@ -39,14 +40,14 @@ func components() (otelcol.Factories, error) {
 	factories.ReceiverModules[otlpreceiver.NewFactory().Type()] = "go.opentelemetry.io/collector/receiver/otlpreceiver v0.140.0"
 
 	factories.Exporters, err = otelcol.MakeFactoryMap[exporter.Factory](
-		debugexporter.NewFactory(),
+		slimexporter.NewFactory(),
 		otlpexporter.NewFactory(),
 	)
 	if err != nil {
 		return otelcol.Factories{}, err
 	}
 	factories.ExporterModules = make(map[component.Type]string, len(factories.Exporters))
-	factories.ExporterModules[debugexporter.NewFactory().Type()] = "go.opentelemetry.io/collector/exporter/debugexporter v0.140.0"
+	factories.ExporterModules[slimexporter.NewFactory().Type()] = "github.com/agntcy/slim/data-plane/bindings/go/examples/exporter/slimexporter v0.0.1"
 	factories.ExporterModules[otlpexporter.NewFactory().Type()] = "go.opentelemetry.io/collector/exporter/otlpexporter v0.140.0"
 
 	factories.Processors, err = otelcol.MakeFactoryMap[processor.Factory](
@@ -58,7 +59,8 @@ func components() (otelcol.Factories, error) {
 	factories.ProcessorModules = make(map[component.Type]string, len(factories.Processors))
 	factories.ProcessorModules[batchprocessor.NewFactory().Type()] = "go.opentelemetry.io/collector/processor/batchprocessor v0.140.0"
 
-	factories.Connectors, err = otelcol.MakeFactoryMap[connector.Factory]()
+	factories.Connectors, err = otelcol.MakeFactoryMap[connector.Factory](
+	)
 	if err != nil {
 		return otelcol.Factories{}, err
 	}

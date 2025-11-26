@@ -12,11 +12,15 @@ processors:
     send_batch_size: 1024
 
 exporters:
-  # Your custom Slim exporter
+  # Slim exporter config
   slim:
-    endpoint: "http://localhost:8080/api/telemetry"
-    # Add your custom config fields here
-    # api_key: "your-api-key"
+    endpoint: "http://127.0.0.1:46357"
+    local-name: "agntcy/otel/exporter"
+    channel-name: "agntcy/otel/telemetry"
+    participants-list:
+      - "agntcy/ns/client-1"
+    mls-enabled: false
+    shared-secret: "jasfhuejasdfhays3wtkrktasdhfsadu2rtkdhsfgeht"
     
   # Standard OTLP exporter for comparison/debugging
   otlp:
@@ -29,14 +33,14 @@ service:
     traces:
       receivers: [otlp]
       processors: [batch]
-      exporters: [slim, otlp]
+      exporters: [slim]
     
     metrics:
       receivers: [otlp]
       processors: [batch]
-      exporters: [slim, otlp]
+      exporters: [slim]
     
     logs:
       receivers: [otlp]
       processors: [batch]
-      exporters: [slim, otlp]
+      exporters: [slim]

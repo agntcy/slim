@@ -4,6 +4,10 @@ dist:
   output_path: ./otelcol-dev
   otelcol_version: 0.140.0
 
+replaces:
+  - github.com/agntcy/slim/bindings/generated => /Users/micpapal/Documents/code/agntcy/slim/data-plane/bindings/go/generated
+  - github.com/agntcy/slim/bindings/go/examples/common => /Users/micpapal/Documents/code/agntcy/slim/data-plane/bindings/go/examples/common
+
 exporters:
   - gomod: github.com/agntcy/slim/data-plane/bindings/go/examples/exporter/slimexporter v0.0.1
     path: ./slimexporter

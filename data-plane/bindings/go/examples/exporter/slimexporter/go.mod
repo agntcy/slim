@@ -1,8 +1,14 @@
 module github.com/agntcy/slim/data-plane/bindings/go/examples/exporter/slimexporter
 
-go 1.23
+go 1.25.4
+
+replace github.com/agntcy/slim/bindings/generated => ../../../generated
+
+replace github.com/agntcy/slim/bindings/go/examples/common => ../../common
 
 require (
+	github.com/agntcy/slim/bindings/generated v0.0.0-00010101000000-000000000000
+	github.com/agntcy/slim/bindings/go/examples/common v0.0.0-00010101000000-000000000000
 	go.opentelemetry.io/collector/component v0.114.0
 	go.opentelemetry.io/collector/consumer v0.114.0
 	go.opentelemetry.io/collector/exporter v0.114.0

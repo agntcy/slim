@@ -1,24 +1,49 @@
 package slimexporter
 
-import (
-	"errors"
-)
+import "errors"
 
 // Config defines configuration for the Slim exporter
 type Config struct {
-	// Endpoint is the target URL for exporting telemetry data
-	Endpoint string `mapstructure:"endpoint"`
+	// Slim endpoint where to connect
+	SlimEndpoint string `mapstructure:"endpoint"`
 
-	// Add any custom configuration fields here
-	// For example:
-	// APIKey string `mapstructure:"api_key"`
-	// Timeout time.Duration `mapstructure:"timeout"`
+	// Local name in the for org/ns/service
+	// dafual = agntcy/otel/exporter
+	LocalName string `mapstructure:"local-name"`
+
+	// Channel name in the form org/ns/service
+	// the signal type is appended as a suffix to the name
+	// default agntcy/otel/telemetry-*
+	ChannelName string `mapstructure:"channel-name"`
+
+	// Shared Secret
+	SharedSecret string `mapstructure:"shared-secret"`
+
+	// Flag to enable or disable MLS
+	MlsEnabled bool `mapstructure:"mls-enabled"`
+
+	// List of participants to invite
+	ParticipantsList []string `mapstructure:"participants-list"`
 }
 
 // Validate checks if the exporter configuration is valid
 func (cfg *Config) Validate() error {
-	if cfg.Endpoint == "" {
-		return errors.New("endpoint is required")
+	if cfg.SharedSecret == "" {
+		return errors.New("missing shared secret")
 	}
+
+	defaultCfg := createDefaultConfig().(*Config)
+	if cfg.SlimEndpoint == "" {
+		cfg.SlimEndpoint = defaultCfg.SlimEndpoint
+	}
+
+	if cfg.LocalName == "" {
+		cfg.LocalName = defaultCfg.LocalName
+	}
+
+	if cfg.ChannelName == "" {
+		cfg.ChannelName = defaultCfg.ChannelName
+	}
+
 	return nil
 }
