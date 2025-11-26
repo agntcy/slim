@@ -18,9 +18,9 @@ exporters:
     local-name: "agntcy/otel/exporter"
     channel-name: "agntcy/otel/telemetry"
     participants-list:
-      - "agntcy/ns/client-1"
+      - "agntcy/otel/receiver-app"
     mls-enabled: false
-    shared-secret: "jasfhuejasdfhays3wtkrktasdhfsadu2rtkdhsfgeht"
+    shared-secret: "a-very-log-shared-secret-0123456789-abcdefg"
     
   # Standard OTLP exporter for comparison/debugging
   otlp:

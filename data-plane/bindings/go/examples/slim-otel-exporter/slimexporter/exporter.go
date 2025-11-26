@@ -153,12 +153,10 @@ func createSession(e *slimExporter, config slim.SessionConfig, channel string) (
 	name, err := common.SplitID(channel)
 	if err != nil {
 		log.Fatalf("Failed to parse channel name: %v", err)
-		return nil, err
 	}
 	session, err := e.app.CreateSession(config, name)
 	if err != nil {
 		log.Fatalf("Failed to create channel: %v", err)
-		return nil, err
 	}
 
 	return session, nil
@@ -174,7 +172,6 @@ func newSlimExporter(cfg *Config, logger *zap.Logger, signalType SignalType) (*s
 
 	if err != nil {
 		log.Fatalf("Failed to create/connect app: %v", err)
-		return nil, err
 	}
 
 	slim := &slimExporter{
@@ -215,7 +212,6 @@ func (e *slimExporter) start(ctx context.Context, host component.Host) error {
 		name, err := common.SplitID(p)
 		if err != nil {
 			log.Fatalf("Failed to parse remote ID: %v", err)
-			return err
 		}
 		toInvite = append(toInvite, name)
 		e.app.SetRoute(name, e.connId)
@@ -247,7 +243,6 @@ func (e *slimExporter) start(ctx context.Context, host component.Host) error {
 		session, err := createSession(e, config, fullName)
 		if err != nil {
 			log.Fatalf("Failed to create channel: %v", err)
-			return err
 		}
 		e.metricsChannel = session
 		for _, p := range toInvite {
@@ -260,7 +255,6 @@ func (e *slimExporter) start(ctx context.Context, host component.Host) error {
 		session, err := createSession(e, config, fullName)
 		if err != nil {
 			log.Fatalf("Failed to create channel: %v", err)
-			return err
 		}
 		e.tracesChannel = session
 		for _, p := range toInvite {
@@ -273,7 +267,6 @@ func (e *slimExporter) start(ctx context.Context, host component.Host) error {
 		session, err := createSession(e, config, fullName)
 		if err != nil {
 			log.Fatalf("Failed to create channel: %v", err)
-			return err
 		}
 		e.logsChannel = session
 		for _, p := range toInvite {

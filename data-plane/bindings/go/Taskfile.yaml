@@ -41,6 +41,7 @@ tasks:
         echo "  task example:server            - Run the SLIM server"
         echo "  task example:p2p:alice         - Run Alice (receiver) for point-to-point"
         echo "  task example:p2p:bob           - Run Bob (sender) for point-to-point"
+        echo "  task example:otel-receiver     - Run the OTEL receiver app"
     silent: true
 
   rust-build:
@@ -161,4 +162,28 @@ tasks:
       - echo "👨 Starting Bob (sender)..."
       - go mod tidy
       - go run main.go --local="org/bob/app" --remote="org/alice/app" --message="Hello SLIM" --iterations=5 --server="http://localhost:46357" {{.CLI_ARGS}}
+    silent: true
+
+  example:otel-receiver:moderator:
+    desc: Run the OTEL receiver app as moderator (initiator=true)
+    dir: examples/slim-otel-receiver
+    env:
+      DYLD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${DYLD_LIBRARY_PATH}"
+      LD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${LD_LIBRARY_PATH}"
+    cmds:
+      - echo "📡 Starting OTEL receiver as moderator (initiator=true)..."
+      - go mod tidy
+      - go run main.go --initiator=true {{.CLI_ARGS}}
+    silent: true
+
+  example:otel-receiver:participant:
+    desc: Run the OTEL receiver app as participant (initiator=false)
+    dir: examples/slim-otel-receiver
+    env:
+      DYLD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${DYLD_LIBRARY_PATH}"
+      LD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${LD_LIBRARY_PATH}"
+    cmds:
+      - echo "📡 Starting OTEL receiver as participant (initiator=false)..."
+      - go mod tidy
+      - go run main.go --initiator=false {{.CLI_ARGS}}
     silent: true
