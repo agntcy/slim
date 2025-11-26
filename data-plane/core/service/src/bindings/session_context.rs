@@ -36,6 +36,7 @@ impl From<SessionContext> for BindingsSessionContext {
     }
 }
 
+
 impl BindingsSessionContext {
     /// Publish a message through this session
     pub async fn publish(
