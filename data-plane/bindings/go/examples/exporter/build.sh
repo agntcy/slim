@@ -12,12 +12,12 @@ echo "📦 Generating collector sources..."
 
 # Step 2: Compile with CGO enabled
 echo "🔨 Compiling with CGO enabled..."
-cd otelcol-dev
-CGO_ENABLED=1 go build -trimpath -o otelcol-dev -ldflags="-s -w"
+cd slim-otelcol
+CGO_ENABLED=1 go build -trimpath -o slim-otelcol -ldflags="-s -w"
 cd ..
 
-echo "✅ Build complete! Binary available at: otelcol-dev/otelcol-dev"
+echo "✅ Build complete! Binary available at: slim-otelcol/slim-otelcol"
 echo ""
 echo "To run the collector:"
-echo "  cd otelcol-dev"
-echo "  ./otelcol-dev --config <your-config.yaml>"
+echo "  cd slim-otelcol"
+echo "  ./slim-otelcol --config <your-config.yaml>"

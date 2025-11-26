@@ -32,7 +32,7 @@ This directory contains a custom OpenTelemetry Collector exporter called "Slim E
 ## Run the Collector
 
 ```bash
-./otelcol-dev/otelcol-dev --config collector-config.yaml
+./slim-otelcol/slim-otelcol --config collector-config.yaml
 ```
 
 ## Customize Your Exporter

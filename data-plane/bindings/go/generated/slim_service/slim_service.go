@@ -875,8 +875,10 @@ func (ffiObject *FfiObject) freeRustArcPtr() {
 
 // Adapter that bridges the App API with language-bindings interface
 //
-// This adapter uses concrete types (SharedSecret) instead of generics to be compatible with UniFFI.
-// It provides both synchronous (blocking) and asynchronous methods for flexibility.
+// This adapter uses enum-based auth types (`AuthProvider`/`AuthVerifier`) instead of generics
+// to be compatible with UniFFI, supporting multiple authentication mechanisms (SharedSecret,
+// JWT, SPIRE, StaticToken). It provides both synchronous (blocking) and asynchronous methods
+// for flexibility.
 type BindingsAdapterInterface interface {
 	// Connect to a SLIM server as a client (blocking version for FFI)
 	//
@@ -948,8 +950,10 @@ type BindingsAdapterInterface interface {
 
 // Adapter that bridges the App API with language-bindings interface
 //
-// This adapter uses concrete types (SharedSecret) instead of generics to be compatible with UniFFI.
-// It provides both synchronous (blocking) and asynchronous methods for flexibility.
+// This adapter uses enum-based auth types (`AuthProvider`/`AuthVerifier`) instead of generics
+// to be compatible with UniFFI, supporting multiple authentication mechanisms (SharedSecret,
+// JWT, SPIRE, StaticToken). It provides both synchronous (blocking) and asynchronous methods
+// for flexibility.
 type BindingsAdapter struct {
 	ffiObject FfiObject
 }

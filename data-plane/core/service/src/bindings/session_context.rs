@@ -36,6 +36,7 @@ impl From<SessionContext> for BindingsSessionContext {
     }
 }
 
+
 impl BindingsSessionContext {
     /// Publish a message through this session
     pub async fn publish(
@@ -175,6 +176,7 @@ mod tests {
     use std::collections::HashMap;
     use std::time::Duration;
 
+    use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
     use slim_auth::shared_secret::SharedSecret;
     use slim_config::component::ComponentBuilder;
     use slim_datapath::messages::Name;
@@ -182,9 +184,6 @@ mod tests {
 
     use crate::bindings::adapter::BindingsAdapter;
     use crate::service::Service;
-
-    type TestProvider = SharedSecret;
-    type TestVerifier = SharedSecret;
 
     /// Create a mock service for testing
     async fn create_test_service() -> Service {
@@ -194,9 +193,10 @@ mod tests {
     }
 
     /// Create test authentication components
-    fn create_test_auth() -> (TestProvider, TestVerifier) {
-        let provider = SharedSecret::new("test-app", TEST_VALID_SECRET);
-        let verifier = SharedSecret::new("test-app", TEST_VALID_SECRET);
+    fn create_test_auth() -> (AuthProvider, AuthVerifier) {
+        let shared_secret = SharedSecret::new("test-app", TEST_VALID_SECRET);
+        let provider = AuthProvider::SharedSecret(shared_secret.clone());
+        let verifier = AuthVerifier::SharedSecret(shared_secret);
         (provider, verifier)
     }
 

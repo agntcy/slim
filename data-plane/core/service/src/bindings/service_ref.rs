@@ -37,19 +37,18 @@ pub fn get_or_init_global_service() -> &'static Service {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
     use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::messages::Name;
     use slim_testing::utils::TEST_VALID_SECRET;
 
     use crate::bindings::adapter::BindingsAdapter;
 
-    type TestProvider = SharedSecret;
-    type TestVerifier = SharedSecret;
-
     /// Create test authentication components
-    fn create_test_auth() -> (TestProvider, TestVerifier) {
-        let provider = SharedSecret::new("test-app", TEST_VALID_SECRET);
-        let verifier = SharedSecret::new("test-app", TEST_VALID_SECRET);
+    fn create_test_auth() -> (AuthProvider, AuthVerifier) {
+        let shared_secret = SharedSecret::new("test-app", TEST_VALID_SECRET);
+        let provider = AuthProvider::SharedSecret(shared_secret.clone());
+        let verifier = AuthVerifier::SharedSecret(shared_secret);
         (provider, verifier)
     }
 

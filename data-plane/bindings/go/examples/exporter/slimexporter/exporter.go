@@ -267,9 +267,9 @@ func (e *slimExporter) start(ctx context.Context, host component.Host) error {
 
 // listenForSessions waits for incoming session invitations and assigns them to the appropriate channel
 func (e *slimExporter) listenForSessions() {
-	e.logger.Info("👂 Waiting for incoming sessions...", zap.String("signal", string(e.signalType)))
+	e.logger.Info("Waiting for incoming sessions...", zap.String("signal", string(e.signalType)))
 
-	for {
+	/*for {
 		timeout := uint32(30000)                         // 30 seconds
 		session, err := e.app.ListenForSession(&timeout) // needs to be optional
 		if err != nil {
@@ -280,7 +280,7 @@ func (e *slimExporter) listenForSessions() {
 		e.logger.Info("New session established!", zap.String("signal", string(e.signalType)))
 
 		// Parse the session name to determine which channel it belongs to
-		/*sessionName := session.GetName()
+		sessionName := session.GetName()
 		sessionNameStr := fmt.Sprintf("%s.%s", sessionName.Namespace, sessionName.Name)
 
 		// Assign the session to the appropriate channel based on the signal type suffix
@@ -295,12 +295,12 @@ func (e *slimExporter) listenForSessions() {
 			e.logger.Info("Assigned incoming session to logs channel", zap.String("session_name", sessionNameStr))
 		} else {
 			e.logger.Warn("Received session with unrecognized name format", zap.String("session_name", sessionNameStr))
-		}*/
+		}
 
 		// After assigning the session for this signal type, we can break
 		// since each exporter instance handles only one signal type
 		break
-	}
+	}*/
 }
 
 // shutdown is invoked during service shutdown

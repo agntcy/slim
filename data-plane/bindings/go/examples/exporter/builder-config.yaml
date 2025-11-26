@@ -1,7 +1,7 @@
 dist:
-  name: otelcol-dev
+  name: slim-otelcol
   description: Basic OTel Collector distribution for Developers
-  output_path: ./otelcol-dev
+  output_path: ./slim-otelcol
   otelcol_version: 0.140.0
 
 replaces:
