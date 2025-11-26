@@ -13,7 +13,6 @@ use slim_auth::traits::TokenProvider;
 use slim_auth::traits::Verifier;
 
 use slim_datapath::messages::encoder::Name;
-use slim_service::ServiceRef;
 use slim_service::bindings::BindingsAdapter;
 use slim_session::SessionConfig;
 
@@ -27,23 +26,30 @@ use crate::utils::PyName;
 use slim_config::grpc::client::ClientConfig as PyGrpcClientConfig;
 use slim_config::grpc::server::ServerConfig as PyGrpcServerConfig;
 
+/// Helper to convert PyName to FFI Name
+fn py_name_to_ffi(py_name: &PyName) -> slim_service::Name {
+    let internal_name: Name = py_name.into();
+    slim_service::Name {
+        components: internal_name
+            .components_strings()
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect(),
+        id: Some(internal_name.id()),
+    }
+}
+
 #[gen_stub_pyclass]
 #[pyclass(name = "App")]
 #[derive(Clone)]
 pub struct PyApp {
-    internal: Arc<PyAppInternal<IdentityProvider, IdentityVerifier>>,
+    internal: Arc<PyAppInternal>,
 }
 
-struct PyAppInternal<P, V>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
-    /// The adapter instance
-    adapter: BindingsAdapter<P, V>,
-
-    /// Reference to the service
-    service: ServiceRef,
+struct PyAppInternal {
+    /// The adapter instance (uses AuthProvider/AuthVerifier enums internally)
+    /// The adapter manages the service internally
+    adapter: Arc<BindingsAdapter>,
 }
 
 #[gen_stub_pymethods]
@@ -56,35 +62,37 @@ impl PyApp {
         verifier: PyIdentityVerifier,
         local_service: bool,
     ) -> PyResult<Self> {
-        let (adapter, service_ref) = pyo3_async_runtimes::tokio::get_runtime()
+        let adapter = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(async move {
                 // Convert the PyIdentityProvider into IdentityProvider
                 let mut provider: IdentityProvider = provider.into();
 
-                // Initialize the idsntity provider
-                provider.initialize().await?;
+                // Initialize the identity provider
+                provider
+                    .initialize()
+                    .await
+                    .map_err(|e| format!("Failed to initialize provider: {}", e))?;
 
                 // Convert the PyIdentityVerifier into IdentityVerifier
                 let mut verifier: IdentityVerifier = verifier.into();
 
                 // Initialize the identity verifier
-                verifier.initialize().await?;
+                verifier
+                    .initialize()
+                    .await
+                    .map_err(|e| format!("Failed to initialize verifier: {}", e))?;
 
                 // Convert PyName into Name
                 let base_name: Name = name.into();
 
-                // Use BindingsAdapter's complete creation logic in a Tokio runtime context
+                // IdentityProvider/IdentityVerifier are already AuthProvider/AuthVerifier type aliases
+                // Use BindingsAdapter's complete creation logic
                 BindingsAdapter::new(base_name, provider, verifier, local_service)
+                    .map_err(|e| format!("Failed to create BindingsAdapter: {}", e))
             })
-            .map_err(|e| {
-                PyErr::new::<PyException, _>(format!("Failed to create BindingsAdapter: {}", e))
-            })?;
+            .map_err(|e: String| PyErr::new::<PyException, _>(e))?;
 
-        // create the service
-        let internal = Arc::new(PyAppInternal {
-            service: service_ref,
-            adapter,
-        });
+        let internal = Arc::new(PyAppInternal { adapter });
 
         Ok(PyApp { internal })
     }
@@ -96,7 +104,19 @@ impl PyApp {
 
     #[getter]
     pub fn name(&self) -> PyName {
-        PyName::from(self.internal.adapter.name().clone())
+        // adapter.name() returns slim_service::Name, convert to PyName
+        let ffi_name = self.internal.adapter.name();
+        // Convert FFI Name back to datapath Name, then to PyName
+        let components: [String; 3] = [
+            ffi_name.components.first().cloned().unwrap_or_default(),
+            ffi_name.components.get(1).cloned().unwrap_or_default(),
+            ffi_name.components.get(2).cloned().unwrap_or_default(),
+        ];
+        let mut datapath_name = Name::from_strings(components);
+        if let Some(id) = ffi_name.id {
+            datapath_name = datapath_name.with_id(id);
+        }
+        PyName::from(datapath_name)
     }
 
     #[gen_stub(override_return_type(type_repr="collections.abc.Awaitable[tuple[SessionContext, CompletionHandle]]", imports=("collections.abc",)))]
@@ -109,18 +129,22 @@ impl PyApp {
         let internal_clone = self.internal.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let (session_ctx, init_ack) = internal_clone
+            // Convert to internal types (not FFI types)
+            let internal_config = SessionConfig::from(&config);
+            let internal_dest: Name = (&destination).into();
+
+            let (session_ctx, completion) = internal_clone
                 .adapter
-                .create_session(SessionConfig::from(&config), destination.into())
+                .create_session_internal(internal_config, internal_dest)
                 .await
                 .map_err(|e| {
                     PyErr::new::<PyException, _>(format!("Failed to create session: {}", e))
                 })?;
 
             let py_session_ctx = PySessionContext::from(session_ctx);
-            let py_init_ack = PyCompletionHandle::from(init_ack);
+            let py_completion = PyCompletionHandle::from(completion);
 
-            Ok((py_session_ctx, py_init_ack))
+            Ok((py_session_ctx, py_completion))
         })
     }
 
@@ -136,7 +160,7 @@ impl PyApp {
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             internal_clone
                 .adapter
-                .listen_for_session(timeout)
+                .listen_for_session_internal(timeout)
                 .await
                 .map_err(|e| {
                     PyErr::new::<PyException, _>(format!("Failed to listen for session: {}", e))
@@ -151,38 +175,52 @@ impl PyApp {
         let internal_clone = self.internal.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            // Convert to FFI ServerConfig
+            let ffi_config = slim_service::ServerConfig {
+                endpoint: config.endpoint,
+                tls: slim_service::TlsConfig {
+                    insecure: config.tls_setting.insecure,
+                },
+            };
+
             internal_clone
-                .service
-                .get_service()
-                .run_server(&config)
+                .adapter
+                .run_server_async(ffi_config)
                 .await
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })
     }
 
     #[gen_stub(override_return_type(type_repr="collections.abc.Awaitable", imports=("collections.abc",)))]
-    fn stop_server<'a>(&'a self, py: Python<'a>, endpoint: String) -> PyResult<Bound<'a, PyAny>> {
-        let internal_clone = self.internal.clone();
+    fn stop_server<'a>(&'a self, py: Python<'a>, _endpoint: String) -> PyResult<Bound<'a, PyAny>> {
+        let _internal_clone = self.internal.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            internal_clone
-                .service
-                .get_service()
-                .stop_server(&endpoint)
-                .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+            // TODO: stop_server is not exposed through the FFI adapter interface
+            // This needs to be added to BindingsAdapter if Python bindings require it
+            Err::<(), _>(PyErr::new::<PyException, _>(
+                "stop_server is not yet implemented in the new FFI adapter",
+            ))
         })
     }
 
-    #[gen_stub(override_return_type(type_repr="collections.abc.Awaitable", imports=("collections.abc",)))]
+    #[gen_stub(override_return_type(type_repr="collections.abc.Awaitable[int]", imports=("collections.abc",)))]
     fn connect<'a>(&'a self, py: Python<'a>, config: Py<PyDict>) -> PyResult<Bound<'a, PyAny>> {
         let config: PyGrpcClientConfig = from_pyobject(config.into_bound(py))?;
         let internal_clone = self.internal.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            // Convert to FFI ClientConfig
+            let ffi_config = slim_service::ClientConfig {
+                endpoint: config.endpoint,
+                tls: slim_service::TlsConfig {
+                    insecure: config.tls_setting.insecure,
+                },
+            };
+
             internal_clone
-                .service
-                .get_service()
-                .connect(&config)
+                .adapter
+                .connect_async(ffi_config)
                 .await
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })
@@ -194,9 +232,9 @@ impl PyApp {
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             internal_clone
-                .service
-                .get_service()
-                .disconnect(conn)
+                .adapter
+                .disconnect_async(conn)
+                .await
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })
     }
@@ -212,9 +250,11 @@ impl PyApp {
         let internal_clone = self.internal.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let ffi_name = py_name_to_ffi(&name);
+
             internal_clone
                 .adapter
-                .subscribe(&name.into(), conn)
+                .subscribe_async(ffi_name, conn)
                 .await
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })
@@ -231,9 +271,11 @@ impl PyApp {
         let internal_clone = self.internal.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let ffi_name = py_name_to_ffi(&name);
+
             internal_clone
                 .adapter
-                .unsubscribe(&name.into(), conn)
+                .unsubscribe_async(ffi_name, conn)
                 .await
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })
@@ -249,9 +291,11 @@ impl PyApp {
         let internal_clone = self.internal.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let ffi_name = py_name_to_ffi(&name);
+
             internal_clone
                 .adapter
-                .set_route(&name.into(), conn)
+                .set_route_async(ffi_name, conn)
                 .await
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })
@@ -267,9 +311,11 @@ impl PyApp {
         let internal_clone = self.internal.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let ffi_name = py_name_to_ffi(&name);
+
             internal_clone
                 .adapter
-                .remove_route(&name.into(), conn)
+                .remove_route_async(ffi_name, conn)
                 .await
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })
