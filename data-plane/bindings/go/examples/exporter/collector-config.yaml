@@ -1,0 +1,42 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+
+exporters:
+  # Your custom Slim exporter
+  slim:
+    endpoint: "http://localhost:8080/api/telemetry"
+    # Add your custom config fields here
+    # api_key: "your-api-key"
+    
+  # Standard OTLP exporter for comparison/debugging
+  otlp:
+    endpoint: localhost:4317
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [slim, otlp]
+    
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [slim, otlp]
+    
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [slim, otlp]
