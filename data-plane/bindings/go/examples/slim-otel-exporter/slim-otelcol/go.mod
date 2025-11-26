@@ -166,8 +166,8 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/agntcy/slim/data-plane/bindings/go/examples/slim-otel-exporter/slimexporter v0.0.1 => /Users/micpapal/Documents/code/agntcy/slim/data-plane/bindings/go/examples/slim-otel-exporter/slimexporter
+replace github.com/agntcy/slim/bindings/generated => ../../../generated
 
-replace github.com/agntcy/slim/bindings/generated => /Users/micpapal/Documents/code/agntcy/slim/data-plane/bindings/go/generated
+replace github.com/agntcy/slim/bindings/go/examples/common => ../../common
 
-replace github.com/agntcy/slim/bindings/go/examples/common => /Users/micpapal/Documents/code/agntcy/slim/data-plane/bindings/go/examples/common
+replace github.com/agntcy/slim/data-plane/bindings/go/examples/slim-otel-exporter/slimexporter => ../slimexporter
