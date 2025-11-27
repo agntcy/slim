@@ -588,7 +588,7 @@ mod tests {
         assert!(!task.task_complete());
 
         task.welcome_start(timer_id + 2)
-            .expect("error on weclome start");
+            .expect("error on welcome start");
         assert!(!task.task_complete());
 
         task.commit_start(timer_id + 3)
