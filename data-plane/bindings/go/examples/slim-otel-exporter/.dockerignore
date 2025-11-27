@@ -1,0 +1,17 @@
+# Ignore build artifacts and unnecessary files
+data-plane/target
+data-plane/.git
+data-plane/bindings/go/examples/*
+!data-plane/bindings/go/examples/common
+data-plane/bindings/python
+*.pyc
+*.pyo
+__pycache__
+.pytest_cache
+node_modules
+.vscode
+.idea
+*.swp
+*.swo
+*~
+slim-otelcol/
