@@ -106,15 +106,19 @@
 //! - **Async Operations**: Full async/await support for all operations
 
 // Module declarations
-mod adapter;
-mod builder;
+pub mod adapter;
+// mod builder;  // Disabled for now - generic builder not compatible with concrete FFI types
 mod message_context;
 mod service_ref;
 mod session_context;
 
 // Public re-exports
-pub use adapter::BindingsAdapter;
-pub use builder::AppAdapterBuilder;
+pub use adapter::{
+    BindingsAdapter, ClientConfig, FFISessionContext, MessageContext as FFIMessageContext, Name,
+    ReceivedMessage, ServerConfig, SessionConfig, SessionType, SlimError, TlsConfig,
+    create_app_with_secret, get_version, initialize_crypto,
+};
+// pub use builder::AppAdapterBuilder;  // Disabled - not compatible with concrete FFI types
 pub use message_context::MessageContext;
 pub use service_ref::{ServiceRef, get_or_init_global_service};
 pub use session_context::BindingsSessionContext;

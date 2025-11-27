@@ -17,7 +17,6 @@ use pyo3_stub_gen::derive::gen_stub_pymethods;
 use slim_session::CompletionHandle;
 use slim_session::{SessionConfig, SessionError};
 
-use crate::pyidentity::{IdentityProvider, IdentityVerifier};
 use crate::pymessage::PyMessageContext;
 use crate::utils::PyName;
 use slim_datapath::messages::Name;
@@ -385,10 +384,7 @@ impl PySessionContext {
     }
 
     /// Delete this session and return a completion handle
-    pub(crate) async fn delete(
-        &self,
-        adapter: &BindingsAdapter<IdentityProvider, IdentityVerifier>,
-    ) -> PyResult<CompletionHandle> {
+    pub(crate) async fn delete(&self, adapter: &BindingsAdapter) -> PyResult<CompletionHandle> {
         let session = self
             .internal
             .bindings_ctx
@@ -397,7 +393,7 @@ impl PySessionContext {
             .ok_or_else(|| PyErr::new::<PyException, _>("session closed"))?;
 
         adapter
-            .delete_session(&session)
+            .delete_session_internal(&session)
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     }
 }
