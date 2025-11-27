@@ -107,7 +107,7 @@ func runSender(app *slim.BindingsAdapter, connID uint64, remote, message string,
 	fmt.Printf("[%d] 📡 Session created\n", instance)
 
 	for i := 0; i < iterations; i++ {
-		if err := session.Publish(remoteName, 1, []byte(message), nil, nil, nil); err != nil {
+		if err := session.Publish([]byte(message), nil, nil); err != nil {
 			fmt.Printf("[%d] ❌ Error sending message %d/%d: %v\n", instance, i+1, iterations, err)
 			continue
 		}
@@ -163,7 +163,7 @@ func handleSession(app *slim.BindingsAdapter, session *slim.FfiSessionContext, i
 		fmt.Printf("[%d] 📨 Received: %s\n", instance, text)
 
 		reply := fmt.Sprintf("%s from %d", text, instance)
-		if err := session.Publish(msg.Context.SourceName, 1, []byte(reply), nil, nil, nil); err != nil {
+		if err := session.PublishTo(msg.Context, []byte(reply), nil, nil); err != nil {
 			log.Printf("[%d] ❌ Error sending reply: %v", instance, err)
 			break
 		}

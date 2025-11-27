@@ -68,16 +68,11 @@ func main() {
 		}
 	}()
 
-	// Publish a message
+	// Publish a message using simplified API
 	message := []byte("Hello from Go! 👋")
-	targetName := slim.Name{
-		Components: []string{"org", "receiver", "v1"},
-		Id:         nil,
-	}
-	fanout := uint32(1)
 
 	fmt.Println("\n📤 Publishing message...")
-	err = session.Publish(targetName, fanout, message, nil, nil, nil)
+	err = session.Publish(message, nil, nil)
 	if err != nil {
 		// This might fail without a real SLIM network - that's expected
 		fmt.Printf("⚠️  Publish failed (expected without network): %v\n", err)
