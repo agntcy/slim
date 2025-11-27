@@ -814,8 +814,8 @@ func strPtr(s string) *string {
 }
 
 func TestSouthbound_DifferentGroupsWithMTLS(t *testing.T) {
-	db := db.NewInMemoryDBService()
-	target, cleanup := startSouthbound(t, db)
+	dbs := db.NewInMemoryDBService()
+	target, cleanup := startSouthbound(t, dbs)
 	defer cleanup()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -826,10 +826,33 @@ func TestSouthbound_DifferentGroupsWithMTLS(t *testing.T) {
 	slim0.GroupName = strPtr("group-alpha")
 	slim0.MTLSRequired = true
 	slim0.ExternalEndpoint = strPtr("external-slim-0:4500")
+	slim0.TrustDomain = strPtr("group-alpha")
+	slim0.TLSConfig = &db.SeverTLSConfig{
+		Source: &db.TLSSource{
+			Type:       "spire",
+			SocketPath: strPtr("unix:/tmp1/spire-agent/public/api.sock"),
+		},
+		CaSource: &db.CaSource{
+			Type:       "spire",
+			SocketPath: strPtr("unix:/tmp1/spire-agent/public/api.sock"),
+		},
+	}
+
 	slim1, _ := NewMockSlimServer("slim-1", 4501, target)
 	slim1.GroupName = strPtr("group-beta")
 	slim1.MTLSRequired = true
 	slim1.ExternalEndpoint = strPtr("external-slim-1:4501")
+	slim1.TrustDomain = strPtr("group-beta")
+	slim1.TLSConfig = &db.SeverTLSConfig{
+		Source: &db.TLSSource{
+			Type:       "spire",
+			SocketPath: strPtr("unix:/tmp2/spire-agent/public/api.sock"),
+		},
+		CaSource: &db.CaSource{
+			Type:       "spire",
+			SocketPath: strPtr("unix:/tmp2/spire-agent/public/api.sock"),
+		},
+	}
 
 	if err := slim0.Start(ctx); err != nil {
 		t.Fatalf("slim0 start: %v", err)
@@ -840,7 +863,7 @@ func TestSouthbound_DifferentGroupsWithMTLS(t *testing.T) {
 
 	// Wait for nodes to register in DB
 	waitCond(t, 3*time.Second, func() bool {
-		return len(db.ListNodes()) == 2
+		return len(dbs.ListNodes()) == 2
 	}, "wait for 2 nodes to register")
 
 	// slim-0 publishes a subscription org/test/client/0
@@ -851,7 +874,7 @@ func TestSouthbound_DifferentGroupsWithMTLS(t *testing.T) {
 
 	// check that routes created in DB: from other nodes to slim-0
 	waitCond(t, 3*time.Second, func() bool {
-		for _, r := range db.GetRoutesForNodeID("group-beta/slim-1") {
+		for _, r := range dbs.GetRoutesForNodeID("group-beta/slim-1") {
 			if r.DestNodeID == "group-alpha/slim-0" && r.Component0 == "org" && r.Component2 == "client" {
 				return true
 			}

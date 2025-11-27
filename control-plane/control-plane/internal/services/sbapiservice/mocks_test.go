@@ -2,6 +2,7 @@ package sbapiservice
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -32,6 +33,9 @@ type MockSlimServer struct {
 	LocalEndpoint    *string
 	ExternalEndpoint *string
 	MTLSRequired     bool
+	Auth             *db.Auth
+	TLSConfig        *db.SeverTLSConfig
+	TrustDomain      *string
 
 	// behavior flags (for tests)
 	AckConnectionError         bool
@@ -81,17 +85,51 @@ func (m *MockSlimServer) connect(ctx context.Context) error {
 
 	uid, _ := uuid.NewUUID()
 	// Then send registration
+	connDetails := &controllerapi.ConnectionDetails{
+		Endpoint:     fmt.Sprintf("127.0.0.1:%v", m.Port),
+		MtlsRequired: m.MTLSRequired,
+		Metadata:     make(map[string]*controllerapi.MetadataValue),
+	}
+
+	// Add local_endpoint to metadata if present
+	if m.LocalEndpoint != nil {
+		connDetails.Metadata["local_endpoint"] = &controllerapi.MetadataValue{
+			Value: &controllerapi.MetadataValue_StringValue{
+				StringValue: *m.LocalEndpoint,
+			},
+		}
+	}
+
+	// Add external_endpoint to metadata if present
+	if m.ExternalEndpoint != nil {
+		connDetails.Metadata["external_endpoint"] = &controllerapi.MetadataValue{
+			Value: &controllerapi.MetadataValue_StringValue{
+				StringValue: *m.ExternalEndpoint,
+			},
+		}
+	}
+	if m.TrustDomain != nil {
+		connDetails.Metadata["trust_domain"] = &controllerapi.MetadataValue{
+			Value: &controllerapi.MetadataValue_StringValue{
+				StringValue: *m.TrustDomain,
+			},
+		}
+	}
+	if m.Auth != nil {
+		authJSON, _ := json.Marshal(m.Auth)
+		connDetails.Auth = stringPtr(string(authJSON))
+	}
+	if m.TLSConfig != nil {
+		tlsJSON, _ := json.Marshal(m.TLSConfig)
+		connDetails.Tls = stringPtr(string(tlsJSON))
+	}
+
 	reg := &controllerapi.ControlMessage{
 		MessageId: uid.String(),
 		Payload: &controllerapi.ControlMessage_RegisterNodeRequest{RegisterNodeRequest: &controllerapi.RegisterNodeRequest{
-			NodeId:    m.Name,
-			GroupName: m.GroupName,
-			ConnectionDetails: []*controllerapi.ConnectionDetails{{
-				Endpoint:         fmt.Sprintf("127.0.0.1:%v", m.Port),
-				MtlsRequired:     m.MTLSRequired,
-				LocalEndpoint:    m.LocalEndpoint,
-				ExternalEndpoint: m.ExternalEndpoint,
-			}},
+			NodeId:            m.Name,
+			GroupName:         m.GroupName,
+			ConnectionDetails: []*controllerapi.ConnectionDetails{connDetails},
 		}},
 	}
 	if err := m.stream.Send(reg); err != nil {
@@ -100,6 +138,10 @@ func (m *MockSlimServer) connect(ctx context.Context) error {
 
 	go m.recvLoop()
 	return nil
+}
+
+func stringPtr(s string) *string {
+	return &s
 }
 
 func (m *MockSlimServer) recvLoop() {
