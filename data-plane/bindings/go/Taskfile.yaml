@@ -37,10 +37,13 @@ tasks:
         echo "  task help                      - Show this help message"
         echo ""
         echo "Examples:"
-        echo "  task example                   - Run the simple example"
-        echo "  task example:server            - Run the SLIM server"
-        echo "  task example:p2p:alice         - Run Alice (receiver) for point-to-point"
-        echo "  task example:p2p:bob           - Run Bob (sender) for point-to-point"
+        echo "  task example                         - Run the simple example"
+        echo "  task example:server                  - Run the SLIM server"
+        echo "  task example:p2p:alice               - Run Alice (receiver) for point-to-point"
+        echo "  task example:p2p:bob                 - Run Bob (sender) for point-to-point"
+        echo "  task example:group:moderator         - Run group moderator (creates & invites)"
+        echo "  task example:group:participant:alice - Run Alice as group participant"
+        echo "  task example:group:participant:bob   - Run Bob as group participant"
     silent: true
 
   rust-build:
@@ -161,4 +164,43 @@ tasks:
       - echo "👨 Starting Bob (sender)..."
       - go mod tidy
       - go run main.go --local="org/bob/app" --remote="org/alice/app" --message="Hello SLIM" --iterations=5 --server="http://localhost:46357" {{.CLI_ARGS}}
+    silent: true
+
+  example:group:moderator:
+    desc: Run group moderator (creates session and invites participants)
+    dir: examples/group
+    env:
+      CGO_LDFLAGS: -L{{.ROOT_DIR}}/{{.SERVICE_TARGET}} -l{{.LIB_NAME}}
+      DYLD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${DYLD_LIBRARY_PATH}"
+      LD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${LD_LIBRARY_PATH}"
+    cmds:
+      - echo "👑 Starting group moderator..."
+      - go mod tidy
+      - go run main.go --local="org/moderator/app" --remote="org/default/chat-room" --invites="org/alice/app,org/bob/app" --server="http://localhost:46357" {{.CLI_ARGS}}
+    silent: true
+
+  example:group:participant:alice:
+    desc: Run group participant (waits for invitation)
+    dir: examples/group
+    env:
+      CGO_LDFLAGS: -L{{.ROOT_DIR}}/{{.SERVICE_TARGET}} -l{{.LIB_NAME}}
+      DYLD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${DYLD_LIBRARY_PATH}"
+      LD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${LD_LIBRARY_PATH}"
+    cmds:
+      - echo "👤 Starting group participant..."
+      - go mod tidy
+      - go run main.go --local="org/alice/app" --server="http://localhost:46357" {{.CLI_ARGS}}
+    silent: true
+  
+  example:group:participant:bob:
+    desc: Run group participant (waits for invitation)
+    dir: examples/group
+    env:
+      CGO_LDFLAGS: -L{{.ROOT_DIR}}/{{.SERVICE_TARGET}} -l{{.LIB_NAME}}
+      DYLD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${DYLD_LIBRARY_PATH}"
+      LD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${LD_LIBRARY_PATH}"
+    cmds:
+      - echo "👤 Starting group participant..."
+      - go mod tidy
+      - go run main.go --local="org/bob/app" --server="http://localhost:46357" {{.CLI_ARGS}}
     silent: true
