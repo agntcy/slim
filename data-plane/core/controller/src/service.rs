@@ -8,7 +8,6 @@ use std::time::Duration;
 use std::vec;
 
 use display_error_chain::ErrorChainExt;
-use slim_auth::metadata::MetadataValue;
 use slim_config::component::id::ID;
 use slim_config::grpc::server::ServerConfig;
 use slim_session::SessionMessage;
@@ -25,9 +24,10 @@ use crate::api::proto::api::v1::{
     self, ConnectionDetails, ConnectionListResponse, ConnectionType, SubscriptionListResponse,
 };
 use crate::api::proto::api::v1::{
-    Ack, ConnectionEntry, ControlMessage, SubscriptionEntry,
+    Ack, ConnectionEntry, ControlMessage, MetadataList as ProtoMetadataList,
+    MetadataMap as ProtoMetadataMap, MetadataValue as ProtoMetadataValue, SubscriptionEntry,
     controller_service_client::ControllerServiceClient,
-    controller_service_server::ControllerService as GrpcControllerService,
+    controller_service_server::ControllerService as GrpcControllerService, metadata_value,
 };
 use crate::errors::ControllerError;
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
@@ -167,37 +167,62 @@ impl Drop for ControlPlane {
     }
 }
 
-pub(crate) fn from_server_config(server_config: &ServerConfig) -> ConnectionDetails {
-    let group_name = server_config
+/// Convert slim_auth::metadata::MetadataValue to proto MetadataValue
+fn convert_metadata_value(value: &slim_auth::metadata::MetadataValue) -> ProtoMetadataValue {
+    use slim_auth::metadata::MetadataValue as SlimMetadataValue;
+
+    let proto_value = match value {
+        SlimMetadataValue::String(s) => metadata_value::Value::StringValue(s.clone()),
+        SlimMetadataValue::Number(n) => {
+            // Convert serde_json::Number to f64
+            metadata_value::Value::NumberValue(
+                n.as_f64().unwrap_or_else(|| n.as_i64().unwrap_or(0) as f64),
+            )
+        }
+        SlimMetadataValue::List(list) => {
+            let values = list.iter().map(convert_metadata_value).collect();
+            metadata_value::Value::ListValue(ProtoMetadataList { values })
+        }
+        SlimMetadataValue::Map(map) => {
+            let entries = map
+                .inner
+                .iter()
+                .map(|(k, v)| (k.clone(), convert_metadata_value(v)))
+                .collect();
+            metadata_value::Value::MapValue(ProtoMetadataMap { entries })
+        }
+    };
+
+    ProtoMetadataValue {
+        value: Some(proto_value),
+    }
+}
+
+fn from_server_config(server_config: &ServerConfig) -> ConnectionDetails {
+    // Convert metadata from MetadataMap to proto metadata
+    let metadata = server_config
         .metadata
         .as_ref()
-        .and_then(|m| m.get("group_name"))
-        .and_then(|v| match v {
-            MetadataValue::String(s) => Some(s.clone()),
-            _ => None,
-        });
-    let local_endpoint = server_config
-        .metadata
-        .as_ref()
-        .and_then(|m| m.get("local_endpoint"))
-        .and_then(|v| match v {
-            MetadataValue::String(s) => Some(s.clone()),
-            _ => None,
-        });
-    let external_endpoint = server_config
-        .metadata
-        .as_ref()
-        .and_then(|m| m.get("external_endpoint"))
-        .and_then(|v| match v {
-            MetadataValue::String(s) => Some(s.clone()),
-            _ => None,
-        });
+        .map(|m| {
+            m.inner
+                .iter()
+                .map(|(k, v)| (k.clone(), convert_metadata_value(v)))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // Serialize auth config to JSON string
+    let auth = serde_json::to_string(&server_config.auth).ok();
+
+    // Serialize tls config to JSON string
+    let tls = serde_json::to_string(&server_config.tls_setting.config).ok();
+
     ConnectionDetails {
         endpoint: server_config.endpoint.clone(),
         mtls_required: !server_config.tls_setting.insecure,
-        group_name,
-        local_endpoint,
-        external_endpoint,
+        metadata,
+        auth,
+        tls,
     }
 }
 

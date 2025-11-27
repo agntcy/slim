@@ -122,12 +122,32 @@ message Node {
   string id = 1;
 }
 
+// Represents a metadata value that can be a string, number, list, or nested map
+message MetadataValue {
+  oneof value {
+    string string_value = 1;
+    double number_value = 2;
+    MetadataList list_value = 3;
+    MetadataMap map_value = 4;
+  }
+}
+
+// Represents a list of metadata values
+message MetadataList {
+  repeated MetadataValue values = 1;
+}
+
+// Represents a map of metadata key-value pairs
+message MetadataMap {
+  map<string, MetadataValue> entries = 1;
+}
+
 message ConnectionDetails {
   string endpoint = 1;
   bool mtls_required = 2;
-  optional string local_endpoint = 3;
-  optional string external_endpoint = 4;
-  optional string group_name = 5;
+  map<string, MetadataValue> metadata = 3;
+  optional string auth = 4;
+  optional string tls = 5;
 }
 
 message RegisterNodeRequest {

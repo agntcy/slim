@@ -18,7 +18,6 @@ func TestNodeService_GetNodeByID_Success(t *testing.T) {
 	nodeID := "test-node-1"
 	endPoint := "http://test-endpoint:8080"
 	externalEndpoint := "http://external-endpoint:8080"
-	groupName := "test-group"
 	expectedNode := &db.Node{
 		ID: nodeID,
 		ConnDetails: []db.ConnectionDetails{
@@ -26,7 +25,6 @@ func TestNodeService_GetNodeByID_Success(t *testing.T) {
 				Endpoint:         endPoint,
 				MTLSRequired:     true,
 				ExternalEndpoint: &externalEndpoint,
-				GroupName:        &groupName,
 			},
 		},
 	}
@@ -47,8 +45,9 @@ func TestNodeService_GetNodeByID_Success(t *testing.T) {
 	assert.Len(t, result.Connections, 1)
 	assert.Equal(t, endPoint, result.Connections[0].Endpoint)
 	assert.True(t, result.Connections[0].MtlsRequired)
-	assert.Equal(t, &externalEndpoint, result.Connections[0].ExternalEndpoint)
-	assert.Equal(t, &groupName, result.Connections[0].GroupName)
+	// Check metadata for external_endpoint
+	assert.NotNil(t, result.Connections[0].Metadata)
+	assert.Equal(t, externalEndpoint, result.Connections[0].Metadata["external_endpoint"].GetStringValue())
 
 	mockDB.AssertExpectations(t)
 }
@@ -107,9 +106,7 @@ func TestNodeService_GetNodeByID_MultipleConnections(t *testing.T) {
 	endPoint1 := "http://endpoint1:8080"
 	endPoint2 := "http://endpoint2:8080"
 	externalEndpoint1 := "http://external1:8080"
-	groupName1 := "group1"
 	externalEndpoint2 := "http://external2:8080"
-	groupName2 := "group2"
 	expectedNode := &db.Node{
 		ID: nodeID,
 		ConnDetails: []db.ConnectionDetails{
@@ -117,13 +114,11 @@ func TestNodeService_GetNodeByID_MultipleConnections(t *testing.T) {
 				Endpoint:         endPoint1,
 				MTLSRequired:     true,
 				ExternalEndpoint: &externalEndpoint1,
-				GroupName:        &groupName1,
 			},
 			{
 				Endpoint:         endPoint2,
 				MTLSRequired:     false,
 				ExternalEndpoint: &externalEndpoint2,
-				GroupName:        &groupName2,
 			},
 		},
 	}
@@ -146,14 +141,14 @@ func TestNodeService_GetNodeByID_MultipleConnections(t *testing.T) {
 	// Check first connection
 	assert.Equal(t, endPoint1, result.Connections[0].Endpoint)
 	assert.True(t, result.Connections[0].MtlsRequired)
-	assert.Equal(t, &externalEndpoint1, result.Connections[0].ExternalEndpoint)
-	assert.Equal(t, &groupName1, result.Connections[0].GroupName)
+	assert.NotNil(t, result.Connections[0].Metadata)
+	assert.Equal(t, externalEndpoint1, result.Connections[0].Metadata["external_endpoint"].GetStringValue())
 
 	// Check second connection
 	assert.Equal(t, endPoint2, result.Connections[1].Endpoint)
 	assert.False(t, result.Connections[1].MtlsRequired)
-	assert.Equal(t, &externalEndpoint2, result.Connections[1].ExternalEndpoint)
-	assert.Equal(t, &groupName2, result.Connections[1].GroupName)
+	assert.NotNil(t, result.Connections[1].Metadata)
+	assert.Equal(t, externalEndpoint2, result.Connections[1].Metadata["external_endpoint"].GetStringValue())
 
 	mockDB.AssertExpectations(t)
 }
@@ -164,7 +159,6 @@ func TestNodeService_ListNodes_Success(t *testing.T) {
 	nodeID2 := "test-node-2"
 	endPoint1 := "http://endpoint1:8080"
 	externalEndpoint1 := "http://external1:8080"
-	groupName1 := "group1"
 
 	storedNodes := []db.Node{
 		{
@@ -174,7 +168,6 @@ func TestNodeService_ListNodes_Success(t *testing.T) {
 					Endpoint:         endPoint1,
 					MTLSRequired:     true,
 					ExternalEndpoint: &externalEndpoint1,
-					GroupName:        &groupName1,
 				},
 			},
 		},
@@ -206,8 +199,8 @@ func TestNodeService_ListNodes_Success(t *testing.T) {
 	assert.Len(t, result.Entries[0].Connections, 1)
 	assert.Equal(t, endPoint1, result.Entries[0].Connections[0].Endpoint)
 	assert.True(t, result.Entries[0].Connections[0].MtlsRequired)
-	assert.Equal(t, &externalEndpoint1, result.Entries[0].Connections[0].ExternalEndpoint)
-	assert.Equal(t, &groupName1, result.Entries[0].Connections[0].GroupName)
+	assert.NotNil(t, result.Entries[0].Connections[0].Metadata)
+	assert.Equal(t, externalEndpoint1, result.Entries[0].Connections[0].Metadata["external_endpoint"].GetStringValue())
 	assert.Equal(t, controlplaneApi.NodeStatus_CONNECTED, result.Entries[0].Status)
 
 	// Check second node
