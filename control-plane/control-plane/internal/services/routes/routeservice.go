@@ -441,7 +441,7 @@ func (s *RouteService) getConnectionDetails(route db.Route) (endpoint string, co
 	}
 
 	connDetails, localConnection := selectConnection(destNode, srcNode)
-	connID, configData, err := generateConfigData(connDetails, localConnection, destNode)
+	connID, configData, err := generateConfigData(connDetails, localConnection, destNode, srcNode)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to generate config data for route %v: %w", route, err)
 	}
@@ -469,11 +469,21 @@ func selectConnection(dstNode *db.Node, srcNode *db.Node) (db.ConnectionDetails,
 	return dstNode.ConnDetails[0], false
 }
 
-func generateConfigData(detail db.ConnectionDetails, localConnection bool, destNode *db.Node) (string, string, error) {
+func getSrcNodeSpireSocketPath(srcNode *db.Node) *string {
+	for _, conn := range srcNode.ConnDetails {
+		if conn.TLSConfig != nil && conn.TLSConfig.Source != nil && conn.TLSConfig.Source.SocketPath != nil {
+			return conn.TLSConfig.Source.SocketPath
+		}
+	}
+	return nil
+}
+
+func generateConfigData(detail db.ConnectionDetails, localConnection bool,
+	destNode *db.Node, srcNode *db.Node) (string, string, error) {
 	truev := true
 	falsev := false
 	skipVerify := false
-	config := ConnectionConfig{
+	config := db.ClientConnectionConfig{
 		Endpoint: detail.Endpoint,
 	}
 	if !localConnection {
@@ -486,35 +496,50 @@ func generateConfigData(detail db.ConnectionDetails, localConnection bool, destN
 	}
 	if !detail.MTLSRequired {
 		config.Endpoint = "http://" + config.Endpoint
-		config.TLS = &TLS{Insecure: &truev}
+		config.TLS = &db.TLS{Insecure: &truev}
 	} else {
+		// Socket path for SPIRE should be set in the source node's connection details
+		srcNodeSpireSocketPath := getSrcNodeSpireSocketPath(srcNode)
+		if srcNodeSpireSocketPath == nil {
+			return "", "", fmt.Errorf("no SPIRE socket path found for source node %s", srcNode.ID)
+		}
+		// TODO remove
+		fmt.Println("SPIRE socket path for source node:")
+		fmt.Println(*srcNodeSpireSocketPath)
+
 		config.Endpoint = "https://" + config.Endpoint
-		config.TLS = &TLS{
+		config.TLS = &db.TLS{
 			Insecure:           &falsev,
 			InsecureSkipVerify: &skipVerify,
-			Source: &TLSSource{
+			Source: &db.TLSSource{
 				Type:       "spire",
-				SocketPath: stringPtr("unix:/tmp/spire-agent/public/api.sock"),
+				SocketPath: srcNodeSpireSocketPath,
 			},
-			CaSource: &CaSource{
+			CaSource: &db.CaSource{
 				Type:       "spire",
-				SocketPath: stringPtr("unix:/tmp/spire-agent/public/api.sock"),
+				SocketPath: srcNodeSpireSocketPath,
 			},
 		}
-		if destNode.GroupName != nil {
+		if detail.TrustDomain != nil {
+			config.TLS.CaSource.TrustDomains = &[]string{*detail.TrustDomain}
+			fmt.Println("Trust domain set to:")
+			fmt.Println(*detail.TrustDomain)
+		} else if destNode.GroupName != nil {
 			config.TLS.CaSource.TrustDomains = &[]string{*destNode.GroupName}
+			fmt.Println("Trust domain set to:")
+			fmt.Println(*destNode.GroupName)
 		}
 	}
 	var bufferSize int64 = 1024
 	config.BufferSize = &bufferSize
-	gzip := Gzip
+	gzip := db.Gzip
 	config.Compression = &gzip
 	config.ConnectTimeout = stringPtr("10s")
 	config.Headers = map[string]string{
 		"x-custom-header": "value",
 	}
 
-	config.Keepalive = &KeepaliveClass{
+	config.Keepalive = &db.KeepaliveClass{
 		HTTP2Keepalive:     stringPtr("2h"),
 		KeepAliveWhileIdle: &falsev,
 		TCPKeepalive:       stringPtr("20s"),
