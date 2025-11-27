@@ -94,10 +94,10 @@ func main() {
 		fmt.Println("✅ Subscribed successfully")
 
 		// Unsubscribe
-		err = app.Unsubscribe(subscriptionName, nil)
-		if err != nil {
-			fmt.Printf("⚠️  Unsubscribe failed: %v\n", err)
-		} else {
+	err = app.Unsubscribe(subscriptionName, nil)
+	if err != nil {
+		fmt.Printf("⚠️  Unsubscribe failed: %v\n", err)
+	} else {
 			fmt.Println("✅ Unsubscribed successfully")
 		}
 	}

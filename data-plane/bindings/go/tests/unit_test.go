@@ -35,7 +35,7 @@ func TestAppCreation(t *testing.T) {
 		Components: []string{"org", "testapp", "v1"},
 		Id:         nil,
 	}
-	
+
 	sharedSecret := "test-shared-secret-must-be-at-least-32-bytes-long!"
 	
 	app, err := slim.CreateAppWithSecret(appName, sharedSecret)
@@ -61,7 +61,7 @@ func TestAppCreation(t *testing.T) {
 	if returnedName.Components[0] != "org" || returnedName.Components[1] != "testapp" {
 		t.Errorf("Name components don't match: %v", returnedName.Components)
 	}
-	
+
 	app.Destroy()
 }
 
@@ -92,14 +92,14 @@ func TestNameStructure(t *testing.T) {
 			valid:      true, // Will be padded by SLIM
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			name := slim.Name{
 				Components: tt.components,
 				Id:         tt.id,
 			}
-			
+
 			// Just verify the struct is created
 			if name.Components == nil && tt.components != nil {
 				t.Error("Components should not be nil")
@@ -200,7 +200,7 @@ func TestMultipleApps(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("Failed to create app2: %v", err)
-	}
+			}
 	defer app2.Destroy()
 	
 	// They should have different IDs
