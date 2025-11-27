@@ -814,106 +814,153 @@ func strPtr(s string) *string {
 }
 
 func TestSouthbound_DifferentGroupsWithMTLS(t *testing.T) {
-	dbs := db.NewInMemoryDBService()
-	target, cleanup := startSouthbound(t, dbs)
-	defer cleanup()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Create two mock servers with different group names and mTLS required
-	slim0, _ := NewMockSlimServer("slim-0", 4500, target)
-	slim0.GroupName = strPtr("group-alpha")
-	slim0.MTLSRequired = true
-	slim0.ExternalEndpoint = strPtr("external-slim-0:4500")
-	slim0.TrustDomain = strPtr("group-alpha")
-	slim0.TLSConfig = &db.SeverTLSConfig{
-		Source: &db.TLSSource{
-			Type:       "spire",
-			SocketPath: strPtr("unix:/tmp1/spire-agent/public/api.sock"),
+	tests := []struct {
+		name                   string
+		slim0TrustDomain       *string
+		slim1TrustDomain       *string
+		slim0SocketPath        string
+		slim1SocketPath        string
+		expectedTrustDomain    string
+		expectedSourceSocket   string
+		expectedCaSourceSocket string
+		description            string
+	}{
+		{
+			name:                   "with_explicit_trust_domain",
+			slim0TrustDomain:       strPtr("group-alpha"),
+			slim1TrustDomain:       strPtr("group-beta"),
+			slim0SocketPath:        "unix:/tmp1/spire-agent/public/api.sock",
+			slim1SocketPath:        "unix:/tmp2/spire-agent/public/api.sock",
+			expectedTrustDomain:    "group-alpha",
+			expectedSourceSocket:   "unix:/tmp2/spire-agent/public/api.sock",
+			expectedCaSourceSocket: "unix:/tmp2/spire-agent/public/api.sock",
+			description:            "Trust domain explicitly set, should use TrustDomain field",
 		},
-		CaSource: &db.CaSource{
-			Type:       "spire",
-			SocketPath: strPtr("unix:/tmp1/spire-agent/public/api.sock"),
-		},
-	}
-
-	slim1, _ := NewMockSlimServer("slim-1", 4501, target)
-	slim1.GroupName = strPtr("group-beta")
-	slim1.MTLSRequired = true
-	slim1.ExternalEndpoint = strPtr("external-slim-1:4501")
-	slim1.TrustDomain = strPtr("group-beta")
-	slim1.TLSConfig = &db.SeverTLSConfig{
-		Source: &db.TLSSource{
-			Type:       "spire",
-			SocketPath: strPtr("unix:/tmp2/spire-agent/public/api.sock"),
-		},
-		CaSource: &db.CaSource{
-			Type:       "spire",
-			SocketPath: strPtr("unix:/tmp2/spire-agent/public/api.sock"),
+		{
+			name:                   "fallback_to_group_name",
+			slim0TrustDomain:       nil,
+			slim1TrustDomain:       nil,
+			slim0SocketPath:        "unix:/tmp/spire-agent/public/api.sock",
+			slim1SocketPath:        "unix:/tmp/spire-agent/public/api.sock",
+			expectedTrustDomain:    "group-alpha",
+			expectedSourceSocket:   "unix:/tmp/spire-agent/public/api.sock",
+			expectedCaSourceSocket: "unix:/tmp/spire-agent/public/api.sock",
+			description:            "Trust domain not set, should fallback to GroupName",
 		},
 	}
 
-	if err := slim0.Start(ctx); err != nil {
-		t.Fatalf("slim0 start: %v", err)
-	}
-	if err := slim1.Start(ctx); err != nil {
-		t.Fatalf("slim1 start: %v", err)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dbs := db.NewInMemoryDBService()
+			target, cleanup := startSouthbound(t, dbs)
+			defer cleanup()
 
-	// Wait for nodes to register in DB
-	waitCond(t, 3*time.Second, func() bool {
-		return len(dbs.ListNodes()) == 2
-	}, "wait for 2 nodes to register")
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
 
-	// slim-0 publishes a subscription org/test/client/0
-	if err := slim0.updateSubscription(ctx, "org", "test", "client",
-		0, false); err != nil {
-		t.Fatalf("failed to send subcription update: %v", err)
-	}
-
-	// check that routes created in DB: from other nodes to slim-0
-	waitCond(t, 3*time.Second, func() bool {
-		for _, r := range dbs.GetRoutesForNodeID("group-beta/slim-1") {
-			if r.DestNodeID == "group-alpha/slim-0" && r.Component0 == "org" && r.Component2 == "client" {
-				return true
+			// Create two mock servers with different group names and mTLS required
+			slim0, _ := NewMockSlimServer("slim-0", 4500, target)
+			slim0.GroupName = strPtr("group-alpha")
+			slim0.MTLSRequired = true
+			slim0.ExternalEndpoint = strPtr("external-slim-0:4500")
+			slim0.TrustDomain = tt.slim0TrustDomain
+			slim0.TLSConfig = &db.SeverTLSConfig{
+				Source: &db.TLSSource{
+					Type:           "spire",
+					SocketPath:     strPtr(tt.slim0SocketPath),
+					TargetSpiffeID: strPtr("spiffe://example.local/ns/slim/sa/slim"),
+				},
+				CaSource: &db.CaSource{
+					Type:       "spire",
+					SocketPath: strPtr(tt.slim0SocketPath),
+				},
 			}
-		}
-		return false
-	}, "wait for route for group-beta/slim-1 to be created")
 
-	// Verify that slim1 received the connection with proper endpoint and ca_source
-	conns, _ := slim1.GetReceived()
-	var foundConnection bool
-	for _, conn := range conns {
-		if conn.ConnectionId == "https://external-slim-0:4500" {
-			// Parse the config data to check ca_source
-			var config map[string]interface{}
-			require.NoError(t, json.Unmarshal([]byte(conn.ConfigData), &config))
+			slim1, _ := NewMockSlimServer("slim-1", 4501, target)
+			slim1.GroupName = strPtr("group-beta")
+			slim1.MTLSRequired = true
+			slim1.ExternalEndpoint = strPtr("external-slim-1:4501")
+			slim1.TrustDomain = tt.slim1TrustDomain
+			slim1.TLSConfig = &db.SeverTLSConfig{
+				Source: &db.TLSSource{
+					Type:           "spire",
+					SocketPath:     strPtr(tt.slim1SocketPath),
+					TargetSpiffeID: strPtr("spiffe://example.local/ns/slim/sa/slim"),
+				},
+				CaSource: &db.CaSource{
+					Type:       "spire",
+					SocketPath: strPtr(tt.slim1SocketPath),
+				},
+			}
 
-			// Check if tls field exists
-			tls, ok := config["tls"].(map[string]interface{})
-			require.True(t, ok, "tls field should exist in config")
+			if err := slim0.Start(ctx); err != nil {
+				t.Fatalf("slim0 start: %v", err)
+			}
+			if err := slim1.Start(ctx); err != nil {
+				t.Fatalf("slim1 start: %v", err)
+			}
 
-			// Check if ca_source exists
-			caSource, ok := tls["ca_source"].(map[string]interface{})
-			require.True(t, ok, "ca_source should exist in tls config")
+			// Wait for nodes to register in DB
+			waitCond(t, 3*time.Second, func() bool {
+				return len(dbs.ListNodes()) == 2
+			}, "wait for 2 nodes to register")
 
-			// Check if trust_domains exists and contains "group-alpha"
-			trustDomains, ok := caSource["trust_domains"].([]interface{})
-			require.True(t, ok, "trust_domains should exist in ca_source")
-			require.Len(t, trustDomains, 1, "trust_domains should have exactly one entry")
+			// slim-0 publishes a subscription org/test/client/0
+			if err := slim0.updateSubscription(ctx, "org", "test", "client",
+				0, false); err != nil {
+				t.Fatalf("failed to send subcription update: %v", err)
+			}
 
-			trustDomain, ok := trustDomains[0].(string)
-			require.True(t, ok, "trust_domain should be a string")
-			require.Equal(t, "group-alpha", trustDomain, "trust_domain should be group-alpha")
+			// check that routes created in DB: from other nodes to slim-0
+			waitCond(t, 3*time.Second, func() bool {
+				for _, r := range dbs.GetRoutesForNodeID("group-beta/slim-1") {
+					if r.DestNodeID == "group-alpha/slim-0" && r.Component0 == "org" && r.Component2 == "client" {
+						return true
+					}
+				}
+				return false
+			}, "wait for route for group-beta/slim-1 to be created")
 
-			foundConnection = true
-			break
-		}
+			// Verify that slim1 received the connection with proper endpoint and ca_source
+			conns, _ := slim1.GetReceived()
+			var foundConnection bool
+			for _, conn := range conns {
+				if conn.ConnectionId == "https://external-slim-0:4500" {
+					// Parse the config data to proper struct
+					var config db.ClientConnectionConfig
+					require.NoError(t, json.Unmarshal([]byte(conn.ConfigData), &config))
+
+					// Check endpoint is set correctly
+					require.Equal(t, "https://external-slim-0:4500", config.Endpoint, "Endpoint should be set to external endpoint")
+
+					// Check TLS configuration exists
+					require.NotNil(t, config.TLS, "TLS config should exist")
+
+					// Check TLS Source configuration
+					require.NotNil(t, config.TLS.Source, "TLS Source should exist")
+					require.Equal(t, "spire", config.TLS.Source.Type, "TLS Source type should be spire")
+					require.NotNil(t, config.TLS.Source.SocketPath, "TLS Source socket_path should exist")
+					require.Equal(t, tt.expectedSourceSocket, *config.TLS.Source.SocketPath)
+
+					// Check CA Source configuration
+					require.NotNil(t, config.TLS.CaSource, "CA Source should exist")
+					require.Equal(t, "spire", config.TLS.CaSource.Type, "CA Source type should be spire")
+					require.NotNil(t, config.TLS.CaSource.SocketPath, "CA Source socket_path should exist")
+					require.Equal(t, tt.expectedCaSourceSocket, *config.TLS.CaSource.SocketPath)
+
+					// Check trust_domains
+					require.NotNil(t, config.TLS.CaSource.TrustDomains, "trust_domains should exist")
+					require.Len(t, *config.TLS.CaSource.TrustDomains, 1, "trust_domains should have exactly one entry")
+					require.Equal(t, tt.expectedTrustDomain, (*config.TLS.CaSource.TrustDomains)[0], tt.description)
+
+					foundConnection = true
+					break
+				}
+			}
+			require.True(t, foundConnection, "should find connection with endpoint https://external-slim-0:4500")
+
+			_ = slim0.Close()
+			_ = slim1.Close()
+		})
 	}
-	require.True(t, foundConnection, "should find connection with endpoint https://external-slim-0:4500")
-
-	_ = slim0.Close()
-	_ = slim1.Close()
 }
