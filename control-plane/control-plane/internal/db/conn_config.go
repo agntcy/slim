@@ -1,11 +1,11 @@
-package routes
+package db
 
 // Struct for the client configuration.
 // This struct contains the endpoint, origin, compression type, rate limit,
 // TLS settings, keepalive settings, timeout settings, buffer size settings,
 // headers, and auth settings.
 // The client configuration can be converted to a tonic channel.
-type ConnectionConfig struct {
+type ClientConnectionConfig struct {
 	// Auth configuration for outgoing RPCs.
 	Auth *Auth `json:"auth,omitempty"`
 	// ReadBufferSize.
@@ -108,6 +108,7 @@ type KeepaliveClass struct {
 }
 
 // TLS client configuration.
+
 type TLS struct {
 	// CA source configuration
 	CaSource *CaSource `json:"ca_source,omitempty"`
@@ -231,4 +232,18 @@ type KeyData struct {
 	Data *string `json:"data,omitempty"`
 	// For type "file" - File path to the key(s)
 	File *string `json:"file,omitempty"`
+}
+
+type SeverTLSConfig struct {
+	// CA source configuration
+	CaSource *CaSource `json:"ca_source,omitempty"`
+	// If true, load system CA certificates pool in addition to the certificates
+	// configured in this struct.
+	IncludeSystemCACertsPool *bool `json:"include_system_ca_certs_pool,omitempty"`
+	// TLS source configuration
+	Source *TLSSource `json:"source,omitempty"`
+	// The TLS version to use. If not set, the default is "tls1.3".
+	// The value must be either "tls1.2" or "tls1.3".
+	// (optional)
+	TLSVersion *string `json:"tls_version,omitempty"`
 }
