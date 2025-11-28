@@ -243,6 +243,5 @@ message GroupAckPayload {}
 // Group Nack
 message GroupNackPayload {}
 
-// Ping 
+// Ping
 message PingPayload {}
-

@@ -230,6 +230,17 @@ where
                 // send it to all the participants
                 self.delete_all(leave_msg, None).await
             }
+            SessionMessage::ParticipantDisconnected { name: participant } => {
+                tracing::warn!(
+                    "Participant {} is not anymore connected to the current session",
+                    participant
+                );
+                Ok(())
+                // TODO(micpapal):
+                // 1. remove state for the participant
+                // 2. update MLS state
+                // 3. notify all the other participants
+            }
             _ => Err(SessionError::Processing(format!(
                 "Unexpected message type {:?}",
                 message

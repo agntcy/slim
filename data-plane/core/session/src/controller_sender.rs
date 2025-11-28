@@ -96,6 +96,9 @@ pub struct ControllerSender {
     /// send packets to slim or the app
     tx: SessionTransmitter,
 
+    /// send message to the session controller
+    tx_session: Sender<SessionMessage>,
+
     /// drain state - when true, no new messages from app are accepted
     draining_state: ControllerSenderDrainStatus,
 }
@@ -116,7 +119,6 @@ impl ControllerSender {
         list.insert(local_name.clone());
 
         let ping_state = if let Some(interval) = ping_interval {
-            tracing::info!("init ping state");
             // we need to setup the timer for the ping
             let settings =
                 TimerSettings::new(interval, None, None, crate::timer::TimerType::Constant);
@@ -133,12 +135,11 @@ impl ControllerSender {
                 ping_timer,
             })
         } else {
-            tracing::info!("no ping initiated");
             None
         };
 
         ControllerSender {
-            timer_factory: TimerFactory::new(timer_settings, tx_signals),
+            timer_factory: TimerFactory::new(timer_settings, tx_signals.clone()),
             local_name,
             group_name,
             session_type,
@@ -147,6 +148,7 @@ impl ControllerSender {
             ping_state,
             group_list: list,
             tx,
+            tx_session: tx_signals,
             draining_state: ControllerSenderDrainStatus::NotDraining,
         }
     }
@@ -310,18 +312,18 @@ impl ControllerSender {
     }
 
     fn on_ping_message(&mut self, message: &Message) {
-        tracing::info!("received ping reply {}", message.get_id());
+        debug!("received ping reply {}", message.get_id());
         if let Some(ping_state) = &mut self.ping_state
             && let Some(ping) = &mut ping_state.ping
             && ping.timer.get_id() == message.get_id()
         {
             ping.missing_replies.remove(&message.get_source());
             if ping.missing_replies.is_empty() {
-                tracing::info!("stop ping retransmissions for id {}", message.get_id());
+                debug!("stop ping retransmissions for id {}", message.get_id());
                 ping.timer.stop()
             }
         } else {
-            tracing::info!("received a ping but the state is not set, ignore the message");
+            debug!("received a ping but the state is not set, ignore the message");
         }
     }
 
@@ -357,8 +359,6 @@ impl ControllerSender {
     }
 
     pub async fn handle_ping_timeout(&mut self, id: u32) -> Result<(), SessionError> {
-        tracing::info!("Ping timeout {}", id);
-
         // Check if we need to handle ping timeout
         let should_handle_ping_interval = {
             let ping_state = self.ping_state.as_ref().unwrap();
@@ -366,12 +366,10 @@ impl ControllerSender {
         };
 
         if should_handle_ping_interval {
-            tracing::info!(
-                "ping interval timeout, check if there are still some ping pending and send a new one"
-            );
+            debug!("ping interval timeout, check current group state");
             // the timeout is related to the ping intervarl timer
             // check if we sent a ping before and if there are still pending acks to the ping
-            self.handle_ping_state();
+            self.handle_ping_state().await;
 
             // completely reset the ping if needed
             self.ping_state.as_mut().unwrap().ping = None;
@@ -398,7 +396,7 @@ impl ControllerSender {
                     .build_publish()
                     .map_err(|e| SessionError::Processing(e.to_string()))?;
 
-                tracing::info!("send a new ping with id {}", ping_id);
+                debug!("send a new ping with id {}", ping_id);
 
                 // set the ping missing replies state
                 let mut missing_replies = self.group_list.clone();
@@ -422,8 +420,6 @@ impl ControllerSender {
                         None,
                     ),
                 });
-            } else {
-                tracing::info!("do not send any ping {:?}", self.group_list);
             }
         } else {
             // most likely the timeout is related to the ping message itself so
@@ -435,7 +431,7 @@ impl ControllerSender {
                 .map(|p| p.message.clone());
 
             if let Some(ping_message) = message_to_send {
-                tracing::info!("ping message {} timeout, send it again", id);
+                debug!("ping message {} timeout, send it again", id);
                 // simply resend the message
                 return self
                     .tx
@@ -449,9 +445,7 @@ impl ControllerSender {
     }
 
     /// Handle ping state by updating missing_pings and checking for disconnections
-    fn handle_ping_state(&mut self) {
-        tracing::info!("handle ping state");
-
+    async fn handle_ping_state(&mut self) {
         let ping_state = self
             .ping_state
             .as_mut()
@@ -466,12 +460,12 @@ impl ControllerSender {
         // if all participants replyed to the ping, rest the
         // missing_pings map otherwise try to see if someone got disconnected
         if ping.missing_replies.is_empty() {
-            tracing::info!("all ping received, nobody got disconnected");
+            debug!("all ping received, nobody got disconnected");
             ping_state.missing_pings.clear();
         } else {
             // update missing_pings
             for p in &ping.missing_replies {
-                tracing::info!("missing ping reply from {}", p);
+                debug!("missing ping reply from {}", p);
                 if let Some(val) = ping_state.missing_pings.get_mut(p) {
                     *val += 1;
                 } else {
@@ -482,17 +476,21 @@ impl ControllerSender {
             // check if someone got disconnected
             for (k, v) in &ping_state.missing_pings {
                 if *v >= MAX_PING_FAILURE {
-                    tracing::info!("participant {} got disconnected", k);
+                    debug!("participant {} got disconnected", k);
                     self.group_list.remove(k);
-                    // TODO: notify the controller
+                    if let Err(e) = self
+                        .tx_session
+                        .send(SessionMessage::ParticipantDisconnected { name: k.clone() })
+                        .await
+                    {
+                        tracing::error!("failed to send participant disconnected message: {}", e);
+                    }
                 }
             }
         }
     }
 
     pub async fn on_timer_failure(&mut self, id: u32, msg_type: ProtoSessionMessageType) {
-        tracing::info!("Timer failure for message {}", id);
-
         if msg_type == ProtoSessionMessageType::Ping {
             // the only timer that can fail is the one related to the ping retransmissions
             let should_handle = if let Some(ping_state) = &self.ping_state {
@@ -507,8 +505,8 @@ impl ControllerSender {
 
             if should_handle {
                 // reset the pending ping state and wait for the next one to be sent
-                tracing::info!("ping message timer failure, send update the state");
-                self.handle_ping_state();
+                debug!("ping message {} timer failure, update ping state", id);
+                self.handle_ping_state().await;
             } else {
                 debug!("got message failure for unknown ping, ignore it");
                 return;
