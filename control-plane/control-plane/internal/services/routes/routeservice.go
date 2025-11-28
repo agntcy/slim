@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"sort"
 	"sync"
 	"time"
 
@@ -543,13 +544,60 @@ func (s *RouteService) ListRoutes(_ context.Context,
 	request *controlplaneApi.RouteListRequest) (*controlplaneApi.RouteListResponse, error) {
 
 	allRoutes := s.dbService.FilterRoutesBySourceAndDestination(request.GetSrcNodeId(), request.GetDestNodeId())
-	routIDs := make([]string, 0, len(allRoutes))
+
+	// Sort routes: first by wildcard srcNodeID (*), then by srcNodeID
+	sort.Slice(allRoutes, func(i, j int) bool {
+		srcI := allRoutes[i].SourceNodeID
+		srcJ := allRoutes[j].SourceNodeID
+
+		// Check if either is AllNodesID ("*")
+		if srcI == AllNodesID && srcJ != AllNodesID {
+			return true
+		}
+		if srcI != AllNodesID && srcJ == AllNodesID {
+			return false
+		}
+
+		// If both are AllNodesID or both are not, sort by SourceNodeID
+		return srcI < srcJ
+	})
+
+	routeEntries := make([]*controlplaneApi.RouteEntry, 0, len(allRoutes))
 	for _, r := range allRoutes {
-		routIDs = append(routIDs, r.String())
+		entry := &controlplaneApi.RouteEntry{
+			Id:             r.ID,
+			SourceNodeId:   r.SourceNodeID,
+			DestNodeId:     r.DestNodeID,
+			DestEndpoint:   r.DestEndpoint,
+			ConnConfigData: r.ConnConfigData,
+			Component_0:    r.Component0,
+			Component_1:    r.Component1,
+			Component_2:    r.Component2,
+			StatusMsg:      r.StatusMsg,
+			Deleted:        r.Deleted,
+			LastUpdated:    r.LastUpdated.Unix(),
+		}
+
+		// Set component_id if present
+		if r.ComponentID != nil {
+			entry.ComponentId = &r.ComponentID.Value
+		}
+
+		// Map status
+		switch r.Status {
+		case db.RouteStatusApplied:
+			entry.Status = controlplaneApi.RouteStatus_ROUTE_STATUS_APPLIED
+		case db.RouteStatusFailed:
+			entry.Status = controlplaneApi.RouteStatus_ROUTE_STATUS_FAILED
+		default:
+			entry.Status = controlplaneApi.RouteStatus_ROUTE_STATUS_UNSPECIFIED
+		}
+
+		routeEntries = append(routeEntries, entry)
 	}
 
 	return &controlplaneApi.RouteListResponse{
-		Routes: routIDs,
+		Routes: routeEntries,
 	}, nil
 
 }

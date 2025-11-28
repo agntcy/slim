@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/types/known/wrapperspb"
@@ -266,9 +268,63 @@ func newOutlineRoutesCmd(opts *options.CommonOptions) *cobra.Command {
 				return fmt.Errorf("failed to outline routes: %w", err)
 			}
 
-			fmt.Printf("number of routes #: %v\n\n", len(outlineRoutesResponse.GetRoutes()))
-			for _, routeID := range outlineRoutesResponse.GetRoutes() {
-				fmt.Printf("%s\n", routeID)
+			routes := outlineRoutesResponse.GetRoutes()
+			fmt.Printf("Number of routes: %v\n\n", len(routes))
+
+			if len(routes) == 0 {
+				return nil
+			}
+
+			// Create tabwriter for aligned output
+			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+			defer w.Flush()
+
+			// Print header
+			fmt.Fprintln(w, "ID\tSOURCE\tDEST_NODE\tDEST_ENDPOINT\tSUBSCRIPTION\tSTATUS\tDELETED\tLAST_UPDATED")
+			fmt.Fprintln(w, strings.Repeat("-", 150))
+
+			// Print routes (already sorted: * routes first, then by srcNodeID)
+			for _, route := range routes {
+				subscription := fmt.Sprintf("%s/%s/%s", route.Component_0, route.Component_1, route.Component_2)
+				if route.ComponentId != nil {
+					subscription = fmt.Sprintf("%s/%d", subscription, *route.ComponentId)
+				}
+
+				status := "UNKNOWN"
+				switch route.Status {
+				case controlplaneApi.RouteStatus_ROUTE_STATUS_APPLIED:
+					status = "APPLIED"
+				case controlplaneApi.RouteStatus_ROUTE_STATUS_FAILED:
+					status = "FAILED"
+				}
+
+				lastUpdated := time.Unix(route.LastUpdated, 0).Format(time.RFC3339)
+
+				destNode := route.DestNodeId
+				if destNode == "" {
+					destNode = "-"
+				}
+
+				destEndpoint := route.DestEndpoint
+				if destEndpoint == "" {
+					destEndpoint = "-"
+				}
+
+				deleted := "No"
+				if route.Deleted {
+					deleted = "Yes"
+				}
+
+				fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+					route.Id,
+					route.SourceNodeId,
+					destNode,
+					destEndpoint,
+					subscription,
+					status,
+					deleted,
+					lastUpdated,
+				)
 			}
 
 			return nil

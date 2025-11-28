@@ -96,8 +96,32 @@ message RouteListRequest {
   string destNodeId = 2; // optional
 }
 
+// Route status enum
+enum RouteStatus {
+  ROUTE_STATUS_UNSPECIFIED = 0;
+  ROUTE_STATUS_APPLIED = 1;
+  ROUTE_STATUS_FAILED = 2;
+}
+
+// Route message representing a single route
+message RouteEntry {
+  uint64 id = 1;
+  string source_node_id = 2;
+  string dest_node_id = 3;
+  string dest_endpoint = 4;
+  string conn_config_data = 5;
+  string component_0 = 6;
+  string component_1 = 7;
+  string component_2 = 8;
+  optional uint64 component_id = 9;
+  RouteStatus status = 10;
+  string status_msg = 11;
+  bool deleted = 12;
+  int64 last_updated = 13; // Unix timestamp
+}
+
 // Response containing a list of route representations
 message RouteListResponse {
-  // list of route representations
-  repeated string routes = 1;
+  // list of routes
+  repeated RouteEntry routes = 1;
 }
