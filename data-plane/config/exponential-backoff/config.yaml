@@ -29,7 +29,7 @@ services:
             type: exponential
             base: 200
             factor: 1
-            max_delay: 1500
+            max_delay: 1500ms
             jitter: true
       token_provider:
         type: shared_secret

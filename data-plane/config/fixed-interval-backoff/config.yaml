@@ -27,7 +27,7 @@ services:
             insecure: true
           backoff:
             type: fixed_interval
-            interval: 2000
+            interval: 2000ms
       token_provider:
         type: shared_secret
         data: "group-abcdef-12345678901234567890"

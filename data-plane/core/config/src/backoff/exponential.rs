@@ -1,4 +1,5 @@
 use super::Strategy;
+use duration_string::DurationString;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -9,7 +10,8 @@ use tokio_retry::strategy::{ExponentialBackoff, jitter};
 pub struct Config {
     base: u64,
     factor: u64,
-    max_delay: u64,
+    #[schemars(with = "String")]
+    max_delay: DurationString,
     jitter: bool,
 }
 
@@ -17,8 +19,8 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             base: 100,
-            factor: 2,
-            max_delay: 1000,
+            factor: 1,
+            max_delay: Duration::from_millis(1000).into(),
             jitter: true,
         }
     }
@@ -30,14 +32,14 @@ impl Strategy for Config {
             Box::new(
                 ExponentialBackoff::from_millis(self.base)
                     .factor(self.factor)
-                    .max_delay(Duration::from_secs(self.max_delay))
+                    .max_delay(self.max_delay.into())
                     .map(jitter),
             )
         } else {
             Box::new(
                 ExponentialBackoff::from_millis(self.base)
                     .factor(self.factor)
-                    .max_delay(Duration::from_secs(self.max_delay)),
+                    .max_delay(self.max_delay.into()),
             )
         }
     }
