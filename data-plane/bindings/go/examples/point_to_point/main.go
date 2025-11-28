@@ -17,10 +17,10 @@ func main() {
 	// Command-line flags
 	local := flag.String("local", "", "Local ID (org/namespace/app) - required")
 	remote := flag.String("remote", "", "Remote ID (org/namespace/app)")
-	server := flag.String("server", "http://localhost:46357", "SLIM server endpoint")
+	server := flag.String("server", common.DefaultServerEndpoint, "SLIM server endpoint")
 	message := flag.String("message", "", "Message to send (sender mode)")
 	iterations := flag.Int("iterations", 10, "Number of messages to send")
-	sharedSecret := flag.String("shared-secret", "demo-shared-secret-min-32-chars!!", "Shared secret (min 32 chars)")
+	sharedSecret := flag.String("shared-secret", common.DefaultSharedSecret, "Shared secret (min 32 chars)")
 	enableMLS := flag.Bool("enable-mls", false, "Enable MLS encryption")
 
 	flag.Parse()
@@ -30,7 +30,7 @@ func main() {
 	}
 
 	// Create and connect app
-	app, connID, err := createAndConnectApp(*local, *server, *sharedSecret)
+	app, connID, err := common.CreateAndConnectApp(*local, *server, *sharedSecret)
 	if err != nil {
 		log.Fatalf("Failed to create/connect app: %v", err)
 	}
@@ -48,33 +48,6 @@ func main() {
 	} else {
 		runReceiver(app, instance)
 	}
-}
-
-func createAndConnectApp(localID, serverAddr, secret string) (*slim.BindingsAdapter, uint64, error) {
-	slim.InitializeCrypto()
-
-	appName, err := common.SplitID(localID)
-	if err != nil {
-		return nil, 0, fmt.Errorf("invalid local ID: %w", err)
-	}
-
-	app, err := slim.CreateAppWithSecret(appName, secret)
-	if err != nil {
-		return nil, 0, fmt.Errorf("create app failed: %w", err)
-	}
-
-	// Connect to SLIM server (returns connection ID)
-	config := slim.ClientConfig{
-		Endpoint: serverAddr,
-		Tls:      slim.TlsConfig{Insecure: true},
-	}
-	connID, err := app.Connect(config)
-	if err != nil {
-		app.Destroy()
-		return nil, 0, fmt.Errorf("connect failed: %w", err)
-	}
-
-	return app, connID, nil
 }
 
 func runSender(app *slim.BindingsAdapter, connID uint64, remote, message string, iterations int, enableMLS bool, instance uint64) {
@@ -107,7 +80,7 @@ func runSender(app *slim.BindingsAdapter, connID uint64, remote, message string,
 	fmt.Printf("[%d] 📡 Session created\n", instance)
 
 	for i := 0; i < iterations; i++ {
-		if err := session.Publish(remoteName, 1, []byte(message), nil, nil, nil); err != nil {
+		if err := session.Publish([]byte(message), nil, nil); err != nil {
 			fmt.Printf("[%d] ❌ Error sending message %d/%d: %v\n", instance, i+1, iterations, err)
 			continue
 		}
@@ -163,7 +136,7 @@ func handleSession(app *slim.BindingsAdapter, session *slim.FfiSessionContext, i
 		fmt.Printf("[%d] 📨 Received: %s\n", instance, text)
 
 		reply := fmt.Sprintf("%s from %d", text, instance)
-		if err := session.Publish(msg.Context.SourceName, 1, []byte(reply), nil, nil, nil); err != nil {
+		if err := session.PublishTo(msg.Context, []byte(reply), nil, nil); err != nil {
 			log.Printf("[%d] ❌ Error sending reply: %v", instance, err)
 			break
 		}

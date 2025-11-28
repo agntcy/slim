@@ -357,7 +357,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_publish_to_method() {
+    async fn test_publish_method() {
         let service = create_test_service().await;
         let app_name = create_test_name();
         let (provider, verifier) = create_test_auth();
@@ -383,7 +383,46 @@ mod tests {
             .await
             .expect("Failed to create session");
 
-        // Create a destination name for publishing
+        let message = b"test payload".to_vec();
+        let mut metadata = HashMap::new();
+        metadata.insert("key".to_string(), "value".to_string());
+
+        // Test the simplified publish method - this should work without errors
+        let result = session_ffi
+            .publish_async(message, Some("text/plain".to_string()), Some(metadata))
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_publish_with_params_method() {
+        let service = create_test_service().await;
+        let app_name = create_test_name();
+        let (provider, verifier) = create_test_auth();
+
+        let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
+            .expect("Failed to create adapter");
+
+        // Create a session using FFI types
+        let config = crate::bindings::adapter::SessionConfig {
+            session_type: crate::bindings::adapter::SessionType::PointToPoint,
+            enable_mls: false,
+            max_retries: None,
+            interval_ms: None,
+            initiator: true,
+            metadata: std::collections::HashMap::new(),
+        };
+        let dst = crate::bindings::adapter::Name {
+            components: vec!["org".to_string(), "ns".to_string(), "dst".to_string()],
+            id: None,
+        };
+        let session_ffi = adapter
+            .create_session_async(config, dst)
+            .await
+            .expect("Failed to create session");
+
+        // Create a custom destination name for publishing
         let destination = crate::bindings::adapter::Name {
             components: vec![
                 "sender".to_string(),
@@ -393,19 +432,19 @@ mod tests {
             id: None,
         };
 
-        let reply_message = b"reply payload".to_vec();
-        let mut reply_metadata = HashMap::new();
-        reply_metadata.insert("reply_to".to_string(), "original_message_id".to_string());
+        let message = b"advanced payload".to_vec();
+        let mut metadata = HashMap::new();
+        metadata.insert("custom_header".to_string(), "custom_value".to_string());
 
-        // Test publish - this should work without errors
+        // Test the advanced publish_with_params method with full control
         let result = session_ffi
-            .publish_async(
+            .publish_with_params_async(
                 destination,
                 1,
-                reply_message,
+                message,
                 None,
-                Some("text/plain".to_string()),
-                Some(reply_metadata),
+                Some("application/json".to_string()),
+                Some(metadata),
             )
             .await;
 

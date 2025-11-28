@@ -621,7 +621,7 @@ func uniffiCheckChecksums() {
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_service_checksum_method_ffisessioncontext_publish()
 		})
-		if checksum != 26365 {
+		if checksum != 19932 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_service: uniffi_slim_service_checksum_method_ffisessioncontext_publish: UniFFI API checksum mismatch")
 		}
@@ -630,9 +630,45 @@ func uniffiCheckChecksums() {
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_service_checksum_method_ffisessioncontext_publish_async()
 		})
-		if checksum != 24604 {
+		if checksum != 42821 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_service: uniffi_slim_service_checksum_method_ffisessioncontext_publish_async: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_service_checksum_method_ffisessioncontext_publish_to()
+		})
+		if checksum != 15927 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_service: uniffi_slim_service_checksum_method_ffisessioncontext_publish_to: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_service_checksum_method_ffisessioncontext_publish_to_async()
+		})
+		if checksum != 52000 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_service: uniffi_slim_service_checksum_method_ffisessioncontext_publish_to_async: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_service_checksum_method_ffisessioncontext_publish_with_params()
+		})
+		if checksum != 15918 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_service: uniffi_slim_service_checksum_method_ffisessioncontext_publish_with_params: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_service_checksum_method_ffisessioncontext_publish_with_params_async()
+		})
+		if checksum != 28810 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_service: uniffi_slim_service_checksum_method_ffisessioncontext_publish_with_params_async: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -1508,10 +1544,56 @@ type FfiSessionContextInterface interface {
 	InviteAsync(participant Name) error
 	// Check if this session is the initiator
 	IsInitiator() (bool, error)
-	// Publish a message to the session (blocking version for FFI)
-	Publish(destination Name, fanout uint32, data []byte, connectionOut *uint64, payloadType *string, metadata *map[string]string) error
-	// Publish a message to the session (async version)
-	PublishAsync(destination Name, fanout uint32, data []byte, connectionOut *uint64, payloadType *string, metadata *map[string]string) error
+	// Publish a message to the session's destination (blocking version for FFI)
+	//
+	// Simple publish that automatically uses the session's destination.
+	// For point-to-point sessions, this sends to the remote peer.
+	// For group sessions, this broadcasts to all participants.
+	//
+	// # Arguments
+	// * `data` - The message payload bytes
+	// * `payload_type` - Optional content type identifier
+	// * `metadata` - Optional key-value metadata pairs
+	//
+	// # Returns
+	// * `Ok(())` on success
+	// * `Err(SlimError)` if publishing fails
+	Publish(data []byte, payloadType *string, metadata *map[string]string) error
+	// Publish a message to the session's destination (async version)
+	PublishAsync(data []byte, payloadType *string, metadata *map[string]string) error
+	// Publish a reply message to the originator of a received message (blocking version for FFI)
+	//
+	// This method uses the routing information from a previously received message
+	// to send a reply back to the sender. This is the preferred way to implement
+	// request/reply patterns.
+	//
+	// # Arguments
+	// * `message_context` - Context from a message received via `get_message()`
+	// * `data` - The reply payload bytes
+	// * `payload_type` - Optional content type identifier
+	// * `metadata` - Optional key-value metadata pairs
+	//
+	// # Returns
+	// * `Ok(())` on success
+	// * `Err(SlimError)` if publishing fails
+	PublishTo(messageContext MessageContext, data []byte, payloadType *string, metadata *map[string]string) error
+	// Publish a reply message (async version)
+	PublishToAsync(messageContext MessageContext, data []byte, payloadType *string, metadata *map[string]string) error
+	// Low-level publish with full control over all parameters (blocking version for FFI)
+	//
+	// This is an advanced method that provides complete control over routing and delivery.
+	// Most users should use `publish()` or `publish_to()` instead.
+	//
+	// # Arguments
+	// * `destination` - Target name to send to
+	// * `fanout` - Number of copies to send (for multicast)
+	// * `data` - The message payload bytes
+	// * `connection_out` - Optional specific connection ID to use
+	// * `payload_type` - Optional content type identifier
+	// * `metadata` - Optional key-value metadata pairs
+	PublishWithParams(destination Name, fanout uint32, data []byte, connectionOut *uint64, payloadType *string, metadata *map[string]string) error
+	// Low-level publish with full control (async version)
+	PublishWithParamsAsync(destination Name, fanout uint32, data []byte, connectionOut *uint64, payloadType *string, metadata *map[string]string) error
 	// Remove a participant from the session (blocking version for FFI)
 	Remove(participant Name) error
 	// Remove a participant from the session (async version)
@@ -1660,20 +1742,33 @@ func (_self *FfiSessionContext) IsInitiator() (bool, error) {
 	}
 }
 
-// Publish a message to the session (blocking version for FFI)
-func (_self *FfiSessionContext) Publish(destination Name, fanout uint32, data []byte, connectionOut *uint64, payloadType *string, metadata *map[string]string) error {
+// Publish a message to the session's destination (blocking version for FFI)
+//
+// Simple publish that automatically uses the session's destination.
+// For point-to-point sessions, this sends to the remote peer.
+// For group sessions, this broadcasts to all participants.
+//
+// # Arguments
+// * `data` - The message payload bytes
+// * `payload_type` - Optional content type identifier
+// * `metadata` - Optional key-value metadata pairs
+//
+// # Returns
+// * `Ok(())` on success
+// * `Err(SlimError)` if publishing fails
+func (_self *FfiSessionContext) Publish(data []byte, payloadType *string, metadata *map[string]string) error {
 	_pointer := _self.ffiObject.incrementPointer("*FfiSessionContext")
 	defer _self.ffiObject.decrementPointer()
 	_, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) bool {
 		C.uniffi_slim_service_fn_method_ffisessioncontext_publish(
-			_pointer, FfiConverterNameINSTANCE.Lower(destination), FfiConverterUint32INSTANCE.Lower(fanout), FfiConverterBytesINSTANCE.Lower(data), FfiConverterOptionalUint64INSTANCE.Lower(connectionOut), FfiConverterOptionalStringINSTANCE.Lower(payloadType), FfiConverterOptionalMapStringStringINSTANCE.Lower(metadata), _uniffiStatus)
+			_pointer, FfiConverterBytesINSTANCE.Lower(data), FfiConverterOptionalStringINSTANCE.Lower(payloadType), FfiConverterOptionalMapStringStringINSTANCE.Lower(metadata), _uniffiStatus)
 		return false
 	})
 	return _uniffiErr.AsError()
 }
 
-// Publish a message to the session (async version)
-func (_self *FfiSessionContext) PublishAsync(destination Name, fanout uint32, data []byte, connectionOut *uint64, payloadType *string, metadata *map[string]string) error {
+// Publish a message to the session's destination (async version)
+func (_self *FfiSessionContext) PublishAsync(data []byte, payloadType *string, metadata *map[string]string) error {
 	_pointer := _self.ffiObject.incrementPointer("*FfiSessionContext")
 	defer _self.ffiObject.decrementPointer()
 	_, err := uniffiRustCallAsync[SlimError](
@@ -1686,6 +1781,111 @@ func (_self *FfiSessionContext) PublishAsync(destination Name, fanout uint32, da
 		// liftFn
 		func(_ struct{}) struct{} { return struct{}{} },
 		C.uniffi_slim_service_fn_method_ffisessioncontext_publish_async(
+			_pointer, FfiConverterBytesINSTANCE.Lower(data), FfiConverterOptionalStringINSTANCE.Lower(payloadType), FfiConverterOptionalMapStringStringINSTANCE.Lower(metadata)),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_service_rust_future_poll_void(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_service_rust_future_free_void(handle)
+		},
+	)
+
+	return err
+}
+
+// Publish a reply message to the originator of a received message (blocking version for FFI)
+//
+// This method uses the routing information from a previously received message
+// to send a reply back to the sender. This is the preferred way to implement
+// request/reply patterns.
+//
+// # Arguments
+// * `message_context` - Context from a message received via `get_message()`
+// * `data` - The reply payload bytes
+// * `payload_type` - Optional content type identifier
+// * `metadata` - Optional key-value metadata pairs
+//
+// # Returns
+// * `Ok(())` on success
+// * `Err(SlimError)` if publishing fails
+func (_self *FfiSessionContext) PublishTo(messageContext MessageContext, data []byte, payloadType *string, metadata *map[string]string) error {
+	_pointer := _self.ffiObject.incrementPointer("*FfiSessionContext")
+	defer _self.ffiObject.decrementPointer()
+	_, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) bool {
+		C.uniffi_slim_service_fn_method_ffisessioncontext_publish_to(
+			_pointer, FfiConverterMessageContextINSTANCE.Lower(messageContext), FfiConverterBytesINSTANCE.Lower(data), FfiConverterOptionalStringINSTANCE.Lower(payloadType), FfiConverterOptionalMapStringStringINSTANCE.Lower(metadata), _uniffiStatus)
+		return false
+	})
+	return _uniffiErr.AsError()
+}
+
+// Publish a reply message (async version)
+func (_self *FfiSessionContext) PublishToAsync(messageContext MessageContext, data []byte, payloadType *string, metadata *map[string]string) error {
+	_pointer := _self.ffiObject.incrementPointer("*FfiSessionContext")
+	defer _self.ffiObject.decrementPointer()
+	_, err := uniffiRustCallAsync[SlimError](
+		FfiConverterSlimErrorINSTANCE,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
+			C.ffi_slim_service_rust_future_complete_void(handle, status)
+			return struct{}{}
+		},
+		// liftFn
+		func(_ struct{}) struct{} { return struct{}{} },
+		C.uniffi_slim_service_fn_method_ffisessioncontext_publish_to_async(
+			_pointer, FfiConverterMessageContextINSTANCE.Lower(messageContext), FfiConverterBytesINSTANCE.Lower(data), FfiConverterOptionalStringINSTANCE.Lower(payloadType), FfiConverterOptionalMapStringStringINSTANCE.Lower(metadata)),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_service_rust_future_poll_void(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_service_rust_future_free_void(handle)
+		},
+	)
+
+	return err
+}
+
+// Low-level publish with full control over all parameters (blocking version for FFI)
+//
+// This is an advanced method that provides complete control over routing and delivery.
+// Most users should use `publish()` or `publish_to()` instead.
+//
+// # Arguments
+// * `destination` - Target name to send to
+// * `fanout` - Number of copies to send (for multicast)
+// * `data` - The message payload bytes
+// * `connection_out` - Optional specific connection ID to use
+// * `payload_type` - Optional content type identifier
+// * `metadata` - Optional key-value metadata pairs
+func (_self *FfiSessionContext) PublishWithParams(destination Name, fanout uint32, data []byte, connectionOut *uint64, payloadType *string, metadata *map[string]string) error {
+	_pointer := _self.ffiObject.incrementPointer("*FfiSessionContext")
+	defer _self.ffiObject.decrementPointer()
+	_, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) bool {
+		C.uniffi_slim_service_fn_method_ffisessioncontext_publish_with_params(
+			_pointer, FfiConverterNameINSTANCE.Lower(destination), FfiConverterUint32INSTANCE.Lower(fanout), FfiConverterBytesINSTANCE.Lower(data), FfiConverterOptionalUint64INSTANCE.Lower(connectionOut), FfiConverterOptionalStringINSTANCE.Lower(payloadType), FfiConverterOptionalMapStringStringINSTANCE.Lower(metadata), _uniffiStatus)
+		return false
+	})
+	return _uniffiErr.AsError()
+}
+
+// Low-level publish with full control (async version)
+func (_self *FfiSessionContext) PublishWithParamsAsync(destination Name, fanout uint32, data []byte, connectionOut *uint64, payloadType *string, metadata *map[string]string) error {
+	_pointer := _self.ffiObject.incrementPointer("*FfiSessionContext")
+	defer _self.ffiObject.decrementPointer()
+	_, err := uniffiRustCallAsync[SlimError](
+		FfiConverterSlimErrorINSTANCE,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
+			C.ffi_slim_service_rust_future_complete_void(handle, status)
+			return struct{}{}
+		},
+		// liftFn
+		func(_ struct{}) struct{} { return struct{}{} },
+		C.uniffi_slim_service_fn_method_ffisessioncontext_publish_with_params_async(
 			_pointer, FfiConverterNameINSTANCE.Lower(destination), FfiConverterUint32INSTANCE.Lower(fanout), FfiConverterBytesINSTANCE.Lower(data), FfiConverterOptionalUint64INSTANCE.Lower(connectionOut), FfiConverterOptionalStringINSTANCE.Lower(payloadType), FfiConverterOptionalMapStringStringINSTANCE.Lower(metadata)),
 		// pollFn
 		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {

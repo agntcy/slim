@@ -233,6 +233,19 @@ impl From<crate::bindings::MessageContext> for MessageContext {
     }
 }
 
+impl From<MessageContext> for crate::bindings::MessageContext {
+    fn from(ctx: MessageContext) -> Self {
+        Self {
+            source_name: ctx.source_name.into(),
+            destination_name: ctx.destination_name.map(|n| n.into()),
+            payload_type: ctx.payload_type,
+            metadata: ctx.metadata,
+            input_connection: ctx.input_connection,
+            identity: ctx.identity,
+        }
+    }
+}
+
 /// Received message containing context and payload
 #[derive(uniffi::Record)]
 pub struct ReceivedMessage {
@@ -735,8 +748,124 @@ pub struct FFISessionContext {
 
 #[uniffi::export]
 impl FFISessionContext {
-    /// Publish a message to the session (blocking version for FFI)
+    /// Publish a message to the session's destination (blocking version for FFI)
+    ///
+    /// Simple publish that automatically uses the session's destination.
+    /// For point-to-point sessions, this sends to the remote peer.
+    /// For group sessions, this broadcasts to all participants.
+    ///
+    /// # Arguments
+    /// * `data` - The message payload bytes
+    /// * `payload_type` - Optional content type identifier
+    /// * `metadata` - Optional key-value metadata pairs
+    ///
+    /// # Returns
+    /// * `Ok(())` on success
+    /// * `Err(SlimError)` if publishing fails
     pub fn publish(
+        &self,
+        data: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<std::collections::HashMap<String, String>>,
+    ) -> Result<(), SlimError> {
+        self.runtime
+            .block_on(async { self.publish_async(data, payload_type, metadata).await })
+    }
+
+    /// Publish a message to the session's destination (async version)
+    pub async fn publish_async(
+        &self,
+        data: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<std::collections::HashMap<String, String>>,
+    ) -> Result<(), SlimError> {
+        // Get the session's destination
+        let session = self
+            .inner
+            .session
+            .upgrade()
+            .ok_or_else(|| SlimError::SessionError {
+                message: "Session already closed or dropped".to_string(),
+            })?;
+
+        let destination = session.dst();
+
+        self.inner
+            .publish(
+                destination,
+                1, // fanout = 1 for normal publish
+                data,
+                None, // connection_out
+                payload_type,
+                metadata,
+            )
+            .await
+            .map(|_| ())
+            .map_err(|e| SlimError::SendError {
+                message: e.to_string(),
+            })
+    }
+
+    /// Publish a reply message to the originator of a received message (blocking version for FFI)
+    ///
+    /// This method uses the routing information from a previously received message
+    /// to send a reply back to the sender. This is the preferred way to implement
+    /// request/reply patterns.
+    ///
+    /// # Arguments
+    /// * `message_context` - Context from a message received via `get_message()`
+    /// * `data` - The reply payload bytes
+    /// * `payload_type` - Optional content type identifier
+    /// * `metadata` - Optional key-value metadata pairs
+    ///
+    /// # Returns
+    /// * `Ok(())` on success
+    /// * `Err(SlimError)` if publishing fails
+    pub fn publish_to(
+        &self,
+        message_context: MessageContext,
+        data: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<std::collections::HashMap<String, String>>,
+    ) -> Result<(), SlimError> {
+        self.runtime.block_on(async {
+            self.publish_to_async(message_context, data, payload_type, metadata)
+                .await
+        })
+    }
+
+    /// Publish a reply message (async version)
+    pub async fn publish_to_async(
+        &self,
+        message_context: MessageContext,
+        data: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<std::collections::HashMap<String, String>>,
+    ) -> Result<(), SlimError> {
+        let internal_context = crate::bindings::MessageContext::from(message_context);
+
+        self.inner
+            .publish_to(&internal_context, data, payload_type, metadata)
+            .await
+            .map(|_| ())
+            .map_err(|e| SlimError::SendError {
+                message: e.to_string(),
+            })
+    }
+
+    /// Low-level publish with full control over all parameters (blocking version for FFI)
+    ///
+    /// This is an advanced method that provides complete control over routing and delivery.
+    /// Most users should use `publish()` or `publish_to()` instead.
+    ///
+    /// # Arguments
+    /// * `destination` - Target name to send to
+    /// * `fanout` - Number of copies to send (for multicast)
+    /// * `data` - The message payload bytes
+    /// * `connection_out` - Optional specific connection ID to use
+    /// * `payload_type` - Optional content type identifier
+    /// * `metadata` - Optional key-value metadata pairs
+    pub fn publish_with_params(
         &self,
         destination: Name,
         fanout: u32,
@@ -746,7 +875,7 @@ impl FFISessionContext {
         metadata: Option<std::collections::HashMap<String, String>>,
     ) -> Result<(), SlimError> {
         self.runtime.block_on(async {
-            self.publish_async(
+            self.publish_with_params_async(
                 destination,
                 fanout,
                 data,
@@ -758,8 +887,8 @@ impl FFISessionContext {
         })
     }
 
-    /// Publish a message to the session (async version)
-    pub async fn publish_async(
+    /// Low-level publish with full control (async version)
+    pub async fn publish_with_params_async(
         &self,
         destination: Name,
         fanout: u32,
