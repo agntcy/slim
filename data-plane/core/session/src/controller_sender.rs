@@ -50,6 +50,7 @@ struct PingState {
     ping: Option<PendingReply>,
 
     /// Ping timer factor set to create ping related timers
+    #[allow(dead_code)]
     ping_timer_factory: TimerFactory,
 
     /// List of potential disconnected endpoint
@@ -99,7 +100,38 @@ pub struct ControllerSender {
     draining_state: ControllerSenderDrainStatus,
 }
 
+/// Handle ping failure by updating missing_pings and checking for disconnections
+fn handle_ping_failure(ping_state: &mut PingState, mut ping: PendingReply) -> PendingReply {
+    // stop the timer for ping retransmission
+    ping.timer.stop();
+
+    // if all participants replyed to the ping, rest the
+    // missing_pings map otherwise try to see if someone got disconnected
+    if ping.missing_replies.is_empty() {
+        ping_state.missing_pings.clear();
+    } else {
+        // update missing_pings
+        for p in &ping.missing_replies {
+            if let Some(val) = ping_state.missing_pings.get_mut(p) {
+                *val += 1;
+            } else {
+                ping_state.missing_pings.insert(p.clone(), 1);
+            }
+        }
+
+        // check if someone got disconnected
+        for (k, v) in &ping_state.missing_pings {
+            if *v >= MAX_PING_FAILURE {
+                debug!("participant {} got disconnected", k);
+                // TODO: notify the controller
+            }
+        }
+    }
+    ping
+}
+
 impl ControllerSender {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         timer_settings: TimerSettings,
         local_name: Name,
@@ -190,6 +222,7 @@ impl ControllerSender {
                 // to do to handle it
                 self.on_reply_message(message);
             }
+            slim_datapath::api::ProtoSessionMessageType::Ping => self.on_ping_message(message),
             slim_datapath::api::ProtoSessionMessageType::GroupAdd => {
                 // compute the list of participants that needs to send an ack
                 let payload = message.extract_group_add().map_err(|e| {
@@ -361,35 +394,11 @@ impl ControllerSender {
         if ping_state.ping_timer.get_id() == id {
             // the timeout is related to the ping intervarl timer
             // check if we sent a ping before and if there are still pending acks to the ping
-            if let Some(ping) = &mut ping_state.ping {
-                // stop the timer for ping retransmission
-                ping.timer.stop();
-
-                // if all participants replyed to the ping, rest the
-                // missing_pings map otherwise try to see if someone got disconnected
-                if ping.missing_replies.is_empty() {
-                    ping_state.missing_pings.clear();
-                } else {
-                    // update missing_pings
-                    for p in &ping.missing_replies {
-                        if let Some(val) = ping_state.missing_pings.get_mut(&p) {
-                            *val += 1;
-                        } else {
-                            ping_state.missing_pings.insert(p.clone(), 1);
-                        }
-                    }
-
-                    // check if someone got disconnected
-                    for (k, v) in &ping_state.missing_pings {
-                        if *v >= MAX_PING_FAILURE {
-                            debug!("partipant {} got disconnected", k);
-                            // TODO: notify the controller
-                        }
-                    }
-                }
+            if let Some(ping) = ping_state.ping.take() {
+                ping_state.ping = Some(handle_ping_failure(ping_state, ping));
             }
 
-            // completelly reset the ping if needed
+            // completely reset the ping if needed
             ping_state.ping = None;
 
             if self.group_list.len() > 1 {
@@ -438,7 +447,7 @@ impl ControllerSender {
                 });
             }
         } else {
-            // most likelly the timeout is related to the ping message itself so
+            // most likely the timeout is related to the ping message itself so
             // we need to send it again
             if let Some(ping) = &ping_state.ping {
                 // simply resend the message
@@ -459,38 +468,14 @@ impl ControllerSender {
         if msg_type == ProtoSessionMessageType::Ping {
             // the only timer that can fail is the one related to the ping retransmissions
             if let Some(ping_state) = &mut self.ping_state
-                && let Some(ping) = &mut ping_state.ping
+                && let Some(ping) = ping_state.ping.take()
                 && ping.timer.get_id() == id
             {
-                // stop the timer for ping retransmission
-                ping.timer.stop();
-
-                // if all participants replyed to the ping, rest the
-                // missing_pings map otherwise try to see if someone got disconnected
-                if ping.missing_replies.is_empty() {
-                    ping_state.missing_pings.clear();
-                } else {
-                    // update missing_pings
-                    for p in &ping.missing_replies {
-                        if let Some(val) = ping_state.missing_pings.get_mut(&p) {
-                            *val += 1;
-                        } else {
-                            ping_state.missing_pings.insert(p.clone(), 1);
-                        }
-                    }
-
-                    // check if someone got disconnected
-                    for (k, v) in &ping_state.missing_pings {
-                        if *v >= MAX_PING_FAILURE {
-                            debug!("partipant {} got disconnected", k);
-                            // TODO: notify the controller
-                        }
-                    }
-                }
+                handle_ping_failure(ping_state, ping);
                 // reset the pending ping state and wait for the next one to be sent
-                ping_state.ping = None;
+                // (ping was already taken above, so ping_state.ping is already None)
             } else {
-                debug!("got message failure for unknow ping, ignore it");
+                debug!("got message failure for unknown ping, ignore it");
                 return;
             }
         }
@@ -1415,7 +1400,7 @@ mod tests {
         sender.group_list.insert(participant.clone());
 
         // === PING INTERVAL 1: First ping gets a reply ===
-        
+
         // Wait for the first ping interval timeout
         let timeout_msg = timeout(Duration::from_millis(1100), rx_signal.recv())
             .await
@@ -1447,7 +1432,10 @@ mod tests {
             .expect("channel closed")
             .expect("error message");
 
-        assert_eq!(first_ping.get_session_message_type(), ProtoSessionMessageType::Ping);
+        assert_eq!(
+            first_ping.get_session_message_type(),
+            ProtoSessionMessageType::Ping
+        );
 
         // Send a ping reply from the participant (ping with same message ID)
         let ping_reply = Message::builder()
@@ -1466,7 +1454,10 @@ mod tests {
 
         // Verify no retransmission happens (participant replied)
         let res = timeout(Duration::from_millis(500), rx_slim.recv()).await;
-        assert!(res.is_err(), "Expected no retransmission after successful ping reply");
+        assert!(
+            res.is_err(),
+            "Expected no retransmission after successful ping reply"
+        );
 
         // === PING INTERVAL 2: No reply, expect 2 retransmissions ===
 
@@ -1501,7 +1492,10 @@ mod tests {
             .expect("channel closed")
             .expect("error message");
 
-        assert_eq!(second_ping.get_session_message_type(), ProtoSessionMessageType::Ping);
+        assert_eq!(
+            second_ping.get_session_message_type(),
+            ProtoSessionMessageType::Ping
+        );
 
         // Wait for first retransmission timeout (400ms)
         let timeout_msg = timeout(Duration::from_millis(500), rx_signal.recv())
@@ -1602,7 +1596,10 @@ mod tests {
             .expect("channel closed")
             .expect("error message");
 
-        assert_eq!(third_ping.get_session_message_type(), ProtoSessionMessageType::Ping);
+        assert_eq!(
+            third_ping.get_session_message_type(),
+            ProtoSessionMessageType::Ping
+        );
 
         // Wait for and process 2 retransmissions
         for i in 0..2 {
@@ -1668,7 +1665,10 @@ mod tests {
             .expect("channel closed")
             .expect("error message");
 
-        assert_eq!(fourth_ping.get_session_message_type(), ProtoSessionMessageType::Ping);
+        assert_eq!(
+            fourth_ping.get_session_message_type(),
+            ProtoSessionMessageType::Ping
+        );
 
         // Wait for and process 2 retransmissions
         for i in 0..2 {
@@ -1702,7 +1702,7 @@ mod tests {
         }
 
         // === PING INTERVAL 5: Wait for next interval to reach disconnection threshold ===
-        
+
         // Wait for the fifth ping interval timeout
         let timeout_msg = timeout(Duration::from_millis(1100), rx_signal.recv())
             .await
@@ -1735,7 +1735,7 @@ mod tests {
         // Timeline:
         // - Interval 1: ping sent, reply received, counter cleared to 0
         // - Interval 2: previous ping got reply, counter stays 0, new ping sent
-        // - Interval 3: previous ping got NO reply, counter becomes 1, new ping sent  
+        // - Interval 3: previous ping got NO reply, counter becomes 1, new ping sent
         // - Interval 4: previous ping got NO reply, counter becomes 2, new ping sent
         // - Interval 5: previous ping got NO reply, counter becomes 3, disconnection detected
         if let Some(ping_state) = &sender.ping_state {

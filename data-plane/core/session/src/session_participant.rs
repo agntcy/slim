@@ -223,6 +223,7 @@ where
             ProtoSessionMessageType::LeaveRequest | ProtoSessionMessageType::GroupClose => {
                 self.on_leave_request(message).await
             }
+            ProtoSessionMessageType::Ping => self.on_ping(message).await,
             ProtoSessionMessageType::GroupProposal
             | ProtoSessionMessageType::GroupAck
             | ProtoSessionMessageType::GroupNack => todo!(),
@@ -437,6 +438,15 @@ where
             }))
             .await
             .map_err(|e| SessionError::Processing(format!("failed to notify session layer: {}", e)))
+    }
+
+    async fn on_ping(&mut self, mut msg: Message) -> Result<(), SessionError> {
+        // just need to reply to the ping
+        let header = msg.get_slim_header_mut();
+        let src = header.get_source();
+        header.set_source(&self.common.settings.source);
+        header.set_destination(&src);
+        self.common.send_to_slim(msg).await
     }
 
     async fn join(&mut self, msg: &Message) -> Result<(), SessionError> {
