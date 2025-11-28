@@ -340,6 +340,7 @@ where
             }
             ProtoSessionMessageType::LeaveReply => self.on_leave_reply(message).await,
             ProtoSessionMessageType::GroupAck => self.on_group_ack(message).await,
+            ProtoSessionMessageType::Ping => self.common.sender.on_message(&message).await,
             ProtoSessionMessageType::GroupProposal => todo!(),
             ProtoSessionMessageType::GroupAdd
             | ProtoSessionMessageType::GroupRemove
