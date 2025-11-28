@@ -30,7 +30,7 @@ class SLIMClient(SLIMBase):
 
     def __init__(
         self,
-        config: dict[str, Any],
+        slim_client_configs: list[dict[str, Any]],
         local_organization: str,
         local_namespace: str,
         local_agent: str,
@@ -59,7 +59,7 @@ class SLIMClient(SLIMBase):
         """
 
         super().__init__(
-            config,
+            slim_client_configs,
             local_organization,
             local_namespace,
             local_agent,
@@ -70,60 +70,30 @@ class SLIMClient(SLIMBase):
             message_retries=message_retries,
         )
 
-    async def _send_message(
-        self,
-        session: slim_bindings.PySessionInfo,
-        message: bytes,
-    ) -> None:
-        """Send a message to the remote slim instance.
-
-        Args:
-            session: Session information for the message
-            message: Message to send in bytes format
-
-        Raises:
-            RuntimeError: If SLIM is not connected or if sending fails
-        """
-        if not self.is_connected():
-            raise RuntimeError("SLIM is not connected. Please use the with statement.")
-
-        try:
-            logger.debug(
-                "Sending message to remote slim instance",
-                extra={
-                    "remote_svc": str(self.remote_svc_name),
-                },
-            )
-            # Send message to SLIM instance
-            await self.slim.publish(
-                session,
-                message,
-                self.remote_svc_name,
-            )
-            logger.debug("Message sent successfully")
-        except Exception as e:
-            logger.error("Failed to send message", exc_info=True)
-            raise RuntimeError(f"Failed to send message: {str(e)}") from e
-
     @asynccontextmanager
     async def to_mcp_session(self, *args, **kwargs):
         """Create a new MCP session.
 
         Returns:
-            slim_bindings.PySessionInfo: The new MCP session
+            slim_bindings.Session: The new MCP session
         """
         # create session
-        session = await self.slim.create_session(
-            slim_bindings.PySessionConfiguration.FireAndForget(
-                timeout=self.message_timeout,
+        session, ack = await self.slim.create_session(
+            destination=self.remote_svc_name,
+            session_config=slim_bindings.SessionConfiguration.PointToPoint(
                 max_retries=self.message_retries,
-                sticky=True,
-            )
+                timeout=self.message_timeout,
+            ),
         )
+        await ack
 
         # create streams
-        async with self.new_streams(session) as (read_stream, write_stream):
-            async with ClientSession(
-                read_stream, write_stream, *args, **kwargs
-            ) as mcp_session:
-                yield mcp_session
+        try:
+            async with self.new_streams(session) as (read_stream, write_stream):
+                async with ClientSession(
+                    read_stream, write_stream, *args, **kwargs
+                ) as mcp_session:
+                    yield mcp_session
+        finally:
+            ack = await self.slim.delete_session(session)
+            await ack

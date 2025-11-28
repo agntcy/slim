@@ -341,10 +341,10 @@ session creation is implemented in inside SRPC in
 ```python
         # Create a session
         session = await self.local_app.create_session(
-            slim_bindings.PySessionConfiguration.FireAndForget(
+            destination=remote,
+            slim_bindings.SessionConfiguration.PointToPoint(
                 max_retries=10,
                 timeout=datetime.timedelta(seconds=1),
-                sticky=True,
             )
         )
 ```

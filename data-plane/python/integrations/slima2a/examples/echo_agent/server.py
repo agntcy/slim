@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import logging
 
 import slimrpc
 import uvicorn
@@ -19,6 +20,8 @@ from slima2a.types.a2a_pb2_slimrpc import add_A2AServiceServicer_to_server
 
 async def main() -> None:
     args = parse_arguments()
+
+    logging.basicConfig(level=args.log_level)
 
     skill = AgentSkill(
         id="echo",
@@ -51,7 +54,7 @@ async def main() -> None:
         case "slimrpc":
             servicer = SRPCHandler(agent_card, default_request_handler)
 
-            server = slimrpc.Server(
+            server = await slimrpc.Server.from_slim_app_config(
                 slim_app_config=slimrpc.SLIMAppConfig(
                     identity="agntcy/demo/echo_agent",
                     slim_client_config={
@@ -60,7 +63,7 @@ async def main() -> None:
                             "insecure": True,
                         },
                     },
-                    shared_secret="secret",
+                    shared_secret="secretsecretsecretsecretsecretsecret",
                 )
             )
             add_A2AServiceServicer_to_server(
@@ -84,6 +87,13 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--type", type=str, required=False, default="slimrpc")
+
+    parser.add_argument(
+        "--log-level",
+        type=str,
+        required=False,
+        default="ERROR",
+    )
 
     args = parser.parse_args()
 

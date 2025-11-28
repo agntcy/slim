@@ -43,7 +43,7 @@ async def amain(
 
     logger.info("Starting SLIM client")
     async with SLIMClient(
-        config,
+        [config],
         "org",
         "ns",
         "time-agent",
@@ -69,8 +69,6 @@ async def amain(
             )
 
             print(response)
-
-            await mcp_session.close()
 
 
 class DictParamType(click.ParamType):

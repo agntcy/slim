@@ -12,7 +12,6 @@ from mcp.server.lowlevel import Server
 from slim_mcp import SLIMClient, SLIMServer
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Test configuration
@@ -46,6 +45,8 @@ async def handle_sessions(mcp_app: Server, slim_server: SLIMServer):
 
     try:
         async for new_session in slim_server:
+            session_id = new_session.id
+
             # Create a new task for this session
             async def handle_session(session):
                 try:
@@ -57,8 +58,8 @@ async def handle_sessions(mcp_app: Server, slim_server: SLIMServer):
                         )
                 except Exception:
                     logger.error(
-                        f"Error handling session {session.id}",
-                        extra={"session_id": session.id},
+                        f"Error handling session {session_id}",
+                        extra={"session_id": session_id},
                         exc_info=True,
                     )
                     raise
@@ -72,7 +73,7 @@ async def handle_sessions(mcp_app: Server, slim_server: SLIMServer):
             # Log new session
             logger.info(
                 "New session started",
-                extra={"session_id": new_session.id, "active_sessions": len(tasks)},
+                extra={"session_id": session_id, "active_sessions": len(tasks)},
             )
     except Exception:
         logger.error("Error in session handler", exc_info=True)
@@ -124,16 +125,12 @@ def mcp_app(example_tool: types.Tool) -> Server:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("server", ["127.0.0.1:12345"], indirect=True)
-async def test_mcp_client_server_connection(server, mcp_app):
+async def test_mcp_client_server_connection(mcp_app):
     """Test basic MCP client-server connection and initialization."""
-    config = get_test_config(12345)
-    logger.info(f"Starting SLIM MCP server on {server}...")
-
     async with (
-        SLIMServer(config, TEST_ORG, TEST_NS, TEST_MCP_SERVER) as slim_server,
+        SLIMServer([], TEST_ORG, TEST_NS, TEST_MCP_SERVER) as slim_server,
         SLIMClient(
-            config,
+            [],
             TEST_ORG,
             TEST_NS,
             TEST_CLIENT_ID,
@@ -142,9 +139,6 @@ async def test_mcp_client_server_connection(server, mcp_app):
             TEST_MCP_SERVER,
         ) as slim_client,
     ):
-        # Verify server is running
-        assert slim_server.slim is not None, "SLIM server not initialized"
-
         # Start session handler
         handler_task = asyncio.create_task(handle_sessions(mcp_app, slim_server))
 
@@ -174,19 +168,17 @@ async def test_mcp_client_server_connection(server, mcp_app):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("server", ["127.0.0.1:12346"], indirect=True)
-async def test_mcp_client_server_reconnection(server, mcp_app):
+async def test_mcp_client_server_reconnection(mcp_app):
     """Test client reconnection to server."""
-    config = get_test_config(12346)
     logger.info("Testing client reconnection...")
 
-    async with SLIMServer(config, TEST_ORG, TEST_NS, TEST_MCP_SERVER) as slim_server:
+    async with SLIMServer([], TEST_ORG, TEST_NS, TEST_MCP_SERVER) as slim_server:
         handler_task = asyncio.create_task(handle_sessions(mcp_app, slim_server))
 
         try:
             # First connection
             async with SLIMClient(
-                config,
+                [],
                 TEST_ORG,
                 TEST_NS,
                 TEST_CLIENT_ID,
@@ -208,7 +200,7 @@ async def test_mcp_client_server_reconnection(server, mcp_app):
 
             # Second connection with same client ID
             async with SLIMClient(
-                config,
+                [],
                 TEST_ORG,
                 TEST_NS,
                 TEST_CLIENT_ID,
@@ -229,7 +221,7 @@ async def test_mcp_client_server_reconnection(server, mcp_app):
             # Concurrent connection
             async with (
                 SLIMClient(
-                    config,
+                    [],
                     TEST_ORG,
                     TEST_NS,
                     TEST_CLIENT_ID,
@@ -238,7 +230,7 @@ async def test_mcp_client_server_reconnection(server, mcp_app):
                     TEST_MCP_SERVER,
                 ) as client3,
                 SLIMClient(
-                    config,
+                    [],
                     TEST_ORG,
                     TEST_NS,
                     TEST_CLIENT_ID,
@@ -247,7 +239,7 @@ async def test_mcp_client_server_reconnection(server, mcp_app):
                     TEST_MCP_SERVER,
                 ) as client4,
                 SLIMClient(
-                    config,
+                    [],
                     TEST_ORG,
                     TEST_NS,
                     TEST_CLIENT_ID,
