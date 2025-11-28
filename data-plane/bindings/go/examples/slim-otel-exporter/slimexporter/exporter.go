@@ -105,28 +105,9 @@ func getOrCreateSharedData(localID, serverAddr, secret, channelName string) (*sl
 		return sharedData.app, sharedData.channelName, sharedData.connID, nil
 	}
 
-	// Create new connection
-	slim.InitializeCrypto()
-
-	appName, err := common.SplitID(localID)
+	app, connID, err := common.CreateAndConnectApp(localID, serverAddr, secret)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("invalid local ID: %w", err)
-	}
-
-	app, err := slim.CreateAppWithSecret(appName, secret)
-	if err != nil {
-		return nil, nil, 0, fmt.Errorf("create app failed: %w", err)
-	}
-
-	// Connect to SLIM server (returns connection ID)
-	config := slim.ClientConfig{
-		Endpoint: serverAddr,
-		Tls:      slim.TlsConfig{Insecure: true},
-	}
-	connID, err := app.Connect(config)
-	if err != nil {
-		app.Destroy()
-		return nil, nil, 0, fmt.Errorf("connect failed: %w", err)
+		return nil, nil, 0, fmt.Errorf("failed to create/connect app:: %w", err)
 	}
 
 	// Parse channel name
@@ -266,23 +247,12 @@ func (e *slimExporter) start(ctx context.Context, host component.Host) error {
 		return nil
 	}
 
-	// Invite all the participants to the session related to this signal type
-	maxRetries := uint32(defaultMaxRetries)
-	intervalMs := uint64(defaultIntervalMs)
-	config := slim.SessionConfig{
-		SessionType: slim.SessionTypeMulticast,
-		EnableMls:   e.config.MlsEnabled,
-		MaxRetries:  &maxRetries,
-		IntervalMs:  &intervalMs,
-		Initiator:   true,
-	}
-
 	toInvite, err := e.parseParticipants()
 	if err != nil {
 		return fmt.Errorf("failed to parse participants: %w", err)
 	}
 
-	return e.createAndInviteSession(config, toInvite)
+	return e.createAndInviteSession(toInvite)
 }
 
 func (e *slimExporter) parseParticipants() ([]slim.Name, error) {
@@ -298,11 +268,22 @@ func (e *slimExporter) parseParticipants() ([]slim.Name, error) {
 	return toInvite, nil
 }
 
-func (e *slimExporter) createAndInviteSession(config slim.SessionConfig, toInvite []slim.Name) error {
+func (e *slimExporter) createAndInviteSession(toInvite []slim.Name) error {
 	fullName := fmt.Sprintf("%s-%s", e.config.ChannelName, e.signalType)
 	e.logger.Info("Creating channel",
 		zap.String("signal", string(e.signalType)),
 		zap.String("channel-name", fullName))
+
+	// Invite all the participants to the session related to this signal type
+	maxRetries := uint32(defaultMaxRetries)
+	intervalMs := uint64(defaultIntervalMs)
+	config := slim.SessionConfig{
+		SessionType: slim.SessionTypeMulticast,
+		EnableMls:   e.config.MlsEnabled,
+		MaxRetries:  &maxRetries,
+		IntervalMs:  &intervalMs,
+		Initiator:   true,
+	}
 
 	session, err := createSession(e, config, fullName)
 	if err != nil {
@@ -363,7 +344,7 @@ func (e *slimExporter) pushTraces(ctx context.Context, td ptrace.Traces) error {
 		return err
 	}
 
-	return e.publishData(ctx, message, "traces", td.SpanCount())
+	return e.publishData(message, "traces", td.SpanCount())
 }
 
 // pushMetrics exports metrics data
@@ -375,7 +356,7 @@ func (e *slimExporter) pushMetrics(ctx context.Context, md pmetric.Metrics) erro
 		return err
 	}
 
-	return e.publishData(ctx, message, "metrics", md.DataPointCount())
+	return e.publishData(message, "metrics", md.DataPointCount())
 }
 
 // pushLogs exports logs data
@@ -387,11 +368,11 @@ func (e *slimExporter) pushLogs(ctx context.Context, ld plog.Logs) error {
 		return err
 	}
 
-	return e.publishData(ctx, message, "logs", ld.LogRecordCount())
+	return e.publishData(message, "logs", ld.LogRecordCount())
 }
 
 // publishData is a generic method to publish telemetry data
-func (e *slimExporter) publishData(ctx context.Context, data []byte, signalName string, count int) error {
+func (e *slimExporter) publishData(data []byte, signalName string, count int) error {
 	e.logger.Info("Exporting "+signalName,
 		zap.Int("count", count),
 		zap.String("endpoint", e.config.SlimEndpoint))
@@ -402,7 +383,7 @@ func (e *slimExporter) publishData(ctx context.Context, data []byte, signalName 
 		return nil
 	}
 
-	if err := channel.Publish(*e.channelName, publishFanout, data, nil, nil, nil); err != nil {
+	if err := channel.Publish(data, nil, nil); err != nil {
 		e.logger.Error("Error sending "+signalName+" message", zap.Error(err))
 		return err
 	}

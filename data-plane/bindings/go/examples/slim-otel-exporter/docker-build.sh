@@ -30,5 +30,5 @@ docker build -t slim-otel-collector .
 
 echo " Docker build complete!"
 echo ""
-echo "To run the collector:"
-echo "  docker run -p 4317:4317 -p 4318:4318 slim-otel-collector"
+echo "To run the collector, you must mount your config file:"
+echo "  docker run -p 4317:4317 -p 4318:4318 -v /path/to/your/collector-config.yaml:/otelcol/config.yaml:ro slim-otel-collector"

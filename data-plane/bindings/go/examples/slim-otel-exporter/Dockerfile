@@ -51,7 +51,6 @@ ARG USER_UID=10001
 # Copy the Rust library
 COPY --from=rust-build /rust-build/data-plane/target/release/libslim_service.so /lib/
 
-COPY ./collector-config.yaml /otelcol/collector-config.yaml
 COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --chmod=755 --from=build-stage /build/slim-otelcol/otelcol-slim /otelcol/otelcol-slim
 
@@ -65,7 +64,7 @@ ENV LD_LIBRARY_PATH=/lib
 ENV HOME=/home/otel
 
 ENTRYPOINT ["/otelcol/otelcol-slim"]
-CMD ["--config", "/otelcol/collector-config.yaml"]
+CMD ["--config", "/otelcol/config.yaml"]
 
 EXPOSE 4317 4318
 
