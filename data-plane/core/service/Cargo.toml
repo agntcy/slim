@@ -18,6 +18,7 @@ agntcy-slim-mls = { workspace = true }
 agntcy-slim-session = { workspace = true }
 dirs = "5.0"
 futures = { workspace = true }
+num_cpus = { workspace = true }
 parking_lot = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }

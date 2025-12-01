@@ -82,6 +82,7 @@ mls-rs = { version = "0.50.1" }
 mls-rs-core = { version = "0.24.0" }
 mls-rs-crypto-awslc = { version = "0.19" }
 notify = "8.0.0"
+num_cpus = "1.16"
 oauth2 = "5"
 once_cell = "1.21.0"
 opentelemetry = { version = "0.31.0", features = ["trace", "metrics"] }

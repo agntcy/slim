@@ -14,6 +14,7 @@
 
 use std::sync::Arc;
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::{RwLock, mpsc};
 
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
@@ -42,10 +43,38 @@ use uniffi;
 static GLOBAL_RUNTIME: OnceLock<Arc<tokio::runtime::Runtime>> = OnceLock::new();
 
 /// Get or initialize the global Tokio runtime
+///
+/// Configured for FFI workloads with:
+/// - Worker threads: 2x CPU cores (to handle blocking operations better)
+/// - Max blocking threads: 512 (allows high concurrency from FFI calls)
+/// - Named threads for easier debugging
 fn get_runtime() -> &'static Arc<tokio::runtime::Runtime> {
     GLOBAL_RUNTIME.get_or_init(|| {
+        // Calculate optimal worker thread count
+        // Use 2x CPU cores for workloads with blocking operations from FFI
+        let num_workers = std::env::var("SLIM_TOKIO_WORKERS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_else(|| {
+                let cpus = num_cpus::get();
+                (cpus * 2).max(4) // At least 4 workers, preferably 2x CPUs
+            });
+
+        // Allow configurable max blocking threads (default: 512)
+        let max_blocking = std::env::var("SLIM_MAX_BLOCKING_THREADS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(512);
+
         Arc::new(
             tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(num_workers)
+                .max_blocking_threads(max_blocking)
+                .thread_name_fn(|| {
+                    static ATOMIC_ID: AtomicUsize = AtomicUsize::new(0);
+                    let id = ATOMIC_ID.fetch_add(1, Ordering::SeqCst);
+                    format!("slim-rt-{}", id)
+                })
                 .enable_all()
                 .build()
                 .expect("Failed to create Tokio runtime"),

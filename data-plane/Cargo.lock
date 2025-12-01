@@ -231,6 +231,7 @@ dependencies = [
  "agntcy-slim-testing",
  "dirs",
  "futures",
+ "num_cpus",
  "parking_lot",
  "serde",
  "thiserror 2.0.17",
