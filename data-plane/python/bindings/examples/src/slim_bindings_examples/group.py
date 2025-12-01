@@ -95,9 +95,12 @@ async def receive_loop(
             # Graceful shutdown path (ctrl-c or program exit).
             break
         except Exception as e:
-            # Non-cancellation error; surface and exit the loop.
+            # Non-cancellation error; log it.
             print_formatted_text(f"-> Error receiving message: {e}")
-            break
+            # Break if session is closed, otherwise continue listening
+            if "session channel closed" in str(e).lower():
+                break
+            continue
 
 
 async def keyboard_loop(session_ready, shared_session_container, local_app):

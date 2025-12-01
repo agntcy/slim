@@ -73,9 +73,11 @@ pub struct ControllerSender {
     /// local name to be removed in the missing replies set
     local_name: Name,
 
-    /// group name, learn un group add. In case of p2p session
-    /// this will be equal to the remote name
-    group_name: Name,
+    /// group name. We learn this on welcome/group add so that
+    /// if the session is a point to point session we know
+    /// also the id of the remote instance that is unkwon
+    /// on session creation
+    group_name: Option<Name>,
 
     /// session type
     session_type: ProtoSessionType,
@@ -109,7 +111,6 @@ impl ControllerSender {
     pub fn new(
         timer_settings: TimerSettings,
         local_name: Name,
-        group_name: Name,
         session_type: ProtoSessionType,
         session_id: u32,
         ping_interval: Option<Duration>,
@@ -142,7 +143,7 @@ impl ControllerSender {
         ControllerSender {
             timer_factory: TimerFactory::new(timer_settings, tx_signals.clone()),
             local_name,
-            group_name,
+            group_name: None,
             session_type,
             session_id,
             pending_replies: HashMap::new(),
@@ -187,6 +188,17 @@ impl ControllerSender {
                 {
                     // add the new participant to the list
                     self.group_list.insert(message.get_dst());
+
+                    if self.group_name.is_none()
+                        && self.session_type == ProtoSessionType::PointToPoint
+                    {
+                        // update the group name used to send ping messages
+                        debug!(
+                            "update group name {} for point to point session on welcome message",
+                            message.get_dst()
+                        );
+                        self.group_name = Some(message.get_dst());
+                    }
                 }
 
                 missing_replies.insert(name);
@@ -210,6 +222,12 @@ impl ControllerSender {
                 let mut missing_replies = self.group_list.clone();
                 // remove the local name as we are not waiting for any reply from the local name
                 missing_replies.remove(&self.local_name);
+
+                if self.group_name.is_none() {
+                    // update the group name used to send ping messages
+                    debug!("update group name {} of add message", message.get_dst());
+                    self.group_name = Some(message.get_dst());
+                }
 
                 self.on_send_message(message, missing_replies).await?;
             }
@@ -375,13 +393,13 @@ impl ControllerSender {
             // completely reset the ping if needed
             self.ping_state.as_mut().unwrap().ping = None;
 
-            if self.group_list.len() > 1 {
+            if self.group_list.len() > 1 && self.group_name.is_some() {
                 // someone is connected to the channel, send the ping
                 // crate the message
                 let ping_id = rand::random::<u32>();
                 let mut builder = Message::builder()
                     .source(self.local_name.clone())
-                    .destination(self.group_name.clone())
+                    .destination(self.group_name.clone().unwrap())
                     .identity("")
                     .session_type(self.session_type)
                     .session_message_type(ProtoSessionMessageType::Ping)
@@ -584,7 +602,6 @@ mod tests {
         let mut sender = ControllerSender::new(
             settings,
             source.clone(),
-            remote.clone(),
             ProtoSessionType::Multicast,
             session_id,
             None,
@@ -703,7 +720,6 @@ mod tests {
         let mut sender = ControllerSender::new(
             settings,
             source.clone(),
-            remote.clone(),
             ProtoSessionType::Multicast,
             session_id,
             None,
@@ -827,7 +843,6 @@ mod tests {
         let mut sender = ControllerSender::new(
             settings,
             source.clone(),
-            remote.clone(),
             ProtoSessionType::Multicast,
             session_id,
             None,
@@ -945,7 +960,6 @@ mod tests {
         let mut sender = ControllerSender::new(
             settings,
             source.clone(),
-            remote.clone(),
             ProtoSessionType::Multicast,
             session_id,
             None,
@@ -1063,7 +1077,6 @@ mod tests {
         let mut sender = ControllerSender::new(
             settings,
             source.clone(),
-            remote.clone(),
             ProtoSessionType::Multicast,
             session_id,
             None,
@@ -1214,7 +1227,6 @@ mod tests {
         let mut sender = ControllerSender::new(
             settings,
             source.clone(),
-            remote.clone(),
             ProtoSessionType::Multicast,
             session_id,
             None,
@@ -1417,14 +1429,12 @@ mod tests {
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
         let source = Name::from_strings(["org", "ns", "source"]);
-        let remote = Name::from_strings(["org", "ns", "remote"]);
         let participant = Name::from_strings(["org", "ns", "participant"]);
         let session_id = 1;
 
         let mut sender = ControllerSender::new(
             settings,
             source.clone(),
-            remote.clone(),
             ProtoSessionType::Multicast,
             session_id,
             Some(ping_interval),
@@ -1432,8 +1442,9 @@ mod tests {
             tx_signal,
         );
 
-        // Add participant to the group
+        // Add participant to the group and set group name
         sender.group_list.insert(participant.clone());
+        sender.group_name = Some(participant.clone());
 
         // === PING INTERVAL 1: First ping gets a reply ===
 

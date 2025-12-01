@@ -254,8 +254,6 @@ where
                     .map_err(|e| SessionError::Processing(e.to_string()))?;
 
                 // process the leave request message
-                // TODO in on_process_message check the metadata and send it to on_disconnection_detected
-                // required if the moderator is busy with something else at the moment
                 self.on_disconnection_detected(msg, None).await
             }
             _ => Err(SessionError::Processing(format!(
@@ -347,6 +345,13 @@ where
                     return self.delete_all(message, ack_tx).await;
                 }
 
+                // the LeaveRequest message is also used to signal the disconnection of
+                // a remote participant. the metadata contains the key "DISCONNECTION_DETECTED"
+                // call the function on_disconnection_detected
+                if message.contains_metadata(DISCONNECTION_DETECTED) {
+                    return self.on_disconnection_detected(message, ack_tx).await;
+                }
+
                 // if the message contains a payload and the name is the same as the
                 // local one, call the delete all anyway
                 if let Some(n) = message
@@ -362,8 +367,6 @@ where
                 {
                     return self.delete_all(message, ack_tx).await;
                 }
-
-                // TODO !!!
 
                 // otherwise start the leave process
                 self.on_leave_request(message, ack_tx).await
@@ -807,7 +810,22 @@ where
         msg: Message,
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
     ) -> Result<(), SessionError> {
-        if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
+        debug!("disconnection detected for participant {}", msg.get_dst());
+
+        // Send error notification to the application
+        let error = SessionError::ParticipantDisconnected(format!(
+            "Participant {} disconnected unexpectedly",
+            msg.get_dst()
+        ));
+        self.common.send_to_app(error).await?;
+
+        // if the session if P2P or no one is left on the session close it
+        // if self.group_list.len() == 2 only the moderator and the participant
+        // to remove are still in the list
+        if self.common.settings.config.session_type == ProtoSessionType::PointToPoint
+            || self.group_list.len() == 2
+        {
+            debug!("this is a p2p session or no one is left is connected, close it");
             // if the remote endpoint got disconnected on a P2P session
             // simply notify the app and close the session
             // set the processing state to draining
@@ -818,6 +836,8 @@ where
             self.tasks_todo.clear();
             // clear all pending timers
             self.common.sender.clear_timers();
+            // remove the last endpoint
+            self.remove_endpoint(&msg.get_dst());
             // signal start drain everywhere
             self.inner
                 .on_message(SessionMessage::StartDrain {
@@ -826,15 +846,9 @@ where
                 .await?;
             self.common.sender.start_drain();
 
-            // Send error notification to the application
-            let error = SessionError::ParticipantDisconnected(format!(
-                "Participant {} disconnected unexpectedly",
-                msg.get_dst()
-            ));
-            return self.common.send_to_app(error).await;
-
-            // the control loop should exit here and call the shutdonw
-            // TODO double check
+            // the control will exit and call the shutdown
+            // no need to do it here
+            return Ok(());
         }
 
         if self.current_task.is_some() {
@@ -846,7 +860,7 @@ where
             return Ok(());
         }
 
-        debug!("Create disconneceted task for the disconnection handling");
+        debug!("Create disconnected task for the disconnection handling");
         // Reuse the disconnection task here, however we don't need to send the leave message
         // so we can mark it as done immediately
         self.current_task = Some(ModeratorTask::CloseOrDisconnect(NotifyParticipants::new(
@@ -873,9 +887,7 @@ where
             participants_vec.push(name);
         }
 
-        // this compute the MLS payload is needed but also updates the local
-        // state. if no participant is left in the group the moderator can
-        // remain alone until the app invite a new participant
+        // this compute the MLS payload is needed but also updates the local state
         let mls_payload = match self.mls_state.as_mut() {
             Some(state) => {
                 let mls_content = state
@@ -891,28 +903,23 @@ where
             None => None,
         };
 
-        if participants_vec.len() > 1 {
-            // if at least one participant is still in the group we need
-            // to notify it and update the MLS state if needed
-            let update_payload = CommandPayload::builder()
-                .group_remove(disconnected, participants_vec, mls_payload)
-                .as_content();
-            let msg_id = rand::random::<u32>();
+        // notify all the participants left and update the MLS state if needed
+        let update_payload = CommandPayload::builder()
+            .group_remove(disconnected, participants_vec, mls_payload)
+            .as_content();
+        let msg_id = rand::random::<u32>();
 
-            self.common
-                .send_control_message(
-                    &self.common.settings.destination.clone(),
-                    ProtoSessionMessageType::GroupRemove,
-                    msg_id,
-                    update_payload,
-                    None,
-                    true,
-                )
-                .await?;
-            self.current_task.as_mut().unwrap().commit_start(msg_id)?;
-        }
-
-        Ok(())
+        self.common
+            .send_control_message(
+                &self.common.settings.destination.clone(),
+                ProtoSessionMessageType::GroupRemove,
+                msg_id,
+                update_payload,
+                None,
+                true,
+            )
+            .await?;
+        self.current_task.as_mut().unwrap().commit_start(msg_id)
     }
 
     async fn delete_all(
