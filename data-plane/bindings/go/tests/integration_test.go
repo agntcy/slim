@@ -13,19 +13,19 @@ import (
 // setupTestApp creates a test app for integration tests
 func setupTestApp(t *testing.T, appNameStr string) *slim.BindingsAdapter {
 	slim.InitializeCrypto()
-	
+
 	appName := slim.Name{
 		Components: []string{"org", appNameStr, "v1"},
 		Id:         nil,
 	}
-	
+
 	sharedSecret := "test-shared-secret-must-be-at-least-32-bytes-long!"
-	
+
 	app, err := slim.CreateAppWithSecret(appName, sharedSecret)
 	if err != nil {
 		t.Fatalf("Failed to create app: %v", err)
 	}
-	
+
 	return app
 }
 
@@ -33,26 +33,26 @@ func setupTestApp(t *testing.T, appNameStr string) *slim.BindingsAdapter {
 func TestSessionCreation(t *testing.T) {
 	app := setupTestApp(t, "session-test")
 	defer app.Destroy()
-	
+
 	sessionConfig := slim.SessionConfig{
 		SessionType: slim.SessionTypePointToPoint,
 		EnableMls:   false,
 	}
-	
+
 	destination := slim.Name{
 		Components: []string{"org", "receiver", "v1"},
 		Id:         nil,
 	}
-	
+
 	session, err := app.CreateSession(sessionConfig, destination)
 	if err != nil {
 		t.Fatalf("Failed to create session: %v", err)
 	}
-	
+
 	if session == nil {
 		t.Fatal("Session should not be nil")
 	}
-	
+
 	session.Destroy()
 	t.Log("Session created and cleaned up successfully")
 }
@@ -61,28 +61,28 @@ func TestSessionCreation(t *testing.T) {
 func TestSessionDelete(t *testing.T) {
 	app := setupTestApp(t, "delete-test")
 	defer app.Destroy()
-	
+
 	sessionConfig := slim.SessionConfig{
 		SessionType: slim.SessionTypePointToPoint,
 		EnableMls:   false,
 	}
-	
+
 	destination := slim.Name{
 		Components: []string{"org", "receiver", "v1"},
 		Id:         nil,
 	}
-	
+
 	session, err := app.CreateSession(sessionConfig, destination)
 	if err != nil {
 		t.Fatalf("Failed to create session: %v", err)
 	}
-	
+
 	// Delete the session
 	err = app.DeleteSession(session)
 	if err != nil {
 		t.Errorf("Failed to delete session: %v", err)
 	}
-	
+
 	session.Destroy()
 	t.Log("Session deleted successfully")
 }
@@ -91,28 +91,28 @@ func TestSessionDelete(t *testing.T) {
 func TestPublishMessage(t *testing.T) {
 	app := setupTestApp(t, "publish-test")
 	defer app.Destroy()
-	
+
 	sessionConfig := slim.SessionConfig{
 		SessionType: slim.SessionTypePointToPoint,
 		EnableMls:   false,
 	}
-	
+
 	destination := slim.Name{
 		Components: []string{"org", "receiver", "v1"},
 		Id:         nil,
 	}
-	
+
 	session, err := app.CreateSession(sessionConfig, destination)
 	if err != nil {
 		t.Fatalf("Failed to create session: %v", err)
 	}
 	defer session.Destroy()
-	
+
 	message := []byte("Hello from Go integration test!")
 	payloadType := "text/plain"
-	
+
 	// This will fail without a real network, but we test the call works
-	err = session.Publish(destination, 1, message, nil, &payloadType, nil)
+	err = session.Publish(message, &payloadType, nil)
 	if err != nil {
 		// Expected without real network
 		t.Logf("Publish failed as expected without network: %v", err)
@@ -125,12 +125,12 @@ func TestPublishMessage(t *testing.T) {
 func TestSubscribeUnsubscribe(t *testing.T) {
 	app := setupTestApp(t, "subscribe-test")
 	defer app.Destroy()
-	
+
 	subscribeName := slim.Name{
 		Components: []string{"org", "sub", "topic"},
 		Id:         nil,
 	}
-	
+
 	// Test subscribe
 	err := app.Subscribe(subscribeName, nil)
 	if err != nil {
@@ -138,7 +138,7 @@ func TestSubscribeUnsubscribe(t *testing.T) {
 	} else {
 		t.Log("Subscribed successfully")
 	}
-	
+
 	// Test unsubscribe
 	err = app.Unsubscribe(subscribeName, nil)
 	if err != nil {
@@ -152,19 +152,19 @@ func TestSubscribeUnsubscribe(t *testing.T) {
 func TestSubscribeWithConnectionID(t *testing.T) {
 	app := setupTestApp(t, "subscribe-conn-test")
 	defer app.Destroy()
-	
+
 	subscribeName := slim.Name{
 		Components: []string{"org", "sub", "conn-topic"},
 		Id:         nil,
 	}
-	
+
 	connID := uint64(42)
-	
+
 	err := app.Subscribe(subscribeName, &connID)
 	if err != nil {
 		t.Logf("Subscribe with connection ID failed (expected without network): %v", err)
 	}
-	
+
 	err = app.Unsubscribe(subscribeName, &connID)
 	if err != nil {
 		t.Logf("Unsubscribe with connection ID failed (expected without network): %v", err)
@@ -175,14 +175,14 @@ func TestSubscribeWithConnectionID(t *testing.T) {
 func TestRouteOperations(t *testing.T) {
 	app := setupTestApp(t, "route-test")
 	defer app.Destroy()
-	
+
 	routeName := slim.Name{
 		Components: []string{"org", "route", "target"},
 		Id:         nil,
 	}
-	
+
 	connID := uint64(123)
-	
+
 	// Test set route
 	err := app.SetRoute(routeName, connID)
 	if err != nil {
@@ -190,7 +190,7 @@ func TestRouteOperations(t *testing.T) {
 	} else {
 		t.Log("Route set successfully")
 	}
-	
+
 	// Test remove route
 	err = app.RemoveRoute(routeName, connID)
 	if err != nil {
@@ -204,23 +204,23 @@ func TestRouteOperations(t *testing.T) {
 func TestMulticastSession(t *testing.T) {
 	app := setupTestApp(t, "multicast-test")
 	defer app.Destroy()
-	
+
 	sessionConfig := slim.SessionConfig{
 		SessionType: slim.SessionTypeMulticast,
 		EnableMls:   false,
 	}
-	
+
 	destination := slim.Name{
 		Components: []string{"org", "group", "v1"},
 		Id:         nil,
 	}
-	
+
 	session, err := app.CreateSession(sessionConfig, destination)
 	if err != nil {
 		t.Fatalf("Failed to create multicast session: %v", err)
 	}
 	defer session.Destroy()
-	
+
 	t.Log("Multicast session created successfully")
 }
 
@@ -228,28 +228,28 @@ func TestMulticastSession(t *testing.T) {
 func TestSessionInviteRemove(t *testing.T) {
 	app := setupTestApp(t, "invite-test")
 	defer app.Destroy()
-	
+
 	sessionConfig := slim.SessionConfig{
 		SessionType: slim.SessionTypeMulticast,
 		EnableMls:   false,
 	}
-	
+
 	destination := slim.Name{
 		Components: []string{"org", "group", "v1"},
 		Id:         nil,
 	}
-	
+
 	session, err := app.CreateSession(sessionConfig, destination)
 	if err != nil {
 		t.Fatalf("Failed to create session: %v", err)
 	}
 	defer session.Destroy()
-	
+
 	participant := slim.Name{
 		Components: []string{"org", "participant", "v1"},
 		Id:         nil,
 	}
-	
+
 	// Test invite
 	err = session.Invite(participant)
 	if err != nil {
@@ -257,7 +257,7 @@ func TestSessionInviteRemove(t *testing.T) {
 	} else {
 		t.Log("Participant invited successfully")
 	}
-	
+
 	// Test remove
 	err = session.Remove(participant)
 	if err != nil {
@@ -271,23 +271,23 @@ func TestSessionInviteRemove(t *testing.T) {
 func TestPublishWithMetadata(t *testing.T) {
 	app := setupTestApp(t, "metadata-test")
 	defer app.Destroy()
-	
+
 	sessionConfig := slim.SessionConfig{
 		SessionType: slim.SessionTypePointToPoint,
 		EnableMls:   false,
 	}
-	
+
 	destination := slim.Name{
 		Components: []string{"org", "receiver", "v1"},
 		Id:         nil,
 	}
-	
+
 	session, err := app.CreateSession(sessionConfig, destination)
 	if err != nil {
 		t.Fatalf("Failed to create session: %v", err)
 	}
 	defer session.Destroy()
-	
+
 	message := []byte("Message with metadata")
 	payloadType := "application/json"
 	metadata := map[string]string{
@@ -295,8 +295,8 @@ func TestPublishWithMetadata(t *testing.T) {
 		"timestamp": time.Now().Format(time.RFC3339),
 		"sender":    "integration-test",
 	}
-	
-	err = session.Publish(destination, 1, message, nil, &payloadType, &metadata)
+
+	err = session.Publish(message, &payloadType, &metadata)
 	if err != nil {
 		t.Logf("Publish with metadata failed (expected without network): %v", err)
 	} else {
@@ -308,28 +308,28 @@ func TestPublishWithMetadata(t *testing.T) {
 func TestMultipleSessions(t *testing.T) {
 	app := setupTestApp(t, "multi-session-test")
 	defer app.Destroy()
-	
+
 	sessionConfig := slim.SessionConfig{
 		SessionType: slim.SessionTypePointToPoint,
 		EnableMls:   false,
 	}
-	
+
 	numSessions := 3
 	sessions := make([]*slim.FfiSessionContext, numSessions)
-	
+
 	for i := 0; i < numSessions; i++ {
 		destination := slim.Name{
 			Components: []string{"org", "receiver", "v1"},
 			Id:         func() *uint64 { v := uint64(i); return &v }(),
 		}
-		
+
 		session, err := app.CreateSession(sessionConfig, destination)
 		if err != nil {
 			t.Fatalf("Failed to create session %d: %v", i, err)
 		}
 		sessions[i] = session
 	}
-	
+
 	// Cleanup all sessions
 	for i, session := range sessions {
 		if session != nil {
@@ -337,7 +337,7 @@ func TestMultipleSessions(t *testing.T) {
 			t.Logf("Session %d cleaned up", i)
 		}
 	}
-	
+
 	t.Logf("Successfully created and cleaned up %d sessions", numSessions)
 }
 
@@ -345,27 +345,27 @@ func TestMultipleSessions(t *testing.T) {
 func TestConcurrentOperations(t *testing.T) {
 	app := setupTestApp(t, "concurrent-test")
 	defer app.Destroy()
-	
+
 	// Create a session
 	sessionConfig := slim.SessionConfig{
 		SessionType: slim.SessionTypePointToPoint,
 		EnableMls:   false,
 	}
-	
+
 	destination := slim.Name{
 		Components: []string{"org", "receiver", "v1"},
 		Id:         nil,
 	}
-	
+
 	session, err := app.CreateSession(sessionConfig, destination)
 	if err != nil {
 		t.Fatalf("Failed to create session: %v", err)
 	}
 	defer session.Destroy()
-	
+
 	// Run concurrent subscribe/unsubscribe operations
 	done := make(chan bool, 2)
-	
+
 	go func() {
 		for i := 0; i < 5; i++ {
 			name := slim.Name{
@@ -377,7 +377,7 @@ func TestConcurrentOperations(t *testing.T) {
 		}
 		done <- true
 	}()
-	
+
 	go func() {
 		for i := 0; i < 5; i++ {
 			name := slim.Name{
@@ -389,11 +389,11 @@ func TestConcurrentOperations(t *testing.T) {
 		}
 		done <- true
 	}()
-	
+
 	// Wait for both goroutines
 	<-done
 	<-done
-	
+
 	t.Log("Concurrent operations completed")
 }
 
@@ -401,19 +401,19 @@ func TestConcurrentOperations(t *testing.T) {
 func TestListenForSessionTimeout(t *testing.T) {
 	app := setupTestApp(t, "listen-timeout-test")
 	defer app.Destroy()
-	
+
 	timeout := uint32(100) // 100ms timeout
-	
+
 	start := time.Now()
 	_, err := app.ListenForSession(&timeout)
 	elapsed := time.Since(start)
-	
+
 	if err == nil {
 		t.Error("Expected timeout error, got nil")
 	} else {
 		t.Logf("Received expected timeout error: %v", err)
 	}
-	
+
 	// Verify timeout was respected (allow some variance)
 	if elapsed < 90*time.Millisecond || elapsed > 200*time.Millisecond {
 		t.Logf("Warning: timeout was %v, expected ~100ms", elapsed)
@@ -423,32 +423,32 @@ func TestListenForSessionTimeout(t *testing.T) {
 // TestFullWorkflow tests a complete workflow: create session, publish, cleanup
 func TestFullWorkflow(t *testing.T) {
 	t.Log("Starting full workflow test")
-	
+
 	// Step 1: Setup
 	app := setupTestApp(t, "workflow-test")
 	defer func() {
 		app.Destroy()
 		t.Log("Cleanup completed")
 	}()
-	
+
 	// Step 2: Create session
 	sessionConfig := slim.SessionConfig{
 		SessionType: slim.SessionTypePointToPoint,
 		EnableMls:   false,
 	}
-	
+
 	destination := slim.Name{
 		Components: []string{"org", "receiver", "v1"},
 		Id:         nil,
 	}
-	
+
 	session, err := app.CreateSession(sessionConfig, destination)
 	if err != nil {
 		t.Fatalf("Failed to create session: %v", err)
 	}
 	defer session.Destroy()
 	t.Log("Session created")
-	
+
 	// Step 3: Subscribe
 	err = app.Subscribe(destination, nil)
 	if err != nil {
@@ -456,18 +456,18 @@ func TestFullWorkflow(t *testing.T) {
 	} else {
 		t.Log("Subscribed to destination")
 	}
-	
+
 	// Step 4: Publish message
 	message := []byte("Full workflow test message")
 	payloadType := "text/plain"
-	
-	err = session.Publish(destination, 1, message, nil, &payloadType, nil)
+
+	err = session.Publish(message, &payloadType, nil)
 	if err != nil {
 		t.Logf("Publish failed (expected without network): %v", err)
 	} else {
 		t.Log("Message published")
 	}
-	
+
 	// Step 5: Unsubscribe
 	err = app.Unsubscribe(destination, nil)
 	if err != nil {
@@ -475,7 +475,7 @@ func TestFullWorkflow(t *testing.T) {
 	} else {
 		t.Log("Unsubscribed from destination")
 	}
-	
+
 	// Step 6: Delete session
 	err = app.DeleteSession(session)
 	if err != nil {
@@ -483,7 +483,6 @@ func TestFullWorkflow(t *testing.T) {
 	} else {
 		t.Log("Session deleted")
 	}
-	
+
 	t.Log("Full workflow completed successfully")
 }
-
