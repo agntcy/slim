@@ -59,6 +59,7 @@ func NewVersionCmd(opts *options.CommonOptions) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return Run(&v, opts, cmd)
 		},
+		GroupID: "slimctl",
 	}
 
 	return cmd
