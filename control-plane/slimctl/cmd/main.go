@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -27,6 +28,7 @@ import (
 	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/node"
 	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/slim"
 	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/version"
+	"github.com/agntcy/slim/control-plane/slimctl/internal/manager"
 )
 
 var k = koanf.New(".")
@@ -175,7 +177,10 @@ func main() {
 	rootCmd.AddCommand(node.NewNodeCmd(conf.AppConfig.CommonOpts))
 
 	// add the slim command tree
-	rootCmd.AddCommand(slim.NewSlimCmd())
+	ctx := context.Background()
+	manager := manager.NewManager(conf.AppConfig.CommonOpts.Logger)
+
+	rootCmd.AddCommand(slim.NewSlimCmd(ctx, manager))
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "CLI error: %v", err)

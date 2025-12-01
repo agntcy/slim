@@ -1,4 +1,4 @@
-package slim
+package manager
 
 import (
 	"context"
@@ -14,17 +14,17 @@ type Manager interface {
 }
 
 // Service is the default implementation of Manager.
-type Service struct {
+type manager struct {
 	Logger *zap.Logger
 }
 
 // NewService creates a new Service.
-func NewService(logger *zap.Logger) Manager {
-	return &Service{Logger: logger}
+func NewManager(logger *zap.Logger) Manager {
+	return &manager{Logger: logger}
 }
 
 // Start starts the local slim instance.
-func (s *Service) Start(ctx context.Context) error {
+func (s *manager) Start(ctx context.Context) error {
 	if s.Logger != nil {
 		s.Logger.Info("Starting slim instance")
 	}
@@ -32,7 +32,7 @@ func (s *Service) Start(ctx context.Context) error {
 }
 
 // Stop stops the local slim instance.
-func (s *Service) Stop(ctx context.Context) error {
+func (s *manager) Stop(ctx context.Context) error {
 	if s.Logger != nil {
 		s.Logger.Info("Stopping slim instance")
 	}
@@ -40,7 +40,7 @@ func (s *Service) Stop(ctx context.Context) error {
 }
 
 // Status returns the status of the local slim instance.
-func (s *Service) Status(ctx context.Context) (string, error) {
+func (s *manager) Status(ctx context.Context) (string, error) {
 	if s.Logger != nil {
 		s.Logger.Info("Getting status of slim instance")
 	}
