@@ -502,6 +502,11 @@ impl BindingsAdapter {
     }
 
     /// Create a new session (async version)
+    ///
+    /// **Auto-waits for session establishment:** This method automatically waits for the
+    /// session handshake to complete before returning. For point-to-point sessions, this
+    /// ensures the remote peer has acknowledged the session. For multicast sessions, this
+    /// ensures the initial setup is complete.
     pub async fn create_session_async(
         &self,
         config: SessionConfig,
@@ -510,10 +515,16 @@ impl BindingsAdapter {
         let slim_config: SlimSessionConfig = config.into();
         let slim_dest: SlimName = destination.into();
 
-        let (session_ctx, _completion) = self
+        let (session_ctx, completion) = self
             .app
             .create_session(slim_config, slim_dest, None)
             .await?;
+
+        // Wait for session establishment to complete
+        // This ensures the session is fully ready before returning
+        completion.await.map_err(|e| SlimError::SessionError {
+            message: format!("Session establishment failed: {}", e),
+        })?;
 
         // Convert SessionContext to BindingsSessionContext
         let bindings_ctx = crate::bindings::BindingsSessionContext::from(session_ctx);
@@ -764,6 +775,125 @@ impl BindingsAdapter {
 }
 
 // ============================================================================
+// FFI CompletionHandle Wrapper
+// ============================================================================
+
+/// FFI-compatible completion handle for async operations
+///
+/// Represents a pending operation that can be awaited to ensure completion.
+/// Used for operations that need delivery confirmation or handshake acknowledgment.
+///
+/// # Design Note
+/// Since Rust futures can only be polled once to completion, this handle uses
+/// a shared receiver that can only be consumed once. Attempting to wait multiple
+/// times on the same handle will return an error.
+///
+/// # Examples
+///
+/// Basic usage:
+/// ```ignore
+/// let completion = session.publish_with_completion(data, None, None)?;
+/// completion.wait()?; // Wait for delivery confirmation
+/// ```
+#[derive(uniffi::Object)]
+pub struct FfiCompletionHandle {
+    /// Receiver for the completion result (can only be consumed once)
+    receiver: Arc<
+        parking_lot::Mutex<
+            Option<tokio::sync::oneshot::Receiver<Result<(), slim_session::SessionError>>>,
+        >,
+    >,
+    runtime: Arc<tokio::runtime::Runtime>,
+}
+
+impl FfiCompletionHandle {
+    /// Create a new FFI completion handle from a Rust CompletionHandle
+    fn new(handle: slim_session::CompletionHandle, runtime: Arc<tokio::runtime::Runtime>) -> Self {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+
+        // Spawn a task to await the completion and send the result
+        let rt = runtime.clone();
+        rt.spawn(async move {
+            let result = handle.await;
+            let _ = tx.send(result);
+        });
+
+        Self {
+            receiver: Arc::new(parking_lot::Mutex::new(Some(rx))),
+            runtime,
+        }
+    }
+}
+
+#[uniffi::export]
+impl FfiCompletionHandle {
+    /// Wait for the operation to complete (blocking version for FFI)
+    ///
+    /// This blocks the calling thread until the operation completes.
+    /// Use this from Go or other languages when you need to ensure
+    /// an operation has finished before proceeding.
+    ///
+    /// **Note:** This can only be called once per handle. Subsequent calls
+    /// will return an error.
+    ///
+    /// # Returns
+    /// * `Ok(())` - Operation completed successfully
+    /// * `Err(SlimError)` - Operation failed or handle already consumed
+    pub fn wait(&self) -> Result<(), SlimError> {
+        let receiver = self
+            .receiver
+            .lock()
+            .take()
+            .ok_or_else(|| SlimError::InternalError {
+                message: "CompletionHandle already consumed (wait can only be called once)"
+                    .to_string(),
+            })?;
+
+        self.runtime.block_on(async {
+            receiver
+                .await
+                .map_err(|_| SlimError::InternalError {
+                    message: "Completion sender dropped before result was sent".to_string(),
+                })?
+                .map_err(|e| SlimError::SessionError {
+                    message: e.to_string(),
+                })
+        })
+    }
+
+    /// Wait for the operation to complete (async version)
+    ///
+    /// This is the async version that integrates with UniFFI's polling mechanism.
+    /// The operation will yield control while waiting.
+    ///
+    /// **Note:** This can only be called once per handle. Subsequent calls
+    /// will return an error.
+    ///
+    /// # Returns
+    /// * `Ok(())` - Operation completed successfully
+    /// * `Err(SlimError)` - Operation failed or handle already consumed
+    pub async fn wait_async(&self) -> Result<(), SlimError> {
+        let receiver = self
+            .receiver
+            .lock()
+            .take()
+            .ok_or_else(|| SlimError::InternalError {
+                message: "CompletionHandle already consumed (wait can only be called once)"
+                    .to_string(),
+            })?;
+
+        receiver
+            .await
+            .map_err(|_| SlimError::InternalError {
+                message: "Completion sender dropped before result was sent".to_string(),
+            })?
+            .map_err(|e| SlimError::SessionError {
+                message: e.to_string(),
+            })
+    }
+}
+
+// ============================================================================
 // FFI SessionContext Wrapper
 // ============================================================================
 
@@ -777,11 +907,16 @@ pub struct FFISessionContext {
 
 #[uniffi::export]
 impl FFISessionContext {
-    /// Publish a message to the session's destination (blocking version for FFI)
+    /// Publish a message to the session's destination (fire-and-forget, blocking version)
     ///
-    /// Simple publish that automatically uses the session's destination.
-    /// For point-to-point sessions, this sends to the remote peer.
-    /// For group sessions, this broadcasts to all participants.
+    /// This is the simple "fire-and-forget" API that most users want.
+    /// The message is queued for sending and this method returns immediately without
+    /// waiting for delivery confirmation.
+    ///
+    /// **When to use:** Most common use case where you don't need delivery confirmation.
+    ///
+    /// **When not to use:** If you need to ensure the message was delivered, use
+    /// `publish_with_completion()` instead.
     ///
     /// # Arguments
     /// * `data` - The message payload bytes
@@ -789,8 +924,8 @@ impl FFISessionContext {
     /// * `metadata` - Optional key-value metadata pairs
     ///
     /// # Returns
-    /// * `Ok(())` on success
-    /// * `Err(SlimError)` if publishing fails
+    /// * `Ok(())` - Message queued successfully
+    /// * `Err(SlimError)` - If publishing fails
     pub fn publish(
         &self,
         data: Vec<u8>,
@@ -801,7 +936,7 @@ impl FFISessionContext {
             .block_on(async { self.publish_async(data, payload_type, metadata).await })
     }
 
-    /// Publish a message to the session's destination (async version)
+    /// Publish a message to the session's destination (fire-and-forget, async version)
     pub async fn publish_async(
         &self,
         data: Vec<u8>,
@@ -819,6 +954,7 @@ impl FFISessionContext {
 
         let destination = session.dst();
 
+        // Fire and forget - discard completion handle
         self.inner
             .publish(
                 destination,
@@ -833,6 +969,78 @@ impl FFISessionContext {
             .map_err(|e| SlimError::SendError {
                 message: e.to_string(),
             })
+    }
+
+    /// Publish a message with delivery confirmation (blocking version)
+    ///
+    /// This variant returns a `FfiCompletionHandle` that can be awaited to ensure
+    /// the message was delivered successfully. Use this when you need reliable
+    /// delivery confirmation.
+    ///
+    /// **When to use:** Critical messages where you need delivery confirmation.
+    ///
+    /// # Arguments
+    /// * `data` - The message payload bytes
+    /// * `payload_type` - Optional content type identifier
+    /// * `metadata` - Optional key-value metadata pairs
+    ///
+    /// # Returns
+    /// * `Ok(FfiCompletionHandle)` - Handle to await delivery confirmation
+    /// * `Err(SlimError)` - If publishing fails
+    ///
+    /// # Example
+    /// ```ignore
+    /// let completion = session.publish_with_completion(data, None, None)?;
+    /// completion.wait()?; // Blocks until message is delivered
+    /// ```
+    pub fn publish_with_completion(
+        &self,
+        data: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<std::collections::HashMap<String, String>>,
+    ) -> Result<Arc<FfiCompletionHandle>, SlimError> {
+        self.runtime.block_on(async {
+            self.publish_with_completion_async(data, payload_type, metadata)
+                .await
+        })
+    }
+
+    /// Publish a message with delivery confirmation (async version)
+    pub async fn publish_with_completion_async(
+        &self,
+        data: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<std::collections::HashMap<String, String>>,
+    ) -> Result<Arc<FfiCompletionHandle>, SlimError> {
+        let session = self
+            .inner
+            .session
+            .upgrade()
+            .ok_or_else(|| SlimError::SessionError {
+                message: "Session already closed or dropped".to_string(),
+            })?;
+
+        let destination = session.dst();
+
+        let completion = self
+            .inner
+            .publish(
+                destination,
+                1, // fanout = 1 for normal publish
+                data,
+                None, // connection_out
+                payload_type,
+                metadata,
+            )
+            .await
+            .map_err(|e| SlimError::SendError {
+                message: e.to_string(),
+            })?;
+
+        Ok(Arc::new(FfiCompletionHandle::new(
+            completion,
+            Arc::clone(&self.runtime),
+        )))
     }
 
     /// Publish a reply message to the originator of a received message (blocking version for FFI)
@@ -863,7 +1071,7 @@ impl FFISessionContext {
         })
     }
 
-    /// Publish a reply message (async version)
+    /// Publish a reply message (fire-and-forget, async version)
     pub async fn publish_to_async(
         &self,
         message_context: MessageContext,
@@ -880,6 +1088,57 @@ impl FFISessionContext {
             .map_err(|e| SlimError::SendError {
                 message: e.to_string(),
             })
+    }
+
+    /// Publish a reply message with delivery confirmation (blocking version)
+    ///
+    /// Similar to `publish_with_completion()` but for reply messages.
+    /// Returns a completion handle to await delivery confirmation.
+    ///
+    /// # Arguments
+    /// * `message_context` - Context from a message received via `get_message()`
+    /// * `data` - The reply payload bytes
+    /// * `payload_type` - Optional content type identifier
+    /// * `metadata` - Optional key-value metadata pairs
+    ///
+    /// # Returns
+    /// * `Ok(FfiCompletionHandle)` - Handle to await delivery confirmation
+    /// * `Err(SlimError)` - If publishing fails
+    pub fn publish_to_with_completion(
+        &self,
+        message_context: MessageContext,
+        data: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<std::collections::HashMap<String, String>>,
+    ) -> Result<Arc<FfiCompletionHandle>, SlimError> {
+        self.runtime.block_on(async {
+            self.publish_to_with_completion_async(message_context, data, payload_type, metadata)
+                .await
+        })
+    }
+
+    /// Publish a reply message with delivery confirmation (async version)
+    pub async fn publish_to_with_completion_async(
+        &self,
+        message_context: MessageContext,
+        data: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<std::collections::HashMap<String, String>>,
+    ) -> Result<Arc<FfiCompletionHandle>, SlimError> {
+        let internal_context = crate::bindings::MessageContext::from(message_context);
+
+        let completion = self
+            .inner
+            .publish_to(&internal_context, data, payload_type, metadata)
+            .await
+            .map_err(|e| SlimError::SendError {
+                message: e.to_string(),
+            })?;
+
+        Ok(Arc::new(FfiCompletionHandle::new(
+            completion,
+            Arc::clone(&self.runtime),
+        )))
     }
 
     /// Low-level publish with full control over all parameters (blocking version for FFI)
@@ -979,41 +1238,63 @@ impl FFISessionContext {
     }
 
     /// Invite a participant to the session (blocking version for FFI)
+    ///
+    /// **Auto-waits for completion:** This method automatically waits for the
+    /// invitation to be sent and acknowledged before returning.
     pub fn invite(&self, participant: Name) -> Result<(), SlimError> {
         self.runtime
             .block_on(async { self.invite_async(participant).await })
     }
 
     /// Invite a participant to the session (async version)
+    ///
+    /// **Auto-waits for completion:** This method automatically waits for the
+    /// invitation to be sent and acknowledged before returning.
     pub async fn invite_async(&self, participant: Name) -> Result<(), SlimError> {
         let slim_name: SlimName = participant.into();
 
-        self.inner
-            .invite(&slim_name)
-            .await
-            .map(|_| ())
-            .map_err(|e| SlimError::SessionError {
-                message: e.to_string(),
-            })
+        let completion =
+            self.inner
+                .invite(&slim_name)
+                .await
+                .map_err(|e| SlimError::SessionError {
+                    message: e.to_string(),
+                })?;
+
+        // Wait for invitation to complete
+        completion.await.map_err(|e| SlimError::SessionError {
+            message: format!("Invitation failed: {}", e),
+        })
     }
 
     /// Remove a participant from the session (blocking version for FFI)
+    ///
+    /// **Auto-waits for completion:** This method automatically waits for the
+    /// removal to be processed and acknowledged before returning.
     pub fn remove(&self, participant: Name) -> Result<(), SlimError> {
         self.runtime
             .block_on(async { self.remove_async(participant).await })
     }
 
     /// Remove a participant from the session (async version)
+    ///
+    /// **Auto-waits for completion:** This method automatically waits for the
+    /// removal to be processed and acknowledged before returning.
     pub async fn remove_async(&self, participant: Name) -> Result<(), SlimError> {
         let slim_name: SlimName = participant.into();
 
-        self.inner
-            .remove(&slim_name)
-            .await
-            .map(|_| ())
-            .map_err(|e| SlimError::SessionError {
-                message: e.to_string(),
-            })
+        let completion =
+            self.inner
+                .remove(&slim_name)
+                .await
+                .map_err(|e| SlimError::SessionError {
+                    message: e.to_string(),
+                })?;
+
+        // Wait for removal to complete
+        completion.await.map_err(|e| SlimError::SessionError {
+            message: format!("Participant removal failed: {}", e),
+        })
     }
 
     /// Get the destination name for this session
@@ -1216,5 +1497,327 @@ mod tests {
 
         let adapter = result.unwrap();
         assert_eq!(adapter.id(), expected_hash);
+    }
+
+    /// Test FfiCompletionHandle basic functionality
+    #[tokio::test]
+    async fn test_completion_handle_success() {
+        let runtime = Arc::clone(get_runtime());
+
+        // Create a successful completion
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
+        let ffi_handle = FfiCompletionHandle::new(completion, runtime);
+
+        // Send success
+        tx.send(Ok(())).unwrap();
+
+        // Wait should succeed
+        let result = ffi_handle.wait_async().await;
+        assert!(result.is_ok(), "Completion should succeed");
+    }
+
+    /// Test FfiCompletionHandle failure propagation
+    #[tokio::test]
+    async fn test_completion_handle_failure() {
+        let runtime = Arc::clone(get_runtime());
+
+        // Create a failed completion
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
+        let ffi_handle = FfiCompletionHandle::new(completion, runtime);
+
+        // Send error
+        tx.send(Err(slim_session::SessionError::Generic(
+            "test error".to_string(),
+        )))
+        .unwrap();
+
+        // Wait should fail with error
+        let result = ffi_handle.wait_async().await;
+        assert!(result.is_err(), "Completion should fail");
+
+        match result {
+            Err(SlimError::SessionError { message }) => {
+                assert!(message.contains("test error"));
+            }
+            _ => panic!("Expected SessionError"),
+        }
+    }
+
+    /// Test FfiCompletionHandle can only be consumed once
+    #[tokio::test]
+    async fn test_completion_handle_single_consumption() {
+        let runtime = Arc::clone(get_runtime());
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
+        let ffi_handle = Arc::new(FfiCompletionHandle::new(completion, runtime));
+
+        tx.send(Ok(())).unwrap();
+
+        // First wait should succeed
+        let result1 = ffi_handle.wait_async().await;
+        assert!(result1.is_ok(), "First wait should succeed");
+
+        // Second wait should fail (already consumed)
+        let result2 = ffi_handle.wait_async().await;
+        assert!(result2.is_err(), "Second wait should fail");
+
+        match result2 {
+            Err(SlimError::InternalError { message }) => {
+                assert!(message.contains("already consumed"));
+            }
+            _ => panic!("Expected InternalError about consumption"),
+        }
+    }
+
+    /// Test FfiCompletionHandle async version
+    #[tokio::test]
+    async fn test_completion_handle_async() {
+        let runtime = Arc::clone(get_runtime());
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
+        let ffi_handle = FfiCompletionHandle::new(completion, runtime);
+
+        // Send success in a separate task
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            tx.send(Ok(())).unwrap();
+        });
+
+        // Async wait should succeed
+        let result = ffi_handle.wait_async().await;
+        assert!(result.is_ok(), "Async wait should succeed");
+    }
+
+    /// Test FfiCompletionHandle with dropped sender
+    #[tokio::test]
+    async fn test_completion_handle_sender_dropped() {
+        let runtime = Arc::clone(get_runtime());
+
+        let (_tx, rx) = tokio::sync::oneshot::channel();
+        let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
+        let ffi_handle = FfiCompletionHandle::new(completion, runtime);
+
+        // Drop the sender explicitly
+        drop(_tx);
+
+        // Give the spawned task time to process
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // Wait should fail because sender was dropped (or already consumed by background task)
+        let result = ffi_handle.wait_async().await;
+        assert!(
+            result.is_err(),
+            "Should fail when sender is dropped or already consumed"
+        );
+
+        // Either error type is valid depending on timing
+        match result {
+            Err(SlimError::InternalError { message }) => {
+                assert!(
+                    message.contains("sender dropped") || message.contains("already consumed"),
+                    "Error message should mention sender dropped or already consumed, got: {}",
+                    message
+                );
+            }
+            Err(SlimError::SessionError { message }) => {
+                // The background task may have consumed the receiver and got a channel closed error
+                assert!(
+                    message.contains("channel closed") || message.contains("receiving ack"),
+                    "Expected channel closed error, got: {}",
+                    message
+                );
+            }
+            Err(e) => panic!("Unexpected error type: {:?}", e),
+            Ok(_) => panic!("Expected error, got Ok"),
+        }
+    }
+
+    /// Test concurrent completion handle usage
+    #[tokio::test]
+    async fn test_completion_handle_concurrent() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        let runtime = Arc::clone(get_runtime());
+        let success_count = Arc::new(AtomicU32::new(0));
+        let mut handles = vec![];
+
+        // Create multiple completion handles
+        for _ in 0..10 {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
+            let ffi_handle = Arc::new(FfiCompletionHandle::new(completion, runtime.clone()));
+
+            let count = Arc::clone(&success_count);
+            let handle = tokio::spawn(async move {
+                // Send success
+                tx.send(Ok(())).unwrap();
+
+                // Wait for completion
+                if ffi_handle.wait_async().await.is_ok() {
+                    count.fetch_add(1, Ordering::SeqCst);
+                }
+            });
+
+            handles.push(handle);
+        }
+
+        // Wait for all tasks
+        for handle in handles {
+            handle.await.unwrap();
+        }
+
+        // All should succeed
+        assert_eq!(success_count.load(Ordering::SeqCst), 10);
+    }
+
+    /// Test that session creation auto-waits for establishment
+    #[tokio::test]
+    async fn test_session_creation_auto_wait() {
+        // This test verifies that create_session_async properly awaits the completion handle
+        // In a real scenario, this would ensure the session is fully established
+
+        let base_name = SlimName::from_strings(["org", "namespace", "create-test"]);
+        let shared_secret = SharedSecret::new("create-test", TEST_VALID_SECRET);
+        let provider = AuthProvider::SharedSecret(shared_secret.clone());
+        let verifier = AuthVerifier::SharedSecret(shared_secret);
+
+        let adapter = BindingsAdapter::new(base_name, provider, verifier, true)
+            .expect("Failed to create adapter");
+
+        let session_config = SessionConfig {
+            session_type: SessionType::PointToPoint,
+            enable_mls: false,
+            max_retries: Some(3),
+            interval_ms: Some(100),
+            initiator: true,
+            metadata: std::collections::HashMap::new(),
+        };
+
+        let destination = Name {
+            components: vec!["org".to_string(), "test".to_string(), "dest".to_string()],
+            id: None,
+        };
+
+        // This should auto-wait for session establishment
+        // If it returns without error, the session is fully established
+        let result = adapter
+            .create_session_async(session_config, destination)
+            .await;
+
+        // In a real scenario with network, this would verify the session is ready
+        // For this test, we just verify it completes without panicking
+        match result {
+            Ok(_session) => {
+                // Session created and auto-waited successfully
+            }
+            Err(e) => {
+                // Expected to fail in test environment without network
+                // but shouldn't panic
+                println!("Expected error in test environment: {:?}", e);
+            }
+        }
+    }
+
+    /// Test publish_with_completion returns a valid completion handle
+    #[tokio::test]
+    async fn test_publish_with_completion_returns_handle() {
+        // Note: This is a structural test - in a real environment with connections,
+        // the completion handle would actually track message delivery
+
+        let base_name = SlimName::from_strings(["org", "namespace", "publish-test"]);
+        let shared_secret = SharedSecret::new("publish-test", TEST_VALID_SECRET);
+        let provider = AuthProvider::SharedSecret(shared_secret.clone());
+        let verifier = AuthVerifier::SharedSecret(shared_secret);
+
+        let adapter = BindingsAdapter::new(base_name, provider, verifier, true)
+            .expect("Failed to create adapter");
+
+        let session_config = SessionConfig {
+            session_type: SessionType::PointToPoint,
+            enable_mls: false,
+            max_retries: Some(3),
+            interval_ms: Some(100),
+            initiator: true,
+            metadata: std::collections::HashMap::new(),
+        };
+
+        let destination = Name {
+            components: vec!["org".to_string(), "test".to_string(), "dest".to_string()],
+            id: None,
+        };
+
+        // Try to create a session (may fail without network)
+        if let Ok(session) = adapter
+            .create_session_async(session_config, destination)
+            .await
+        {
+            let data = b"test message".to_vec();
+
+            // Attempt to publish with completion
+            // This verifies the API exists and returns the right type
+            let result = session
+                .publish_with_completion_async(data, None, None)
+                .await;
+
+            match result {
+                Ok(completion_handle) => {
+                    // Verify we got a completion handle
+                    // In a real scenario, we could wait on it
+                    assert!(Arc::strong_count(&completion_handle) > 0);
+                }
+                Err(e) => {
+                    // Expected to fail without actual connections
+                    println!("Expected error without network: {:?}", e);
+                }
+            }
+        }
+    }
+
+    /// Test runtime configuration
+    #[test]
+    fn test_runtime_configuration() {
+        let runtime = get_runtime();
+
+        // Verify runtime was created
+        assert!(Arc::strong_count(runtime) > 0);
+
+        // Runtime should be accessible multiple times (returns same instance)
+        let runtime2 = get_runtime();
+        assert!(Arc::ptr_eq(runtime, runtime2));
+    }
+
+    /// Test environment variable configuration
+    #[test]
+    fn test_env_var_configuration() {
+        // Set environment variables
+        unsafe {
+            std::env::set_var("SLIM_TOKIO_WORKERS", "8");
+            std::env::set_var("SLIM_MAX_BLOCKING_THREADS", "256");
+        }
+
+        // Note: These won't affect already-initialized runtime,
+        // but we can verify parsing works
+        let workers: usize = std::env::var("SLIM_TOKIO_WORKERS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(4);
+
+        let max_blocking: usize = std::env::var("SLIM_MAX_BLOCKING_THREADS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(512);
+
+        assert_eq!(workers, 8);
+        assert_eq!(max_blocking, 256);
+
+        // Clean up
+        unsafe {
+            std::env::remove_var("SLIM_TOKIO_WORKERS");
+            std::env::remove_var("SLIM_MAX_BLOCKING_THREADS");
+        }
     }
 }

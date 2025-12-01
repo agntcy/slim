@@ -405,7 +405,7 @@ func uniffiCheckChecksums() {
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_service_checksum_method_bindingsadapter_create_session_async()
 		})
-		if checksum != 39669 {
+		if checksum != 46104 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_service: uniffi_slim_service_checksum_method_bindingsadapter_create_session_async: UniFFI API checksum mismatch")
 		}
@@ -594,7 +594,7 @@ func uniffiCheckChecksums() {
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_service_checksum_method_ffisessioncontext_invite()
 		})
-		if checksum != 55427 {
+		if checksum != 44032 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_service: uniffi_slim_service_checksum_method_ffisessioncontext_invite: UniFFI API checksum mismatch")
 		}
@@ -603,7 +603,7 @@ func uniffiCheckChecksums() {
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_service_checksum_method_ffisessioncontext_invite_async()
 		})
-		if checksum != 33273 {
+		if checksum != 56352 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_service: uniffi_slim_service_checksum_method_ffisessioncontext_invite_async: UniFFI API checksum mismatch")
 		}
@@ -621,7 +621,7 @@ func uniffiCheckChecksums() {
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_service_checksum_method_ffisessioncontext_publish()
 		})
-		if checksum != 19932 {
+		if checksum != 51893 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_service: uniffi_slim_service_checksum_method_ffisessioncontext_publish: UniFFI API checksum mismatch")
 		}
@@ -630,7 +630,7 @@ func uniffiCheckChecksums() {
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_service_checksum_method_ffisessioncontext_publish_async()
 		})
-		if checksum != 42821 {
+		if checksum != 25284 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_service: uniffi_slim_service_checksum_method_ffisessioncontext_publish_async: UniFFI API checksum mismatch")
 		}
@@ -648,9 +648,45 @@ func uniffiCheckChecksums() {
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_service_checksum_method_ffisessioncontext_publish_to_async()
 		})
-		if checksum != 52000 {
+		if checksum != 32959 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_service: uniffi_slim_service_checksum_method_ffisessioncontext_publish_to_async: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_service_checksum_method_ffisessioncontext_publish_to_with_completion()
+		})
+		if checksum != 22886 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_service: uniffi_slim_service_checksum_method_ffisessioncontext_publish_to_with_completion: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_service_checksum_method_ffisessioncontext_publish_to_with_completion_async()
+		})
+		if checksum != 51674 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_service: uniffi_slim_service_checksum_method_ffisessioncontext_publish_to_with_completion_async: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_service_checksum_method_ffisessioncontext_publish_with_completion()
+		})
+		if checksum != 21084 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_service: uniffi_slim_service_checksum_method_ffisessioncontext_publish_with_completion: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_service_checksum_method_ffisessioncontext_publish_with_completion_async()
+		})
+		if checksum != 38079 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_service: uniffi_slim_service_checksum_method_ffisessioncontext_publish_with_completion_async: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -675,7 +711,7 @@ func uniffiCheckChecksums() {
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_service_checksum_method_ffisessioncontext_remove()
 		})
-		if checksum != 50535 {
+		if checksum != 45413 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_service: uniffi_slim_service_checksum_method_ffisessioncontext_remove: UniFFI API checksum mismatch")
 		}
@@ -684,7 +720,7 @@ func uniffiCheckChecksums() {
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_service_checksum_method_ffisessioncontext_remove_async()
 		})
-		if checksum != 29332 {
+		if checksum != 9279 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_service: uniffi_slim_service_checksum_method_ffisessioncontext_remove_async: UniFFI API checksum mismatch")
 		}
@@ -714,6 +750,24 @@ func uniffiCheckChecksums() {
 		if checksum != 14596 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_service: uniffi_slim_service_checksum_method_ffisessioncontext_source: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_service_checksum_method_fficompletionhandle_wait()
+		})
+		if checksum != 45827 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_service: uniffi_slim_service_checksum_method_fficompletionhandle_wait: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_service_checksum_method_fficompletionhandle_wait_async()
+		})
+		if checksum != 4101 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_service: uniffi_slim_service_checksum_method_fficompletionhandle_wait_async: UniFFI API checksum mismatch")
 		}
 	}
 }
@@ -978,6 +1032,11 @@ type BindingsAdapterInterface interface {
 	// Create a new session (blocking version for FFI)
 	CreateSession(config SessionConfig, destination Name) (*FfiSessionContext, error)
 	// Create a new session (async version)
+	//
+	// **Auto-waits for session establishment:** This method automatically waits for the
+	// session handshake to complete before returning. For point-to-point sessions, this
+	// ensures the remote peer has acknowledged the session. For multicast sessions, this
+	// ensures the initial setup is complete.
 	CreateSessionAsync(config SessionConfig, destination Name) (*FfiSessionContext, error)
 	// Delete a session (synchronous - no async version needed)
 	DeleteSession(session *FfiSessionContext) error
@@ -1112,6 +1171,11 @@ func (_self *BindingsAdapter) CreateSession(config SessionConfig, destination Na
 }
 
 // Create a new session (async version)
+//
+// **Auto-waits for session establishment:** This method automatically waits for the
+// session handshake to complete before returning. For point-to-point sessions, this
+// ensures the remote peer has acknowledged the session. For multicast sessions, this
+// ensures the initial setup is complete.
 func (_self *BindingsAdapter) CreateSessionAsync(config SessionConfig, destination Name) (*FfiSessionContext, error) {
 	_pointer := _self.ffiObject.incrementPointer("*BindingsAdapter")
 	defer _self.ffiObject.decrementPointer()
@@ -1539,16 +1603,27 @@ type FfiSessionContextInterface interface {
 	// Receive a message from the session (async version)
 	GetMessageAsync(timeoutMs *uint32) (ReceivedMessage, error)
 	// Invite a participant to the session (blocking version for FFI)
+	//
+	// **Auto-waits for completion:** This method automatically waits for the
+	// invitation to be sent and acknowledged before returning.
 	Invite(participant Name) error
 	// Invite a participant to the session (async version)
+	//
+	// **Auto-waits for completion:** This method automatically waits for the
+	// invitation to be sent and acknowledged before returning.
 	InviteAsync(participant Name) error
 	// Check if this session is the initiator
 	IsInitiator() (bool, error)
-	// Publish a message to the session's destination (blocking version for FFI)
+	// Publish a message to the session's destination (fire-and-forget, blocking version)
 	//
-	// Simple publish that automatically uses the session's destination.
-	// For point-to-point sessions, this sends to the remote peer.
-	// For group sessions, this broadcasts to all participants.
+	// This is the simple "fire-and-forget" API that most users want.
+	// The message is queued for sending and this method returns immediately without
+	// waiting for delivery confirmation.
+	//
+	// **When to use:** Most common use case where you don't need delivery confirmation.
+	//
+	// **When not to use:** If you need to ensure the message was delivered, use
+	// `publish_with_completion()` instead.
 	//
 	// # Arguments
 	// * `data` - The message payload bytes
@@ -1556,10 +1631,10 @@ type FfiSessionContextInterface interface {
 	// * `metadata` - Optional key-value metadata pairs
 	//
 	// # Returns
-	// * `Ok(())` on success
-	// * `Err(SlimError)` if publishing fails
+	// * `Ok(())` - Message queued successfully
+	// * `Err(SlimError)` - If publishing fails
 	Publish(data []byte, payloadType *string, metadata *map[string]string) error
-	// Publish a message to the session's destination (async version)
+	// Publish a message to the session's destination (fire-and-forget, async version)
 	PublishAsync(data []byte, payloadType *string, metadata *map[string]string) error
 	// Publish a reply message to the originator of a received message (blocking version for FFI)
 	//
@@ -1577,8 +1652,50 @@ type FfiSessionContextInterface interface {
 	// * `Ok(())` on success
 	// * `Err(SlimError)` if publishing fails
 	PublishTo(messageContext MessageContext, data []byte, payloadType *string, metadata *map[string]string) error
-	// Publish a reply message (async version)
+	// Publish a reply message (fire-and-forget, async version)
 	PublishToAsync(messageContext MessageContext, data []byte, payloadType *string, metadata *map[string]string) error
+	// Publish a reply message with delivery confirmation (blocking version)
+	//
+	// Similar to `publish_with_completion()` but for reply messages.
+	// Returns a completion handle to await delivery confirmation.
+	//
+	// # Arguments
+	// * `message_context` - Context from a message received via `get_message()`
+	// * `data` - The reply payload bytes
+	// * `payload_type` - Optional content type identifier
+	// * `metadata` - Optional key-value metadata pairs
+	//
+	// # Returns
+	// * `Ok(FfiCompletionHandle)` - Handle to await delivery confirmation
+	// * `Err(SlimError)` - If publishing fails
+	PublishToWithCompletion(messageContext MessageContext, data []byte, payloadType *string, metadata *map[string]string) (*FfiCompletionHandle, error)
+	// Publish a reply message with delivery confirmation (async version)
+	PublishToWithCompletionAsync(messageContext MessageContext, data []byte, payloadType *string, metadata *map[string]string) (*FfiCompletionHandle, error)
+	// Publish a message with delivery confirmation (blocking version)
+	//
+	// This variant returns a `FfiCompletionHandle` that can be awaited to ensure
+	// the message was delivered successfully. Use this when you need reliable
+	// delivery confirmation.
+	//
+	// **When to use:** Critical messages where you need delivery confirmation.
+	//
+	// # Arguments
+	// * `data` - The message payload bytes
+	// * `payload_type` - Optional content type identifier
+	// * `metadata` - Optional key-value metadata pairs
+	//
+	// # Returns
+	// * `Ok(FfiCompletionHandle)` - Handle to await delivery confirmation
+	// * `Err(SlimError)` - If publishing fails
+	//
+	// # Example
+	// ```ignore
+	// let completion = session.publish_with_completion(data, None, None)?;
+	// completion.wait()?; // Blocks until message is delivered
+	// ```
+	PublishWithCompletion(data []byte, payloadType *string, metadata *map[string]string) (*FfiCompletionHandle, error)
+	// Publish a message with delivery confirmation (async version)
+	PublishWithCompletionAsync(data []byte, payloadType *string, metadata *map[string]string) (*FfiCompletionHandle, error)
 	// Low-level publish with full control over all parameters (blocking version for FFI)
 	//
 	// This is an advanced method that provides complete control over routing and delivery.
@@ -1595,8 +1712,14 @@ type FfiSessionContextInterface interface {
 	// Low-level publish with full control (async version)
 	PublishWithParamsAsync(destination Name, fanout uint32, data []byte, connectionOut *uint64, payloadType *string, metadata *map[string]string) error
 	// Remove a participant from the session (blocking version for FFI)
+	//
+	// **Auto-waits for completion:** This method automatically waits for the
+	// removal to be processed and acknowledged before returning.
 	Remove(participant Name) error
 	// Remove a participant from the session (async version)
+	//
+	// **Auto-waits for completion:** This method automatically waits for the
+	// removal to be processed and acknowledged before returning.
 	RemoveAsync(participant Name) error
 	// Get the session ID
 	SessionId() (uint32, error)
@@ -1687,6 +1810,9 @@ func (_self *FfiSessionContext) GetMessageAsync(timeoutMs *uint32) (ReceivedMess
 }
 
 // Invite a participant to the session (blocking version for FFI)
+//
+// **Auto-waits for completion:** This method automatically waits for the
+// invitation to be sent and acknowledged before returning.
 func (_self *FfiSessionContext) Invite(participant Name) error {
 	_pointer := _self.ffiObject.incrementPointer("*FfiSessionContext")
 	defer _self.ffiObject.decrementPointer()
@@ -1699,6 +1825,9 @@ func (_self *FfiSessionContext) Invite(participant Name) error {
 }
 
 // Invite a participant to the session (async version)
+//
+// **Auto-waits for completion:** This method automatically waits for the
+// invitation to be sent and acknowledged before returning.
 func (_self *FfiSessionContext) InviteAsync(participant Name) error {
 	_pointer := _self.ffiObject.incrementPointer("*FfiSessionContext")
 	defer _self.ffiObject.decrementPointer()
@@ -1742,11 +1871,16 @@ func (_self *FfiSessionContext) IsInitiator() (bool, error) {
 	}
 }
 
-// Publish a message to the session's destination (blocking version for FFI)
+// Publish a message to the session's destination (fire-and-forget, blocking version)
 //
-// Simple publish that automatically uses the session's destination.
-// For point-to-point sessions, this sends to the remote peer.
-// For group sessions, this broadcasts to all participants.
+// This is the simple "fire-and-forget" API that most users want.
+// The message is queued for sending and this method returns immediately without
+// waiting for delivery confirmation.
+//
+// **When to use:** Most common use case where you don't need delivery confirmation.
+//
+// **When not to use:** If you need to ensure the message was delivered, use
+// `publish_with_completion()` instead.
 //
 // # Arguments
 // * `data` - The message payload bytes
@@ -1754,8 +1888,8 @@ func (_self *FfiSessionContext) IsInitiator() (bool, error) {
 // * `metadata` - Optional key-value metadata pairs
 //
 // # Returns
-// * `Ok(())` on success
-// * `Err(SlimError)` if publishing fails
+// * `Ok(())` - Message queued successfully
+// * `Err(SlimError)` - If publishing fails
 func (_self *FfiSessionContext) Publish(data []byte, payloadType *string, metadata *map[string]string) error {
 	_pointer := _self.ffiObject.incrementPointer("*FfiSessionContext")
 	defer _self.ffiObject.decrementPointer()
@@ -1767,7 +1901,7 @@ func (_self *FfiSessionContext) Publish(data []byte, payloadType *string, metada
 	return _uniffiErr.AsError()
 }
 
-// Publish a message to the session's destination (async version)
+// Publish a message to the session's destination (fire-and-forget, async version)
 func (_self *FfiSessionContext) PublishAsync(data []byte, payloadType *string, metadata *map[string]string) error {
 	_pointer := _self.ffiObject.incrementPointer("*FfiSessionContext")
 	defer _self.ffiObject.decrementPointer()
@@ -1821,7 +1955,7 @@ func (_self *FfiSessionContext) PublishTo(messageContext MessageContext, data []
 	return _uniffiErr.AsError()
 }
 
-// Publish a reply message (async version)
+// Publish a reply message (fire-and-forget, async version)
 func (_self *FfiSessionContext) PublishToAsync(messageContext MessageContext, data []byte, payloadType *string, metadata *map[string]string) error {
 	_pointer := _self.ffiObject.incrementPointer("*FfiSessionContext")
 	defer _self.ffiObject.decrementPointer()
@@ -1847,6 +1981,132 @@ func (_self *FfiSessionContext) PublishToAsync(messageContext MessageContext, da
 	)
 
 	return err
+}
+
+// Publish a reply message with delivery confirmation (blocking version)
+//
+// Similar to `publish_with_completion()` but for reply messages.
+// Returns a completion handle to await delivery confirmation.
+//
+// # Arguments
+// * `message_context` - Context from a message received via `get_message()`
+// * `data` - The reply payload bytes
+// * `payload_type` - Optional content type identifier
+// * `metadata` - Optional key-value metadata pairs
+//
+// # Returns
+// * `Ok(FfiCompletionHandle)` - Handle to await delivery confirmation
+// * `Err(SlimError)` - If publishing fails
+func (_self *FfiSessionContext) PublishToWithCompletion(messageContext MessageContext, data []byte, payloadType *string, metadata *map[string]string) (*FfiCompletionHandle, error) {
+	_pointer := _self.ffiObject.incrementPointer("*FfiSessionContext")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
+		return C.uniffi_slim_service_fn_method_ffisessioncontext_publish_to_with_completion(
+			_pointer, FfiConverterMessageContextINSTANCE.Lower(messageContext), FfiConverterBytesINSTANCE.Lower(data), FfiConverterOptionalStringINSTANCE.Lower(payloadType), FfiConverterOptionalMapStringStringINSTANCE.Lower(metadata), _uniffiStatus)
+	})
+	if _uniffiErr != nil {
+		var _uniffiDefaultValue *FfiCompletionHandle
+		return _uniffiDefaultValue, _uniffiErr
+	} else {
+		return FfiConverterFfiCompletionHandleINSTANCE.Lift(_uniffiRV), nil
+	}
+}
+
+// Publish a reply message with delivery confirmation (async version)
+func (_self *FfiSessionContext) PublishToWithCompletionAsync(messageContext MessageContext, data []byte, payloadType *string, metadata *map[string]string) (*FfiCompletionHandle, error) {
+	_pointer := _self.ffiObject.incrementPointer("*FfiSessionContext")
+	defer _self.ffiObject.decrementPointer()
+	res, err := uniffiRustCallAsync[SlimError](
+		FfiConverterSlimErrorINSTANCE,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) unsafe.Pointer {
+			res := C.ffi_slim_service_rust_future_complete_pointer(handle, status)
+			return res
+		},
+		// liftFn
+		func(ffi unsafe.Pointer) *FfiCompletionHandle {
+			return FfiConverterFfiCompletionHandleINSTANCE.Lift(ffi)
+		},
+		C.uniffi_slim_service_fn_method_ffisessioncontext_publish_to_with_completion_async(
+			_pointer, FfiConverterMessageContextINSTANCE.Lower(messageContext), FfiConverterBytesINSTANCE.Lower(data), FfiConverterOptionalStringINSTANCE.Lower(payloadType), FfiConverterOptionalMapStringStringINSTANCE.Lower(metadata)),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_service_rust_future_poll_pointer(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_service_rust_future_free_pointer(handle)
+		},
+	)
+
+	return res, err
+}
+
+// Publish a message with delivery confirmation (blocking version)
+//
+// This variant returns a `FfiCompletionHandle` that can be awaited to ensure
+// the message was delivered successfully. Use this when you need reliable
+// delivery confirmation.
+//
+// **When to use:** Critical messages where you need delivery confirmation.
+//
+// # Arguments
+// * `data` - The message payload bytes
+// * `payload_type` - Optional content type identifier
+// * `metadata` - Optional key-value metadata pairs
+//
+// # Returns
+// * `Ok(FfiCompletionHandle)` - Handle to await delivery confirmation
+// * `Err(SlimError)` - If publishing fails
+//
+// # Example
+// ```ignore
+// let completion = session.publish_with_completion(data, None, None)?;
+// completion.wait()?; // Blocks until message is delivered
+// ```
+func (_self *FfiSessionContext) PublishWithCompletion(data []byte, payloadType *string, metadata *map[string]string) (*FfiCompletionHandle, error) {
+	_pointer := _self.ffiObject.incrementPointer("*FfiSessionContext")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
+		return C.uniffi_slim_service_fn_method_ffisessioncontext_publish_with_completion(
+			_pointer, FfiConverterBytesINSTANCE.Lower(data), FfiConverterOptionalStringINSTANCE.Lower(payloadType), FfiConverterOptionalMapStringStringINSTANCE.Lower(metadata), _uniffiStatus)
+	})
+	if _uniffiErr != nil {
+		var _uniffiDefaultValue *FfiCompletionHandle
+		return _uniffiDefaultValue, _uniffiErr
+	} else {
+		return FfiConverterFfiCompletionHandleINSTANCE.Lift(_uniffiRV), nil
+	}
+}
+
+// Publish a message with delivery confirmation (async version)
+func (_self *FfiSessionContext) PublishWithCompletionAsync(data []byte, payloadType *string, metadata *map[string]string) (*FfiCompletionHandle, error) {
+	_pointer := _self.ffiObject.incrementPointer("*FfiSessionContext")
+	defer _self.ffiObject.decrementPointer()
+	res, err := uniffiRustCallAsync[SlimError](
+		FfiConverterSlimErrorINSTANCE,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) unsafe.Pointer {
+			res := C.ffi_slim_service_rust_future_complete_pointer(handle, status)
+			return res
+		},
+		// liftFn
+		func(ffi unsafe.Pointer) *FfiCompletionHandle {
+			return FfiConverterFfiCompletionHandleINSTANCE.Lift(ffi)
+		},
+		C.uniffi_slim_service_fn_method_ffisessioncontext_publish_with_completion_async(
+			_pointer, FfiConverterBytesINSTANCE.Lower(data), FfiConverterOptionalStringINSTANCE.Lower(payloadType), FfiConverterOptionalMapStringStringINSTANCE.Lower(metadata)),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_service_rust_future_poll_pointer(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_service_rust_future_free_pointer(handle)
+		},
+	)
+
+	return res, err
 }
 
 // Low-level publish with full control over all parameters (blocking version for FFI)
@@ -1901,6 +2161,9 @@ func (_self *FfiSessionContext) PublishWithParamsAsync(destination Name, fanout 
 }
 
 // Remove a participant from the session (blocking version for FFI)
+//
+// **Auto-waits for completion:** This method automatically waits for the
+// removal to be processed and acknowledged before returning.
 func (_self *FfiSessionContext) Remove(participant Name) error {
 	_pointer := _self.ffiObject.incrementPointer("*FfiSessionContext")
 	defer _self.ffiObject.decrementPointer()
@@ -1913,6 +2176,9 @@ func (_self *FfiSessionContext) Remove(participant Name) error {
 }
 
 // Remove a participant from the session (async version)
+//
+// **Auto-waits for completion:** This method automatically waits for the
+// removal to be processed and acknowledged before returning.
 func (_self *FfiSessionContext) RemoveAsync(participant Name) error {
 	_pointer := _self.ffiObject.incrementPointer("*FfiSessionContext")
 	defer _self.ffiObject.decrementPointer()
@@ -2037,6 +2303,181 @@ func (c FfiConverterFfiSessionContext) Write(writer io.Writer, value *FfiSession
 type FfiDestroyerFfiSessionContext struct{}
 
 func (_ FfiDestroyerFfiSessionContext) Destroy(value *FfiSessionContext) {
+	value.Destroy()
+}
+
+// FFI-compatible completion handle for async operations
+//
+// Represents a pending operation that can be awaited to ensure completion.
+// Used for operations that need delivery confirmation or handshake acknowledgment.
+//
+// # Design Note
+// Since Rust futures can only be polled once to completion, this handle uses
+// a shared receiver that can only be consumed once. Attempting to wait multiple
+// times on the same handle will return an error.
+//
+// # Examples
+//
+// Basic usage:
+// ```ignore
+// let completion = session.publish_with_completion(data, None, None)?;
+// completion.wait()?; // Wait for delivery confirmation
+// ```
+type FfiCompletionHandleInterface interface {
+	// Wait for the operation to complete (blocking version for FFI)
+	//
+	// This blocks the calling thread until the operation completes.
+	// Use this from Go or other languages when you need to ensure
+	// an operation has finished before proceeding.
+	//
+	// **Note:** This can only be called once per handle. Subsequent calls
+	// will return an error.
+	//
+	// # Returns
+	// * `Ok(())` - Operation completed successfully
+	// * `Err(SlimError)` - Operation failed or handle already consumed
+	Wait() error
+	// Wait for the operation to complete (async version)
+	//
+	// This is the async version that integrates with UniFFI's polling mechanism.
+	// The operation will yield control while waiting.
+	//
+	// **Note:** This can only be called once per handle. Subsequent calls
+	// will return an error.
+	//
+	// # Returns
+	// * `Ok(())` - Operation completed successfully
+	// * `Err(SlimError)` - Operation failed or handle already consumed
+	WaitAsync() error
+}
+
+// FFI-compatible completion handle for async operations
+//
+// Represents a pending operation that can be awaited to ensure completion.
+// Used for operations that need delivery confirmation or handshake acknowledgment.
+//
+// # Design Note
+// Since Rust futures can only be polled once to completion, this handle uses
+// a shared receiver that can only be consumed once. Attempting to wait multiple
+// times on the same handle will return an error.
+//
+// # Examples
+//
+// Basic usage:
+// ```ignore
+// let completion = session.publish_with_completion(data, None, None)?;
+// completion.wait()?; // Wait for delivery confirmation
+// ```
+type FfiCompletionHandle struct {
+	ffiObject FfiObject
+}
+
+// Wait for the operation to complete (blocking version for FFI)
+//
+// This blocks the calling thread until the operation completes.
+// Use this from Go or other languages when you need to ensure
+// an operation has finished before proceeding.
+//
+// **Note:** This can only be called once per handle. Subsequent calls
+// will return an error.
+//
+// # Returns
+// * `Ok(())` - Operation completed successfully
+// * `Err(SlimError)` - Operation failed or handle already consumed
+func (_self *FfiCompletionHandle) Wait() error {
+	_pointer := _self.ffiObject.incrementPointer("*FfiCompletionHandle")
+	defer _self.ffiObject.decrementPointer()
+	_, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) bool {
+		C.uniffi_slim_service_fn_method_fficompletionhandle_wait(
+			_pointer, _uniffiStatus)
+		return false
+	})
+	return _uniffiErr.AsError()
+}
+
+// Wait for the operation to complete (async version)
+//
+// This is the async version that integrates with UniFFI's polling mechanism.
+// The operation will yield control while waiting.
+//
+// **Note:** This can only be called once per handle. Subsequent calls
+// will return an error.
+//
+// # Returns
+// * `Ok(())` - Operation completed successfully
+// * `Err(SlimError)` - Operation failed or handle already consumed
+func (_self *FfiCompletionHandle) WaitAsync() error {
+	_pointer := _self.ffiObject.incrementPointer("*FfiCompletionHandle")
+	defer _self.ffiObject.decrementPointer()
+	_, err := uniffiRustCallAsync[SlimError](
+		FfiConverterSlimErrorINSTANCE,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
+			C.ffi_slim_service_rust_future_complete_void(handle, status)
+			return struct{}{}
+		},
+		// liftFn
+		func(_ struct{}) struct{} { return struct{}{} },
+		C.uniffi_slim_service_fn_method_fficompletionhandle_wait_async(
+			_pointer),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_service_rust_future_poll_void(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_service_rust_future_free_void(handle)
+		},
+	)
+
+	return err
+}
+func (object *FfiCompletionHandle) Destroy() {
+	runtime.SetFinalizer(object, nil)
+	object.ffiObject.destroy()
+}
+
+type FfiConverterFfiCompletionHandle struct{}
+
+var FfiConverterFfiCompletionHandleINSTANCE = FfiConverterFfiCompletionHandle{}
+
+func (c FfiConverterFfiCompletionHandle) Lift(pointer unsafe.Pointer) *FfiCompletionHandle {
+	result := &FfiCompletionHandle{
+		newFfiObject(
+			pointer,
+			func(pointer unsafe.Pointer, status *C.RustCallStatus) unsafe.Pointer {
+				return C.uniffi_slim_service_fn_clone_fficompletionhandle(pointer, status)
+			},
+			func(pointer unsafe.Pointer, status *C.RustCallStatus) {
+				C.uniffi_slim_service_fn_free_fficompletionhandle(pointer, status)
+			},
+		),
+	}
+	runtime.SetFinalizer(result, (*FfiCompletionHandle).Destroy)
+	return result
+}
+
+func (c FfiConverterFfiCompletionHandle) Read(reader io.Reader) *FfiCompletionHandle {
+	return c.Lift(unsafe.Pointer(uintptr(readUint64(reader))))
+}
+
+func (c FfiConverterFfiCompletionHandle) Lower(value *FfiCompletionHandle) unsafe.Pointer {
+	// TODO: this is bad - all synchronization from ObjectRuntime.go is discarded here,
+	// because the pointer will be decremented immediately after this function returns,
+	// and someone will be left holding onto a non-locked pointer.
+	pointer := value.ffiObject.incrementPointer("*FfiCompletionHandle")
+	defer value.ffiObject.decrementPointer()
+	return pointer
+
+}
+
+func (c FfiConverterFfiCompletionHandle) Write(writer io.Writer, value *FfiCompletionHandle) {
+	writeUint64(writer, uint64(uintptr(c.Lower(value))))
+}
+
+type FfiDestroyerFfiCompletionHandle struct{}
+
+func (_ FfiDestroyerFfiCompletionHandle) Destroy(value *FfiCompletionHandle) {
 	value.Destroy()
 }
 
