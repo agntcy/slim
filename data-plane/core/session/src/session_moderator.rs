@@ -16,7 +16,7 @@ use slim_datapath::{
     },
     messages::{
         Name,
-        utils::{DELETE_GROUP, DISCONNECTION_DETECTED, SlimHeaderFlags, TRUE_VAL},
+        utils::{DELETE_GROUP, DISCONNECTION_DETECTED, LEAVING_SESSION, SlimHeaderFlags, TRUE_VAL},
     },
 };
 use tokio::sync::{Mutex, oneshot};
@@ -240,18 +240,15 @@ where
 
                 // create a leave request message for the participant that
                 // got disconnected and add the metadata to the message
-                let msg = Message::builder()
-                    .source(self.common.settings.source.clone())
-                    .destination(participant.clone())
-                    .identity("")
-                    .session_type(self.common.settings.config.session_type)
-                    .session_message_type(ProtoSessionMessageType::LeaveRequest)
-                    .session_id(self.common.settings.id)
-                    .message_id(rand::random::<u32>())
-                    .payload(CommandPayload::builder().leave_request(None).as_content())
-                    .metadata(DISCONNECTION_DETECTED, TRUE_VAL)
-                    .build_publish()
-                    .map_err(|e| SessionError::Processing(e.to_string()))?;
+                let p = CommandPayload::builder().leave_request(None).as_content();
+                let mut msg = self.common.create_control_message(
+                    &participant,
+                    ProtoSessionMessageType::LeaveRequest,
+                    rand::random::<u32>(),
+                    p,
+                    false,
+                )?;
+                msg.insert_metadata(DISCONNECTION_DETECTED.to_string(), TRUE_VAL.to_string());
 
                 // process the leave request message
                 self.on_disconnection_detected(msg, None).await
@@ -346,9 +343,11 @@ where
                 }
 
                 // the LeaveRequest message is also used to signal the disconnection of
-                // a remote participant. the metadata contains the key "DISCONNECTION_DETECTED"
-                // call the function on_disconnection_detected
-                if message.contains_metadata(DISCONNECTION_DETECTED) {
+                // a remote participant. if the metadata contains the key "DISCONNECTION_DETECTED"
+                // or "LEAVING_SESSION" call the function on_disconnection_detected
+                if message.contains_metadata(DISCONNECTION_DETECTED)
+                    || message.contains_metadata(LEAVING_SESSION)
+                {
                     return self.on_disconnection_detected(message, ack_tx).await;
                 }
 
@@ -807,7 +806,7 @@ where
 
     async fn on_disconnection_detected(
         &mut self,
-        msg: Message,
+        mut msg: Message,
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
     ) -> Result<(), SessionError> {
         debug!("disconnection detected for participant {}", msg.get_dst());
@@ -849,6 +848,31 @@ where
             // the control will exit and call the shutdown
             // no need to do it here
             return Ok(());
+        }
+
+        // if the disconnection was detected nothing to do here,
+        // otherwise we neeed to reply, change the metadata and swap
+        // source and destination so that we can process the message
+        // as if the disconnection was detected locally
+        if msg.contains_metadata(LEAVING_SESSION) {
+            let dst = msg.get_dst();
+            // send a reply to the sorce of the message
+            // sync this is leave request message the send is expecting
+            // a leave reply message
+            let reply = self.common.create_control_message(
+                &dst,
+                ProtoSessionMessageType::LeaveReply,
+                msg.get_id(),
+                CommandPayload::builder().leave_reply().as_content(),
+                false,
+            )?;
+            self.common.send_to_slim(reply).await?;
+
+            msg.remove_metadata(LEAVING_SESSION);
+            msg.insert_metadata(DISCONNECTION_DETECTED.to_string(), TRUE_VAL.to_string());
+            let header = msg.get_slim_header_mut();
+            header.set_destination(&dst);
+            header.set_source(&self.common.settings.source);
         }
 
         if self.current_task.is_some() {

@@ -7,7 +7,10 @@ use async_trait::async_trait;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{CommandPayload, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType},
-    messages::{Name, utils::SlimHeaderFlags},
+    messages::{
+        Name,
+        utils::{DISCONNECTION_DETECTED, LEAVING_SESSION, SlimHeaderFlags, TRUE_VAL},
+    },
 };
 
 use slim_mls::mls::Mls;
@@ -163,6 +166,22 @@ where
                 grace_period: duration,
             } => {
                 debug!("received drain signal");
+                // create a leave request message for the participant that
+                // got disconnected and add the metadata to the message
+                let p = CommandPayload::builder().leave_request(None).as_content();
+                if let Some(moderator) = &self.moderator_name {
+                    let mut msg = self.common.create_control_message(
+                        moderator,
+                        ProtoSessionMessageType::LeaveRequest,
+                        rand::random::<u32>(),
+                        p,
+                        false,
+                    )?;
+                    msg.insert_metadata(LEAVING_SESSION.to_string(), TRUE_VAL.to_string());
+
+                    self.common.sender.on_message(&msg).await?;
+                }
+
                 // propagate draining state
                 self.common.processing_state = ProcessingState::Draining;
                 self.inner
@@ -171,6 +190,7 @@ where
                     })
                     .await?;
                 self.common.sender.start_drain();
+
                 Ok(())
             }
             _ => Err(SessionError::Processing(format!(
