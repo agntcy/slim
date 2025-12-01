@@ -15,13 +15,13 @@ spec:
     - --remote
     - org/ns/alice
     - --shared-secret
-    - secret123
+    - secret1234secret1234secret123412
     - --slim
     - '{"endpoint":"http://slim.slim.svc.cluster.local:46357","tls":{"insecure":true}}'
     env:
     - name: PYTHONUNBUFFERED
       value: "1"
-    image: ghcr.io/agntcy/slim/bindings-examples:0.6.0
+    image: ghcr.io/agntcy/slim/bindings-examples:0.7.1
     imagePullPolicy: Always
     name: bob
     resources: {}

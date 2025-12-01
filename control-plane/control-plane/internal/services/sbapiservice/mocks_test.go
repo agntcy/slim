@@ -248,7 +248,6 @@ type mockGroupService struct {
 func (m *mockGroupService) CreateChannel(
 	_ context.Context,
 	_ *controlplaneApi.CreateChannelRequest,
-	_ *controlplaneApi.NodeEntry,
 ) (*controlplaneApi.CreateChannelResponse, error) {
 	if m.createChannelError != nil {
 		return nil, m.createChannelError
@@ -259,7 +258,6 @@ func (m *mockGroupService) CreateChannel(
 func (m *mockGroupService) DeleteChannel(
 	_ context.Context,
 	_ *controllerapi.DeleteChannelRequest,
-	_ *controlplaneApi.NodeEntry,
 ) (*controllerapi.Ack, error) {
 	if m.deleteChannelError != nil {
 		return nil, m.deleteChannelError
@@ -270,7 +268,6 @@ func (m *mockGroupService) DeleteChannel(
 func (m *mockGroupService) AddParticipant(
 	_ context.Context,
 	_ *controllerapi.AddParticipantRequest,
-	_ *controlplaneApi.NodeEntry,
 ) (*controllerapi.Ack, error) {
 	if m.addParticipantError != nil {
 		return nil, m.addParticipantError
@@ -281,7 +278,6 @@ func (m *mockGroupService) AddParticipant(
 func (m *mockGroupService) DeleteParticipant(
 	_ context.Context,
 	_ *controllerapi.DeleteParticipantRequest,
-	_ *controlplaneApi.NodeEntry,
 ) (*controllerapi.Ack, error) {
 	if m.deleteParticipantError != nil {
 		return nil, m.deleteParticipantError

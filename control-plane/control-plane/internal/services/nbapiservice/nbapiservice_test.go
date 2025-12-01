@@ -11,195 +11,7 @@ import (
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
-	"github.com/agntcy/slim/control-plane/control-plane/internal/config"
-	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
-	"github.com/agntcy/slim/control-plane/control-plane/internal/services/groupservice"
 )
-
-func TestGetModeratorNode_FindsMatchingModerator(t *testing.T) {
-	// Arrange
-	moderatorRoute := "org/default/alice/0"
-	organization := "org"
-	namespace := "default"
-	agentType := "alice"
-	agentID := uint64(0)
-
-	node := &controlplaneApi.NodeEntry{Id: "node1"}
-	sub := &controllerapi.SubscriptionEntry{
-		Component_0: organization,
-		Component_1: namespace,
-		Component_2: agentType,
-		Id:          wrapperspb.UInt64(agentID),
-	}
-
-	nodeListResp := &controlplaneApi.NodeListResponse{
-		Entries: []*controlplaneApi.NodeEntry{node},
-	}
-	subscriptionListResp := &controllerapi.SubscriptionListResponse{
-		Entries: []*controllerapi.SubscriptionEntry{sub},
-	}
-
-	mockNodeService := new(mockNodeService)
-	mockRouteService := new(mockRouteService)
-
-	mockNodeService.
-		On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).
-		Return(nodeListResp, nil)
-	mockRouteService.On("ListSubscriptions", mock.Anything, node).Return(subscriptionListResp, nil)
-
-	s := &nbAPIService{
-		config:       config.APIConfig{},
-		nodeService:  mockNodeService,
-		routeService: mockRouteService,
-		groupService: &groupservice.GroupService{},
-	}
-
-	// Act
-	result, err := s.getModeratorNode(context.Background(), []string{moderatorRoute})
-
-	// Assert
-	assert.NoError(t, err)
-	assert.Equal(t, node, result)
-
-	mockNodeService.AssertExpectations(t)
-	mockRouteService.AssertExpectations(t)
-}
-
-func TestGetModeratorNode_NoMatchingModerator_ReturnsFirstNode(t *testing.T) {
-	// Arrange
-	moderatorRoute := "org/default/alice/0"
-	node1 := &controlplaneApi.NodeEntry{Id: "node1"}
-	node2 := &controlplaneApi.NodeEntry{Id: "node2"}
-
-	nodeListResp := &controlplaneApi.NodeListResponse{
-		Entries: []*controlplaneApi.NodeEntry{node1, node2},
-	}
-	subscriptionListResp1 := &controllerapi.SubscriptionListResponse{
-		Entries: []*controllerapi.SubscriptionEntry{},
-	}
-	subscriptionListResp2 := &controllerapi.SubscriptionListResponse{
-		Entries: []*controllerapi.SubscriptionEntry{},
-	}
-
-	mockNodeService := new(mockNodeService)
-	mockRouteService := new(mockRouteService)
-
-	mockNodeService.
-		On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).
-		Return(nodeListResp, nil)
-	mockRouteService.On("ListSubscriptions", mock.Anything, node1).Return(subscriptionListResp1, nil)
-	mockRouteService.On("ListSubscriptions", mock.Anything, node2).Return(subscriptionListResp2, nil)
-
-	s := &nbAPIService{
-		config:       config.APIConfig{},
-		nodeService:  mockNodeService,
-		routeService: mockRouteService,
-		groupService: &groupservice.GroupService{},
-	}
-
-	// Act
-	result, err := s.getModeratorNode(context.Background(), []string{moderatorRoute})
-
-	// Assert
-	assert.NoError(t, err)
-	assert.Equal(t, node1, result)
-
-	mockNodeService.AssertExpectations(t)
-	mockRouteService.AssertExpectations(t)
-}
-
-func TestGetModeratorNode_NoNodesAvailable(t *testing.T) {
-	// Arrange
-	nodeListResp := &controlplaneApi.NodeListResponse{
-		Entries: []*controlplaneApi.NodeEntry{},
-	}
-
-	mockNodeService := new(mockNodeService)
-	mockRouteService := new(mockRouteService)
-
-	mockNodeService.
-		On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).
-		Return(nodeListResp, nil)
-
-	s := &nbAPIService{
-		config:       config.APIConfig{},
-		nodeService:  mockNodeService,
-		routeService: mockRouteService,
-		groupService: &groupservice.GroupService{},
-	}
-
-	// Act
-	_, err := s.getModeratorNode(context.Background(), []string{"org/default/alice/0"})
-
-	// Assert
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no nodes available")
-
-	mockNodeService.AssertExpectations(t)
-}
-
-func TestGetModeratorNode_NodeServiceError(t *testing.T) {
-	// Arrange
-	expectedError := errors.New("node service error")
-
-	mockNodeService := new(mockNodeService)
-	mockRouteService := new(mockRouteService)
-
-	mockNodeService.
-		On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).
-		Return(nil, expectedError)
-
-	s := &nbAPIService{
-		config:       config.APIConfig{},
-		nodeService:  mockNodeService,
-		routeService: mockRouteService,
-		groupService: &groupservice.GroupService{},
-	}
-
-	// Act
-	_, err := s.getModeratorNode(context.Background(), []string{"org/default/alice/0"})
-
-	// Assert
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "node service error")
-
-	mockNodeService.AssertExpectations(t)
-}
-
-// TODO: re-add if we want to handle route service errors in the getModeratorNode function
-/* func TestGetModeratorNode_RouteServiceError(t *testing.T) {
-	// Arrange
-	node := &controlplaneApi.NodeEntry{Id: "node1"}
-	nodeListResp := &controlplaneApi.NodeListResponse{
-		Entries: []*controlplaneApi.NodeEntry{node},
-	}
-	expectedError := errors.New("route service error")
-
-	mockNodeService := new(mockNodeService)
-	mockRouteService := new(mockRouteService)
-
-	mockNodeService.
-		On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).
-		Return(nodeListResp, nil)
-	mockRouteService.On("ListSubscriptions", mock.Anything, node).Return(nil, expectedError)
-
-	s := &nbAPIService{
-		config:       config.APIConfig{},
-		nodeService:  mockNodeService,
-		routeService: mockRouteService,
-		groupService: &groupservice.GroupService{},
-	}
-
-	// Act
-	_, err := s.getModeratorNode(context.Background(), []string{"org/default/alice/0"})
-
-	// Assert
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "route service error")
-
-	mockNodeService.AssertExpectations(t)
-	mockRouteService.AssertExpectations(t)
-} */
 
 // TestListRoutes_Success tests the successful retrieval of routes for a node.
 func TestListSubscriptions_Success(t *testing.T) {
@@ -727,34 +539,11 @@ func TestCreateChannel_Success(t *testing.T) {
 		Moderators: []string{"org/default/alice/0"},
 	}
 	expectedResponse := &controlplaneApi.CreateChannelResponse{}
-	node := &controlplaneApi.NodeEntry{Id: "node1"}
 
-	mockNodeService := new(mockNodeService)
-	mockRouteService := new(mockRouteService)
 	mockGroupService := new(mockGroupService)
-
-	nodeListResp := &controlplaneApi.NodeListResponse{
-		Entries: []*controlplaneApi.NodeEntry{node},
-	}
-	subscriptionListResp := &controllerapi.SubscriptionListResponse{
-		Entries: []*controllerapi.SubscriptionEntry{
-			{
-				Component_0: "org",
-				Component_1: "default",
-				Component_2: "alice",
-			},
-		},
-	}
-
-	mockNodeService.
-		On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).
-		Return(nodeListResp, nil)
-	mockRouteService.On("ListSubscriptions", mock.Anything, node).Return(subscriptionListResp, nil)
-	mockGroupService.On("CreateChannel", mock.Anything, request, node).Return(expectedResponse, nil)
+	mockGroupService.On("CreateChannel", mock.Anything, request).Return(expectedResponse, nil)
 
 	s := &nbAPIService{
-		nodeService:  mockNodeService,
-		routeService: mockRouteService,
 		groupService: mockGroupService,
 	}
 
@@ -764,32 +553,20 @@ func TestCreateChannel_Success(t *testing.T) {
 	// Assert
 	assert.NoError(t, err)
 	assert.Equal(t, expectedResponse, result)
-	mockNodeService.AssertExpectations(t)
-	mockRouteService.AssertExpectations(t)
 	mockGroupService.AssertExpectations(t)
 }
 
-func TestCreateChannel_NoNodesAvailable(t *testing.T) {
+func TestCreateChannel_GroupServiceError(t *testing.T) {
 	// Arrange
 	request := &controlplaneApi.CreateChannelRequest{
 		Moderators: []string{"org/default/alice/0"},
 	}
+	expectedError := errors.New("group service error")
 
-	mockNodeService := new(mockNodeService)
-	mockRouteService := new(mockRouteService)
 	mockGroupService := new(mockGroupService)
-
-	nodeListResp := &controlplaneApi.NodeListResponse{
-		Entries: []*controlplaneApi.NodeEntry{},
-	}
-
-	mockNodeService.
-		On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).
-		Return(nodeListResp, nil)
+	mockGroupService.On("CreateChannel", mock.Anything, request).Return(nil, expectedError)
 
 	s := &nbAPIService{
-		nodeService:  mockNodeService,
-		routeService: mockRouteService,
 		groupService: mockGroupService,
 	}
 
@@ -799,39 +576,7 @@ func TestCreateChannel_NoNodesAvailable(t *testing.T) {
 	// Assert
 	assert.Error(t, err)
 	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "no nodes available")
-	mockNodeService.AssertExpectations(t)
-}
-
-func TestCreateChannel_NodeServiceError(t *testing.T) {
-	// Arrange
-	request := &controlplaneApi.CreateChannelRequest{
-		Moderators: []string{"org/default/alice/0"},
-	}
-	expectedError := errors.New("node service error")
-
-	mockNodeService := new(mockNodeService)
-	mockRouteService := new(mockRouteService)
-	mockGroupService := new(mockGroupService)
-
-	mockNodeService.
-		On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).
-		Return(nil, expectedError)
-
-	s := &nbAPIService{
-		nodeService:  mockNodeService,
-		routeService: mockRouteService,
-		groupService: mockGroupService,
-	}
-
-	// Act
-	result, err := s.CreateChannel(context.Background(), request)
-
-	// Assert
-	assert.Error(t, err)
-	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "node service error")
-	mockNodeService.AssertExpectations(t)
+	mockGroupService.AssertExpectations(t)
 }
 
 // TestDeleteChannel_Success tests the successful deletion of a channel.
@@ -844,33 +589,10 @@ func TestDeleteChannel_Success(t *testing.T) {
 		Success: true,
 	}
 
-	channel := db.Channel{
-		ID:         "test-channel",
-		Moderators: []string{"org/default/alice/0"},
-	}
-	node1 := &controlplaneApi.NodeEntry{Id: "node1"}
-	nodeListResp := &controlplaneApi.NodeListResponse{
-		Entries: []*controlplaneApi.NodeEntry{node1},
-	}
-
 	mockGroupService := new(mockGroupService)
-
-	mockGroupService.On("GetChannelDetails", mock.Anything, "test-channel").Return(channel, nil)
-
-	mockNodeService := new(mockNodeService)
-	mockNodeService.
-		On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).
-		Return(nodeListResp, nil)
-	mockRouteService := new(mockRouteService)
-	mockRouteService.
-		On("ListSubscriptions", mock.Anything, node1).
-		Return(&controllerapi.SubscriptionListResponse{Entries: []*controllerapi.SubscriptionEntry{}}, nil)
-
-	mockGroupService.On("DeleteChannel", mock.Anything, request, node1).Return(expectedResponse, nil)
+	mockGroupService.On("DeleteChannel", mock.Anything, request).Return(expectedResponse, nil)
 
 	s := &nbAPIService{
-		nodeService:  mockNodeService,
-		routeService: mockRouteService,
 		groupService: mockGroupService,
 	}
 
@@ -881,57 +603,20 @@ func TestDeleteChannel_Success(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, expectedResponse, result)
 	mockGroupService.AssertExpectations(t)
-	mockNodeService.AssertExpectations(t)
-	mockRouteService.AssertExpectations(t)
 }
 
-// TestDeleteChannel_ChannelNotFound tests the scenario where the channel to be deleted is not found.
-func TestDeleteChannel_ChannelNotFound(t *testing.T) {
-	// Arrange
-	request := &controllerapi.DeleteChannelRequest{
-		ChannelName: "nonexistent-channel",
-	}
-	expectedError := errors.New("channel not found")
-
-	mockGroupService := new(mockGroupService)
-	mockGroupService.On("GetChannelDetails", mock.Anything, "nonexistent-channel").Return(db.Channel{}, expectedError)
-
-	s := &nbAPIService{
-		groupService: mockGroupService,
-	}
-	// Act
-	result, err := s.DeleteChannel(context.Background(), request)
-
-	// Assert
-	assert.Error(t, err)
-	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "channel not found")
-	mockGroupService.AssertExpectations(t)
-}
-
-// TestDeleteChannel_NoNodesAvailable tests the scenario where no nodes are available.
-func TestDeleteChannel_NodeServiceError(t *testing.T) {
+// TestDeleteChannel_GroupServiceError tests the scenario where the group service returns an error.
+func TestDeleteChannel_GroupServiceError(t *testing.T) {
 	// Arrange
 	request := &controllerapi.DeleteChannelRequest{
 		ChannelName: "test-channel",
 	}
-	expectedError := errors.New("node service error")
-
-	channel := db.Channel{
-		ID:         "test-channel",
-		Moderators: []string{"org/default/alice/0"},
-	}
+	expectedError := errors.New("group service error")
 
 	mockGroupService := new(mockGroupService)
-	mockGroupService.On("GetChannelDetails", mock.Anything, "test-channel").Return(channel, nil)
-
-	mockNodeService := new(mockNodeService)
-	mockNodeService.
-		On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).
-		Return(nil, expectedError)
+	mockGroupService.On("DeleteChannel", mock.Anything, request).Return(nil, expectedError)
 
 	s := &nbAPIService{
-		nodeService:  mockNodeService,
 		groupService: mockGroupService,
 	}
 
@@ -941,9 +626,7 @@ func TestDeleteChannel_NodeServiceError(t *testing.T) {
 	// Assert
 	assert.Error(t, err)
 	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "node service error")
 	mockGroupService.AssertExpectations(t)
-	mockNodeService.AssertExpectations(t)
 }
 
 // TestAddParticipant_Success tests the successful addition of a participant to a channel.
@@ -957,33 +640,10 @@ func TestAddParticipant_Success(t *testing.T) {
 		Success: true,
 	}
 
-	channel := db.Channel{
-		ID:         "test-channel",
-		Moderators: []string{"org/default/alice/0"},
-	}
-	node1 := &controlplaneApi.NodeEntry{Id: "node1"}
-	nodeListResp := &controlplaneApi.NodeListResponse{
-		Entries: []*controlplaneApi.NodeEntry{node1},
-	}
-
 	mockGroupService := new(mockGroupService)
-
-	mockGroupService.On("GetChannelDetails", mock.Anything, "test-channel").Return(channel, nil)
-
-	mockNodeService := new(mockNodeService)
-	mockNodeService.
-		On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).
-		Return(nodeListResp, nil)
-	mockRouteService := new(mockRouteService)
-	mockRouteService.
-		On("ListSubscriptions", mock.Anything, node1).
-		Return(&controllerapi.SubscriptionListResponse{Entries: []*controllerapi.SubscriptionEntry{}}, nil)
-
-	mockGroupService.On("AddParticipant", mock.Anything, request, node1).Return(expectedResponse, nil)
+	mockGroupService.On("AddParticipant", mock.Anything, request).Return(expectedResponse, nil)
 
 	s := &nbAPIService{
-		nodeService:  mockNodeService,
-		routeService: mockRouteService,
 		groupService: mockGroupService,
 	}
 
@@ -994,60 +654,21 @@ func TestAddParticipant_Success(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, expectedResponse, result)
 	mockGroupService.AssertExpectations(t)
-	mockNodeService.AssertExpectations(t)
-	mockRouteService.AssertExpectations(t)
 }
 
-// TestAddParticipant_ChannelNotFound tests the scenario
-// where the channel to which a participant is to be added is not found.
-func TestAddParticipant_ChannelNotFound(t *testing.T) {
-	// Arrange
-	request := &controllerapi.AddParticipantRequest{
-		ChannelName:     "nonexistent-channel",
-		ParticipantName: "org/default/bob/0",
-	}
-	expectedError := errors.New("channel not found")
-
-	mockGroupService := new(mockGroupService)
-	mockGroupService.On("GetChannelDetails", mock.Anything, "nonexistent-channel").Return(db.Channel{}, expectedError)
-
-	s := &nbAPIService{
-		groupService: mockGroupService,
-	}
-	// Act
-	result, err := s.AddParticipant(context.Background(), request)
-
-	// Assert
-	assert.Error(t, err)
-	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "channel not found")
-	mockGroupService.AssertExpectations(t)
-}
-
-// TestAddParticipant_NodeServiceError tests the scenario where the NodeService returns an error.
-func TestAddParticipant_NodeServiceError(t *testing.T) {
+// TestAddParticipant_GroupServiceError tests the scenario where the group service returns an error.
+func TestAddParticipant_GroupServiceError(t *testing.T) {
 	// Arrange
 	request := &controllerapi.AddParticipantRequest{
 		ChannelName:     "test-channel",
 		ParticipantName: "org/default/bob/0",
 	}
-	expectedError := errors.New("node service error")
-
-	channel := db.Channel{
-		ID:         "test-channel",
-		Moderators: []string{"org/default/alice/0"},
-	}
+	expectedError := errors.New("group service error")
 
 	mockGroupService := new(mockGroupService)
-	mockGroupService.On("GetChannelDetails", mock.Anything, "test-channel").Return(channel, nil)
-
-	mockNodeService := new(mockNodeService)
-	mockNodeService.
-		On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).
-		Return(nil, expectedError)
+	mockGroupService.On("AddParticipant", mock.Anything, request).Return(nil, expectedError)
 
 	s := &nbAPIService{
-		nodeService:  mockNodeService,
 		groupService: mockGroupService,
 	}
 
@@ -1057,9 +678,7 @@ func TestAddParticipant_NodeServiceError(t *testing.T) {
 	// Assert
 	assert.Error(t, err)
 	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "node service error")
 	mockGroupService.AssertExpectations(t)
-	mockNodeService.AssertExpectations(t)
 }
 
 // TestDeleteParticipant_Success tests the successful deletion of a participant from a channel.
@@ -1073,33 +692,10 @@ func TestDeleteParticipant_Success(t *testing.T) {
 		Success: true,
 	}
 
-	channel := db.Channel{
-		ID:         "test-channel",
-		Moderators: []string{"org/default/alice/0"},
-	}
-	node1 := &controlplaneApi.NodeEntry{Id: "node1"}
-	nodeListResp := &controlplaneApi.NodeListResponse{
-		Entries: []*controlplaneApi.NodeEntry{node1},
-	}
-
 	mockGroupService := new(mockGroupService)
-
-	mockGroupService.On("GetChannelDetails", mock.Anything, "test-channel").Return(channel, nil)
-
-	mockNodeService := new(mockNodeService)
-	mockNodeService.
-		On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).
-		Return(nodeListResp, nil)
-	mockRouteService := new(mockRouteService)
-	mockRouteService.
-		On("ListSubscriptions", mock.Anything, node1).
-		Return(&controllerapi.SubscriptionListResponse{Entries: []*controllerapi.SubscriptionEntry{}}, nil)
-
-	mockGroupService.On("DeleteParticipant", mock.Anything, request, node1).Return(expectedResponse, nil)
+	mockGroupService.On("DeleteParticipant", mock.Anything, request).Return(expectedResponse, nil)
 
 	s := &nbAPIService{
-		nodeService:  mockNodeService,
-		routeService: mockRouteService,
 		groupService: mockGroupService,
 	}
 
@@ -1110,60 +706,21 @@ func TestDeleteParticipant_Success(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, expectedResponse, result)
 	mockGroupService.AssertExpectations(t)
-	mockNodeService.AssertExpectations(t)
-	mockRouteService.AssertExpectations(t)
 }
 
-// TestDeleteParticipant_ChannelNotFound tests the scenario
-// where the channel from which a participant is to be deleted is not found.
-func TestDeleteParticipant_ChannelNotFound(t *testing.T) {
-	// Arrange
-	request := &controllerapi.DeleteParticipantRequest{
-		ChannelName:     "nonexistent-channel",
-		ParticipantName: "org/default/bob/0",
-	}
-	expectedError := errors.New("channel not found")
-
-	mockGroupService := new(mockGroupService)
-	mockGroupService.On("GetChannelDetails", mock.Anything, "nonexistent-channel").Return(db.Channel{}, expectedError)
-
-	s := &nbAPIService{
-		groupService: mockGroupService,
-	}
-	// Act
-	result, err := s.DeleteParticipant(context.Background(), request)
-
-	// Assert
-	assert.Error(t, err)
-	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "channel not found")
-	mockGroupService.AssertExpectations(t)
-}
-
-// TestDeleteParticipant_NodeServiceError tests the scenario where the NodeService returns an error.
-func TestDeleteParticipant_NodeServiceError(t *testing.T) {
+// TestDeleteParticipant_GroupServiceError tests the scenario where the group service returns an error.
+func TestDeleteParticipant_GroupServiceError(t *testing.T) {
 	// Arrange
 	request := &controllerapi.DeleteParticipantRequest{
 		ChannelName:     "test-channel",
 		ParticipantName: "org/default/bob/0",
 	}
-	expectedError := errors.New("node service error")
-
-	channel := db.Channel{
-		ID:         "test-channel",
-		Moderators: []string{"org/default/alice/0"},
-	}
+	expectedError := errors.New("group service error")
 
 	mockGroupService := new(mockGroupService)
-	mockGroupService.On("GetChannelDetails", mock.Anything, "test-channel").Return(channel, nil)
-
-	mockNodeService := new(mockNodeService)
-	mockNodeService.
-		On("ListNodes", mock.Anything, mock.AnythingOfType("*controlplanev1.NodeListRequest")).
-		Return(nil, expectedError)
+	mockGroupService.On("DeleteParticipant", mock.Anything, request).Return(nil, expectedError)
 
 	s := &nbAPIService{
-		nodeService:  mockNodeService,
 		groupService: mockGroupService,
 	}
 
@@ -1173,9 +730,7 @@ func TestDeleteParticipant_NodeServiceError(t *testing.T) {
 	// Assert
 	assert.Error(t, err)
 	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "node service error")
 	mockGroupService.AssertExpectations(t)
-	mockNodeService.AssertExpectations(t)
 }
 
 // TestListChannels_Success tests the successful retrieval of channels.
@@ -1270,37 +825,4 @@ func TestListParticipants_Error(t *testing.T) {
 	assert.Nil(t, result)
 	assert.Equal(t, expectedError, err)
 	mockGroupService.AssertExpectations(t)
-}
-
-// TestIsSubscriptionSameAsModerator_Match tests the scenario where the subscription matches the moderator details.
-func TestIsSubscriptionSameAsModerator_Match(t *testing.T) {
-	// Arrange
-	subscription := &controllerapi.SubscriptionEntry{
-		Component_0: "org",
-		Component_1: "namespace",
-		Component_2: "agent",
-	}
-
-	// Act
-	result := isSubscriptionSameAsModerator(subscription, "org", "namespace", "agent")
-
-	// Assert
-	assert.True(t, result)
-}
-
-// TestIsSubscriptionSameAsModerator_NoMatch tests the scenario
-// where the subscription does not match the moderator details.
-func TestIsSubscriptionSameAsModerator_NoMatch(t *testing.T) {
-	// Arrange
-	subscription := &controllerapi.SubscriptionEntry{
-		Component_0: "org",
-		Component_1: "namespace",
-		Component_2: "agent",
-	}
-
-	// Act
-	result := isSubscriptionSameAsModerator(subscription, "different", "namespace", "agent")
-
-	// Assert
-	assert.False(t, result)
 }

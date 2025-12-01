@@ -310,7 +310,6 @@ func (s *sbAPIService) handleNodeMessages(ctx context.Context,
 				&controlplaneApi.CreateChannelRequest{
 					Moderators: payload.CreateChannelRequest.Moderators,
 				},
-				&controlplaneApi.NodeEntry{},
 			)
 			if err != nil {
 				zlog.Error().Msgf("Error creating channel: %v", err)
@@ -339,7 +338,6 @@ func (s *sbAPIService) handleNodeMessages(ctx context.Context,
 			resp, err := s.groupservice.DeleteChannel(
 				ctx,
 				payload.DeleteChannelRequest,
-				&controlplaneApi.NodeEntry{},
 			)
 			if err != nil {
 				zlog.Error().Msgf("Error deleting channel: %v", err)
@@ -367,7 +365,6 @@ func (s *sbAPIService) handleNodeMessages(ctx context.Context,
 			resp, err := s.groupservice.AddParticipant(
 				ctx,
 				payload.AddParticipantRequest,
-				&controlplaneApi.NodeEntry{},
 			)
 			if err != nil {
 				zlog.Error().Msgf("Error adding participant: %v", err)
@@ -396,7 +393,6 @@ func (s *sbAPIService) handleNodeMessages(ctx context.Context,
 			resp, err := s.groupservice.DeleteParticipant(
 				ctx,
 				payload.DeleteParticipantRequest,
-				&controlplaneApi.NodeEntry{},
 			)
 			if err != nil {
 				zlog.Error().Msgf("Error deleting participant: %v", err)
