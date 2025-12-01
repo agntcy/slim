@@ -314,3 +314,37 @@ func (d *dbService) FilterRoutesBySourceAndDestination(sourceNodeID string, dest
 
 	return routes
 }
+
+func (d *dbService) GetDestinationNodeIDForName(component0 string, component1 string, component2 string,
+	componentID *wrapperspb.UInt64Value) string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	var matchingRoutes []Route
+	for _, route := range d.routes {
+		if route.SourceNodeID == AllNodesID &&
+			route.Component0 == component0 &&
+			route.Component1 == component1 &&
+			route.Component2 == component2 {
+			if (componentID == nil && route.ComponentID == nil) ||
+				(componentID != nil && route.ComponentID != nil && componentID.Value == route.ComponentID.Value) {
+				matchingRoutes = append(matchingRoutes, route)
+			}
+		}
+	}
+
+	if len(matchingRoutes) == 0 {
+		return ""
+	}
+
+	// Sort by LastUpdated descending (most recent first)
+	// Find the most recent route
+	mostRecent := matchingRoutes[0]
+	for _, route := range matchingRoutes[1:] {
+		if route.LastUpdated.After(mostRecent.LastUpdated) {
+			mostRecent = route
+		}
+	}
+
+	return mostRecent.DestNodeID
+}

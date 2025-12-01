@@ -3,7 +3,7 @@
 
 [project]
 name = "slim-bindings-examples"
-version = "0.7.0"
+version = "0.7.1"
 description = "Example apps using SLIM Rust bindings for Python"
 requires-python = ">=3.10"
 license = "Apache-2.0"

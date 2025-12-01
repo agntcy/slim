@@ -142,7 +142,6 @@ impl Config {
         &self,
         id: ID,
         group_name: Option<String>,
-        rx_drain: drain::Watch,
         message_processor: Arc<MessageProcessor>,
         servers: &[ServerConfig],
     ) -> ControlPlane {
@@ -154,7 +153,6 @@ impl Config {
             group_name,
             servers: self.servers.clone(),
             clients: self.clients.clone(),
-            drain_rx: rx_drain,
             message_processor,
             pubsub_servers: servers.to_vec(),
             auth_provider,
@@ -437,12 +435,10 @@ mod tests {
 
         let id = ID::new_with_name(Kind::new("slim").unwrap(), "test-instance").unwrap();
         let group_name = Some("test-group".to_string());
-        let (_, rx_drain) = drain::channel();
-        let message_processor = Arc::new(MessageProcessor::with_drain_channel(rx_drain.clone()));
+        let message_processor = Arc::new(MessageProcessor::new());
         let servers = vec![server_config];
 
-        let _control_plane =
-            config.into_service(id, group_name, rx_drain, message_processor, &servers);
+        let _control_plane = config.into_service(id, group_name, message_processor, &servers);
     }
 
     #[test]

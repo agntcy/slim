@@ -7,7 +7,6 @@ use std::time::Duration;
 
 use clap::Parser;
 use parking_lot::RwLock;
-use slim::runtime::RuntimeConfiguration;
 use slim_auth::shared_secret::SharedSecret;
 use slim_config::component::{Component, id::ID};
 use slim_config::grpc::client::ClientConfig as GrpcClientConfig;
@@ -17,6 +16,7 @@ use slim_config::tls::server::TlsServerConfig;
 use slim_datapath::messages::Name;
 use slim_service::{ServiceConfiguration, SlimHeaderFlags};
 use slim_session::{Notification, SessionConfig};
+use slim_testing::build_client_service;
 use slim_testing::utils::TEST_VALID_SECRET;
 use slim_tracing::TracingConfiguration;
 
@@ -52,29 +52,18 @@ async fn run_slim_node() -> Result<(), String> {
     let service_config = ServiceConfiguration::new().with_server(vec![dataplane_server_config]);
 
     let svc_id = ID::new_with_str(DEFAULT_SERVICE_ID).unwrap();
-    let service = service_config
+    let mut service = service_config
         .build_server(svc_id.clone())
         .map_err(|e| format!("Failed to build server: {}", e))?;
 
-    let mut services = HashMap::new();
-    services.insert(svc_id, service);
+    let tracing = TracingConfiguration::default();
+    let _guard = tracing.setup_tracing_subscriber();
 
-    let mut server_config = slim::config::ConfigResult {
-        tracing: TracingConfiguration::default(),
-        runtime: RuntimeConfiguration::default(),
-        services,
-    };
-
-    let _guard = server_config.tracing.setup_tracing_subscriber();
-
-    for service in server_config.services.iter_mut() {
-        println!("Starting service: {}", service.0);
-        service
-            .1
-            .start()
-            .await
-            .map_err(|e| format!("Failed to start service {}: {}", service.0, e))?;
-    }
+    println!("Starting service: {}", svc_id);
+    service
+        .start()
+        .await
+        .map_err(|e| format!("Failed to start service {}: {}", svc_id, e))?;
 
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {
@@ -88,28 +77,6 @@ async fn run_slim_node() -> Result<(), String> {
     Ok(())
 }
 
-fn create_service_configuration(
-    client_config: GrpcClientConfig,
-) -> Result<slim::config::ConfigResult, String> {
-    let service_config = ServiceConfiguration::new().with_client(vec![client_config]);
-
-    let svc_id = ID::new_with_str(DEFAULT_SERVICE_ID).unwrap();
-    let service = service_config
-        .build_server(svc_id.clone())
-        .map_err(|e| format!("Failed to build service: {}", e))?;
-
-    let mut services = HashMap::new();
-    services.insert(svc_id, service);
-
-    let config = slim::config::ConfigResult {
-        tracing: TracingConfiguration::default(),
-        runtime: RuntimeConfiguration::default(),
-        services,
-    };
-
-    Ok(config)
-}
-
 async fn run_participant_task(name: Name) -> Result<(), String> {
     println!("Participant {} task starting...", name);
 
@@ -117,10 +84,12 @@ async fn run_participant_task(name: Name) -> Result<(), String> {
         GrpcClientConfig::with_endpoint(&format!("http://localhost:{}", DEFAULT_DATAPLANE_PORT))
             .with_tls_setting(TlsClientConfig::default().with_insecure(true));
 
-    let mut config = create_service_configuration(dataplane_client_config)?;
+    let service_config = ServiceConfiguration::new().with_client(vec![dataplane_client_config]);
 
     let svc_id = ID::new_with_str(DEFAULT_SERVICE_ID).unwrap();
-    let svc = config.services.get_mut(&svc_id).unwrap();
+    let mut svc = service_config
+        .build_server(svc_id)
+        .map_err(|e| format!("Failed to build client service: {}", e))?;
 
     let (app, mut rx) = svc
         .create_app(
@@ -247,14 +216,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let name = Name::from_strings(["org", "ns", "moderator"]).with_id(1);
     let channel_name = Name::from_strings(["channel", "channel", "channel"]);
 
-    let dataplane_client_config =
-        GrpcClientConfig::with_endpoint(&format!("http://localhost:{}", DEFAULT_DATAPLANE_PORT))
-            .with_tls_setting(TlsClientConfig::default().with_insecure(true));
-
-    let mut config = create_service_configuration(dataplane_client_config)?;
-
-    let svc_id = ID::new_with_str(DEFAULT_SERVICE_ID).unwrap();
-    let svc = config.services.get_mut(&svc_id).unwrap();
+    let mut svc = build_client_service(DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID)?;
 
     let (app, _rx) = svc
         .create_app(

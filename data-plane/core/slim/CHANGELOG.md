@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1](https://github.com/agntcy/slim/compare/slim-v0.7.0...slim-v0.7.1) - 2025-11-21
+
+### Fixed
+
+- flaky integration test ([#981](https://github.com/agntcy/slim/pull/981))
+- early tracing initialization ([#978](https://github.com/agntcy/slim/pull/978))
+
 ## [0.7.0](https://github.com/agntcy/slim/compare/slim-v0.6.1...slim-v0.7.0) - 2025-11-17
 
 ### Added

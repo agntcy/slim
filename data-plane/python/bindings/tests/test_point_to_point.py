@@ -39,7 +39,7 @@ import slim_bindings
     ],
     indirect=True,
 )
-@pytest.mark.parametrize("mls_enabled", [False])
+@pytest.mark.parametrize("mls_enabled", [True, False])
 async def test_sticky_session(server, mls_enabled):
     """Ensure all messages in a PointToPoint session are delivered to a single receiver instance.
 

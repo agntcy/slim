@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5](https://github.com/agntcy/slim/compare/slim-mls-v0.1.4...slim-mls-v0.1.5) - 2025-11-21
+
+### Other
+
+- updated the following local packages: agntcy-slim-datapath
+
 ## [0.1.4](https://github.com/agntcy/slim/compare/slim-mls-v0.1.3...slim-mls-v0.1.4) - 2025-11-17
 
 ### Added

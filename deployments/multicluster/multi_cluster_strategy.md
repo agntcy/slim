@@ -31,7 +31,7 @@ All three clusters (`admin.example`, `cluster-a.example`, and `cluster-b.example
 - Centralized Controller on dedicated administrative cluster.
 - SPIRE federation for secure cross-cluster authentication across all clusters.
 - External endpoint configuration for inter-cluster communication.
-- Automatic route management across all federated clusters.
+- Automatic route management across all federated clusters. (Supported SLIM node configs: insecure and secure  MTLS with Spire)
 
 The deployment uses LoadBalancer services to expose SLIM endpoints externally, enabling cross-cluster connectivity. Each SLIM node is configured with both local and external endpoints to support intra-cluster and inter-cluster communication patterns. The Controller, running on the admin cluster, manages routing and coordination across all workload clusters.
 
@@ -277,45 +277,58 @@ task slim:deploy
 <details>
 <summary>More Details on Multi-Cluster SLIM Deployment</summary>
 
-SLIM is deployed on both workload clusters with specific multi-cluster configurations. Key differences from single-cluster deployment is setting local and external endpoints:
+SLIM is deployed on both workload clusters with specific multi-cluster configurations. Key differences from single-cluster deployment is setting `group_name` local and external endpoints and trust domains:
 
 **External Endpoint Configuration:**
 
 ```yaml
-dataplane:
-  servers:
-    - endpoint: "0.0.0.0:46357"
-      metadata:
-        local_endpoint: ${env:MY_POD_IP} # Required for in-cluster connections
-        external_endpoint: "slim.cluster-a.example:46357"  # External LoadBalancer
-      tls:
-        insecure_skip_verify: false
-        cert_file: "/svids/tls.crt"
-        key_file: "/svids/tls.key"
-        ca_file: "/svids/svid_bundle.pem"
+services:
+  slim/0:
+    node_id: ${env:SLIM_SVC_ID}
+    group_name: "cluster-a.example"
+    dataplane:
+      servers:
+        - endpoint: "0.0.0.0:{{ .Values.slim.service.data.port }}"
+          metadata:
+            local_endpoint: ${env:MY_POD_IP}
+            external_endpoint: "slim.cluster-a.example:{{ .Values.slim.service.data.port }}"             
+          tls:
+            #insecure: true
+            insecure_skip_verify: false   
+            source:
+              type: spire
+              socket_path: unix:/tmp/spire-agent/public/api.sock              
+            ca_source:
+              type: spire
+              socket_path: unix:/tmp/spire-agent/public/api.sock        
+              trust_domains:
+                - cluster-b.example  
 ```
+
+Group name identifies SLIM nodes in the same cluster (nodes can directly connect to each other using their pod IP `local_endpoint`).
+Group name must be set to the same values as the SPIRE trust_domain. To enable MTLS secure connection `trust_domains` must be set for CA for nodes in other groups.
+
 
 **Cross-Cluster Controller Connection (to Admin Cluster):**
 
 ```yaml
 controller:
   clients:
-    - endpoint: "https://slim-control.admin.example:50052"  # Admin cluster endpoint
+    - endpoint: "https://slim-control.admin.example:50052"
       tls:
-        insecure_skip_verify: false
-        cert_file: "/svids/tls.crt"
-        key_file: "/svids/tls.key"
-        ca_file: "/svids/svid_bundle.pem"
+        #insecure: true
+        #insecure_skip_verify: false
+        source:
+          type: spire
+          socket_path: unix:/tmp/spire-agent/public/api.sock               
+        ca_source:
+          type: spire
+          socket_path: unix:/tmp/spire-agent/public/api.sock
+          trust_domains:
+            - admin.example 
 ```
 
-**Group Name for Cluster Identification:**
-
-```yaml
-services:
-  slim/0:
-    node_id: ${env:SLIM_SVC_ID}
-    group_name: "cluster-a"  # Identifies which cluster this node belongs to
-```
+> Trust domain must be set for admin cluster to enable MTLS connection to Controller.
 
 **Federated Trust Configuration:**
 
@@ -357,7 +370,7 @@ The sample applications demonstrate cross-cluster communication with centralized
 - **Bob (Sender)** on cluster-b creates a new MLS session publishes messages and waits for reply.
 - Messages flow: Bob → SLIM(cluster-b) → SLIM(cluster-a) → Alice.
   
-Each client uses SPIRE federation for authentication, running spiffe-helper as a side-car.
+Each client uses SPIRE federation for authentication.
   
 The centralized Controller automatically creates routes when Alice subscribes, enabling Bob's messages to reach Alice across clusters through the admin cluster coordination.
   
@@ -424,15 +437,6 @@ In case of connection problems check the following:
     ```
 
     There should be 2 relationships on each cluster.
-
-3. Check `spiffe-helper` side-car logs in SLIM nodes and client apps:
-
-    ```bash
-    kubectl logs -n slim slim-0 spiffe-helper
-    kubectl logs -n slim slim-1 spiffe-helper
-    kubectl logs alice spiffe-helper
-    kubectl logs bob spiffe-helper
-    ```
 
     </details>
 

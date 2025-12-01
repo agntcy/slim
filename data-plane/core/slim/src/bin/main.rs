@@ -3,7 +3,6 @@
 
 use clap::Parser;
 use slim_config::tls::provider;
-use tokio::time;
 use tracing::{debug, info, span};
 
 use slim::args;
@@ -25,7 +24,7 @@ fn main() {
     let config_file = args.config().expect("config file is required");
 
     // create configured components
-    let mut config = config::load_config(config_file).expect("failed to load configuration");
+    let mut config = config::ConfigLoader::new(config_file).expect("failed to load configuration");
 
     // print build info
     info!("{}", build_info::BUILD_INFO);
@@ -34,16 +33,19 @@ fn main() {
     provider::initialize_crypto_provider();
 
     // start runtime
-    let runtime = runtime::build(&config.runtime).expect("failed to build runtime");
+    let runtime_config = config.runtime();
+    let runtime = runtime::build(runtime_config).expect("failed to build runtime");
+
     runtime.runtime.block_on(async move {
         // tracing subscriber initialization must be called from the runtime
-        let _guard = config.tracing.setup_tracing_subscriber();
+        let tracing_conf = config.tracing();
+        let _guard = tracing_conf.setup_tracing_subscriber();
 
         let root_span = span!(tracing::Level::INFO, "application_lifecycle");
         let _enter = root_span.enter();
 
         // log the tracing configuration
-        debug!(?config.tracing);
+        debug!(?tracing_conf);
 
         info!("Runtime started");
         info!(
@@ -52,8 +54,10 @@ fn main() {
             message_type = "subscribe"
         );
 
+        let services = config.services().expect("error loading services");
+
         // start services
-        for service in config.services.iter_mut() {
+        for service in services.iter_mut() {
             info!("Starting service: {}", service.0);
             service.1.start().await.expect("failed to start service")
         }
@@ -65,15 +69,10 @@ fn main() {
             }
         }
 
-        // Send a drain signal to all services
-        for svc in config.services {
-            // consume the service and get the drain signal
-            let signal = svc.1.signal();
-
-            match time::timeout(runtime.config.drain_timeout(), signal.drain()).await {
-                Ok(()) => {}
-                Err(_) => panic!("timeout waiting for drain for service {}", svc.0),
-            }
+        // Gracefully stop services
+        for service in services.iter_mut() {
+            info!("Stopping service: {}", service.0);
+            service.1.shutdown().await.expect("failed to stop service")
         }
     });
 }
