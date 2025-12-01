@@ -21,6 +21,7 @@ use crate::{
     transmitter::SessionTransmitter,
 };
 
+/// Maximum number of consecutive ping failures before a participant is considered disconnected.
 pub const MAX_PING_FAILURE: u32 = 3;
 
 /// used a result in OnMessage function
@@ -457,7 +458,7 @@ impl ControllerSender {
         // stop the timer for ping retransmission
         ping.timer.stop();
 
-        // if all participants replyed to the ping, rest the
+        // if all participants replied to the ping, rest the
         // missing_pings map otherwise try to see if someone got disconnected
         if ping.missing_replies.is_empty() {
             debug!("all ping received, nobody got disconnected");
@@ -473,20 +474,22 @@ impl ControllerSender {
                 }
             }
 
-            // check if someone got disconnected
-            for (k, v) in &ping_state.missing_pings {
+            // check for disconnected participants and notify, then remove them
+            ping_state.missing_pings.retain(|k, v| {
                 if *v >= MAX_PING_FAILURE {
                     debug!("participant {} got disconnected", k);
                     self.group_list.remove(k);
                     if let Err(e) = self
                         .tx_session
-                        .send(SessionMessage::ParticipantDisconnected { name: k.clone() })
-                        .await
+                        .try_send(SessionMessage::ParticipantDisconnected { name: k.clone() })
                     {
                         tracing::error!("failed to send participant disconnected message: {}", e);
                     }
+                    false // remove from missing_pings
+                } else {
+                    true // keep in missing_pings
                 }
-            }
+            });
         }
     }
 
@@ -1764,7 +1767,7 @@ mod tests {
             .await
             .expect("error handling fifth ping interval");
 
-        // Verify the missing_pings count reached MAX_PING_FAILURE
+        // Verify the participant was detected as disconnected and removed
         // Timeline:
         // - Interval 1: ping sent, reply received, counter cleared to 0
         // - Interval 2: previous ping got reply, counter stays 0, new ping sent
@@ -1772,14 +1775,20 @@ mod tests {
         // - Interval 4: previous ping got NO reply, counter becomes 2, new ping sent
         // - Interval 5: previous ping got NO reply, counter becomes 3, disconnection detected
         if let Some(ping_state) = &sender.ping_state {
+            // Participant should be removed from missing_pings after disconnection
             assert_eq!(
                 ping_state.missing_pings.get(&participant),
-                Some(&MAX_PING_FAILURE),
-                "Participant should have {} missing pings",
-                MAX_PING_FAILURE
+                None,
+                "Participant should be removed from missing_pings after disconnection"
             );
         } else {
             panic!("Ping state should be initialized");
         }
+
+        // Verify participant was removed from group_list
+        assert!(
+            !sender.group_list.contains(&participant),
+            "Participant should be removed from group_list after disconnection"
+        );
     }
 }

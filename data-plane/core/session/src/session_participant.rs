@@ -441,7 +441,7 @@ where
     }
 
     async fn on_ping(&mut self, mut msg: Message) -> Result<(), SessionError> {
-        tracing::info!("received ping message, reply");
+        debug!("received ping message, reply");
         // just need to reply to the ping
         let header = msg.get_slim_header_mut();
         let src = header.get_source();

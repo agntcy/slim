@@ -102,6 +102,8 @@ pub enum SessionError {
     AddParticipant(String),
     #[error("error removing a participant: {0}")]
     RemoveParticipant(String),
+    #[error("participant disconnected: {0}")]
+    ParticipantDisconnected(String),
     #[error("no pending requests for the given key: {0}")]
     TimerNotFound(String),
     #[error("error processing payload of Join Channel request: {0}")]

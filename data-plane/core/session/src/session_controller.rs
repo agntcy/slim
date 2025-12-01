@@ -533,7 +533,9 @@ where
             None
         };
 
-        // create the controller sender
+        // Create the controller sender
+        // Note: Only initiators (moderators) send pings to detect participant disconnections.
+        // Participants monitor ping reception to detect moderator disconnections (see participant logic).
         let controller_sender = ControllerSender::new(
             settings.config.get_timer_settings(),
             settings.source.clone(),
@@ -557,6 +559,11 @@ where
     /// internal and helper functions
     pub(crate) async fn send_to_slim(&self, message: Message) -> Result<(), SessionError> {
         self.settings.tx.send_to_slim(Ok(message)).await
+    }
+
+    /// Send error message to the application
+    pub(crate) async fn send_to_app(&self, error: SessionError) -> Result<(), SessionError> {
+        self.settings.tx.send_to_app(Err(error)).await
     }
 
     /// Send control message without creating ack channel (for internal use by moderator)
