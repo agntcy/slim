@@ -28,6 +28,7 @@ use tracing::error;
 pub const IS_MODERATOR: &str = "IS_MODERATOR";
 pub const DELETE_GROUP: &str = "DELETE_GROUP";
 pub const PUBLISH_TO: &str = "PUBLISH_TO";
+pub const DISCONNECTION_DETECTED: &str = "DISCONNECTION_DETECTED";
 pub const TRUE_VAL: &str = "TRUE";
 pub const MAX_PUBLISH_ID: u32 = u32::MAX / 2;
 
