@@ -3,7 +3,7 @@
 
 [project]
 name = "slima2a"
-version = "0.1.1"
+version = "0.2.0"
 description = "A2A protocol over slimrpc"
 readme = "README_pypi.md"
 requires-python = ">=3.10, <4.0"
