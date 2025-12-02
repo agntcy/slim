@@ -7,12 +7,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use slim_auth::metadata::MetadataValue;
-use slim_config::backoff::Strategy;
 use slim_config::component::id::ID;
 use slim_config::grpc::server::ServerConfig;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use tokio_retry::Retry;
 use tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
 use tokio_util::sync::CancellationToken;
 use tonic::{Request, Response, Status};
@@ -754,41 +752,26 @@ impl ControllerService {
                                     // connect to an endpoint if it's not already connected
                                     if !self.inner.connections.read().contains_key(client_endpoint)
                                     {
-                                        match client_config.to_channel().await {
+                                        match self
+                                            .inner
+                                            .message_processor
+                                            .connect(client_config.clone(), None, None)
+                                            .await
+                                        {
                                             Err(e) => {
                                                 connection_success = false;
                                                 connection_error_msg =
-                                                    format!("Channel config error: {}", e);
+                                                    format!("Connection failed: {}", e);
                                             }
-                                            Ok(channel) => {
-                                                let ret = self
-                                                    .inner
-                                                    .message_processor
-                                                    .connect(
-                                                        channel,
-                                                        Some(client_config.clone()),
-                                                        None,
-                                                        None,
-                                                    )
-                                                    .await;
-
-                                                match ret {
-                                                    Err(e) => {
-                                                        connection_success = false;
-                                                        connection_error_msg =
-                                                            format!("Connection failed: {}", e);
-                                                    }
-                                                    Ok(conn_id) => {
-                                                        self.inner.connections.write().insert(
-                                                            client_endpoint.clone(),
-                                                            conn_id.1,
-                                                        );
-                                                        info!(
-                                                            "Successfully created connection to {}",
-                                                            client_endpoint
-                                                        );
-                                                    }
-                                                }
+                                            Ok(conn_id) => {
+                                                self.inner
+                                                    .connections
+                                                    .write()
+                                                    .insert(client_endpoint.clone(), conn_id.1);
+                                                info!(
+                                                    "Successfully created connection to {}",
+                                                    client_endpoint
+                                                );
                                             }
                                         }
                                     } else {
@@ -1510,50 +1493,27 @@ impl ControllerService {
     ) -> Result<mpsc::Sender<Result<ControlMessage, Status>>, ControllerError> {
         info!(%config.endpoint, "connecting to control plane");
 
-        let backoff_strategy = config.backoff.get_strategy();
         let channel = config.to_channel().await.map_err(|e| {
             error!("error reading channel config: {}", e);
             ControllerError::ConfigError(e.to_string())
         })?;
 
-        let mut attempt = 0;
-
-        // Retry infinitely using the strategy
-        let result = Retry::spawn(backoff_strategy, move || {
-            attempt += 1;
-            let mut client = ControllerServiceClient::new(channel.clone());
-            async move {
-                let (tx, rx) = mpsc::channel::<Result<ControlMessage, Status>>(128);
-                let out_stream = ReceiverStream::new(rx).map(|res| res.expect("mapping error"));
-                match client.open_control_channel(Request::new(out_stream)).await {
-                    Ok(stream) => {
-                        debug!("Connection attempt: #{} successful", attempt);
-                        Ok((tx, stream))
-                    }
-                    Err(e) => {
-                        debug!("Connection attempt: #{} failed: {}", attempt, e);
-                        Err(e)
-                    }
-                }
-            }
-        })
-        .await;
+        let mut client = ControllerServiceClient::new(channel.clone());
+        let (tx, rx) = mpsc::channel::<Result<ControlMessage, Status>>(128);
+        let out_stream = ReceiverStream::new(rx).map(|res| res.expect("mapping error"));
+        let result = client.open_control_channel(Request::new(out_stream)).await;
 
         match result {
-            Ok((tx, stream)) => {
-                // Send any queued notifications after successful connection
+            Ok(stream) => {
                 self.send_queued_notifications(&tx, &config.endpoint).await;
-
                 self.process_control_message_stream(
                     Some(config),
                     stream.into_inner(),
                     tx.clone(),
                     cancellation_token.clone(),
                 )?;
-
                 Ok(tx)
             }
-
             Err(e) => Err(ControllerError::ConfigError(format!(
                 "failed to connect to control plane: {}",
                 e

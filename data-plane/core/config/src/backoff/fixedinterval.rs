@@ -1,4 +1,5 @@
 use super::Strategy;
+use crate::backoff::default_max_attempts;
 use duration_string::DurationString;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -10,17 +11,30 @@ use tokio_retry::strategy::FixedInterval;
 pub struct Config {
     #[schemars(with = "String")]
     interval: DurationString,
+    #[serde(default = "default_max_attempts")]
+    max_attempts: usize,
 }
+
+impl Config {
+    pub fn new(interval: Duration, max_attempts: usize) -> Self {
+        Config {
+            interval: interval.into(),
+            max_attempts,
+        }
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Config {
             interval: Duration::from_millis(1000).into(),
+            max_attempts: default_max_attempts(),
         }
     }
 }
 
 impl Strategy for Config {
     fn get_strategy(&self) -> Box<dyn Iterator<Item = Duration> + Send> {
-        Box::new(FixedInterval::new(self.interval.into()))
+        Box::new(FixedInterval::new(self.interval.into()).take(self.max_attempts))
     }
 }
