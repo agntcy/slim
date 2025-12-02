@@ -21,7 +21,11 @@ from a2a.types import (
     TextPart,
 )
 
-from slima2a.client_transport import ClientConfig, SRPCTransport
+from slima2a.client_transport import (
+    ClientConfig,
+    SRPCTransport,
+    slimrpc_channel_factory,
+)
 
 
 def print_welcome_message() -> None:
@@ -75,7 +79,7 @@ async def main() -> None:
 
     httpx_client = httpx.AsyncClient()
 
-    channel_factory = slimrpc.ChannelFactory(
+    slim_local_app = await slimrpc.common.create_local_app(
         slimrpc.SLIMAppConfig(
             identity="agntcy/demo/client",
             slim_client_config={
@@ -85,14 +89,14 @@ async def main() -> None:
                 },
             },
             shared_secret="secret",
-        ),
+        )
     )
 
     client_config = ClientConfig(
         supported_transports=["JSONRPC", "slimrpc"],
         streaming=True,
         httpx_client=httpx_client,
-        slimrpc_channel_factory=channel_factory.new_channel,
+        slimrpc_channel_factory=slimrpc_channel_factory(slim_local_app),
     )
     client_factory = ClientFactory(client_config)
 

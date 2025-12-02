@@ -22,7 +22,11 @@ from a2a.utils.constants import (
     AGENT_CARD_WELL_KNOWN_PATH,
 )
 
-from slima2a.client_transport import ClientConfig, SRPCTransport
+from slima2a.client_transport import (
+    ClientConfig,
+    SRPCTransport,
+    slimrpc_channel_factory,
+)
 
 BASE_URL = "http://localhost:9999"
 
@@ -53,7 +57,7 @@ async def main() -> None:
 
     httpx_client = httpx.AsyncClient()
 
-    channel_factory = slimrpc.ChannelFactory(
+    slim_local_app = await slimrpc.common.create_local_app(
         slimrpc.SLIMAppConfig(
             identity="agntcy/demo/client",
             slim_client_config={
@@ -62,7 +66,7 @@ async def main() -> None:
                     "insecure": True,
                 },
             },
-            shared_secret="secret",
+            shared_secret="secretsecretsecretsecretsecretsecret",
         ),
     )
 
@@ -70,7 +74,7 @@ async def main() -> None:
         supported_transports=["JSONRPC", "slimrpc"],
         streaming=args.stream,
         httpx_client=httpx_client,
-        slimrpc_channel_factory=channel_factory.new_channel,
+        slimrpc_channel_factory=slimrpc_channel_factory(slim_local_app),
     )
     client_factory = ClientFactory(client_config)
 
