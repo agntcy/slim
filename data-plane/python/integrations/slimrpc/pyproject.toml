@@ -9,7 +9,7 @@ readme = "README_pypi.md"
 requires-python = ">=3.9"
 license = "Apache-2.0"
 dependencies = [
-    "slim-bindings~=0.7.0",
+    "slim-bindings~=0.7.1",
     "googleapis-common-protos>=1.70.0",
     "grpcio>=1.74.0",
     "async-timeout>=5.0.1",
