@@ -233,6 +233,7 @@ where
                 self.delete_all(leave_msg, None).await
             }
             SessionMessage::ParticipantDisconnected { name: participant } => {
+
                 debug!(
                     "Participant {} is not anymore connected to the current session",
                     participant
@@ -240,18 +241,14 @@ where
 
                 // create a leave request message for the participant that
                 // got disconnected and add the metadata to the message
-                let msg = Message::builder()
-                    .source(self.common.settings.source.clone())
-                    .destination(participant.clone())
-                    .identity("")
-                    .session_type(self.common.settings.config.session_type)
-                    .session_message_type(ProtoSessionMessageType::LeaveRequest)
-                    .session_id(self.common.settings.id)
-                    .message_id(rand::random::<u32>())
-                    .payload(CommandPayload::builder().leave_request(None).as_content())
-                    .metadata(DISCONNECTION_DETECTED, TRUE_VAL)
-                    .build_publish()
-                    .map_err(|e| SessionError::Processing(e.to_string()))?;
+                let mut msg = self.common.create_control_message(
+                    &participant.clone(),
+                    ProtoSessionMessageType::LeaveRequest,
+                    rand::random::<u32>(),
+                    CommandPayload::builder().leave_request(None).as_content(),
+                    false,
+                )?;
+                msg.insert_metadata(DISCONNECTION_DETECTED.to_string(), TRUE_VAL.to_string());
 
                 // process the leave request message
                 self.on_disconnection_detected(msg, None).await
