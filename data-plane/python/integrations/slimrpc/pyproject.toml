@@ -3,7 +3,7 @@
 
 [project]
 name = "slimrpc"
-version = "0.1.1"
+version = "0.2.0"
 description = "RPC over SLIM Library"
 readme = "README_pypi.md"
 requires-python = ">=3.9"
