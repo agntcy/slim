@@ -7,7 +7,7 @@ use std::{collections::HashMap, time::Duration};
 use tracing::debug;
 
 use super::encoder::Name;
-use crate::api::proto::dataplane::v1::{GroupClosePayload, GroupNackPayload};
+use crate::api::proto::dataplane::v1::{GroupClosePayload, GroupNackPayload, PingPayload};
 use crate::api::{
     Content, MessageType, ProtoMessage, ProtoName, ProtoPublish, ProtoPublishType,
     ProtoSessionType, ProtoSubscribe, ProtoSubscribeType, ProtoUnsubscribe, ProtoUnsubscribeType,
@@ -362,6 +362,7 @@ impl SessionMessageType {
                 | SessionMessageType::GroupProposal
                 | SessionMessageType::GroupAck
                 | SessionMessageType::GroupNack
+                | SessionMessageType::Ping
         )
     }
 }
@@ -808,6 +809,7 @@ impl ProtoMessage {
         extract_group_proposal => as_group_proposal_payload(GroupProposalPayload),
         extract_group_ack => as_group_ack_payload(GroupAckPayload),
         extract_group_nack => as_group_nack_payload(GroupNackPayload),
+        extract_ping => as_ping_payload(PingPayload),
     }
 }
 
@@ -889,6 +891,7 @@ impl CommandPayload {
         as_group_proposal_payload => GroupProposal(GroupProposalPayload),
         as_group_ack_payload => GroupAck(GroupAckPayload),
         as_group_nack_payload => GroupNack(GroupNackPayload),
+        as_ping_payload => Ping(PingPayload),
     }
 }
 
@@ -1124,6 +1127,14 @@ impl CommandPayloadBuilder {
         let payload = GroupNackPayload {};
         CommandPayload {
             command_payload_type: Some(CommandPayloadType::GroupNack(payload)),
+        }
+    }
+
+    /// Creates a ping payload
+    pub fn ping(self) -> CommandPayload {
+        let payload = PingPayload {};
+        CommandPayload {
+            command_payload_type: Some(CommandPayloadType::Ping(payload)),
         }
     }
 }
@@ -1908,7 +1919,7 @@ mod tests {
     #[test]
     fn test_service_type_to_int() {
         // Get total number of service types
-        let total_service_types = SessionMessageType::GroupNack as i32;
+        let total_service_types = SessionMessageType::Ping as i32;
 
         for i in 0..total_service_types {
             // int -> ServiceType
@@ -2059,6 +2070,10 @@ mod tests {
         // Test group nack
         let payload = CommandPayload::builder().group_nack();
         assert!(payload.as_group_nack_payload().is_ok());
+
+        // Test ping
+        let payload = CommandPayload::builder().ping();
+        assert!(payload.as_ping_payload().is_ok());
     }
 
     #[test]

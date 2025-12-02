@@ -153,7 +153,10 @@ where
                 timeouts,
             } => {
                 if message_type.is_command_message() {
-                    self.common.sender.on_timer_timeout(message_id).await
+                    self.common
+                        .sender
+                        .on_timer_timeout(message_id, message_type)
+                        .await
                 } else {
                     self.inner
                         .on_message(SessionMessage::TimerTimeout {
@@ -172,7 +175,10 @@ where
                 timeouts,
             } => {
                 if message_type.is_command_message() {
-                    self.common.sender.on_timer_failure(message_id).await;
+                    self.common
+                        .sender
+                        .on_timer_failure(message_id, message_type)
+                        .await;
                     // the current task failed:
                     // 1. create the right error message and notify via ack_tx if present
                     let message = match &self.common.settings.config.session_type {
@@ -223,6 +229,21 @@ where
 
                 // send it to all the participants
                 self.delete_all(leave_msg, None).await
+            }
+            SessionMessage::ParticipantDisconnected { name: participant } => {
+                tracing::error!(
+                    "Participant {} is not anymore connected to the current session",
+                    participant
+                );
+
+                // Send error notification to the application
+                let error = SessionError::ParticipantDisconnected(format!(
+                    "Participant {} disconnected unexpectedly",
+                    participant
+                ));
+                self.common.send_to_app(error).await?;
+
+                Ok(())
             }
             _ => Err(SessionError::Processing(format!(
                 "Unexpected message type {:?}",
@@ -334,6 +355,7 @@ where
             }
             ProtoSessionMessageType::LeaveReply => self.on_leave_reply(message).await,
             ProtoSessionMessageType::GroupAck => self.on_group_ack(message).await,
+            ProtoSessionMessageType::Ping => self.common.sender.on_message(&message).await,
             ProtoSessionMessageType::GroupProposal => todo!(),
             ProtoSessionMessageType::GroupAdd
             | ProtoSessionMessageType::GroupRemove
