@@ -36,30 +36,30 @@ class color:
 # Split an ID into its components
 # Expected format: organization/namespace/application
 # Raises ValueError if the format is incorrect
-# Returns a PyName with the 3 components
-def split_id(id: str) -> slim_bindings.PyName:
+# Returns a Name with the 3 components
+def split_id(id: str) -> slim_bindings.Name:
     try:
         organization, namespace, app = id.split("/")
     except ValueError as e:
         print("Error: IDs must be in the format organization/namespace/app-or-stream.")
         raise e
 
-    return slim_bindings.PyName(organization, namespace, app)
+    return slim_bindings.Name(organization, namespace, app)
 
 
 def method_to_pyname(
-    name: slim_bindings.PyName, service_name: str, method_name: str
-) -> slim_bindings.PyName:
+    name: slim_bindings.Name, service_name: str, method_name: str
+) -> slim_bindings.Name:
     """
-    Convert a method name to a PyName.
+    Convert a method name to a Name.
     """
 
     components = name.components_strings()
 
     if len(components) < 3:
-        raise ValueError("PyName must have at least 3 components.")
+        raise ValueError("Name must have at least 3 components.")
 
-    subscription_name = slim_bindings.PyName(
+    subscription_name = slim_bindings.Name(
         components[0],
         components[1],
         f"{components[2]}-{service_name}-{method_name}",
@@ -71,10 +71,10 @@ def method_to_pyname(
 
 
 def service_and_method_to_pyname(
-    name: slim_bindings.PyName, service_method: str
-) -> slim_bindings.PyName:
+    name: slim_bindings.Name, service_method: str
+) -> slim_bindings.Name:
     """
-    Convert a method name to a PyName.
+    Convert a method name to a Name.
     """
 
     # Split method in service and method name
@@ -85,12 +85,12 @@ def service_and_method_to_pyname(
 
 
 def handler_name_to_pyname(
-    name: slim_bindings.PyName,
+    name: slim_bindings.Name,
     service_name: str,
     method_name: str,
-) -> slim_bindings.PyName:
+) -> slim_bindings.Name:
     """
-    Convert a handler name to a PyName.
+    Convert a handler name to a Name.
     """
 
     return method_to_pyname(name, service_name, method_name)
@@ -103,14 +103,14 @@ def handler_name_to_pyname(
 # This is used for shared secret authentication
 def shared_secret_identity(
     identity: str, secret: str
-) -> Tuple[slim_bindings.PyIdentityProvider, slim_bindings.PyIdentityVerifier]:
+) -> Tuple[slim_bindings.IdentityProvider, slim_bindings.IdentityVerifier]:
     """
     Create a provider and verifier using a shared secret.
     """
-    provider = slim_bindings.PyIdentityProvider.SharedSecret(
+    provider = slim_bindings.IdentityProvider.SharedSecret(
         identity=identity, shared_secret=secret
     )
-    verifier = slim_bindings.PyIdentityVerifier.SharedSecret(
+    verifier = slim_bindings.IdentityVerifier.SharedSecret(
         identity=identity, shared_secret=secret
     )
 
@@ -127,7 +127,7 @@ def jwt_identity(
     iss: str | None = None,
     sub: str | None = None,
     aud: list | None = None,
-) -> Tuple[slim_bindings.PyIdentityProvider, slim_bindings.PyIdentityVerifier]:
+) -> Tuple[slim_bindings.IdentityProvider, slim_bindings.IdentityVerifier]:
     """
     Parse the JWK and JWT from the provided strings.
     """
@@ -145,17 +145,17 @@ def jwt_identity(
         spire_jwks = base64.b64decode(v)
         break
 
-    provider = slim_bindings.PyIdentityProvider.StaticJwt(
+    provider = slim_bindings.IdentityProvider.StaticJwt(
         path=jwt_path,
     )
 
-    pykey = slim_bindings.PyKey(
-        algorithm=slim_bindings.PyAlgorithm.RS256,
-        format=slim_bindings.PyKeyFormat.Jwks,
-        key=slim_bindings.PyKeyData.Content(content=spire_jwks.decode("utf-8")),
+    pykey = slim_bindings.Key(
+        algorithm=slim_bindings.Algorithm.RS256,
+        format=slim_bindings.KeyFormat.Jwks,
+        key=slim_bindings.KeyData.Content(content=spire_jwks.decode("utf-8")),
     )
 
-    verifier = slim_bindings.PyIdentityVerifier.Jwt(
+    verifier = slim_bindings.IdentityVerifier.Jwt(
         public_key=pykey,
         issuer=iss,
         audience=aud,
@@ -172,7 +172,7 @@ class SLIMAppConfig:
     enable_opentelemetry: bool = False
     shared_secret: str = ""
 
-    def identity_pyname(self) -> slim_bindings.PyName:
+    def identity_pyname(self) -> slim_bindings.Name:
         return split_id(self.identity)
 
 
@@ -197,15 +197,15 @@ async def create_local_app(config: SLIMAppConfig) -> slim_bindings.Slim:
         secret=config.shared_secret,
     )
 
-    local_app = await slim_bindings.Slim.new(split_identity, provider, verifier)
+    local_app = slim_bindings.Slim(split_identity, provider, verifier)
 
-    logger.info(f"{local_app.get_id()} Created app")
+    logger.info(f"{local_app.local_name} Created app")
 
     # Connect to slim server
     _ = await local_app.connect(config.slim_client_config)
 
     logger.info(
-        f"{local_app.get_id()} Connected to {config.slim_client_config['endpoint']}"
+        f"{local_app.local_name} Connected to {config.slim_client_config['endpoint']}"
     )
 
     return local_app
