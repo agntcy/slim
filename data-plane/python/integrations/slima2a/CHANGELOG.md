@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/agntcy/slim/compare/slima2a-v0.2.0...slima2a-v0.2.1) (2025-12-02)
+
+
+### Bug Fixes
+
+* **slima2a:** update slimrpc dependency to ~=0.2.0 ([#1018](https://github.com/agntcy/slim/issues/1018)) ([a2ca8ba](https://github.com/agntcy/slim/commit/a2ca8bae38755babe2c5a540fcce8d8c5f24c27d))
+
 ## [0.2.0](https://github.com/agntcy/slim/compare/slima2a-v0.1.0...slima2a-v0.2.0) (2025-12-02)
 
 
