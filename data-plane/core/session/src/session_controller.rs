@@ -539,7 +539,6 @@ where
         let controller_sender = ControllerSender::new(
             settings.config.get_timer_settings(),
             settings.source.clone(),
-            settings.destination.clone(),
             settings.config.session_type,
             settings.id,
             ping_interval,
