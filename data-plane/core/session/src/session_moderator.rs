@@ -233,7 +233,6 @@ where
                 self.delete_all(leave_msg, None).await
             }
             SessionMessage::ParticipantDisconnected { name: participant } => {
-
                 debug!(
                     "Participant {} is not anymore connected to the current session",
                     participant

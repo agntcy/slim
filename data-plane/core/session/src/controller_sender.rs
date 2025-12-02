@@ -226,7 +226,7 @@ impl ControllerSender {
                     .filter(|name| *name != &self.local_name)
                     .cloned()
                     .collect::<HashSet<_>>();
-                
+
                 if self.group_name.is_none() {
                     // update the group name used to send ping messages
                     debug!("update group name {} of add message", message.get_dst());
