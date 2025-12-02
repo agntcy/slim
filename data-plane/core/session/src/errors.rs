@@ -92,6 +92,8 @@ pub enum SessionError {
     Generic(String),
     #[error("error receiving ack for message: {0}")]
     AckReception(String),
+    #[error("unknown destination: {0}")]
+    UnknownDestination(String),
 
     // Structured (new) variants
     #[error("unexpected message type: {message_type:?}")]

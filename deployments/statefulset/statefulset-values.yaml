@@ -37,21 +37,31 @@ slim:
             - endpoint: "0.0.0.0:{{ .Values.slim.service.data.port }}"
               tls:
                 #insecure: true
-                insecure_skip_verify: false
-                cert_file: "/svids/tls.crt"
-                key_file: "/svids/tls.key"
-                ca_file: "/svids/svid_bundle.pem"                
-
+                insecure_skip_verify: false   
+                source:
+                  type: spire
+                  socket_path: unix:/tmp/spire-agent/public/api.sock
+                  target_spiffe_id: spiffe://example.local/ns/slim/sa/slim                  
+                ca_source:
+                  type: spire
+                  socket_path: unix:/tmp/spire-agent/public/api.sock
+                  # trust_domains:
+                  #   - example.local                          
           clients: []
         controller:
           clients:
             - endpoint: "https://slim-control:50052"
               tls:
                 #insecure: true
-                insecure_skip_verify: false
-                cert_file: "/svids/tls.crt"
-                key_file: "/svids/tls.key"
-                ca_file: "/svids/svid_bundle.pem"
+                #insecure_skip_verify: false
+                source:
+                  type: spire
+                  socket_path: unix:/tmp/spire-agent/public/api.sock               
+                ca_source:
+                  type: spire
+                  socket_path: unix:/tmp/spire-agent/public/api.sock
+                  trust_domains:
+                    - example.local                
 
   # This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
   service:

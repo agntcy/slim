@@ -241,7 +241,7 @@ impl SpireCertResolver {
             .await
             .map_err(|e| ConfigError::InvalidSpireConfig {
                 details: e.to_string(),
-                config: spire_cfg.clone(),
+                config: Box::new(spire_cfg),
             })?;
 
         Ok(Self {
@@ -314,7 +314,7 @@ pub enum ConfigError {
     #[cfg(not(target_family = "windows"))]
     InvalidSpireConfig {
         details: String,
-        config: spire::SpireConfig,
+        config: Box<spire::SpireConfig>,
     },
     #[error("error running spire: {0}")]
     #[cfg(not(target_family = "windows"))]

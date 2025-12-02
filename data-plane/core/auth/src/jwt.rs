@@ -532,10 +532,9 @@ impl<V> Jwt<V> {
 
         // As we don't have a decoding key, we need to resolve it. The resolver
         // should be set, otherwise we can't proceed.
-        let resolver = self
-            .key_resolver
-            .as_ref()
-            .ok_or_else(|| AuthError::ConfigError("Key resolver not configured".to_string()))?;
+        let resolver = self.key_resolver.as_ref().ok_or(AuthError::ConfigError(
+            "Key resolver not configured".to_string(),
+        ))?;
 
         // Parse the token header to get the key ID and algorithm
         let token_data = self.unsecure_get_token_data::<StandardClaims>(token)?;

@@ -10,6 +10,7 @@ use slim_auth::metadata::MetadataValue;
 use slim_config::component::id::ID;
 use slim_config::grpc::server::ServerConfig;
 use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 use tokio_retry::Retry;
 use tokio_retry::strategy::{ExponentialBackoff, jitter};
 //use tokio_retry::strategy::FixedInterval;
@@ -65,8 +66,6 @@ pub struct ControlPlaneSettings {
     pub servers: Vec<ServerConfig>,
     /// Client configurations
     pub clients: Vec<ClientConfig>,
-    /// Drain receiver for graceful shutdown
-    pub drain_rx: drain::Watch,
     /// Message processor instance
     pub message_processor: Arc<MessageProcessor>,
     /// Pub/sub server configurations
@@ -104,7 +103,7 @@ struct ControllerServiceInternal {
     cancellation_tokens: parking_lot::RwLock<HashMap<String, CancellationToken>>,
 
     /// drain watch channel
-    drain_rx: drain::Watch,
+    drain_watch: parking_lot::RwLock<Option<drain::Watch>>,
 
     /// array of connection details
     connection_details: Vec<ConnectionDetails>,
@@ -132,6 +131,9 @@ pub struct ControlPlane {
 
     /// clients
     clients: Vec<ClientConfig>,
+
+    /// drain signal channel
+    drain_signal: parking_lot::RwLock<Option<drain::Signal>>,
 
     /// controller
     controller: ControllerService,
@@ -202,13 +204,18 @@ impl ControlPlane {
     /// A new instance of ControlPlane.
     pub fn new(config: ControlPlaneSettings) -> Self {
         // create local connection with the message processor
-        let (_, tx_slim, rx_slim) = config.message_processor.register_local_connection(true);
+        let (_, tx_slim, rx_slim) = config
+            .message_processor
+            .register_local_connection(true)
+            .unwrap();
 
         let connection_details = config
             .pubsub_servers
             .iter()
             .map(from_server_config)
             .collect();
+
+        let (signal, watch) = drain::channel();
 
         ControlPlane {
             servers: config.servers,
@@ -222,13 +229,14 @@ impl ControlPlane {
                     tx_slim,
                     tx_channels: parking_lot::RwLock::new(HashMap::new()),
                     cancellation_tokens: parking_lot::RwLock::new(HashMap::new()),
-                    drain_rx: config.drain_rx,
+                    drain_watch: parking_lot::RwLock::new(Some(watch)),
                     connection_details,
                     auth_provider: config.auth_provider,
                     _auth_verifier: config.auth_verifier,
                     pending_notifications: Arc::new(parking_lot::Mutex::new(Vec::new())),
                 }),
             },
+            drain_signal: parking_lot::RwLock::new(Some(signal)),
             rx_slim_option: Some(rx_slim),
         }
     }
@@ -273,7 +281,43 @@ impl ControlPlane {
             self.run_client(client).await?;
         }
 
-        self.listen_from_data_plane(rx).await;
+        self.listen_from_data_plane(rx).await?;
+
+        Ok(())
+    }
+
+    pub async fn shutdown(&self) -> Result<(), ControllerError> {
+        // Stop everything using the cancellation tokens
+        self.controller
+            .inner
+            .cancellation_tokens
+            .write()
+            .drain()
+            .for_each(|(endpoint, token)| {
+                info!(%endpoint, "stopping");
+                token.cancel();
+            });
+
+        // Drop watch channel
+        self.controller.inner.drain_watch.write().take();
+
+        // Signal drain
+        let signal = self
+            .drain_signal
+            .write()
+            .take()
+            .ok_or(ControllerError::ConfigError(
+                "Drain signal channel not initialized.".to_string(),
+            ))?;
+
+        // Wait for drain to complete
+        tokio::time::timeout(Duration::from_secs(10), signal.drain())
+            .await
+            .map_err(|_| {
+                ControllerError::ConfigError(
+                    "Timeout waiting for controller drain to complete.".to_string(),
+                )
+            })?;
 
         Ok(())
     }
@@ -281,10 +325,9 @@ impl ControlPlane {
     async fn listen_from_data_plane(
         &mut self,
         mut rx: mpsc::Receiver<Result<DataPlaneMessage, Status>>,
-    ) {
+    ) -> Result<(), ControllerError> {
         let cancellation_token = CancellationToken::new();
         let cancellation_token_clone = cancellation_token.clone();
-        let drain = self.controller.inner.drain_rx.clone();
 
         self.controller
             .inner
@@ -304,11 +347,22 @@ impl ControlPlane {
             .unwrap();
 
         // Send the subscribe message to the data plane
-        if let Err(e) = controller.inner.tx_slim.send(Ok(subscribe_msg)).await {
-            error!("failed to send subscribe message to data plane: {}", e);
-        }
+        controller
+            .inner
+            .tx_slim
+            .send(Ok(subscribe_msg))
+            .await
+            .map_err(|e| {
+                error!("failed to send subscribe message to data plane: {}", e);
+                ControllerError::DatapathSendError(e.to_string())
+            })?;
+
+        // Get a drain watch clone
+        let watch = self.controller.drain_watch()?;
 
         tokio::spawn(async move {
+            let mut drain_fut = std::pin::pin!(watch.signaled());
+
             loop {
                 tokio::select! {
                     next = rx.recv() => {
@@ -373,13 +427,15 @@ impl ControlPlane {
                         debug!("shutting down stream on cancellation token");
                         break;
                     }
-                    _ = drain.clone().signaled() => {
+                    _ = &mut drain_fut => {
                         debug!("shutting down stream on drain");
                         break;
                     }
                 }
             }
         });
+
+        Ok(())
     }
 
     /// Stop the ControlPlane service.
@@ -461,7 +517,7 @@ impl ControlPlane {
         let token = match config
             .run_server(
                 &[ControllerServiceServer::new(self.controller.clone())],
-                self.controller.inner.drain_rx.clone(),
+                self.controller.drain_watch()?,
             )
             .await
         {
@@ -1276,6 +1332,17 @@ impl ControllerService {
         }
     }
 
+    /// Get a drain watch clone to pass to a task
+    fn drain_watch(&self) -> Result<drain::Watch, ControllerError> {
+        self.inner
+            .drain_watch
+            .read()
+            .clone()
+            .ok_or(ControllerError::ConfigError(
+                "drain channel not configured in controller service".to_string(),
+            ))
+    }
+
     /// Send all queued subscription notifications when connection is restored.
     async fn send_queued_notifications(
         &self,
@@ -1330,10 +1397,11 @@ impl ControllerService {
         mut stream: impl Stream<Item = Result<ControlMessage, Status>> + Unpin + Send + 'static,
         tx: mpsc::Sender<Result<ControlMessage, Status>>,
         cancellation_token: CancellationToken,
-    ) -> tokio::task::JoinHandle<()> {
+    ) -> Result<JoinHandle<()>, ControllerError> {
         let this = self.clone();
-        let drain = this.inner.drain_rx.clone();
-        tokio::spawn(async move {
+        let watch = self.drain_watch()?;
+
+        let handle = tokio::spawn(async move {
             // Send a register message to the control plane
             let endpoint = config
                 .as_ref()
@@ -1361,6 +1429,8 @@ impl ControllerService {
             }
 
             // TODO; here we should wait for an ack
+
+            let mut drain_fut = std::pin::pin!(watch.clone().signaled());
 
             loop {
                 tokio::select! {
@@ -1394,7 +1464,7 @@ impl ControllerService {
                         debug!("shutting down stream on cancellation token");
                         break;
                     }
-                    _ = drain.clone().signaled() => {
+                    _ = &mut drain_fut => {
                         debug!("shutting down stream on drain");
                         break;
                     }
@@ -1421,7 +1491,9 @@ impl ControllerService {
                         },
                     )
             }
-        })
+        });
+
+        Ok(handle)
     }
 
     /// Connect to the control plane using the provided client configuration.
@@ -1477,7 +1549,7 @@ impl ControllerService {
                     stream.into_inner(),
                     tx.clone(),
                     cancellation_token.clone(),
-                );
+                )?;
 
                 Ok(tx)
             }
@@ -1530,7 +1602,11 @@ impl GrpcControllerService for ControllerService {
 
         let cancellation_token = CancellationToken::new();
 
-        self.process_control_message_stream(None, stream, tx.clone(), cancellation_token.clone());
+        self.process_control_message_stream(None, stream, tx.clone(), cancellation_token.clone())
+            .map_err(|e| {
+                error!("error processing control message stream: {}", e);
+                Status::unavailable("failed to process control message stream")
+            })?;
 
         // store the sender in the tx_channels map
         self.inner
@@ -1564,13 +1640,7 @@ mod tests {
         server_endpoint: &str,
         server_name: &str,
         client_name: &str,
-    ) -> (
-        ControlPlane,
-        ControlPlane,
-        drain::Signal,
-        drain::Signal,
-        ClientConfig,
-    ) {
+    ) -> (ControlPlane, ControlPlane, ClientConfig) {
         let id_server = ID::new_with_name(Kind::new("slim").unwrap(), server_name).unwrap();
         let id_client = ID::new_with_name(Kind::new("slim").unwrap(), client_name).unwrap();
 
@@ -1579,18 +1649,14 @@ mod tests {
         let client_config = ClientConfig::with_endpoint(&format!("http://{}", server_endpoint))
             .with_tls_setting(slim_config::tls::client::TlsClientConfig::insecure());
 
-        let (signal_server, watch_server) = drain::channel();
-        let (signal_client, watch_client) = drain::channel();
-
-        let message_processor_server = MessageProcessor::with_drain_channel(watch_server.clone());
-        let message_processor_client = MessageProcessor::with_drain_channel(watch_client.clone());
+        let message_processor_server = MessageProcessor::new();
+        let message_processor_client = MessageProcessor::new();
 
         let control_plane_server = ControlPlane::new(ControlPlaneSettings {
             id: id_server,
             group_name: None,
             servers: vec![server_config.clone()],
             clients: vec![],
-            drain_rx: watch_server,
             message_processor: Arc::new(message_processor_server),
             pubsub_servers: vec![server_config.clone()],
             auth_provider: Some(AuthProvider::SharedSecret(SharedSecret::new(
@@ -1608,7 +1674,6 @@ mod tests {
             group_name: None,
             servers: vec![],
             clients: vec![client_config.clone()],
-            drain_rx: watch_client,
             message_processor: Arc::new(message_processor_client),
             pubsub_servers: vec![],
             auth_provider: Some(AuthProvider::SharedSecret(SharedSecret::new(
@@ -1621,30 +1686,19 @@ mod tests {
             ))),
         });
 
-        (
-            control_plane_server,
-            control_plane_client,
-            signal_server,
-            signal_client,
-            client_config,
-        )
+        (control_plane_server, control_plane_client, client_config)
     }
 
     #[tokio::test]
     #[traced_test]
     async fn test_end_to_end() {
-        let (
-            mut control_plane_server,
-            mut control_plane_client,
-            signal_server,
-            signal_client,
-            _client_cfg,
-        ) = setup_control_planes(
-            "127.0.0.1:50051",
-            "test-server-instance",
-            "test-client-instance",
-        )
-        .await;
+        let (mut control_plane_server, mut control_plane_client, _client_cfg) =
+            setup_control_planes(
+                "127.0.0.1:50051",
+                "test-server-instance",
+                "test-client-instance",
+            )
+            .await;
 
         control_plane_server.run().await.unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -1652,11 +1706,6 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         assert!(logs_contain("received a register node request"));
-
-        drop(control_plane_server);
-        drop(control_plane_client);
-        signal_server.drain().await;
-        signal_client.drain().await;
     }
 
     #[test]
@@ -1687,18 +1736,13 @@ mod tests {
     #[traced_test]
     async fn test_subscription_notification_queue_drain() {
         // Reuse common setup with a different port to avoid clash with other tests.
-        let (
-            mut control_plane_server,
-            mut control_plane_client,
-            signal_server,
-            signal_client,
-            client_config,
-        ) = setup_control_planes(
-            "127.0.0.1:50061",
-            "queue-drain-server",
-            "queue-drain-client",
-        )
-        .await;
+        let (mut control_plane_server, mut control_plane_client, client_config) =
+            setup_control_planes(
+                "127.0.0.1:50061",
+                "queue-drain-server",
+                "queue-drain-client",
+            )
+            .await;
 
         let controller = control_plane_client.controller.clone();
         assert_eq!(controller.inner.pending_notifications.lock().len(), 0);
@@ -1743,7 +1787,144 @@ mod tests {
         drop(controller);
         drop(control_plane_server);
         drop(control_plane_client);
-        signal_server.drain().await;
-        signal_client.drain().await;
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_shutdown_drains_resources() {
+        // Use a unique port to avoid conflicts with other tests.
+        let (mut control_plane_server, mut control_plane_client, _client_cfg) =
+            setup_control_planes(
+                "127.0.0.1:50071",
+                "shutdown-server-instance",
+                "shutdown-client-instance",
+            )
+            .await;
+
+        // Run both ends to populate cancellation tokens.
+        control_plane_server
+            .run()
+            .await
+            .expect("server should start");
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        control_plane_client
+            .run()
+            .await
+            .expect("client should start");
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Ensure we have at least one cancellation token (server or client side tasks).
+        let server_tokens_before = control_plane_server
+            .controller
+            .inner
+            .cancellation_tokens
+            .read()
+            .len();
+        assert!(
+            server_tokens_before > 0,
+            "expected server to have active cancellation tokens before shutdown"
+        );
+
+        let client_tokens_before = control_plane_client
+            .controller
+            .inner
+            .cancellation_tokens
+            .read()
+            .len();
+        assert!(
+            client_tokens_before > 0,
+            "expected client to have active cancellation tokens before shutdown"
+        );
+
+        // Perform shutdown on both.
+        control_plane_client
+            .shutdown()
+            .await
+            .expect("client shutdown ok");
+        control_plane_server
+            .shutdown()
+            .await
+            .expect("server shutdown ok");
+
+        // After shutdown, all cancellation tokens should be drained.
+        let server_tokens_after = control_plane_server
+            .controller
+            .inner
+            .cancellation_tokens
+            .read()
+            .len();
+        assert_eq!(
+            server_tokens_after, 0,
+            "expected server cancellation tokens to be drained after shutdown"
+        );
+
+        let client_tokens_after = control_plane_client
+            .controller
+            .inner
+            .cancellation_tokens
+            .read()
+            .len();
+        assert_eq!(
+            client_tokens_after, 0,
+            "expected client cancellation tokens to be drained after shutdown"
+        );
+
+        // Second shutdown should error because drain_signal has been taken.
+        assert!(
+            control_plane_server.shutdown().await.is_err(),
+            "second shutdown on server should return an error"
+        );
+        assert!(
+            control_plane_client.shutdown().await.is_err(),
+            "second shutdown on client should return an error"
+        );
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_shutdown_without_run() {
+        // Build a control plane but do NOT call run()
+        let (control_plane_server, mut _control_plane_client, _client_cfg) = setup_control_planes(
+            "127.0.0.1:50072",
+            "shutdown-no-run-server",
+            "shutdown-no-run-client",
+        )
+        .await;
+
+        // No tasks should be registered yet
+        assert_eq!(
+            control_plane_server
+                .controller
+                .inner
+                .cancellation_tokens
+                .read()
+                .len(),
+            0,
+            "expected zero cancellation tokens before shutdown when not run"
+        );
+
+        // Shutdown should still succeed gracefully.
+        control_plane_server
+            .shutdown()
+            .await
+            .expect("shutdown without prior run should succeed");
+
+        // Tokens remain zero.
+        assert_eq!(
+            control_plane_server
+                .controller
+                .inner
+                .cancellation_tokens
+                .read()
+                .len(),
+            0,
+            "expected zero cancellation tokens after shutdown when not run"
+        );
+
+        // Second shutdown should fail.
+        assert!(
+            control_plane_server.shutdown().await.is_err(),
+            "second shutdown should error due to missing drain signal"
+        );
     }
 }

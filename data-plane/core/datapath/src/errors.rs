@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::messages::utils::MessageError;
+use slim_config::grpc::errors::ConfigError;
 use thiserror::Error;
 
 /// DataPath and subscription table errors merged into a single enum.
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug)]
 pub enum DataPathError {
     // Connection lifecycle
     #[error("connection error")]
@@ -36,4 +37,14 @@ pub enum DataPathError {
     // Processing
     #[error("message processing error: {0}")]
     ProcessingError(MessageError),
+
+    // Configuration error
+    #[error("configuration error: {0}")]
+    ConfigurationError(#[from] ConfigError),
+
+    // Shutdown errors
+    #[error("data path is already closed")]
+    AlreadyClosedError,
+    #[error("timeout during shutdown")]
+    ShutdownTimeoutError,
 }

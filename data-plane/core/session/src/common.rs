@@ -52,6 +52,7 @@ pub fn new_message_from_session_fields(
     message_type: ProtoSessionMessageType,
     session_id: u32,
     message_id: u32,
+    metadata: Option<std::collections::HashMap<String, String>>,
 ) -> Result<Message, MessageError> {
     let mut builder = Message::builder()
         .source(local_name.clone())
@@ -66,6 +67,10 @@ pub fn new_message_from_session_fields(
 
     if is_error {
         builder = builder.error(true);
+    }
+
+    if let Some(meta) = metadata {
+        builder = builder.metadata_map(meta);
     }
 
     builder.build_publish()

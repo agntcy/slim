@@ -4,6 +4,7 @@
 use clap::Parser;
 use slim::config;
 use slim_datapath::messages::Name;
+use std::time::Duration;
 use tracing::{error, info};
 
 mod proxy;
@@ -71,17 +72,18 @@ async fn main() {
         return;
     }
 
-    let config = config::load_config(config_file).expect("failed to load configuration");
+    let mut config = config::ConfigLoader::new(config_file).expect("failed to load configuration");
     let svc_id = slim_config::component::id::ID::new_with_str(svc_name).unwrap();
-    let _guard = config.tracing.setup_tracing_subscriber();
+    let _guard = config.tracing().setup_tracing_subscriber();
+
+    let services = config.services().expect("error loading services");
+    let service = services.remove(&svc_id).expect("service not found");
 
     let mut proxy = proxy::Proxy::new(
         Name::from_strings([v_name[0], v_name[1], v_name[2]]),
-        config,
-        svc_id,
         server.clone(),
     );
 
     info!("starting MCP proxy");
-    proxy.start().await;
+    proxy.start(service, Duration::from_secs(10)).await;
 }

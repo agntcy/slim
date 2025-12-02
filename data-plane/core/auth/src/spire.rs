@@ -194,19 +194,12 @@ impl CustomClaimsCodec {
 async fn create_workload_client(
     socket_path: Option<&String>,
 ) -> Result<WorkloadApiClient, AuthError> {
-    if let Some(path) = socket_path {
-        WorkloadApiClient::new_from_path(path)
-            .await
-            .map_err(|e| AuthError::SpiffeWorkloadConnect {
-                details: e.to_string(),
-            })
-    } else {
-        WorkloadApiClient::default()
-            .await
-            .map_err(|e| AuthError::SpiffeWorkloadConnect {
-                details: e.to_string(),
-            })
-    }
+    let client = match socket_path {
+        Some(path) => WorkloadApiClient::new_from_path(path).await?,
+        None => WorkloadApiClient::default().await?,
+    };
+
+    Ok(client)
 }
 
 /// Builder for constructing a SpiffeIdentityManager
@@ -290,10 +283,7 @@ impl SpireIdentityManager {
         let x509_source = X509SourceBuilder::new()
             .with_client(client.clone())
             .build()
-            .await
-            .map_err(|e| AuthError::SpiffeX509Init {
-                details: e.to_string(),
-            })?;
+            .await?;
 
         self.x509_source = Some(x509_source);
 
@@ -306,12 +296,7 @@ impl SpireIdentityManager {
             jwt_builder = jwt_builder.with_target_spiffe_id(target_id.clone());
         }
 
-        let jwt_source = jwt_builder
-            .build()
-            .await
-            .map_err(|e| AuthError::SpiffeJwtInit {
-                details: e.to_string(),
-            })?;
+        let jwt_source = jwt_builder.build().await?;
 
         self.jwt_source = Some(jwt_source);
 
@@ -330,9 +315,7 @@ impl SpireIdentityManager {
             .ok_or(AuthError::SpiffeX509SourceNotInitialized)?;
         let svid = x509_source
             .get_svid()
-            .map_err(|e| AuthError::SpiffeX509SvidFetch {
-                details: e.to_string(),
-            })?
+            .map_err(|e| AuthError::SpiffeX509SvidFetch(e.to_string()))?
             .ok_or(AuthError::SpiffeX509SvidMissing)?;
         debug!("Retrieved X509 SVID with SPIFFE ID: {}", svid.spiffe_id());
         Ok(svid)
@@ -377,11 +360,7 @@ impl SpireIdentityManager {
             .jwt_source
             .as_ref()
             .ok_or(AuthError::SpiffeJwtSourceNotInitialized)?;
-        src.get_svid()
-            .map_err(|e| AuthError::SpiffeJwtSvidFetch {
-                details: e.to_string(),
-            })?
-            .ok_or(AuthError::SpiffeJwtSvidMissing)
+        src.get_svid().ok_or(AuthError::SpiffeJwtSvidMissing)
     }
 
     /// Get X.509 bundle for the trust domain of our SVID (for verification use-cases)
@@ -394,19 +373,15 @@ impl SpireIdentityManager {
         // Derive trust domain from current SVID
         let svid = x509_source
             .get_svid()
-            .map_err(|e| AuthError::SpiffeX509SvidFetch {
-                details: e.to_string(),
-            })?
+            .map_err(|e| AuthError::SpiffeX509SvidFetch(e.to_string()))?
             .ok_or(AuthError::SpiffeX509SvidMissing)?;
 
         let td = svid.spiffe_id().trust_domain();
 
         x509_source
             .get_bundle_for_trust_domain(td)
-            .map_err(|e| AuthError::SpiffeX509BundleFetch {
-                details: e.to_string(),
-            })?
-            .ok_or(AuthError::SpiffeTrustDomainBundleMissing { td: td.to_string() })
+            .map_err(|e| AuthError::SpiffeX509BundleFetch(e.to_string()))?
+            .ok_or(AuthError::SpiffeX509BundleMissing(td.to_string()))
     }
 
     /// Get the X.509 bundle for an explicit trust domain (ignores config override)
@@ -419,28 +394,16 @@ impl SpireIdentityManager {
         let c = self
             .client
             .as_mut()
-            .ok_or(AuthError::SpiffeWorkloadConnect {
-                details: "WorkloadApiClient not initialized".to_string(),
-            })?;
+            .ok_or(AuthError::SpiffeWorkloadApiUnavailable)?;
 
-        let bundles =
-            c.fetch_x509_bundles()
-                .await
-                .map_err(|e| AuthError::SpiffeX509BundleFetch {
-                    details: e.to_string(),
-                })?;
+        let bundles = c.fetch_x509_bundles().await?;
 
-        let td = TrustDomain::new(&td_str).map_err(|e| AuthError::SpiffeTrustDomainInvalid {
-            td: td_str.to_string(),
-            details: e.to_string(),
-        })?;
+        let td = TrustDomain::new(&td_str)?;
 
         bundles
             .get_bundle(&td)
             .cloned()
-            .ok_or(AuthError::SpiffeTrustDomainBundleMissing {
-                td: td_str.to_string(),
-            })
+            .ok_or(AuthError::SpiffeX509BundleMissing(td_str))
     }
 
     /// Internal helper to access JWT bundles
@@ -451,10 +414,7 @@ impl SpireIdentityManager {
             .ok_or(AuthError::SpiffeJwtSourceNotInitialized)?;
         jwt_source
             .get_bundles()
-            .map_err(|e| AuthError::SpiffeJwtSvidFetch {
-                details: e.to_string(),
-            })?
-            .ok_or(AuthError::SpiffeJwtBundlesUnavailable)
+            .ok_or(AuthError::SpiffeJwtBundleMissing)
     }
 }
 
@@ -826,25 +786,23 @@ impl JwtSource {
         self.custom_request_tx
             .send(request)
             .await
-            .map_err(|_| AuthError::SpiffeJwtSourceTaskShutdown)?;
+            .map_err(|_| AuthError::SpiffeCustomAudiencesJwtSourceClosed)?;
 
         response_rx
             .await
-            .map_err(|e| AuthError::SpiffeJwtSourceResponse {
-                details: e.to_string(),
-            })?
+            .map_err(|_| AuthError::SpiffeCustomAudiencesError)?
     }
 
     /// Sync access to the current JWT SVID (if any). Returns Ok(Some) if present.
-    fn get_svid(&self) -> Result<Option<JwtSvid>, String> {
+    fn get_svid(&self) -> Option<JwtSvid> {
         let guard = self.current.read();
-        Ok(guard.clone())
+        guard.clone()
     }
 
     /// Get the current JWT bundles for verification (synchronous)
-    pub fn get_bundles(&self) -> Result<Option<JwtBundleSet>, String> {
+    pub fn get_bundles(&self) -> Option<JwtBundleSet> {
         let guard = self.bundles.read();
-        Ok(guard.clone())
+        guard.clone()
     }
 
     /// Fetch JWT bundle once (helper for initialization)

@@ -167,37 +167,39 @@ mod tests {
 
         let fwd = Forwarder::<u32>::new();
 
-        assert_eq!(
-            fwd.on_subscription_msg(name.clone(), 10, false, true),
-            Ok(())
+        assert!(
+            fwd.on_subscription_msg(name.clone(), 10, false, true)
+                .is_ok()
+        );
+
+        assert!(
+            fwd.on_subscription_msg(name.clone().with_id(1), 12, false, true)
+                .is_ok()
+        );
+
+        assert!(
+            // this creates a warning
+            fwd.on_subscription_msg(name.clone().with_id(1), 12, false, true)
+                .is_ok()
         );
 
         assert_eq!(
-            fwd.on_subscription_msg(name.clone().with_id(1), 12, false, true),
-            Ok(())
-        );
-        assert_eq!(
-            // this creates a warning
-            fwd.on_subscription_msg(name.clone().with_id(1), 12, false, true),
-            Ok(())
-        );
-        assert_eq!(
-            fwd.on_publish_msg_match(name.clone().with_id(1), 100, 1),
-            Ok(vec![12])
+            fwd.on_publish_msg_match(name.clone().with_id(1), 100, 1)
+                .unwrap(),
+            vec![12]
         );
 
         let expected = name.clone().with_id(2);
-        assert_eq!(
-            fwd.on_publish_msg_match(expected.clone(), 100, 1),
-            Err(DataPathError::NoMatch(format!("{}", expected)))
+
+        let err = fwd.on_publish_msg_match(expected.clone(), 100, 1);
+        assert!(matches!(err, Err(DataPathError::NoMatch(_))));
+
+        assert!(
+            fwd.on_subscription_msg(name.clone(), 10, false, false)
+                .is_ok()
         );
-        assert_eq!(
-            fwd.on_subscription_msg(name.clone(), 10, false, false),
-            Ok(())
-        );
-        assert_eq!(
-            fwd.on_subscription_msg(name.clone(), 10, false, false),
-            Err(DataPathError::IdNotFound)
-        );
+
+        let err = fwd.on_subscription_msg(name.clone(), 10, false, false);
+        assert!(matches!(err, Err(DataPathError::IdNotFound)));
     }
 }

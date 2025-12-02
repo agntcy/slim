@@ -27,7 +27,9 @@ use tracing::error;
 // constant strings used in messages metadata
 pub const IS_MODERATOR: &str = "IS_MODERATOR";
 pub const DELETE_GROUP: &str = "DELETE_GROUP";
+pub const PUBLISH_TO: &str = "PUBLISH_TO";
 pub const TRUE_VAL: &str = "TRUE";
+pub const MAX_PUBLISH_ID: u32 = u32::MAX / 2;
 
 #[derive(Error, Debug, PartialEq)]
 pub enum MessageError {
@@ -50,7 +52,10 @@ pub enum MessageError {
     #[error("content is not a command payload")]
     NotCommandPayload,
     #[error("invalid command payload type: expected {expected}, got {got}")]
-    InvalidCommandPayloadType { expected: String, got: String },
+    InvalidCommandPayloadType {
+        expected: Box<String>,
+        got: Box<String>,
+    },
     #[error("builder error: {0}")]
     BuilderError(String),
 }
@@ -852,12 +857,12 @@ macro_rules! impl_command_payload_getters {
                 match &self.command_payload_type {
                     Some(CommandPayloadType::$variant(payload)) => Ok(payload),
                     Some(other) => Err(MessageError::InvalidCommandPayloadType {
-                        expected: stringify!($variant).to_string(),
-                        got: format!("{:?}", other),
+                        expected: Box::new(stringify!($variant).to_string()),
+                        got: Box::new(format!("{:?}", other)),
                     }),
                     None => Err(MessageError::InvalidCommandPayloadType {
-                        expected: stringify!($variant).to_string(),
-                        got: "None".to_string(),
+                        expected: Box::new(stringify!($variant).to_string()),
+                        got: Box::new("None".to_string()),
                     }),
                 }
             }

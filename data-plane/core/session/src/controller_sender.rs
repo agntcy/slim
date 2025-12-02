@@ -62,12 +62,7 @@ impl ControllerSender {
     ) -> Self {
         ControllerSender {
             timer_factory: TimerFactory::new(timer_settings, tx_signals),
-            local_name: {
-                // reset the id to avoid match problem
-                let mut name = local_name;
-                name.reset_id();
-                name
-            },
+            local_name,
             pending_replies: HashMap::new(),
             tx,
             draining_state: ControllerSenderDrainStatus::NotDraining,
@@ -90,17 +85,25 @@ impl ControllerSender {
                 }
                 let mut missing_replies = HashSet::new();
                 let mut name = message.get_dst();
-                name.reset_id();
+                if message.get_session_message_type()
+                    == slim_datapath::api::ProtoSessionMessageType::DiscoveryRequest
+                {
+                    // the discovery request should be sent to an unknown destination id.
+                    // if the id is present remove it for consistency on the ack return.
+                    // this affects only the ack registration and not the forwarding behaviour.
+                    name.reset_id();
+                }
                 missing_replies.insert(name);
                 self.on_send_message(message, missing_replies).await?;
             }
             slim_datapath::api::ProtoSessionMessageType::GroupClose => {
                 let payload = message.extract_group_close()?;
-                let mut missing_replies = HashSet::new();
-                for n in &payload.participants {
-                    let name = Name::from(n);
-                    missing_replies.insert(name);
-                }
+                let missing_replies: HashSet<Name> = payload
+                    .participants
+                    .iter()
+                    .map(Name::from)
+                    .filter(|n| *n != self.local_name)
+                    .collect();
                 self.on_send_message(message, missing_replies).await?;
             }
             slim_datapath::api::ProtoSessionMessageType::DiscoveryReply
@@ -118,39 +121,33 @@ impl ControllerSender {
             slim_datapath::api::ProtoSessionMessageType::GroupAdd => {
                 // compute the list of participants that needs to send an ack
                 let payload = message.extract_group_add()?;
-                let mut missing_replies = HashSet::new();
-                let mut new_participant = Name::from(
+                let new_participant = Name::from(
                     payload
                         .new_participant
                         .as_ref()
                         .ok_or(SessionError::MissingNewParticipant)?,
                 );
-                new_participant.reset_id();
-                for p in &payload.participants {
-                    // exclude the local name and the new participant
-                    let mut name = Name::from(p);
-                    name.reset_id();
-                    if name != self.local_name && name != new_participant {
-                        missing_replies.insert(name);
-                    }
-                }
+
+                let missing_replies: HashSet<Name> = payload
+                    .participants
+                    .iter()
+                    .map(Name::from)
+                    .filter(|n| *n != self.local_name && *n != new_participant)
+                    .collect();
                 self.on_send_message(message, missing_replies).await?;
             }
             slim_datapath::api::ProtoSessionMessageType::GroupRemove => {
                 // compute the list of participants that needs to send an ack
                 let payload = message.extract_group_remove()?;
 
-                let mut missing_replies = HashSet::new();
-                for p in &payload.participants {
-                    // exclude only the local name
-                    let mut name = Name::from(p);
-                    name.reset_id();
-                    if name != self.local_name {
-                        missing_replies.insert(name);
-                    }
-                }
+                let mut missing_replies: HashSet<Name> = payload
+                    .participants
+                    .iter()
+                    .map(Name::from)
+                    .filter(|n| *n != self.local_name)
+                    .collect();
 
-                // also the message that we are removing will get the update
+                // also the participant that we are removing will get the update
                 // so we need to add it in the list of endpoint from where
                 // we expected to receive an ack
                 let to_remove = Name::from(
@@ -211,7 +208,11 @@ impl ControllerSender {
         if let Some(pending) = self.pending_replies.get_mut(&id) {
             debug!("try to remove {} from pending acks", id);
             let mut name = message.get_source();
-            name.reset_id();
+            if message.get_session_message_type()
+                == slim_datapath::api::ProtoSessionMessageType::DiscoveryReply
+            {
+                name.reset_id();
+            }
             pending.missing_replies.remove(&name);
             if pending.missing_replies.is_empty() {
                 debug!("all replies received, remove timer");

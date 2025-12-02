@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2](https://github.com/agntcy/slim/compare/slim-session-v0.1.1...slim-session-v0.1.2) - 2025-11-21
+
+### Added
+
+- add publish_to on group session ([#975](https://github.com/agntcy/slim/pull/975))
+
+### Fixed
+
+- remove participants and ack management in controller sender ([#987](https://github.com/agntcy/slim/pull/987))
+
 ## [0.1.1](https://github.com/agntcy/slim/compare/slim-session-v0.1.0...slim-session-v0.1.1) - 2025-11-17
 
 ### Added

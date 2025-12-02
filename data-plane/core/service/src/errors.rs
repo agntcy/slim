@@ -30,7 +30,7 @@ pub enum ServiceError {
     #[error("provider auth error: {0}")]
     ProviderAuthError(#[from] AuthError),
 
-    // Connection lifecycle (legacy string variants kept for backward compatibility)
+    // Connection lifecycle
     #[error("connection error: {0}")]
     ConnectionError(String),
     #[error("disconnect error: {0}")]
@@ -74,9 +74,6 @@ pub enum ServiceError {
     // Controller / datapath typed propagation
     #[error("controller error: {0}")]
     Controller(#[from] slim_controller::errors::ControllerError),
-    // Legacy string variant retained (will be migrated)
-    #[error("controller error (string): {0}")]
-    ControllerError(String),
     #[error("datapath error: {0}")]
     DataPath(#[from] slim_datapath::errors::DataPathError),
 

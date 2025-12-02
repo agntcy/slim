@@ -1,16 +1,16 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use clap::Parser;
+use tracing::{debug, info, span};
+
 use slim::args;
 use slim::build_info;
 use slim::config;
 use slim::runtime;
 use slim_config::component::Component;
 use slim_config::tls::provider;
-use tokio::time;
-use tracing::{debug, info, span};
 
 fn main() -> Result<()> {
     let args = args::Args::parse();
@@ -25,7 +25,7 @@ fn main() -> Result<()> {
     let config_file = args.config().context("config file is required")?;
 
     // create configured components
-    let mut config = config::load_config(config_file).context("failed to load configuration")?;
+    let mut config = config::ConfigLoader::new(config_file).expect("failed to load configuration");
 
     // print build info
     info!("{}", build_info::BUILD_INFO);
@@ -34,16 +34,19 @@ fn main() -> Result<()> {
     provider::initialize_crypto_provider();
 
     // start runtime
-    let runtime = runtime::build(&config.runtime).context("failed to build runtime")?;
-    let run_result: Result<()> = runtime.runtime.block_on(async move {
+    let runtime_config = config.runtime();
+    let runtime = runtime::build(runtime_config).expect("failed to build runtime");
+
+    let run_result: Result<_> = runtime.runtime.block_on(async move {
         // tracing subscriber initialization must be called from the runtime
-        let _guard = config.tracing.setup_tracing_subscriber();
+        let tracing_conf = config.tracing();
+        let _guard = tracing_conf.setup_tracing_subscriber();
 
         let root_span = span!(tracing::Level::INFO, "application_lifecycle");
         let _enter = root_span.enter();
 
         // log the tracing configuration
-        debug!(?config.tracing);
+        debug!(?tracing_conf);
 
         info!("Runtime started");
         info!(
@@ -52,14 +55,12 @@ fn main() -> Result<()> {
             message_type = "subscribe"
         );
 
+        let services = config.services().context("error loading services")?;
+
         // start services
-        for service in config.services.iter_mut() {
-            service
-                .1
-                .start()
-                .await
-                .with_context(|| format!("failed to start service {}", service.0))?;
-            info!("Started service: {}", service.0);
+        for service in services.iter_mut() {
+            info!("Starting service: {}", service.0);
+            service.1.start().await.context("failed to start service")?;
         }
 
         // wait for shutdown signal
@@ -69,18 +70,19 @@ fn main() -> Result<()> {
             }
         }
 
-        // Send a drain signal to all services
-        for svc in config.services {
-            // consume the service and get the drain signal
-            let signal = svc.1.signal();
-
-            match time::timeout(runtime.config.drain_timeout(), signal.drain()).await {
-                Ok(()) => {}
-                Err(_) => return Err(anyhow!("timeout waiting for drain for service {}", svc.0)),
-            }
+        // Gracefully stop services
+        for service in services.iter_mut() {
+            info!("Stopping service: {}", service.0);
+            service
+                .1
+                .shutdown()
+                .await
+                .context("failed to stop service")?;
         }
         Ok(())
     });
+
     run_result?;
+
     Ok(())
 }

@@ -18,6 +18,9 @@ pub enum ControllerError {
     // Propagated lower-level errors
     #[error("datapath error: {0}")]
     Datapath(#[from] DataPathError),
+    #[error("error sending message to data plane: {0}")]
+    DatapathSendError(String),
+
     #[error("auth error: {0}")]
     Auth(#[from] AuthError),
 

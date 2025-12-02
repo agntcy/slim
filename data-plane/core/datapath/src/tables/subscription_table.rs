@@ -671,10 +671,10 @@ mod tests {
 
         let t = SubscriptionTableImpl::default();
 
-        assert_eq!(t.add_subscription(name1.clone(), 1, false), Ok(()));
-        assert_eq!(t.add_subscription(name1.clone(), 2, false), Ok(()));
-        assert_eq!(t.add_subscription(name1_1.clone(), 3, false), Ok(()));
-        assert_eq!(t.add_subscription(name2_2.clone(), 3, false), Ok(()));
+        assert!(t.add_subscription(name1.clone(), 1, false).is_ok());
+        assert!(t.add_subscription(name1.clone(), 2, false).is_ok());
+        assert!(t.add_subscription(name1_1.clone(), 3, false).is_ok());
+        assert!(t.add_subscription(name2_2.clone(), 3, false).is_ok());
 
         // returns three matches on connection 1,2,3
         let out = t.match_all(&name1, 100).unwrap();
@@ -689,7 +689,7 @@ mod tests {
         assert!(out.contains(&2));
         assert!(out.contains(&3));
 
-        assert_eq!(t.remove_subscription(&name1, 2, false), Ok(()));
+        assert!(t.remove_subscription(&name1, 2, false).is_ok());
 
         // return two matches on connection 1,3
         let out = t.match_all(&name1, 100).unwrap();
@@ -697,7 +697,7 @@ mod tests {
         assert!(out.contains(&1));
         assert!(out.contains(&3));
 
-        assert_eq!(t.remove_subscription(&name1_1, 3, false), Ok(()));
+        assert!(t.remove_subscription(&name1_1, 3, false).is_ok());
 
         // return one matches on connection 1
         let out = t.match_all(&name1, 100).unwrap();
@@ -705,13 +705,11 @@ mod tests {
         assert!(out.contains(&1));
 
         // return no match
-        assert_eq!(
-            t.match_all(&name1, 1),
-            Err(DataPathError::NoMatch(format!("{}", name1,)))
-        );
+        let err = t.match_all(&name1, 1);
+        assert!(matches!(err, Err(DataPathError::NoMatch(_))));
 
         // add subscription again
-        assert_eq!(t.add_subscription(name1_1.clone(), 2, false), Ok(()));
+        assert!(t.add_subscription(name1_1.clone(), 2, false).is_ok());
 
         // returns two matches on connection 1 and 2
         let out = t.match_all(&name1, 100).unwrap();
@@ -744,7 +742,7 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert!(out.contains(&1));
 
-        assert_eq!(t.add_subscription(name2_2.clone(), 4, false), Ok(()));
+        assert!(t.add_subscription(name2_2.clone(), 4, false).is_ok());
 
         // run multiple times for randomness
         for _ in 0..20 {
@@ -763,10 +761,10 @@ mod tests {
             }
         }
 
-        assert_eq!(t.remove_subscription(&name2_2, 4, false), Ok(()));
+        assert!(t.remove_subscription(&name2_2, 4, false).is_ok());
 
         // test local vs remote
-        assert_eq!(t.add_subscription(name1.clone(), 2, true), Ok(()));
+        assert!(t.add_subscription(name1.clone(), 2, true).is_ok());
 
         // returns one match on connection 2
         let out = t.match_all(&name1, 100).unwrap();
@@ -787,27 +785,21 @@ mod tests {
         assert_eq!(out, 1);
 
         // test errors
-        assert_eq!(
-            t.remove_connection(4, false),
-            Err(DataPathError::ConnectionIdNotFound)
-        );
+        let err = t.remove_connection(4, false);
+        assert!(matches!(err, Err(DataPathError::ConnectionIdNotFound)));
 
-        assert_eq!(t.match_one(&name1_1, 100), Ok(2));
+        assert_eq!(t.match_one(&name1_1, 100).unwrap(), 2);
 
-        assert_eq!(
+        assert!(
             // this generates a warning
-            t.add_subscription(name2_2.clone(), 3, false),
-            Ok(())
+            t.add_subscription(name2_2.clone(), 3, false).is_ok()
         );
 
-        assert_eq!(
-            t.remove_subscription(&name3, 2, false),
-            Err(DataPathError::SubscriptionNotFound)
-        );
-        assert_eq!(
-            t.remove_subscription(&name2, 2, false),
-            Err(DataPathError::IdNotFound)
-        );
+        let err = t.remove_subscription(&name3, 2, false);
+        assert!(matches!(err, Err(DataPathError::SubscriptionNotFound)));
+
+        let err = t.remove_subscription(&name2, 2, false);
+        assert!(matches!(err, Err(DataPathError::IdNotFound)));
     }
 
     #[test]
@@ -817,9 +809,9 @@ mod tests {
 
         let t = SubscriptionTableImpl::default();
 
-        assert_eq!(t.add_subscription(name1.clone(), 1, false), Ok(()));
-        assert_eq!(t.add_subscription(name1.clone(), 2, false), Ok(()));
-        assert_eq!(t.add_subscription(name2.clone(), 3, true), Ok(()));
+        assert!(t.add_subscription(name1.clone(), 1, false).is_ok());
+        assert!(t.add_subscription(name1.clone(), 2, false).is_ok());
+        assert!(t.add_subscription(name2.clone(), 3, true).is_ok());
 
         let mut h = HashMap::new();
 

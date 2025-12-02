@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use spiffe::{SpiffeIdError, error::GrpcClientError, workload_api::x509_source::X509SourceError};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -69,40 +70,38 @@ pub enum AuthError {
     OidcDiscoveryMissingJwksUri,
     #[error("cached JWKS expired for issuer: {issuer}")]
     JwksCacheExpired { issuer: String },
+    #[error("serde error while encoding audience: {source}")]
+    SpiffeCustomClaimsSerialize { source: serde_json::Error },
 
     // SPIFFE / SPIRE integration
-    #[error("failed to connect to SPIFFE Workload API: {details}")]
-    SpiffeWorkloadConnect { details: String },
-    #[error("SPIFFE X509 source not initialized")]
-    SpiffeX509SourceNotInitialized,
-    #[error("SPIFFE JWT source not initialized")]
+    #[error("spiffe error: {0}")]
+    SpiffeError(#[from] SpiffeIdError),
+    #[error("spiffe grpc error: {0}")]
+    SpiffeGrpcError(#[from] GrpcClientError),
+    #[error("spiffe workload api unavailable")]
+    SpiffeWorkloadApiUnavailable,
+    #[error("spiffe x509 dource error: {0}")]
+    SpiffeX509SourceError(#[from] X509SourceError),
+    #[error("jwt source not initialized")]
     SpiffeJwtSourceNotInitialized,
-    #[error("failed to initialize SPIFFE X509 source: {details}")]
-    SpiffeX509Init { details: String },
-    #[error("failed to initialize SPIFFE JWT source: {details}")]
-    SpiffeJwtInit { details: String },
-    #[error("failed to get X509 SVID: {details}")]
-    SpiffeX509SvidFetch { details: String },
-    #[error("no X509 SVID available")]
-    SpiffeX509SvidMissing,
-    #[error("failed to get JWT SVID: {details}")]
-    SpiffeJwtSvidFetch { details: String },
-    #[error("no JWT SVID available")]
+    #[error("missing jwt svid")]
     SpiffeJwtSvidMissing,
-    #[error("failed to fetch X509 bundle: {details}")]
-    SpiffeX509BundleFetch { details: String },
-    #[error("invalid trust domain {td}: {details}")]
-    SpiffeTrustDomainInvalid { td: String, details: String },
-    #[error("no X509 bundle for trust domain {td}")]
-    SpiffeTrustDomainBundleMissing { td: String },
-    #[error("SPIFFE JWT bundles not yet available")]
-    SpiffeJwtBundlesUnavailable,
-    #[error("failed to serialize custom claims: {source}")]
-    SpiffeCustomClaimsSerialize { source: serde_json::Error },
-    #[error("JWT source task has shut down")]
-    SpiffeJwtSourceTaskShutdown,
-    #[error("failed to receive response from JWT source: {details}")]
-    SpiffeJwtSourceResponse { details: String },
+    #[error("missing jwt bundle")]
+    SpiffeJwtBundleMissing,
+    #[error("failed to fetch x509 SVID")]
+    SpiffeX509SvidMissing,
+    #[error("x509 source not initialized")]
+    SpiffeX509SourceNotInitialized,
+    #[error("x509 trust bundle not available: {0}")]
+    SpiffeX509BundleMissing(String),
+    #[error("error fetching x509 SVID: {0}")]
+    SpiffeX509SvidFetch(String),
+    #[error("error fetching x509 trust bundle: {0}")]
+    SpiffeX509BundleFetch(String),
+    #[error("jwt source closed")]
+    SpiffeCustomAudiencesJwtSourceClosed,
+    #[error("error fetching jwt svid with custom audiences")]
+    SpiffeCustomAudiencesError,
 
     // Serialization
     #[error("JSON serialization error: {0}")]

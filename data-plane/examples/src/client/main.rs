@@ -4,7 +4,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use prost::Message;
-use tokio::time;
 use tracing::{error, info};
 
 use slim::config;
@@ -87,17 +86,21 @@ async fn main() -> Result<()> {
     let secret = args.secret();
 
     // Load configuration
-    let mut config = config::load_config(config_file)
+    let mut loader = config::ConfigLoader::new(config_file)
         .with_context(|| format!("Failed to load configuration from {}", config_file))?;
-    let _guard = config.tracing.setup_tracing_subscriber();
+    let _guard = loader.tracing().setup_tracing_subscriber();
 
     info!(%config_file, local=%local_name, "starting client example");
 
     // Obtain service (assumes service id slim/0 is present)
     let service_id = slim_config::component::id::ID::new_with_str("slim/0")
         .context("Failed to create service ID 'slim/0'")?;
-    let mut svc = config
-        .services
+
+    // Access mutable services map from loader
+    let services = loader
+        .services()
+        .with_context(|| "Failed to load services from configuration")?;
+    let mut svc = services
         .remove(&service_id)
         .context("Missing service 'slim/0' in configuration")?;
 
@@ -182,14 +185,5 @@ async fn main() -> Result<()> {
 
     info!("client shutting down");
 
-    let signal = svc.signal();
-    match time::timeout(config.runtime.drain_timeout(), signal.drain()).await {
-        Ok(()) => info!("service drained"),
-        Err(_) => error!(
-            "timeout waiting for service drain after {:?}",
-            config.runtime.drain_timeout()
-        ),
-    }
-
-    Ok(())
+    svc.shutdown().await.context("Service shutdown failed")
 }

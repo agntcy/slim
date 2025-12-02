@@ -28,31 +28,6 @@ spec:
     - cluster-b.example
 ---
 apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: alice-spiffe-config
-  labels:
-    app.kubernetes.io/name: slim-client
-    app.kubernetes.io/component: alice
-data:
-  helper.conf: |-
-    agent_address =  "/run/spire/agent-sockets/api.sock"
-    cmd = ""
-    cmd_args = ""
-    cert_dir = "/svids"
-    renew_signal = ""
-    svid_file_name = "tls.crt"
-    svid_key_file_name = "tls.key"
-    svid_bundle_file_name = "svid_bundle.pem"
-    jwt_bundle_file_name = "key.jwt"
-    cert_file_mode = 0644
-    key_file_mode = 0644
-    jwt_svid_file_mode = 0644
-    jwt_bundle_file_mode = 0644
-    jwt_svids = [{jwt_audience="slim-demo", jwt_svid_file_name="jwt_svid.token"}]
-    daemon_mode = true
----
-apiVersion: v1
 kind: Pod
 metadata:
   name: alice
@@ -62,41 +37,25 @@ metadata:
 spec:
   containers:
   - args:
-    - -config
-    - config/helper.conf
-    image: ghcr.io/spiffe/spiffe-helper:0.10.0
-    imagePullPolicy: IfNotPresent
-    name: spiffe-helper
-    resources: {}
-    volumeMounts:
-    - mountPath: /config/helper.conf
-      name: config-volume
-      subPath: helper.conf
-    - mountPath: /run/spire/agent-sockets
-      name: spire-agent-socket
-    - mountPath: /svids
-      name: svids-volume
-  - args:
     - p2p
-    - --jwt
-    - /svids/jwt_svid.token
-    - --spire-trust-bundle
-    - /svids/key.jwt
-    - --audience
+    - --spire-socket-path
+    - unix:/tmp/spire-agent/public/api.sock
+    - --spire-jwt-audience
     - slim-demo
     - --local
     - org/ns/alice
     - --slim
-    - '{"endpoint":"https://slim.slim.svc.cluster.local:46357","tls":{"insecure_skip_verify": false, "cert_file":"/svids/tls.crt","key_file":"/svids/tls.key","ca_file":"/svids/svid_bundle.pem"}}'
+    - '{"endpoint":"https://slim.slim.svc.cluster.local:46357","tls":{"source":{"type":"spire","socket_path":"unix:/tmp/spire-agent/public/api.sock"},"ca_source":{"type":"spire","socket_path":"unix:/tmp/spire-agent/public/api.sock","trust_domains":["cluster-a.example"]}}}'    
     env:
     - name: PYTHONUNBUFFERED
       value: "1"
-    image: ghcr.io/agntcy/slim/bindings-examples:0.6.0
+    image: ghcr.io/agntcy/slim/bindings-examples:0.7.1
     imagePullPolicy: Always
     name: client
     volumeMounts:
-    - mountPath: /svids
-      name: svids-volume
+    - name: spire-agent-socket
+      mountPath: /tmp/spire-agent/public/
+      readOnly: true
   restartPolicy: OnFailure
   serviceAccountName: alice
   volumes:
@@ -104,9 +63,3 @@ spec:
       path: /run/spire/agent-sockets
       type: Directory
     name: spire-agent-socket
-  - emptyDir: {}
-    name: svids-volume
-  - configMap:
-      defaultMode: 420
-      name: alice-spiffe-config
-    name: config-volume
