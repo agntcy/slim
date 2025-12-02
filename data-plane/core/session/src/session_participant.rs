@@ -121,7 +121,10 @@ where
                 timeouts,
             } => {
                 if message_type.is_command_message() {
-                    self.common.sender.on_timer_timeout(message_id).await
+                    self.common
+                        .sender
+                        .on_timer_timeout(message_id, message_type)
+                        .await
                 } else {
                     self.inner
                         .on_message(SessionMessage::TimerTimeout {
@@ -140,7 +143,10 @@ where
                 timeouts,
             } => {
                 if message_type.is_command_message() {
-                    self.common.sender.on_timer_failure(message_id).await;
+                    self.common
+                        .sender
+                        .on_timer_failure(message_id, message_type)
+                        .await;
                     Ok(())
                 } else {
                     self.inner
@@ -217,6 +223,7 @@ where
             ProtoSessionMessageType::LeaveRequest | ProtoSessionMessageType::GroupClose => {
                 self.on_leave_request(message).await
             }
+            ProtoSessionMessageType::Ping => self.on_ping(message).await,
             ProtoSessionMessageType::GroupProposal
             | ProtoSessionMessageType::GroupAck
             | ProtoSessionMessageType::GroupNack => todo!(),
@@ -431,6 +438,16 @@ where
             }))
             .await
             .map_err(SessionError::from)
+    }
+
+    async fn on_ping(&mut self, mut msg: Message) -> Result<(), SessionError> {
+        debug!("received ping message, reply");
+        // just need to reply to the ping
+        let header = msg.get_slim_header_mut();
+        let src = header.get_source();
+        header.set_source(&self.common.settings.source);
+        header.set_destination(&src);
+        self.common.send_to_slim(msg).await
     }
 
     async fn join(&mut self, msg: &Message) -> Result<(), SessionError> {

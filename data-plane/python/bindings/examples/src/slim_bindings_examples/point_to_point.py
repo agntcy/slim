@@ -114,6 +114,7 @@ async def run_client(
         session, handle = await local_app.create_session(remote_name, config)
         await handle
 
+        session_closed = False
         # Iterate send->receive cycles.
         for i in range(iterations):
             try:
@@ -131,11 +132,16 @@ async def run_client(
             except Exception as e:
                 # Surface an error but continue attempts (simple resilience).
                 format_message_print(f"{instance}", f"error: {e}")
+                # if the session is closed exit
+                if "session closed" in str(e):
+                    session_closed = True
+                    break
             # Basic pacing so output remains readable.
             await asyncio.sleep(1)
 
-        handle = await local_app.delete_session(session)
-        await handle
+        if not session_closed:
+            handle = await local_app.delete_session(session)
+            await handle
 
     # PASSIVE MODE (listen for inbound sessions)
     else:

@@ -129,7 +129,7 @@ pub struct ApplicationPayload {
 pub struct CommandPayload {
     #[prost(
         oneof = "command_payload::CommandPayloadType",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13"
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14"
     )]
     pub command_payload_type: ::core::option::Option<
         command_payload::CommandPayloadType,
@@ -165,6 +165,8 @@ pub mod command_payload {
         GroupAck(super::GroupAckPayload),
         #[prost(message, tag = "13")]
         GroupNack(super::GroupNackPayload),
+        #[prost(message, tag = "14")]
+        Ping(super::PingPayload),
     }
 }
 /// Discovery Request
@@ -295,6 +297,9 @@ pub struct GroupAckPayload {}
 /// Group Nack
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct GroupNackPayload {}
+/// Ping
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct PingPayload {}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum SessionType {
@@ -345,6 +350,7 @@ pub enum SessionMessageType {
     GroupProposal = 15,
     GroupAck = 16,
     GroupNack = 17,
+    Ping = 18,
 }
 impl SessionMessageType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -371,6 +377,7 @@ impl SessionMessageType {
             Self::GroupProposal => "SESSION_MESSAGE_TYPE_GROUP_PROPOSAL",
             Self::GroupAck => "SESSION_MESSAGE_TYPE_GROUP_ACK",
             Self::GroupNack => "SESSION_MESSAGE_TYPE_GROUP_NACK",
+            Self::Ping => "SESSION_MESSAGE_TYPE_PING",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -394,6 +401,7 @@ impl SessionMessageType {
             "SESSION_MESSAGE_TYPE_GROUP_PROPOSAL" => Some(Self::GroupProposal),
             "SESSION_MESSAGE_TYPE_GROUP_ACK" => Some(Self::GroupAck),
             "SESSION_MESSAGE_TYPE_GROUP_NACK" => Some(Self::GroupNack),
+            "SESSION_MESSAGE_TYPE_PING" => Some(Self::Ping),
             _ => None,
         }
     }
