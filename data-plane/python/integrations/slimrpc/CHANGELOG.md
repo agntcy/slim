@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/agntcy/slim/compare/slimrpc-v0.2.0...slimrpc-v0.2.1) (2025-12-02)
+
+
+### Bug Fixes
+
+* **slimrpc:** update slim-bindings dependency to ~=0.7.1 ([#1020](https://github.com/agntcy/slim/issues/1020)) ([113d6fd](https://github.com/agntcy/slim/commit/113d6fdbc4e86ed1d953136934ab8f08a156a02e))
+
 ## [0.2.0](https://github.com/agntcy/slim/compare/slimrpc-v0.1.0...slimrpc-v0.2.0) (2025-12-02)
 
 
