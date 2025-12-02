@@ -809,22 +809,65 @@ where
         mut msg: Message,
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
     ) -> Result<(), SessionError> {
-        debug!("disconnection detected for participant {}", msg.get_dst());
+        // if the disconnection was detected (no metadata in the message) the leave message is
+        // sent toward the participant that was disconnected. Otherwise the leave message is sent
+        // from the participant that wants to disconnect
+        let disconnected = if msg.contains_metadata(LEAVING_SESSION) {
+            msg.get_source()
+        } else {
+            msg.get_dst()
+        };
+
+        let mut disconnected_no_id = disconnected.clone();
+        disconnected_no_id.reset_id();
+
+        // check that the participant is actually part of the group
+        if !self.group_list.contains_key(&disconnected_no_id) {
+            tracing::info!("deceted disconnection of participant {} that is not part of the group, ignore the message", disconnected);
+            return Ok(())
+        }
+
+        tracing::info!("disconnection detected for participant {}", disconnected);
 
         // Send error notification to the application
         let error = SessionError::ParticipantDisconnected(format!(
             "Participant {} disconnected unexpectedly",
-            msg.get_dst()
+            disconnected
         ));
         self.common.send_to_app(error).await?;
+
+        // if the disconnection was detected nothing to do here,
+        // otherwise we neeed to reply, change the metadata and swap
+        // source and destination so that we can process the message
+        // as if the disconnection was detected locally
+        if msg.contains_metadata(LEAVING_SESSION) {
+            // send a reply to the sorce of the message
+            // sync this is leave request message the send is expecting
+            // a leave reply message
+            let reply = self.common.create_control_message(
+                &disconnected,
+                ProtoSessionMessageType::LeaveReply,
+                msg.get_id(),
+                CommandPayload::builder().leave_reply().as_content(),
+                false,
+            )?;
+            self.common.send_to_slim(reply).await?;
+
+            msg.remove_metadata(LEAVING_SESSION);
+            msg.insert_metadata(DISCONNECTION_DETECTED.to_string(), TRUE_VAL.to_string());
+            let header = msg.get_slim_header_mut();
+            header.set_destination(&disconnected);
+            header.set_source(&self.common.settings.source);
+            tracing::info!("create the new leave message {:?}", msg);
+        }
 
         // if the session if P2P or no one is left on the session close it
         // if self.group_list.len() == 2 only the moderator and the participant
         // to remove are still in the list
         if self.common.settings.config.session_type == ProtoSessionType::PointToPoint
-            || self.group_list.len() == 2
+            || self.group_list.len() == 2 
         {
-            debug!("this is a p2p session or no one is left is connected, close it");
+            tracing::info!("this is a p2p session or no one is left is connected, close it");
             // if the remote endpoint got disconnected on a P2P session
             // simply notify the app and close the session
             // set the processing state to draining
@@ -850,31 +893,6 @@ where
             return Ok(());
         }
 
-        // if the disconnection was detected nothing to do here,
-        // otherwise we neeed to reply, change the metadata and swap
-        // source and destination so that we can process the message
-        // as if the disconnection was detected locally
-        if msg.contains_metadata(LEAVING_SESSION) {
-            let dst = msg.get_dst();
-            // send a reply to the sorce of the message
-            // sync this is leave request message the send is expecting
-            // a leave reply message
-            let reply = self.common.create_control_message(
-                &dst,
-                ProtoSessionMessageType::LeaveReply,
-                msg.get_id(),
-                CommandPayload::builder().leave_reply().as_content(),
-                false,
-            )?;
-            self.common.send_to_slim(reply).await?;
-
-            msg.remove_metadata(LEAVING_SESSION);
-            msg.insert_metadata(DISCONNECTION_DETECTED.to_string(), TRUE_VAL.to_string());
-            let header = msg.get_slim_header_mut();
-            header.set_destination(&dst);
-            header.set_source(&self.common.settings.source);
-        }
-
         if self.current_task.is_some() {
             // if busy postpone the task and add it to the todo list with its ack_tx
             debug!(
@@ -890,10 +908,6 @@ where
         self.current_task = Some(ModeratorTask::CloseOrDisconnect(NotifyParticipants::new(
             ack_tx,
         )));
-
-        let disconnected = msg.get_dst();
-        let mut disconnected_no_id = disconnected.clone();
-        disconnected_no_id.reset_id();
 
         // remove the participant from the group list and notify the the local session
         debug!(

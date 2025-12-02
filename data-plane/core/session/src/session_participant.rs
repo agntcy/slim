@@ -177,6 +177,7 @@ where
                         p,
                         false,
                     )?;
+                    tracing::info!("start drain, notify the moderator");
                     msg.insert_metadata(LEAVING_SESSION.to_string(), TRUE_VAL.to_string());
 
                     self.common.sender.on_message(&msg).await?;
@@ -244,13 +245,21 @@ where
                 self.on_leave_request(message).await
             }
             ProtoSessionMessageType::Ping => self.on_ping(message).await,
+            ProtoSessionMessageType::LeaveReply => {
+                // this message is received when the moderator ack the 
+                // reception of the leave request sent on Drain start
+                // if the participant in not on drain state drop the message
+                if self.common.processing_state == ProcessingState::Draining {
+                    self.common.sender.on_message(&message).await?;
+                }
+                Ok(())
+            }
             ProtoSessionMessageType::GroupProposal
             | ProtoSessionMessageType::GroupAck
             | ProtoSessionMessageType::GroupNack => todo!(),
             ProtoSessionMessageType::DiscoveryRequest
             | ProtoSessionMessageType::DiscoveryReply
-            | ProtoSessionMessageType::JoinReply
-            | ProtoSessionMessageType::LeaveReply => {
+            | ProtoSessionMessageType::JoinReply => {
                 debug!(
                     "Unexpected control message type {:?}",
                     message.get_session_message_type()
@@ -403,7 +412,7 @@ where
                 let name = Name::from(removed_participant);
                 self.group_list.remove(&name);
 
-                debug!("remove endpoint from the session {}", msg.get_source());
+                tracing::info!("remove endpoint from the session {}", msg.get_source());
                 self.inner.remove_endpoint(&name);
             }
         }
