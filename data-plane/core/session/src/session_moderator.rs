@@ -321,6 +321,97 @@ where
         error
     }
 
+    /// Helper method to prepare for shutdown by cleaning up state
+    /// Sets processing state to draining, removes MLS state, clears tasks and timers,
+    /// and signals drain to inner layer and sender
+    async fn prepare_shutdown(&mut self) -> Result<(), SessionError> {
+        debug!("Preparing for shutdown: cleaning up state");
+        // set the processing state to draining
+        self.common.processing_state = ProcessingState::Draining;
+        // remove mls state
+        self.mls_state = None;
+        // clear all pending tasks
+        self.tasks_todo.clear();
+        // clear all pending timers
+        self.common.sender.clear_timers();
+        // signal start drain everywhere
+        self.inner
+            .on_message(SessionMessage::StartDrain {
+                grace_period: Duration::from_secs(60), // not used in session
+            })
+            .await?;
+        self.common.sender.start_drain();
+        Ok(())
+    }
+
+    /// Helper method to remove a participant from the group list and compute MLS payload
+    /// Returns the list of remaining participants and the MLS payload if MLS is enabled
+    async fn remove_participant_and_compute_mls(
+        &mut self,
+        participant: &Name,
+        msg: &Message,
+    ) -> Result<(Vec<Name>, Option<MlsPayload>), SessionError> {
+        // Remove participant from group list
+        let mut participant_no_id = participant.clone();
+        participant_no_id.reset_id();
+        self.group_list.remove(&participant_no_id);
+
+        // Remove endpoint from local session
+        self.remove_endpoint(participant);
+
+        // Build participants list with remaining members
+        let participants_vec: Vec<Name> = self
+            .group_list
+            .iter()
+            .map(|(n, id)| n.clone().with_id(*id))
+            .collect();
+
+        // Compute MLS payload if needed
+        let mls_payload = match self.mls_state.as_mut() {
+            Some(state) => {
+                let mls_content = state
+                    .remove_participant(msg)
+                    .await
+                    .map_err(|e| self.handle_task_error(e))?;
+                let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
+                Some(MlsPayload {
+                    commit_id,
+                    mls_content,
+                })
+            }
+            None => None,
+        };
+
+        Ok((participants_vec, mls_payload))
+    }
+
+    /// Helper method to send a GroupRemove message to notify participants
+    /// Returns the message ID of the sent GroupRemove message
+    async fn send_group_remove(
+        &mut self,
+        removed_participant: Name,
+        participants: Vec<Name>,
+        mls_payload: Option<MlsPayload>,
+    ) -> Result<u32, SessionError> {
+        let update_payload = CommandPayload::builder()
+            .group_remove(removed_participant, participants, mls_payload)
+            .as_content();
+        let msg_id = rand::random::<u32>();
+
+        self.common
+            .send_control_message(
+                &self.common.settings.destination.clone(),
+                ProtoSessionMessageType::GroupRemove,
+                msg_id,
+                update_payload,
+                None,
+                true,
+            )
+            .await?;
+
+        Ok(msg_id)
+    }
+
     async fn process_control_message(
         &mut self,
         message: Message,
@@ -728,55 +819,20 @@ where
 
         let leave_message = msg;
 
-        // remove the participant from the group list and notify the the local session
+        // Remove the participant from the group list and compute MLS payload
         debug!(
             "remove endpoint from the session {}",
             leave_message.get_dst()
         );
 
-        self.group_list.remove(&dst_without_id);
-        self.remove_endpoint(&leave_message.get_dst());
-
-        // Before send the leave request we may need to send the Group update
-        // with the new participant list and the new mls payload if needed
-        // Create participants list for commit message
-        let mut participants_vec = vec![];
-        for (n, id) in &self.group_list {
-            let name = n.clone().with_id(*id);
-            participants_vec.push(name);
-        }
+        let (participants_vec, mls_payload) = self
+            .remove_participant_and_compute_mls(&leave_message.get_dst(), &leave_message)
+            .await?;
 
         if participants_vec.len() > 2 {
             // in this case we need to send first the group update and later the leave message
-            let mls_payload = match self.mls_state.as_mut() {
-                Some(state) => {
-                    let mls_content = state
-                        .remove_participant(&leave_message)
-                        .await
-                        .map_err(|e| self.handle_task_error(e))?;
-                    let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
-                    Some(MlsPayload {
-                        commit_id,
-                        mls_content,
-                    })
-                }
-                None => None,
-            };
-
-            let update_payload = CommandPayload::builder()
-                .group_remove(leave_message.get_dst(), participants_vec, mls_payload)
-                .as_content();
-            let msg_id = rand::random::<u32>();
-
-            self.common
-                .send_control_message(
-                    &self.common.settings.destination.clone(),
-                    ProtoSessionMessageType::GroupRemove,
-                    msg_id,
-                    update_payload,
-                    None,
-                    true,
-                )
+            let msg_id = self
+                .send_group_remove(leave_message.get_dst(), participants_vec, mls_payload)
                 .await?;
             self.current_task.as_mut().unwrap().commit_start(msg_id)?;
 
@@ -828,23 +884,9 @@ where
             debug!("this is a p2p session or no one is left is connected, close it");
             // if the remote endpoint got disconnected on a P2P session
             // simply notify the app and close the session
-            // set the processing state to draining
-            self.common.processing_state = ProcessingState::Draining;
-            // remove mls state
-            self.mls_state = None;
-            // clear all pending tasks
-            self.tasks_todo.clear();
-            // clear all pending timers
-            self.common.sender.clear_timers();
+            self.prepare_shutdown().await?;
             // remove the last endpoint
             self.remove_endpoint(&msg.get_dst());
-            // signal start drain everywhere
-            self.inner
-                .on_message(SessionMessage::StartDrain {
-                    grace_period: Duration::from_secs(60), // not used in session
-                })
-                .await?;
-            self.common.sender.start_drain();
 
             // the control will exit and call the shutdown
             // no need to do it here
@@ -868,56 +910,20 @@ where
         )));
 
         let disconnected = msg.get_dst();
-        let mut disconnected_no_id = disconnected.clone();
-        disconnected_no_id.reset_id();
 
-        // remove the participant from the group list and notify the the local session
+        // Remove the participant from the group list and compute MLS payload
         debug!(
             "remove disconnected endpoint {} from the session",
             disconnected
         );
 
-        self.group_list.remove(&disconnected_no_id);
-        self.remove_endpoint(&disconnected);
+        let (participants_vec, mls_payload) = self
+            .remove_participant_and_compute_mls(&disconnected, &msg)
+            .await?;
 
-        // create the group update message and update the MLS state
-        let mut participants_vec = vec![];
-        for (n, id) in &self.group_list {
-            let name = n.clone().with_id(*id);
-            participants_vec.push(name);
-        }
-
-        // this compute the MLS payload is needed but also updates the local state
-        let mls_payload = match self.mls_state.as_mut() {
-            Some(state) => {
-                let mls_content = state
-                    .remove_participant(&msg)
-                    .await
-                    .map_err(|e| self.handle_task_error(e))?;
-                let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
-                Some(MlsPayload {
-                    commit_id,
-                    mls_content,
-                })
-            }
-            None => None,
-        };
-
-        // notify all the participants left and update the MLS state if needed
-        let update_payload = CommandPayload::builder()
-            .group_remove(disconnected, participants_vec, mls_payload)
-            .as_content();
-        let msg_id = rand::random::<u32>();
-
-        self.common
-            .send_control_message(
-                &self.common.settings.destination.clone(),
-                ProtoSessionMessageType::GroupRemove,
-                msg_id,
-                update_payload,
-                None,
-                true,
-            )
+        // Notify all the participants left and update the MLS state if needed
+        let msg_id = self
+            .send_group_remove(disconnected, participants_vec, mls_payload)
             .await?;
         self.current_task.as_mut().unwrap().commit_start(msg_id)
     }
@@ -928,21 +934,7 @@ where
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
     ) -> Result<(), SessionError> {
         debug!("receive a close channel message, send signals to all participants");
-        // set the processing state to draining
-        self.common.processing_state = ProcessingState::Draining;
-        // remove mls state
-        self.mls_state = None;
-        // clear all pending tasks
-        self.tasks_todo.clear();
-        // clear all pending timers
-        self.common.sender.clear_timers();
-        // signal start drain everywhere
-        self.inner
-            .on_message(SessionMessage::StartDrain {
-                grace_period: Duration::from_secs(60), // not used in session
-            })
-            .await?;
-        self.common.sender.start_drain();
+        self.prepare_shutdown().await?;
 
         // Collect the participants and create the close message
         let participants: Vec<_> = self

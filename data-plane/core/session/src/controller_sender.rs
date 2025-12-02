@@ -408,13 +408,15 @@ impl ControllerSender {
             // completely reset the ping if needed
             self.ping_state.as_mut().map(|s| s.ping.take());
 
-            if self.group_list.len() > 1 && self.group_name.is_some() {
+            if self.group_list.len() > 1
+                && let Some(group_name) = &self.group_name
+            {
                 // someone is connected to the channel, send the ping
                 // create the message
                 let ping_id = rand::random::<u32>();
                 let mut builder = Message::builder()
                     .source(self.local_name.clone())
-                    .destination(self.group_name.clone().unwrap())
+                    .destination(group_name.clone())
                     .identity("")
                     .session_type(self.session_type)
                     .session_message_type(ProtoSessionMessageType::Ping)
