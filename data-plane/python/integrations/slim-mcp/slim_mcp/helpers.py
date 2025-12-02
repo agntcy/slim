@@ -18,14 +18,14 @@ logger = logging.getLogger(__name__)
 # This is used for shared secret authentication
 def shared_secret_identity(
     identity: str, secret: str
-) -> Tuple[slim_bindings.PyIdentityProvider, slim_bindings.PyIdentityVerifier]:
+) -> Tuple[slim_bindings.IdentityProvider, slim_bindings.IdentityVerifier]:
     """
     Create a provider and verifier using a shared secret.
     """
-    provider = slim_bindings.PyIdentityProvider.SharedSecret(
+    provider = slim_bindings.IdentityProvider.SharedSecret(
         identity=identity, shared_secret=secret
     )
-    verifier = slim_bindings.PyIdentityVerifier.SharedSecret(
+    verifier = slim_bindings.IdentityVerifier.SharedSecret(
         identity=identity, shared_secret=secret
     )
 
@@ -42,7 +42,7 @@ def jwt_identity(
     iss: str | None = None,
     sub: str | None = None,
     aud: list | None = None,
-) -> Tuple[slim_bindings.PyIdentityProvider, slim_bindings.PyIdentityVerifier]:
+) -> Tuple[slim_bindings.IdentityProvider, slim_bindings.IdentityVerifier]:
     """
     Parse the JWK and JWT from the provided strings.
     """
@@ -60,17 +60,17 @@ def jwt_identity(
         spire_jwks = base64.b64decode(v)
         break
 
-    provider = slim_bindings.PyIdentityProvider.StaticJwt(
+    provider = slim_bindings.IdentityProvider.StaticJwt(
         path=jwt_path,
     )
 
-    pykey = slim_bindings.PyKey(
-        algorithm=slim_bindings.PyAlgorithm.RS256,
-        format=slim_bindings.PyKeyFormat.Jwks,
-        key=slim_bindings.PyKeyData.Content(content=spire_jwks.decode("utf-8")),
+    pykey = slim_bindings.Key(
+        algorithm=slim_bindings.Algorithm.RS256,
+        format=slim_bindings.KeyFormat.Jwks,
+        key=slim_bindings.KeyData.Content(content=spire_jwks.decode("utf-8")),
     )
 
-    verifier = slim_bindings.PyIdentityVerifier.Jwt(
+    verifier = slim_bindings.IdentityVerifier.Jwt(
         public_key=pykey,
         issuer=iss,
         audience=aud,
@@ -81,8 +81,8 @@ def jwt_identity(
 
 
 async def create_local_app(
-    local_name: slim_bindings.PyName,
-    slim: dict,
+    local_name: slim_bindings.Name,
+    slim_client_configs: list[dict],
     enable_opentelemetry: bool = False,
     shared_secret: str = "",
 ) -> slim_bindings.Slim:
@@ -104,13 +104,20 @@ async def create_local_app(
         secret=shared_secret,
     )
 
-    local_app = await slim_bindings.Slim.new(local_name, provider, verifier)
+    local_app = slim_bindings.Slim(local_name, provider, verifier)
 
-    logger.info(f"{local_app.get_id()} Created app")
+    logger.info(f"{local_app.id_str} Created app")
 
     # Connect to slim server
-    _ = await local_app.connect(slim)
+    for config in slim_client_configs:
+        logger.info(f"config: {config}")
+        try:
+            _ = await local_app.connect(config)
+        except Exception as e:
+            # Ignore "client already connected" errors
+            if "client already connected" not in str(e):
+                raise
 
-    logger.info(f"{local_app.get_id()} Connected to {slim['endpoint']}")
+        logger.info(f"{local_app.id_str} Connected to {config['endpoint']}")
 
     return local_app

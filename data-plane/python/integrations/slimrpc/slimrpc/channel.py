@@ -32,96 +32,56 @@ from slimrpc.rpc import SRPCResponseError
 logger = logging.getLogger(__name__)
 
 
-class ChannelFactory:
-    def __init__(
-        self,
-        slim_app_config: SLIMAppConfig | None = None,
-        local_app: slim_bindings.Slim | None = None,
-    ) -> None:
-        if slim_app_config is None and local_app is None:
-            raise ValueError("Either slim_app_config or local_app must be provided")
-        if slim_app_config is not None and local_app is not None:
-            raise ValueError("Only one of slim_app_config or local_app can be provided")
-        self._slim_app_config = slim_app_config
-        self._local_app_lock = asyncio.Lock()
-        self._local_app: slim_bindings.Slim | None = local_app
-
-    async def get_local_app(self) -> slim_bindings.Slim:
-        """
-        Get or create the local SLIM instance
-        """
-        async with self._local_app_lock:
-            if self._local_app is None:
-                # Create local SLIM instance
-                assert self._slim_app_config is not None, (
-                    "slim_app_config must be provided to create a local app"
-                )
-                self._local_app = await create_local_app(self._slim_app_config)
-                # Start receiving messages
-                await self._local_app.__aenter__()
-            return self._local_app
-
-    async def close(self) -> None:
-        """
-        Close the channel factory
-        """
-        async with self._local_app_lock:
-            if self._local_app is not None:
-                if self._slim_app_config is None:
-                    logger.debug("not closing local app as it was provided externally")
-                    return
-                await self._local_app.__aexit__(None, None, None)
-            self._local_app = None
-
-    def new_channel(self, remote: str) -> "Channel":
-        return Channel(remote=remote, channel_factory=self)
-
-
 class Channel:
     def __init__(
         self,
         remote: str,
-        channel_factory: ChannelFactory,
+        local_app: slim_bindings.Slim,
     ) -> None:
         self.remote = split_id(remote)
-        self.channel_factory = channel_factory
+        self.local_app = local_app
 
-    async def close(self) -> None:
-        """
-        Close the channel.
-        """
-        return None
+    @classmethod
+    async def from_slim_app_config(
+        cls, remote: str, slim_app_config: SLIMAppConfig
+    ) -> "Channel":
+        local_app = await create_local_app(slim_app_config)
+        return cls(remote=remote, local_app=local_app)
 
     async def _common_setup(
         self, method: str, metadata: dict[str, str] | None = None
-    ) -> tuple[slim_bindings.PyName, slim_bindings.PySessionInfo, dict[str, str]]:
+    ) -> tuple[slim_bindings.Name, slim_bindings.Session, dict[str, str]]:
         service_name = service_and_method_to_pyname(self.remote, method)
 
-        local_app = await self.channel_factory.get_local_app()
-        await local_app.set_route(
+        await self.local_app.set_route(
             service_name,
         )
 
-        # Create a session
-        session = await local_app.create_session(
-            slim_bindings.PySessionConfiguration.FireAndForget(
+        logger.info(f"creating session for service {service_name}")
+
+        # Create a session using PointToPoint configuration
+        session, ack = await self.local_app.create_session(
+            destination=service_name,
+            session_config=slim_bindings.SessionConfiguration.PointToPoint(
                 max_retries=10,
                 timeout=datetime.timedelta(seconds=1),
-                sticky=True,
-            )
+            ),
         )
+        await ack
 
         return service_name, session, metadata or {}
 
-    async def _delete_session(self, session: slim_bindings.PySessionInfo) -> None:
-        local_app = await self.channel_factory.get_local_app()
-        await local_app.delete_session(session.id)
+    async def _delete_session(self, session: slim_bindings.Session) -> None:
+        try:
+            await self.local_app.delete_session(session)
+        except Exception as e:
+            logger.warn(f"Error deleting session: {e}")
 
     async def _send_unary(
         self,
         request: RequestType,
-        session: slim_bindings.PySessionInfo,
-        service_name: slim_bindings.PyName,
+        session: slim_bindings.Session,
+        service_name: slim_bindings.Name,
         metadata: dict[str, str],
         request_serializer: Callable,
         deadline: float,
@@ -131,72 +91,63 @@ class Channel:
 
         # Send the request
         request_bytes = request_serializer(request)
-        local_app = await self.channel_factory.get_local_app()
-        await local_app.publish(
-            session,
+        ack = await session.publish(
             request_bytes,
-            dest=service_name,
             metadata=metadata,
         )
+        await ack
 
     async def _send_stream(
         self,
         request_stream: AsyncIterable,
-        session: slim_bindings.PySessionInfo,
-        service_name: slim_bindings.PyName,
+        session: slim_bindings.Session,
+        service_name: slim_bindings.Name,
         metadata: dict[str, str],
         request_serializer: Callable,
         deadline: float,
     ) -> None:
-        # Send the request
-        local_app = await self.channel_factory.get_local_app()
-
         # Add deadline to metadata
         metadata[DEADLINE_KEY] = str(deadline)
 
         # Send requests
         async for request in request_stream:
             request_bytes = request_serializer(request)
-            await local_app.publish(
-                session,
+            ack = await session.publish(
                 request_bytes,
-                dest=service_name,
                 metadata=metadata,
             )
+            await ack
 
-        # Send enf of streaming message
-        await local_app.publish(
-            session,
+        # Send end of streaming message
+        ack = await session.publish(
             b"",
-            dest=service_name,
             metadata={**metadata, "code": str(code_pb2.OK)},
         )
+        await ack
 
     async def _receive_unary(
         self,
-        session: slim_bindings.PySessionInfo,
+        session: slim_bindings.Session,
         response_deserializer: Callable,
         deadline: float,
-    ) -> tuple[slim_bindings.PySessionInfo, Any]:
+    ) -> tuple[slim_bindings.MessageContext, Any]:
         # Wait for the response
-        local_app = await self.channel_factory.get_local_app()
+        async with asyncio_timeout_at(
+            _compute_loop_deadline_from_real_deadline(deadline)
+        ):
+            msg_ctx, response_bytes = await session.get_message()
 
-        async with asyncio_timeout_at(deadline):
-            session_recv, response_bytes = await local_app.receive(
-                session=session.id,
-            )
-
-            code = session_recv.metadata.get("code")
+            code = msg_ctx.metadata.get("code")
             if code != str(code_pb2.OK):
                 status = status_pb2.Status.FromString(response_bytes)
                 raise SRPCResponseError(status.code, status.message, status.details)
 
             response = response_deserializer(response_bytes)
-            return session_recv, response
+            return msg_ctx, response
 
     async def _receive_stream(
         self,
-        session: slim_bindings.PySessionInfo,
+        session: slim_bindings.Session,
         response_deserializer: Callable,
         deadline: float,
     ) -> AsyncIterable:
@@ -204,12 +155,9 @@ class Channel:
         async def generator() -> AsyncIterable:
             try:
                 while True:
-                    local_app = await self.channel_factory.get_local_app()
-                    session_recv, response_bytes = await local_app.receive(
-                        session=session.id,
-                    )
+                    msg_ctx, response_bytes = await session.get_message()
 
-                    code = session_recv.metadata.get("code")
+                    code = msg_ctx.metadata.get("code")
                     if code != str(code_pb2.OK):
                         status = status_pb2.Status.FromString(response_bytes)
                         raise SRPCResponseError(
@@ -228,7 +176,9 @@ class Channel:
                 logger.error(f"error receiving messages: {e}")
                 raise
 
-        async with asyncio_timeout_at(deadline):
+        async with asyncio_timeout_at(
+            _compute_loop_deadline_from_real_deadline(deadline)
+        ):
             async for response in generator():
                 yield response
 
@@ -248,6 +198,8 @@ class Channel:
                     method, metadata
                 )
 
+                deadline = _compute_real_deadline(timeout)
+
                 # Send the requests
                 await self._send_stream(
                     request_stream,
@@ -255,12 +207,14 @@ class Channel:
                     service_name,
                     metadata,
                     request_serializer,
-                    _compute_deadline(timeout),
+                    deadline,
                 )
 
                 # Wait for the responses
                 async for response in self._receive_stream(
-                    session, response_deserializer, _compute_deadline(timeout)
+                    session,
+                    response_deserializer,
+                    deadline,
                 ):
                     yield response
             finally:
@@ -284,6 +238,8 @@ class Channel:
                     method, metadata
                 )
 
+                deadline = _compute_real_deadline(timeout)
+
                 # Send the requests
                 await self._send_stream(
                     request_stream,
@@ -291,12 +247,14 @@ class Channel:
                     service_name,
                     metadata,
                     request_serializer,
-                    _compute_deadline(timeout),
+                    deadline,
                 )
 
                 # Wait for response
                 _, ret = await self._receive_unary(
-                    session, response_deserializer, _compute_deadline(timeout)
+                    session,
+                    response_deserializer,
+                    deadline,
                 )
 
                 return ret
@@ -321,6 +279,8 @@ class Channel:
                     method, metadata
                 )
 
+                deadline = _compute_real_deadline(timeout)
+
                 # Send the request
                 await self._send_unary(
                     request,
@@ -328,12 +288,14 @@ class Channel:
                     service_name,
                     metadata,
                     request_serializer,
-                    _compute_deadline(timeout),
+                    deadline,
                 )
 
                 # Wait for the responses
                 async for response in self._receive_stream(
-                    session, response_deserializer, _compute_deadline(timeout)
+                    session,
+                    response_deserializer,
+                    deadline,
                 ):
                     yield response
             finally:
@@ -357,6 +319,8 @@ class Channel:
                     method, metadata
                 )
 
+                deadline = _compute_real_deadline(timeout)
+
                 # Send request
                 await self._send_unary(
                     request,
@@ -364,12 +328,14 @@ class Channel:
                     service_name,
                     metadata,
                     request_serializer,
-                    _compute_deadline(timeout),
+                    deadline,
                 )
 
                 # Wait for the response
                 _, ret = await self._receive_unary(
-                    session, response_deserializer, _compute_deadline(timeout)
+                    session,
+                    response_deserializer,
+                    deadline,
                 )
 
                 return ret
@@ -379,5 +345,9 @@ class Channel:
         return call_unary_unary
 
 
-def _compute_deadline(timeout: int) -> float:
+def _compute_real_deadline(timeout: int) -> float:
     return time.time() + float(timeout)
+
+
+def _compute_loop_deadline_from_real_deadline(real_deadline: float) -> float:
+    return asyncio.get_running_loop().time() + (real_deadline - time.time())

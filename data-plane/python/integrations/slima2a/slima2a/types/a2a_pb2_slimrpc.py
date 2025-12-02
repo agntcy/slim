@@ -73,52 +73,52 @@ class A2AServiceStub:
 class A2AServiceServicer():
     """Server servicer for A2AService. Implement this class to provide your service logic."""
 
-    def SendMessage(self, request, context):
+    def SendMessage(self, request, msg_context, session_context):
         """Method for SendMessage. Implement your service logic here."""
         raise slimrpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
-    def SendStreamingMessage(self, request, context):
+    def SendStreamingMessage(self, request, msg_context, session_context):
         """Method for SendStreamingMessage. Implement your service logic here."""
         raise slimrpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
-    def GetTask(self, request, context):
+    def GetTask(self, request, msg_context, session_context):
         """Method for GetTask. Implement your service logic here."""
         raise slimrpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
-    def CancelTask(self, request, context):
+    def CancelTask(self, request, msg_context, session_context):
         """Method for CancelTask. Implement your service logic here."""
         raise slimrpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
-    def TaskSubscription(self, request, context):
+    def TaskSubscription(self, request, msg_context, session_context):
         """Method for TaskSubscription. Implement your service logic here."""
         raise slimrpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
-    def CreateTaskPushNotificationConfig(self, request, context):
+    def CreateTaskPushNotificationConfig(self, request, msg_context, session_context):
         """Method for CreateTaskPushNotificationConfig. Implement your service logic here."""
         raise slimrpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
-    def GetTaskPushNotificationConfig(self, request, context):
+    def GetTaskPushNotificationConfig(self, request, msg_context, session_context):
         """Method for GetTaskPushNotificationConfig. Implement your service logic here."""
         raise slimrpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
-    def ListTaskPushNotificationConfig(self, request, context):
+    def ListTaskPushNotificationConfig(self, request, msg_context, session_context):
         """Method for ListTaskPushNotificationConfig. Implement your service logic here."""
         raise slimrpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
-    def GetAgentCard(self, request, context):
+    def GetAgentCard(self, request, msg_context, session_context):
         """Method for GetAgentCard. Implement your service logic here."""
         raise slimrpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"
         )
-    def DeleteTaskPushNotificationConfig(self, request, context):
+    def DeleteTaskPushNotificationConfig(self, request, msg_context, session_context):
         """Method for DeleteTaskPushNotificationConfig. Implement your service logic here."""
         raise slimrpc_rpc.SRPCResponseError(
             code=code__pb2.UNIMPLEMENTED, message="Method not implemented!"

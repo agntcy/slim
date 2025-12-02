@@ -314,7 +314,7 @@ class TimeServerApp:
             except Exception as e:
                 raise ValueError(f"Error processing mcp-server-time query: {str(e)}")
 
-    async def handle_session(self, session, slim_server, tasks):
+    async def handle_session(self, slim_server, session):
         """
         Handle a single session with proper error handling and logging.
 
@@ -323,26 +323,12 @@ class TimeServerApp:
             slim_server: The SLIM server instance
             tasks: Set of active tasks
         """
-        try:
-            async with slim_server.new_streams(session) as streams:
-                logger.info(
-                    f"new session started - session_id: {session.id}, active_sessions: {len(tasks)}"
-                )
-                await self.app.run(
-                    streams[0],
-                    streams[1],
-                    self.app.create_initialization_options(),
-                )
-                logger.info(
-                    f"session {session.id} ended - active_sessions: {len(tasks)}"
-                )
-        except Exception:
-            logger.error(
-                f"Error handling session {session.id}",
-                extra={"session_id": session.id},
-                exc_info=True,
+        async with slim_server.new_streams(session) as streams:
+            await self.app.run(
+                streams[0],
+                streams[1],
+                self.app.create_initialization_options(),
             )
-            raise
 
 
 async def cleanup_tasks(tasks):
@@ -385,19 +371,36 @@ async def serve_slim(
     time_app = TimeServerApp(local_timezone)
     tasks: set[asyncio.Task] = set()
 
-    async with SLIMServer(config, organization, namespace, mcp_server) as slim_server:
+    async with SLIMServer([config], organization, namespace, mcp_server) as slim_server:
         try:
             async for new_session in slim_server:
+                # Copy session ID from session as it not available after the session closes.
+                session_id = new_session.id
+                logger.info(
+                    f"new session started - session_id: {session_id}, active_sessions: {len(tasks) + 1}"
+                )
                 task = asyncio.create_task(
-                    time_app.handle_session(new_session, slim_server, tasks)
+                    time_app.handle_session(slim_server, new_session)
                 )
                 tasks.add(task)
-        except Exception:
-            logger.error("Error in session handler", exc_info=True)
-            raise
+
+                def on_session_end(task: asyncio.Task):
+                    try:
+                        task.exception()  # Check for exceptions
+                    except Exception as e:
+                        logger.error(
+                            f"Error handling session {session_id}: {str(e)}",
+                            extra={"session_id": session_id},
+                            exc_info=True,
+                        )
+                    tasks.discard(task)
+                    logger.info(
+                        f"session ended - {session_id}, active_sessions: {len(tasks)}"
+                    )
+
+                task.add_done_callback(on_session_end)
         finally:
             await cleanup_tasks(tasks)
-            logger.info("Server stopped")
 
 
 def serve_sse(
