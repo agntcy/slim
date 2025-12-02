@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.1.1](https://github.com/agntcy/slim/compare/slimrpc-v0.1.0...slimrpc-v0.1.1) (2025-12-02)
+## [0.2.0](https://github.com/agntcy/slim/compare/slimrpc-v0.1.0...slimrpc-v0.2.0) (2025-12-02)
 
 
 ### Features
