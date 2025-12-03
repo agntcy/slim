@@ -77,6 +77,20 @@ func (mc *MessageCollector) WaitForCount(ctx context.Context, expected int, time
 	return mc.Count() >= expected
 }
 
+// WaitForMessages waits until the expected number of messages have been collected
+// and returns a snapshot of all messages. It fails the test if the timeout is reached.
+func (mc *MessageCollector) WaitForMessages(t *testing.T, expected int, timeout time.Duration) []ReceivedMessage {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	if !mc.WaitForCount(ctx, expected, timeout) {
+		t.Fatalf("expected at least %d messages, got %d within %v", expected, mc.Count(), timeout)
+	}
+	return mc.GetAll()
+}
+
 // SetupTestHarness creates a sender and receiver app that can communicate
 func SetupTestHarness(t *testing.T, testName string) (*TestHarness, *MessageCollector) {
 	t.Helper()
@@ -288,6 +302,35 @@ func (h *TestHarness) SendMessageWithCompletion(session *slim.FfiSessionContext,
 
 	h.t.Logf("[Sender] Message delivered successfully")
 	return nil
+}
+
+// MustCreateSession creates a session and fails the test on error.
+func (h *TestHarness) MustCreateSession() *slim.FfiSessionContext {
+	h.t.Helper()
+
+	session, err := h.CreateSession()
+	if err != nil {
+		h.t.Fatalf("Failed to create session: %v", err)
+	}
+	return session
+}
+
+// MustSendMessage sends a message and fails the test on error.
+func (h *TestHarness) MustSendMessage(session *slim.FfiSessionContext, data []byte, payloadType *string, metadata *map[string]string) {
+	h.t.Helper()
+
+	if err := h.SendMessage(session, data, payloadType, metadata); err != nil {
+		h.t.Fatalf("Failed to send message: %v", err)
+	}
+}
+
+// MustSendMessageWithCompletion sends a message with completion tracking and fails the test on error.
+func (h *TestHarness) MustSendMessageWithCompletion(session *slim.FfiSessionContext, data []byte, payloadType *string, metadata *map[string]string) {
+	h.t.Helper()
+
+	if err := h.SendMessageWithCompletion(session, data, payloadType, metadata); err != nil {
+		h.t.Fatalf("Failed to send message with completion: %v", err)
+	}
 }
 
 // Cleanup tears down the test harness

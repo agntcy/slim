@@ -57,31 +57,15 @@ func TestBasicCommunication(t *testing.T) {
 	defer harness.Cleanup()
 
 	// Create session from sender to receiver
-	session, err := harness.CreateSession()
-	if err != nil {
-		t.Fatalf("Failed to create session: %v", err)
-	}
+	session := harness.MustCreateSession()
 	defer session.Destroy()
 
 	// Send a message
 	message := []byte("Hello from integration test!")
 	payloadType := "text/plain"
 
-	err = harness.SendMessage(session, message, &payloadType, nil)
-	if err != nil {
-		t.Fatalf("Failed to send message: %v", err)
-	}
-
-	// Wait for message to be received
-	ctx := context.Background()
-	if !collector.WaitForCount(ctx, 1, 2*time.Second) {
-		t.Fatal("Message not received within timeout")
-	}
-
-	messages := collector.GetAll()
-	if len(messages) == 0 {
-		t.Fatal("No messages received")
-	}
+	harness.MustSendMessage(session, message, &payloadType, nil)
+	messages := collector.WaitForMessages(t, 1, 2*time.Second)
 
 	if string(messages[0].Data) != string(message) {
 		t.Errorf("Message mismatch: expected %s, got %s",
@@ -96,10 +80,7 @@ func TestMultipleMessages(t *testing.T) {
 	harness, collector := SetupTestHarness(t, "multi-msg")
 	defer harness.Cleanup()
 
-	session, err := harness.CreateSession()
-	if err != nil {
-		t.Fatalf("Failed to create session: %v", err)
-	}
+	session := harness.MustCreateSession()
 	defer session.Destroy()
 
 	numMessages := 5
@@ -108,20 +89,11 @@ func TestMultipleMessages(t *testing.T) {
 	// Send multiple messages
 	for i := 0; i < numMessages; i++ {
 		message := []byte(fmt.Sprintf("Message %d", i))
-		err = harness.SendMessage(session, message, &payloadType, nil)
-		if err != nil {
-			t.Fatalf("Failed to send message %d: %v", i, err)
-		}
+		harness.MustSendMessage(session, message, &payloadType, nil)
 		time.Sleep(50 * time.Millisecond) // Small delay between messages
 	}
 
-	// Wait for all messages
-	ctx := context.Background()
-	if !collector.WaitForCount(ctx, numMessages, 3*time.Second) {
-		t.Fatalf("Only received %d/%d messages", collector.Count(), numMessages)
-	}
-
-	messages := collector.GetAll()
+	messages := collector.WaitForMessages(t, numMessages, 3*time.Second)
 	t.Logf("✅ Received all %d/%d messages", len(messages), numMessages)
 
 	// Verify message order and content
@@ -139,35 +111,20 @@ func TestPublishWithCompletionHandle(t *testing.T) {
 	harness, collector := SetupTestHarness(t, "with-completion")
 	defer harness.Cleanup()
 
-	session, err := harness.CreateSession()
-	if err != nil {
-		t.Fatalf("Failed to create session: %v", err)
-	}
+	session := harness.MustCreateSession()
 	defer session.Destroy()
 
 	message := []byte("Message with completion tracking")
 	payloadType := "text/plain"
 
-	// Send with completion
-	err = harness.SendMessageWithCompletion(session, message, &payloadType, nil)
-	if err != nil {
-		t.Fatalf("Failed to send with completion: %v", err)
-	}
+	harness.MustSendMessageWithCompletion(session, message, &payloadType, nil)
 
-	t.Log("✅ Message delivery confirmed by completion handle")
-
-	// Verify receiver got it
-	ctx := context.Background()
-	if !collector.WaitForCount(ctx, 1, 2*time.Second) {
-		t.Fatal("Message not received by receiver")
-	}
-
-	messages := collector.GetAll()
+	messages := collector.WaitForMessages(t, 1, 2*time.Second)
 	if string(messages[0].Data) != string(message) {
 		t.Errorf("Message mismatch at receiver")
 	}
 
-	t.Log("✅ Receiver confirmed message receipt")
+	t.Log("✅ Message delivery confirmed by completion handle and receiver")
 }
 
 // TestConcurrentPublish tests concurrent message sending
@@ -175,10 +132,7 @@ func TestConcurrentPublish(t *testing.T) {
 	harness, collector := SetupTestHarness(t, "concurrent")
 	defer harness.Cleanup()
 
-	session, err := harness.CreateSession()
-	if err != nil {
-		t.Fatalf("Failed to create session: %v", err)
-	}
+	session := harness.MustCreateSession()
 	defer session.Destroy()
 
 	numConcurrent := 10
@@ -227,10 +181,7 @@ func TestPublishWithMetadata(t *testing.T) {
 	harness, collector := SetupTestHarness(t, "metadata")
 	defer harness.Cleanup()
 
-	session, err := harness.CreateSession()
-	if err != nil {
-		t.Fatalf("Failed to create session: %v", err)
-	}
+	session := harness.MustCreateSession()
 	defer session.Destroy()
 
 	message := []byte("Message with metadata")
@@ -242,18 +193,9 @@ func TestPublishWithMetadata(t *testing.T) {
 		"timestamp": time.Now().Format(time.RFC3339),
 	}
 
-	err = harness.SendMessage(session, message, &payloadType, &metadata)
-	if err != nil {
-		t.Fatalf("Failed to send message with metadata: %v", err)
-	}
+	harness.MustSendMessage(session, message, &payloadType, &metadata)
 
-	// Check if received with metadata
-	ctx := context.Background()
-	if !collector.WaitForCount(ctx, 1, 2*time.Second) {
-		t.Fatal("Message not received")
-	}
-
-	messages := collector.GetAll()
+	messages := collector.WaitForMessages(t, 1, 2*time.Second)
 	msg := messages[0]
 
 	// Verify payload
@@ -291,10 +233,7 @@ func TestSessionLifecycle(t *testing.T) {
 
 	// Step 1: Create session
 	t.Log("Creating session...")
-	session, err := harness.CreateSession()
-	if err != nil {
-		t.Fatalf("Failed to create session: %v", err)
-	}
+	session := harness.MustCreateSession()
 
 	sessionID, err := session.SessionId()
 	if err != nil {
@@ -306,17 +245,11 @@ func TestSessionLifecycle(t *testing.T) {
 	t.Log("Sending message...")
 	message := []byte("Lifecycle test message")
 	payloadType := "text/plain"
-	err = harness.SendMessage(session, message, &payloadType, nil)
-	if err != nil {
-		t.Fatalf("Failed to send message: %v", err)
-	}
+	harness.MustSendMessage(session, message, &payloadType, nil)
 	t.Log("✅ Message sent")
 
 	// Step 3: Verify reception
-	time.Sleep(500 * time.Millisecond)
-	if collector.Count() == 0 {
-		t.Fatal("Message not received")
-	}
+	collector.WaitForMessages(t, 1, 2*time.Second)
 	t.Logf("✅ Receiver got %d message(s)", collector.Count())
 
 	// Step 4: Delete session
@@ -554,10 +487,7 @@ func TestCompletionHandleDoubleWait(t *testing.T) {
 	harness, _ := SetupTestHarness(t, "double-wait")
 	defer harness.Cleanup()
 
-	session, err := harness.CreateSession()
-	if err != nil {
-		t.Fatalf("Failed to create session: %v", err)
-	}
+	session := harness.MustCreateSession()
 	defer session.Destroy()
 
 	message := []byte("Test message")
@@ -709,10 +639,7 @@ func TestCompletionHandleAsync(t *testing.T) {
 	harness, _ := SetupTestHarness(t, "async-completion")
 	defer harness.Cleanup()
 
-	session, err := harness.CreateSession()
-	if err != nil {
-		t.Fatalf("Failed to create session: %v", err)
-	}
+	session := harness.MustCreateSession()
 	defer session.Destroy()
 
 	message := []byte("Async test message")
@@ -747,10 +674,7 @@ func TestBatchPublishWithCompletion(t *testing.T) {
 	harness, _ := SetupTestHarness(t, "batch-completion")
 	defer harness.Cleanup()
 
-	session, err := harness.CreateSession()
-	if err != nil {
-		t.Fatalf("Failed to create session: %v", err)
-	}
+	session := harness.MustCreateSession()
 	defer session.Destroy()
 
 	// Publish multiple messages and collect completion handles
@@ -791,17 +715,14 @@ func TestFireAndForgetVsWithCompletion(t *testing.T) {
 	harness, collector := SetupTestHarness(t, "compare-publish")
 	defer harness.Cleanup()
 
-	session, err := harness.CreateSession()
-	if err != nil {
-		t.Fatalf("Failed to create session: %v", err)
-	}
+	session := harness.MustCreateSession()
 	defer session.Destroy()
 
 	// Test 1: Fire-and-forget
 	t.Log("Testing fire-and-forget publish...")
 	message1 := []byte("Fire and forget message")
 	payloadType := "text/plain"
-	err = session.Publish(message1, &payloadType, nil)
+	err := session.Publish(message1, &payloadType, nil)
 	if err != nil {
 		t.Fatalf("Fire-and-forget publish failed: %v", err)
 	}
