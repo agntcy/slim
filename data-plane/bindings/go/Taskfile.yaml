@@ -11,6 +11,11 @@ vars:
   # Get absolute path for CGO flags
   ROOT_DIR:
     sh: pwd
+  LIB_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.dylib"
+  LIB_DIR: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}"
+  CGO_LDFLAGS: "-L{{.LIB_DIR}} -l{{.LIB_NAME}}"
+  DYLD_PATH: "{{.LIB_DIR}}:{{.ENV.DYLD_LIBRARY_PATH}}"
+  LD_PATH: "{{.LIB_DIR}}:{{.ENV.LD_LIBRARY_PATH}}"
 
 tasks:
   default:
@@ -55,8 +60,21 @@ tasks:
       - cargo build --release
     silent: true
 
+  ensure-lib:
+    desc: Ensure the UniFFI library is built
+    cmds:
+      - |
+        if [ ! -f "{{.LIB_PATH}}" ]; then
+          echo "⚠️  UniFFI library not found, building now..."
+          task rust-build
+        else
+          echo "✅ Found UniFFI library: {{.LIB_PATH}}"
+        fi
+    silent: true
+
   generate:
     desc: Generate Go bindings from compiled library
+    deps: [ensure-lib]
     cmds:
       - echo "🔧 Generating Go bindings from compiled library..."
       - |
@@ -74,31 +92,29 @@ tasks:
 
   test:
     desc: Run all tests
-    dir: tests
+    deps: [ensure-lib]
     env:
-      CGO_LDFLAGS: -L{{.ROOT_DIR}}/{{.SERVICE_TARGET}} -l{{.LIB_NAME}}
-      DYLD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${DYLD_LIBRARY_PATH}"
-      LD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${LD_LIBRARY_PATH}"
+      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
+      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
+      LD_LIBRARY_PATH: "{{.LD_PATH}}"
     cmds:
       - echo "🧪 Running all tests..."
-      - go mod tidy
-      - go test -v .
-      - echo "✅ All tests passed"
+      - go test -v ./...
+      - echo "✅ All Go tests passed"
     silent: true
 
   test-coverage:
     desc: Run tests with coverage report
-    dir: tests
+    deps: [ensure-lib]
     env:
-      CGO_LDFLAGS: -L{{.ROOT_DIR}}/{{.SERVICE_TARGET}} -l{{.LIB_NAME}}
-      DYLD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${DYLD_LIBRARY_PATH}"
-      LD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${LD_LIBRARY_PATH}"
+      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
+      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
+      LD_LIBRARY_PATH: "{{.LD_PATH}}"
     cmds:
       - echo "📊 Running tests with coverage..."
-      - go mod tidy
-      - go test -v -coverprofile=coverage.out .
+      - go test -v -coverprofile=coverage.out ./...
       - go tool cover -html=coverage.out -o coverage.html
-      - echo "✅ Coverage report generated in tests/coverage.html"
+      - echo "✅ Coverage report generated in coverage.html"
     silent: true
 
   clean:
@@ -113,95 +129,91 @@ tasks:
   # Examples
   example:
     desc: Run the simple example
+    deps: [ensure-lib]
     dir: examples/simple
     env:
-      CGO_LDFLAGS: -L{{.ROOT_DIR}}/{{.SERVICE_TARGET}} -l{{.LIB_NAME}}
-      DYLD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${DYLD_LIBRARY_PATH}"
-      LD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${LD_LIBRARY_PATH}"
+      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
+      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
+      LD_LIBRARY_PATH: "{{.LD_PATH}}"
     cmds:
       - echo "🚀 Running simple example..."
-      - go mod init github.com/agntcy/slim/bindings/go/examples/simple 2>/dev/null || true
-      - go mod edit -replace github.com/agntcy/slim/bindings/generated=../../generated
-      - go mod tidy
-      - go run main.go
+      - go run .
     silent: true
 
   example:server:
     desc: Run the SLIM server
+    deps: [ensure-lib]
     dir: cmd/server
     env:
-      CGO_LDFLAGS: -L{{.ROOT_DIR}}/{{.SERVICE_TARGET}} -l{{.LIB_NAME}}
-      DYLD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${DYLD_LIBRARY_PATH}"
-      LD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${LD_LIBRARY_PATH}"
+      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
+      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
+      LD_LIBRARY_PATH: "{{.LD_PATH}}"
     cmds:
       - echo "🚀 Starting SLIM server..."
-      - go mod init github.com/agntcy/slim/cmd/server 2>/dev/null || true
-      - go mod edit -replace github.com/agntcy/slim/bindings/generated=../../generated
-      - go mod tidy
-      - go run main.go {{.CLI_ARGS}}
+      - go run . {{.CLI_ARGS}}
     silent: true
 
   example:p2p:alice:
     desc: Run Alice (receiver) for point-to-point example
+    deps: [ensure-lib]
     dir: examples/point_to_point
     env:
-      CGO_LDFLAGS: -L{{.ROOT_DIR}}/{{.SERVICE_TARGET}} -l{{.LIB_NAME}}
-      DYLD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${DYLD_LIBRARY_PATH}"
-      LD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${LD_LIBRARY_PATH}"
+      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
+      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
+      LD_LIBRARY_PATH: "{{.LD_PATH}}"
     cmds:
       - echo "👩 Starting Alice (receiver)..."
-      - go mod tidy
-      - go run main.go --local="org/alice/app" --server="http://localhost:46357" {{.CLI_ARGS}}
+      - go run . --local="org/alice/app" --server="http://localhost:46357" {{.CLI_ARGS}}
     silent: true
 
   example:p2p:bob:
     desc: Run Bob (sender) for point-to-point example
+    deps: [ensure-lib]
     dir: examples/point_to_point
     env:
-      CGO_LDFLAGS: -L{{.ROOT_DIR}}/{{.SERVICE_TARGET}} -l{{.LIB_NAME}}
-      DYLD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${DYLD_LIBRARY_PATH}"
-      LD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${LD_LIBRARY_PATH}"
+      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
+      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
+      LD_LIBRARY_PATH: "{{.LD_PATH}}"
     cmds:
       - echo "👨 Starting Bob (sender)..."
-      - go mod tidy
-      - go run main.go --local="org/bob/app" --remote="org/alice/app" --message="Hello SLIM" --iterations=5 --server="http://localhost:46357" {{.CLI_ARGS}}
+      - go run . --local="org/bob/app" --remote="org/alice/app" --message="Hello SLIM" --iterations=5 --server="http://localhost:46357" {{.CLI_ARGS}}
     silent: true
 
   example:group:moderator:
     desc: Run group moderator (creates session and invites participants)
+    deps: [ensure-lib]
     dir: examples/group
     env:
-      CGO_LDFLAGS: -L{{.ROOT_DIR}}/{{.SERVICE_TARGET}} -l{{.LIB_NAME}}
-      DYLD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${DYLD_LIBRARY_PATH}"
-      LD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${LD_LIBRARY_PATH}"
+      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
+      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
+      LD_LIBRARY_PATH: "{{.LD_PATH}}"
     cmds:
       - echo "👑 Starting group moderator..."
-      - go mod tidy
-      - go run main.go --local="org/moderator/app" --remote="org/default/chat-room" --invites="org/alice/app,org/bob/app" --server="http://localhost:46357" {{.CLI_ARGS}}
+      - go run . --local="org/moderator/app" --remote="org/default/chat-room" --invites="org/alice/app,org/bob/app" --server="http://localhost:46357" {{.CLI_ARGS}}
     silent: true
 
   example:group:participant:alice:
     desc: Run group participant (waits for invitation)
+    deps: [ensure-lib]
     dir: examples/group
     env:
-      CGO_LDFLAGS: -L{{.ROOT_DIR}}/{{.SERVICE_TARGET}} -l{{.LIB_NAME}}
-      DYLD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${DYLD_LIBRARY_PATH}"
-      LD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${LD_LIBRARY_PATH}"
+      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
+      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
+      LD_LIBRARY_PATH: "{{.LD_PATH}}"
     cmds:
       - echo "👤 Starting group participant..."
-      - go mod tidy
-      - go run main.go --local="org/alice/app" --server="http://localhost:46357" {{.CLI_ARGS}}
+      - go run . --local="org/alice/app" --server="http://localhost:46357" {{.CLI_ARGS}}
     silent: true
   
   example:group:participant:bob:
     desc: Run group participant (waits for invitation)
+    deps: [ensure-lib]
     dir: examples/group
     env:
-      CGO_LDFLAGS: -L{{.ROOT_DIR}}/{{.SERVICE_TARGET}} -l{{.LIB_NAME}}
-      DYLD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${DYLD_LIBRARY_PATH}"
-      LD_LIBRARY_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}:${LD_LIBRARY_PATH}"
+      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
+      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
+      LD_LIBRARY_PATH: "{{.LD_PATH}}"
     cmds:
       - echo "👤 Starting group participant..."
-      - go mod tidy
-      - go run main.go --local="org/bob/app" --server="http://localhost:46357" {{.CLI_ARGS}}
+      - go run . --local="org/bob/app" --server="http://localhost:46357" {{.CLI_ARGS}}
     silent: true
