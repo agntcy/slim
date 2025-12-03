@@ -473,6 +473,11 @@ void uniffi_slim_uniffi_fn_method_bindingsadapter_set_route(void* ptr, RustBuffe
 uint64_t uniffi_slim_uniffi_fn_method_bindingsadapter_set_route_async(void* ptr, RustBuffer name, uint64_t connection_id
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_UNIFFI_FN_METHOD_BINDINGSADAPTER_STOP_SERVER
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_UNIFFI_FN_METHOD_BINDINGSADAPTER_STOP_SERVER
+void uniffi_slim_uniffi_fn_method_bindingsadapter_stop_server(void* ptr, RustBuffer endpoint, RustCallStatus *out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_UNIFFI_FN_METHOD_BINDINGSADAPTER_SUBSCRIBE
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_UNIFFI_FN_METHOD_BINDINGSADAPTER_SUBSCRIBE
 void uniffi_slim_uniffi_fn_method_bindingsadapter_subscribe(void* ptr, RustBuffer name, RustBuffer connection_id, RustCallStatus *out_status
@@ -1042,6 +1047,12 @@ uint16_t uniffi_slim_uniffi_checksum_method_bindingsadapter_set_route(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_UNIFFI_CHECKSUM_METHOD_BINDINGSADAPTER_SET_ROUTE_ASYNC
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_UNIFFI_CHECKSUM_METHOD_BINDINGSADAPTER_SET_ROUTE_ASYNC
 uint16_t uniffi_slim_uniffi_checksum_method_bindingsadapter_set_route_async(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_UNIFFI_CHECKSUM_METHOD_BINDINGSADAPTER_STOP_SERVER
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_UNIFFI_CHECKSUM_METHOD_BINDINGSADAPTER_STOP_SERVER
+uint16_t uniffi_slim_uniffi_checksum_method_bindingsadapter_stop_server(void
     
 );
 #endif

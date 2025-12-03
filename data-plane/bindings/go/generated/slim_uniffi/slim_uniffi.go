@@ -529,6 +529,15 @@ func uniffiCheckChecksums() {
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_uniffi_checksum_method_bindingsadapter_stop_server()
+		})
+		if checksum != 56301 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingsadapter_stop_server: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_uniffi_checksum_method_bindingsadapter_subscribe()
 		})
 		if checksum != 60014 {
@@ -1078,6 +1087,15 @@ type BindingsAdapterInterface interface {
 	SetRoute(name Name, connectionId uint64) error
 	// Set a route to a name for a specific connection (async version)
 	SetRouteAsync(name Name, connectionId uint64) error
+	// Stop a running SLIM server (blocking version for FFI)
+	//
+	// # Arguments
+	// * `endpoint` - The endpoint address of the server to stop (e.g., "127.0.0.1:12345")
+	//
+	// # Returns
+	// * `Ok(())` - Server stopped successfully
+	// * `Err(SlimError)` - If server not found or stop fails
+	StopServer(endpoint string) error
 	// Subscribe to a name (blocking version for FFI)
 	Subscribe(name Name, connectionId *uint64) error
 	// Subscribe to a name (async version)
@@ -1457,6 +1475,25 @@ func (_self *BindingsAdapter) SetRouteAsync(name Name, connectionId uint64) erro
 	)
 
 	return err
+}
+
+// Stop a running SLIM server (blocking version for FFI)
+//
+// # Arguments
+// * `endpoint` - The endpoint address of the server to stop (e.g., "127.0.0.1:12345")
+//
+// # Returns
+// * `Ok(())` - Server stopped successfully
+// * `Err(SlimError)` - If server not found or stop fails
+func (_self *BindingsAdapter) StopServer(endpoint string) error {
+	_pointer := _self.ffiObject.incrementPointer("*BindingsAdapter")
+	defer _self.ffiObject.decrementPointer()
+	_, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) bool {
+		C.uniffi_slim_uniffi_fn_method_bindingsadapter_stop_server(
+			_pointer, FfiConverterStringINSTANCE.Lower(endpoint), _uniffiStatus)
+		return false
+	})
+	return _uniffiErr.AsError()
 }
 
 // Subscribe to a name (blocking version for FFI)

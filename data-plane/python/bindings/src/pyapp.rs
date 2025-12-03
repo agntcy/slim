@@ -192,15 +192,14 @@ impl PyApp {
     }
 
     #[gen_stub(override_return_type(type_repr="collections.abc.Awaitable", imports=("collections.abc",)))]
-    fn stop_server<'a>(&'a self, py: Python<'a>, _endpoint: String) -> PyResult<Bound<'a, PyAny>> {
-        let _internal_clone = self.internal.clone();
+    fn stop_server<'a>(&'a self, py: Python<'a>, endpoint: String) -> PyResult<Bound<'a, PyAny>> {
+        let internal_clone = self.internal.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            // TODO: stop_server is not exposed through the FFI adapter interface
-            // This needs to be added to BindingsAdapter if Python bindings require it
-            Err::<(), _>(PyErr::new::<PyException, _>(
-                "stop_server is not yet implemented in the new FFI adapter",
-            ))
+            internal_clone
+                .adapter
+                .stop_server(endpoint)
+                .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })
     }
 

@@ -705,6 +705,23 @@ impl BindingsAdapter {
             })
     }
 
+    /// Stop a running SLIM server (blocking version for FFI)
+    ///
+    /// # Arguments
+    /// * `endpoint` - The endpoint address of the server to stop (e.g., "127.0.0.1:12345")
+    ///
+    /// # Returns
+    /// * `Ok(())` - Server stopped successfully
+    /// * `Err(SlimError)` - If server not found or stop fails
+    pub fn stop_server(&self, endpoint: String) -> Result<(), SlimError> {
+        self.service_ref
+            .get_service()
+            .stop_server(&endpoint)
+            .map_err(|e| SlimError::ConfigError {
+                message: format!("Failed to stop server: {}", e),
+            })
+    }
+
     /// Connect to a SLIM server as a client (blocking version for FFI)
     ///
     /// # Arguments
