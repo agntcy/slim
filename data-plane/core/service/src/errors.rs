@@ -4,7 +4,6 @@
 use slim_auth::errors::AuthError;
 use slim_controller::errors::ControllerError;
 use slim_datapath::errors::DataPathError;
-use slim_session::SessionError as SlimSessionError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -57,10 +56,4 @@ pub enum ServiceError {
     DrainTimeoutError,
     #[error("unknown error")]
     Unknown,
-}
-
-impl From<SlimSessionError> for ServiceError {
-    fn from(err: SlimSessionError) -> Self {
-        ServiceError::SessionError(err.to_string())
-    }
 }

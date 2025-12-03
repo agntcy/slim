@@ -172,282 +172,317 @@ impl BindingsSessionContext {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use slim_datapath::api::{
+        ApplicationPayload, ProtoMessage, ProtoPublish, ProtoPublishType, SessionHeader, SlimHeader,
+    };
+    use slim_datapath::messages::Name;
+    use slim_session::SessionError;
     use std::collections::HashMap;
     use std::time::Duration;
+    use tokio::sync::mpsc;
 
-    use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
-    use slim_auth::shared_secret::SharedSecret;
-    use slim_config::component::ComponentBuilder;
-    use slim_datapath::messages::Name;
-    use slim_testing::utils::TEST_VALID_SECRET;
-
-    use crate::adapter::BindingsAdapter;
-    use slim_service::Service;
-
-    /// Create a mock service for testing
-    async fn create_test_service() -> Service {
-        Service::builder()
-            .build("test-service".to_string())
-            .expect("Failed to create test service")
+    fn make_name(parts: [&str; 3]) -> Name {
+        Name::from_strings(parts).with_id(0)
     }
 
-    /// Create test authentication components
-    fn create_test_auth() -> (AuthProvider, AuthVerifier) {
-        let shared_secret = SharedSecret::new("test-app", TEST_VALID_SECRET);
-        let provider = AuthProvider::SharedSecret(shared_secret.clone());
-        let verifier = AuthVerifier::SharedSecret(shared_secret);
-        (provider, verifier)
+    fn make_context() -> (
+        BindingsSessionContext,
+        mpsc::UnboundedSender<Result<ProtoMessage, SessionError>>,
+    ) {
+        let (tx, rx) = mpsc::unbounded_channel::<Result<ProtoMessage, SessionError>>();
+        let ctx = BindingsSessionContext {
+            session: std::sync::Weak::new(),
+            rx: RwLock::new(rx),
+        };
+        (ctx, tx)
     }
 
-    /// Create test app name
-    fn create_test_name() -> Name {
-        Name::from_strings(["org", "namespace", "test-app"])
+    /// Helper to create a valid ProtoMessage for testing message reception
+    fn create_test_proto_message(
+        source: Name,
+        dest: Name,
+        connection_id: u64,
+        payload: Vec<u8>,
+        content_type: &str,
+        metadata: HashMap<String, String>,
+    ) -> ProtoMessage {
+        let content = ApplicationPayload::new(content_type, payload).as_content();
+
+        let mut slim_header = SlimHeader::default();
+        slim_header.set_source(&source);
+        slim_header.set_destination(&dest);
+
+        let publish = ProtoPublish {
+            header: Some(slim_header),
+            session: Some(SessionHeader::default()),
+            msg: Some(content),
+        };
+
+        let mut proto_msg = ProtoMessage {
+            message_type: Some(ProtoPublishType(publish)),
+            metadata,
+        };
+
+        proto_msg.set_incoming_conn(Some(connection_id));
+        proto_msg
     }
+
+    // ==================== Message Reception Tests ====================
 
     #[tokio::test]
-    async fn test_bindings_session_context_creation() {
-        let service = create_test_service().await;
-        let app_name = create_test_name();
-        let (provider, verifier) = create_test_auth();
+    async fn test_get_session_message_success() {
+        let (ctx, tx) = make_context();
 
-        let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .expect("Failed to create adapter");
+        let source = make_name(["org", "sender", "app"]);
+        let dest = make_name(["org", "receiver", "app"]);
+        let payload = b"hello world".to_vec();
+        let mut metadata = HashMap::new();
+        metadata.insert("key".to_string(), "value".to_string());
 
-        let config = crate::adapter::SessionConfig {
-            session_type: crate::adapter::SessionType::PointToPoint,
-            enable_mls: false,
-            max_retries: None,
-            interval_ms: None,
-            initiator: true,
-            metadata: std::collections::HashMap::new(),
-        };
-        let dst = crate::adapter::Name {
-            components: vec!["org".to_string(), "ns".to_string(), "dst".to_string()],
-            id: None,
-        };
-        let session_ffi = adapter
-            .create_session_async(config, dst)
-            .await
-            .expect("Failed to create session");
+        let msg = create_test_proto_message(
+            source.clone(),
+            dest,
+            42,
+            payload.clone(),
+            "text/plain",
+            metadata.clone(),
+        );
 
-        // Verify session reference is valid through the FFI wrapper
-        assert!(session_ffi.inner.session.upgrade().is_some());
+        tx.send(Ok(msg)).expect("send should succeed");
+
+        let result = ctx
+            .get_session_message(Some(Duration::from_millis(100)))
+            .await;
+        assert!(result.is_ok(), "should receive message successfully");
+
+        let (msg_ctx, received_payload) = result.unwrap();
+        assert_eq!(received_payload, payload);
+        assert_eq!(msg_ctx.payload_type, "text/plain");
+        assert_eq!(msg_ctx.input_connection, 42);
+        assert_eq!(msg_ctx.metadata.get("key"), Some(&"value".to_string()));
     }
 
     #[tokio::test]
     async fn test_get_session_message_timeout() {
-        let service = create_test_service().await;
-        let app_name = create_test_name();
-        let (provider, verifier) = create_test_auth();
-
-        let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .expect("Failed to create adapter");
-
-        // Create a session using FFI types
-        let config = crate::adapter::SessionConfig {
-            session_type: crate::adapter::SessionType::PointToPoint,
-            enable_mls: false,
-            max_retries: None,
-            interval_ms: None,
-            initiator: true,
-            metadata: std::collections::HashMap::new(),
-        };
-        let dst = crate::adapter::Name {
-            components: vec!["org".to_string(), "ns".to_string(), "dst".to_string()],
-            id: None,
-        };
-        let session_ffi = adapter
-            .create_session_async(config, dst)
-            .await
-            .expect("Failed to create session");
-
-        // Test that get_session_message times out when no messages are sent
-        // Use the async version since we're in an async test
-        let result = session_ffi
-            .get_message_async(Some(50)) // 50ms timeout
+        let (ctx, _tx) = make_context();
+        let result = ctx
+            .get_session_message(Some(Duration::from_millis(50)))
             .await;
-        assert!(result.is_err()); // Should timeout
-        if let Err(e) = result {
-            assert!(e.to_string().contains("timeout"));
-        }
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("timeout"));
+    }
+
+    #[tokio::test]
+    async fn test_get_session_message_channel_closed() {
+        let (ctx, tx) = make_context();
+        drop(tx); // close sender so receiver sees channel closed
+        let result = ctx
+            .get_session_message(Some(Duration::from_millis(50)))
+            .await;
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("session channel closed")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_session_message_decode_error() {
+        let (ctx, tx) = make_context();
+
+        // Send an error through the channel (simulates decode failure)
+        tx.send(Err(SessionError::Processing("decode failed".to_string())))
+            .expect("send should succeed");
+
+        let result = ctx
+            .get_session_message(Some(Duration::from_millis(100)))
+            .await;
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("failed to decode message")
+        );
     }
 
     #[tokio::test]
     async fn test_get_session_message_no_timeout() {
-        let service = create_test_service().await;
-        let app_name = create_test_name();
-        let (provider, verifier) = create_test_auth();
+        let (ctx, tx) = make_context();
 
-        let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .expect("Failed to create adapter");
+        // Spawn a task that sends a message after a short delay
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            let msg = create_test_proto_message(
+                make_name(["org", "sender", "app"]),
+                make_name(["org", "receiver", "app"]),
+                1,
+                b"delayed".to_vec(),
+                "text/plain",
+                HashMap::new(),
+            );
+            let _ = tx.send(Ok(msg));
+        });
 
-        // Create a session using FFI types
-        let config = crate::adapter::SessionConfig {
-            session_type: crate::adapter::SessionType::PointToPoint,
-            enable_mls: false,
-            max_retries: None,
-            interval_ms: None,
-            initiator: true,
-            metadata: std::collections::HashMap::new(),
-        };
-        let dst = crate::adapter::Name {
-            components: vec!["org".to_string(), "ns".to_string(), "dst".to_string()],
-            id: None,
-        };
-        let session_ffi = adapter
-            .create_session_async(config, dst)
-            .await
-            .expect("Failed to create session");
-
-        // Test with None timeout - should wait indefinitely until channel is closed
-        // Use a timeout wrapper to prevent the test from hanging indefinitely
-        let result = tokio::time::timeout(
-            Duration::from_millis(100),
-            session_ffi.get_message_async(None),
-        )
-        .await;
-
-        // The operation should timeout since no message is being sent and we're not providing a timeout
-        assert!(result.is_err());
+        // Call without timeout - should block until message arrives
+        let result = ctx.get_session_message(None).await;
+        assert!(result.is_ok());
+        let (_, payload) = result.unwrap();
+        assert_eq!(payload, b"delayed".to_vec());
     }
 
     #[tokio::test]
     async fn test_get_session_message_various_timeouts() {
-        let service = create_test_service().await;
-        let app_name = create_test_name();
-        let (provider, verifier) = create_test_auth();
+        let (ctx, _tx) = make_context();
 
-        let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .expect("Failed to create adapter");
-
-        // Create a session using FFI types
-        let config = crate::adapter::SessionConfig {
-            session_type: crate::adapter::SessionType::PointToPoint,
-            enable_mls: false,
-            max_retries: None,
-            interval_ms: None,
-            initiator: true,
-            metadata: std::collections::HashMap::new(),
-        };
-        let dst = crate::adapter::Name {
-            components: vec!["org".to_string(), "ns".to_string(), "dst".to_string()],
-            id: None,
-        };
-        let session_ffi = adapter
-            .create_session_async(config, dst)
-            .await
-            .expect("Failed to create session");
-
-        // Test very short timeout (1 nanosecond = 0 milliseconds, rounds down)
-        let result = session_ffi.get_message_async(Some(0)).await;
-        assert!(result.is_err());
-
-        // Test zero timeout
-        let result = session_ffi.get_message_async(Some(0)).await;
-        assert!(result.is_err());
-
-        // Test reasonable timeout with timing verification
+        // Very short timeout
         let start = std::time::Instant::now();
-        let result = session_ffi.get_message_async(Some(100)).await;
-        let elapsed = start.elapsed();
-
+        let result = ctx
+            .get_session_message(Some(Duration::from_millis(10)))
+            .await;
         assert!(result.is_err());
-        assert!(elapsed >= Duration::from_millis(90)); // Allow some variance
-        assert!(elapsed <= Duration::from_millis(200)); // But not too much
+        assert!(start.elapsed() >= Duration::from_millis(10));
+
+        // Zero timeout should return immediately
+        let start = std::time::Instant::now();
+        let result = ctx.get_session_message(Some(Duration::ZERO)).await;
+        assert!(result.is_err());
+        assert!(start.elapsed() < Duration::from_millis(50));
+
+        // Longer timeout
+        let start = std::time::Instant::now();
+        let result = ctx
+            .get_session_message(Some(Duration::from_millis(100)))
+            .await;
+        assert!(result.is_err());
+        let elapsed = start.elapsed();
+        assert!(elapsed >= Duration::from_millis(90)); // Allow variance
+        assert!(elapsed < Duration::from_millis(200));
     }
 
     #[tokio::test]
-    async fn test_publish_method() {
-        let service = create_test_service().await;
-        let app_name = create_test_name();
-        let (provider, verifier) = create_test_auth();
+    async fn test_get_session_message_multiple_messages() {
+        let (ctx, tx) = make_context();
 
-        let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .expect("Failed to create adapter");
+        // Send multiple messages
+        for i in 0..3 {
+            let msg = create_test_proto_message(
+                make_name(["org", "sender", "app"]),
+                make_name(["org", "receiver", "app"]),
+                i as u64,
+                format!("message {}", i).into_bytes(),
+                "text/plain",
+                HashMap::new(),
+            );
+            tx.send(Ok(msg)).expect("send should succeed");
+        }
 
-        // Create a session using FFI types
-        let config = crate::adapter::SessionConfig {
-            session_type: crate::adapter::SessionType::PointToPoint,
-            enable_mls: false,
-            max_retries: None,
-            interval_ms: None,
-            initiator: true,
-            metadata: std::collections::HashMap::new(),
-        };
-        let dst = crate::adapter::Name {
-            components: vec!["org".to_string(), "ns".to_string(), "dst".to_string()],
-            id: None,
-        };
-        let session_ffi = adapter
-            .create_session_async(config, dst)
+        // Receive them in order
+        for i in 0..3 {
+            let result = ctx
+                .get_session_message(Some(Duration::from_millis(100)))
+                .await;
+            assert!(result.is_ok());
+            let (msg_ctx, payload) = result.unwrap();
+            assert_eq!(payload, format!("message {}", i).into_bytes());
+            assert_eq!(msg_ctx.input_connection, i as u64);
+        }
+    }
+
+    // ==================== Publish Tests (Session Missing) ====================
+
+    #[tokio::test]
+    async fn test_publish_errors_when_session_missing() {
+        let (ctx, _tx) = make_context();
+        let err = ctx
+            .publish(
+                &make_name(["dest", "app", "v1"]),
+                1,
+                b"payload".to_vec(),
+                None,
+                Some("text/plain".to_string()),
+                None,
+            )
             .await
-            .expect("Failed to create session");
+            .unwrap_err();
+        assert!(err.to_string().contains("Session has been dropped"));
+    }
 
-        let message = b"test payload".to_vec();
+    #[tokio::test]
+    async fn test_publish_with_all_params_errors_when_session_missing() {
+        let (ctx, _tx) = make_context();
         let mut metadata = HashMap::new();
         metadata.insert("key".to_string(), "value".to_string());
 
-        // Test the simplified publish method - this should work without errors
-        let result = session_ffi
-            .publish_async(message, Some("text/plain".to_string()), Some(metadata))
-            .await;
-
-        assert!(result.is_ok());
+        let err = ctx
+            .publish(
+                &make_name(["dest", "app", "v1"]),
+                3,                                    // fanout
+                b"payload".to_vec(),                  // blob
+                Some(123),                            // conn_out
+                Some("application/json".to_string()), // payload_type
+                Some(metadata),                       // metadata
+            )
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("Session has been dropped"));
     }
 
     #[tokio::test]
-    async fn test_publish_with_params_method() {
-        let service = create_test_service().await;
-        let app_name = create_test_name();
-        let (provider, verifier) = create_test_auth();
+    async fn test_publish_to_errors_when_session_missing() {
+        let (ctx, _tx) = make_context();
+        let message_ctx = MessageContext::new(
+            make_name(["sender", "org", "service"]),
+            Some(make_name(["receiver", "org", "service"])),
+            "application/json".to_string(),
+            HashMap::new(),
+            42,
+            "unique".to_string(),
+        );
 
-        let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
-            .expect("Failed to create adapter");
-
-        // Create a session using FFI types
-        let config = crate::adapter::SessionConfig {
-            session_type: crate::adapter::SessionType::PointToPoint,
-            enable_mls: false,
-            max_retries: None,
-            interval_ms: None,
-            initiator: true,
-            metadata: std::collections::HashMap::new(),
-        };
-        let dst = crate::adapter::Name {
-            components: vec!["org".to_string(), "ns".to_string(), "dst".to_string()],
-            id: None,
-        };
-        let session_ffi = adapter
-            .create_session_async(config, dst)
-            .await
-            .expect("Failed to create session");
-
-        // Create a custom destination name for publishing
-        let destination = crate::adapter::Name {
-            components: vec![
-                "sender".to_string(),
-                "org".to_string(),
-                "service".to_string(),
-            ],
-            id: None,
-        };
-
-        let message = b"advanced payload".to_vec();
-        let mut metadata = HashMap::new();
-        metadata.insert("custom_header".to_string(), "custom_value".to_string());
-
-        // Test the advanced publish_with_params method with full control
-        let result = session_ffi
-            .publish_with_params_async(
-                destination,
-                1,
-                message,
+        let err = ctx
+            .publish_to(
+                &message_ctx,
+                b"reply".to_vec(),
+                Some("json".to_string()),
                 None,
-                Some("application/json".to_string()),
-                Some(metadata),
             )
-            .await;
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("Session has been dropped"));
+    }
 
-        assert!(result.is_ok());
+    // ==================== Invite/Remove Tests (Session Missing) ====================
+
+    #[tokio::test]
+    async fn test_invite_errors_when_session_missing() {
+        let (ctx, _tx) = make_context();
+        let err = ctx
+            .invite(&make_name(["org", "peer", "app"]))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("Session has been dropped"));
+    }
+
+    #[tokio::test]
+    async fn test_remove_errors_when_session_missing() {
+        let (ctx, _tx) = make_context();
+        let err = ctx
+            .remove(&make_name(["org", "peer", "app"]))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("Session has been dropped"));
+    }
+
+    // ==================== Context Creation Tests ====================
+
+    #[tokio::test]
+    async fn test_bindings_session_context_weak_ref() {
+        let (ctx, _tx) = make_context();
+        // With no actual SessionController, the weak ref should be None
+        assert!(ctx.session.upgrade().is_none());
     }
 }
