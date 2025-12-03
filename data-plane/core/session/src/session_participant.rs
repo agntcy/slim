@@ -9,7 +9,7 @@ use slim_datapath::{
     api::{CommandPayload, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType},
     messages::{
         Name,
-        utils::{DISCONNECTION_DETECTED, LEAVING_SESSION, SlimHeaderFlags, TRUE_VAL},
+        utils::{LEAVING_SESSION, SlimHeaderFlags, TRUE_VAL},
     },
 };
 
@@ -177,7 +177,7 @@ where
                         p,
                         false,
                     )?;
-                    tracing::info!("start drain, notify the moderator");
+                    debug!("start drain and notify the moderator");
                     msg.insert_metadata(LEAVING_SESSION.to_string(), TRUE_VAL.to_string());
 
                     self.common.sender.on_message(&msg).await?;
@@ -188,6 +188,20 @@ where
                 self.inner
                     .on_message(SessionMessage::StartDrain {
                         grace_period: duration,
+                    })
+                    .await?;
+                self.common.sender.start_drain();
+
+                Ok(())
+            }
+            SessionMessage::ParticipantDisconnected { name: _ } => {
+                debug!("The moderator is not anymore connected to the current session, close it",);
+
+                // start drain
+                self.common.processing_state = ProcessingState::Draining;
+                self.inner
+                    .on_message(SessionMessage::StartDrain {
+                        grace_period: Duration::from_secs(1), // not used
                     })
                     .await?;
                 self.common.sender.start_drain();
@@ -246,7 +260,7 @@ where
             }
             ProtoSessionMessageType::Ping => self.on_ping(message).await,
             ProtoSessionMessageType::LeaveReply => {
-                // this message is received when the moderator ack the 
+                // this message is received when the moderator ack the
                 // reception of the leave request sent on Drain start
                 // if the participant in not on drain state drop the message
                 if self.common.processing_state == ProcessingState::Draining {
@@ -412,7 +426,7 @@ where
                 let name = Name::from(removed_participant);
                 self.group_list.remove(&name);
 
-                tracing::info!("remove endpoint from the session {}", msg.get_source());
+                debug!("remove endpoint from the session {}", msg.get_source());
                 self.inner.remove_endpoint(&name);
             }
         }
@@ -471,7 +485,10 @@ where
 
     async fn on_ping(&mut self, mut msg: Message) -> Result<(), SessionError> {
         debug!("received ping message, reply");
-        // just need to reply to the ping
+        // send ping to the local sender to register the reception
+        self.common.sender.on_message(&msg).await?;
+
+        // reply to the ping
         let header = msg.get_slim_header_mut();
         let src = header.get_source();
         header.set_source(&self.common.settings.source);

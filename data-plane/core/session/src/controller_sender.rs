@@ -21,8 +21,13 @@ use crate::{
     transmitter::SessionTransmitter,
 };
 
+/// Ping interval.
+pub const PING_INTERVAL: Duration = Duration::from_secs(10);
 /// Maximum number of consecutive ping failures before a participant is considered disconnected.
-pub const MAX_PING_FAILURE: u32 = 3;
+const MAX_PING_FAILURE: u32 = 3;
+/// fake of the moderator used by each participant to track the reception of the ping
+static MODERATOR_NAME: std::sync::LazyLock<Name> =
+    std::sync::LazyLock::new(|| Name::from_strings(["", "", ""]));
 
 /// used a result in OnMessage function
 #[derive(PartialEq, Clone, Debug)]
@@ -48,16 +53,26 @@ struct PendingReply {
 struct PingState {
     /// Current pending ping
     /// Maybe empty if none is connected to the channel
+    /// Used only if this endpoint is sending ping messages
     ping: Option<PendingReply>,
+
+    /// this indicates if a least one ping message was received
+    /// during the last ping timer. It is used only be participants
+    /// end set to true on the ping reception
+    received_ping: bool,
 
     /// Ping timer factor set to create ping related timers
     #[allow(dead_code)]
     ping_timer_factory: TimerFactory,
 
     /// List of potential disconnected endpoint
+    /// Initiation/Moderator mode:
     /// If an endpoint does not reply to latest N pings it is considered
     /// disconnected and the session controller is notified.
     /// The map keeps track of the name and the number of missing ping replies
+    /// Participant mode:
+    /// The map keeps track only of the moderator and checks for how many
+    /// interval the moderator was silent
     missing_pings: HashMap<Name, u32>,
 
     /// The ping timer
@@ -136,6 +151,7 @@ impl ControllerSender {
             );
             Some(PingState {
                 ping: None,
+                received_ping: false,
                 ping_timer_factory,
                 missing_pings: HashMap::new(),
                 ping_timer,
@@ -251,8 +267,6 @@ impl ControllerSender {
                     .cloned()
                     .collect::<HashSet<_>>();
 
-                tracing::info!("REMOVE -> missing list {:?}", missing_replies);
-
                 // remove the endpoint also from the group list
                 let payload = message.extract_group_remove().map_err(|e| {
                     SessionError::Processing(format!(
@@ -327,14 +341,16 @@ impl ControllerSender {
             message.get_source()
         );
 
-        if message.get_session_message_type() == slim_datapath::api::ProtoSessionMessageType::LeaveReply &&
-            self.initiator {
+        if message.get_session_message_type()
+            == slim_datapath::api::ProtoSessionMessageType::LeaveReply
+            && self.initiator
+        {
             // here the moderator is replying to a participant that sent a leave request to be
             // removed from the session. the message is forwarded without setup a timer that is
             // handled by the participant. here we just need to update the group list and drop
             // the message
             self.group_list.remove(&message.get_dst());
-            return
+            return;
         }
 
         let mut delete = false;
@@ -360,19 +376,29 @@ impl ControllerSender {
     }
 
     fn on_ping_message(&mut self, message: &Message) {
-        debug!("received ping reply {}", message.get_id());
-        if let Some(ping_state) = &mut self.ping_state
-            && let Some(ping) = &mut ping_state.ping
-            && ping.timer.get_id() == message.get_id()
-        {
-            ping.missing_replies.remove(&message.get_source());
-            if ping.missing_replies.is_empty() {
-                debug!("stop ping retransmissions for id {}", message.get_id());
-                ping.timer.stop()
+        debug!("received ping message {}", message.get_id());
+        if self.initiator {
+            // if this is an initiator update the missing acks
+            if let Some(ping_state) = &mut self.ping_state
+                && let Some(ping) = &mut ping_state.ping
+                && ping.timer.get_id() == message.get_id()
+            {
+                ping.missing_replies.remove(&message.get_source());
+                if ping.missing_replies.is_empty() {
+                    debug!("stop ping retransmissions for id {}", message.get_id());
+                    ping.timer.stop()
+                }
+                return;
             }
         } else {
-            debug!("received a ping but the state is not set, ignore the message");
+            // if this is a participant mark the reception of the message
+            if let Some(ping_state) = &mut self.ping_state {
+                ping_state.received_ping = true;
+                return;
+            }
         }
+
+        debug!("received a ping but the state is not set, ignore the message");
     }
 
     pub fn is_still_pending(&self, message_id: u32) -> bool {
@@ -384,8 +410,7 @@ impl ControllerSender {
         id: u32,
         msg_type: ProtoSessionMessageType,
     ) -> Result<(), SessionError> {
-        tracing::info!("timeout for the message {} of type {:?}", id, msg_type);
-        debug!("timeout for message {}", id);
+        debug!("timeout for the message {} of type {:?}", id, msg_type);
 
         // check if the timeout is related to a ping
         if self.ping_state.is_some() && msg_type == ProtoSessionMessageType::Ping {
@@ -408,6 +433,38 @@ impl ControllerSender {
     }
 
     async fn handle_ping_timeout(&mut self, id: u32) -> Result<(), SessionError> {
+        // If this is a participant check if a message was received
+        // during the last ping time
+        if !self.initiator
+            && let Some(ping_state) = &mut self.ping_state
+        {
+            if ping_state.received_ping {
+                // reset the state
+                debug!("received at least on ping message, rest the state");
+                ping_state.received_ping = false;
+                ping_state.missing_pings.clear();
+            } else {
+                // update the missing ping map and detect moderator disconnection
+                debug!("missing ping message from moderator");
+                let val = ping_state
+                    .missing_pings
+                    .entry(MODERATOR_NAME.clone())
+                    .or_insert(0);
+                *val += 1;
+                if *val >= MAX_PING_FAILURE {
+                    debug!("moderator got disconnected");
+                    if let Err(e) = self
+                        .tx_session
+                        .try_send(SessionMessage::ParticipantDisconnected { name: None })
+                    {
+                        tracing::error!("failed to send participant disconnected message: {}", e);
+                    }
+                }
+            }
+            return Ok(());
+        }
+
+        // This is a initiator
         // Check if we need to handle ping timeout
         let should_handle_ping_interval = self
             .ping_state
@@ -534,9 +591,11 @@ impl ControllerSender {
                 if *v >= MAX_PING_FAILURE {
                     debug!("participant {} got disconnected", k);
                     self.group_list.remove(k);
-                    if let Err(e) = self
-                        .tx_session
-                        .try_send(SessionMessage::ParticipantDisconnected { name: k.clone() })
+                    if let Err(e) =
+                        self.tx_session
+                            .try_send(SessionMessage::ParticipantDisconnected {
+                                name: Some(k.clone()),
+                            })
                     {
                         tracing::error!("failed to send participant disconnected message: {}", e);
                     }

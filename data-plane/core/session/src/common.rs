@@ -104,7 +104,7 @@ pub enum SessionMessage {
         timeouts: u32,
     },
     /// sent by the controller sender when a disconnection is detected
-    ParticipantDisconnected { name: Name },
+    ParticipantDisconnected { name: Option<Name> },
     /// message from session layer to the session controller
     /// to start to the close procedures of the session
     StartDrain { grace_period: Duration },

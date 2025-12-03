@@ -232,7 +232,15 @@ where
                 // send it to all the participants
                 self.delete_all(leave_msg, None).await
             }
-            SessionMessage::ParticipantDisconnected { name: participant } => {
+            SessionMessage::ParticipantDisconnected {
+                name: opt_participant,
+            } => {
+                let participant = opt_participant.ok_or_else(|| {
+                    SessionError::Processing(
+                        "Participant name is required for disconnection event".to_string(),
+                    )
+                })?;
+
                 debug!(
                     "Participant {} is not anymore connected to the current session",
                     participant
@@ -878,11 +886,14 @@ where
 
         // check that the participant is actually part of the group
         if !self.group_list.contains_key(&disconnected_no_id) {
-            tracing::info!("detected disconnection of participant {} that is not part of the group, ignore the message", disconnected);
-            return Ok(())
+            debug!(
+                "detected disconnection of participant {} that is not part of the group, ignore the message",
+                disconnected
+            );
+            return Ok(());
         }
 
-        tracing::info!("disconnection detected for participant {}", disconnected);
+        debug!("disconnection detected for participant {}", disconnected);
 
         // Send error notification to the application
         let error = SessionError::ParticipantDisconnected(format!(
@@ -910,22 +921,21 @@ where
             self.common.send_to_slim(reply).await?;
 
             // replace LEAVING_SESSION with DISCONNECTION_DETECTED so that if the process of the
-            // mesage need to be delay because the moderator is busy we do not send the reply twice
+            // message need to be delay because the moderator is busy we do not send the reply twice
             msg.remove_metadata(LEAVING_SESSION);
             msg.insert_metadata(DISCONNECTION_DETECTED.to_string(), TRUE_VAL.to_string());
             let header = msg.get_slim_header_mut();
             header.set_destination(&disconnected);
             header.set_source(&self.common.settings.source);
-            tracing::info!("create the new leave message {:?}", msg);
         }
 
         // if the session if P2P or no one is left on the session close it
         // if self.group_list.len() == 2 only the moderator and the participant
         // to remove are still in the list
         if self.common.settings.config.session_type == ProtoSessionType::PointToPoint
-            || self.group_list.len() == 2 
+            || self.group_list.len() == 2
         {
-            tracing::info!("this is a p2p session or no one is left is connected, close it");
+            debug!("no one is left connected connected to the session, close it");
             // if the remote endpoint got disconnected on a P2P session
             // simply notify the app and close the session
             self.prepare_shutdown().await?;
