@@ -181,21 +181,12 @@ where
                         .sender
                         .on_timer_failure(message_id, message_type)
                         .await;
-                    // the current task failed:
-                    // 1. create the right error message and notify via ack_tx if present
-                    let message = match &self.common.settings.config.session_type {
-                        ProtoSessionType::PointToPoint => "session handshake failed",
-                        ProtoSessionType::Multicast => "failed to add a participant to the group",
-                        _ => panic!("session type not specified"),
-                    };
 
                     // the task should always exist a this point
                     if let Some(task) = self.current_task.as_mut()
                         && let Some(ack_tx) = task.ack_tx_take()
                     {
-                        let _ = ack_tx.send(Err(SessionError::ModeratorTask(
-                            task.failure_message(message).to_string(),
-                        )));
+                        let _ = ack_tx.send(Err(task.failure_message()));
                     }
 
                     // 2. delete current task and pick a new one
@@ -856,10 +847,7 @@ where
         debug!("disconnection detected for participant {}", msg.get_dst());
 
         // Send error notification to the application
-        let error = SessionError::ParticipantDisconnected(format!(
-            "Participant {} disconnected unexpectedly",
-            msg.get_dst()
-        ));
+        let error = SessionError::ParticipantDisconnected(msg.get_dst());
         self.common.send_to_app(error).await?;
 
         // if the session if P2P or no one is left on the session close it

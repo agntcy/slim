@@ -1754,13 +1754,10 @@ mod tests {
         // Send the message - should fail
         let result = sender.on_message(message, None).await;
 
-        assert!(result.is_err());
-        match result {
-            Err(SessionError::UnknownDestination(msg)) => {
-                assert!(msg.contains("unknown"));
-            }
-            _ => panic!("Expected UnknownDestination error, got: {:?}", result),
-        }
+        assert!(
+            result.is_err_and(|e| { matches!(e, SessionError::UnknownDestination(_)) }),
+            "Expected UnknownDestination error",
+        );
     }
 
     #[tokio::test]

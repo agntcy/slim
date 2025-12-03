@@ -368,7 +368,7 @@ impl ControllerSender {
             return self.tx.send_to_slim(Ok(pending.message.clone())).await;
         };
 
-        Err(SessionError::TimerNotFound(format!("{}", id)))
+        Err(SessionError::TimerNotFound(id))
     }
 
     async fn handle_ping_timeout(&mut self, id: u32) -> Result<(), SessionError> {

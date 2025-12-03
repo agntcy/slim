@@ -969,11 +969,10 @@ mod tests {
             )
             .await;
 
-        assert!(result.is_err());
-        match result {
-            Err(SessionError::UnexpectedMessageType { .. }) => {}
-            _ => panic!("Expected UnexpectedMessageType error"),
-        }
+        assert!(result.is_err_and(|e| matches!(
+            e,
+            SessionError::SessionMessageTypeUnexpected(ProtoSessionMessageType::Msg)
+        )));
     }
 
     #[tokio::test]

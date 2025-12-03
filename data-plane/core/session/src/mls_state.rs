@@ -77,9 +77,10 @@ where
         let payload = msg
             .extract_group_welcome()
             .map_err(|e| SessionError::extract_error("group_welcome", e))?;
-        let mls_payload = payload.mls.as_ref().ok_or_else(|| {
-            SessionError::WelcomeMessage("missing mls payload in welcome message".to_string())
-        })?;
+        let mls_payload = payload
+            .mls
+            .as_ref()
+            .ok_or(SessionError::WelcomeMessageMissingMlsPayload)?;
         self.last_mls_msg_id = mls_payload.commit_id;
         let welcome = &mls_payload.mls_content;
 

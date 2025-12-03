@@ -16,13 +16,13 @@ use crate::SessionMessage;
 
 #[derive(Error, Debug)]
 pub enum SessionError {
-    // General errors
+    // Transport and channel errors
     #[error("SLIM channel closed")]
     SlimChannelClosed,
     #[error("error receiving message from SLIM: {0}")]
     SlimReception(#[from] Status),
 
-    // message processing errors
+    // Message processing and validation errors
     #[error("message error: {0}")]
     MessageError(#[from] MessageError),
     #[error("missing removed participant in GroupRemove message")]
@@ -39,16 +39,16 @@ pub enum SessionError {
     SessionMessageTypeUnknown(ProtoSessionMessageType),
     #[error("session message type unexpected: {0:?}")]
     SessionMessageTypeUnexpected(ProtoSessionMessageType),
+
+    // Lookup and missing entities
+    #[error("session not found: {0}")]
+    SessionNotFound(u32),
     #[error("subscription not found: {0}")]
     SubscriptionNotFound(Name),
 
-    // Not found errors
-    #[error("session not found: {0}")]
-    SessionNotFound(u32),
-
+    // Session lifecycle and state
     #[error("session builder: not all required fields set")]
     SessionBuilderIncomplete,
-
     #[error("message lost for session id: {0}")]
     MessageLost(u32),
     #[error("session closed")]
@@ -58,32 +58,21 @@ pub enum SessionError {
     #[error("invalid session id: {0}")]
     InvalidSessionId(u32),
 
-    // MLS encryption/decryption
+    // Cryptography (MLS)
     #[error("mls operation error: {0}")]
     MlsOp(#[from] MlsError),
 
-    // Identity
-    // #[error("identity error: {0}")]
-    // IdentityError(String),
-    // #[error("error pushing identity to the message")]
-    // IdentityPushError,
-
-    // Auth typed propagation
+    // Authorization and roles
     #[error("auth error: {0}")]
     Auth(#[from] AuthError),
 
-    // Handles
-    // #[error("no session handle available: session might be closed")]
-    // NoHandleAvailable,
-    // #[error("session error: {0}")]
-    // Generic(String),
+    // Acknowledgements and routing
     #[error("error receiving ack for message: {0}")]
     AckReception(String),
     #[error("unknown destination: {0}")]
     UnknownDestination(Name),
 
-    #[error("missing payload: {context}")]
-    MissingPayload { context: &'static str },
+    // Session membership and permissions
     #[error("participant not found in group: {0}")]
     ParticipantNotFound(Name),
     #[error("cannot invite participant to point-to-point session")]
@@ -93,12 +82,7 @@ pub enum SessionError {
     #[error("only initiator can modify participants")]
     NotInitiator,
 
-    // #[error("missing new participant in GroupAdd message")]
-    // MissingNewParticipant,
-    // #[error("missing removed participant in GroupRemove message")]
-    // MissingRemovedParticipant,
-    // #[error("channel send failure")]
-    // ChannelSend,
+    // Routing and delivery failures
     #[error("error sending session internal message to session controller")]
     SessionControllerSendFailed,
     #[error("error sending new session notification to app")]
@@ -110,6 +94,7 @@ pub enum SessionError {
     #[error("error sending data message to slim")]
     SlimMessageSendFailed,
 
+    // Session lifecycle and state (continued)
     #[error("session is draining - drop message")]
     SessionDrainingDrop,
     #[error("session already closed")]
@@ -121,10 +106,9 @@ pub enum SessionError {
     #[error("message receive retries exhausted for id={id}")]
     MessageReceiveRetryFailed { id: u32 },
 
-    // #[error("datapath message error: {0}")]
-    // DatapathMessage(#[from] MessageError),
-
-    // More specific extraction/build contexts (optional use at call sites)
+    // Message construction and extraction contexts
+    #[error("missing payload: {context}")]
+    MissingPayload { context: &'static str },
     #[error("message build failed: {0}")]
     MessageBuild(MessageError),
     #[error("message payload extract failed in {context}: {source}")]
@@ -133,29 +117,29 @@ pub enum SessionError {
         source: MessageError,
     },
 
-    // Channel Endpoint (remaining legacy variants to be migrated)
-    // #[error("error processing welcome message: {0}")]
-    // WelcomeMessage(String),
-    #[error("error processing proposal message: {0}")]
-    ParseProposalMessage(String),
-    #[error("error creating proposal message: {0}")]
-    NewProposalMessage(String),
-    #[error("error adding a new participant: {0}")]
-    AddParticipant(String),
-    #[error("error removing a participant: {0}")]
-    RemoveParticipant(String),
+    // Participant connectivity
+    #[error("missing mls payload in welcome message")]
+    WelcomeMessageMissingMlsPayload,
+    #[error("invalid join request payload")]
+    InvalidJoinRequestPayload,
     #[error("participant disconnected: {0}")]
-    ParticipantDisconnected(String),
-    #[error("no pending requests for the given key: {0}")]
-    TimerNotFound(String),
-    #[error("error processing payload of Join Channel request: {0}")]
-    JoinChannelPayload(String),
-    #[error("key rotation pending")]
-    KeyRotationPending,
+    ParticipantDisconnected(Name),
 
-    // Moderator Tasks errors
-    #[error("error updating a task: {0}")]
-    ModeratorTask(String),
+    // Moderator task orchestration
+    #[error("no pending requests for the given key: {0}")]
+    TimerNotFound(u32),
+    #[error("phase not supported for task")]
+    ModeratorTaskUnsupportedPhase,
+    #[error("unexpected timer id: {0}")]
+    ModeratorTaskUnexpectedTimerId(u32),
+    #[error("failed to add participant to session")]
+    ModeratorTaskAddFailed,
+    #[error("failed to remove participant from session")]
+    ModeratorTaskRemoveFailed,
+    #[error("failed to update session")]
+    ModeratorTaskUpdateFailed,
+    #[error("failed to close session")]
+    ModeratorTaskCloseFailed,
 }
 
 impl SessionError {

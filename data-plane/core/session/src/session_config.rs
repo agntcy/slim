@@ -77,6 +77,7 @@ mod tests {
     use super::*;
     use slim_datapath::api::CommandPayload;
     use slim_datapath::messages::Name;
+    use slim_datapath::messages::utils::MessageError;
     use std::time::Duration;
 
     #[test]
@@ -212,7 +213,14 @@ mod tests {
             true,
         );
 
-        assert!(result.is_err_and(|e| matches!(e, SessionError::InvalidJoinRequestPayload)));
+        println!("{:?}", result);
+        assert!(result.is_err_and(|e| matches!(
+            e,
+            SessionError::MessageError(MessageError::InvalidCommandPayloadType {
+                expected: _,
+                got: _
+            })
+        )));
     }
 
     #[test]

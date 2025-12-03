@@ -1017,7 +1017,7 @@ mod tests {
         // Check that we received an error (None represents a lost message)
         match app_error {
             Err(SessionError::MessageLost(session_id)) => {
-                assert_eq!(session_id, "10");
+                assert_eq!(session_id, 10);
             }
             _ => panic!("Expected SessionError::MessageLost, got: {:?}", app_error),
         }

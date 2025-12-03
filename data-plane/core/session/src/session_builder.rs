@@ -530,13 +530,7 @@ mod tests {
                 .with_tx_to_session_layer(tx_to_session);
 
         let ready_result = builder.ready();
-        assert!(ready_result.is_err());
-        match ready_result {
-            Err(SessionError::ConfigurationError(msg)) => {
-                assert!(msg.contains("Not all required fields are set"));
-            }
-            _ => panic!("Expected ConfigurationError"),
-        }
+        assert!(ready_result.is_err_and(|e| matches!(e, SessionError::SessionBuilderIncomplete)));
     }
 
     #[test]
@@ -1010,13 +1004,8 @@ mod tests {
             SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
                 .with_id(1);
 
-        match builder.ready() {
-            Err(SessionError::ConfigurationError(msg)) => {
-                assert!(msg.contains("Not all required fields"));
-                assert!(msg.contains("SessionBuilder"));
-            }
-            _ => panic!("Expected ConfigurationError"),
-        }
+        let res = builder.ready();
+        assert!(res.is_err_and(|e| matches!(e, SessionError::SessionBuilderIncomplete)));
     }
 
     #[test]

@@ -14,7 +14,7 @@ pub(crate) struct State {
     timer_id: u32,
 }
 
-pub trait TaskUpdate {
+pub(crate) trait TaskUpdate {
     fn discovery_start(&mut self, timer_id: u32) -> Result<(), SessionError>;
     fn discovery_complete(&mut self, timer_id: u32) -> Result<(), SessionError>;
     fn join_start(&mut self, timer_id: u32) -> Result<(), SessionError>;
@@ -30,7 +30,7 @@ pub trait TaskUpdate {
 }
 
 fn unsupported_phase() -> SessionError {
-    SessionError::ModeratorTask("this phase is not supported in this task".to_string())
+    SessionError::ModeratorTaskUnsupportedPhase
 }
 
 #[derive(Debug)]
@@ -57,12 +57,12 @@ impl ModeratorTask {
         }
     }
 
-    pub(crate) fn failure_message<'a>(&self, add_msg: &'a str) -> &'a str {
+    pub(crate) fn failure_message<'a>(&self) -> SessionError {
         match self {
-            ModeratorTask::Add(_) => add_msg,
-            ModeratorTask::Remove(_) => "failed to remove a participant from the group",
-            ModeratorTask::Update(_) => "failed to update state of the participant",
-            ModeratorTask::CloseOrDisconnect(_) => "failed to notify participants",
+            ModeratorTask::Add(_) => SessionError::ModeratorTaskAddFailed,
+            ModeratorTask::Remove(_) => SessionError::ModeratorTaskRemoveFailed,
+            ModeratorTask::Update(_) => SessionError::ModeratorTaskUpdateFailed,
+            ModeratorTask::CloseOrDisconnect(_) => SessionError::ModeratorTaskCloseFailed,
         }
     }
 }
@@ -194,9 +194,7 @@ impl TaskUpdate for AddParticipant {
             );
             Ok(())
         } else {
-            Err(SessionError::ModeratorTask(
-                "unexpected timer id".to_string(),
-            ))
+            Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id))
         }
     }
 
@@ -222,9 +220,7 @@ impl TaskUpdate for AddParticipant {
 
             Ok(())
         } else {
-            Err(SessionError::ModeratorTask(
-                "unexpected timer id".to_string(),
-            ))
+            Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id))
         }
     }
 
@@ -270,9 +266,7 @@ impl TaskUpdate for AddParticipant {
             );
             Ok(())
         } else {
-            Err(SessionError::ModeratorTask(
-                "unexpected timer id".to_string(),
-            ))
+            Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id))
         }
     }
 
@@ -344,9 +338,7 @@ impl TaskUpdate for RemoveParticipant {
 
             Ok(())
         } else {
-            Err(SessionError::ModeratorTask(
-                "unexpected timer id".to_string(),
-            ))
+            Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id))
         }
     }
 
@@ -377,9 +369,7 @@ impl TaskUpdate for RemoveParticipant {
             );
             Ok(())
         } else {
-            Err(SessionError::ModeratorTask(
-                "unexpected timer id".to_string(),
-            ))
+            Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id))
         }
     }
 
@@ -459,9 +449,7 @@ impl TaskUpdate for NotifyParticipants {
 
             Ok(())
         } else {
-            Err(SessionError::ModeratorTask(
-                "unexpected timer id".to_string(),
-            ))
+            Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id))
         }
     }
 
@@ -543,9 +531,7 @@ impl TaskUpdate for UpdateParticipant {
             );
             Ok(())
         } else {
-            Err(SessionError::ModeratorTask(
-                "unexpected timer id".to_string(),
-            ))
+            Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id))
         }
     }
 
@@ -562,7 +548,7 @@ mod tests {
     #[derive(Debug)]
     enum StepExpectation {
         Ok,
-        ModeratorTaskErr(&'static str),
+        UnexpectedTimerId(u32),
         UnsupportedPhase,
     }
 
@@ -586,16 +572,16 @@ mod tests {
                 expect_complete,
             }
         }
-        fn err<F: 'static + Fn(&mut ModeratorTask) -> Result<(), SessionError>>(
+        fn unexpected_timer<F: 'static + Fn(&mut ModeratorTask) -> Result<(), SessionError>>(
             name: &'static str,
             f: F,
-            msg: &'static str,
+            id: u32,
             expect_complete: bool,
         ) -> Self {
             Step {
                 name,
                 action: Box::new(f),
-                expectation: StepExpectation::ModeratorTaskErr(msg),
+                expectation: StepExpectation::UnexpectedTimerId(id),
                 expect_complete,
             }
         }
@@ -623,26 +609,24 @@ mod tests {
                         panic!("step {} ({}) expected Ok, got Err {:?}", i, step.name, e);
                     }
                 }
-                StepExpectation::ModeratorTaskErr(msg) => match res {
-                    Err(SessionError::ModeratorTask(actual)) => {
-                        assert_eq!(actual, msg, "step {} ({}) msg mismatch", i, step.name);
-                    }
-                    other => panic!(
-                        "step {} ({}) expected ModeratorTask('{}'), got {:?}",
-                        i, step.name, msg, other
-                    ),
-                },
-                StepExpectation::UnsupportedPhase => match res {
-                    Err(SessionError::ModeratorTask(actual)) => {
+                StepExpectation::UnexpectedTimerId(expected_id) => match res {
+                    Err(SessionError::ModeratorTaskUnexpectedTimerId(actual_id)) => {
                         assert_eq!(
-                            actual, "this phase is not supported in this task",
-                            "step {} ({}) unsupported phase msg mismatch",
+                            actual_id, expected_id,
+                            "step {} ({}) unexpected timer id mismatch",
                             i, step.name
                         );
                     }
+                    other => panic!(
+                        "step {} ({}) expected ModeratorTaskUnexpectedTimerId({}), got {:?}",
+                        i, step.name, expected_id, other
+                    ),
+                },
+                StepExpectation::UnsupportedPhase => match res {
+                    Err(SessionError::ModeratorTaskUnsupportedPhase) => {}
                     other => {
                         panic!(
-                            "step {} ({}) expected unsupported phase error, got {:?}",
+                            "step {} ({}) expected ModeratorTaskUnsupportedPhase, got {:?}",
                             i, step.name, other
                         );
                     }
@@ -666,16 +650,15 @@ mod tests {
             ModeratorTask::Add(AddParticipant::default()),
             vec![
                 Step::ok("discovery_start", move |t| t.discovery_start(base), false),
-                Step::err(
+                Step::unexpected_timer(
                     "discovery_complete_wrong",
                     move |t| t.discovery_complete(base + 1),
-                    "unexpected timer id",
+                    base + 1,
                     false,
                 ),
-                Step::err(
+                Step::unsupported(
                     "leave_start_unsupported",
                     move |t| t.leave_start(base),
-                    "this phase is not supported in this task",
                     false,
                 ),
                 Step::ok(
@@ -715,10 +698,10 @@ mod tests {
                     false,
                 ),
                 Step::ok("leave_start", move |t| t.leave_start(base + 1), false),
-                Step::err(
+                Step::unexpected_timer(
                     "leave_complete_wrong",
                     move |t| t.leave_complete(base + 2),
-                    "unexpected timer id",
+                    base + 2,
                     false,
                 ),
                 Step::unsupported(
@@ -769,14 +752,10 @@ mod tests {
         assert!(!task.task_complete());
 
         let mut res = task.update_phase_completed(timer_id + 1);
-        assert!(
-            res.is_err_and(|e| matches!(e, SessionError::ModeratorTask(_)))
-        );
+        assert!(res.is_err_and(|e| matches!(e, SessionError::ModeratorTaskUnexpectedTimerId(_))));
 
         res = task.discovery_start(timer_id);
-        assert!(
-            res.is_err_and(|e| matches!(e, SessionError::ModeratorTask(_)))
-        );
+        assert!(res.is_err_and(|e| matches!(e, SessionError::ModeratorTaskUnsupportedPhase)));
 
         task.update_phase_completed(timer_id)
             .expect("error on notify completed");
