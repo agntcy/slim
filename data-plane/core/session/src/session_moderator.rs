@@ -906,8 +906,11 @@ where
                 CommandPayload::builder().leave_reply().as_content(),
                 false,
             )?;
+            self.common.sender.on_message(&reply).await?;
             self.common.send_to_slim(reply).await?;
 
+            // replace LEAVING_SESSION with DISCONNECTION_DETECTED so that if the process of the
+            // mesage need to be delay because the moderator is busy we do not send the reply twice
             msg.remove_metadata(LEAVING_SESSION);
             msg.insert_metadata(DISCONNECTION_DETECTED.to_string(), TRUE_VAL.to_string());
             let header = msg.get_slim_header_mut();

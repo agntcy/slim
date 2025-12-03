@@ -92,6 +92,9 @@ pub struct ControllerSender {
     /// by default is None, start only if a duration is set
     ping_state: Option<PingState>,
 
+    /// set to true if the participant is an initiator
+    initiator: bool,
+
     /// group list
     /// list of participants to the group
     group_list: HashSet<Name>,
@@ -114,6 +117,7 @@ impl ControllerSender {
         session_type: ProtoSessionType,
         session_id: u32,
         ping_interval: Option<Duration>,
+        initiator: bool,
         tx: SessionTransmitter,
         tx_signals: Sender<SessionMessage>,
     ) -> Self {
@@ -148,6 +152,7 @@ impl ControllerSender {
             session_id,
             pending_replies: HashMap::new(),
             ping_state,
+            initiator,
             group_list: list,
             tx,
             tx_session: tx_signals,
@@ -246,6 +251,8 @@ impl ControllerSender {
                     .cloned()
                     .collect::<HashSet<_>>();
 
+                tracing::info!("REMOVE -> missing list {:?}", missing_replies);
+
                 // remove the endpoint also from the group list
                 let payload = message.extract_group_remove().map_err(|e| {
                     SessionError::Processing(format!(
@@ -320,6 +327,16 @@ impl ControllerSender {
             message.get_source()
         );
 
+        if message.get_session_message_type() == slim_datapath::api::ProtoSessionMessageType::LeaveReply &&
+            self.initiator {
+            // here the moderator is replying to a participant that sent a leave request to be
+            // removed from the session. the message is forwarded without setup a timer that is
+            // handled by the participant. here we just need to update the group list and drop
+            // the message
+            self.group_list.remove(&message.get_dst());
+            return
+        }
+
         let mut delete = false;
         if let Some(pending) = self.pending_replies.get_mut(&id) {
             debug!("try to remove {} from pending acks", id);
@@ -367,6 +384,7 @@ impl ControllerSender {
         id: u32,
         msg_type: ProtoSessionMessageType,
     ) -> Result<(), SessionError> {
+        tracing::info!("timeout for the message {} of type {:?}", id, msg_type);
         debug!("timeout for message {}", id);
 
         // check if the timeout is related to a ping
@@ -624,6 +642,7 @@ mod tests {
             ProtoSessionType::Multicast,
             session_id,
             None,
+            false,
             tx,
             tx_signal,
         );
@@ -742,6 +761,7 @@ mod tests {
             ProtoSessionType::Multicast,
             session_id,
             None,
+            false,
             tx,
             tx_signal,
         );
@@ -865,6 +885,7 @@ mod tests {
             ProtoSessionType::Multicast,
             session_id,
             None,
+            false,
             tx,
             tx_signal,
         );
@@ -982,6 +1003,7 @@ mod tests {
             ProtoSessionType::Multicast,
             session_id,
             None,
+            false,
             tx,
             tx_signal,
         );
@@ -1099,6 +1121,7 @@ mod tests {
             ProtoSessionType::Multicast,
             session_id,
             None,
+            false,
             tx,
             tx_signal,
         );
@@ -1249,6 +1272,7 @@ mod tests {
             ProtoSessionType::Multicast,
             session_id,
             None,
+            false,
             tx,
             tx_signal,
         );
@@ -1457,6 +1481,7 @@ mod tests {
             ProtoSessionType::Multicast,
             session_id,
             Some(ping_interval),
+            true,
             tx,
             tx_signal,
         );

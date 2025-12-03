@@ -542,6 +542,7 @@ where
             settings.config.session_type,
             settings.id,
             ping_interval,
+            settings.config.initiator,
             // send messages to slim/app
             settings.tx.clone(),
             // send signal to the controller
