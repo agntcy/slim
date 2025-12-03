@@ -23,9 +23,9 @@ use slim_auth::traits::TokenProvider; // For get_token() and get_id()
 use slim_config::component::ComponentBuilder;
 use slim_datapath::api::ProtoSessionType;
 use slim_datapath::messages::Name as SlimName;
+use slim_service::Service;
 use slim_service::app::App;
 use slim_service::errors::ServiceError;
-use slim_service::Service;
 use slim_session::SessionConfig as SlimSessionConfig;
 use slim_session::session_controller::SessionController;
 use slim_session::{Notification, SessionError as SlimSessionError};
@@ -1792,6 +1792,7 @@ mod tests {
 
     /// Test environment variable configuration
     #[test]
+    #[allow(clippy::disallowed_methods)]
     fn test_env_var_configuration() {
         // Set environment variables
         unsafe {
@@ -1821,4 +1822,3 @@ mod tests {
         }
     }
 }
-

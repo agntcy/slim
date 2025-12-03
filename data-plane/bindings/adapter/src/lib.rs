@@ -57,4 +57,3 @@ pub use session_context::BindingsSessionContext;
 
 // UniFFI scaffolding setup (must be at crate root)
 uniffi::setup_scaffolding!();
-

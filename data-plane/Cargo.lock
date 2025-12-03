@@ -328,13 +328,11 @@ dependencies = [
  "agntcy-slim-service",
  "agntcy-slim-session",
  "agntcy-slim-testing",
- "futures",
  "num_cpus",
  "parking_lot",
  "thiserror 2.0.17",
  "tokio",
  "tokio-test",
- "tracing",
  "tracing-test",
  "uniffi",
 ]

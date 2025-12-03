@@ -20,8 +20,8 @@ use slim_session::{SessionConfig, SessionError};
 use crate::pymessage::PyMessageContext;
 use crate::utils::PyName;
 use slim_datapath::messages::Name;
-use slim_uniffi::{BindingsAdapter, BindingsSessionContext, MessageContext};
 pub use slim_session::SESSION_UNSPECIFIED;
+use slim_uniffi::{BindingsAdapter, BindingsSessionContext, MessageContext};
 
 use slim_session::context::SessionContext;
 

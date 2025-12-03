@@ -85,4 +85,3 @@ mod tests {
         // Note: ServiceRef is now private to the adapter, can't directly test pointer equality
     }
 }
-

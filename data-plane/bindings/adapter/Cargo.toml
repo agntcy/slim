@@ -18,12 +18,10 @@ agntcy-slim-service = { workspace = true }
 agntcy-slim-session = { workspace = true }
 
 # External dependencies
-futures = { workspace = true }
 num_cpus = { workspace = true }
 parking_lot = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-tracing = { workspace = true }
 uniffi = { version = "0.28.3", features = ["cli"] }
 
 [build-dependencies]
