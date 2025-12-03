@@ -35,7 +35,7 @@ fn main() -> Result<()> {
 
     // start runtime
     let runtime_config = config.runtime();
-    let runtime = runtime::build(runtime_config).expect("failed to build runtime");
+    let runtime = runtime::build(runtime_config);
 
     let run_result: Result<_> = runtime.runtime.block_on(async move {
         // tracing subscriber initialization must be called from the runtime

@@ -36,7 +36,7 @@
 
 use std::path::Path;
 
-use crate::tls::common::{CaSource, ConfigError};
+use crate::tls::{common::CaSource, errors::ConfigError};
 use rustls::RootCertStore;
 use rustls_pki_types::{CertificateDer, pem::PemObject};
 
@@ -121,17 +121,14 @@ impl RootStoreBuilder {
         root_store: &mut RootCertStore,
         spiffe_cfg: &spire::SpireConfig,
     ) -> Result<(), ConfigError> {
-        let mut spire_identity_manager = spiffe_cfg
-            .create_provider()
-            .await
-            .map_err(|e| ConfigError::SpireError(e.to_string()))?;
+        let mut spire_identity_manager = spiffe_cfg.create_provider();
+        spire_identity_manager.initialize().await?;
 
         if !spiffe_cfg.trust_domains.is_empty() {
             for domain in &spiffe_cfg.trust_domains {
                 let bundle = spire_identity_manager
                     .get_x509_bundle_for_trust_domain(domain)
-                    .await
-                    .map_err(|e| ConfigError::SpireError(e.to_string()))?;
+                    .await?;
 
                 for cert in bundle.authorities() {
                     let der_cert = CertificateDer::from(cert.as_ref().to_vec());
@@ -140,9 +137,7 @@ impl RootStoreBuilder {
             }
         }
 
-        let default_bundle = spire_identity_manager
-            .get_x509_bundle()
-            .map_err(|e| ConfigError::SpireError(e.to_string()))?;
+        let default_bundle = spire_identity_manager.get_x509_bundle()?;
 
         for cert in default_bundle.authorities() {
             let der_cert = CertificateDer::from(cert.as_ref().to_vec());

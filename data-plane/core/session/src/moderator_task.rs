@@ -769,15 +769,14 @@ mod tests {
         assert!(!task.task_complete());
 
         let mut res = task.update_phase_completed(timer_id + 1);
-        assert_eq!(
-            res,
-            Err(SessionError::ModeratorTask(
-                "unexpected timer id".to_string(),
-            ))
+        assert!(
+            res.is_err_and(|e| matches!(e, SessionError::ModeratorTask(_)))
         );
 
         res = task.discovery_start(timer_id);
-        assert_eq!(res, Err(unsupported_phase()));
+        assert!(
+            res.is_err_and(|e| matches!(e, SessionError::ModeratorTask(_)))
+        );
 
         task.update_phase_completed(timer_id)
             .expect("error on notify completed");

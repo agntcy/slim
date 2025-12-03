@@ -130,9 +130,9 @@ impl SessionSender {
     ) -> Result<(), SessionError> {
         if self.draining_state == SenderDrainStatus::Completed {
             if let Some(tx) = ack_tx {
-                let _ = tx.send(Err(SessionError::SenderClosedDrop));
+                let _ = tx.send(Err(SessionError::SessionDrainingDrop));
             }
-            return Err(SessionError::SenderClosedDrop);
+            return Err(SessionError::SessionDrainingDrop);
         }
 
         match message.get_session_message_type() {
@@ -140,9 +140,9 @@ impl SessionSender {
                 debug!("received message");
                 if self.draining_state == SenderDrainStatus::Initiated {
                     if let Some(tx) = ack_tx {
-                        let _ = tx.send(Err(SessionError::DrainStartedRejectNew));
+                        let _ = tx.send(Err(SessionError::SessionDrainingDrop));
                     }
-                    return Err(SessionError::DrainStartedRejectNew);
+                    return Err(SessionError::SessionDrainingDrop);
                 }
                 if self.session_type == ProtoSessionType::PointToPoint {
                     // if the session is point to point publish_to falls back
@@ -197,9 +197,7 @@ impl SessionSender {
                 "cannot forward the message to the select destination {}",
                 message.get_dst()
             );
-            return Err(SessionError::UnknownDestination(
-                message.get_dst().to_string(),
-            ));
+            return Err(SessionError::UnknownDestination(message.get_dst()));
         }
 
         let (message_id, fanout) = self.id_and_fanout(is_publish_to);
@@ -550,7 +548,7 @@ impl SessionSender {
 
         // Notify all pending ack notifiers that the sender is closed
         for (_, tx) in self.ack_notifiers.drain() {
-            let _ = tx.send(Err(SessionError::SenderClosedDrop));
+            let _ = tx.send(Err(SessionError::SessionClosed));
         }
 
         self.draining_state = SenderDrainStatus::Completed;

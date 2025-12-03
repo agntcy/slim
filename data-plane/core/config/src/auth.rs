@@ -15,24 +15,23 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum ConfigAuthError {
     // Configuration
-    #[error("config error: {0}")]
-    ConfigError(String),
+    #[error("username cannot be empty")]
+    AuthBasicEmptyUsername,
+    #[error("password cannot be empty")]
+    AuthBasicEmptyPassword,
 
-    // Token lifecycle
-    #[error("token expired")]
-    TokenExpired,
-    #[error("token invalid: {0}")]
-    TokenInvalid(String),
-
-    // Signing / headers
-    #[error("sign error: {0}")]
-    SigningError(String),
-    #[error("invalid header: {0}")]
-    InvalidHeader(String),
+    #[error("client id cannot be empty")]
+    AuthOidcEmptyClientId,
+    #[error("client secret cannot be empty")]
+    AuthOidcEmptyClientSecret,
 
     // Propagated auth library errors
     #[error("internal auth error: {0}")]
-    InternalError(#[from] SlimAuthError),
+    AuthInternalError(#[from] SlimAuthError),
+
+    // Verifier errors
+    #[error("audience required")]
+    AuthJwtAudienceRequired,
 }
 
 pub trait ClientAuthenticator {

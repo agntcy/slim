@@ -131,8 +131,7 @@ impl CustomClaimsCodec {
     ///
     /// A string in the format: `slim-claims:<base64-encoded-json>`
     fn encode_audience(custom_claims: &MetadataMap) -> Result<String, AuthError> {
-        let claims_json = serde_json::to_string(custom_claims)
-            .map_err(|e| AuthError::SpiffeCustomClaimsSerialize { source: e })?;
+        let claims_json = serde_json::to_string(custom_claims)?;
 
         let claims_b64 = BASE64.encode(claims_json.as_bytes());
         Ok(format!("{}{}", Self::CLAIMS_PREFIX, claims_b64))
@@ -315,7 +314,7 @@ impl SpireIdentityManager {
             .ok_or(AuthError::SpiffeX509SourceNotInitialized)?;
         let svid = x509_source
             .get_svid()
-            .map_err(|e| AuthError::SpiffeX509SvidFetch(e.to_string()))?
+            .map_err(|e| AuthError::SpiffeX509SvidFetch { source: e })?
             .ok_or(AuthError::SpiffeX509SvidMissing)?;
         debug!("Retrieved X509 SVID with SPIFFE ID: {}", svid.spiffe_id());
         Ok(svid)
@@ -327,9 +326,7 @@ impl SpireIdentityManager {
         let cert_chain = svid.cert_chain();
 
         if cert_chain.is_empty() {
-            return Err(AuthError::ConfigError(
-                "Empty certificate chain".to_string(),
-            ));
+            return Err(AuthError::SpiffeX509EmptyCertChain);
         }
 
         // Convert the first certificate to PEM format using shared utility
@@ -373,15 +370,15 @@ impl SpireIdentityManager {
         // Derive trust domain from current SVID
         let svid = x509_source
             .get_svid()
-            .map_err(|e| AuthError::SpiffeX509SvidFetch(e.to_string()))?
+            .map_err(|e| AuthError::SpiffeX509SvidFetch { source: e })?
             .ok_or(AuthError::SpiffeX509SvidMissing)?;
 
         let td = svid.spiffe_id().trust_domain();
 
         x509_source
             .get_bundle_for_trust_domain(td)
-            .map_err(|e| AuthError::SpiffeX509BundleFetch(e.to_string()))?
-            .ok_or(AuthError::SpiffeX509BundleMissing(td.to_string()))
+            .map_err(|e| AuthError::SpiffeX509BundleFetch { source: e })?
+            .ok_or(AuthError::SpiffeX509BundleMissing(td.clone()))
     }
 
     /// Get the X.509 bundle for an explicit trust domain (ignores config override)
@@ -403,7 +400,7 @@ impl SpireIdentityManager {
         bundles
             .get_bundle(&td)
             .cloned()
-            .ok_or(AuthError::SpiffeX509BundleMissing(td_str))
+            .ok_or(AuthError::SpiffeX509BundleMissing(td))
     }
 
     /// Internal helper to access JWT bundles
@@ -900,18 +897,13 @@ async fn fetch_once(
     audiences: &[String],
     target_spiffe_id: Option<&String>,
 ) -> Result<JwtSvid, AuthError> {
-    let parsed_target = if let Some(t) = target_spiffe_id {
-        Some(
-            t.parse()
-                .map_err(|e| AuthError::ConfigError(format!("Invalid SPIFFE ID: {}", e)))?,
-        )
-    } else {
-        None
-    };
-    client
+    let parsed_target = target_spiffe_id.map(|s| s.parse()).transpose()?;
+
+    let res = client
         .fetch_jwt_svid(audiences, parsed_target.as_ref())
-        .await
-        .map_err(|e| AuthError::ConfigError(format!("Failed to fetch JWT SVID: {}", e)))
+        .await?;
+
+    Ok(res)
 }
 
 // Decode JWT expiry (seconds since epoch) without verifying signature and audience.
@@ -923,21 +915,20 @@ fn decode_jwt_expiry_unverified(token: &str) -> Result<u64, AuthError> {
 
     let key = jsonwebtoken_aws_lc::DecodingKey::from_secret(&[]);
     let claims: TokenData<serde_json::Value> =
-        jsonwebtoken_aws_lc::decode(token, &key, &validation).map_err(|e| {
-            AuthError::TokenInvalid(format!("failed to extract claims from SVID: {}", e))
-        })?;
+        jsonwebtoken_aws_lc::decode(token, &key, &validation)?;
 
     let exp_val = claims
         .claims
         .get("exp")
-        .ok_or_else(|| AuthError::TokenInvalid("JWT SVID missing 'exp' claim".to_string()))?;
+        .ok_or(AuthError::TokenInvalidMissingExp)?;
 
     if let Some(num) = exp_val.as_u64() {
         Ok(num)
     } else {
-        exp_val.to_string().parse::<u64>().map_err(|_| {
-            AuthError::TokenInvalid("JWT SVID 'exp' claim not a valid u64".to_string())
-        })
+        exp_val
+            .to_string()
+            .parse::<u64>()
+            .map_err(|_| AuthError::TokenInvalidMissingExp)
     }
 }
 
@@ -1035,8 +1026,7 @@ impl Verifier for SpireIdentityManager {
 
     fn try_verify(&self, token: impl Into<String>) -> Result<(), AuthError> {
         let bundles = self.get_jwt_bundles()?;
-        JwtSvid::parse_and_validate(&token.into(), &bundles, &self.jwt_audiences)
-            .map_err(|e| AuthError::TokenInvalid(format!("JWT validation failed: {}", e)))?;
+        JwtSvid::parse_and_validate(&token.into(), &bundles, &self.jwt_audiences)?;
         debug!("Successfully verified JWT token (sync)");
         Ok(())
     }
@@ -1053,8 +1043,7 @@ impl Verifier for SpireIdentityManager {
         Claims: DeserializeOwned + Send,
     {
         let bundles = self.get_jwt_bundles()?;
-        let jwt_svid = JwtSvid::parse_and_validate(&token.into(), &bundles, &self.jwt_audiences)
-            .map_err(|e| AuthError::TokenInvalid(format!("JWT validation failed: {}", e)))?;
+        let jwt_svid = JwtSvid::parse_and_validate(&token.into(), &bundles, &self.jwt_audiences)?;
 
         debug!(
             "Successfully extracted claims for SPIFFE ID: {}",
@@ -1083,8 +1072,9 @@ impl Verifier for SpireIdentityManager {
             );
         }
 
-        serde_json::from_value(claims_json)
-            .map_err(|e| AuthError::ConfigError(format!("Failed to deserialize JWT claims: {}", e)))
+        let res = serde_json::from_value(claims_json)?;
+
+        Ok(res)
     }
 }
 

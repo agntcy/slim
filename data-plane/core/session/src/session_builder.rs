@@ -210,9 +210,7 @@ where
             || self.tx.is_none()
             || self.tx_to_session_layer.is_none()
         {
-            return Err(SessionError::ConfigurationError(
-                "Not all required fields are set in SessionBuilder".to_string(),
-            ));
+            return Err(SessionError::SessionBuilderIncomplete);
         }
 
         Ok(SessionBuilder {

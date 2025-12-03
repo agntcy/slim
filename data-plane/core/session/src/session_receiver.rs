@@ -120,7 +120,7 @@ impl SessionReceiver {
 
     pub async fn on_message(&mut self, mut message: Message) -> Result<(), SessionError> {
         if self.draining_state == ReceiverDrainStatus::Completed {
-            return Err(SessionError::ReceiverClosedDrop);
+            return Err(SessionError::SessionDrainingDrop);
         }
 
         match message.get_session_message_type() {
@@ -128,7 +128,7 @@ impl SessionReceiver {
                 debug!("received message");
                 if self.draining_state == ReceiverDrainStatus::Initiated {
                     // draining period is started, do no accept any new message
-                    return Err(SessionError::DrainStartedRejectNew);
+                    return Err(SessionError::SessionDrainingDrop);
                 }
                 if self.session_type == ProtoSessionType::PointToPoint {
                     // if the session is point to point publish_to falls back
@@ -251,7 +251,7 @@ impl SessionReceiver {
                         source, self.session_id
                     );
                     self.tx
-                        .send_to_app(Err(SessionError::MessageLost(self.session_id.to_string())))
+                        .send_to_app(Err(SessionError::MessageLost(self.session_id)))
                         .await?;
                 }
             }

@@ -26,15 +26,11 @@ where
     T: TokenProvider + Clone,
 {
     provider: T,
-    duration: u64, // Duration in seconds
 }
 
 impl<T: TokenProvider + Clone> AddJwtLayer<T> {
-    pub fn new(signer: T, duration: u64) -> Self {
-        Self {
-            provider: signer,
-            duration,
-        }
+    pub fn new(signer: T) -> Self {
+        Self { provider: signer }
     }
     /// Asynchronously initialize the underlying `TokenProvider` before
     /// the layer is used to construct services. This must be called for
@@ -56,9 +52,6 @@ impl<S, T: TokenProvider + Clone> Layer<S> for AddJwtLayer<T> {
         AddJwtToken {
             inner,
             provider: self.provider.clone(),
-            cached_token: None,
-            valid_until: None,
-            duration: self.duration,
         }
     }
 }
@@ -68,36 +61,13 @@ impl<S, T: TokenProvider + Clone> Layer<S> for AddJwtLayer<T> {
 pub struct AddJwtToken<S, T: TokenProvider + Clone> {
     inner: S,
     provider: T,
-
-    cached_token: Option<HeaderValue>,
-    valid_until: Option<u64>, // UNIX timestamp in seconds
-    duration: u64,            // Duration in seconds
 }
 
 impl<S, T: TokenProvider + Clone> AddJwtToken<S, T> {
-    /// Get a JWT token, either from cache or by signing a new one
+    /// Get a JWT token, either from cache or from provider
     pub fn get_token(&mut self) -> Result<HeaderValue, AuthError> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_secs();
-
-        if let Some(cached_token) = &self.cached_token
-            && let Some(valid_until) = self.valid_until
-        {
-            // We sign a new token if the cached token is about to expire in less than 2/3 of its lifetime
-            let remaining = valid_until - now;
-            if remaining > self.duration * 2 / 3 {
-                return Ok(cached_token.clone());
-            }
-        }
-
         let token = self.provider.get_token()?;
-
         let header_value = HeaderValue::try_from(format!("Bearer {}", token))?;
-
-        self.cached_token = Some(header_value.clone());
-        self.valid_until = Some(now + self.duration);
-
         Ok(header_value)
     }
 }
@@ -328,7 +298,6 @@ mod tests {
     use crate::{builder::JwtBuilder, jwt::Key, jwt::KeyData};
     use futures::future::{self, Ready};
     use http::{Request, Response, StatusCode};
-    use std::time::Duration;
     use tower::{Service, ServiceBuilder};
 
     use super::*;
@@ -388,11 +357,9 @@ mod tests {
             .build()
             .unwrap();
 
-        let duration = 3600; // 1 hour
-
         // Create our test service with the JWT signer layer
         let mut service = ServiceBuilder::new()
-            .layer(AddJwtLayer::new(signer, duration))
+            .layer(AddJwtLayer::new(signer))
             .service(TestService);
 
         // Make a request
@@ -404,56 +371,6 @@ mod tests {
         // Service should add JWT to the request and return a 200 OK
         let response = service.call(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn test_jwt_token_caching() {
-        // Set up a JWT signer
-        let signer = JwtBuilder::new()
-            .issuer("test-issuer")
-            .audience(&["test-audience"])
-            .subject("test-subject")
-            .private_key(&Key {
-                algorithm: Algorithm::HS256,
-                format: KeyFormat::Pem,
-                key: KeyData::Data("test-key".to_string()),
-            })
-            .build()
-            .unwrap();
-
-        let duration = 3600; // 1 hour
-
-        // Create our AddJwtToken service directly to test token caching
-        let mut add_jwt = AddJwtToken {
-            inner: TestService,
-            provider: signer.clone(),
-            cached_token: None,
-            valid_until: None,
-            duration,
-        };
-
-        // Get a token
-        let token1 = add_jwt.get_token().unwrap();
-
-        // Get another token - should be the same cached token
-        let token2 = add_jwt.get_token().unwrap();
-        assert_eq!(token1, token2);
-
-        // Manually expire the token
-        add_jwt.valid_until = Some(
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs()
-                + duration / 4,
-        );
-
-        // sleep 1 sec to change the iss claim
-        tokio::time::sleep(Duration::from_secs(1)).await;
-
-        // Get another token - should be a new token due to imminent expiry
-        let token3 = add_jwt.get_token().unwrap();
-        assert_ne!(token1, token3);
     }
 
     // An enhanced test service that checks for the Authorization header
@@ -673,7 +590,7 @@ mod tests {
 
         // Construct a client service that adds a JWT token
         let mut client = ServiceBuilder::new()
-            .layer(AddJwtLayer::new(signer.clone(), 3600))
+            .layer(AddJwtLayer::new(signer.clone()))
             .service(TestService);
 
         // Construct a server service that verifies the JWT token

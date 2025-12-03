@@ -19,9 +19,9 @@ use super::errors::ConfigError;
 use crate::auth::ServerAuthenticator;
 use crate::auth::basic::Config as BasicAuthenticationConfig;
 use crate::auth::jwt::Config as JwtAuthenticationConfig;
+use crate::component::configuration::Configuration;
 use slim_auth::metadata::MetadataMap;
 
-use crate::component::configuration::{Configuration, ConfigurationError};
 use crate::tls::{common::RustlsConfigLoader, server::TlsServerConfig as TLSSetting};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
@@ -216,9 +216,13 @@ mod metadata_tests {
 }
 
 impl Configuration for ServerConfig {
-    fn validate(&self) -> Result<(), ConfigurationError> {
+    type Error = ConfigError;
+
+    fn validate(&self) -> Result<(), Self::Error> {
         // Validate the client configuration
-        self.tls_setting.validate()
+        let res = self.tls_setting.validate()?;
+
+        Ok(res)
     }
 }
 

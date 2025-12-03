@@ -232,10 +232,9 @@ impl MessageProcessor {
             {
                 Ok(stream) => {
                     let cancellation_token = CancellationToken::new();
-                    let connection = Connection::new(ConnectionType::Remote)
+                    let connection = Connection::new(ConnectionType::Remote, Channel::Client(tx))
                         .with_local_addr(local)
                         .with_remote_addr(remote)
-                        .with_channel(Channel::Client(tx))
                         .with_config_data(client_config.clone())
                         .with_cancellation_token(Some(cancellation_token.clone()));
 
@@ -355,8 +354,7 @@ impl MessageProcessor {
 
         // create a connection
         let cancellation_token = CancellationToken::new();
-        let connection = Connection::new(ConnectionType::Local)
-            .with_channel(Channel::Server(tx2))
+        let connection = Connection::new(ConnectionType::Local, Channel::Server(tx2))
             .with_cancellation_token(Some(cancellation_token.clone()));
 
         // add it to the connection table
@@ -407,15 +405,14 @@ impl MessageProcessor {
                     Channel::Server(s) => s
                         .send(Ok(msg))
                         .await
-                        .map_err(|_e| DataPathError::ConnectionNotFound),
+                        .map_err(|_e| DataPathError::ConnectionNotFound(out_conn)),
                     Channel::Client(s) => s
                         .send(msg)
                         .await
-                        .map_err(|_e| DataPathError::ConnectionNotFound),
-                    _ => Err(DataPathError::ConnectionNotFound),
+                        .map_err(|_e| DataPathError::ConnectionNotFound(out_conn)),
                 }
             }
-            None => Err(DataPathError::ConnectionNotFound),
+            None => Err(DataPathError::ConnectionNotFound(out_conn)),
         }
     }
 
@@ -521,7 +518,7 @@ impl MessageProcessor {
         let connection = self
             .forwarder()
             .get_connection(conn)
-            .ok_or(DataPathError::ConnectionNotFound)?;
+            .ok_or(DataPathError::ConnectionNotFound(conn))?;
 
         debug!(
             "subscription update (add = {}) for name: {} - connection: {}",
@@ -905,10 +902,9 @@ impl DataPlaneService for MessageProcessor {
         let stream = request.into_inner();
         let (tx, rx) = mpsc::channel(128);
 
-        let connection = Connection::new(ConnectionType::Remote)
+        let connection = Connection::new(ConnectionType::Remote, Channel::Server(tx))
             .with_remote_addr(remote_addr)
-            .with_local_addr(local_addr)
-            .with_channel(Channel::Server(tx));
+            .with_local_addr(local_addr);
 
         debug!(
             "new connection received from remote: (remote: {:?} - local: {:?})",

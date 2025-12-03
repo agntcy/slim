@@ -10,7 +10,7 @@ use super::pool::Pool;
 #[derive(Debug)]
 pub struct ConnectionTable<T>
 where
-    T: Default + Clone,
+    T: Clone,
 {
     /// Connection pool
     pool: RwLock<Pool<Arc<T>>>,
@@ -18,7 +18,7 @@ where
 
 impl<T> ConnectionTable<T>
 where
-    T: Default + Clone,
+    T: Clone,
 {
     /// Create a new connection table with a given capacity
     pub fn with_capacity(capacity: usize) -> Self {

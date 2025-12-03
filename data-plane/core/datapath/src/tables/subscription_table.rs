@@ -90,13 +90,13 @@ impl Connections {
         let conn_index_opt = self.index.get(&conn);
         if conn_index_opt.is_none() {
             error!("cannot find the index for connection {}", conn);
-            return Err(DataPathError::ConnectionIdNotFound);
+            return Err(DataPathError::ConnectionIdNotFound(conn));
         }
         let conn_index = conn_index_opt.unwrap();
         let conn_id_opt = self.pool.get_mut(*conn_index);
         if conn_id_opt.is_none() {
             error!("cannot find the connection {} in the pool", conn);
-            return Err(DataPathError::ConnectionIdNotFound);
+            return Err(DataPathError::ConnectionIdNotFound(conn));
         }
         let conn_id = conn_id_opt.unwrap();
         if conn_id.counter == 1 {
@@ -212,7 +212,7 @@ impl NameState {
         match self.ids.get_mut(id) {
             None => {
                 warn!("id {} not found", id);
-                Err(DataPathError::IdNotFound)
+                Err(DataPathError::IdNotFound(*id))
             }
             Some(connection_ids) => {
                 let mut index = 0;
@@ -482,7 +482,7 @@ fn remove_subscription_from_sub_table(
         Ok(())
     } else {
         debug!("subscription not found {}", name);
-        Err(DataPathError::SubscriptionNotFound)
+        Err(DataPathError::SubscriptionNotFound(name.clone()))
     }
 }
 
@@ -495,7 +495,7 @@ fn remove_subscription_from_connection(
     match set {
         None => {
             warn!(%conn_index, "connection not found");
-            return Err(DataPathError::ConnectionIdNotFound);
+            return Err(DataPathError::ConnectionIdNotFound(conn_index));
         }
         Some(s) => {
             if !s.remove(name) {
@@ -503,7 +503,7 @@ fn remove_subscription_from_connection(
                     "subscription for name {} not found on connection {}",
                     name, conn_index,
                 );
-                return Err(DataPathError::SubscriptionNotFound);
+                return Err(DataPathError::SubscriptionNotFound(name.clone()));
             }
             if s.is_empty() {
                 map.remove(&conn_index);
@@ -582,7 +582,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
             .connections
             .write()
             .remove(&conn)
-            .ok_or(DataPathError::ConnectionIdNotFound)?;
+            .ok_or(DataPathError::ConnectionIdNotFound(conn))?;
         let mut table = self.table.write();
         for name in &removed_subscriptions {
             debug!("remove subscription {} from connection {}", name, conn);
@@ -599,7 +599,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         match table.get(query_name) {
             None => {
                 debug!("match not found for type {:}", name);
-                Err(DataPathError::NoMatch(format!("{}", name)))
+                Err(DataPathError::NoMatch(name.clone()))
             }
             Some(state) => {
                 // first try to send the message to the local connections
@@ -614,7 +614,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
                     return Ok(out);
                 }
                 error!("no output connection available");
-                Err(DataPathError::NoMatch(format!("{}", name)))
+                Err(DataPathError::NoMatch(name.clone()))
             }
         }
     }
@@ -627,7 +627,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         match table.get(query_name) {
             None => {
                 debug!("match not found for type {:}", name);
-                Err(DataPathError::NoMatch(format!("{}", name)))
+                Err(DataPathError::NoMatch(name.clone()))
             }
             Some(state) => {
                 // first try to send the message to the local connections
@@ -647,7 +647,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 }
 
                 error!("no connection available (local/remote)");
-                Err(DataPathError::NoMatch(format!("{}", name)))
+                Err(DataPathError::NoMatch(name.clone()))
             }
         }
     }
@@ -786,7 +786,7 @@ mod tests {
 
         // test errors
         let err = t.remove_connection(4, false);
-        assert!(matches!(err, Err(DataPathError::ConnectionIdNotFound)));
+        assert!(matches!(err, Err(DataPathError::ConnectionIdNotFound(_))));
 
         assert_eq!(t.match_one(&name1_1, 100).unwrap(), 2);
 
@@ -796,10 +796,10 @@ mod tests {
         );
 
         let err = t.remove_subscription(&name3, 2, false);
-        assert!(matches!(err, Err(DataPathError::SubscriptionNotFound)));
+        assert!(matches!(err, Err(DataPathError::SubscriptionNotFound(_))));
 
         let err = t.remove_subscription(&name2, 2, false);
-        assert!(matches!(err, Err(DataPathError::IdNotFound)));
+        assert!(matches!(err, Err(DataPathError::IdNotFound(_))));
     }
 
     #[test]

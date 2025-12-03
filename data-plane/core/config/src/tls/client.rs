@@ -19,10 +19,9 @@ use serde;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use super::common::{Config, ConfigError, RustlsConfigLoader, TlsSource};
+use super::common::{Config, RustlsConfigLoader, TlsSource};
 use crate::{
-    component::configuration::{Configuration, ConfigurationError},
-    tls::common::{StaticCertResolver, TlsComponent, WatcherCertResolver},
+    component::configuration::Configuration, tls::{common::{StaticCertResolver, TlsComponent, WatcherCertResolver}, errors::ConfigError}
 };
 
 #[cfg(not(target_family = "windows"))]
@@ -346,7 +345,9 @@ impl RustlsConfigLoader<RustlsClientConfig> for TlsClientConfig {
 }
 
 impl Configuration for TlsClientConfig {
-    fn validate(&self) -> Result<(), ConfigurationError> {
+    type Error = ConfigError;
+
+    fn validate(&self) -> Result<(), Self::Error> {
         // TODO(msardara): validate the configuration
         Ok(())
     }

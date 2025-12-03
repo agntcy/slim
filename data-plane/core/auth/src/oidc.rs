@@ -239,9 +239,7 @@ impl OidcTokenProvider {
         let token_endpoint = discovery_response
             .get("token_endpoint")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                AuthError::ConfigError("token_endpoint not found in discovery document".to_string())
-            })?;
+            .ok_or(AuthError::OidcDiscoveryMissingTokenEndpoint)?;
 
         let auth_url_str = discovery_response
             .get("authorization_endpoint")
@@ -352,13 +350,9 @@ impl TokenProvider for OidcTokenProvider {
 
     fn get_token(&self) -> Result<String, AuthError> {
         let cache_key = self.get_cache_key();
-        if let Some(cached_token) = self.token_cache.get(&cache_key) {
-            return Ok(cached_token);
-        }
-        Err(AuthError::GetTokenError(format!(
-            "No cached token available for key '{}'. Background refresh should handle this.",
-            cache_key
-        )))
+        self.token_cache
+            .get(&cache_key)
+            .ok_or(AuthError::GetTokenError)
     }
 
     fn get_id(&self) -> Result<String, AuthError> {
@@ -371,9 +365,7 @@ impl TokenProvider for OidcTokenProvider {
         _custom_claims: MetadataMap,
     ) -> Result<String, AuthError> {
         // This provider does not support custom claims in the token
-        Err(AuthError::UnsupportedOperation(
-            "OIDC Token Provider does not support custom claims".to_string(),
-        ))
+        Err(AuthError::OidcUnsupportedCustomClaims)
     }
 }
 
@@ -473,18 +465,13 @@ impl OidcVerifier {
                             false
                         }
                     })
-                    .ok_or_else(|| {
-                        AuthError::VerificationError(format!("Key not found: {}", kid))
-                    })?
+                    .ok_or(AuthError::OidcKeyNotFound(kid))?
             }
             None => {
                 // No kid provided - if there's only one key, use it
-                if jwks.keys.len() == 1 {
-                    &jwks.keys[0]
-                } else {
-                    return Err(AuthError::VerificationError(
-                        "Token header missing 'kid' and multiple keys available".to_string(),
-                    ));
+                match jwks.keys.as_slice() {
+                    [single] => single,
+                    _ => return Err(AuthError::OidcMissingKidWithMultipleKeys),
                 }
             }
         };
@@ -815,20 +802,6 @@ mod tests {
         // Should fail because key type is not supported
         let result: Result<TestClaims, _> = verifier.get_claims(token).await;
         assert!(result.is_err());
-
-        // With jsonwebtoken_aws_lc, this might fail with a JwtAwsLcError instead
-        // of UnsupportedOperation, which is also valid behavior
-        match result.as_ref().err().unwrap() {
-            AuthError::UnsupportedOperation(_) | AuthError::JwtLibraryError(_) => {
-                // Both error types are acceptable for this test case
-            }
-            _ => {
-                panic!(
-                    "Expected UnsupportedOperation or JwtLibraryError, got: {:?}",
-                    result.err()
-                );
-            }
-        }
     }
 
     #[tokio::test]
@@ -861,12 +834,7 @@ mod tests {
 
         // Should fail because key is not found in JWKS
         let result: Result<TestClaims, _> = verifier.get_claims(token).await;
-        assert!(result.is_err());
-        if let Err(AuthError::VerificationError(msg)) = result {
-            assert!(msg.contains("Key not found"));
-        } else {
-            panic!("Expected VerificationError about key not found");
-        }
+        assert!(result.is_err_and(|e| matches!(e, AuthError::OidcKeyNotFound(_))));
     }
 
     #[tokio::test]

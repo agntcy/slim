@@ -252,9 +252,8 @@ where
                 // process the leave request message
                 self.on_disconnection_detected(msg, None).await
             }
-            _ => Err(SessionError::Processing(format!(
-                "Unexpected message type {:?}",
-                message
+            _ => Err(SessionError::SessionMessageInternalUnexpected(Box::new(
+                message,
             ))),
         }
     }
@@ -466,12 +465,12 @@ where
             | ProtoSessionMessageType::GroupRemove
             | ProtoSessionMessageType::GroupWelcome
             | ProtoSessionMessageType::GroupClose
-            | ProtoSessionMessageType::GroupNack => Err(SessionError::UnexpectedMessageType {
-                message_type: message.get_session_message_type(),
-            }),
-            _ => Err(SessionError::UnexpectedMessageType {
-                message_type: message.get_session_message_type(),
-            }),
+            | ProtoSessionMessageType::GroupNack => Err(
+                SessionError::SessionMessageTypeUnexpected(message.get_session_message_type()),
+            ),
+            _ => Err(SessionError::SessionMessageTypeUnknown(
+                message.get_session_message_type(),
+            )),
         }
     }
 
@@ -786,7 +785,7 @@ where
         let id = match self.group_list.get(&dst_without_id) {
             Some(id) => *id,
             None => {
-                let err = SessionError::ParticipantNotFound;
+                let err = SessionError::ParticipantNotFound(dst_without_id);
                 return Err(self.handle_task_error(err));
             }
         };

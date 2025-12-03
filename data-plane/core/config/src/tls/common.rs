@@ -4,7 +4,6 @@
 use parking_lot::RwLock;
 use rustls::RootCertStore;
 use rustls::crypto::CryptoProvider;
-use rustls::server::VerifierBuilderError;
 use rustls::sign::CertifiedKey;
 
 use rustls_pki_types::pem::PemObject;
@@ -15,10 +14,10 @@ use slim_auth::file_watcher::FileWatcher;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use thiserror::Error;
 
 #[cfg(not(target_family = "windows"))]
 use crate::auth::spire;
+use crate::tls::errors::ConfigError;
 
 #[derive(Debug)]
 pub(crate) struct WatcherCertResolver {
@@ -58,10 +57,8 @@ impl WatcherCertResolver {
         let crypto_providers = (crypto_provider.clone(), crypto_provider.clone());
 
         // Read the cert and the key
-        let key_der = PrivateKeyDer::from_pem_file(Path::new(&key_files.0))
-            .map_err(|e| ConfigError::InvalidFile(e.to_string()))?;
-        let cert_der = CertificateDer::from_pem_file(Path::new(&cert_files.0))
-            .map_err(|e| ConfigError::InvalidFile(e.to_string()))?;
+        let key_der = PrivateKeyDer::from_pem_file(Path::new(&key_files.0))?;
+        let cert_der = CertificateDer::from_pem_file(Path::new(&cert_files.0))?;
 
         // Transform it to CertifiedKey
         let cert_key = to_certified_key(vec![cert_der], key_der, crypto_provider);
@@ -236,13 +233,7 @@ impl SpireCertResolver {
         }
 
         let mut provider = builder.build();
-        provider
-            .initialize()
-            .await
-            .map_err(|e| ConfigError::InvalidSpireConfig {
-                details: e.to_string(),
-                config: Box::new(spire_cfg),
-            })?;
+        provider.initialize().await?;
 
         Ok(Self {
             provider,
@@ -256,10 +247,7 @@ impl SpireCertResolver {
 
     pub(crate) fn build_certified_key(&self) -> Result<(Arc<CertifiedKey>, usize), ConfigError> {
         // Build full SVID certificate chain (leaf + intermediates) for the CertifiedKey
-        let svid = self
-            .provider
-            .get_x509_svid()
-            .map_err(|e| ConfigError::SpireError(e.to_string()))?;
+        let svid = self.provider.get_x509_svid()?;
 
         let mut chain_der: Vec<CertificateDer<'static>> =
             Vec::with_capacity(svid.cert_chain().len());
@@ -291,55 +279,6 @@ impl rustls::server::ResolvesServerCert for SpireCertResolver {
             }
         }
     }
-}
-
-/// Errors for Config
-#[derive(Error, Debug)]
-pub enum ConfigError {
-    // Version / format parsing
-    // TLS version validation
-    #[error("invalid tls version: {0}")]
-    InvalidTlsVersion(String),
-    // PEM / certificate/key parsing
-    #[error("invalid pem format: {0}")]
-    InvalidPem(#[from] rustls_pki_types::pem::Error),
-    // File content/read validation
-    #[error("error reading cert/key from file: {0}")]
-    InvalidFile(String),
-    // Low-level I/O
-    #[error("file I/O error: {0}")]
-    FileIo(#[from] std::io::Error),
-    // SPIRE integration / configuration
-    #[error("error in spire configuration: {details}, config={config:?}")]
-    #[cfg(not(target_family = "windows"))]
-    InvalidSpireConfig {
-        details: String,
-        config: Box<spire::SpireConfig>,
-    },
-    #[error("error running spire: {0}")]
-    #[cfg(not(target_family = "windows"))]
-    SpireError(String),
-
-    // rustls library errors
-    #[error("rustls error: {0}")]
-    Rustls(#[from] rustls::Error),
-    // Builder pattern errors
-    #[error("config builder error: {0}")]
-    ConfigBuilder(String),
-    // Required artifacts
-    #[error("missing server cert or key")]
-    MissingServerCertAndKey,
-    // Verifier construction errors
-    #[error("verifier builder error: {0}")]
-    VerifierBuilder(#[from] VerifierBuilderError),
-    // Unknown / catch-all
-    #[error("unknown error")]
-    Unknown,
-
-    // SPIRE runtime errors
-    #[error("spire error: {0}")]
-    #[cfg(not(target_family = "windows"))]
-    Spire(String),
 }
 
 // Defaults for Config
@@ -910,18 +849,8 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
         let cert_file_path = create_temp_file_simple(TEST_CLIENT_CERT_PEM, suffix);
 
         let result = WatcherCertResolver::new(&key_file_path, &cert_file_path, provider);
-
-        // This test might fail due to the test certificates not being valid
-        // but we're testing that the function doesn't panic during creation
-        match result {
-            Ok(_resolver) => {
-                // Successfully created resolver
-            }
-            Err(ConfigError::InvalidFile(_)) => {
-                // Expected with test certificates
-            }
-            Err(e) => panic!("Unexpected error: {:?}", e),
-        }
+        println!("----------> {:?}", result);
+        assert!(result.is_err_and(|e| matches!(e, ConfigError::InvalidPem(_))));
 
         // Clean up
         let _ = fs::remove_file(key_file_path);

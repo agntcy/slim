@@ -184,7 +184,7 @@ impl SessionController {
                             if draining && matches!(session_message, SessionMessage::OnMessage { direction: MessageDirection::South, .. }) {
                                 tracing::debug!("session is draining, rejecting new messages from application");
                                 if let SessionMessage::OnMessage { ack_tx: Some(ack_tx), .. } = session_message {
-                                    let _ = ack_tx.send(Err(SessionError::DrainStartedRejectNew));
+                                    let _ = ack_tx.send(Err(SessionError::SessionDrainingDrop));
                                 }
                                 continue;
                             }
@@ -271,7 +271,7 @@ impl SessionController {
                 ack_tx,
             })
             .await
-            .map_err(|_e| SessionError::ChannelSend)
+            .map_err(|_e| SessionError::SessionControllerSendFailed)
     }
 
     /// Send a message to the controller for processing
@@ -300,7 +300,7 @@ impl SessionController {
         self.handle
             .lock()
             .take()
-            .ok_or(SessionError::already_closed())
+            .ok_or(SessionError::SessionAlreadyClosed)
     }
 
     pub async fn publish_message(
@@ -418,9 +418,7 @@ impl SessionController {
                 }
                 self.invite_participant_internal(destination).await
             }
-            _ => Err(SessionError::UnexpectedMessageType {
-                message_type: ProtoSessionMessageType::Msg,
-            }),
+            _ => Err(SessionError::SessionTypeUnknown(self.session_type())),
         }
     }
 
@@ -447,9 +445,7 @@ impl SessionController {
                     .map_err(|e| SessionError::extract_error("leave_request", e))?;
                 self.publish_message(msg).await
             }
-            _ => Err(SessionError::UnexpectedMessageType {
-                message_type: ProtoSessionMessageType::LeaveRequest,
-            }),
+            _ => Err(SessionError::SessionTypeUnknown(self.session_type())),
         }
     }
 }

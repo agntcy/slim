@@ -132,7 +132,7 @@ impl ReplayCache {
 
         // Replay detection
         if self.entries.contains(&entry) {
-            return Err(AuthError::TokenInvalid("replay detected".to_string()));
+            return Err(AuthError::TokenInvalidReplay);
         }
 
         // Eviction at capacity
@@ -327,26 +327,22 @@ impl SharedSecret {
     /// Validate identifier format.
     fn validate_id(id: &str) -> Result<(), AuthError> {
         if id.is_empty() {
-            return Err(AuthError::TokenInvalid("id is empty".to_string()));
+            return Err(AuthError::TokenMalformed);
         }
         if id.contains(':') {
-            return Err(AuthError::TokenInvalid("id contains ':'".to_string()));
+            return Err(AuthError::TokenMalformed);
         }
         if id.chars().any(|c| c.is_whitespace()) {
-            return Err(AuthError::TokenInvalid(
-                "id contains whitespace".to_string(),
-            ));
+            return Err(AuthError::TokenMalformed);
         }
+
         Ok(())
     }
 
     /// Validate secret length.
     fn validate_secret(secret: &str) -> Result<(), AuthError> {
         if secret.len() < MIN_SECRET_LEN {
-            return Err(AuthError::TokenInvalid(format!(
-                "shared_secret too short (min {} chars)",
-                MIN_SECRET_LEN
-            )));
+            return Err(AuthError::HmacKeyTooShort);
         }
         Ok(())
     }
@@ -372,13 +368,10 @@ impl SharedSecret {
     fn verify_hmac(&self, message: &str, expected_b64: &str) -> Result<(), AuthError> {
         let expected = URL_SAFE_NO_PAD.decode(expected_b64.as_bytes())?;
         if expected.len() != 32 {
-            return Err(AuthError::TokenInvalid(
-                "hmac verification failed".to_string(),
-            ));
+            return Err(AuthError::TokenMalformed);
         }
         let key = hmac::Key::new(hmac::HMAC_SHA256, self.0.shared_secret.as_bytes());
-        hmac::verify(&key, message.as_bytes(), &expected)
-            .map_err(|_| AuthError::TokenInvalid("hmac verification failed".to_string()))
+        hmac::verify(&key, message.as_bytes(), &expected).map_err(|_e| AuthError::TokenInvalid2)
     }
 
     fn build_message(&self, id: &str, timestamp: u64, nonce: &str, claims_b64: &str) -> String {
@@ -394,14 +387,12 @@ impl SharedSecret {
     fn parse_token(&self, token: &str) -> Result<(String, u64, String, String, String), AuthError> {
         let parts: Vec<&str> = token.split(':').collect();
         if parts.len() != 5 {
-            return Err(AuthError::TokenInvalid(
-                "invalid token format, expected 5 parts".to_string(),
-            ));
+            return Err(AuthError::TokenMalformed);
         }
         let id = parts[0].to_string();
         let ts = parts[1]
             .parse::<u64>()
-            .map_err(|_| AuthError::TokenInvalid("invalid timestamp".to_string()))?;
+            .map_err(|_e| AuthError::TokenMalformed)?;
         let nonce = parts[2].to_string();
         let claims_b64 = parts[3].to_string();
         let mac = parts[4].to_string();
@@ -413,14 +404,12 @@ impl SharedSecret {
         if ts > now {
             let diff = ts - now;
             if diff > self.0.clock_skew.as_secs() {
-                return Err(AuthError::TokenInvalid(
-                    "timestamp too far in future".to_string(),
-                ));
+                return Err(AuthError::TokenInvalid2);
             }
         } else {
             let age = now - ts;
             if age > self.0.validity_window.as_secs() {
-                return Err(AuthError::TokenInvalid("token expired".to_string()));
+                return Err(AuthError::TokenInvalid2);
             }
         }
         Ok(())
@@ -449,9 +438,7 @@ impl TokenProvider for SharedSecret {
 
     fn get_token(&self) -> Result<String, AuthError> {
         if self.0.shared_secret.is_empty() {
-            return Err(AuthError::TokenInvalid(
-                "shared_secret is empty".to_string(),
-            ));
+            return Err(AuthError::HmacKeyMissing);
         }
         let ts = self.get_current_timestamp();
         let nonce = self.gen_nonce();
@@ -462,9 +449,7 @@ impl TokenProvider for SharedSecret {
 
     async fn get_token_with_claims(&self, custom_claims: MetadataMap) -> Result<String, AuthError> {
         if self.0.shared_secret.is_empty() {
-            return Err(AuthError::TokenInvalid(
-                "shared_secret is empty".to_string(),
-            ));
+            return Err(AuthError::HmacKeyMissing);
         }
 
         let ts = self.get_current_timestamp();
@@ -537,9 +522,7 @@ impl Verifier for SharedSecret {
         // Decode custom claims if present
         let custom_claims: serde_json::Value = if !claims_b64.is_empty() {
             let claims_json = URL_SAFE_NO_PAD.decode(claims_b64.as_bytes())?;
-            let claims_str = String::from_utf8(claims_json)
-                .map_err(|_| AuthError::TokenInvalid("invalid claims utf8".to_string()))?;
-            serde_json::from_str(&claims_str)?
+            serde_json::from_slice(&claims_json)?
         } else {
             serde_json::json!({})
         };
@@ -552,8 +535,9 @@ impl Verifier for SharedSecret {
             "custom_claims": custom_claims
         });
 
-        serde_json::from_value(claims_json)
-            .map_err(|_| AuthError::TokenInvalid("claims parse error".to_string()))
+        let ret = serde_json::from_value(claims_json)?;
+
+        Ok(ret)
     }
 }
 
@@ -649,8 +633,7 @@ mod tests {
         let mac = s.create_hmac_b64(&message).unwrap();
         let token = format!("{}:{}:{}::{}", s.id(), past_ts, nonce, mac);
         let res = s.try_verify(token);
-        assert!(res.is_err());
-        assert!(res.unwrap_err().to_string().contains("expired"));
+        assert!(res.is_err_and(|e| matches!(e, AuthError::TokenInvalid2)));
     }
 
     #[test]
@@ -659,8 +642,7 @@ mod tests {
         let token = s.get_token().unwrap();
         assert!(s.try_verify(token.clone()).is_ok());
         let replay = s.try_verify(token);
-        assert!(replay.is_err());
-        assert!(replay.unwrap_err().to_string().contains("replay"));
+        assert!(replay.is_err_and(|e| matches!(e, AuthError::TokenInvalidReplay)));
     }
 
     #[test]
@@ -723,7 +705,7 @@ mod tests {
         thread::sleep(Duration::from_secs(2));
         let res = s.try_verify(token);
         // Expiration still trumps; token expired.
-        assert!(res.is_err_and(|e| matches!(e, AuthError::TokenInvalid(_))));
+        assert!(res.is_err_and(|e| matches!(e, AuthError::TokenInvalid2)));
     }
 
     #[test]

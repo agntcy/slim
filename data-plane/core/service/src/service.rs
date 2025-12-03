@@ -14,9 +14,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
 use slim_auth::traits::{TokenProvider, Verifier};
-use slim_config::component::configuration::{Configuration, ConfigurationError};
+use slim_config::component::configuration::Configuration;
 use slim_config::component::id::{ID, Kind};
-use slim_config::component::{Component, ComponentBuilder, ComponentError};
+use slim_config::component::{Component, ComponentBuilder};
 use slim_config::grpc::client::ClientConfig;
 use slim_config::grpc::server::ServerConfig;
 use slim_controller::config::Config as ControllerConfig;
@@ -84,7 +84,9 @@ impl ServiceConfiguration {
 }
 
 impl Configuration for ServiceConfiguration {
-    fn validate(&self) -> Result<(), ConfigurationError> {
+    type Error = ServiceError;
+
+    fn validate(&self) -> Result<(), Self::Error> {
         // Validate client and server configurations
         for server in self.dataplane.servers.iter() {
             server.validate()?;
@@ -383,16 +385,19 @@ impl Service {
     }
 }
 
+#[async_trait::async_trait]
 impl Component for Service {
+    type Error = ServiceError;
+
     fn identifier(&self) -> &ID {
         &self.id
     }
 
-    async fn start(&mut self) -> Result<(), ComponentError> {
+    async fn start(&mut self) -> Result<(), Self::Error> {
         debug!("starting service");
-        self.run()
-            .await
-            .map_err(|e| ComponentError::RuntimeError(e.to_string()))
+        let res = self.run().await?;
+
+        Ok(res)
     }
 }
 
@@ -420,9 +425,8 @@ impl ComponentBuilder for ServiceBuilder {
     }
 
     // Build the component
-    fn build(&self, name: String) -> Result<Self::Component, ComponentError> {
-        let id = ID::new_with_name(ServiceBuilder::kind(), name.as_ref())
-            .map_err(|e| ComponentError::ConfigError(e.to_string()))?;
+    fn build(&self, name: String) -> Result<Self::Component, ServiceError> {
+        let id = ID::new_with_name(ServiceBuilder::kind(), name.as_ref())?;
 
         Ok(Service::new(id))
     }
@@ -432,16 +436,11 @@ impl ComponentBuilder for ServiceBuilder {
         &self,
         name: &str,
         config: &Self::Config,
-    ) -> Result<Self::Component, ComponentError> {
+    ) -> Result<Self::Component, ServiceError> {
         let node_name = config.node_id.clone().unwrap_or(name.to_string());
-        let id = ID::new_with_name(ServiceBuilder::kind(), &node_name)
-            .map_err(|e| ComponentError::ConfigError(e.to_string()))?;
+        let id = ID::new_with_name(ServiceBuilder::kind(), &node_name)?;
 
-        let service = config
-            .build_server(id)
-            .map_err(|e| ComponentError::ConfigError(e.to_string()))?;
-
-        Ok(service)
+        config.build_server(id)
     }
 }
 

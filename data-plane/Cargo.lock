@@ -227,15 +227,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "agntcy-slim-nop-component"
-version = "0.1.0"
-dependencies = [
- "agntcy-slim-config",
- "serde",
- "serde_yaml",
-]
-
-[[package]]
 name = "agntcy-slim-service"
 version = "0.8.2"
 dependencies = [
@@ -246,6 +237,7 @@ dependencies = [
  "agntcy-slim-mls",
  "agntcy-slim-session",
  "agntcy-slim-testing",
+ "async-trait",
  "dirs",
  "futures",
  "parking_lot",

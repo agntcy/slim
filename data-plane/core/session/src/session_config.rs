@@ -51,9 +51,7 @@ impl SessionConfig {
         metadata: HashMap<String, String>,
         initiator: bool,
     ) -> Result<Self, SessionError> {
-        let join = payload
-            .as_join_request_payload()
-            .map_err(|_e| SessionError::InvalidJoinRequestPayload)?;
+        let join = payload.as_join_request_payload()?;
         let (duration, max_retries) = if let Some(ts) = &join.timer_settings {
             (
                 Some(std::time::Duration::from_millis(ts.timeout as u64)),

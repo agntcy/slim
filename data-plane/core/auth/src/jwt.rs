@@ -88,10 +88,7 @@ fn key_alg_to_algorithm(key: &KeyAlgorithm) -> Result<Algorithm, AuthError> {
         KeyAlgorithm::PS384 => Ok(Algorithm::PS384),
         KeyAlgorithm::PS512 => Ok(Algorithm::PS512),
         KeyAlgorithm::EdDSA => Ok(Algorithm::EdDSA),
-        _ => Err(AuthError::ConfigError(format!(
-            "Unsupported key algorithm: {:?}",
-            key
-        ))),
+        _ => Err(AuthError::JwtUnsupportedKeyAlgorithm(*key)),
     }
 }
 
@@ -103,7 +100,7 @@ pub fn algorithm_from_jwk(jwk: &str) -> Result<Algorithm, AuthError> {
     let alg = jwk
         .common
         .key_algorithm
-        .ok_or_else(|| AuthError::ConfigError("JWK does not contain an algorithm".to_string()))?;
+        .ok_or(AuthError::JwtMissingKeyAlgorithm)?;
 
     key_alg_to_algorithm(&alg)
 }
@@ -328,9 +325,10 @@ impl<S> Jwt<S> {
 
     fn sign_claims<Claims: Serialize>(&self, claims: &Claims) -> Result<String, AuthError> {
         // Ensure we have an encoding key for signing
-        let encoding_key = self.encoding_key.as_ref().ok_or_else(|| {
-            AuthError::ConfigError("Private key not configured for signing".to_string())
-        })?;
+        let encoding_key = self
+            .encoding_key
+            .as_ref()
+            .ok_or(AuthError::JwtMissingPrivateKey)?;
 
         // Create the JWT header
         let header = JwtHeader::new(self.validation.algorithms[0]);
@@ -362,7 +360,7 @@ impl<P> Jwt<P> {
         Ok(self
             .static_token
             .as_ref()
-            .ok_or(AuthError::GetTokenError("No token available".to_string()))?
+            .ok_or(AuthError::GetTokenError)?
             .read()
             .clone())
     }
@@ -422,14 +420,12 @@ impl<V> Jwt<V> {
         let mut validation = self.get_validation(token_header.alg);
 
         // Decode and verify the token
-        let token_data: TokenData<Claims> =
-            decode(&token, &decoding_key, &validation).map_err(map_jwt_error)?;
+        let token_data: TokenData<Claims> = decode(&token, &decoding_key, &validation)?;
 
         // Get the exp to cache the token
         validation.insecure_disable_signature_validation();
         // Decode and verify the exp
-        let token_exp_data: TokenData<ExpClaim> =
-            decode(&token, &decoding_key, &validation).map_err(map_jwt_error)?;
+        let token_exp_data: TokenData<ExpClaim> = decode(&token, &decoding_key, &validation)?;
 
         // Cache the token with its expiry
         self.cache(token, token_exp_data.claims.exp);
@@ -480,7 +476,9 @@ impl<V> Jwt<V> {
         let decoding_key = DecodingKey::from_secret(b"unused");
 
         // Get issuer from claims
-        decode(token, &decoding_key, &validation).map_err(map_jwt_error)
+        let ret = decode(token, &decoding_key, &validation)?;
+
+        Ok(ret)
     }
 
     /// Get decoding key for verification
@@ -499,12 +497,13 @@ impl<V> Jwt<V> {
             let decoding_key = DecodingKey::from_secret(b"unused");
 
             // Get issuer from claims
-            let token_data: TokenData<StandardClaims> =
-                decode(token, &decoding_key, &validation).map_err(map_jwt_error)?;
+            let token_data: TokenData<StandardClaims> = decode(token, &decoding_key, &validation)?;
 
-            let issuer = token_data.claims.iss.as_ref().ok_or_else(|| {
-                AuthError::ConfigError("no issuer found in JWT claims".to_string())
-            })?;
+            let issuer = token_data
+                .claims
+                .iss
+                .as_ref()
+                .ok_or(AuthError::JwtMissingIssuer)?;
 
             match resolver.get_cached_key(issuer, &token_data.header) {
                 Ok(k) => return Ok(k),
@@ -516,9 +515,7 @@ impl<V> Jwt<V> {
         }
 
         // If we don't have a decoder
-        Err(AuthError::ConfigError(
-            "no resolver available for JWT key resolution".to_string(),
-        ))
+        Err(AuthError::JwtNoKeyResolver)
     }
 
     /// Resolve a decoding key for token verification
@@ -532,17 +529,19 @@ impl<V> Jwt<V> {
 
         // As we don't have a decoding key, we need to resolve it. The resolver
         // should be set, otherwise we can't proceed.
-        let resolver = self.key_resolver.as_ref().ok_or(AuthError::ConfigError(
-            "Key resolver not configured".to_string(),
-        ))?;
+        let resolver = self
+            .key_resolver
+            .as_ref()
+            .ok_or(AuthError::JwtNoKeyResolver)?;
 
         // Parse the token header to get the key ID and algorithm
         let token_data = self.unsecure_get_token_data::<StandardClaims>(token)?;
 
-        let issuer =
-            token_data.claims.iss.as_ref().ok_or_else(|| {
-                AuthError::ConfigError("no issuer found in JWT claims".to_string())
-            })?;
+        let issuer = token_data
+            .claims
+            .iss
+            .as_ref()
+            .ok_or(AuthError::JwtMissingIssuer)?;
 
         // Resolve the key
         resolver.resolve_key(issuer, &token_data.header).await
@@ -582,10 +581,7 @@ impl TokenProvider for SignerJwt {
     }
 
     fn get_id(&self) -> Result<String, AuthError> {
-        self.claims
-            .sub
-            .clone()
-            .ok_or(AuthError::TokenInvalid("missing subject claim".to_string()))
+        self.claims.sub.clone().ok_or(AuthError::TokenInvalidMissingSub)
     }
 }
 
@@ -599,7 +595,7 @@ impl TokenProvider for StaticTokenProvider {
     fn get_token(&self) -> Result<String, AuthError> {
         self.static_token
             .as_ref()
-            .ok_or_else(|| AuthError::ConfigError("Static token not configured".to_string()))
+            .ok_or_else(|| AuthError::JwtNoStaticTokenConfigured)
             .map(|token| token.read().clone())
     }
 
@@ -613,9 +609,7 @@ impl TokenProvider for StaticTokenProvider {
         _custom_claims: MetadataMap,
     ) -> Result<String, AuthError> {
         // This provider does not support custom claims in the token
-        Err(AuthError::UnsupportedOperation(
-            "StaticTokenProvider does not support custom claims".to_string(),
-        ))
+        Err(AuthError::JwtStaticUnsupportedCustomClaims)
     }
 }
 
@@ -652,17 +646,6 @@ impl Verifier for VerifierJwt {
     }
 }
 
-fn map_jwt_error(e: jsonwebtoken_aws_lc::errors::Error) -> AuthError {
-    if matches!(
-        e.kind(),
-        jsonwebtoken_aws_lc::errors::ErrorKind::ExpiredSignature
-    ) {
-        AuthError::TokenExpired
-    } else {
-        AuthError::JwtLibraryError(e)
-    }
-}
-
 /// Helper function to extract the 'sub' claim from a JWT token without signature validation
 pub(crate) fn extract_sub_claim_unsafe(token: &str) -> Result<String, AuthError> {
     let mut validation = Validation::default();
@@ -681,7 +664,7 @@ pub(crate) fn extract_sub_claim_unsafe(token: &str) -> Result<String, AuthError>
         .get("sub")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .ok_or_else(|| AuthError::TokenInvalid("Missing 'sub' claim in token".to_string()))
+        .ok_or(AuthError::TokenInvalidMissingSub)
 }
 
 #[cfg(test)]
@@ -1267,7 +1250,7 @@ mod tests {
         .with_static_token(Arc::new(RwLock::new("invalid.token.here".to_string())));
 
         let result = provider.get_id();
-        assert!(result.is_err_and(|e| matches!(e, AuthError::JwtLibraryError(_))));
+        assert!(result.is_err_and(|e| matches!(e, AuthError::JwtTokenInvalid(_))));
     }
 
     #[tokio::test]
@@ -1294,13 +1277,7 @@ mod tests {
         .with_static_token(Arc::new(RwLock::new(token)));
 
         let result = provider.get_id();
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Missing 'sub' claim in token")
-        );
+        assert!(result.is_err_and(|e| matches!(e, AuthError::TokenInvalidMissingSub)));
     }
 
     #[tokio::test]

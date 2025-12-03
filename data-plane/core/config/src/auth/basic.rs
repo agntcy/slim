@@ -53,12 +53,8 @@ impl ClientAuthenticator for Config {
 
     fn get_client_layer(&self) -> Result<Self::ClientLayer, ConfigAuthError> {
         match (self.username(), self.password().as_ref()) {
-            ("", _) => Err(ConfigAuthError::ConfigError(
-                "username is empty".to_string(),
-            )),
-            (_, "") => Err(ConfigAuthError::ConfigError(
-                "password is empty".to_string(),
-            )),
+            ("", _) => Err(ConfigAuthError::AuthBasicEmptyUsername),
+            (_, "") => Err(ConfigAuthError::AuthBasicEmptyPassword),
             _ => Ok(AddAuthorizationLayer::basic(
                 self.username(),
                 self.password(),

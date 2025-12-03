@@ -12,12 +12,12 @@ use rustls::{
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::common::{Config, ConfigError, RustlsConfigLoader, TlsSource};
+use super::common::{Config, RustlsConfigLoader, TlsSource};
 use crate::{
-    component::configuration::{Configuration, ConfigurationError},
+    component::configuration::Configuration,
     tls::{
         RootStoreBuilder,
-        common::{CaSource, StaticCertResolver, WatcherCertResolver},
+        common::{CaSource, StaticCertResolver, WatcherCertResolver}, errors::ConfigError,
     },
 };
 
@@ -292,7 +292,9 @@ impl RustlsConfigLoader<RustlsServerConfig> for TlsServerConfig {
 }
 
 impl Configuration for TlsServerConfig {
-    fn validate(&self) -> Result<(), ConfigurationError> {
+    type Error = ConfigError;
+
+    fn validate(&self) -> Result<(), Self::Error> {
         // TODO(msardara): validate the configuration
         Ok(())
     }

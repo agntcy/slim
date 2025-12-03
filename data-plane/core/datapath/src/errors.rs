@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::messages::utils::MessageError;
+use crate::messages::{Name, utils::MessageError};
 use slim_config::grpc::errors::ConfigError;
 use thiserror::Error;
 
@@ -22,17 +22,17 @@ pub enum DataPathError {
 
     // Subscription / matching
     #[error("no matching found for {0}")]
-    NoMatch(String),
+    NoMatch(Name),
     #[error("subscription not found")]
-    SubscriptionNotFound,
-    #[error("id not found")]
-    IdNotFound,
+    SubscriptionNotFound(Name),
+    #[error("id not found: {0}")]
+    IdNotFound(u64),
 
     // Connection lookup
-    #[error("connection not found")]
-    ConnectionNotFound,
-    #[error("connection id not found")]
-    ConnectionIdNotFound,
+    #[error("connection not found: {0}")]
+    ConnectionNotFound(u64),
+    #[error("connection id not found: {0}")]
+    ConnectionIdNotFound(u64),
 
     // Processing
     #[error("message processing error: {0}")]

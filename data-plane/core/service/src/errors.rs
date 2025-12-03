@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use slim_auth::errors::AuthError;
+use slim_config::component::id::IdError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -13,6 +14,8 @@ pub enum ServiceError {
     GrpcConfigError(#[from] slim_config::grpc::errors::ConfigError),
     #[error("invalid configuration: {0}")]
     InvalidConfig(String),
+    #[error("id error: {0}")]
+    IdError(#[from] IdError),
 
     // App construction
     #[error("application name missing")]

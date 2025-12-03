@@ -29,7 +29,7 @@ use crate::auth::ClientAuthenticator;
 use crate::auth::basic::Config as BasicAuthenticationConfig;
 use crate::auth::jwt::Config as JwtAuthenticationConfig;
 use crate::auth::static_jwt::Config as BearerAuthenticationConfig;
-use crate::component::configuration::{Configuration, ConfigurationError};
+use crate::component::configuration::Configuration;
 use crate::grpc::proxy::ProxyConfig;
 use crate::tls::{client::TlsClientConfig as TLSSetting, common::RustlsConfigLoader};
 
@@ -299,9 +299,13 @@ impl std::fmt::Display for ClientConfig {
 }
 
 impl Configuration for ClientConfig {
-    fn validate(&self) -> Result<(), ConfigurationError> {
+    type Error = ConfigError;
+
+    fn validate(&self) -> Result<(), Self::Error> {
         // Validate the client configuration
-        self.tls_setting.validate()
+        let res = self.tls_setting.validate()?;
+
+        Ok(res)
     }
 }
 

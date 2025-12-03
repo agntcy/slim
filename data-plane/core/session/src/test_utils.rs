@@ -64,14 +64,14 @@ impl Verifier for MockVerifier {
     where
         Claims: serde::de::DeserializeOwned,
     {
-        Err(AuthError::TokenInvalid("mock".to_string()))
+        Err(AuthError::TokenInvalid2)
     }
 
     fn try_get_claims<Claims>(&self, _token: impl Into<String>) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned,
     {
-        Err(AuthError::TokenInvalid("mock".to_string()))
+        Err(AuthError::TokenInvalid2)
     }
 }
 

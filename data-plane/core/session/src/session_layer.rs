@@ -156,7 +156,7 @@ where
             .get(&name)
             .cloned()
             .map(|n| n.with_id(self.app_id))
-            .ok_or(SessionError::SubscriptionNotFound(name.to_string()))
+            .ok_or(SessionError::SubscriptionNotFound(name))
     }
 
     /// Get identity token from the identity provider
@@ -188,7 +188,7 @@ where
             session
                 .session()
                 .upgrade()
-                .ok_or(SessionError::SessionNotFound)?
+                .ok_or(SessionError::SessionNotFound(u32::MAX))?
                 .invite_participant_internal(&destination_clone)
                 .await
                 .inspect_err(|_| {
@@ -225,12 +225,12 @@ where
                     Some(id) => {
                         // make sure provided id is in range
                         if !SESSION_RANGE.contains(&id) {
-                            return Err(SessionError::InvalidSessionId(id.to_string()));
+                            return Err(SessionError::InvalidSessionId(id));
                         }
 
                         // check if the session ID is already used
                         if pool.contains_key(&id) {
-                            return Err(SessionError::SessionIdAlreadyUsed(id.to_string()));
+                            return Err(SessionError::SessionIdAlreadyUsed(id));
                         }
 
                         id
@@ -281,7 +281,7 @@ where
             if pool.contains_key(&session_id) {
                 // If a specific ID was provided, return an error
                 if id.is_some() {
-                    return Err(SessionError::SessionIdAlreadyUsed(session_id.to_string()));
+                    return Err(SessionError::SessionIdAlreadyUsed(session_id));
                 }
                 // If ID was randomly generated, retry with a new ID
                 continue;
@@ -295,7 +295,7 @@ where
                     "session ID {} was taken during insertion: this should not happen",
                     session_id
                 );
-                return Err(SessionError::SessionIdAlreadyUsed(session_id.to_string()));
+                return Err(SessionError::SessionIdAlreadyUsed(session_id));
             }
 
             return Ok(SessionContext::new(session_controller, app_rx));
@@ -341,9 +341,7 @@ where
         debug!("try to remove session {}", id);
         // get the read lock
         let binding = self.pool.read();
-        let session = binding
-            .get(&id)
-            .ok_or(SessionError::SessionNotFoundWithId { id })?;
+        let session = binding.get(&id).ok_or(SessionError::SessionNotFound(id))?;
 
         // close the session and get the join handle
         let join_handle = session.close()?;
@@ -364,18 +362,9 @@ where
         // Close all sessions and return completion handles
         pool.iter()
             .map(|(id, session)| {
-                let result = session.close().map(|join_handle| {
-                    // Spawn a task to await the join handle and send the result through a oneshot channel
-                    let (tx, rx) = tokio::sync::oneshot::channel();
-                    tokio::spawn(async move {
-                        let result = join_handle
-                            .await
-                            .map(|_| ())
-                            .map_err(SessionError::cleanup_failed);
-                        let _ = tx.send(result);
-                    });
-                    CompletionHandle::from_oneshot_receiver(rx)
-                });
+                let result = session
+                    .close()
+                    .map(|join_handle| CompletionHandle::from_join_handle(join_handle));
                 (*id, result)
             })
             .collect()
@@ -404,9 +393,9 @@ where
 
                 self.transmitter.send_to_slim(Ok(msg)).await
             }
-            _ => Err(SessionError::UnexpectedMessageType {
-                message_type: session_message_type,
-            }),
+            _ => Err(SessionError::SessionMessageTypeUnexpected(
+                session_message_type,
+            )),
         }
     }
 
@@ -518,9 +507,7 @@ where
                             "received channel join request with unknown session type: {}",
                             session_type.as_str_name()
                         );
-                        return Err(SessionError::SessionUnknown(
-                            session_type.as_str_name().to_string(),
-                        ));
+                        return Err(SessionError::SessionTypeUnknown(session_type));
                     }
                 }
             }
@@ -545,8 +532,8 @@ where
                 return Ok(());
             }
             _ => {
-                return Err(SessionError::SessionUnknown(
-                    session_message_type.as_str_name().to_string(),
+                return Err(SessionError::SessionMessageTypeUnknown(
+                    session_message_type,
                 ));
             }
         };
@@ -563,7 +550,7 @@ where
         self.tx_app
             .send(Ok(Notification::NewSession(new_session)))
             .await
-            .map_err(SessionError::from)
+            .map_err(|_e| SessionError::NewSessionSendFailed)
     }
 
     /// Handle a discovery request message.

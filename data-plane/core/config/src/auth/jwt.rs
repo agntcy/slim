@@ -185,9 +185,7 @@ impl Config {
                     .custom_claims(custom_claims)
                     .build()
             }
-            _ => Err(AuthError::ConfigError(
-                "Encoding key is required for client authentication".to_string(),
-            )),
+            _ => Err(AuthError::JwtMissingPrivateKey),
         }
     }
 
@@ -197,10 +195,7 @@ impl Config {
         match self.key() {
             JwtKey::Decoding(key) => self.jwt_builder().public_key(key).build(),
             JwtKey::Autoresolve => self.jwt_builder().auto_resolve_keys(true).build(),
-            _ => Err(AuthError::ConfigError(
-                "Decoding key or autoresolve = true is required for server authentication"
-                    .to_string(),
-            )),
+            _ => Err(AuthError::JwtMissingDecodingKeyOrKeyResolver),
         }
     }
 }
@@ -213,8 +208,7 @@ impl ClientAuthenticator for Config {
 
     fn get_client_layer(&self) -> Result<Self::ClientLayer, ConfigAuthError> {
         let signer = self.get_provider()?;
-        let duration = self.duration.as_secs();
-        Ok(AddJwtLayer::new(signer, duration))
+        Ok(AddJwtLayer::new(signer))
     }
 }
 

@@ -14,10 +14,6 @@ pub enum IdError {
     InvalidCharacter(String),
     #[error("name part is too long: {0}")]
     NameTooLong(String),
-
-    // Unknown / catch-all
-    #[error("unknown error")]
-    Unknown,
 }
 
 // Constant for the separator used in composite keys

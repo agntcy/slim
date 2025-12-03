@@ -173,10 +173,9 @@ where
                 self.common.sender.start_drain();
                 Ok(())
             }
-            _ => Err(SessionError::UnexpectedMessageType {
-                // Fallback: treat unknown SessionMessage variant as generic Msg
-                message_type: ProtoSessionMessageType::Msg,
-            }),
+            _ => Err(SessionError::SessionMessageInternalUnexpected(Box::new(
+                message,
+            ))),
         }
     }
 
@@ -437,7 +436,7 @@ where
                 session_id: self.common.settings.id,
             }))
             .await
-            .map_err(SessionError::from)
+            .map_err(|_e| SessionError::SessionDeleteMessageSendFailed)
     }
 
     async fn on_ping(&mut self, mut msg: Message) -> Result<(), SessionError> {

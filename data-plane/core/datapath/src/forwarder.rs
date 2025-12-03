@@ -17,25 +17,16 @@ use tracing::debug;
 #[derive(Debug)]
 pub struct Forwarder<T>
 where
-    T: Default + Clone,
+    T: Clone,
 {
     pub subscription_table: SubscriptionTableImpl,
     remote_subscription_table: RemoteSubscriptions,
     pub connection_table: ConnectionTable<T>,
 }
 
-impl<T> Default for Forwarder<T>
-where
-    T: Default + Clone,
-{
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl<T> Forwarder<T>
 where
-    T: Default + Clone,
+    T: Clone,
 {
     pub fn new() -> Self {
         Forwarder {
@@ -200,6 +191,6 @@ mod tests {
         );
 
         let err = fwd.on_subscription_msg(name.clone(), 10, false, false);
-        assert!(matches!(err, Err(DataPathError::IdNotFound)));
+        assert!(matches!(err, Err(DataPathError::IdNotFound(_))));
     }
 }

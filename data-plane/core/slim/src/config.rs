@@ -25,8 +25,8 @@ use slim_tracing::TracingConfiguration;
 #[derive(Error, Debug)]
 pub enum ConfigError {
     // File / I/O
-    #[error("not found: {0}")]
-    NotFound(String),
+    #[error("io error: {0}")]
+    IoError(#[from] std::io::Error),
 
     // Parsing / structural validity
     #[error("invalid configuration - impossible to parse yaml")]
@@ -43,8 +43,10 @@ pub enum ConfigError {
     // Services / resolution
     #[error("invalid configuration - missing services")]
     InvalidNoServices,
-    #[error("invalid configuration - resolver not found")]
-    ResolverError,
+
+    // Provider errors
+    #[error("config provider error: {0}")]
+    ConfigProviderError(#[from] slim_config::provider::ProviderError),
 }
 
 lazy_static! {
@@ -91,9 +93,8 @@ impl std::fmt::Debug for ConfigLoader {
 
 impl ConfigLoader {
     pub fn new(file_path: &str) -> Result<Self, ConfigError> {
-        let config_str =
-            std::fs::read_to_string(file_path).map_err(|e| ConfigError::NotFound(e.to_string()))?;
-        let mut root: Value = from_str(&config_str).map_err(|_| ConfigError::InvalidYaml)?;
+        let config_str = std::fs::read_to_string(file_path)?;
+        let mut root: Value = from_str(&config_str)?;
 
         let mapping = root.as_mapping().ok_or(ConfigError::InvalidYaml)?;
         for key in mapping.keys() {
@@ -104,9 +105,7 @@ impl ConfigLoader {
         }
 
         let resolver = ConfigResolver::new();
-        resolver
-            .resolve(&mut root)
-            .map_err(|_| ConfigError::ResolverError)?;
+        resolver.resolve(&mut root)?;
 
         Ok(Self {
             root,

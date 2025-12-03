@@ -288,7 +288,15 @@ where
                     next = rx.recv() => {
                         match next {
                             None => {
-                                debug!("no more messages to process");
+                                error!("SLIM channel closed, stopping message processing loop for {}", app_name);
+
+                                // Send error to application
+                                let tx_app = session_layer.tx_app();
+                                if let Err(send_err) = tx_app.send(Err(SessionError::SlimChannelClosed)).await {
+                                    // Channel closed, likely during shutdown - log but don't panic
+                                    debug!("failed to send slim channel closed error to application: {:?}", send_err);
+                                }
+
                                 break;
                             }
                             Some(msg) => {
@@ -324,11 +332,12 @@ where
                                         }
                                     }
                                     Err(e) => {
+                                        // Log the error but do nothing with it
                                         error!("error: {}", e);
 
                                         // if internal error, forward it to application
                                         let tx_app = session_layer.tx_app();
-                                        if let Err(send_err) = tx_app.send(Err(SessionError::Forward(e.to_string()))).await {
+                                        if let Err(send_err) = tx_app.send(Err(SessionError::SlimReception(e))).await {
                                             // Channel closed, likely during shutdown - log but don't panic
                                             debug!("failed to send error to application (channel closed): {:?}", send_err);
                                         }

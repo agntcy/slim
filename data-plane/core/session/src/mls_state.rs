@@ -126,9 +126,9 @@ where
                 }
                 _ => {
                     error!("unknown control message type, drop it");
-                    return Err(SessionError::UnexpectedMessageType {
-                        message_type: msg.get_session_message_type(),
-                    });
+                    return Err(SessionError::SessionMessageTypeUnknown(
+                        msg.get_session_header().session_message_type(),
+                    ));
                 }
             }
         }
@@ -304,7 +304,7 @@ where
             Some(id) => id,
             None => {
                 error!("the name does not exists in the group");
-                return Err(SessionError::ParticipantNotFound);
+                return Err(SessionError::ParticipantNotFound(name));
             }
         };
         // Direct propagation of MlsError

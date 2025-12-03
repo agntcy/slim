@@ -5,7 +5,8 @@
 //! of performing brittle string matching.
 
 use slim_config::tls::client::TlsClientConfig;
-use slim_config::tls::common::{CaSource, Config, ConfigError, RustlsConfigLoader, TlsSource};
+use slim_config::tls::common::{CaSource, Config, RustlsConfigLoader, TlsSource};
+use slim_config::tls::errors::ConfigError;
 use slim_config::tls::server::TlsServerConfig;
 
 static TEST_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/tls");

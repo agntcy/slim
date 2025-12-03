@@ -324,9 +324,7 @@ impl JwtBuilder<state::WithPrivateKey> {
     fn build_internal(key: &Key) -> Result<EncodingKey, AuthError> {
         // JWK are not supported as encoding keys
         if key.format == KeyFormat::Jwk {
-            return Err(AuthError::ConfigError(
-                "JWK format is not supported for encoding keys".to_string(),
-            ));
+            return Err(AuthError::JwtJwkFormatNotSupportedForEncoding);
         }
 
         let key_str = resolve_key(key);

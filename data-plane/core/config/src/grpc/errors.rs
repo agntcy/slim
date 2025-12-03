@@ -40,7 +40,7 @@ pub enum ConfigError {
 
     // TLS configuration
     #[error("TLS config error: {0}")]
-    TlsConfig(#[from] crate::tls::common::ConfigError),
+    TlsConfig(#[from] crate::tls::errors::ConfigError),
 
     // Authentication
     #[error("auth error")]

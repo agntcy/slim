@@ -90,7 +90,7 @@ impl ClientAuthenticator for Config {
 
     fn get_client_layer(&self) -> Result<Self::ClientLayer, ConfigAuthError> {
         let provider = self.build_static_token_provider()?;
-        Ok(AddJwtLayer::new(provider, self.duration()))
+        Ok(AddJwtLayer::new(provider))
     }
 }
 

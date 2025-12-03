@@ -18,6 +18,12 @@ pub enum ProviderError {
     // Unknown / catch-all
     #[error("unknown error")]
     Unknown,
+    // Env provider errors
+    #[error("environment variable error: {0}")]
+    EnvVarError(#[from] std::env::VarError),
+    // File provider errors
+    #[error("file error: {0}")]
+    FileError(#[from] std::io::Error),
 }
 
 // Define a trait for reading YAML content from different sources

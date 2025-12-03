@@ -157,10 +157,7 @@ impl KeyResolver {
             KeyAlgorithm::PS384 => Ok(Algorithm::PS384),
             KeyAlgorithm::PS512 => Ok(Algorithm::PS512),
             KeyAlgorithm::EdDSA => Ok(Algorithm::EdDSA),
-            _ => Err(AuthError::ConfigError(format!(
-                "Unsupported key algorithm: {:?}",
-                alg
-            ))),
+            _ => Err(AuthError::JwtUnsupportedKeyAlgorithm(*alg)),
         }
     }
 
@@ -294,30 +291,18 @@ impl KeyResolver {
     /// Fetch JWKS from the specified URI
     async fn fetch_jwks_from_uri(&self, uri: &str) -> Result<JwkSet, AuthError> {
         // Send the GET request using reqwest
-        let response = self
-            .client
-            .get(uri)
-            .send()
-            .await
-            .map_err(|e| AuthError::JwksFetch { source: e })?;
+        let response = self.client.get(uri).send().await?;
 
         // Check the response status
         if response.status() != StatusCode::OK {
-            return Err(AuthError::ConfigError(format!(
-                "Failed to fetch JWKS: HTTP status {}",
-                response.status()
-            )));
+            return Err(AuthError::JwtFetchJwksFailed(response.status()));
         }
 
         // Get the response body as bytes
-        let body = response
-            .bytes()
-            .await
-            .map_err(|e| AuthError::JwksRead { source: e })?;
+        let body = response.bytes().await?;
 
         // Parse the JWKS
-        let jwks: JwkSet =
-            serde_json::from_slice(&body).map_err(|e| AuthError::JwksParse { source: e })?;
+        let jwks: JwkSet = serde_json::from_slice(&body)?;
 
         Ok(jwks)
     }

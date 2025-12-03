@@ -157,7 +157,7 @@ impl ControllerSender {
 
     pub async fn on_message(&mut self, message: &Message) -> Result<(), SessionError> {
         if self.draining_state == ControllerSenderDrainStatus::Completed {
-            return Err(SessionError::SenderClosedDrop);
+            return Err(SessionError::SessionDrainingDrop);
         }
 
         match message.get_session_message_type() {
@@ -167,7 +167,7 @@ impl ControllerSender {
             | slim_datapath::api::ProtoSessionMessageType::GroupWelcome => {
                 if self.draining_state == ControllerSenderDrainStatus::Initiated {
                     // draining period started; reject new messages
-                    return Err(SessionError::DrainStartedRejectNew);
+                    return Err(SessionError::SessionDrainingDrop);
                 }
                 let mut missing_replies = HashSet::new();
                 let mut name = message.get_dst();
@@ -243,18 +243,14 @@ impl ControllerSender {
                     .collect::<HashSet<_>>();
 
                 // remove the endpoint also from the group list
-                let payload = message.extract_group_remove().map_err(|e| {
-                    SessionError::Processing(format!(
-                        "failed to extract group remove payload: {}",
-                        e
-                    ))
-                })?;
+                let payload = message.extract_group_remove()?;
 
-                let to_remove = Name::from(payload.removed_participant.as_ref().ok_or(
-                    SessionError::Processing(
-                        "missing removed participant in GroupRemove message".to_string(),
-                    ),
-                )?);
+                let to_remove = Name::from(
+                    payload
+                        .removed_participant
+                        .as_ref()
+                        .ok_or(SessionError::MissingRemovedParticipantInGroupRemove)?,
+                );
 
                 self.group_list.remove(&to_remove);
 
@@ -381,9 +377,7 @@ impl ControllerSender {
             .ping_state
             .as_ref()
             .map(|ps| ps.ping_timer.get_id() == id)
-            .ok_or(SessionError::Processing(
-                "ping state not initialized".to_string(),
-            ))?;
+            .ok_or(SessionError::PingStateNotInitialized)?;
 
         if should_handle_ping_interval {
             debug!("ping interval timeout, check current group state");
@@ -414,9 +408,7 @@ impl ControllerSender {
                     builder = builder.fanout(256);
                 }
 
-                let ping = builder
-                    .build_publish()
-                    .map_err(|e| SessionError::Processing(e.to_string()))?;
+                let ping = builder.build_publish()?;
 
                 debug!("send a new ping with id {}", ping_id);
 

@@ -72,7 +72,9 @@ impl Transmitter for SessionTransmitter {
             }
         }
 
-        let ret = tx.send(message).map_err(|_e| SessionError::ChannelSend)?;
+        let ret = tx
+            .send(message)
+            .map_err(|_e| SessionError::ApplicationMessageSendFailed)?;
 
         Ok(ret)
     }
@@ -92,7 +94,8 @@ impl Transmitter for SessionTransmitter {
             }
         }
 
-        tx.try_send(message).map_err(|_e| SessionError::ChannelSend)
+        tx.try_send(message)
+            .map_err(|_e| SessionError::SlimMessageSendFailed)
     }
 }
 
@@ -140,7 +143,7 @@ impl Transmitter for AppTransmitter {
 
         tx.send(message.map(|msg| Notification::NewMessage(Box::new(msg))))
             .await
-            .map_err(|_e| SessionError::ChannelSend)
+            .map_err(|_e| SessionError::ApplicationMessageSendFailed)
     }
 
     async fn send_to_slim(&self, mut message: Result<Message, Status>) -> Result<(), SessionError> {
@@ -158,7 +161,8 @@ impl Transmitter for AppTransmitter {
             }
         }
 
-        tx.try_send(message).map_err(|_e| SessionError::ChannelSend)
+        tx.try_send(message)
+            .map_err(|_e| SessionError::SlimMessageSendFailed)
     }
 }
 

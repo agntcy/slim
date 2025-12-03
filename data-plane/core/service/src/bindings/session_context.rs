@@ -85,7 +85,7 @@ impl BindingsSessionContext {
         let session = self
             .session
             .upgrade()
-            .ok_or(SessionError::SessionNotFound)?;
+            .ok_or(SessionError::SessionClosed)?;
 
         let flags = SlimHeaderFlags::new(
             1, // fanout = 1 for reply semantics
@@ -111,10 +111,7 @@ impl BindingsSessionContext {
 
     /// Invite a peer to join this session
     pub async fn invite(&self, destination: &Name) -> Result<CompletionHandle, SessionError> {
-        let session = self
-            .session
-            .upgrade()
-            .ok_or_else(|| SessionError::Processing("Session has been dropped".to_string()))?;
+        let session = self.session.upgrade().ok_or(SessionError::SessionClosed)?;
 
         session.invite_participant(destination).await
     }
@@ -124,7 +121,7 @@ impl BindingsSessionContext {
         let session = self
             .session
             .upgrade()
-            .ok_or_else(|| SessionError::Processing("Session has been dropped".to_string()))?;
+            .ok_or(SessionError::SessionClosed)?;
 
         session.remove_participant(destination).await
     }
