@@ -8,9 +8,10 @@ import (
 
 func NewConfigCmd(conf *cfg.ConfigData) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "config",
-		Short: "Manage slimctl configuration",
-		Long:  `Manage slimctl configuration.`,
+		Use:     "config",
+		Short:   "Manage slimctl configuration",
+		Long:    `Manage slimctl configuration.`,
+		GroupID: "slimctl",
 	}
 
 	cmd.AddCommand(newSetConfigCmd(conf))
