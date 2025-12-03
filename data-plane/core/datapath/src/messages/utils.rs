@@ -53,9 +53,16 @@ pub enum MessageError {
     #[error("content is not a command payload")]
     NotCommandPayload,
     #[error("invalid command payload type: expected {expected}, got {got}")]
-    InvalidCommandPayloadType { expected: String, got: String },
-    #[error("builder error: {0}")]
-    BuilderError(String),
+    InvalidCommandPayloadType {
+        expected: Box<String>,
+        got: Box<String>,
+    },
+
+    // Builder errors
+    #[error("builder error: source is required")]
+    BuilderErrorSourceRequired,
+    #[error("builder error: destination is required")]
+    BuilderErrorDestinationRequired,
 }
 
 /// ProtoName from Name
@@ -857,12 +864,12 @@ macro_rules! impl_command_payload_getters {
                 match &self.command_payload_type {
                     Some(CommandPayloadType::$variant(payload)) => Ok(payload),
                     Some(other) => Err(MessageError::InvalidCommandPayloadType {
-                        expected: stringify!($variant).to_string(),
-                        got: format!("{:?}", other),
+                        expected: Box::new(stringify!($variant).to_string()),
+                        got: Box::new(format!("{:?}", other)),
                     }),
                     None => Err(MessageError::InvalidCommandPayloadType {
-                        expected: stringify!($variant).to_string(),
-                        got: "None".to_string(),
+                        expected: Box::new(stringify!($variant).to_string()),
+                        got: Box::new("None".to_string()),
                     }),
                 }
             }
@@ -1432,10 +1439,10 @@ impl ProtoMessageBuilder {
     pub fn build_publish(self) -> Result<ProtoMessage, MessageError> {
         let source = self
             .source
-            .ok_or_else(|| MessageError::BuilderError("source is required".to_string()))?;
+            .ok_or(MessageError::BuilderErrorSourceRequired)?;
         let destination = self
             .destination
-            .ok_or_else(|| MessageError::BuilderError("destination is required".to_string()))?;
+            .ok_or(MessageError::BuilderErrorDestinationRequired)?;
 
         let slim_header = Some(SlimHeader::new(
             &source,
@@ -1468,10 +1475,10 @@ impl ProtoMessageBuilder {
     pub fn build_subscribe(self) -> Result<ProtoMessage, MessageError> {
         let source = self
             .source
-            .ok_or_else(|| MessageError::BuilderError("source is required".to_string()))?;
+            .ok_or(MessageError::BuilderErrorSourceRequired)?;
         let destination = self
             .destination
-            .ok_or_else(|| MessageError::BuilderError("destination is required".to_string()))?;
+            .ok_or(MessageError::BuilderErrorDestinationRequired)?;
 
         let subscribe =
             ProtoSubscribe::new(&source, &destination, self.identity.as_deref(), self.flags);
@@ -1486,10 +1493,10 @@ impl ProtoMessageBuilder {
     pub fn build_unsubscribe(self) -> Result<ProtoMessage, MessageError> {
         let source = self
             .source
-            .ok_or_else(|| MessageError::BuilderError("source is required".to_string()))?;
+            .ok_or(MessageError::BuilderErrorSourceRequired)?;
         let destination = self
             .destination
-            .ok_or_else(|| MessageError::BuilderError("destination is required".to_string()))?;
+            .ok_or(MessageError::BuilderErrorDestinationRequired)?;
 
         let unsubscribe =
             ProtoUnsubscribe::new(&source, &destination, self.identity.as_deref(), self.flags);

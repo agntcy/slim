@@ -130,13 +130,9 @@ impl SessionSender {
     ) -> Result<(), SessionError> {
         if self.draining_state == SenderDrainStatus::Completed {
             if let Some(tx) = ack_tx {
-                let _ = tx.send(Err(SessionError::Processing(
-                    "sender closed, drop message".to_string(),
-                )));
+                let _ = tx.send(Err(SessionError::SessionDrainingDrop));
             }
-            return Err(SessionError::Processing(
-                "sender closed, drop message".to_string(),
-            ));
+            return Err(SessionError::SessionDrainingDrop);
         }
 
         match message.get_session_message_type() {
@@ -144,13 +140,9 @@ impl SessionSender {
                 debug!("received message");
                 if self.draining_state == SenderDrainStatus::Initiated {
                     if let Some(tx) = ack_tx {
-                        let _ = tx.send(Err(SessionError::Processing(
-                            "drain started do no accept new messages".to_string(),
-                        )));
+                        let _ = tx.send(Err(SessionError::SessionDrainingDrop));
                     }
-                    return Err(SessionError::Processing(
-                        "drain started do no accept new messages".to_string(),
-                    ));
+                    return Err(SessionError::SessionDrainingDrop);
                 }
                 if self.session_type == ProtoSessionType::PointToPoint {
                     // if the session is point to point publish_to falls back
@@ -205,9 +197,7 @@ impl SessionSender {
                 "cannot forward the message to the select destination {}",
                 message.get_dst()
             );
-            return Err(SessionError::UnknownDestination(
-                message.get_dst().to_string(),
-            ));
+            return Err(SessionError::UnknownDestination(message.get_dst()));
         }
 
         let (message_id, fanout) = self.id_and_fanout(is_publish_to);
@@ -316,10 +306,7 @@ impl SessionSender {
 
         debug!("send message");
         // send the message
-        self.tx
-            .send_to_slim(Ok(message))
-            .await
-            .map_err(|e| SessionError::SlimTransmission(e.to_string()))
+        self.tx.send_to_slim(Ok(message)).await
     }
 
     fn on_ack_message(&mut self, message: &Message) {
@@ -390,10 +377,7 @@ impl SessionSender {
                 .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxReply);
 
             // send the message
-            self.tx
-                .send_to_slim(Ok(msg))
-                .await
-                .map_err(|e| SessionError::SlimTransmission(e.to_string()))
+            self.tx.send_to_slim(Ok(msg)).await
         } else {
             debug!("the message does not exists anymore, send and error");
             let msg = new_message_from_session_fields(
@@ -407,13 +391,10 @@ impl SessionSender {
                 message_id,
                 None,
             )
-            .map_err(|e| SessionError::Processing(e.to_string()))?;
+            .map_err(SessionError::build_error)?;
 
             // send the message
-            self.tx
-                .send_to_slim(Ok(msg))
-                .await
-                .map_err(|e| SessionError::SlimTransmission(e.to_string()))
+            self.tx.send_to_slim(Ok(msg)).await
         }
     }
 
@@ -423,11 +404,7 @@ impl SessionSender {
         if id > MAX_PUBLISH_ID {
             // this must be a message sent with publish_to, so get the message from the pending acks map
             if let Some((_gt, Some(msg))) = self.pending_acks.get_mut(&id) {
-                return self
-                    .tx
-                    .send_to_slim(Ok(msg.clone()))
-                    .await
-                    .map_err(|e| SessionError::SlimTransmission(e.to_string()));
+                return self.tx.send_to_slim(Ok(msg.clone())).await;
             } else {
                 return self.on_timer_failure(id).await;
             }
@@ -445,10 +422,7 @@ impl SessionSender {
                     m.get_slim_header_mut().set_destination(n);
 
                     // send the message
-                    self.tx
-                        .send_to_slim(Ok(m))
-                        .await
-                        .map_err(|e| SessionError::SlimTransmission(e.to_string()))?;
+                    self.tx.send_to_slim(Ok(m)).await?;
                 }
             }
         } else {
@@ -479,18 +453,12 @@ impl SessionSender {
 
         // Signal failure to the ack notifier if present
         if let Some(tx) = self.ack_notifiers.remove(&id) {
-            let _ = tx.send(Err(SessionError::Processing(format!(
-                "error send message {}. stop retrying",
-                id
-            ))));
+            let _ = tx.send(Err(SessionError::send_retry_failed(id)));
         }
 
         // notify the application that the message was not delivered correctly
         self.tx
-            .send_to_app(Err(SessionError::Processing(format!(
-                "error send message {}. stop retrying",
-                id
-            ))))
+            .send_to_app(Err(SessionError::send_retry_failed(id)))
             .await
     }
 
@@ -580,7 +548,7 @@ impl SessionSender {
 
         // Notify all pending ack notifiers that the sender is closed
         for (_, tx) in self.ack_notifiers.drain() {
-            let _ = tx.send(Err(SessionError::Processing("sender closed".to_string())));
+            let _ = tx.send(Err(SessionError::SessionClosed));
         }
 
         self.draining_state = SenderDrainStatus::Completed;
@@ -813,15 +781,11 @@ mod tests {
 
         // Check that we received an error as expected
         match res {
-            Err(SessionError::Processing(msg)) => {
-                assert!(
-                    msg.contains("error send message 1. stop retrying"),
-                    "Expected timer failure error message, got: {}",
-                    msg
-                );
+            Err(SessionError::MessageSendRetryFailed { id }) => {
+                assert_eq!(id, 1, "Expected retry failure for message id 1");
             }
             _ => panic!(
-                "Expected SessionError::Processing with timer failure message, got: {:?}",
+                "Expected SessionError::MessageSendRetryFailed, got: {:?}",
                 res
             ),
         }
@@ -1790,13 +1754,10 @@ mod tests {
         // Send the message - should fail
         let result = sender.on_message(message, None).await;
 
-        assert!(result.is_err());
-        match result {
-            Err(SessionError::UnknownDestination(msg)) => {
-                assert!(msg.contains("unknown"));
-            }
-            _ => panic!("Expected UnknownDestination error, got: {:?}", result),
-        }
+        assert!(
+            result.is_err_and(|e| { matches!(e, SessionError::UnknownDestination(_)) }),
+            "Expected UnknownDestination error",
+        );
     }
 
     #[tokio::test]

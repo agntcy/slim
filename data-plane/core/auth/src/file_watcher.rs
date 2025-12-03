@@ -10,10 +10,10 @@ use tracing::debug;
 
 use thiserror::Error;
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug)]
 pub enum FileWatcherError {
     #[error("watch error: {0}")]
-    WatchError(String),
+    WatchError(#[from] notify::Error),
 }
 
 #[derive(Debug)]
@@ -87,16 +87,13 @@ impl FileWatcher {
     }
 
     pub fn add_file(&mut self, file_name: &str) -> Result<(), FileWatcherError> {
-        match self
+        let res = self
             .watcher
-            .watch(Path::new(file_name), RecursiveMode::NonRecursive)
-        {
-            Ok(_) => {
-                debug!("start watching file {}", file_name);
-                Ok(())
-            }
-            Err(e) => Err(FileWatcherError::WatchError(e.to_string())),
-        }
+            .watch(Path::new(file_name), RecursiveMode::NonRecursive)?;
+
+        debug!("added file {} to watcher", file_name);
+
+        Ok(res)
     }
 
     pub fn stop_watcher(&self) {
@@ -166,7 +163,7 @@ mod tests {
 
         // add file to watcher
         let res = w.add_file(full_test_file_name);
-        assert_eq!(res, Ok(()));
+        assert!(res.is_ok());
 
         // modify the file
         modify_file(full_test_file_name, "CONFIG 2").expect("Failed to modify file");
@@ -193,7 +190,7 @@ mod tests {
 
         // add file to watcher
         let res = w.add_file(full_test_file_name_2);
-        assert_eq!(res, Ok(()));
+        assert!(res.is_ok());
 
         // modify the file
         modify_file(full_test_file_name_2, "CONFIG 2").expect("Failed to modify file");

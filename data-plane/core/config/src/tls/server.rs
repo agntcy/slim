@@ -12,12 +12,12 @@ use rustls::{
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::common::{Config, ConfigError, RustlsConfigLoader, TlsSource};
+use super::common::{Config, RustlsConfigLoader, TlsSource};
 use crate::{
-    component::configuration::{Configuration, ConfigurationError},
+    component::configuration::Configuration,
     tls::{
         RootStoreBuilder,
-        common::{CaSource, StaticCertResolver, WatcherCertResolver},
+        common::{CaSource, StaticCertResolver, WatcherCertResolver}, errors::ConfigError,
     },
 };
 
@@ -242,12 +242,7 @@ impl TlsServerConfig {
             // SPIRE server path
             #[cfg(not(target_family = "windows"))]
             TlsSource::Spire { config: spire_cfg } => Arc::new(
-                SpireCertResolver::new(spire_cfg.clone(), config_builder.crypto_provider())
-                    .await
-                    .map_err(|e| ConfigError::InvalidSpireConfig {
-                        details: e.to_string(),
-                        config: spire_cfg.clone(),
-                    })?,
+                SpireCertResolver::new(spire_cfg.clone(), config_builder.crypto_provider()).await?,
             ),
             // Static file-based certificates
             TlsSource::File { cert, key, .. } => Arc::new(WatcherCertResolver::new(
@@ -297,7 +292,9 @@ impl RustlsConfigLoader<RustlsServerConfig> for TlsServerConfig {
 }
 
 impl Configuration for TlsServerConfig {
-    fn validate(&self) -> Result<(), ConfigurationError> {
+    type Error = ConfigError;
+
+    fn validate(&self) -> Result<(), Self::Error> {
         // TODO(msardara): validate the configuration
         Ok(())
     }

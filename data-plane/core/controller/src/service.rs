@@ -265,7 +265,7 @@ impl ControlPlane {
         let rx = self
             .rx_slim_option
             .take()
-            .ok_or(ControllerError::ConfigError("Already running.".to_string()))?;
+            .ok_or(ControllerError::AlreadyStarted)?;
 
         // Collect servers to avoid borrowing self both mutably and immutably
         let servers = self.servers.clone();
@@ -287,6 +287,13 @@ impl ControlPlane {
     }
 
     pub async fn shutdown(&self) -> Result<(), ControllerError> {
+        // Get signal drain
+        let signal = self
+            .drain_signal
+            .write()
+            .take()
+            .ok_or(ControllerError::AlreadyStopped)?;
+
         // Stop everything using the cancellation tokens
         self.controller
             .inner
@@ -301,23 +308,10 @@ impl ControlPlane {
         // Drop watch channel
         self.controller.inner.drain_watch.write().take();
 
-        // Signal drain
-        let signal = self
-            .drain_signal
-            .write()
-            .take()
-            .ok_or(ControllerError::ConfigError(
-                "Drain signal channel not initialized.".to_string(),
-            ))?;
-
         // Wait for drain to complete
         tokio::time::timeout(Duration::from_secs(10), signal.drain())
             .await
-            .map_err(|_| {
-                ControllerError::ConfigError(
-                    "Timeout waiting for controller drain to complete.".to_string(),
-                )
-            })?;
+            .map_err(|_| ControllerError::ShutdownTimeout)?;
 
         Ok(())
     }
@@ -354,9 +348,7 @@ impl ControlPlane {
             .await
             .map_err(|e| {
                 error!("failed to send subscribe message to data plane: {}", e);
-                ControllerError::DatapathError(
-                    "error sending subscribe message to datapath".to_string(),
-                )
+                ControllerError::DatapathSendError(e.to_string())
             })?;
 
         // Get a drain watch clone
@@ -464,10 +456,7 @@ impl ControlPlane {
             .read()
             .contains_key(&client.endpoint)
         {
-            return Err(ControllerError::ConfigError(format!(
-                "client {} is already running",
-                client.endpoint
-            )));
+            return Err(ControllerError::ClientAlreadyRunning(client.endpoint));
         }
 
         let cancellation_token = CancellationToken::new();
@@ -510,10 +499,7 @@ impl ControlPlane {
             .contains_key(&config.endpoint)
         {
             error!("server {} is already running", config.endpoint);
-            return Err(ControllerError::ConfigError(format!(
-                "server {} is already running",
-                config.endpoint
-            )));
+            return Err(ControllerError::ServerAlreadyRunning(config.endpoint));
         }
 
         let token = config
@@ -521,11 +507,7 @@ impl ControlPlane {
                 &[ControllerServiceServer::new(self.controller.clone())],
                 self.controller.drain_watch()?,
             )
-            .await
-            .map_err(|e| {
-                error!("failed to run server {}: {}", config.endpoint, e);
-                ControllerError::ConfigError(e.to_string())
-            })?;
+            .await?;
 
         // Store the cancellation token in the controller service
         self.controller
@@ -556,20 +538,17 @@ fn generate_session_id(moderator: &Name, channel: &Name) -> u32 {
 fn get_name_from_string(string_name: &String) -> Result<Name, ControllerError> {
     let parts: Vec<&str> = string_name.split('/').collect();
     if parts.len() < 3 {
-        return Err(ControllerError::ConfigError(format!(
-            "invalid name format: {}",
-            string_name
-        )));
+        return Err(ControllerError::MalformedName(string_name.clone()));
     }
 
     if parts.len() == 4 {
-        let id = parts[3].parse::<u64>().map_err(|_| {
-            ControllerError::ConfigError(format!("invalid moderator ID: {}", parts[3]))
-        })?;
-        Ok(Name::from_strings([parts[0], parts[1], parts[2]]).with_id(id))
-    } else {
-        Ok(Name::from_strings([parts[0], parts[1], parts[2]]))
+        let id = parts[3]
+            .parse::<u64>()
+            .map_err(|_e| ControllerError::MalformedName(string_name.clone()))?;
+        return Ok(Name::from_strings([parts[0], parts[1], parts[2]]).with_id(id));
     }
+
+    Ok(Name::from_strings([parts[0], parts[1], parts[2]]))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -583,15 +562,9 @@ fn create_channel_message(
     auth_provider: &Option<AuthProvider>,
 ) -> Result<DataPlaneMessage, ControllerError> {
     // if the auth_provider is set try to get an identity
-    let identity_token = if let Some(auth) = auth_provider {
-        auth.get_token()
-            .map_err(|e| {
-                error!("failed to generate identity token: {}", e);
-                ControllerError::DatapathError(e.to_string())
-            })
-            .unwrap()
-    } else {
-        "".to_string()
+    let identity_token = match auth_provider {
+        Some(auth) => auth.get_token()?,
+        None => String::new(),
     };
 
     let message = DataPlaneMessage::builder()
@@ -602,12 +575,11 @@ fn create_channel_message(
         .session_message_type(request_type)
         .session_id(session_id)
         .message_id(message_id)
-        .payload(
-            payload
-                .ok_or_else(|| ControllerError::DatapathError("payload is required".to_string()))?,
-        )
+        .payload(payload.ok_or(ControllerError::PayloadMissing)?)
         .build_publish()
-        .map_err(|e| ControllerError::DatapathError(e.to_string()))?;
+        .map_err(|e| {
+            ControllerError::Datapath(slim_datapath::errors::DataPathError::InvalidMessage(e))
+        })?;
 
     Ok(message)
 }
@@ -808,15 +780,9 @@ impl ControllerService {
                         }
 
                         // if the auth_provider is set try to get an identity
-                        let identity_token = if let Some(auth) = &self.inner.auth_provider {
-                            auth.get_token()
-                                .map_err(|e| {
-                                    error!("failed to generate identity token: {}", e);
-                                    ControllerError::DatapathError(e.to_string())
-                                })
-                                .unwrap()
-                        } else {
-                            "".to_string()
+                        let identity_token = match &self.inner.auth_provider {
+                            Some(auth) => auth.get_token()?,
+                            None => String::new(),
                         };
 
                         // Process subscriptions to set
@@ -1295,7 +1261,7 @@ impl ControllerService {
     async fn send_control_message(&self, msg: DataPlaneMessage) -> Result<(), ControllerError> {
         self.inner.tx_slim.send(Ok(msg)).await.map_err(|e| {
             error!("error sending message into datapath: {}", e);
-            ControllerError::DatapathError(e.to_string())
+            ControllerError::Datapath(slim_datapath::errors::DataPathError::ConnectionError)
         })
     }
 
@@ -1344,9 +1310,7 @@ impl ControllerService {
             .drain_watch
             .read()
             .clone()
-            .ok_or(ControllerError::ConfigError(
-                "drain channel not configured in controller service".to_string(),
-            ))
+            .ok_or(ControllerError::AlreadyStopped)
     }
 
     /// Send all queued subscription notifications when connection is restored.
@@ -1517,15 +1481,12 @@ impl ControllerService {
             .max_delay(Duration::from_secs(10))
             .map(jitter);
 
-        let channel = config.to_channel().await.map_err(|e| {
-            error!("error reading channel config: {}", e);
-            ControllerError::ConfigError(e.to_string())
-        })?;
+        let channel = config.to_channel().await?;
 
         let mut attempt = 0;
 
         // Retry infinitely using the strategy
-        let result = Retry::spawn(backoff_strategy, move || {
+        let (tx, stream) = Retry::spawn(backoff_strategy, move || {
             attempt += 1;
             let mut client = ControllerServiceClient::new(channel.clone());
             async move {
@@ -1543,28 +1504,19 @@ impl ControllerService {
                 }
             }
         })
-        .await;
+        .await?;
 
-        match result {
-            Ok((tx, stream)) => {
-                // Send any queued notifications after successful connection
-                self.send_queued_notifications(&tx, &config.endpoint).await;
+        // Send any queued notifications after successful connection
+        self.send_queued_notifications(&tx, &config.endpoint).await;
 
-                self.process_control_message_stream(
-                    Some(config),
-                    stream.into_inner(),
-                    tx.clone(),
-                    cancellation_token.clone(),
-                )?;
+        self.process_control_message_stream(
+            Some(config),
+            stream.into_inner(),
+            tx.clone(),
+            cancellation_token.clone(),
+        )?;
 
-                Ok(tx)
-            }
-
-            Err(e) => Err(ControllerError::ConfigError(format!(
-                "failed to connect to control plane: {}",
-                e
-            ))),
-        }
+        Ok(tx)
     }
 
     fn match_for_io_error(err_status: &Status) -> Option<&std::io::Error> {

@@ -181,21 +181,12 @@ where
                         .sender
                         .on_timer_failure(message_id, message_type)
                         .await;
-                    // the current task failed:
-                    // 1. create the right error message and notify via ack_tx if present
-                    let message = match &self.common.settings.config.session_type {
-                        ProtoSessionType::PointToPoint => "session handshake failed",
-                        ProtoSessionType::Multicast => "failed to add a participant to the group",
-                        _ => panic!("session type not specified"),
-                    };
 
                     // the task should always exist a this point
                     if let Some(task) = self.current_task.as_mut()
                         && let Some(ack_tx) = task.ack_tx_take()
                     {
-                        let _ = ack_tx.send(Err(SessionError::ModeratorTask(
-                            task.failure_message(message).to_string(),
-                        )));
+                        let _ = ack_tx.send(Err(task.failure_message()));
                     }
 
                     // 2. delete current task and pick a new one
@@ -252,9 +243,8 @@ where
                 // process the leave request message
                 self.on_disconnection_detected(msg, None).await
             }
-            _ => Err(SessionError::Processing(format!(
-                "Unexpected message type {:?}",
-                message
+            _ => Err(SessionError::SessionMessageInternalUnexpected(Box::new(
+                message,
             ))),
         }
     }
@@ -307,7 +297,7 @@ where
                 ModeratorTask::CloseOrDisconnect(t) => t.ack_tx,
             };
             if let Some(tx) = ack_tx {
-                let _ = tx.send(Err(SessionError::Processing(error.to_string())));
+                let _ = tx.send(Err(SessionError::cleanup_failed(&error)));
             }
         }
 
@@ -443,11 +433,11 @@ where
                 // local one, call the delete all anyway
                 if let Some(n) = message
                     .get_payload()
-                    .ok_or_else(|| SessionError::Processing("Missing payload".to_string()))?
-                    .as_command_payload()
-                    .map_err(SessionError::from)?
-                    .as_leave_request_payload()
-                    .map_err(SessionError::from)?
+                    .ok_or_else(|| SessionError::MissingPayload {
+                        context: "control_message",
+                    })?
+                    .as_command_payload()?
+                    .as_leave_request_payload()?
                     .destination
                     .as_ref()
                     && Name::from(n) == self.common.settings.source
@@ -466,14 +456,12 @@ where
             | ProtoSessionMessageType::GroupRemove
             | ProtoSessionMessageType::GroupWelcome
             | ProtoSessionMessageType::GroupClose
-            | ProtoSessionMessageType::GroupNack => Err(SessionError::Processing(format!(
-                "Unexpected control message type {:?}",
-                message.get_session_message_type()
-            ))),
-            _ => Err(SessionError::Processing(format!(
-                "Unexpected message type {:?}",
-                message.get_session_message_type()
-            ))),
+            | ProtoSessionMessageType::GroupNack => Err(
+                SessionError::SessionMessageTypeUnexpected(message.get_session_message_type()),
+            ),
+            _ => Err(SessionError::SessionMessageTypeUnknown(
+                message.get_session_message_type(),
+            )),
         }
     }
 
@@ -502,10 +490,7 @@ where
         // check if there is a destination name in the payload. If yes recreate the message
         // with the right destination and send it out
         let payload = msg.extract_discovery_request().map_err(|e| {
-            let err = SessionError::Processing(format!(
-                "failed to extract discovery request payload: {}",
-                e
-            ));
+            let err = SessionError::extract_error("discovery_request", e);
             self.handle_task_error(err)
         })?;
 
@@ -775,10 +760,7 @@ where
         let payload_destination = msg
             .extract_leave_request()
             .map_err(|e| {
-                let err = SessionError::Processing(format!(
-                    "failed to extract leave request payload: {}",
-                    e
-                ));
+                let err = SessionError::extract_error("leave_request", e);
                 self.handle_task_error(err)
             })?
             .destination
@@ -794,7 +776,7 @@ where
         let id = match self.group_list.get(&dst_without_id) {
             Some(id) => *id,
             None => {
-                let err = SessionError::RemoveParticipant("participant not found".to_string());
+                let err = SessionError::ParticipantNotFound(dst_without_id);
                 return Err(self.handle_task_error(err));
             }
         };
@@ -865,10 +847,7 @@ where
         debug!("disconnection detected for participant {}", msg.get_dst());
 
         // Send error notification to the application
-        let error = SessionError::ParticipantDisconnected(format!(
-            "Participant {} disconnected unexpectedly",
-            msg.get_dst()
-        ));
+        let error = SessionError::ParticipantDisconnected(msg.get_dst());
         self.common.send_to_app(error).await?;
 
         // if the session if P2P or no one is left on the session close it

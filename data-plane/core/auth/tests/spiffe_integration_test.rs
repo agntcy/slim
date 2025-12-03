@@ -10,6 +10,7 @@
 
 #![cfg(target_os = "linux")]
 
+use slim_auth::errors::AuthError;
 use slim_auth::metadata::MetadataMap;
 use slim_auth::spire::SpireIdentityManager;
 use slim_auth::traits::{TokenProvider, Verifier};
@@ -329,11 +330,10 @@ async fn test_spiffe_provider_error_handling() {
 
     // Should fail to initialize
     let init_result = provider.initialize().await;
-    assert!(init_result.is_err(), "Should fail with invalid socket");
-
-    let err = format!("{}", init_result.unwrap_err());
-    assert!(err.contains("Failed to connect") || err.contains("SPIFFE"));
-    tracing::info!("Correctly handles invalid socket path: {}", err);
+    assert!(
+        init_result.is_err_and(|e| matches!(e, AuthError::SpiffeGrpcError(_))),
+        "Should fail with invalid socket"
+    );
 
     // Provider should still be in uninitialized state
     assert_manager_uninitialized(&provider);

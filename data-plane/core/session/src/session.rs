@@ -106,9 +106,8 @@ impl Session {
                 self.receiver.start_drain();
                 Ok(())
             }
-            _ => Err(SessionError::Processing(format!(
-                "Unexpected message type {:?}",
-                message
+            _ => Err(SessionError::SessionMessageInternalUnexpected(Box::new(
+                message,
             ))),
         }
     }
@@ -142,31 +141,20 @@ impl Session {
                     self.sender.on_message(message, ack_tx).await
                 } else {
                     // message from slim to the app, give it to the receiver
-                    // Signal ack immediately for incoming messages
-                    if let Some(tx) = ack_tx {
-                        let _ = tx.send(Ok(()));
-                    }
                     self.receiver.on_message(message).await
                 }
             }
             ProtoSessionMessageType::MsgAck | ProtoSessionMessageType::RtxRequest => {
                 self.sender.on_message(message, ack_tx).await
             }
-            ProtoSessionMessageType::RtxReply => {
-                // Signal ack immediately for control messages
-                if let Some(tx) = ack_tx {
-                    let _ = tx.send(Ok(()));
-                }
-                self.receiver.on_message(message).await
-            }
+            ProtoSessionMessageType::RtxReply => self.receiver.on_message(message).await,
             _ => {
                 if let Some(tx) = ack_tx {
                     let _ = tx.send(Ok(()));
                 }
-                Err(SessionError::Processing(format!(
-                    "Unexpected message type {:?}",
-                    message.get_session_message_type()
-                )))
+                Err(SessionError::SessionMessageTypeUnexpected(
+                    message.get_session_message_type(),
+                ))
             }
         }
     }
@@ -182,10 +170,7 @@ impl Session {
             ProtoSessionMessageType::RtxRequest => {
                 self.receiver.on_timer_timeout(id, name.unwrap()).await
             }
-            _ => Err(SessionError::Processing(format!(
-                "Unexpected message type {:?}",
-                message_type
-            ))),
+            _ => Err(SessionError::SessionMessageTypeUnexpected(message_type)),
         }
     }
 
@@ -200,10 +185,7 @@ impl Session {
             ProtoSessionMessageType::RtxRequest => {
                 self.receiver.on_timer_failure(id, name.unwrap()).await
             }
-            _ => Err(SessionError::Processing(format!(
-                "Unexpected message type {:?}",
-                message_type
-            ))),
+            _ => Err(SessionError::SessionMessageTypeUnexpected(message_type)),
         }
     }
 }

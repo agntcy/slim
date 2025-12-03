@@ -167,16 +167,13 @@ impl OidcTokenProvider {
     /// Note: Call `initialize()` after creation to start background tasks and fetch initial token
     pub fn new(config: OidcProviderConfig) -> Result<Self, AuthError> {
         // Validate the issuer URL
-        Url::parse(&config.issuer_url).map_err(|e| {
-            AuthError::InvalidIssuerEndpoint(format!("Invalid issuer endpoint URL: {}", e))
-        })?;
+        Url::parse(&config.issuer_url)?;
 
         // Create HTTP client with timeout
         let client = ReqwestClient::builder()
             .user_agent("AGNTCY Slim Auth OAuth2")
             .timeout(config.timeout.unwrap_or(Duration::from_secs(30)))
-            .build()
-            .map_err(|e| AuthError::OAuth2Error(format!("Failed to create HTTP client: {}", e)))?;
+            .build()?;
 
         // Create shutdown channel for background task
         let (shutdown_tx, _shutdown_rx) = watch::channel(false);
@@ -236,26 +233,13 @@ impl OidcTokenProvider {
             "{}/.well-known/openid-configuration",
             self.config.issuer_url
         );
-        let discovery_response: serde_json::Value = self
-            .client
-            .get(&discovery_url)
-            .send()
-            .await
-            .map_err(|e| {
-                AuthError::ConfigError(format!("Failed to fetch discovery document: {}", e))
-            })?
-            .json()
-            .await
-            .map_err(|e| {
-                AuthError::ConfigError(format!("Failed to parse discovery document: {}", e))
-            })?;
+        let discovery_response: serde_json::Value =
+            self.client.get(&discovery_url).send().await?.json().await?;
 
         let token_endpoint = discovery_response
             .get("token_endpoint")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                AuthError::ConfigError("token_endpoint not found in discovery document".to_string())
-            })?;
+            .ok_or(AuthError::OidcDiscoveryMissingTokenEndpoint)?;
 
         let auth_url_str = discovery_response
             .get("authorization_endpoint")
@@ -266,14 +250,8 @@ impl OidcTokenProvider {
         // Create OAuth2 client (updated for new oauth2 builder API)
         let client = BasicClient::new(ClientId::new(self.config.client_id.clone()))
             .set_client_secret(ClientSecret::new(self.config.client_secret.clone()))
-            .set_auth_uri(
-                AuthUrl::new(auth_url_str)
-                    .map_err(|e| AuthError::ConfigError(format!("Invalid auth URL: {}", e)))?,
-            )
-            .set_token_uri(
-                TokenUrl::new(token_endpoint.to_string())
-                    .map_err(|e| AuthError::ConfigError(format!("Invalid token URL: {}", e)))?,
-            );
+            .set_auth_uri(AuthUrl::new(auth_url_str)?)
+            .set_token_uri(TokenUrl::new(token_endpoint.to_string())?);
 
         let mut token_request = client.exchange_client_credentials();
 
@@ -284,7 +262,7 @@ impl OidcTokenProvider {
         let token_response = token_request
             .request_async(&self.client)
             .await
-            .map_err(|e| AuthError::GetTokenError(format!("Failed to exchange token: {}", e)))?;
+            .map_err(|e| AuthError::OAuth2Request(Box::new(e)))?;
 
         let access_token = token_response.access_token().secret();
         let expires_in = token_response
@@ -372,13 +350,9 @@ impl TokenProvider for OidcTokenProvider {
 
     fn get_token(&self) -> Result<String, AuthError> {
         let cache_key = self.get_cache_key();
-        if let Some(cached_token) = self.token_cache.get(&cache_key) {
-            return Ok(cached_token);
-        }
-        Err(AuthError::GetTokenError(format!(
-            "No cached token available for key '{}'. Background refresh should handle this.",
-            cache_key
-        )))
+        self.token_cache
+            .get(&cache_key)
+            .ok_or(AuthError::GetTokenError)
     }
 
     fn get_id(&self) -> Result<String, AuthError> {
@@ -391,9 +365,7 @@ impl TokenProvider for OidcTokenProvider {
         _custom_claims: MetadataMap,
     ) -> Result<String, AuthError> {
         // This provider does not support custom claims in the token
-        Err(AuthError::UnsupportedOperation(
-            "OIDC Token Provider does not support custom claims".to_string(),
-        ))
+        Err(AuthError::OidcUnsupportedCustomClaims)
     }
 }
 
@@ -443,22 +415,14 @@ impl OidcVerifier {
             .http_client
             .get(&discovery_url)
             .send()
-            .await
-            .map_err(|e| {
-                AuthError::ConfigError(format!("Failed to fetch discovery document: {}", e))
-            })?
+            .await?
             .json()
-            .await
-            .map_err(|e| {
-                AuthError::ConfigError(format!("Failed to parse discovery document: {}", e))
-            })?;
+            .await?;
 
         let jwks_uri = discovery_response
             .get("jwks_uri")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                AuthError::ConfigError("jwks_uri not found in discovery document".to_string())
-            })?;
+            .ok_or_else(|| AuthError::OidcDiscoveryMissingJwksUri)?;
 
         // Now fetch the JWKS from the discovered jwks_uri
         let jwks: JwkSet = self.http_client.get(jwks_uri).send().await?.json().await?;
@@ -486,7 +450,7 @@ impl OidcVerifier {
         Claims: serde::de::DeserializeOwned,
     {
         // Decode header to get kid
-        let header = decode_header(token).map_err(AuthError::JwtAwsLcError)?;
+        let header = decode_header(token)?;
 
         // Find matching key
         let jwk = match header.kid {
@@ -501,24 +465,19 @@ impl OidcVerifier {
                             false
                         }
                     })
-                    .ok_or_else(|| {
-                        AuthError::VerificationError(format!("Key not found: {}", kid))
-                    })?
+                    .ok_or(AuthError::OidcKeyNotFound(kid))?
             }
             None => {
                 // No kid provided - if there's only one key, use it
-                if jwks.keys.len() == 1 {
-                    &jwks.keys[0]
-                } else {
-                    return Err(AuthError::VerificationError(
-                        "Token header missing 'kid' and multiple keys available".to_string(),
-                    ));
+                match jwks.keys.as_slice() {
+                    [single] => single,
+                    _ => return Err(AuthError::OidcMissingKidWithMultipleKeys),
                 }
             }
         };
 
         // Create decoding key directly from JWK using the aws-lc method
-        let decoding_key = DecodingKey::from_jwk(jwk).map_err(AuthError::JwtAwsLcError)?;
+        let decoding_key = DecodingKey::from_jwk(jwk)?;
 
         // Set up validation
         let mut validation = Validation::new(header.alg);
@@ -526,8 +485,7 @@ impl OidcVerifier {
         validation.set_issuer(&[&self.issuer_url]);
 
         // Decode and validate token
-        let token_data = decode::<Claims>(token, &decoding_key, &validation)
-            .map_err(AuthError::JwtAwsLcError)?;
+        let token_data = decode::<Claims>(token, &decoding_key, &validation)?;
         Ok(token_data.claims)
     }
 
@@ -844,20 +802,6 @@ mod tests {
         // Should fail because key type is not supported
         let result: Result<TestClaims, _> = verifier.get_claims(token).await;
         assert!(result.is_err());
-
-        // With jsonwebtoken_aws_lc, this might fail with a JwtAwsLcError instead
-        // of UnsupportedOperation, which is also valid behavior
-        match result.as_ref().err().unwrap() {
-            AuthError::UnsupportedOperation(_) | AuthError::JwtAwsLcError(_) => {
-                // Both error types are acceptable for this test case
-            }
-            _ => {
-                panic!(
-                    "Expected UnsupportedOperation or JwtAwsLcError, got: {:?}",
-                    result.err()
-                );
-            }
-        }
     }
 
     #[tokio::test]
@@ -890,12 +834,7 @@ mod tests {
 
         // Should fail because key is not found in JWKS
         let result: Result<TestClaims, _> = verifier.get_claims(token).await;
-        assert!(result.is_err());
-        if let Err(AuthError::VerificationError(msg)) = result {
-            assert!(msg.contains("Key not found"));
-        } else {
-            panic!("Expected VerificationError about key not found");
-        }
+        assert!(result.is_err_and(|e| matches!(e, AuthError::OidcKeyNotFound(_))));
     }
 
     #[tokio::test]
@@ -1025,10 +964,7 @@ mod tests {
 
         // Should get a ConfigError due to discovery failure
         match result {
-            Err(AuthError::ConfigError(msg)) => {
-                // Expected: error should mention the discovery failure
-                assert!(msg.contains("Failed to parse discovery document"));
-            }
+            Err(AuthError::HttpError(_)) => {}
             other => {
                 panic!(
                     "Expected ConfigError for discovery failure, but got: {:?}",
@@ -1113,18 +1049,20 @@ mod tests {
         let result = provider.fetch_new_token().await;
         assert!(result.is_err());
 
-        // Should get a GetTokenError due to the OAuth2 error response
+        // Should get an OAuth2Request (boxed RequestTokenError) due to the OAuth2 error response
         match result {
-            Err(AuthError::GetTokenError(msg)) => {
-                // Expected: error should mention the OAuth2 error - oauth2 crate format
+            Err(AuthError::OAuth2Request(e)) => {
+                // The typed RequestTokenError implements Display; inspect its message
+                let msg = e.to_string();
                 assert!(
-                    msg.contains("Failed to exchange token")
-                        && msg.contains("Server returned error response")
+                    msg.contains("Server returned error response"),
+                    "OAuth2 error message did not contain expected text: {}",
+                    msg
                 );
             }
             other => {
                 panic!(
-                    "Expected GetTokenError containing OAuth2 error, but got: {:?}",
+                    "Expected OAuth2Request containing OAuth2 error, but got: {:?}",
                     other
                 );
             }

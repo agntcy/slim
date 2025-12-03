@@ -111,8 +111,7 @@ async fn run_client_task(name: Name) -> Result<(), String> {
     /* this is the same */
     println!("client {} task starting...", name);
 
-    let mut svc = build_client_service(DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID)
-        .map_err(|e| format!("Failed to build client service: {}", e))?;
+    let mut svc = build_client_service(DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID);
 
     let (app, mut rx) = svc
         .create_app(
@@ -233,8 +232,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // start moderator
     let name = Name::from_strings(["org", "ns", "main"]).with_id(1);
 
-    let mut svc = build_client_service(DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID)
-        .map_err(|e| format!("Failed to build client service: {}", e))?;
+    let mut svc = build_client_service(DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID);
 
     let (app, _rx) = svc
         .create_app(

@@ -216,7 +216,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let name = Name::from_strings(["org", "ns", "moderator"]).with_id(1);
     let channel_name = Name::from_strings(["channel", "channel", "channel"]);
 
-    let mut svc = build_client_service(DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID)?;
+    let mut svc = build_client_service(DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID);
 
     let (app, _rx) = svc
         .create_app(

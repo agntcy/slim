@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 // Third-party crates
 use tokio::sync::Mutex;
-use tracing::{debug, error};
+use tracing::debug;
 
 use slim_datapath::api::ProtoSessionMessageType;
 use slim_datapath::api::{ApplicationPayload, ProtoMessage as Message};
@@ -69,17 +69,7 @@ where
         let mut mls_guard = self.mls.lock().await;
 
         debug!("Encrypting message for group member");
-        let binding = mls_guard.encrypt_message(payload).await;
-        let encrypted_payload = match &binding {
-            Ok(res) => res,
-            Err(e) => {
-                error!(
-                    "Failed to encrypt message with MLS: {}, dropping message",
-                    e
-                );
-                return Err(SessionError::MlsEncryptionFailed(e.to_string()));
-            }
-        };
+        let encrypted_payload = mls_guard.encrypt_message(payload).await?;
 
         msg.set_payload(ApplicationPayload::new("", encrypted_payload.to_vec()).as_content());
 
@@ -117,13 +107,7 @@ where
             let mut mls_guard = self.mls.lock().await;
 
             debug!("Decrypting message for group member");
-            match mls_guard.decrypt_message(payload).await {
-                Ok(decrypted_payload) => decrypted_payload,
-                Err(e) => {
-                    error!("Failed to decrypt message with MLS: {}", e);
-                    return Err(SessionError::MlsDecryptionFailed(e.to_string()));
-                }
-            }
+            mls_guard.decrypt_message(payload).await?
         };
 
         msg.set_payload(ApplicationPayload::new("", decrypted_payload.to_vec()).as_content());

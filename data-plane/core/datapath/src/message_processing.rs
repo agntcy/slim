@@ -160,10 +160,11 @@ impl MessageProcessor {
         let watch = self.get_drain_watch()?;
         // Wrap self in an Arc since the server builder expects an Arc<MessageProcessor>
         let svc = Arc::new(self.clone());
-        config
+        let res = config
             .run_server(&[DataPlaneServiceServer::from_arc(svc)], watch)
-            .await
-            .map_err(|e| DataPathError::ConnectionError(format!("failed to run server: {}", e)))
+            .await?;
+
+        Ok(res)
     }
 
     pub async fn shutdown(&self) -> Result<(), DataPathError> {
@@ -173,7 +174,7 @@ impl MessageProcessor {
             .drain_signal
             .write()
             .take()
-            .ok_or(DataPathError::AlreadyCloseError)?;
+            .ok_or(DataPathError::AlreadyClosedError)?;
 
         // Take drain watch
         self.internal.drain_watch.write().take();
@@ -181,7 +182,7 @@ impl MessageProcessor {
         // Signal completion to all tasks
         tokio::time::timeout(std::time::Duration::from_secs(10), signal.drain())
             .await
-            .map_err(|_e| DataPathError::CloseTimeoutError)
+            .map_err(|_e| DataPathError::ShutdownTimeoutError)
     }
 
     fn set_tx_control_plane(&self, tx: Sender<Result<Message, Status>>) {
@@ -203,9 +204,7 @@ impl MessageProcessor {
             .drain_watch
             .read()
             .clone()
-            .ok_or(DataPathError::ConnectionError(
-                "data plane is shutting down".to_string(),
-            ))
+            .ok_or(DataPathError::AlreadyClosedError)
     }
 
     async fn try_to_connect<C>(
@@ -233,10 +232,9 @@ impl MessageProcessor {
             {
                 Ok(stream) => {
                     let cancellation_token = CancellationToken::new();
-                    let connection = Connection::new(ConnectionType::Remote)
+                    let connection = Connection::new(ConnectionType::Remote, Channel::Client(tx))
                         .with_local_addr(local)
                         .with_remote_addr(remote)
-                        .with_channel(Channel::Client(tx))
                         .with_config_data(client_config.clone())
                         .with_cancellation_token(Some(cancellation_token.clone()));
 
@@ -252,9 +250,7 @@ impl MessageProcessor {
                         .on_connection_established(connection, existing_conn_index);
                     if opt.is_none() {
                         error!("error adding connection to the connection table");
-                        return Err(DataPathError::ConnectionError(
-                            "error adding connection to the connection tables".to_string(),
-                        ));
+                        return Err(DataPathError::ConnectionError);
                     }
 
                     let conn_index = opt.unwrap();
@@ -285,9 +281,7 @@ impl MessageProcessor {
         }
 
         error!("unable to connect to the endpoint");
-        Err(DataPathError::ConnectionError(
-            "reached max connection retries".to_string(),
-        ))
+        Err(DataPathError::ConnectionError)
     }
 
     pub async fn connect<C>(
@@ -312,9 +306,7 @@ impl MessageProcessor {
             Some(c) => c,
             None => {
                 error!("error handling disconnect: connection unknown");
-                return Err(DataPathError::DisconnectionError(
-                    "connection not found".to_string(),
-                ));
+                return Err(DataPathError::DisconnectionError);
             }
         };
 
@@ -322,9 +314,7 @@ impl MessageProcessor {
             Some(t) => t,
             None => {
                 error!("error handling disconnect: missing cancellation token");
-                return Err(DataPathError::DisconnectionError(
-                    "missing cancellation token".to_string(),
-                ));
+                return Err(DataPathError::DisconnectionError);
             }
         };
 
@@ -334,9 +324,7 @@ impl MessageProcessor {
         connection
             .config_data()
             .cloned()
-            .ok_or(DataPathError::DisconnectionError(
-                "missing client config data".to_string(),
-            ))
+            .ok_or(DataPathError::DisconnectionError)
     }
 
     pub fn register_local_connection(
@@ -366,8 +354,7 @@ impl MessageProcessor {
 
         // create a connection
         let cancellation_token = CancellationToken::new();
-        let connection = Connection::new(ConnectionType::Local)
-            .with_channel(Channel::Server(tx2))
+        let connection = Connection::new(ConnectionType::Local, Channel::Server(tx2))
             .with_cancellation_token(Some(cancellation_token.clone()));
 
         // add it to the connection table
@@ -418,20 +405,14 @@ impl MessageProcessor {
                     Channel::Server(s) => s
                         .send(Ok(msg))
                         .await
-                        .map_err(|e| DataPathError::MessageSendError(e.to_string())),
+                        .map_err(|_e| DataPathError::ConnectionNotFound(out_conn)),
                     Channel::Client(s) => s
                         .send(msg)
                         .await
-                        .map_err(|e| DataPathError::MessageSendError(e.to_string())),
-                    _ => Err(DataPathError::MessageSendError(
-                        "connection not found".to_string(),
-                    )),
+                        .map_err(|_e| DataPathError::ConnectionNotFound(out_conn)),
                 }
             }
-            None => Err(DataPathError::MessageSendError(format!(
-                "connection {:?} not found",
-                out_conn
-            ))),
+            None => Err(DataPathError::ConnectionNotFound(out_conn)),
         }
     }
 
@@ -451,10 +432,7 @@ impl MessageProcessor {
         // without performing any match in the subscription table
         if let Some(val) = msg.get_forward_to() {
             debug!("forwarding message to connection {}", val);
-            return self
-                .send_msg(msg, val)
-                .await
-                .map_err(|e| DataPathError::PublicationError(e.to_string()));
+            return self.send_msg(msg, val).await;
         }
 
         match self
@@ -466,17 +444,13 @@ impl MessageProcessor {
                 // in the other cases clone only len - 1 times.
                 let mut i = 0;
                 while i < out_vec.len() - 1 {
-                    self.send_msg(msg.clone(), out_vec[i])
-                        .await
-                        .map_err(|e| DataPathError::PublicationError(e.to_string()))?;
+                    self.send_msg(msg.clone(), out_vec[i]).await?;
                     i += 1;
                 }
-                self.send_msg(msg, out_vec[i])
-                    .await
-                    .map_err(|e| DataPathError::PublicationError(e.to_string()))?;
+                self.send_msg(msg, out_vec[i]).await?;
                 Ok(())
             }
-            Err(e) => Err(DataPathError::PublicationError(e.to_string())),
+            Err(e) => Err(e),
         }
     }
 
@@ -544,21 +518,19 @@ impl MessageProcessor {
         let connection = self
             .forwarder()
             .get_connection(conn)
-            .ok_or_else(|| DataPathError::SubscriptionError("connection not found".to_string()))?;
+            .ok_or(DataPathError::ConnectionNotFound(conn))?;
 
         debug!(
             "subscription update (add = {}) for name: {} - connection: {}",
             add, dst, conn
         );
 
-        if let Err(e) = self.forwarder().on_subscription_msg(
+        self.forwarder().on_subscription_msg(
             dst.clone(),
             conn,
             connection.is_local_connection(),
             add,
-        ) {
-            return Err(DataPathError::SubscriptionError(e.to_string()));
-        }
+        )?;
 
         match forward {
             None => {
@@ -573,14 +545,10 @@ impl MessageProcessor {
                 let identity = msg.get_identity();
 
                 // send message
-                match self.send_msg(msg, out_conn).await {
-                    Ok(_) => {
-                        self.forwarder()
-                            .on_forwarded_subscription(source, dst, identity, out_conn, add);
-                        Ok(())
-                    }
-                    Err(e) => Err(DataPathError::UnsubscriptionError(e.to_string())),
-                }
+                self.send_msg(msg, out_conn).await.map(|_| {
+                    self.forwarder()
+                        .on_forwarded_subscription(source, dst, identity, out_conn, add);
+                })
             }
         }
     }
@@ -618,7 +586,7 @@ impl MessageProcessor {
                 message_type = "none"
             );
 
-            return Err(DataPathError::InvalidMessage(err.to_string()));
+            return Err(DataPathError::InvalidMessage(err));
         }
 
         // add incoming connection to the SLIM header
@@ -663,7 +631,7 @@ impl MessageProcessor {
                 //////////////////////////////////////////////////////
 
                 // drop message
-                Err(DataPathError::ProcessingError(e.to_string()))
+                Err(e)
             }
         }
     }
@@ -934,10 +902,9 @@ impl DataPlaneService for MessageProcessor {
         let stream = request.into_inner();
         let (tx, rx) = mpsc::channel(128);
 
-        let connection = Connection::new(ConnectionType::Remote)
+        let connection = Connection::new(ConnectionType::Remote, Channel::Server(tx))
             .with_remote_addr(remote_addr)
-            .with_local_addr(local_addr)
-            .with_channel(Channel::Server(tx));
+            .with_local_addr(local_addr);
 
         debug!(
             "new connection received from remote: (remote: {:?} - local: {:?})",

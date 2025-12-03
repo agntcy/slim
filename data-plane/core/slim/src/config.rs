@@ -24,18 +24,29 @@ use slim_tracing::TracingConfiguration;
 
 #[derive(Error, Debug)]
 pub enum ConfigError {
-    #[error("not found: {0}")]
-    NotFound(String),
+    // File / I/O
+    #[error("io error: {0}")]
+    IoError(#[from] std::io::Error),
+
+    // Parsing / structural validity
     #[error("invalid configuration - impossible to parse yaml")]
     InvalidYaml,
     #[error("invalid configuration - key {0} not valid")]
     InvalidKey(String),
-    #[error("invalid configuration - missing services")]
-    InvalidNoServices,
-    #[error("invalid configuration - resolver not found")]
-    ResolverError,
     #[error("invalid configuration")]
     Invalid(String),
+
+    // YAML decoding (typed propagation)
+    #[error("yaml parse error: {0}")]
+    YamlError(#[from] serde_yaml::Error),
+
+    // Services / resolution
+    #[error("invalid configuration - missing services")]
+    InvalidNoServices,
+
+    // Provider errors
+    #[error("config provider error: {0}")]
+    ConfigProviderError(#[from] slim_config::provider::ProviderError),
 }
 
 lazy_static! {
@@ -82,9 +93,8 @@ impl std::fmt::Debug for ConfigLoader {
 
 impl ConfigLoader {
     pub fn new(file_path: &str) -> Result<Self, ConfigError> {
-        let config_str =
-            std::fs::read_to_string(file_path).map_err(|e| ConfigError::NotFound(e.to_string()))?;
-        let mut root: Value = from_str(&config_str).map_err(|_| ConfigError::InvalidYaml)?;
+        let config_str = std::fs::read_to_string(file_path)?;
+        let mut root: Value = from_str(&config_str)?;
 
         let mapping = root.as_mapping().ok_or(ConfigError::InvalidYaml)?;
         for key in mapping.keys() {
@@ -95,9 +105,7 @@ impl ConfigLoader {
         }
 
         let resolver = ConfigResolver::new();
-        resolver
-            .resolve(&mut root)
-            .map_err(|_| ConfigError::ResolverError)?;
+        resolver.resolve(&mut root)?;
 
         Ok(Self {
             root,
@@ -190,8 +198,8 @@ where
     B::Config: Configuration + std::fmt::Debug,
     for<'de> <B as ComponentBuilder>::Config: Deserialize<'de>,
 {
-    let config: B::Config = serde_yaml::from_value(component_config)
-        .map_err(|e| ConfigError::Invalid(e.to_string()))?;
+    // Typed YAML value conversion (produces ConfigError::YamlError)
+    let config: B::Config = serde_yaml::from_value(component_config)?;
 
     config.validate().map_err(|e| {
         debug!(error = ?e, "Component configuration validation failed");

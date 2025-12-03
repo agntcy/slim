@@ -4,10 +4,11 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use super::tables::SubscriptionTable;
 use super::tables::connection_table::ConnectionTable;
 use super::tables::remote_subscription_table::RemoteSubscriptions;
 use super::tables::subscription_table::SubscriptionTableImpl;
-use super::tables::{SubscriptionTable, errors::SubscriptionTableError};
+use crate::errors::DataPathError;
 use crate::messages::Name;
 use crate::tables::remote_subscription_table::SubscriptionInfo;
 
@@ -16,25 +17,16 @@ use tracing::debug;
 #[derive(Debug)]
 pub struct Forwarder<T>
 where
-    T: Default + Clone,
+    T: Clone,
 {
     pub subscription_table: SubscriptionTableImpl,
     remote_subscription_table: RemoteSubscriptions,
     pub connection_table: ConnectionTable<T>,
 }
 
-impl<T> Default for Forwarder<T>
-where
-    T: Default + Clone,
-{
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl<T> Forwarder<T>
 where
-    T: Default + Clone,
+    T: Clone,
 {
     pub fn new() -> Self {
         Forwarder {
@@ -98,7 +90,7 @@ where
         conn_index: u64,
         is_local: bool,
         add: bool,
-    ) -> Result<(), SubscriptionTableError> {
+    ) -> Result<(), DataPathError> {
         if add {
             self.subscription_table
                 .add_subscription(name, conn_index, is_local)
@@ -138,12 +130,11 @@ where
         name: Name,
         incoming_conn: u64,
         fanout: u32,
-    ) -> Result<Vec<u64>, SubscriptionTableError> {
+    ) -> Result<Vec<u64>, DataPathError> {
         if fanout == 1 {
-            match self.subscription_table.match_one(&name, incoming_conn) {
-                Ok(out) => Ok(vec![out]),
-                Err(e) => Err(e),
-            }
+            self.subscription_table
+                .match_one(&name, incoming_conn)
+                .map(|out| vec![out])
         } else {
             self.subscription_table.match_all(&name, incoming_conn)
         }
@@ -167,37 +158,39 @@ mod tests {
 
         let fwd = Forwarder::<u32>::new();
 
-        assert_eq!(
-            fwd.on_subscription_msg(name.clone(), 10, false, true),
-            Ok(())
+        assert!(
+            fwd.on_subscription_msg(name.clone(), 10, false, true)
+                .is_ok()
+        );
+
+        assert!(
+            fwd.on_subscription_msg(name.clone().with_id(1), 12, false, true)
+                .is_ok()
+        );
+
+        assert!(
+            // this creates a warning
+            fwd.on_subscription_msg(name.clone().with_id(1), 12, false, true)
+                .is_ok()
         );
 
         assert_eq!(
-            fwd.on_subscription_msg(name.clone().with_id(1), 12, false, true),
-            Ok(())
-        );
-        assert_eq!(
-            // this creates a warning
-            fwd.on_subscription_msg(name.clone().with_id(1), 12, false, true),
-            Ok(())
-        );
-        assert_eq!(
-            fwd.on_publish_msg_match(name.clone().with_id(1), 100, 1),
-            Ok(vec![12])
+            fwd.on_publish_msg_match(name.clone().with_id(1), 100, 1)
+                .unwrap(),
+            vec![12]
         );
 
         let expected = name.clone().with_id(2);
-        assert_eq!(
-            fwd.on_publish_msg_match(expected.clone(), 100, 1),
-            Err(SubscriptionTableError::NoMatch(format!("{}", expected)))
+
+        let err = fwd.on_publish_msg_match(expected.clone(), 100, 1);
+        assert!(matches!(err, Err(DataPathError::NoMatch(_))));
+
+        assert!(
+            fwd.on_subscription_msg(name.clone(), 10, false, false)
+                .is_ok()
         );
-        assert_eq!(
-            fwd.on_subscription_msg(name.clone(), 10, false, false),
-            Ok(())
-        );
-        assert_eq!(
-            fwd.on_subscription_msg(name.clone(), 10, false, false),
-            Err(SubscriptionTableError::IdNotFound)
-        );
+
+        let err = fwd.on_subscription_msg(name.clone(), 10, false, false);
+        assert!(matches!(err, Err(DataPathError::IdNotFound(_))));
     }
 }

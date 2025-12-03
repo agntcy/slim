@@ -1,8 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use anyhow::{Context, Result};
 use clap::Parser;
-use slim_config::tls::provider;
 use tracing::{debug, info, span};
 
 use slim::args;
@@ -10,18 +10,19 @@ use slim::build_info;
 use slim::config;
 use slim::runtime;
 use slim_config::component::Component;
+use slim_config::tls::provider;
 
-fn main() {
+fn main() -> Result<()> {
     let args = args::Args::parse();
 
     // If the version flag is set, print the build info and exit
     if args.version() {
         println!("{}", build_info::BUILD_INFO);
-        return;
+        return Ok(());
     }
 
     // get config file
-    let config_file = args.config().expect("config file is required");
+    let config_file = args.config().context("config file is required")?;
 
     // create configured components
     let mut config = config::ConfigLoader::new(config_file).expect("failed to load configuration");
@@ -34,9 +35,9 @@ fn main() {
 
     // start runtime
     let runtime_config = config.runtime();
-    let runtime = runtime::build(runtime_config).expect("failed to build runtime");
+    let runtime = runtime::build(runtime_config);
 
-    runtime.runtime.block_on(async move {
+    let run_result: Result<_> = runtime.runtime.block_on(async move {
         // tracing subscriber initialization must be called from the runtime
         let tracing_conf = config.tracing();
         let _guard = tracing_conf.setup_tracing_subscriber();
@@ -54,12 +55,12 @@ fn main() {
             message_type = "subscribe"
         );
 
-        let services = config.services().expect("error loading services");
+        let services = config.services().context("error loading services")?;
 
         // start services
         for service in services.iter_mut() {
             info!("Starting service: {}", service.0);
-            service.1.start().await.expect("failed to start service")
+            service.1.start().await.context("failed to start service")?;
         }
 
         // wait for shutdown signal
@@ -72,7 +73,16 @@ fn main() {
         // Gracefully stop services
         for service in services.iter_mut() {
             info!("Stopping service: {}", service.0);
-            service.1.shutdown().await.expect("failed to stop service")
+            service
+                .1
+                .shutdown()
+                .await
+                .context("failed to stop service")?;
         }
+        Ok(())
     });
+
+    run_result?;
+
+    Ok(())
 }

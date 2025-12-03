@@ -20,10 +20,11 @@
 //! This configuration is local to the config crate. When constructing runtime SPIRE
 //! components it is converted into the auth crate's `slim_auth::spire::SpireConfig`.
 
-use super::{AuthError, ClientAuthenticator, ServerAuthenticator};
+use super::{ClientAuthenticator, ConfigAuthError, ServerAuthenticator};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use slim_auth::jwt_middleware::{AddJwtLayer, ValidateJwtLayer};
+use slim_auth::metadata::MetadataMap;
 use slim_auth::spire::SpireIdentityManager;
 
 /// SPIRE authentication configuration
@@ -100,7 +101,7 @@ impl SpireConfig {
 
     /// Internal helper to build & initialize a spire identity manager.
     /// If `include_target` is true and `target_spiffe_id` is set, the target is included.
-    async fn build_identity_manager(&self) -> Result<SpireIdentityManager, AuthError> {
+    fn build_identity_manager(&self) -> SpireIdentityManager {
         let mut builder =
             SpireIdentityManager::builder().with_jwt_audiences(self.jwt_audiences.clone());
 
@@ -112,34 +113,27 @@ impl SpireConfig {
             builder = builder.with_target_spiffe_id(target.clone());
         }
 
-        let mut mgr = builder.build();
-        mgr.initialize()
-            .await
-            .map_err(|e| AuthError::ConfigError(e.to_string()))?;
-        Ok(mgr)
+        builder.build()
     }
 
     /// Create a spire provider from this configuration using the builder.
     /// Returns an initialized SpireIdentityManager that will rotate X.509 & JWT SVIDs.
-    pub async fn create_provider(&self) -> Result<SpireIdentityManager, AuthError> {
-        self.build_identity_manager().await
+    pub fn create_provider(&self) -> SpireIdentityManager {
+        self.build_identity_manager()
     }
 
     /// Create a spire verifier (identity manager used only for verification).
     /// The target SPIFFE ID (if configured) is intentionally not set.
-    pub async fn create_jwt_verifier(&self) -> Result<SpireIdentityManager, AuthError> {
-        self.build_identity_manager().await
+    fn create_verifier(&self) -> SpireIdentityManager {
+        self.build_identity_manager()
     }
 }
 
 impl ClientAuthenticator for SpireConfig {
     type ClientLayer = AddJwtLayer<SpireIdentityManager>;
 
-    fn get_client_layer(&self) -> Result<Self::ClientLayer, AuthError> {
-        // Creation requires async context due to initialization
-        Err(AuthError::ConfigError(
-            "spire client layer creation requires async context".to_string(),
-        ))
+    fn get_client_layer(&self) -> Result<Self::ClientLayer, ConfigAuthError> {
+        Ok(Self::ClientLayer::new(self.create_provider()))
     }
 }
 
@@ -147,36 +141,11 @@ impl<Response> ServerAuthenticator<Response> for SpireConfig
 where
     Response: Default + Send + Sync + 'static,
 {
-    type ServerLayer = ValidateJwtLayer<serde_json::Value, SpireIdentityManager>;
+    type ServerLayer = ValidateJwtLayer<MetadataMap, SpireIdentityManager>;
 
-    fn get_server_layer(&self) -> Result<Self::ServerLayer, AuthError> {
-        Err(AuthError::ConfigError(
-            "spire server layer creation requires async context".to_string(),
-        ))
-    }
-}
-
-/// Async helper functions for creating spire authentication layers
-impl SpireConfig {
-    /// Create a client authentication layer asynchronously
-    pub async fn get_client_layer_async(
-        &self,
-    ) -> Result<AddJwtLayer<SpireIdentityManager>, AuthError> {
-        let provider = self.create_provider().await?;
-        let duration = 3600; // 1 hour token duration
-        Ok(AddJwtLayer::new(provider, duration))
-    }
-
-    /// Create a server authentication layer asynchronously
-    pub async fn get_server_layer_async<Response>(
-        &self,
-    ) -> Result<ValidateJwtLayer<serde_json::Value, SpireIdentityManager>, AuthError>
-    where
-        Response: Default + Send + Sync + 'static,
-    {
-        let verifier = self.create_jwt_verifier().await?;
-        let claims = serde_json::json!({});
-        Ok(ValidateJwtLayer::new(verifier, claims))
+    fn get_server_layer(&self) -> Result<Self::ServerLayer, ConfigAuthError> {
+        let claims = MetadataMap::default();
+        Ok(Self::ServerLayer::new(self.create_verifier(), claims))
     }
 }
 

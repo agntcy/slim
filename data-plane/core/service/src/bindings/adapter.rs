@@ -83,14 +83,10 @@ where
         use_local_service: bool,
     ) -> Result<(Self, ServiceRef), ServiceError> {
         // Validate token
-        let _identity_token = identity_provider.get_token().map_err(|e| {
-            ServiceError::ConfigError(format!("Failed to get token from provider: {}", e))
-        })?;
+        let _identity_token = identity_provider.get_token()?;
 
         // Get ID from token and generate name with token ID
-        let token_id = identity_provider.get_id().map_err(|e| {
-            ServiceError::ConfigError(format!("Failed to get ID from token: {}", e))
-        })?;
+        let token_id = identity_provider.get_id()?;
 
         // Use a hash of the token ID to convert to u64 for name generation
         let id_hash = {
@@ -106,7 +102,7 @@ where
             let svc = Service::builder()
                 .build("local-bindings-service".to_string())
                 .map_err(|e| {
-                    ServiceError::ConfigError(format!("Failed to create local service: {}", e))
+                    ServiceError::InvalidConfig(format!("failed to create local service: {}", e))
                 })?;
             ServiceRef::Local(Box::new(svc))
         } else {
@@ -192,9 +188,7 @@ where
             match tokio::time::timeout(dur, recv_fut).await {
                 Ok(n) => n,
                 Err(_) => {
-                    return Err(ServiceError::ReceiveError(
-                        "listen_for_session timed out".to_string(),
-                    ));
+                    return Err(ServiceError::ReceiveTimeout);
                 }
             }
         } else {
@@ -202,17 +196,15 @@ where
         };
 
         if notification_opt.is_none() {
-            return Err(ServiceError::ReceiveError(
-                "application channel closed".to_string(),
-            ));
+            return Err(ServiceError::ReceiveChannelClosed);
         }
 
         match notification_opt.unwrap() {
             Ok(Notification::NewSession(ctx)) => Ok(ctx),
-            Ok(Notification::NewMessage(_)) => Err(ServiceError::ReceiveError(
-                "received unexpected message notification while listening for session".to_string(),
+            Ok(Notification::NewMessage(_)) => Err(ServiceError::ReceiveDecodeFailure(
+                "unexpected notification while waiting for new session".to_string(),
             )),
-            Err(e) => Err(ServiceError::ReceiveError(format!(
+            Err(e) => Err(ServiceError::ReceiveDecodeFailure(format!(
                 "failed to receive session notification: {}",
                 e
             ))),
@@ -375,10 +367,7 @@ mod tests {
         let result = adapter
             .listen_for_session(Some(Duration::from_millis(10)))
             .await;
-        assert!(result.is_err());
-        if let Err(e) = result {
-            assert!(e.to_string().contains("timed out"));
-        }
+        assert!(result.is_err_and(|e| matches!(e, ServiceError::ReceiveTimeout)));
     }
 
     #[tokio::test]

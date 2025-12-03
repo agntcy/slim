@@ -265,10 +265,9 @@ mod tests {
             .shutdown()
             .await
             .expect_err("second shutdown must fail");
-        assert_eq!(
-            err,
-            DataPathError::AlreadyCloseError,
-            "expected AlreadyCloseError on second shutdown"
+        assert!(
+            matches!(err, DataPathError::AlreadyClosedError),
+            "error must be AlreadyClosedError"
         );
     }
 }

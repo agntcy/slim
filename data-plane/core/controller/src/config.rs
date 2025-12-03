@@ -8,12 +8,13 @@ use serde::Deserialize;
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_config::auth::jwt::Config as JwtConfig;
 use slim_config::auth::static_jwt::Config as StaticJwtConfig;
-use slim_config::component::configuration::{Configuration, ConfigurationError};
+use slim_config::component::configuration::Configuration;
 use slim_config::component::id::ID;
 use slim_config::grpc::client::ClientConfig;
 use slim_config::grpc::server::ServerConfig;
 use slim_datapath::message_processing::MessageProcessor;
 
+use crate::errors::ControllerError;
 use crate::service::{ControlPlane, ControlPlaneSettings};
 
 #[derive(Default, Debug, Clone, Deserialize, PartialEq, serde::Serialize)]
@@ -162,7 +163,9 @@ impl Config {
 }
 
 impl Configuration for Config {
-    fn validate(&self) -> Result<(), ConfigurationError> {
+    type Error = ControllerError;
+
+    fn validate(&self) -> Result<(), Self::Error> {
         // Validate client and server configurations
         for server in self.servers.iter() {
             server.validate()?;

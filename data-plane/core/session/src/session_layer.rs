@@ -156,14 +156,13 @@ where
             .get(&name)
             .cloned()
             .map(|n| n.with_id(self.app_id))
-            .ok_or(SessionError::SubscriptionNotFound(name.to_string()))
+            .ok_or(SessionError::SubscriptionNotFound(name))
     }
 
     /// Get identity token from the identity provider
-    pub fn get_identity_token(&self) -> Result<String, String> {
-        self.identity_provider
-            .get_token()
-            .map_err(|e| e.to_string())
+    pub fn get_identity_token(&self) -> Result<String, SessionError> {
+        let token = self.identity_provider.get_token()?;
+        Ok(token)
     }
 
     /// Public interface to create a new session
@@ -189,7 +188,7 @@ where
             session
                 .session()
                 .upgrade()
-                .ok_or_else(|| SessionError::SessionNotFound(session.session_id()))?
+                .ok_or(SessionError::SessionNotFound(u32::MAX))?
                 .invite_participant_internal(&destination_clone)
                 .await
                 .inspect_err(|_| {
@@ -226,12 +225,12 @@ where
                     Some(id) => {
                         // make sure provided id is in range
                         if !SESSION_RANGE.contains(&id) {
-                            return Err(SessionError::InvalidSessionId(id.to_string()));
+                            return Err(SessionError::InvalidSessionId(id));
                         }
 
                         // check if the session ID is already used
                         if pool.contains_key(&id) {
-                            return Err(SessionError::SessionIdAlreadyUsed(id.to_string()));
+                            return Err(SessionError::SessionIdAlreadyUsed(id));
                         }
 
                         id
@@ -282,7 +281,7 @@ where
             if pool.contains_key(&session_id) {
                 // If a specific ID was provided, return an error
                 if id.is_some() {
-                    return Err(SessionError::SessionIdAlreadyUsed(session_id.to_string()));
+                    return Err(SessionError::SessionIdAlreadyUsed(session_id));
                 }
                 // If ID was randomly generated, retry with a new ID
                 continue;
@@ -296,7 +295,7 @@ where
                     "session ID {} was taken during insertion: this should not happen",
                     session_id
                 );
-                return Err(SessionError::SessionIdAlreadyUsed(session_id.to_string()));
+                return Err(SessionError::SessionIdAlreadyUsed(session_id));
             }
 
             return Ok(SessionContext::new(session_controller, app_rx));
@@ -363,17 +362,9 @@ where
         // Close all sessions and return completion handles
         pool.iter()
             .map(|(id, session)| {
-                let result = session.close().map(|join_handle| {
-                    // Spawn a task to await the join handle and send the result through a oneshot channel
-                    let (tx, rx) = tokio::sync::oneshot::channel();
-                    tokio::spawn(async move {
-                        let result = join_handle.await.map(|_| ()).map_err(|e| {
-                            SessionError::Processing(format!("Session cleanup failed: {}", e))
-                        });
-                        let _ = tx.send(result);
-                    });
-                    CompletionHandle::from_oneshot_receiver(rx)
-                });
+                let result = session
+                    .close()
+                    .map(|join_handle| CompletionHandle::from_join_handle(join_handle));
                 (*id, result)
             })
             .collect()
@@ -400,12 +391,10 @@ where
                     session_type,
                 )?;
 
-                self.transmitter.send_to_slim(Ok(msg)).await.map_err(|e| {
-                    SessionError::SlimTransmission(format!("error sending discovery reply: {}", e))
-                })
+                self.transmitter.send_to_slim(Ok(msg)).await
             }
-            _ => Err(SessionError::SlimTransmission(
-                "unexpected message type".to_string(),
+            _ => Err(SessionError::SessionMessageTypeUnexpected(
+                session_message_type,
             )),
         }
     }
@@ -463,12 +452,9 @@ where
                     ProtoSessionType::PointToPoint => {
                         let conf = crate::SessionConfig::from_join_request(
                             ProtoSessionType::PointToPoint,
-                            message.extract_command_payload().map_err(|e| {
-                                SessionError::Processing(format!(
-                                    "failed to extract command payload: {}",
-                                    e
-                                ))
-                            })?,
+                            message
+                                .extract_command_payload()
+                                .map_err(|e| SessionError::extract_error("command_payload", e))?,
                             message.get_metadata_map(),
                             false,
                         )?;
@@ -482,37 +468,29 @@ where
                     }
                     ProtoSessionType::Multicast => {
                         // Multicast sessions require timer settings; reject if missing.
-                        let payload = message.extract_join_request().map_err(|e| {
-                            SessionError::Processing(format!(
-                                "failed to extract join request payload: {}",
-                                e
-                            ))
-                        })?;
+                        let payload = message
+                            .extract_join_request()
+                            .map_err(|e| SessionError::extract_error("join_request", e))?;
 
                         if payload.timer_settings.is_none() {
-                            return Err(SessionError::Processing(
-                                "missing timer options".to_string(),
-                            ));
+                            return Err(SessionError::MissingPayload {
+                                context: "timer options",
+                            });
                         }
 
                         let channel = if let Some(c) = &payload.channel {
                             Name::from(c)
                         } else {
-                            return Err(SessionError::Processing(
-                                "missing channel name".to_string(),
-                            ));
+                            return Err(SessionError::MissingChannelName);
                         };
 
                         // Determine initiator (moderator) before building metadata snapshot.
                         let initiator = message.remove_metadata(IS_MODERATOR).is_some();
                         let conf = crate::SessionConfig::from_join_request(
                             ProtoSessionType::Multicast,
-                            message.extract_command_payload().map_err(|e| {
-                                SessionError::Processing(format!(
-                                    "failed to extract command payload: {}",
-                                    e
-                                ))
-                            })?,
+                            message
+                                .extract_command_payload()
+                                .map_err(|e| SessionError::extract_error("command_payload", e))?,
                             message.get_metadata_map(),
                             initiator,
                         )?;
@@ -529,9 +507,7 @@ where
                             "received channel join request with unknown session type: {}",
                             session_type.as_str_name()
                         );
-                        return Err(SessionError::SessionUnknown(
-                            session_type.as_str_name().to_string(),
-                        ));
+                        return Err(SessionError::SessionTypeUnknown(session_type));
                     }
                 }
             }
@@ -556,8 +532,8 @@ where
                 return Ok(());
             }
             _ => {
-                return Err(SessionError::SessionUnknown(
-                    session_message_type.as_str_name().to_string(),
+                return Err(SessionError::SessionMessageTypeUnknown(
+                    session_message_type,
                 ));
             }
         };
@@ -566,9 +542,7 @@ where
         new_session
             .session()
             .upgrade()
-            .ok_or(SessionError::SessionClosed(
-                "newly created session already closed: this should not happen".to_string(),
-            ))?
+            .ok_or(SessionError::SessionClosed)?
             .on_message_from_slim(message)
             .await?;
 
@@ -576,7 +550,7 @@ where
         self.tx_app
             .send(Ok(Notification::NewSession(new_session)))
             .await
-            .map_err(|e| SessionError::AppTransmission(format!("error sending new session: {}", e)))
+            .map_err(|_e| SessionError::NewSessionSendFailed)
     }
 
     /// Handle a discovery request message.
@@ -995,11 +969,10 @@ mod tests {
             )
             .await;
 
-        assert!(result.is_err());
-        match result {
-            Err(SessionError::SlimTransmission(_)) => {}
-            _ => panic!("Expected SlimTransmission error"),
-        }
+        assert!(result.is_err_and(|e| matches!(
+            e,
+            SessionError::SessionMessageTypeUnexpected(ProtoSessionMessageType::Msg)
+        )));
     }
 
     #[tokio::test]

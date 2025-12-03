@@ -11,12 +11,12 @@ use std::sync::Arc;
 use serde::Deserialize;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info};
+use tracing::{debug, info};
 
 use slim_auth::traits::{TokenProvider, Verifier};
-use slim_config::component::configuration::{Configuration, ConfigurationError};
+use slim_config::component::configuration::Configuration;
 use slim_config::component::id::{ID, Kind};
-use slim_config::component::{Component, ComponentBuilder, ComponentError};
+use slim_config::component::{Component, ComponentBuilder};
 use slim_config::grpc::client::ClientConfig;
 use slim_config::grpc::server::ServerConfig;
 use slim_controller::config::Config as ControllerConfig;
@@ -84,7 +84,9 @@ impl ServiceConfiguration {
 }
 
 impl Configuration for ServiceConfiguration {
-    fn validate(&self) -> Result<(), ConfigurationError> {
+    type Error = ServiceError;
+
+    fn validate(&self) -> Result<(), Self::Error> {
         // Validate client and server configurations
         for server in self.dataplane.servers.iter() {
             server.validate()?;
@@ -143,7 +145,7 @@ impl Drop for Service {
         for (endpoint, conn_id) in self.clients.write().drain() {
             debug!(%endpoint, conn_id = %conn_id, "disconnecting client on drop");
             if let Err(e) = self.message_processor.disconnect(conn_id) {
-                error!("disconnect error for endpoint {}: {}", endpoint, e);
+                tracing::error!("disconnect error for endpoint {}: {}", endpoint, e);
             }
         }
     }
@@ -184,20 +186,17 @@ impl Service {
         // Check that at least one client or server is configured
 
         if self.config.servers().is_empty() && self.config.clients().is_empty() {
-            return Err(ServiceError::ConfigError(
-                "no dataplane server or clients configured".to_string(),
-            ));
+            return Err(ServiceError::NoServerOrClientConfigured);
         }
 
         // Run servers
-        let config = self.config.clone();
-        for server in config.servers() {
-            info!("starting server {}", server.endpoint);
+        for server in self.config.servers().iter() {
             self.run_server(server).await?;
+            info!("started server {}", server.endpoint);
         }
 
         // Run clients
-        for client in config.clients() {
+        for client in self.config.clients() {
             _ = self.connect(client).await?;
             info!("client connected to {}", client.endpoint);
         }
@@ -232,7 +231,7 @@ impl Service {
         for (endpoint, conn_id) in self.clients.write().drain() {
             info!(%endpoint, conn_id = %conn_id, "disconnecting client");
             if let Err(e) = self.message_processor.disconnect(conn_id) {
-                error!("disconnect error for endpoint {}: {}", endpoint, e);
+                tracing::error!("disconnect error for endpoint {}: {}", endpoint, e);
             }
         }
 
@@ -272,13 +271,13 @@ impl Service {
         app_name.to_string().hash(&mut hasher);
         let hashed_name = hasher.finish();
 
-        let home_dir = dirs::home_dir().ok_or_else(|| {
-            ServiceError::StorageError("Unable to determine home directory".to_string())
-        })?;
+        let home_dir = dirs::home_dir().ok_or(ServiceError::HomeDirUnavailable)?;
+        // switched to typed variant: HomeDirUnavailable
+        // previous StorageError(String) mapping removed
         let storage_path = home_dir.join(".slim").join(hashed_name.to_string());
-        std::fs::create_dir_all(&storage_path).map_err(|e| {
-            ServiceError::StorageError(format!("Failed to create storage directory: {}", e))
-        })?;
+        std::fs::create_dir_all(&storage_path)?;
+        // switched to typed variant StorageIo
+        // previous StorageError(String) mapping removed
 
         // Channels to communicate with SLIM
         let (conn_id, tx_slim, rx_slim) =
@@ -332,45 +331,27 @@ impl Service {
     }
 
     pub async fn connect(&self, config: &ClientConfig) -> Result<u64, ServiceError> {
-        // make sure there is no other client connected to the same endpoint
-        // TODO(msardara): we might want to allow multiple clients to connect to the same endpoint,
-        // but we need to introduce an identifier in the configuration for it
+        // ensure there is no other client connected to the same endpoint
         if self.clients.read().contains_key(&config.endpoint) {
             return Err(ServiceError::ClientAlreadyConnected(
                 config.endpoint.clone(),
             ));
         }
 
-        match config.to_channel().await {
-            Err(e) => {
-                error!("error reading channel config {:?}", e);
-                Err(ServiceError::ConfigError(e.to_string()))
-            }
-            Ok(channel) => {
-                //let client_config = config.clone();
-                let ret = self
-                    .message_processor
-                    .connect(channel, Some(config.clone()), None, None)
-                    .await
-                    .map_err(|e| ServiceError::ConnectionError(e.to_string()));
+        let channel = config.to_channel().await?;
 
-                let conn_id = match ret {
-                    Err(e) => {
-                        error!("connection error: {:?}", e);
-                        return Err(ServiceError::ConnectionError(e.to_string()));
-                    }
-                    Ok(conn_id) => conn_id.1,
-                };
+        // Propagate DataPathError directly (ServiceError::DataPath via #[from])
+        let (_idx, conn_id) = self
+            .message_processor
+            .connect(channel, Some(config.clone()), None, None)
+            .await?;
 
-                // register the client
-                self.clients
-                    .write()
-                    .insert(config.endpoint.clone(), conn_id);
+        // register the client
+        self.clients
+            .write()
+            .insert(config.endpoint.clone(), conn_id);
 
-                // return the connection id
-                Ok(conn_id)
-            }
-        }
+        Ok(conn_id)
     }
 
     pub fn disconnect(&self, conn: u64) -> Result<(), ServiceError> {
@@ -404,16 +385,19 @@ impl Service {
     }
 }
 
+#[async_trait::async_trait]
 impl Component for Service {
+    type Error = ServiceError;
+
     fn identifier(&self) -> &ID {
         &self.id
     }
 
-    async fn start(&mut self) -> Result<(), ComponentError> {
-        info!("starting service");
-        self.run()
-            .await
-            .map_err(|e| ComponentError::RuntimeError(e.to_string()))
+    async fn start(&mut self) -> Result<(), Self::Error> {
+        debug!("starting service");
+        let res = self.run().await?;
+
+        Ok(res)
     }
 }
 
@@ -441,9 +425,8 @@ impl ComponentBuilder for ServiceBuilder {
     }
 
     // Build the component
-    fn build(&self, name: String) -> Result<Self::Component, ComponentError> {
-        let id = ID::new_with_name(ServiceBuilder::kind(), name.as_ref())
-            .map_err(|e| ComponentError::ConfigError(e.to_string()))?;
+    fn build(&self, name: String) -> Result<Self::Component, ServiceError> {
+        let id = ID::new_with_name(ServiceBuilder::kind(), name.as_ref())?;
 
         Ok(Service::new(id))
     }
@@ -453,16 +436,11 @@ impl ComponentBuilder for ServiceBuilder {
         &self,
         name: &str,
         config: &Self::Config,
-    ) -> Result<Self::Component, ComponentError> {
+    ) -> Result<Self::Component, ServiceError> {
         let node_name = config.node_id.clone().unwrap_or(name.to_string());
-        let id = ID::new_with_name(ServiceBuilder::kind(), &node_name)
-            .map_err(|e| ComponentError::ConfigError(e.to_string()))?;
+        let id = ID::new_with_name(ServiceBuilder::kind(), &node_name)?;
 
-        let service = config
-            .build_server(id)
-            .map_err(|e| ComponentError::ConfigError(e.to_string()))?;
-
-        Ok(service)
+        config.build_server(id)
     }
 }
 

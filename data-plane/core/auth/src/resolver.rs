@@ -139,12 +139,8 @@ impl KeyResolver {
 
     /// Convert a JWK to a DecodingKey
     fn jwk_to_decoding_key(&self, jwk: &Jwk) -> Result<DecodingKey, AuthError> {
-        DecodingKey::from_jwk(jwk).map_err(|e| {
-            AuthError::ConfigError(format!(
-                "Failed to create {:?} decoding key from JWK: {}",
-                jwk.common.key_algorithm, e
-            ))
-        })
+        let ret = DecodingKey::from_jwk(jwk)?;
+        Ok(ret)
     }
 
     fn key_alg_to_algorithm(&self, alg: &KeyAlgorithm) -> Result<Algorithm, AuthError> {
@@ -161,10 +157,7 @@ impl KeyResolver {
             KeyAlgorithm::PS384 => Ok(Algorithm::PS384),
             KeyAlgorithm::PS512 => Ok(Algorithm::PS512),
             KeyAlgorithm::EdDSA => Ok(Algorithm::EdDSA),
-            _ => Err(AuthError::ConfigError(format!(
-                "Unsupported key algorithm: {:?}",
-                alg
-            ))),
+            _ => Err(AuthError::JwtUnsupportedKeyAlgorithm(*alg)),
         }
     }
 
@@ -198,10 +191,7 @@ impl KeyResolver {
         }
 
         // If no suitable key is found, return an error
-        Err(AuthError::ConfigError(format!(
-            "No suitable key found in JWKS for token header: {:?}",
-            token_header
-        )))
+        Err(AuthError::JwksNoSuitableKey)
     }
 
     /// Check the cache for a JWKS entry
@@ -221,19 +211,17 @@ impl KeyResolver {
 
         let cache_entry = cache.get(issuer);
         if cache_entry.is_none() {
-            return Err(AuthError::ConfigError(format!(
-                "No cached JWKS found for issuer: {}",
-                issuer
-            )));
+            return Err(AuthError::JwksCacheMiss {
+                issuer: issuer.to_string(),
+            });
         }
 
         let cache_entry = cache_entry.unwrap();
 
         if cache_entry.fetched_at.elapsed() > cache_entry.ttl {
-            return Err(AuthError::ConfigError(format!(
-                "Cached JWKS for issuer {} has expired",
-                issuer
-            )));
+            return Err(AuthError::JwksCacheExpired {
+                issuer: issuer.to_string(),
+            });
         }
 
         // If we have a valid cache entry, try to decode the key
@@ -271,8 +259,8 @@ impl KeyResolver {
     /// location if that fails.
     async fn build_jwks_uri(&self, issuer: &str) -> Result<String, AuthError> {
         // Parse the issuer URL
-        let mut issuer_url = Url::parse(issuer)
-            .map_err(|e| AuthError::ConfigError(format!("Invalid issuer URL: {}", e)))?;
+        // Use typed URL parse error propagation
+        let mut issuer_url = Url::parse(issuer)?;
 
         // First try OpenID Connect Discovery endpoint
         let mut openid_config_url = issuer_url.clone();
@@ -303,30 +291,18 @@ impl KeyResolver {
     /// Fetch JWKS from the specified URI
     async fn fetch_jwks_from_uri(&self, uri: &str) -> Result<JwkSet, AuthError> {
         // Send the GET request using reqwest
-        let response = self
-            .client
-            .get(uri)
-            .send()
-            .await
-            .map_err(|e| AuthError::ConfigError(format!("Failed to fetch JWKS: {}", e)))?;
+        let response = self.client.get(uri).send().await?;
 
         // Check the response status
         if response.status() != StatusCode::OK {
-            return Err(AuthError::ConfigError(format!(
-                "Failed to fetch JWKS: HTTP status {}",
-                response.status()
-            )));
+            return Err(AuthError::JwtFetchJwksFailed(response.status()));
         }
 
         // Get the response body as bytes
-        let body = response
-            .bytes()
-            .await
-            .map_err(|e| AuthError::ConfigError(format!("Failed to read JWKS response: {}", e)))?;
+        let body = response.bytes().await?;
 
         // Parse the JWKS
-        let jwks: JwkSet = serde_json::from_slice(&body)
-            .map_err(|e| AuthError::ConfigError(format!("Failed to parse JWKS: {}", e)))?;
+        let jwks: JwkSet = serde_json::from_slice(&body)?;
 
         Ok(jwks)
     }

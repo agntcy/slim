@@ -12,6 +12,7 @@ pub struct EnvConfigProvider;
 
 impl ConfigProvider for EnvConfigProvider {
     fn load(&self, env_var: &str) -> Result<String, ProviderError> {
-        env::var(env_var).map_err(|_| ProviderError::NotFound)
+        let res = env::var(env_var)?;
+        Ok(res)
     }
 }
