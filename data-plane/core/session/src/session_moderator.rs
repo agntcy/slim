@@ -1659,4 +1659,294 @@ mod tests {
         assert!(result.is_ok());
         // In P2P mode going South, destination should be updated
     }
+
+    #[tokio::test]
+    async fn test_moderator_graceful_leave_with_two_participants() {
+        // Test graceful leave when exactly 2 participants remain (moderator + participant)
+        // The leave request comes directly from the participant (not through controller)
+        // with LEAVING_SESSION metadata to signal graceful departure
+
+        // Create moderator with agntcy/ns/moderator naming
+        let source = Name::from_strings(["agntcy", "ns", "moderator"]).with_id(100);
+        let destination = Name::from_strings(["agntcy", "ns", "chat"]);
+
+        let identity_provider = MockTokenProvider;
+        let identity_verifier = MockVerifier;
+
+        let (tx_slim, _rx_slim) = mpsc::channel(16);
+        let (tx_app, mut rx_app) = mpsc::unbounded_channel();
+        let (tx_session, _rx_session) = mpsc::channel(16);
+        let (tx_session_layer, _rx_session_layer) = mpsc::channel(16);
+
+        let tx = crate::transmitter::SessionTransmitter::new(tx_slim, tx_app);
+
+        let config = SessionConfig {
+            session_type: ProtoSessionType::Multicast,
+            max_retries: Some(3),
+            interval: Some(std::time::Duration::from_secs(1)),
+            mls_enabled: false,
+            initiator: true,
+            metadata: Default::default(),
+        };
+
+        let storage_path = std::path::PathBuf::from("/tmp/test");
+
+        let settings = SessionSettings {
+            id: 1,
+            source: source.clone(),
+            destination: destination.clone(),
+            config,
+            tx,
+            tx_session,
+            tx_to_session_layer: tx_session_layer,
+            identity_provider,
+            identity_verifier,
+            storage_path,
+            graceful_shutdown_timeout: None,
+        };
+
+        let inner = MockInnerHandler::new();
+        let mut moderator = SessionModerator::new(inner, settings);
+        moderator.init().await.unwrap();
+
+        // Set up moderator as joined (this adds moderator to group_list)
+        let remote = Name::from_strings(["agntcy", "ns", "participant"]).with_id(200);
+        moderator.join(remote.clone(), 12345).await.unwrap();
+
+        // Add one participant to the group (now we have moderator + participant = 2 total)
+        // Use the naming convention requested: agntcy/ns/participant
+        let mut participant = Name::from_strings(["agntcy", "ns", "participant"]);
+        let participant_id = 401u64;
+        participant.reset_id(); // Remove ID before inserting into group_list
+        moderator
+            .group_list
+            .insert(participant.clone(), participant_id);
+
+        // Verify we have exactly 2 participants (moderator + participant)
+        assert_eq!(
+            moderator.group_list.len(),
+            2,
+            "Should have exactly 2 participants"
+        );
+
+        // Verify session is not in draining state
+        assert_eq!(moderator.processing_state(), ProcessingState::Active);
+
+        // Create a leave request message coming directly from the participant
+        // When coming from participant directly (not controller), the source is the participant
+        // and the destination is the moderator, with LEAVING_SESSION metadata set
+        let participant_with_id = participant.clone().with_id(participant_id);
+        let mut leave_msg = Message::builder()
+            .source(participant_with_id.clone())
+            .destination(source.clone())
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::LeaveRequest)
+            .session_id(1)
+            .message_id(100)
+            .payload(
+                CommandPayload::builder()
+                    .leave_request(None) // Empty payload when coming from participant
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        // Add LEAVING_SESSION metadata to signal graceful departure
+        leave_msg.insert_metadata(LEAVING_SESSION.to_string(), TRUE_VAL.to_string());
+
+        let result = moderator.on_disconnection_detected(leave_msg, None).await;
+
+        // Verify that the ParticipantDisconnected error was sent to the app channel
+        let app_error = rx_app.try_recv();
+        assert!(
+            app_error.is_ok(),
+            "Expected error to be sent to app channel"
+        );
+
+        if let Ok(Err(SessionError::ParticipantDisconnected(msg))) = app_error {
+            assert!(
+                msg.contains("agntcy/ns/participant"),
+                "Error message should mention the participant"
+            );
+            assert!(
+                msg.contains("disconnected unexpectedly"),
+                "Error message should indicate unexpected disconnection"
+            );
+        } else {
+            panic!("Expected ParticipantDisconnected error");
+        }
+
+        // The function should succeed now that app channel is open
+        assert!(result.is_ok(), "Should succeed with open app channel");
+
+        // Verify shutdown was triggered when only 2 participants remained
+        assert_eq!(
+            moderator.processing_state(),
+            ProcessingState::Draining,
+            "Session should be in draining state"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_moderator_concurrent_leave_requests() {
+        // Test that concurrent leave requests are queued and processed sequentially
+
+        // Create moderator with agntcy/ns/moderator naming
+        let source = Name::from_strings(["agntcy", "ns", "moderator"]).with_id(100);
+        let destination = Name::from_strings(["agntcy", "ns", "chat"]);
+
+        let identity_provider = MockTokenProvider;
+        let identity_verifier = MockVerifier;
+
+        let (tx_slim, mut rx_slim) = mpsc::channel(16);
+        let (tx_app, _rx_app) = mpsc::unbounded_channel();
+        let (tx_session, _rx_session) = mpsc::channel(16);
+        let (tx_session_layer, _rx_session_layer) = mpsc::channel(16);
+
+        let tx = crate::transmitter::SessionTransmitter::new(tx_slim, tx_app);
+
+        let config = SessionConfig {
+            session_type: ProtoSessionType::Multicast,
+            max_retries: Some(3),
+            interval: Some(std::time::Duration::from_secs(1)),
+            mls_enabled: false,
+            initiator: true,
+            metadata: Default::default(),
+        };
+
+        let storage_path = std::path::PathBuf::from("/tmp/test");
+
+        let settings = SessionSettings {
+            id: 1,
+            source: source.clone(),
+            destination: destination.clone(),
+            config,
+            tx,
+            tx_session,
+            tx_to_session_layer: tx_session_layer,
+            identity_provider,
+            identity_verifier,
+            storage_path,
+            graceful_shutdown_timeout: None,
+        };
+
+        let inner = MockInnerHandler::new();
+        let mut moderator = SessionModerator::new(inner, settings);
+        moderator.init().await.unwrap();
+
+        // Set up moderator as joined
+        let remote = Name::from_strings(["agntcy", "ns", "participant1"]).with_id(200);
+        moderator.join(remote.clone(), 12345).await.unwrap();
+
+        // Add three participants to the group
+        let mut participant1 = Name::from_strings(["agntcy", "ns", "participant1"]);
+        let mut participant2 = Name::from_strings(["agntcy", "ns", "participant2"]);
+        let mut participant3 = Name::from_strings(["agntcy", "ns", "participant3"]);
+
+        participant1.reset_id(); // Remove ID before inserting into group_list
+        participant2.reset_id();
+        participant3.reset_id();
+
+        moderator.group_list.insert(participant1.clone(), 401);
+        moderator.group_list.insert(participant2.clone(), 402);
+        moderator.group_list.insert(participant3.clone(), 403);
+
+        // Create first leave request coming directly from participant1 with LEAVING_SESSION metadata
+        let participant1_with_id = participant1.clone().with_id(401);
+        let mut leave_msg1 = Message::builder()
+            .source(participant1_with_id.clone())
+            .destination(source.clone()) // sent to moderator
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::LeaveRequest)
+            .session_id(1)
+            .message_id(101)
+            .payload(
+                CommandPayload::builder()
+                    .leave_request(None) // No destination in payload when coming from participant
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        // Add LEAVING_SESSION metadata to signal graceful departure
+        leave_msg1.insert_metadata(LEAVING_SESSION.to_string(), TRUE_VAL.to_string());
+
+        // Create second leave request coming directly from participant2 with LEAVING_SESSION metadata
+        let participant2_with_id = participant2.clone().with_id(402);
+        let mut leave_msg2 = Message::builder()
+            .source(participant2_with_id.clone())
+            .destination(source.clone()) // sent to moderator
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::LeaveRequest)
+            .session_id(1)
+            .message_id(102)
+            .payload(
+                CommandPayload::builder()
+                    .leave_request(None) // No destination in payload when coming from participant
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        // Add LEAVING_SESSION metadata to signal graceful departure
+        leave_msg2.insert_metadata(LEAVING_SESSION.to_string(), TRUE_VAL.to_string());
+
+        // Process first leave request (should start processing immediately)
+        // Since it has LEAVING_SESSION metadata, it will be handled by on_disconnection_detected
+        let result1 = moderator.on_disconnection_detected(leave_msg1, None).await;
+        assert!(result1.is_ok() || result1.is_err());
+
+        // Verify first task was created
+        assert!(
+            moderator.current_task.is_some(),
+            "First leave should create a task"
+        );
+
+        // Process second leave request while first is still processing
+        // Since it has LEAVING_SESSION metadata, it will be handled by on_disconnection_detected
+        let result2 = moderator.on_disconnection_detected(leave_msg2, None).await;
+        assert!(result2.is_ok());
+
+        // Verify second task was queued
+        assert_eq!(
+            moderator.tasks_todo.len(),
+            1,
+            "Second leave request should be queued while first is processing"
+        );
+
+        // Verify the queued task exists and has DISCONNECTION_DETECTED metadata
+        if let Some((queued_msg, _)) = moderator.tasks_todo.front() {
+            // Verify DISCONNECTION_DETECTED metadata was set (LEAVING_SESSION was replaced)
+            assert!(
+                queued_msg.contains_metadata(DISCONNECTION_DETECTED),
+                "Queued message should have DISCONNECTION_DETECTED metadata"
+            );
+        } else {
+            panic!("Expected queued task for participant2");
+        }
+
+        // Clear the messages
+        while rx_slim.try_recv().is_ok() {}
+
+        // Verify participant1 was removed from group (first task processed)
+        assert!(
+            !moderator.group_list.contains_key(&participant1),
+            "Participant1 should be removed after first leave request"
+        );
+
+        // Verify participant2 is still in group (second task queued, not processed yet)
+        assert!(
+            moderator.group_list.contains_key(&participant2),
+            "Participant2 should still be in group (task queued, not processed)"
+        );
+    }
 }

@@ -25,9 +25,9 @@ use crate::{
 pub const PING_INTERVAL: Duration = Duration::from_secs(10);
 /// Maximum number of consecutive ping failures before a participant is considered disconnected.
 const MAX_PING_FAILURE: u32 = 3;
-/// fake of the moderator used by each participant to track the reception of the ping
+/// ynthetic moderator name used by participants to track ping reception
 static MODERATOR_NAME: std::sync::LazyLock<Name> =
-    std::sync::LazyLock::new(|| Name::from_strings(["", "", ""]));
+    std::sync::LazyLock::new(|| Name::from_strings(["agntcy", "ns", "moderator"]));
 
 /// used a result in OnMessage function
 #[derive(PartialEq, Clone, Debug)]
@@ -440,7 +440,7 @@ impl ControllerSender {
         {
             if ping_state.received_ping {
                 // reset the state
-                debug!("received at least on ping message, rest the state");
+                debug!("received at least on ping message, reset the state");
                 ping_state.received_ping = false;
                 ping_state.missing_pings.clear();
             } else {
@@ -457,7 +457,7 @@ impl ControllerSender {
                         .tx_session
                         .try_send(SessionMessage::ParticipantDisconnected { name: None })
                     {
-                        tracing::error!("failed to send participant disconnected message: {}", e);
+                        debug!("failed to send participant disconnected message: {}", e);
                     }
                 }
             }
@@ -1904,5 +1904,199 @@ mod tests {
             !sender.group_list.contains(&participant),
             "Participant should be removed from group_list after disconnection"
         );
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_participant_detects_moderator_disconnection() {
+        // Test participant-side moderator disconnection detection:
+        // - Participant receives pings from moderator initially
+        // - Moderator stops sending pings (simulating crash/network failure)
+        // - After 3 ping intervals without receiving pings, participant detects disconnection
+        // - ParticipantDisconnected message is sent with name: None
+
+        let settings = TimerSettings::constant(Duration::from_millis(400)).with_max_retries(3);
+        let ping_interval = Duration::from_millis(1000);
+
+        let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(100);
+        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+        let participant_name = Name::from_strings(["org", "ns", "participant"]);
+        let moderator_name = Name::from_strings(["org", "ns", "moderator"]);
+        let session_id = 1;
+
+        // Create participant (initiator=false)
+        let mut sender = ControllerSender::new(
+            settings,
+            participant_name.clone(),
+            ProtoSessionType::Multicast,
+            session_id,
+            Some(ping_interval),
+            false, // participant, not initiator
+            tx,
+            tx_signal,
+        );
+
+        // === PING INTERVAL 1: Moderator sends ping, participant receives it ===
+
+        // Wait for first ping interval timeout
+        let timeout_msg = timeout(Duration::from_millis(1100), rx_signal.recv())
+            .await
+            .expect("timeout waiting for first ping interval")
+            .expect("channel closed");
+
+        let first_ping_id = match timeout_msg {
+            SessionMessage::TimerTimeout {
+                message_id,
+                message_type,
+                ..
+            } => {
+                assert_eq!(message_type, ProtoSessionMessageType::Ping);
+                message_id
+            }
+            _ => panic!("Expected TimerTimeout for ping interval"),
+        };
+
+        // Simulate receiving a ping from moderator
+        let ping_from_moderator = Message::builder()
+            .source(moderator_name.clone())
+            .destination(participant_name.clone())
+            .identity("")
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::Ping)
+            .session_id(session_id)
+            .message_id(rand::random::<u32>())
+            .payload(CommandPayload::builder().ping().as_content())
+            .build_publish()
+            .unwrap();
+
+        sender.on_ping_message(&ping_from_moderator);
+
+        // Process the timeout - should reset state since ping was received
+        sender
+            .on_timer_timeout(first_ping_id, ProtoSessionMessageType::Ping)
+            .await
+            .expect("error handling first ping timeout");
+
+        // Verify state was reset (no disconnection detected)
+        if let Some(ping_state) = &sender.ping_state {
+            assert_eq!(
+                ping_state.missing_pings.len(),
+                0,
+                "Missing pings should be cleared after receiving ping"
+            );
+        }
+
+        // === PING INTERVAL 2: No ping received, counter increments to 1 ===
+
+        let timeout_msg = timeout(Duration::from_millis(1100), rx_signal.recv())
+            .await
+            .expect("timeout waiting for second ping interval")
+            .expect("channel closed");
+
+        let second_ping_id = match timeout_msg {
+            SessionMessage::TimerTimeout {
+                message_id,
+                message_type,
+                ..
+            } => {
+                assert_eq!(message_type, ProtoSessionMessageType::Ping);
+                message_id
+            }
+            _ => panic!("Expected TimerTimeout for ping interval"),
+        };
+
+        // Don't send a ping this time (moderator is down)
+        sender
+            .on_timer_timeout(second_ping_id, ProtoSessionMessageType::Ping)
+            .await
+            .expect("error handling second ping timeout");
+
+        // Verify counter incremented to 1
+        if let Some(ping_state) = &sender.ping_state {
+            assert_eq!(
+                ping_state.missing_pings.get(&MODERATOR_NAME).copied(),
+                Some(1),
+                "Missing ping counter should be 1"
+            );
+        }
+
+        // === PING INTERVAL 3: No ping received, counter increments to 2 ===
+
+        let timeout_msg = timeout(Duration::from_millis(1100), rx_signal.recv())
+            .await
+            .expect("timeout waiting for third ping interval")
+            .expect("channel closed");
+
+        let third_ping_id = match timeout_msg {
+            SessionMessage::TimerTimeout {
+                message_id,
+                message_type,
+                ..
+            } => {
+                assert_eq!(message_type, ProtoSessionMessageType::Ping);
+                message_id
+            }
+            _ => panic!("Expected TimerTimeout for ping interval"),
+        };
+
+        sender
+            .on_timer_timeout(third_ping_id, ProtoSessionMessageType::Ping)
+            .await
+            .expect("error handling third ping timeout");
+
+        // Verify counter incremented to 2
+        if let Some(ping_state) = &sender.ping_state {
+            assert_eq!(
+                ping_state.missing_pings.get(&MODERATOR_NAME).copied(),
+                Some(2),
+                "Missing ping counter should be 2"
+            );
+        }
+
+        // === PING INTERVAL 4: No ping received, counter reaches 3, disconnection detected ===
+
+        let timeout_msg = timeout(Duration::from_millis(1100), rx_signal.recv())
+            .await
+            .expect("timeout waiting for fourth ping interval")
+            .expect("channel closed");
+
+        let fourth_ping_id = match timeout_msg {
+            SessionMessage::TimerTimeout {
+                message_id,
+                message_type,
+                ..
+            } => {
+                assert_eq!(message_type, ProtoSessionMessageType::Ping);
+                message_id
+            }
+            _ => panic!("Expected TimerTimeout for ping interval"),
+        };
+
+        sender
+            .on_timer_timeout(fourth_ping_id, ProtoSessionMessageType::Ping)
+            .await
+            .expect("error handling fourth ping timeout");
+
+        // Verify ParticipantDisconnected message was sent with name: None (indicating moderator)
+        // Note: The message is sent via try_send, so it should already be in the channel
+        let disconnect_msg = rx_signal.try_recv();
+
+        match disconnect_msg {
+            Ok(SessionMessage::ParticipantDisconnected { name }) => {
+                assert_eq!(
+                    name, None,
+                    "ParticipantDisconnected should have name: None for moderator disconnection"
+                );
+            }
+            Ok(other) => panic!("Expected ParticipantDisconnected message, got {:?}", other),
+            Err(e) => panic!(
+                "Expected ParticipantDisconnected message, channel error: {:?}",
+                e
+            ),
+        }
     }
 }
