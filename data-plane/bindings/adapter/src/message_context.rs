@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use slim_datapath::api::{ProtoMessage, ProtoPublishType};
 use slim_datapath::messages::Name;
 
-use crate::errors::ServiceError;
+use slim_service::errors::ServiceError;
 
 /// Generic message context for language bindings
 ///
@@ -308,3 +308,4 @@ mod tests {
         assert_eq!(payload, payload_data);
     }
 }
+

@@ -8,11 +8,11 @@ use tokio::sync::RwLock;
 
 use slim_datapath::messages::Name;
 use slim_datapath::messages::utils::{PUBLISH_TO, SlimHeaderFlags, TRUE_VAL};
+use slim_service::errors::ServiceError;
 use slim_session::SessionError;
 use slim_session::context::SessionContext;
 
-use crate::bindings::message_context::MessageContext;
-use crate::errors::ServiceError;
+use crate::message_context::MessageContext;
 
 /// Generic session context wrapper for language bindings
 ///
@@ -181,8 +181,8 @@ mod tests {
     use slim_datapath::messages::Name;
     use slim_testing::utils::TEST_VALID_SECRET;
 
-    use crate::bindings::adapter::BindingsAdapter;
-    use crate::service::Service;
+    use crate::adapter::BindingsAdapter;
+    use slim_service::Service;
 
     /// Create a mock service for testing
     async fn create_test_service() -> Service {
@@ -213,15 +213,15 @@ mod tests {
         let adapter = BindingsAdapter::new_with_service(&service, app_name, provider, verifier)
             .expect("Failed to create adapter");
 
-        let config = crate::bindings::adapter::SessionConfig {
-            session_type: crate::bindings::adapter::SessionType::PointToPoint,
+        let config = crate::adapter::SessionConfig {
+            session_type: crate::adapter::SessionType::PointToPoint,
             enable_mls: false,
             max_retries: None,
             interval_ms: None,
             initiator: true,
             metadata: std::collections::HashMap::new(),
         };
-        let dst = crate::bindings::adapter::Name {
+        let dst = crate::adapter::Name {
             components: vec!["org".to_string(), "ns".to_string(), "dst".to_string()],
             id: None,
         };
@@ -244,15 +244,15 @@ mod tests {
             .expect("Failed to create adapter");
 
         // Create a session using FFI types
-        let config = crate::bindings::adapter::SessionConfig {
-            session_type: crate::bindings::adapter::SessionType::PointToPoint,
+        let config = crate::adapter::SessionConfig {
+            session_type: crate::adapter::SessionType::PointToPoint,
             enable_mls: false,
             max_retries: None,
             interval_ms: None,
             initiator: true,
             metadata: std::collections::HashMap::new(),
         };
-        let dst = crate::bindings::adapter::Name {
+        let dst = crate::adapter::Name {
             components: vec!["org".to_string(), "ns".to_string(), "dst".to_string()],
             id: None,
         };
@@ -282,15 +282,15 @@ mod tests {
             .expect("Failed to create adapter");
 
         // Create a session using FFI types
-        let config = crate::bindings::adapter::SessionConfig {
-            session_type: crate::bindings::adapter::SessionType::PointToPoint,
+        let config = crate::adapter::SessionConfig {
+            session_type: crate::adapter::SessionType::PointToPoint,
             enable_mls: false,
             max_retries: None,
             interval_ms: None,
             initiator: true,
             metadata: std::collections::HashMap::new(),
         };
-        let dst = crate::bindings::adapter::Name {
+        let dst = crate::adapter::Name {
             components: vec!["org".to_string(), "ns".to_string(), "dst".to_string()],
             id: None,
         };
@@ -321,15 +321,15 @@ mod tests {
             .expect("Failed to create adapter");
 
         // Create a session using FFI types
-        let config = crate::bindings::adapter::SessionConfig {
-            session_type: crate::bindings::adapter::SessionType::PointToPoint,
+        let config = crate::adapter::SessionConfig {
+            session_type: crate::adapter::SessionType::PointToPoint,
             enable_mls: false,
             max_retries: None,
             interval_ms: None,
             initiator: true,
             metadata: std::collections::HashMap::new(),
         };
-        let dst = crate::bindings::adapter::Name {
+        let dst = crate::adapter::Name {
             components: vec!["org".to_string(), "ns".to_string(), "dst".to_string()],
             id: None,
         };
@@ -366,15 +366,15 @@ mod tests {
             .expect("Failed to create adapter");
 
         // Create a session using FFI types
-        let config = crate::bindings::adapter::SessionConfig {
-            session_type: crate::bindings::adapter::SessionType::PointToPoint,
+        let config = crate::adapter::SessionConfig {
+            session_type: crate::adapter::SessionType::PointToPoint,
             enable_mls: false,
             max_retries: None,
             interval_ms: None,
             initiator: true,
             metadata: std::collections::HashMap::new(),
         };
-        let dst = crate::bindings::adapter::Name {
+        let dst = crate::adapter::Name {
             components: vec!["org".to_string(), "ns".to_string(), "dst".to_string()],
             id: None,
         };
@@ -405,15 +405,15 @@ mod tests {
             .expect("Failed to create adapter");
 
         // Create a session using FFI types
-        let config = crate::bindings::adapter::SessionConfig {
-            session_type: crate::bindings::adapter::SessionType::PointToPoint,
+        let config = crate::adapter::SessionConfig {
+            session_type: crate::adapter::SessionType::PointToPoint,
             enable_mls: false,
             max_retries: None,
             interval_ms: None,
             initiator: true,
             metadata: std::collections::HashMap::new(),
         };
-        let dst = crate::bindings::adapter::Name {
+        let dst = crate::adapter::Name {
             components: vec!["org".to_string(), "ns".to_string(), "dst".to_string()],
             id: None,
         };
@@ -423,7 +423,7 @@ mod tests {
             .expect("Failed to create session");
 
         // Create a custom destination name for publishing
-        let destination = crate::bindings::adapter::Name {
+        let destination = crate::adapter::Name {
             components: vec![
                 "sender".to_string(),
                 "org".to_string(),
@@ -451,3 +451,4 @@ mod tests {
         assert!(result.is_ok());
     }
 }
+

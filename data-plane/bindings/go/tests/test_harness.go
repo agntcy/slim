@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	slim "github.com/agntcy/slim/bindings/generated/slim_service"
+	slim "github.com/agntcy/slim/bindings/generated/slim_uniffi"
 )
 
 // TestHarness manages a pair of communicating apps for integration testing

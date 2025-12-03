@@ -20,17 +20,17 @@ use tokio::sync::{RwLock, mpsc};
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::shared_secret::SharedSecret;
 use slim_auth::traits::TokenProvider; // For get_token() and get_id()
+use slim_config::component::ComponentBuilder;
 use slim_datapath::api::ProtoSessionType;
 use slim_datapath::messages::Name as SlimName;
+use slim_service::app::App;
+use slim_service::errors::ServiceError;
+use slim_service::Service;
 use slim_session::SessionConfig as SlimSessionConfig;
 use slim_session::session_controller::SessionController;
 use slim_session::{Notification, SessionError as SlimSessionError};
 
-use crate::app::App;
-use crate::bindings::service_ref::{ServiceRef, get_or_init_global_service};
-use crate::errors::ServiceError;
-use crate::service::Service;
-use slim_config::component::ComponentBuilder;
+use crate::service_ref::{ServiceRef, get_or_init_global_service};
 
 // Re-export uniffi for proc macros
 use uniffi;
@@ -249,8 +249,8 @@ pub struct MessageContext {
     pub identity: String,
 }
 
-impl From<crate::bindings::MessageContext> for MessageContext {
-    fn from(ctx: crate::bindings::MessageContext) -> Self {
+impl From<crate::MessageContext> for MessageContext {
+    fn from(ctx: crate::MessageContext) -> Self {
         Self {
             source_name: Name::from(&ctx.source_name),
             destination_name: ctx.destination_name.as_ref().map(Name::from),
@@ -262,7 +262,7 @@ impl From<crate::bindings::MessageContext> for MessageContext {
     }
 }
 
-impl From<MessageContext> for crate::bindings::MessageContext {
+impl From<MessageContext> for crate::MessageContext {
     fn from(ctx: MessageContext) -> Self {
         Self {
             source_name: ctx.source_name.into(),
@@ -427,7 +427,7 @@ impl BindingsAdapter {
     /// # Returns
     /// * `Ok(Arc<BindingsAdapter>)` - Successfully created adapter
     /// * `Err(SlimError)` - If creation fails
-    #[cfg(test)]
+    #[doc(hidden)]
     pub fn new_with_service(
         service: &Service,
         base_name: SlimName,
@@ -527,7 +527,7 @@ impl BindingsAdapter {
         })?;
 
         // Convert SessionContext to BindingsSessionContext
-        let bindings_ctx = crate::bindings::BindingsSessionContext::from(session_ctx);
+        let bindings_ctx = crate::BindingsSessionContext::from(session_ctx);
 
         Ok(Arc::new(FFISessionContext {
             inner: bindings_ctx,
@@ -658,7 +658,7 @@ impl BindingsAdapter {
 
         match notification_opt.unwrap() {
             Ok(Notification::NewSession(ctx)) => {
-                let bindings_ctx = crate::bindings::BindingsSessionContext::from(ctx);
+                let bindings_ctx = crate::BindingsSessionContext::from(ctx);
                 Ok(Arc::new(FFISessionContext {
                     inner: bindings_ctx,
                     runtime: Arc::clone(&self.runtime),
@@ -901,7 +901,7 @@ impl FfiCompletionHandle {
 #[derive(uniffi::Object)]
 pub struct FFISessionContext {
     /// The inner BindingsSessionContext (public for Python bindings access)
-    pub inner: crate::bindings::BindingsSessionContext,
+    pub inner: crate::BindingsSessionContext,
     runtime: Arc<tokio::runtime::Runtime>,
 }
 
@@ -1079,7 +1079,7 @@ impl FFISessionContext {
         payload_type: Option<String>,
         metadata: Option<std::collections::HashMap<String, String>>,
     ) -> Result<(), SlimError> {
-        let internal_context = crate::bindings::MessageContext::from(message_context);
+        let internal_context = crate::MessageContext::from(message_context);
 
         self.inner
             .publish_to(&internal_context, data, payload_type, metadata)
@@ -1125,7 +1125,7 @@ impl FFISessionContext {
         payload_type: Option<String>,
         metadata: Option<std::collections::HashMap<String, String>>,
     ) -> Result<Arc<FfiCompletionHandle>, SlimError> {
-        let internal_context = crate::bindings::MessageContext::from(message_context);
+        let internal_context = crate::MessageContext::from(message_context);
 
         let completion = self
             .inner
@@ -1821,3 +1821,4 @@ mod tests {
         }
     }
 }
+

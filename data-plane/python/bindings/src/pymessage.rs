@@ -7,7 +7,8 @@ use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 use slim_datapath::api::ProtoMessage;
 use slim_datapath::messages::Name;
-use slim_service::{MessageContext, ServiceError};
+use slim_service::ServiceError;
+use slim_uniffi::MessageContext;
 
 use crate::utils::PyName;
 

@@ -9,7 +9,7 @@ import (
 	"log"
 	"time"
 
-	slim "github.com/agntcy/slim/bindings/generated/slim_service"
+	slim "github.com/agntcy/slim/bindings/generated/slim_uniffi"
 	"github.com/agntcy/slim/bindings/go/examples/common"
 )
 

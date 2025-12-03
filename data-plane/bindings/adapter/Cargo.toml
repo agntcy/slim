@@ -1,31 +1,36 @@
 [package]
-name = "agntcy-slim-service"
+name = "agntcy-slim-uniffi"
 edition = { workspace = true }
 license = { workspace = true }
-version = "0.8.2"
-description = "Main service and public API to interact with SLIM data plane."
+version = "0.1.0"
+description = "UniFFI bindings and FFI adapter for SLIM data plane - enables language integrations (Go, Swift, Kotlin, etc.)"
 
 [lib]
-name = "slim_service"
-crate-type = ["lib"]
+name = "slim_uniffi"
+crate-type = ["lib", "staticlib", "cdylib"]
 
 [dependencies]
+# Local workspace dependencies
 agntcy-slim-auth = { workspace = true }
 agntcy-slim-config = { workspace = true }
-agntcy-slim-controller = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
-agntcy-slim-mls = { workspace = true }
+agntcy-slim-service = { workspace = true }
 agntcy-slim-session = { workspace = true }
-dirs = "5.0"
+
+# External dependencies
 futures = { workspace = true }
+num_cpus = { workspace = true }
 parking_lot = { workspace = true }
-serde = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-tokio-util = { workspace = true }
 tracing = { workspace = true }
+uniffi = { version = "0.28.3", features = ["cli"] }
+
+[build-dependencies]
+uniffi = { version = "0.28.3", features = ["build"] }
 
 [dev-dependencies]
 agntcy-slim-testing = { workspace = true }
 tokio-test = { workspace = true }
 tracing-test = { workspace = true }
+

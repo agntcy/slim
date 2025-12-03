@@ -3,8 +3,8 @@
 
 use std::sync::OnceLock;
 
-use crate::service::Service;
 use slim_config::component::ComponentBuilder;
+use slim_service::Service;
 
 // Global static service instance for bindings
 static GLOBAL_SERVICE: OnceLock<Service> = OnceLock::new();
@@ -42,7 +42,7 @@ mod tests {
     use slim_datapath::messages::Name;
     use slim_testing::utils::TEST_VALID_SECRET;
 
-    use crate::bindings::adapter::BindingsAdapter;
+    use crate::adapter::BindingsAdapter;
 
     /// Create test authentication components
     fn create_test_auth() -> (AuthProvider, AuthVerifier) {
@@ -85,3 +85,4 @@ mod tests {
         // Note: ServiceRef is now private to the adapter, can't directly test pointer equality
     }
 }
+

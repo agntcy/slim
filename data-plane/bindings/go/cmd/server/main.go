@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	slim "github.com/agntcy/slim/bindings/generated/slim_service"
+	slim "github.com/agntcy/slim/bindings/generated/slim_uniffi"
 )
 
 func main() {

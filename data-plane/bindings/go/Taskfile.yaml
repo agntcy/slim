@@ -4,9 +4,10 @@
 version: '3'
 
 vars:
-  SERVICE_DIR: ../../core/service
+  # The Rust UniFFI bindings crate - in bindings/adapter (sibling to bindings/go)
+  BINDINGS_DIR: ../adapter
   SERVICE_TARGET: ../../target/release
-  LIB_NAME: slim_service
+  LIB_NAME: slim_uniffi
   # Get absolute path for CGO flags
   ROOT_DIR:
     sh: pwd
@@ -48,9 +49,9 @@ tasks:
 
   rust-build:
     desc: Build the Rust library with UniFFI (release mode)
-    dir: "{{.SERVICE_DIR}}"
+    dir: "{{.BINDINGS_DIR}}"
     cmds:
-      - echo "🦀 Building Rust library with UniFFI (release mode)..."
+      - echo "🦀 Building Rust bindings library with UniFFI (release mode)..."
       - cargo build --release
     silent: true
 
@@ -104,7 +105,7 @@ tasks:
     desc: Clean build artifacts
     cmds:
       - echo "🧹 Cleaning build artifacts..."
-      - cd {{.SERVICE_DIR}} && cargo clean
+      - cd {{.BINDINGS_DIR}} && cargo clean
       - rm -rf generated/
       - echo "✅ Clean complete"
     silent: true

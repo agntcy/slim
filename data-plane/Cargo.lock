@@ -80,6 +80,7 @@ dependencies = [
  "agntcy-slim-service",
  "agntcy-slim-session",
  "agntcy-slim-tracing",
+ "agntcy-slim-uniffi",
  "pyo3",
  "pyo3-async-runtimes",
  "pyo3-stub-gen",
@@ -231,7 +232,6 @@ dependencies = [
  "agntcy-slim-testing",
  "dirs",
  "futures",
- "num_cpus",
  "parking_lot",
  "serde",
  "thiserror 2.0.17",
@@ -240,7 +240,6 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-test",
- "uniffi",
 ]
 
 [[package]]
@@ -317,6 +316,27 @@ dependencies = [
  "tracing-opentelemetry",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "agntcy-slim-uniffi"
+version = "0.1.0"
+dependencies = [
+ "agntcy-slim-auth",
+ "agntcy-slim-config",
+ "agntcy-slim-datapath",
+ "agntcy-slim-service",
+ "agntcy-slim-session",
+ "agntcy-slim-testing",
+ "futures",
+ "num_cpus",
+ "parking_lot",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-test",
+ "tracing",
+ "tracing-test",
+ "uniffi",
 ]
 
 [[package]]
