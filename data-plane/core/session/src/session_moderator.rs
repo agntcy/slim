@@ -126,6 +126,11 @@ where
                 ack_tx,
             } => {
                 if message.get_session_message_type().is_command_message() {
+                    debug!(
+                        "received {:?} from {}",
+                        message.get_session_message_type(),
+                        message.get_source()
+                    );
                     self.process_control_message(message, ack_tx).await
                 } else {
                     // this is a application message. if direction (needs to go to the remote endpoint) and
@@ -355,6 +360,16 @@ where
         participant: &Name,
         msg: &Message,
     ) -> Result<(Vec<Name>, Option<MlsPayload>), SessionError> {
+        // Build participants list with current participants
+        // the group update needs to be received by everybody
+        // in the group unless only there are only 2 participants
+        // (the moderator and a participant)
+        let participants_vec: Vec<Name> = self
+            .group_list
+            .iter()
+            .map(|(n, id)| n.clone().with_id(*id))
+            .collect();
+
         // Remove participant from group list
         let mut participant_no_id = participant.clone();
         participant_no_id.reset_id();
@@ -362,13 +377,6 @@ where
 
         // Remove endpoint from local session
         self.remove_endpoint(participant);
-
-        // Build participants list with remaining members
-        let participants_vec: Vec<Name> = self
-            .group_list
-            .iter()
-            .map(|(n, id)| n.clone().with_id(*id))
-            .collect();
 
         // Compute MLS payload if needed
         let mls_payload = match self.mls_state.as_mut() {
@@ -917,7 +925,9 @@ where
                 CommandPayload::builder().leave_reply().as_content(),
                 false,
             )?;
-            self.common.sender.on_message(&reply).await?;
+            // the participant will be removed from the group so we need to remove
+            // it from the local sender.
+            self.common.sender.remove_participant(&disconnected);
             self.common.send_to_slim(reply).await?;
 
             // replace LEAVING_SESSION with DISCONNECTION_DETECTED so that if the process of the

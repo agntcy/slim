@@ -341,18 +341,6 @@ impl ControllerSender {
             message.get_source()
         );
 
-        if message.get_session_message_type()
-            == slim_datapath::api::ProtoSessionMessageType::LeaveReply
-            && self.initiator
-        {
-            // here the moderator is replying to a participant that sent a leave request to be
-            // removed from the session. the message is forwarded without setup a timer that is
-            // handled by the participant. here we just need to update the group list and drop
-            // the message
-            self.group_list.remove(&message.get_dst());
-            return;
-        }
-
         let mut delete = false;
         if let Some(pending) = self.pending_replies.get_mut(&id) {
             debug!("try to remove {} from pending acks", id);
@@ -647,6 +635,16 @@ impl ControllerSender {
         // set only initiated to true because we may need send request leave
         debug!("controller sender drain initiated");
         self.draining_state = ControllerSenderDrainStatus::Initiated;
+    }
+
+    pub fn remove_participant(&mut self, name: &Name) {
+        // this is used only by the moderator when a participant closed is
+        // session remotely. This remove is needed so that the moderator
+        // will not expect acks from the participant that is leaving the
+        // group during the group update phase
+        if self.initiator {
+            self.group_list.remove(name);
+        }
     }
 
     pub fn drain_completed(&self) -> bool {

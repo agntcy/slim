@@ -422,7 +422,7 @@ impl SessionController {
             ProtoSessionType::Multicast => {
                 if !self.is_initiator() {
                     return Err(SessionError::Processing(
-                        "cannot invite participant to this session session".into(),
+                        "cannot invite participant to this session".into(),
                     ));
                 }
                 self.invite_participant_internal(destination).await
@@ -442,7 +442,7 @@ impl SessionController {
             ProtoSessionType::Multicast => {
                 if !self.is_initiator() {
                     return Err(SessionError::Processing(
-                        "cannot remove participant from this session session".into(),
+                        "cannot remove participant from this session".into(),
                     ));
                 }
                 let msg = Message::builder()

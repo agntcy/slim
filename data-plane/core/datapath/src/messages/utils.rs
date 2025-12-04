@@ -24,13 +24,38 @@ use crate::api::{
 use thiserror::Error;
 use tracing::error;
 
-// constant strings used in messages metadata
+/// IS_MODERATOR is used in the Join request metadata to indicate whether a participant is the moderator/initiator of a session.
+/// The value is set to `TRUE_VAL` when the participant is a moderator.
 pub const IS_MODERATOR: &str = "IS_MODERATOR";
+
+/// DELETE_GROUP indicates that the entire group should be deleted.
+/// When added to a leave request message, it signals to the moderator that the group needs to be closed.
+/// The value is set to `TRUE_VAL` to trigger group deletion.
 pub const DELETE_GROUP: &str = "DELETE_GROUP";
+
+/// PUBLISH_TO indicates that a message should bypass normal sequencing and be delivered directly to the specified endpoint.
+/// This is used in group sessions when the application API `publish_to` is used instead of `publish`.
+/// The value is set to `TRUE_VAL` for direct delivery without buffering.
 pub const PUBLISH_TO: &str = "PUBLISH_TO";
+
+/// DISCONNECTION_DETECTED indicates that a participant disconnection was detected (not a graceful leave).
+/// This is used in the leave request message and internally by the moderator when
+/// a disconnection is detected due to missing ping replies from the participant.
+/// The value is set to `TRUE_VAL` when disconnection is detected.
 pub const DISCONNECTION_DETECTED: &str = "DISCONNECTION_DETECTED";
+
+/// LEAVING_SESSION indicates that a participant is gracefully leaving the session.
+/// This is used in the leave request message sent by a participant closing the session to the moderator.
+/// The value is set to `TRUE_VAL` for graceful departure.
 pub const LEAVING_SESSION: &str = "LEAVING_SESSION";
+
+/// Standard string value representing a boolean "true" in message metadata.
 pub const TRUE_VAL: &str = "TRUE";
+
+/// Maximum message ID for normal sequenced messages.
+/// Messages with IDs in the range [0, MAX_PUBLISH_ID] follow normal sequencing.
+/// Messages with IDs > MAX_PUBLISH_ID (used for `PUBLISH_TO` messages) bypass sequencing.
+/// Value: Half of u32::MAX to allow a separate ID space for out-of-band messages.
 pub const MAX_PUBLISH_ID: u32 = u32::MAX / 2;
 
 #[derive(Error, Debug, PartialEq)]

@@ -106,6 +106,11 @@ where
                 ack_tx,
             } => {
                 if message.get_session_message_type().is_command_message() {
+                    debug!(
+                        "received {:?} from {}",
+                        message.get_session_message_type(),
+                        message.get_source()
+                    );
                     self.process_control_message(message).await
                 } else {
                     self.inner
@@ -426,7 +431,7 @@ where
                 let name = Name::from(removed_participant);
                 self.group_list.remove(&name);
 
-                debug!("remove endpoint from the session {}", msg.get_source());
+                tracing::info!("remove endpoint from the session {}", msg.get_source());
                 self.inner.remove_endpoint(&name);
             }
         }
