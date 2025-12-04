@@ -644,9 +644,9 @@ RustBuffer uniffi_slim_uniffi_fn_func_get_version(RustCallStatus *out_status
     
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_UNIFFI_FN_FUNC_INITIALIZE_CRYPTO
-#define UNIFFI_FFIDEF_UNIFFI_SLIM_UNIFFI_FN_FUNC_INITIALIZE_CRYPTO
-void uniffi_slim_uniffi_fn_func_initialize_crypto(RustCallStatus *out_status
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_UNIFFI_FN_FUNC_INITIALIZE_CRYPTO_PROVIDER
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_UNIFFI_FN_FUNC_INITIALIZE_CRYPTO_PROVIDER
+void uniffi_slim_uniffi_fn_func_initialize_crypto_provider(RustCallStatus *out_status
     
 );
 #endif
@@ -942,9 +942,9 @@ uint16_t uniffi_slim_uniffi_checksum_func_get_version(void
     
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_UNIFFI_CHECKSUM_FUNC_INITIALIZE_CRYPTO
-#define UNIFFI_FFIDEF_UNIFFI_SLIM_UNIFFI_CHECKSUM_FUNC_INITIALIZE_CRYPTO
-uint16_t uniffi_slim_uniffi_checksum_func_initialize_crypto(void
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_UNIFFI_CHECKSUM_FUNC_INITIALIZE_CRYPTO_PROVIDER
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_UNIFFI_CHECKSUM_FUNC_INITIALIZE_CRYPTO_PROVIDER
+uint16_t uniffi_slim_uniffi_checksum_func_initialize_crypto_provider(void
     
 );
 #endif

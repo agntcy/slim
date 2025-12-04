@@ -367,11 +367,11 @@ func uniffiCheckChecksums() {
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_func_initialize_crypto()
+			return C.uniffi_slim_uniffi_checksum_func_initialize_crypto_provider()
 		})
-		if checksum != 19137 {
+		if checksum != 2455 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_func_initialize_crypto: UniFFI API checksum mismatch")
+			panic("slim_uniffi: uniffi_slim_uniffi_checksum_func_initialize_crypto_provider: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -3604,9 +3604,9 @@ func GetVersion() string {
 }
 
 // Initialize the crypto provider
-func InitializeCrypto() {
+func InitializeCryptoProvider() {
 	rustCall(func(_uniffiStatus *C.RustCallStatus) bool {
-		C.uniffi_slim_uniffi_fn_func_initialize_crypto(_uniffiStatus)
+		C.uniffi_slim_uniffi_fn_func_initialize_crypto_provider(_uniffiStatus)
 		return false
 	})
 }

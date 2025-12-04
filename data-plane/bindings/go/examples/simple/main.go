@@ -15,7 +15,7 @@ func main() {
 	fmt.Println("==================================================")
 
 	// Initialize crypto provider (required before any operations)
-	slim.InitializeCrypto()
+	slim.InitializeCryptoProvider()
 	fmt.Println("✅ Crypto initialized")
 
 	// Get version

@@ -87,7 +87,7 @@ pub fn get_runtime() -> &'static Arc<tokio::runtime::Runtime> {
 
 /// Initialize the crypto provider
 #[uniffi::export]
-pub fn initialize_crypto() {
+pub fn initialize_crypto_provider() {
     // Crypto initialization happens automatically in slim_auth
     // Also initialize the global runtime
     let _ = get_runtime();

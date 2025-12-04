@@ -29,7 +29,7 @@ func main() {
 	fmt.Println()
 
 	// Initialize crypto
-	slim.InitializeCrypto()
+	slim.InitializeCryptoProvider()
 
 	// Create server app
 	serverName := slim.Name{

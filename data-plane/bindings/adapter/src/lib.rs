@@ -49,7 +49,7 @@ pub mod session_context;
 pub use adapter::{
     BindingsAdapter, ClientConfig, FfiCompletionHandle, Name, ReceivedMessage, ServerConfig,
     SessionConfig, SessionType, SlimError, TlsConfig, create_app_with_secret, get_runtime,
-    get_version, initialize_crypto,
+    get_version, initialize_crypto_provider,
 };
 pub use message_context::MessageContext;
 pub use service_ref::{ServiceRef, get_or_init_global_service};
