@@ -172,6 +172,7 @@ where
         mut session_config: SessionConfig,
         local_name: Name,
         destination: Name,
+        egress_conn: u64,
         id: Option<u32>,
     ) -> Result<(SessionContext, CompletionHandle), SessionError> {
         // Sanity check
@@ -181,7 +182,7 @@ where
         let is_p2p = session_config.session_type == ProtoSessionType::PointToPoint;
         let destination_clone = destination.clone();
 
-        let session = self.create_session_internal(session_config, local_name, destination, id)?;
+        let session = self.create_session_internal(session_config, local_name, destination, egress_conn, id)?;
 
         // If session is p2p, initiate the discovery request now and return the ack
         // Otherwise, return an immediately resolved future
@@ -213,6 +214,7 @@ where
         session_config: SessionConfig,
         local_name: Name,
         destination: Name,
+        egress_conn: u64,
         id: Option<u32>,
     ) -> Result<SessionContext, SessionError> {
         // Retry loop to handle race conditions when generating random IDs
@@ -264,6 +266,7 @@ where
                 .with_id(session_id)
                 .with_source(local_name.clone())
                 .with_destination(destination.clone())
+                .with_egress_conn(egress_conn)
                 .with_config(session_config.clone())
                 .with_identity_provider(self.identity_provider.clone())
                 .with_identity_verifier(self.identity_verifier.clone())
@@ -477,6 +480,7 @@ where
                             conf,
                             local_name,
                             message.get_source(),
+                            message.get_incoming_conn(),
                             Some(message.get_session_header().session_id),
                         )?
                     }
@@ -521,6 +525,7 @@ where
                             conf,
                             local_name,
                             channel,
+                            message.get_incoming_conn(),
                             Some(message.get_session_header().session_id),
                         )?
                     }
@@ -742,7 +747,7 @@ mod tests {
             metadata: Default::default(),
         };
 
-        let result = session_layer.create_session_internal(config, local_name, destination, None);
+        let result = session_layer.create_session_internal(config, local_name, destination, 0, None);
 
         assert!(result.is_ok());
         assert_eq!(session_layer.pool_size(), 1);
@@ -768,6 +773,7 @@ mod tests {
             config,
             local_name,
             destination,
+            0,
             Some(session_id),
         );
 
@@ -799,6 +805,7 @@ mod tests {
             config,
             local_name,
             destination,
+            0,
             Some(invalid_id),
         );
 
@@ -831,6 +838,7 @@ mod tests {
             config.clone(),
             local_name.clone(),
             destination.clone(),
+            0,
             Some(session_id),
         );
         assert!(result1.is_ok());
@@ -840,6 +848,7 @@ mod tests {
             config,
             local_name,
             destination,
+            0,
             Some(session_id),
         );
 
@@ -867,7 +876,7 @@ mod tests {
 
         let session_id = 100u32;
         let _context = session_layer
-            .create_session_internal(config, local_name, destination, Some(session_id))
+            .create_session_internal(config, local_name, destination, 0, Some(session_id))
             .unwrap();
 
         assert_eq!(session_layer.pool_size(), 1);
@@ -1023,6 +1032,7 @@ mod tests {
                 config.clone(),
                 local_name.clone(),
                 destination,
+                0,
                 None,
             );
             assert!(result.is_ok());

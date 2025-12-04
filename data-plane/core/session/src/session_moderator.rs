@@ -515,10 +515,6 @@ where
                 // here we assume that the destination is reachable from the
                 // same connection from where we got the message from the controller
                 let dst = Name::from(dst_name);
-                self.common
-                    .set_route(&dst, msg.get_incoming_conn())
-                    .await
-                    .map_err(|e| self.handle_task_error(e))?;
 
                 // create a new empty payload and change the message destination
                 let p = CommandPayload::builder()
@@ -535,6 +531,12 @@ where
                 msg
             }
         };
+
+        // set the route for the remote endpoint
+        self.common
+            .set_route(&discovery.get_dst(), self.common.settings.egress_conn)
+            .await
+            .map_err(|e| self.handle_task_error(e))?;
 
         // start the current task
         let id = rand::random::<u32>();
@@ -573,11 +575,11 @@ where
             .discovery_complete(msg.get_id())?;
 
         // join the channel if needed
-        self.join(msg.get_source(), msg.get_incoming_conn()).await?;
+        self.join(msg.get_source()).await?;
 
         // set a route to the remote participant
         self.common
-            .set_route(&msg.get_source(), msg.get_incoming_conn())
+            .set_route(&msg.get_source(), self.common.settings.egress_conn)
             .await?;
 
         // if this is a multicast session we need to add a route for the channel
@@ -586,7 +588,7 @@ where
         // different connections. In case the route exists already it will be just ignored
         if self.common.settings.config.session_type == ProtoSessionType::Multicast {
             self.common
-                .set_route(&self.common.settings.destination, msg.get_incoming_conn())
+                .set_route(&self.common.settings.destination, self.common.settings.egress_conn)
                 .await?;
         }
 
@@ -971,7 +973,7 @@ where
 
         // delete the route to the source of the message
         self.common
-            .delete_route(&msg.get_source(), msg.get_incoming_conn())
+            .delete_route(&msg.get_source(), self.common.settings.egress_conn)
             .await?;
 
         // notify the sender and see if we can pick another task
@@ -1085,7 +1087,7 @@ where
         .await
     }
 
-    async fn join(&mut self, remote: Name, conn: u64) -> Result<(), SessionError> {
+    async fn join(&mut self, remote: Name) -> Result<(), SessionError> {
         if self.subscribed {
             return Ok(());
         }
@@ -1101,7 +1103,7 @@ where
             let sub = Message::builder()
                 .source(self.common.settings.source.clone())
                 .destination(self.common.settings.destination.clone())
-                .flags(SlimHeaderFlags::default().with_forward_to(conn))
+                .flags(SlimHeaderFlags::default().with_forward_to(self.common.settings.egress_conn))
                 .build_subscribe()
                 .unwrap();
 
@@ -1201,6 +1203,7 @@ mod tests {
             id: 1,
             source,
             destination,
+            egress_conn: 0,
             config,
             tx,
             tx_session,
@@ -1415,7 +1418,7 @@ mod tests {
         assert!(!moderator.subscribed);
 
         let remote = make_name(&["remote", "app", "v1"]).with_id(200);
-        let result = moderator.join(remote, 12345).await;
+        let result = moderator.join(remote).await;
 
         assert!(result.is_ok());
         assert!(moderator.subscribed);
@@ -1430,12 +1433,12 @@ mod tests {
         let remote = make_name(&["remote", "app", "v1"]).with_id(200);
 
         // First join
-        moderator.join(remote.clone(), 12345).await.unwrap();
+        moderator.join(remote.clone()).await.unwrap();
         let first_subscribe = rx_slim.try_recv();
         assert!(first_subscribe.is_ok());
 
         // Second join should do nothing
-        moderator.join(remote, 12345).await.unwrap();
+        moderator.join(remote).await.unwrap();
         let second_subscribe = rx_slim.try_recv();
         assert!(second_subscribe.is_err()); // No message should be sent
     }
@@ -1563,6 +1566,7 @@ mod tests {
             id: 1,
             source: source.clone(),
             destination: destination.clone(),
+            egress_conn: 0,
             config,
             tx,
             tx_session,

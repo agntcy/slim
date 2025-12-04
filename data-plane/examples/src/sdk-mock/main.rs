@@ -168,7 +168,7 @@ async fn main() {
             metadata: HashMap::new(),
         };
         let session_ctx = app
-            .create_session(config, remote_app_name.clone(), None)
+            .create_session(config, remote_app_name.clone(), conn_id, None)
             .await
             .expect("error creating p2p session");
 

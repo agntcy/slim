@@ -35,6 +35,9 @@ where
     /// Remote endpoint or group name
     pub(crate) destination: Name,
 
+    /// Egress connection ID to the remote SLIM node
+    pub(crate) egress_conn: u64,
+
     /// Session configuration
     pub(crate) config: SessionConfig,
 

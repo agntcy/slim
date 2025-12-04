@@ -1690,6 +1690,7 @@ mod tests {
             id: 999,
             source: Name::from_strings(["org", "ns", "source"]).with_id(1),
             destination: Name::from_strings(["org", "ns", "dest"]).with_id(2),
+            egress_conn: 0,
             config: SessionConfig {
                 session_type: ProtoSessionType::PointToPoint,
                 max_retries: Some(3),
@@ -1858,6 +1859,7 @@ mod tests {
             id: 1,
             source: Name::from_strings(["org", "ns", "test"]).with_id(1),
             destination: Name::from_strings(["org", "ns", "test"]).with_id(2),
+            egress_conn: 0,
             config: SessionConfig {
                 session_type: ProtoSessionType::PointToPoint,
                 max_retries: Some(5),

@@ -257,7 +257,7 @@ where
         self.moderator_name = Some(source.clone());
 
         self.common
-            .set_route(&source, msg.get_incoming_conn())
+            .set_route(&source, self.common.settings.egress_conn)
             .await?;
 
         let payload = if self.mls_state.is_some() {
@@ -302,7 +302,7 @@ where
                 .await?;
         }
 
-        self.join(&msg).await?;
+        self.join().await?;
 
         let list = &msg
             .get_payload()
@@ -428,7 +428,7 @@ where
 
         self.common.send_to_slim(reply).await?;
 
-        self.leave(&msg).await?;
+        self.leave().await?;
 
         self.common
             .settings
@@ -450,7 +450,7 @@ where
         self.common.send_to_slim(msg).await
     }
 
-    async fn join(&mut self, msg: &Message) -> Result<(), SessionError> {
+    async fn join(&mut self) -> Result<(), SessionError> {
         if self.subscribed {
             return Ok(());
         }
@@ -462,21 +462,21 @@ where
         }
 
         self.common
-            .set_route(&self.common.settings.destination, msg.get_incoming_conn())
+            .set_route(&self.common.settings.destination, self.common.settings.egress_conn)
             .await?;
         let sub = Message::builder()
             .source(self.common.settings.source.clone())
             .destination(self.common.settings.destination.clone())
-            .flags(SlimHeaderFlags::default().with_forward_to(msg.get_incoming_conn()))
+            .flags(SlimHeaderFlags::default().with_forward_to(self.common.settings.egress_conn))
             .build_subscribe()
             .unwrap();
 
         self.common.send_to_slim(sub).await
     }
 
-    async fn leave(&self, msg: &Message) -> Result<(), SessionError> {
+    async fn leave(&self) -> Result<(), SessionError> {
         self.common
-            .delete_route(&self.common.settings.destination, msg.get_incoming_conn())
+            .delete_route(&self.common.settings.destination, self.common.settings.egress_conn)
             .await?;
 
         if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
@@ -486,13 +486,13 @@ where
         self.common
             .delete_route(
                 self.moderator_name.as_ref().unwrap(),
-                msg.get_incoming_conn(),
+                self.common.settings.egress_conn,
             )
             .await?;
         let sub = Message::builder()
             .source(self.common.settings.source.clone())
             .destination(self.common.settings.destination.clone())
-            .flags(SlimHeaderFlags::default().with_forward_to(msg.get_incoming_conn()))
+            .flags(SlimHeaderFlags::default().with_forward_to(self.common.settings.egress_conn))
             .build_unsubscribe()
             .unwrap();
 
@@ -551,6 +551,7 @@ mod tests {
             id: 1,
             source,
             destination,
+            egress_conn: 0,
             config,
             tx,
             tx_session,
@@ -851,7 +852,7 @@ mod tests {
             .build_publish()
             .unwrap();
 
-        let result = participant.join(&welcome_msg).await;
+        let result = participant.join().await;
         assert!(result.is_ok());
         assert!(participant.subscribed);
 
@@ -890,7 +891,7 @@ mod tests {
             .build_publish()
             .unwrap();
 
-        let result = participant.join(&msg).await;
+        let result = participant.join().await;
         assert!(result.is_ok());
         assert!(participant.subscribed);
         // P2P doesn't send subscribe message
@@ -922,7 +923,7 @@ mod tests {
             .unwrap();
 
         // First join
-        participant.join(&msg).await.unwrap();
+        participant.join().await.unwrap();
 
         // Drain all messages from first join (routes + subscribe)
         let mut message_count = 0;
@@ -932,7 +933,7 @@ mod tests {
         assert!(message_count > 0, "First join should send messages");
 
         // Second join should do nothing
-        participant.join(&msg).await.unwrap();
+        participant.join().await.unwrap();
         let second_sub = rx_slim.try_recv();
         assert!(
             second_sub.is_err(),
@@ -1136,7 +1137,7 @@ mod tests {
             .unwrap();
 
         // Manually call leave to test unsubscribe
-        let result = participant.leave(&leave_msg).await;
+        let result = participant.leave().await;
         assert!(result.is_ok());
 
         // Should have sent unsubscribe message (after the route deletion messages)

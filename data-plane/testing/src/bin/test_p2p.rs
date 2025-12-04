@@ -268,15 +268,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         metadata: HashMap::new(),
     };
 
-    for c in &clients {
-        // add routes
-        app.set_route(c, conn_id)
-            .await
-            .expect("an error occurred while adding a route");
-    }
-
     let (session_ctx, completion_handle) = app
-        .create_session(conf, Name::from_strings(["org", "ns", "client"]), None)
+        .create_session(conf, Name::from_strings(["org", "ns", "client"]), conn_id, None)
         .await
         .expect("error creating session");
 

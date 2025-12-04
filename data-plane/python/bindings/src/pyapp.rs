@@ -104,6 +104,7 @@ impl PyApp {
         &'a self,
         py: Python<'a>,
         destination: PyName,
+        egress_conn: u64,
         config: PySessionConfiguration,
     ) -> PyResult<Bound<'a, PyAny>> {
         let internal_clone = self.internal.clone();
@@ -111,7 +112,7 @@ impl PyApp {
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let (session_ctx, init_ack) = internal_clone
                 .adapter
-                .create_session(SessionConfig::from(&config), destination.into())
+                .create_session(SessionConfig::from(&config), destination.into(), egress_conn)
                 .await
                 .map_err(|e| {
                     PyErr::new::<PyException, _>(format!("Failed to create session: {}", e))

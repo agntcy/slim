@@ -143,9 +143,10 @@ where
         &self,
         session_config: SessionConfig,
         destination: Name,
+        egress_conn: u64,
     ) -> Result<(SessionContext, slim_session::CompletionHandle), SessionError> {
         self.app
-            .create_session(session_config, destination, None)
+            .create_session(session_config, destination, egress_conn,None)
             .await
     }
 
@@ -459,7 +460,7 @@ mod tests {
         };
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let (session_ctx, _completion_handle) = adapter
-            .create_session(session_config, dst)
+            .create_session(session_config, dst, 0)
             .await
             .expect("Failed to create session");
 

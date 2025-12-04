@@ -46,7 +46,7 @@ pub enum MessageDirection {
 pub fn new_message_from_session_fields(
     local_name: &Name,
     target_name: &Name,
-    target_conn: u64,
+    egress_conn: u64,
     is_error: bool,
     session_type: ProtoSessionType,
     message_type: ProtoSessionMessageType,
@@ -58,7 +58,7 @@ pub fn new_message_from_session_fields(
         .source(local_name.clone())
         .destination(target_name.clone())
         .identity("")
-        .forward_to(target_conn)
+        .forward_to(egress_conn)
         .session_type(session_type)
         .session_message_type(message_type)
         .session_id(session_id)

@@ -92,6 +92,8 @@ where
 
         transmitter.add_interceptor(identity_interceptor);
 
+        tracing::info!("new session layer conn id = {}", conn_id);
+
         // Create the session layer
         let session_layer = Arc::new(SessionLayer::new(
             app_name.clone(),
@@ -119,10 +121,11 @@ where
         &self,
         session_config: SessionConfig,
         destination: Name,
+        egress_conn: u64,
         id: Option<u32>,
     ) -> Result<(SessionContext, slim_session::CompletionHandle), SessionError> {
         self.session_layer
-            .create_session(session_config, self.app_name.clone(), destination, id)
+            .create_session(session_config, self.app_name.clone(), destination, egress_conn, id)
             .await
     }
 
@@ -227,8 +230,6 @@ where
 
     /// Set a route towards another app
     pub async fn set_route(&self, name: &Name, conn: u64) -> Result<(), ServiceError> {
-        debug!("set route: {} - {:?}", name, conn);
-
         // send a message with subscription from
         let msg = Message::builder()
             .source(self.app_name.clone())
@@ -404,7 +405,7 @@ mod tests {
 
         // Session creation should hang as there is no peer side to respond
         let (_session, completion_handle) = app
-            .create_session(config.clone(), dst.clone(), None)
+            .create_session(config.clone(), dst.clone(), 0, None)
             .await
             .unwrap();
 
@@ -441,7 +442,7 @@ mod tests {
             ..Default::default()
         };
         let dst = Name::from_strings(["org", "ns", "dst"]);
-        let (res, completion_handle) = app.create_session(config, dst, None).await.unwrap();
+        let (res, completion_handle) = app.create_session(config, dst, 0, None).await.unwrap();
 
         // The completion handle should fail, as the channel with SLIM is closed
         assert!(
@@ -481,7 +482,7 @@ mod tests {
         };
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let (session_ctx, _completion_error) = app
-            .create_session(config, dst, Some(42))
+            .create_session(config, dst, 0, Some(42))
             .await
             .expect("failed to create session");
 
@@ -637,7 +638,7 @@ mod tests {
 
         // create a new session
         let (res, _completion_handle) = app
-            .create_session(session_config, dst.clone(), Some(1))
+            .create_session(session_config, dst.clone(), 0, Some(1))
             .await
             .unwrap();
 
@@ -876,7 +877,7 @@ mod tests {
                 SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
             session_config.initiator = true;
             let (session_ctx, completion_error) = publisher_app
-                .create_session(session_config, name.clone(), None)
+                .create_session(session_config, name.clone(), 0, None)
                 .await
                 .unwrap();
 
@@ -1034,7 +1035,7 @@ mod tests {
         };
 
         let (session_ctx, completion_handle) = moderator_app
-            .create_session(session_config, channel_name.clone(), None)
+            .create_session(session_config, channel_name.clone(), 0, None)
             .await
             .unwrap();
 
@@ -1164,6 +1165,7 @@ mod tests {
                     metadata: HashMap::new(),
                 },
                 receiver_name.clone(),
+                0,
                 None,
             )
             .await
@@ -1342,6 +1344,7 @@ mod tests {
                     metadata: HashMap::new(),
                 },
                 channel_name.clone(),
+                0,
                 None,
             )
             .await

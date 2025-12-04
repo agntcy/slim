@@ -622,7 +622,7 @@ mod tests {
             .with_session_type(slim_datapath::api::ProtoSessionType::PointToPoint);
         config.initiator = true;
         let (send_session, completion_handle) = pub_app
-            .create_session(config, subscriber_name.clone(), None)
+            .create_session(config, subscriber_name.clone(), 0, None)
             .await
             .unwrap();
 
@@ -730,7 +730,7 @@ mod tests {
         };
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let (session_info, _completion_handle) = app
-            .create_session(session_config.clone(), dst, None)
+            .create_session(session_config.clone(), dst, 0, None)
             .await
             .expect("Failed to create session");
 
@@ -752,7 +752,7 @@ mod tests {
             metadata: HashMap::new(),
         };
         let (session_info, _completion_handle) = app
-            .create_session(session_config.clone(), stream.clone(), None)
+            .create_session(session_config.clone(), stream.clone(), 0, None)
             .await
             .expect("Failed to create session");
 

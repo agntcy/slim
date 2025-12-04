@@ -150,8 +150,11 @@ class Slim:
         Returns:
             Session: Wrapper exposing high-level async operations for the session.
         """
+        if self.conn_id is None:
+            raise RuntimeError("No active connection. Please connect first.")
+
         ctx, completion_handle = await self._app.create_session(
-            destination, session_config
+            destination, self.conn_id, session_config
         )
         return Session(ctx), completion_handle
 

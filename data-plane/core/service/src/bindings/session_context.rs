@@ -224,7 +224,7 @@ mod tests {
         };
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let (session_ctx, _init_ack) = adapter
-            .create_session(config, dst)
+            .create_session(config, dst, 0)
             .await
             .expect("Failed to create session");
 
@@ -247,7 +247,7 @@ mod tests {
         let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let (session_ctx, _init_ack) = adapter
-            .create_session(config, dst)
+            .create_session(config, dst, 0)
             .await
             .expect("Failed to create session");
 
@@ -276,7 +276,7 @@ mod tests {
         let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let (session_ctx, _init_ack) = adapter
-            .create_session(config, dst)
+            .create_session(config, dst, 0)
             .await
             .expect("Failed to create session");
 
@@ -307,7 +307,7 @@ mod tests {
         let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let (session_ctx, _init_ack) = adapter
-            .create_session(config, dst)
+            .create_session(config, dst, 0)
             .await
             .expect("Failed to create session");
 
@@ -349,7 +349,7 @@ mod tests {
         let config = SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
         let dst = Name::from_strings(["org", "ns", "dst"]);
         let (session_ctx, _init_ack) = adapter
-            .create_session(config, dst)
+            .create_session(config, dst, 0)
             .await
             .expect("Failed to create session");
 

@@ -111,6 +111,7 @@ where
     id: Option<u32>,
     source: Option<Name>,
     destination: Option<Name>,
+    egress_conn: Option<u64>,
     config: Option<SessionConfig>,
     identity_provider: Option<P>,
     identity_verifier: Option<V>,
@@ -133,6 +134,7 @@ where
             id: None,
             source: None,
             destination: None,
+            egress_conn: None,
             config: None,
             identity_provider: None,
             identity_verifier: None,
@@ -157,6 +159,11 @@ where
 
     pub fn with_destination(mut self, destination: Name) -> Self {
         self.destination = Some(destination);
+        self
+    }
+
+    pub fn with_egress_conn(mut self, conn: u64) -> Self {
+        self.egress_conn = Some(conn);
         self
     }
 
@@ -203,6 +210,7 @@ where
         if self.id.is_none()
             || self.source.is_none()
             || self.destination.is_none()
+            || self.egress_conn.is_none()
             || self.config.is_none()
             || self.identity_provider.is_none()
             || self.identity_verifier.is_none()
@@ -219,6 +227,7 @@ where
             id: self.id,
             source: self.source,
             destination: self.destination,
+            egress_conn: self.egress_conn,
             config: self.config,
             identity_provider: self.identity_provider,
             identity_verifier: self.identity_verifier,
@@ -341,6 +350,7 @@ where
             id: self.id.unwrap(),
             source: self.source.unwrap(),
             destination: self.destination.unwrap(),
+            egress_conn: self.egress_conn.unwrap(),
             config: self.config.unwrap(),
             tx: self.tx.unwrap(),
             tx_session: tx_session.clone(),
