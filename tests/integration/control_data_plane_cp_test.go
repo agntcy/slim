@@ -69,7 +69,7 @@ var _ = Describe("Routing", func() {
 				GinkgoWriter, GinkgoWriter,
 			)
 			Expect(errCP).NotTo(HaveOccurred())
-			Eventually(serverBSession.Out, 15*time.Second).Should(gbytes.Say(`Connection attempt: #\d+ successful`))
+			Eventually(serverBSession.Out, 15*time.Second).Should(gbytes.Say(`connected to control plane`))
 
 			var errA error
 			serverASession, errA = gexec.Start(

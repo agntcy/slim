@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 tracing:
-  log_level: info
+  log_level: debug
   display_thread_names: true
   display_thread_ids: true
 
@@ -12,14 +12,22 @@ runtime:
   drain_timeout: 10s
 
 services:
-  slim/0:
+  slim/a:
     dataplane:
+      servers:
+        - endpoint: "0.0.0.0:46357"
+          tls:
+            insecure: true
+
+      clients: []
+    controller:
       clients:
-        - endpoint: "http://localhost:46357"
+        - endpoint: "http://127.0.0.1:50052"
           tls:
             insecure: true
           backoff:
             type: fixed_interval
             interval: 2000ms
-            max_attempts: 5
-      servers: []
+      token_provider:
+        type: shared_secret
+        data: "group-abcdef-12345678901234567890"
