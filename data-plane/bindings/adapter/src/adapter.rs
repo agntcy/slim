@@ -48,7 +48,10 @@ static GLOBAL_RUNTIME: OnceLock<Arc<tokio::runtime::Runtime>> = OnceLock::new();
 /// - Worker threads: 2x CPU cores (to handle blocking operations better)
 /// - Max blocking threads: 512 (allows high concurrency from FFI calls)
 /// - Named threads for easier debugging
-fn get_runtime() -> &'static Arc<tokio::runtime::Runtime> {
+///
+/// This is exposed publicly for use by language bindings (e.g., Python) that need
+/// to create `BindingsSessionContext` instances with a runtime.
+pub fn get_runtime() -> &'static Arc<tokio::runtime::Runtime> {
     GLOBAL_RUNTIME.get_or_init(|| {
         // Calculate optimal worker thread count
         // Use 2x CPU cores for workloads with blocking operations from FFI
@@ -97,7 +100,7 @@ pub fn get_version() -> String {
 }
 
 /// Name type for SLIM (Secure Low-Latency Interactive Messaging)
-#[derive(uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct Name {
     pub components: Vec<String>,
     pub id: Option<u64>,
@@ -238,42 +241,8 @@ pub struct ClientConfig {
     pub tls: TlsConfig,
 }
 
-/// Message context for received messages
-#[derive(uniffi::Record)]
-pub struct MessageContext {
-    pub source_name: Name,
-    pub destination_name: Option<Name>,
-    pub payload_type: String,
-    pub metadata: std::collections::HashMap<String, String>,
-    pub input_connection: u64,
-    pub identity: String,
-}
-
-impl From<crate::MessageContext> for MessageContext {
-    fn from(ctx: crate::MessageContext) -> Self {
-        Self {
-            source_name: Name::from(&ctx.source_name),
-            destination_name: ctx.destination_name.as_ref().map(Name::from),
-            payload_type: ctx.payload_type,
-            metadata: ctx.metadata,
-            input_connection: ctx.input_connection,
-            identity: ctx.identity,
-        }
-    }
-}
-
-impl From<MessageContext> for crate::MessageContext {
-    fn from(ctx: MessageContext) -> Self {
-        Self {
-            source_name: ctx.source_name.into(),
-            destination_name: ctx.destination_name.map(|n| n.into()),
-            payload_type: ctx.payload_type,
-            metadata: ctx.metadata,
-            input_connection: ctx.input_connection,
-            identity: ctx.identity,
-        }
-    }
-}
+// Re-export MessageContext from message_context module (already has uniffi::Record)
+pub use crate::message_context::MessageContext;
 
 /// Received message containing context and payload
 #[derive(uniffi::Record)]
@@ -496,7 +465,7 @@ impl BindingsAdapter {
         &self,
         config: SessionConfig,
         destination: Name,
-    ) -> Result<Arc<FFISessionContext>, SlimError> {
+    ) -> Result<Arc<crate::BindingsSessionContext>, SlimError> {
         self.runtime
             .block_on(async { self.create_session_async(config, destination).await })
     }
@@ -511,7 +480,7 @@ impl BindingsAdapter {
         &self,
         config: SessionConfig,
         destination: Name,
-    ) -> Result<Arc<FFISessionContext>, SlimError> {
+    ) -> Result<Arc<crate::BindingsSessionContext>, SlimError> {
         let slim_config: SlimSessionConfig = config.into();
         let slim_dest: SlimName = destination.into();
 
@@ -526,25 +495,24 @@ impl BindingsAdapter {
             message: format!("Session establishment failed: {}", e),
         })?;
 
-        // Convert SessionContext to BindingsSessionContext
-        let bindings_ctx = crate::BindingsSessionContext::from(session_ctx);
-
-        Ok(Arc::new(FFISessionContext {
-            inner: bindings_ctx,
-            runtime: Arc::clone(&self.runtime),
-        }))
+        // Create BindingsSessionContext with the runtime
+        Ok(Arc::new(crate::BindingsSessionContext::new(
+            session_ctx,
+            Arc::clone(&self.runtime),
+        )))
     }
 
     /// Delete a session (synchronous - no async version needed)
-    pub fn delete_session(&self, session: Arc<FFISessionContext>) -> Result<(), SlimError> {
-        let session_ref =
-            session
-                .inner
-                .session
-                .upgrade()
-                .ok_or_else(|| SlimError::SessionError {
-                    message: "Session already closed or dropped".to_string(),
-                })?;
+    pub fn delete_session(
+        &self,
+        session: Arc<crate::BindingsSessionContext>,
+    ) -> Result<(), SlimError> {
+        let session_ref = session
+            .session
+            .upgrade()
+            .ok_or_else(|| SlimError::SessionError {
+                message: "Session already closed or dropped".to_string(),
+            })?;
 
         self.app
             .delete_session(&session_ref)
@@ -622,7 +590,7 @@ impl BindingsAdapter {
     pub fn listen_for_session(
         &self,
         timeout_ms: Option<u32>,
-    ) -> Result<Arc<FFISessionContext>, SlimError> {
+    ) -> Result<Arc<crate::BindingsSessionContext>, SlimError> {
         self.runtime
             .block_on(async { self.listen_for_session_async(timeout_ms).await })
     }
@@ -631,7 +599,7 @@ impl BindingsAdapter {
     pub async fn listen_for_session_async(
         &self,
         timeout_ms: Option<u32>,
-    ) -> Result<Arc<FFISessionContext>, SlimError> {
+    ) -> Result<Arc<crate::BindingsSessionContext>, SlimError> {
         let timeout = timeout_ms.map(|ms| std::time::Duration::from_millis(ms as u64));
 
         let mut rx = self.notification_rx.write().await;
@@ -657,13 +625,10 @@ impl BindingsAdapter {
         }
 
         match notification_opt.unwrap() {
-            Ok(Notification::NewSession(ctx)) => {
-                let bindings_ctx = crate::BindingsSessionContext::from(ctx);
-                Ok(Arc::new(FFISessionContext {
-                    inner: bindings_ctx,
-                    runtime: Arc::clone(&self.runtime),
-                }))
-            }
+            Ok(Notification::NewSession(ctx)) => Ok(Arc::new(crate::BindingsSessionContext::new(
+                ctx,
+                Arc::clone(&self.runtime),
+            ))),
             Ok(Notification::NewMessage(_)) => Err(SlimError::ReceiveError {
                 message: "received unexpected message notification while listening for session"
                     .to_string(),
@@ -825,7 +790,10 @@ pub struct FfiCompletionHandle {
 
 impl FfiCompletionHandle {
     /// Create a new FFI completion handle from a Rust CompletionHandle
-    fn new(handle: slim_session::CompletionHandle, runtime: Arc<tokio::runtime::Runtime>) -> Self {
+    pub fn new(
+        handle: slim_session::CompletionHandle,
+        runtime: Arc<tokio::runtime::Runtime>,
+    ) -> Self {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         // Spawn a task to await the completion and send the result
@@ -907,482 +875,6 @@ impl FfiCompletionHandle {
             .map_err(|e| SlimError::SessionError {
                 message: e.to_string(),
             })
-    }
-}
-
-// ============================================================================
-// FFI SessionContext Wrapper
-// ============================================================================
-
-/// FFISessionContext represents an active session (FFI-compatible wrapper)
-#[derive(uniffi::Object)]
-pub struct FFISessionContext {
-    /// The inner BindingsSessionContext (public for Python bindings access)
-    pub inner: crate::BindingsSessionContext,
-    runtime: Arc<tokio::runtime::Runtime>,
-}
-
-#[uniffi::export]
-impl FFISessionContext {
-    /// Publish a message to the session's destination (fire-and-forget, blocking version)
-    ///
-    /// This is the simple "fire-and-forget" API that most users want.
-    /// The message is queued for sending and this method returns immediately without
-    /// waiting for delivery confirmation.
-    ///
-    /// **When to use:** Most common use case where you don't need delivery confirmation.
-    ///
-    /// **When not to use:** If you need to ensure the message was delivered, use
-    /// `publish_with_completion()` instead.
-    ///
-    /// # Arguments
-    /// * `data` - The message payload bytes
-    /// * `payload_type` - Optional content type identifier
-    /// * `metadata` - Optional key-value metadata pairs
-    ///
-    /// # Returns
-    /// * `Ok(())` - Message queued successfully
-    /// * `Err(SlimError)` - If publishing fails
-    pub fn publish(
-        &self,
-        data: Vec<u8>,
-        payload_type: Option<String>,
-        metadata: Option<std::collections::HashMap<String, String>>,
-    ) -> Result<(), SlimError> {
-        self.runtime
-            .block_on(async { self.publish_async(data, payload_type, metadata).await })
-    }
-
-    /// Publish a message to the session's destination (fire-and-forget, async version)
-    pub async fn publish_async(
-        &self,
-        data: Vec<u8>,
-        payload_type: Option<String>,
-        metadata: Option<std::collections::HashMap<String, String>>,
-    ) -> Result<(), SlimError> {
-        // Get the session's destination
-        let session = self
-            .inner
-            .session
-            .upgrade()
-            .ok_or_else(|| SlimError::SessionError {
-                message: "Session already closed or dropped".to_string(),
-            })?;
-
-        let destination = session.dst();
-
-        // Fire and forget - discard completion handle
-        self.inner
-            .publish(
-                destination,
-                1, // fanout = 1 for normal publish
-                data,
-                None, // connection_out
-                payload_type,
-                metadata,
-            )
-            .await
-            .map(|_| ())
-            .map_err(|e| SlimError::SendError {
-                message: e.to_string(),
-            })
-    }
-
-    /// Publish a message with delivery confirmation (blocking version)
-    ///
-    /// This variant returns a `FfiCompletionHandle` that can be awaited to ensure
-    /// the message was delivered successfully. Use this when you need reliable
-    /// delivery confirmation.
-    ///
-    /// **When to use:** Critical messages where you need delivery confirmation.
-    ///
-    /// # Arguments
-    /// * `data` - The message payload bytes
-    /// * `payload_type` - Optional content type identifier
-    /// * `metadata` - Optional key-value metadata pairs
-    ///
-    /// # Returns
-    /// * `Ok(FfiCompletionHandle)` - Handle to await delivery confirmation
-    /// * `Err(SlimError)` - If publishing fails
-    ///
-    /// # Example
-    /// ```ignore
-    /// let completion = session.publish_with_completion(data, None, None)?;
-    /// completion.wait()?; // Blocks until message is delivered
-    /// ```
-    pub fn publish_with_completion(
-        &self,
-        data: Vec<u8>,
-        payload_type: Option<String>,
-        metadata: Option<std::collections::HashMap<String, String>>,
-    ) -> Result<Arc<FfiCompletionHandle>, SlimError> {
-        self.runtime.block_on(async {
-            self.publish_with_completion_async(data, payload_type, metadata)
-                .await
-        })
-    }
-
-    /// Publish a message with delivery confirmation (async version)
-    pub async fn publish_with_completion_async(
-        &self,
-        data: Vec<u8>,
-        payload_type: Option<String>,
-        metadata: Option<std::collections::HashMap<String, String>>,
-    ) -> Result<Arc<FfiCompletionHandle>, SlimError> {
-        let session = self
-            .inner
-            .session
-            .upgrade()
-            .ok_or_else(|| SlimError::SessionError {
-                message: "Session already closed or dropped".to_string(),
-            })?;
-
-        let destination = session.dst();
-
-        let completion = self
-            .inner
-            .publish(
-                destination,
-                1, // fanout = 1 for normal publish
-                data,
-                None, // connection_out
-                payload_type,
-                metadata,
-            )
-            .await
-            .map_err(|e| SlimError::SendError {
-                message: e.to_string(),
-            })?;
-
-        Ok(Arc::new(FfiCompletionHandle::new(
-            completion,
-            Arc::clone(&self.runtime),
-        )))
-    }
-
-    /// Publish a reply message to the originator of a received message (blocking version for FFI)
-    ///
-    /// This method uses the routing information from a previously received message
-    /// to send a reply back to the sender. This is the preferred way to implement
-    /// request/reply patterns.
-    ///
-    /// # Arguments
-    /// * `message_context` - Context from a message received via `get_message()`
-    /// * `data` - The reply payload bytes
-    /// * `payload_type` - Optional content type identifier
-    /// * `metadata` - Optional key-value metadata pairs
-    ///
-    /// # Returns
-    /// * `Ok(())` on success
-    /// * `Err(SlimError)` if publishing fails
-    pub fn publish_to(
-        &self,
-        message_context: MessageContext,
-        data: Vec<u8>,
-        payload_type: Option<String>,
-        metadata: Option<std::collections::HashMap<String, String>>,
-    ) -> Result<(), SlimError> {
-        self.runtime.block_on(async {
-            self.publish_to_async(message_context, data, payload_type, metadata)
-                .await
-        })
-    }
-
-    /// Publish a reply message (fire-and-forget, async version)
-    pub async fn publish_to_async(
-        &self,
-        message_context: MessageContext,
-        data: Vec<u8>,
-        payload_type: Option<String>,
-        metadata: Option<std::collections::HashMap<String, String>>,
-    ) -> Result<(), SlimError> {
-        let internal_context = crate::MessageContext::from(message_context);
-
-        self.inner
-            .publish_to(&internal_context, data, payload_type, metadata)
-            .await
-            .map(|_| ())
-            .map_err(|e| SlimError::SendError {
-                message: e.to_string(),
-            })
-    }
-
-    /// Publish a reply message with delivery confirmation (blocking version)
-    ///
-    /// Similar to `publish_with_completion()` but for reply messages.
-    /// Returns a completion handle to await delivery confirmation.
-    ///
-    /// # Arguments
-    /// * `message_context` - Context from a message received via `get_message()`
-    /// * `data` - The reply payload bytes
-    /// * `payload_type` - Optional content type identifier
-    /// * `metadata` - Optional key-value metadata pairs
-    ///
-    /// # Returns
-    /// * `Ok(FfiCompletionHandle)` - Handle to await delivery confirmation
-    /// * `Err(SlimError)` - If publishing fails
-    pub fn publish_to_with_completion(
-        &self,
-        message_context: MessageContext,
-        data: Vec<u8>,
-        payload_type: Option<String>,
-        metadata: Option<std::collections::HashMap<String, String>>,
-    ) -> Result<Arc<FfiCompletionHandle>, SlimError> {
-        self.runtime.block_on(async {
-            self.publish_to_with_completion_async(message_context, data, payload_type, metadata)
-                .await
-        })
-    }
-
-    /// Publish a reply message with delivery confirmation (async version)
-    pub async fn publish_to_with_completion_async(
-        &self,
-        message_context: MessageContext,
-        data: Vec<u8>,
-        payload_type: Option<String>,
-        metadata: Option<std::collections::HashMap<String, String>>,
-    ) -> Result<Arc<FfiCompletionHandle>, SlimError> {
-        let internal_context = crate::MessageContext::from(message_context);
-
-        let completion = self
-            .inner
-            .publish_to(&internal_context, data, payload_type, metadata)
-            .await
-            .map_err(|e| SlimError::SendError {
-                message: e.to_string(),
-            })?;
-
-        Ok(Arc::new(FfiCompletionHandle::new(
-            completion,
-            Arc::clone(&self.runtime),
-        )))
-    }
-
-    /// Low-level publish with full control over all parameters (blocking version for FFI)
-    ///
-    /// This is an advanced method that provides complete control over routing and delivery.
-    /// Most users should use `publish()` or `publish_to()` instead.
-    ///
-    /// # Arguments
-    /// * `destination` - Target name to send to
-    /// * `fanout` - Number of copies to send (for multicast)
-    /// * `data` - The message payload bytes
-    /// * `connection_out` - Optional specific connection ID to use
-    /// * `payload_type` - Optional content type identifier
-    /// * `metadata` - Optional key-value metadata pairs
-    pub fn publish_with_params(
-        &self,
-        destination: Name,
-        fanout: u32,
-        data: Vec<u8>,
-        connection_out: Option<u64>,
-        payload_type: Option<String>,
-        metadata: Option<std::collections::HashMap<String, String>>,
-    ) -> Result<(), SlimError> {
-        self.runtime.block_on(async {
-            self.publish_with_params_async(
-                destination,
-                fanout,
-                data,
-                connection_out,
-                payload_type,
-                metadata,
-            )
-            .await
-        })
-    }
-
-    /// Low-level publish with full control (async version)
-    pub async fn publish_with_params_async(
-        &self,
-        destination: Name,
-        fanout: u32,
-        data: Vec<u8>,
-        connection_out: Option<u64>,
-        payload_type: Option<String>,
-        metadata: Option<std::collections::HashMap<String, String>>,
-    ) -> Result<(), SlimError> {
-        let slim_dest: SlimName = destination.into();
-
-        self.inner
-            .publish(
-                &slim_dest,
-                fanout,
-                data,
-                connection_out,
-                payload_type,
-                metadata,
-            )
-            .await
-            .map(|_| ())
-            .map_err(|e| SlimError::SendError {
-                message: e.to_string(),
-            })
-    }
-
-    /// Receive a message from the session (blocking version for FFI)
-    ///
-    /// # Arguments
-    /// * `timeout_ms` - Optional timeout in milliseconds
-    ///
-    /// # Returns
-    /// * `Ok(ReceivedMessage)` - Message with context and payload bytes
-    /// * `Err(SlimError)` - If the receive fails or times out
-    pub fn get_message(&self, timeout_ms: Option<u32>) -> Result<ReceivedMessage, SlimError> {
-        self.runtime
-            .block_on(async { self.get_message_async(timeout_ms).await })
-    }
-
-    /// Receive a message from the session (async version)
-    pub async fn get_message_async(
-        &self,
-        timeout_ms: Option<u32>,
-    ) -> Result<ReceivedMessage, SlimError> {
-        let timeout = timeout_ms.map(|ms| std::time::Duration::from_millis(ms as u64));
-
-        let (ctx, payload) =
-            self.inner
-                .get_session_message(timeout)
-                .await
-                .map_err(|e| SlimError::ReceiveError {
-                    message: e.to_string(),
-                })?;
-
-        Ok(ReceivedMessage {
-            context: MessageContext::from(ctx),
-            payload,
-        })
-    }
-
-    /// Invite a participant to the session (blocking version for FFI)
-    ///
-    /// **Auto-waits for completion:** This method automatically waits for the
-    /// invitation to be sent and acknowledged before returning.
-    pub fn invite(&self, participant: Name) -> Result<(), SlimError> {
-        self.runtime
-            .block_on(async { self.invite_async(participant).await })
-    }
-
-    /// Invite a participant to the session (async version)
-    ///
-    /// **Auto-waits for completion:** This method automatically waits for the
-    /// invitation to be sent and acknowledged before returning.
-    pub async fn invite_async(&self, participant: Name) -> Result<(), SlimError> {
-        let slim_name: SlimName = participant.into();
-
-        let completion =
-            self.inner
-                .invite(&slim_name)
-                .await
-                .map_err(|e| SlimError::SessionError {
-                    message: e.to_string(),
-                })?;
-
-        // Wait for invitation to complete
-        completion.await.map_err(|e| SlimError::SessionError {
-            message: format!("Invitation failed: {}", e),
-        })
-    }
-
-    /// Remove a participant from the session (blocking version for FFI)
-    ///
-    /// **Auto-waits for completion:** This method automatically waits for the
-    /// removal to be processed and acknowledged before returning.
-    pub fn remove(&self, participant: Name) -> Result<(), SlimError> {
-        self.runtime
-            .block_on(async { self.remove_async(participant).await })
-    }
-
-    /// Remove a participant from the session (async version)
-    ///
-    /// **Auto-waits for completion:** This method automatically waits for the
-    /// removal to be processed and acknowledged before returning.
-    pub async fn remove_async(&self, participant: Name) -> Result<(), SlimError> {
-        let slim_name: SlimName = participant.into();
-
-        let completion =
-            self.inner
-                .remove(&slim_name)
-                .await
-                .map_err(|e| SlimError::SessionError {
-                    message: e.to_string(),
-                })?;
-
-        // Wait for removal to complete
-        completion.await.map_err(|e| SlimError::SessionError {
-            message: format!("Participant removal failed: {}", e),
-        })
-    }
-
-    /// Get the destination name for this session
-    pub fn destination(&self) -> Result<Name, SlimError> {
-        let session = self
-            .inner
-            .session
-            .upgrade()
-            .ok_or_else(|| SlimError::SessionError {
-                message: "Session already closed or dropped".to_string(),
-            })?;
-
-        Ok(Name::from(session.dst()))
-    }
-
-    /// Get the source name for this session
-    pub fn source(&self) -> Result<Name, SlimError> {
-        let session = self
-            .inner
-            .session
-            .upgrade()
-            .ok_or_else(|| SlimError::SessionError {
-                message: "Session already closed or dropped".to_string(),
-            })?;
-
-        Ok(Name::from(session.source()))
-    }
-
-    /// Get the session ID
-    pub fn session_id(&self) -> Result<u32, SlimError> {
-        let session = self
-            .inner
-            .session
-            .upgrade()
-            .ok_or_else(|| SlimError::SessionError {
-                message: "Session already closed or dropped".to_string(),
-            })?;
-
-        Ok(session.id())
-    }
-
-    /// Get the session type (PointToPoint or Multicast)
-    pub fn session_type(&self) -> Result<SessionType, SlimError> {
-        let session = self
-            .inner
-            .session
-            .upgrade()
-            .ok_or_else(|| SlimError::SessionError {
-                message: "Session already closed or dropped".to_string(),
-            })?;
-
-        match session.session_type() {
-            ProtoSessionType::PointToPoint => Ok(SessionType::PointToPoint),
-            ProtoSessionType::Multicast => Ok(SessionType::Multicast),
-            ProtoSessionType::Unspecified => Err(SlimError::InvalidArgument {
-                message: "Session has unspecified type".to_string(),
-            }),
-        }
-    }
-
-    /// Check if this session is the initiator
-    pub fn is_initiator(&self) -> Result<bool, SlimError> {
-        let session = self
-            .inner
-            .session
-            .upgrade()
-            .ok_or_else(|| SlimError::SessionError {
-                message: "Session already closed or dropped".to_string(),
-            })?;
-
-        Ok(session.is_initiator())
     }
 }
 

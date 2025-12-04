@@ -121,8 +121,9 @@ pub(crate) struct PySessionContext {
 
 impl From<SessionContext> for PySessionContext {
     fn from(ctx: SessionContext) -> Self {
-        // Convert to BindingsSessionContext
-        let bindings_ctx = BindingsSessionContext::from(ctx);
+        // Convert to BindingsSessionContext with the global runtime
+        let runtime = std::sync::Arc::clone(slim_uniffi::get_runtime());
+        let bindings_ctx = BindingsSessionContext::new(ctx, runtime);
 
         PySessionContext {
             internal: Arc::new(PySessionCtxInternal { bindings_ctx }),
@@ -236,7 +237,7 @@ impl PySessionContext {
                 let ctx = PySessionContext {
                     internal: internal_clone,
                 };
-                ctx.publish_to_internal(message_ctx, blob, payload_type, metadata)
+                ctx.publish_to_py_internal(message_ctx, blob, payload_type, metadata)
                     .await
                     .map(PyCompletionHandle::from)
                     .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
@@ -253,7 +254,7 @@ impl PySessionContext {
             let ctx = PySessionContext {
                 internal: internal_clone,
             };
-            ctx.invite_internal(name)
+            ctx.invite_py_internal(name)
                 .await
                 .map(PyCompletionHandle::from)
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
@@ -269,7 +270,7 @@ impl PySessionContext {
             let ctx = PySessionContext {
                 internal: internal_clone,
             };
-            ctx.remove_internal(name)
+            ctx.remove_py_internal(name)
                 .await
                 .map(PyCompletionHandle::from)
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
@@ -343,13 +344,13 @@ impl PySessionContext {
 
         self.internal
             .bindings_ctx
-            .publish(&target_name, fanout, blob, conn_out, payload_type, metadata)
+            .publish_internal(&target_name, fanout, blob, conn_out, payload_type, metadata)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     }
 
     /// Publish a message as a reply to a received message
-    async fn publish_to_internal(
+    async fn publish_to_py_internal(
         &self,
         message_ctx: PyMessageContext,
         blob: Vec<u8>,
@@ -360,25 +361,25 @@ impl PySessionContext {
 
         self.internal
             .bindings_ctx
-            .publish_to(&ctx, blob, payload_type, metadata)
+            .publish_to_internal(&ctx, blob, payload_type, metadata)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     }
 
     /// Invite a participant to this session (multicast only)
-    async fn invite_internal(&self, name: PyName) -> PyResult<CompletionHandle> {
+    async fn invite_py_internal(&self, name: PyName) -> PyResult<CompletionHandle> {
         self.internal
             .bindings_ctx
-            .invite(&name.into())
+            .invite_internal(&name.into())
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     }
 
     /// Remove a participant from this session (multicast only)
-    async fn remove_internal(&self, name: PyName) -> PyResult<CompletionHandle> {
+    async fn remove_py_internal(&self, name: PyName) -> PyResult<CompletionHandle> {
         self.internal
             .bindings_ctx
-            .remove(&name.into())
+            .remove_internal(&name.into())
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     }

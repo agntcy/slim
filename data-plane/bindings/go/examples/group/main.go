@@ -149,7 +149,7 @@ func runParticipant(app *slim.BindingsAdapter, instance uint64) {
 	runMessageLoops(app, session, channelName, instance)
 }
 
-func runMessageLoops(app *slim.BindingsAdapter, session *slim.FfiSessionContext, channelName slim.Name, instance uint64) {
+func runMessageLoops(app *slim.BindingsAdapter, session *slim.BindingsSessionContext, channelName slim.Name, instance uint64) {
 	var wg sync.WaitGroup
 	stopChan := make(chan struct{})
 
@@ -176,7 +176,7 @@ func runMessageLoops(app *slim.BindingsAdapter, session *slim.FfiSessionContext,
 	wg.Wait()
 }
 
-func receiveLoop(session *slim.FfiSessionContext, sourceName slim.Name, instance uint64, stopChan chan struct{}) {
+func receiveLoop(session *slim.BindingsSessionContext, sourceName slim.Name, instance uint64, stopChan chan struct{}) {
 	for {
 		select {
 		case <-stopChan:
@@ -211,7 +211,7 @@ func receiveLoop(session *slim.FfiSessionContext, sourceName slim.Name, instance
 	}
 }
 
-func keyboardLoop(session *slim.FfiSessionContext, sourceName, channelName slim.Name, instance uint64, stopChan chan struct{}) {
+func keyboardLoop(session *slim.BindingsSessionContext, sourceName, channelName slim.Name, instance uint64, stopChan chan struct{}) {
 	reader := bufio.NewReader(os.Stdin)
 
 	fmt.Printf("\n%s[%d]%s Welcome to the group %v!\n", colorCyan, instance, colorReset, channelName.Components)

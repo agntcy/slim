@@ -11,7 +11,7 @@
 //! The module is organized into distinct components:
 //!
 //! - **`BindingsAdapter`**: App-level operations (creation, configuration, session management)
-//! - **`FFISessionContext`**: Session-specific operations (publish, invite, remove, message reception)
+//! - **`BindingsSessionContext`**: Session-specific operations (publish, invite, remove, message reception)
 //! - **`MessageContext`**: Message metadata and routing information
 //! - **`ServiceRef`**: Service reference management (global vs local)
 //!
@@ -43,13 +43,13 @@
 pub mod adapter;
 mod message_context;
 mod service_ref;
-mod session_context;
+pub mod session_context;
 
 // Public re-exports
 pub use adapter::{
-    BindingsAdapter, ClientConfig, FFISessionContext, FfiCompletionHandle,
-    MessageContext as FFIMessageContext, Name, ReceivedMessage, ServerConfig, SessionConfig,
-    SessionType, SlimError, TlsConfig, create_app_with_secret, get_version, initialize_crypto,
+    BindingsAdapter, ClientConfig, FfiCompletionHandle, Name, ReceivedMessage, ServerConfig,
+    SessionConfig, SessionType, SlimError, TlsConfig, create_app_with_secret, get_runtime,
+    get_version, initialize_crypto,
 };
 pub use message_context::MessageContext;
 pub use service_ref::{ServiceRef, get_or_init_global_service};
