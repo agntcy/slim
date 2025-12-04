@@ -47,9 +47,9 @@ pub mod session_context;
 
 // Public re-exports
 pub use adapter::{
-    BindingsAdapter, ClientConfig, FfiCompletionHandle, Name, ReceivedMessage, ServerConfig,
-    SessionConfig, SessionType, SlimError, TlsConfig, create_app_with_secret, get_runtime,
-    get_version, initialize_crypto_provider,
+    BindingsAdapter, BuildInfo, ClientConfig, FfiCompletionHandle, Name, ReceivedMessage,
+    ServerConfig, SessionConfig, SessionType, SlimError, TlsConfig, create_app_with_secret,
+    get_build_info, get_runtime, get_version, initialize_crypto_provider,
 };
 pub use message_context::MessageContext;
 pub use service_ref::{ServiceRef, get_or_init_global_service};

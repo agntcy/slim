@@ -638,6 +638,12 @@ uint64_t uniffi_slim_uniffi_fn_method_fficompletionhandle_wait_async(void* ptr
 void* uniffi_slim_uniffi_fn_func_create_app_with_secret(RustBuffer app_name, RustBuffer shared_secret, RustCallStatus *out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_UNIFFI_FN_FUNC_GET_BUILD_INFO
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_UNIFFI_FN_FUNC_GET_BUILD_INFO
+RustBuffer uniffi_slim_uniffi_fn_func_get_build_info(RustCallStatus *out_status
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_UNIFFI_FN_FUNC_GET_VERSION
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_UNIFFI_FN_FUNC_GET_VERSION
 RustBuffer uniffi_slim_uniffi_fn_func_get_version(RustCallStatus *out_status
@@ -933,6 +939,12 @@ void ffi_slim_uniffi_rust_future_complete_void(uint64_t handle, RustCallStatus *
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_UNIFFI_CHECKSUM_FUNC_CREATE_APP_WITH_SECRET
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_UNIFFI_CHECKSUM_FUNC_CREATE_APP_WITH_SECRET
 uint16_t uniffi_slim_uniffi_checksum_func_create_app_with_secret(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_UNIFFI_CHECKSUM_FUNC_GET_BUILD_INFO
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_UNIFFI_CHECKSUM_FUNC_GET_BUILD_INFO
+uint16_t uniffi_slim_uniffi_checksum_func_get_build_info(void
     
 );
 #endif

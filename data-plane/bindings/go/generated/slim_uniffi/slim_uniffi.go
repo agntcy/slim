@@ -358,9 +358,18 @@ func uniffiCheckChecksums() {
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_uniffi_checksum_func_get_build_info()
+		})
+		if checksum != 43841 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_uniffi: uniffi_slim_uniffi_checksum_func_get_build_info: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_uniffi_checksum_func_get_version()
 		})
-		if checksum != 4186 {
+		if checksum != 59357 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_uniffi: uniffi_slim_uniffi_checksum_func_get_version: UniFFI API checksum mismatch")
 		}
@@ -2524,6 +2533,59 @@ func (_ FfiDestroyerFfiCompletionHandle) Destroy(value *FfiCompletionHandle) {
 	value.Destroy()
 }
 
+// Build information for the SLIM bindings
+type BuildInfo struct {
+	// Semantic version (e.g., "0.7.0")
+	Version string
+	// Git commit hash (short)
+	GitSha string
+	// Build date in ISO 8601 UTC format
+	BuildDate string
+	// Build profile (debug/release)
+	Profile string
+}
+
+func (r *BuildInfo) Destroy() {
+	FfiDestroyerString{}.Destroy(r.Version)
+	FfiDestroyerString{}.Destroy(r.GitSha)
+	FfiDestroyerString{}.Destroy(r.BuildDate)
+	FfiDestroyerString{}.Destroy(r.Profile)
+}
+
+type FfiConverterBuildInfo struct{}
+
+var FfiConverterBuildInfoINSTANCE = FfiConverterBuildInfo{}
+
+func (c FfiConverterBuildInfo) Lift(rb RustBufferI) BuildInfo {
+	return LiftFromRustBuffer[BuildInfo](c, rb)
+}
+
+func (c FfiConverterBuildInfo) Read(reader io.Reader) BuildInfo {
+	return BuildInfo{
+		FfiConverterStringINSTANCE.Read(reader),
+		FfiConverterStringINSTANCE.Read(reader),
+		FfiConverterStringINSTANCE.Read(reader),
+		FfiConverterStringINSTANCE.Read(reader),
+	}
+}
+
+func (c FfiConverterBuildInfo) Lower(value BuildInfo) C.RustBuffer {
+	return LowerIntoRustBuffer[BuildInfo](c, value)
+}
+
+func (c FfiConverterBuildInfo) Write(writer io.Writer, value BuildInfo) {
+	FfiConverterStringINSTANCE.Write(writer, value.Version)
+	FfiConverterStringINSTANCE.Write(writer, value.GitSha)
+	FfiConverterStringINSTANCE.Write(writer, value.BuildDate)
+	FfiConverterStringINSTANCE.Write(writer, value.Profile)
+}
+
+type FfiDestroyerBuildInfo struct{}
+
+func (_ FfiDestroyerBuildInfo) Destroy(value BuildInfo) {
+	value.Destroy()
+}
+
 // Client configuration for connecting to a SLIM server
 type ClientConfig struct {
 	Endpoint string
@@ -3663,7 +3725,16 @@ func CreateAppWithSecret(appName Name, sharedSecret string) (*BindingsAdapter, e
 	}
 }
 
-// Get the version of the SLIM bindings
+// Get detailed build information
+func GetBuildInfo() BuildInfo {
+	return FfiConverterBuildInfoINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer{
+			inner: C.uniffi_slim_uniffi_fn_func_get_build_info(_uniffiStatus),
+		}
+	}))
+}
+
+// Get the version of the SLIM bindings (simple string)
 func GetVersion() string {
 	return FfiConverterStringINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
 		return GoRustBuffer{
