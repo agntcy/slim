@@ -4,74 +4,74 @@
 ---
 name: python-build-and-test
 on:
-    workflow_call:
+  workflow_call:
 
 jobs:
-    python-bindings-sdist:
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v4
-            - name: Install protoc
-              run: |
-                  sudo apt update && sudo apt install -y protobuf-compiler
-            - name: Build sdist
-              uses: PyO3/maturin-action@v1
-              with:
-                  command: sdist
-                  args: --out dist
-                  working-directory: ./data-plane/python/bindings
-            - name: Upload sdist
-              uses: actions/upload-artifact@v4
-              with:
-                  name: wheels-sdist
-                  path: ./data-plane/python/bindings/dist
+  python-bindings-sdist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install protoc
+        run: |
+          sudo apt update && sudo apt install -y protobuf-compiler
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+          working-directory: ./data-plane/python/bindings
+      - name: Upload sdist
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-sdist
+          path: ./data-plane/python/bindings/dist
 
-    python-bindings-wheels:
-        runs-on: ${{ matrix.platform.runner }}
-        defaults:
-            run:
-                shell: bash
-                working-directory: ./data-plane/python/bindings
-        strategy:
-            matrix:
-                platform:
-                    - runner: ubuntu-22.04
-                      os: linux
-                      target: x86_64
-                    - runner: ubuntu-22.04-arm
-                      os: linux
-                      target: aarch64
-                    - runner: windows-latest
-                      os: windows
-                      target: x64
-                    # https://github.com/astral-sh/uv/issues/12906
-                    # - runner: windows-11-arm
-                    #   os: windows
-                    #   target: aarch64
-                    - runner: macos-15-intel
-                      os: macos
-                      target: x86_64
-                    - runner: macos-15
-                      os: macos
-                      target: aarch64
-        steps:
-            - name: Checkout code
-              uses: actions/checkout@v4
-            - name: Setup Python
-              uses: ./.github/actions/setup-python
-              with:
-                  py-install: false
-                  poetry-install: false
-                  uv-install: true
-            - name: Setup Rust
-              uses: ./.github/actions/setup-rust
-              with:
-                  workspace: ./data-plane
-            - name: Build wheels
-              run: |
-                  task python:bindings:packaging PROFILE=release
-            - name: Upload wheels
-              uses: actions/upload-artifact@v4
-              with:
-                  name: wheels-${{ matrix.platform.os }}-${{ matrix.platform.target }}
-                  path: ./data-plane/python/bindings/dist
+  python-bindings-wheels:
+    runs-on: ${{ matrix.platform.runner }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./data-plane/python/bindings
+    strategy:
+      matrix:
+        platform:
+          - runner: ubuntu-22.04
+            os: linux
+            target: x86_64
+          - runner: ubuntu-22.04-arm
+            os: linux
+            target: aarch64
+          - runner: windows-latest
+            os: windows
+            target: x64
+          # https://github.com/astral-sh/uv/issues/12906
+          # - runner: windows-11-arm
+          #   os: windows
+          #   target: aarch64
+          - runner: macos-15-intel
+            os: macos
+            target: x86_64
+          - runner: macos-15
+            os: macos
+            target: aarch64
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+        with:
+          py-install: false
+          poetry-install: false
+          uv-install: true
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          workspace: ./data-plane
+      - name: Build wheels
+        run: |
+          task python:bindings:packaging PROFILE=release
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.platform.os }}-${{ matrix.platform.target }}
+          path: ./data-plane/python/bindings/dist
