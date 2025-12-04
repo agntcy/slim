@@ -122,8 +122,7 @@ pub(crate) struct PySessionContext {
 impl From<SessionContext> for PySessionContext {
     fn from(ctx: SessionContext) -> Self {
         // Convert to BindingsSessionContext with the global runtime
-        let runtime = std::sync::Arc::clone(slim_uniffi::get_runtime());
-        let bindings_ctx = BindingsSessionContext::new(ctx, runtime);
+        let bindings_ctx = BindingsSessionContext::new(ctx, slim_uniffi::get_runtime());
 
         PySessionContext {
             internal: Arc::new(PySessionCtxInternal { bindings_ctx }),

@@ -27,13 +27,13 @@ pub struct BindingsSessionContext {
     pub session: std::sync::Weak<SessionController>,
     /// Message receiver wrapped in RwLock for concurrent access
     pub rx: RwLock<slim_session::AppChannelReceiver>,
-    /// Tokio runtime for blocking operations
-    runtime: Arc<tokio::runtime::Runtime>,
+    /// Tokio runtime for blocking operations (static lifetime)
+    runtime: &'static tokio::runtime::Runtime,
 }
 
 impl BindingsSessionContext {
     /// Create a new BindingsSessionContext from a SessionContext and runtime
-    pub fn new(ctx: SessionContext, runtime: Arc<tokio::runtime::Runtime>) -> Self {
+    pub fn new(ctx: SessionContext, runtime: &'static tokio::runtime::Runtime) -> Self {
         let (session, rx) = ctx.into_parts();
         Self {
             session,
@@ -43,8 +43,8 @@ impl BindingsSessionContext {
     }
 
     /// Get the runtime (for internal use)
-    pub fn runtime(&self) -> &Arc<tokio::runtime::Runtime> {
-        &self.runtime
+    pub fn runtime(&self) -> &'static tokio::runtime::Runtime {
+        self.runtime
     }
 }
 
@@ -316,10 +316,7 @@ impl BindingsSessionContext {
                 message: e.to_string(),
             })?;
 
-        Ok(Arc::new(FfiCompletionHandle::new(
-            completion,
-            Arc::clone(&self.runtime),
-        )))
+        Ok(Arc::new(FfiCompletionHandle::new(completion, self.runtime)))
     }
 
     /// Publish a reply message to the originator of a received message (blocking version for FFI)
@@ -408,10 +405,7 @@ impl BindingsSessionContext {
                 message: e.to_string(),
             })?;
 
-        Ok(Arc::new(FfiCompletionHandle::new(
-            completion,
-            Arc::clone(&self.runtime),
-        )))
+        Ok(Arc::new(FfiCompletionHandle::new(completion, self.runtime)))
     }
 
     /// Low-level publish with full control over all parameters (blocking version for FFI)
@@ -645,18 +639,9 @@ mod tests {
     use std::time::Duration;
     use tokio::sync::mpsc;
 
-    /// Get the shared test runtime (avoids creating/dropping runtimes in async context)
-    fn get_test_runtime() -> Arc<tokio::runtime::Runtime> {
-        static TEST_RUNTIME: OnceLock<Arc<tokio::runtime::Runtime>> = OnceLock::new();
-        Arc::clone(TEST_RUNTIME.get_or_init(|| {
-            Arc::new(
-                tokio::runtime::Builder::new_multi_thread()
-                    .worker_threads(2)
-                    .enable_all()
-                    .build()
-                    .expect("Failed to create test runtime"),
-            )
-        }))
+    /// Get the shared test runtime (uses global runtime)
+    fn get_test_runtime() -> &'static tokio::runtime::Runtime {
+        crate::adapter::get_runtime()
     }
 
     /// Helper to create SlimName for proto message construction

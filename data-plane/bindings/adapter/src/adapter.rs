@@ -40,7 +40,7 @@ use uniffi;
 // ============================================================================
 
 /// Global Tokio runtime for async operations
-static GLOBAL_RUNTIME: OnceLock<Arc<tokio::runtime::Runtime>> = OnceLock::new();
+static GLOBAL_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 
 /// Get or initialize the global Tokio runtime
 ///
@@ -49,9 +49,10 @@ static GLOBAL_RUNTIME: OnceLock<Arc<tokio::runtime::Runtime>> = OnceLock::new();
 /// - Max blocking threads: 512 (allows high concurrency from FFI calls)
 /// - Named threads for easier debugging
 ///
+/// Returns a static reference since the runtime lives for the entire program lifetime.
 /// This is exposed publicly for use by language bindings (e.g., Python) that need
 /// to create `BindingsSessionContext` instances with a runtime.
-pub fn get_runtime() -> &'static Arc<tokio::runtime::Runtime> {
+pub fn get_runtime() -> &'static tokio::runtime::Runtime {
     GLOBAL_RUNTIME.get_or_init(|| {
         // Calculate optimal worker thread count
         // Use 2x CPU cores for workloads with blocking operations from FFI
@@ -69,19 +70,17 @@ pub fn get_runtime() -> &'static Arc<tokio::runtime::Runtime> {
             .and_then(|s| s.parse().ok())
             .unwrap_or(512);
 
-        Arc::new(
-            tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(num_workers)
-                .max_blocking_threads(max_blocking)
-                .thread_name_fn(|| {
-                    static ATOMIC_ID: AtomicUsize = AtomicUsize::new(0);
-                    let id = ATOMIC_ID.fetch_add(1, Ordering::SeqCst);
-                    format!("slim-rt-{}", id)
-                })
-                .enable_all()
-                .build()
-                .expect("Failed to create Tokio runtime"),
-        )
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(num_workers)
+            .max_blocking_threads(max_blocking)
+            .thread_name_fn(|| {
+                static ATOMIC_ID: AtomicUsize = AtomicUsize::new(0);
+                let id = ATOMIC_ID.fetch_add(1, Ordering::SeqCst);
+                format!("slim-rt-{}", id)
+            })
+            .enable_all()
+            .build()
+            .expect("Failed to create Tokio runtime")
     })
 }
 
@@ -325,8 +324,8 @@ pub struct BindingsAdapter {
     /// Service reference for lifecycle management
     service_ref: ServiceRef,
 
-    /// Tokio runtime for blocking async operations
-    runtime: Arc<tokio::runtime::Runtime>,
+    /// Tokio runtime for blocking async operations (static lifetime)
+    runtime: &'static tokio::runtime::Runtime,
 }
 
 impl BindingsAdapter {
@@ -390,7 +389,7 @@ impl BindingsAdapter {
             .create_app(&app_name, identity_provider, identity_verifier)
             .map_err(SlimError::from)?;
 
-        let runtime = Arc::clone(get_runtime());
+        let runtime = get_runtime();
 
         let adapter = Arc::new(Self {
             app: Arc::new(app),
@@ -452,7 +451,7 @@ impl BindingsAdapter {
             .create_app(&app_name, identity_provider, identity_verifier)
             .map_err(SlimError::from)?;
 
-        let runtime = Arc::clone(get_runtime());
+        let runtime = get_runtime();
 
         // Use a global service reference since we don't own the service
         let service_ref = ServiceRef::Global(get_or_init_global_service());
@@ -518,7 +517,7 @@ impl BindingsAdapter {
         // Create BindingsSessionContext with the runtime
         Ok(Arc::new(crate::BindingsSessionContext::new(
             session_ctx,
-            Arc::clone(&self.runtime),
+            self.runtime,
         )))
     }
 
@@ -647,7 +646,7 @@ impl BindingsAdapter {
         match notification_opt.unwrap() {
             Ok(Notification::NewSession(ctx)) => Ok(Arc::new(crate::BindingsSessionContext::new(
                 ctx,
-                Arc::clone(&self.runtime),
+                self.runtime,
             ))),
             Ok(Notification::NewMessage(_)) => Err(SlimError::ReceiveError {
                 message: "received unexpected message notification while listening for session"
@@ -849,20 +848,19 @@ pub struct FfiCompletionHandle {
             Option<tokio::sync::oneshot::Receiver<Result<(), slim_session::SessionError>>>,
         >,
     >,
-    runtime: Arc<tokio::runtime::Runtime>,
+    runtime: &'static tokio::runtime::Runtime,
 }
 
 impl FfiCompletionHandle {
     /// Create a new FFI completion handle from a Rust CompletionHandle
     pub fn new(
         handle: slim_session::CompletionHandle,
-        runtime: Arc<tokio::runtime::Runtime>,
+        runtime: &'static tokio::runtime::Runtime,
     ) -> Self {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         // Spawn a task to await the completion and send the result
-        let rt = runtime.clone();
-        rt.spawn(async move {
+        runtime.spawn(async move {
             let result = handle.await;
             let _ = tx.send(result);
         });
@@ -1075,7 +1073,7 @@ mod tests {
     /// Test FfiCompletionHandle basic functionality
     #[tokio::test]
     async fn test_completion_handle_success() {
-        let runtime = Arc::clone(get_runtime());
+        let runtime = get_runtime();
 
         // Create a successful completion
         let (tx, rx) = tokio::sync::oneshot::channel();
@@ -1093,7 +1091,7 @@ mod tests {
     /// Test FfiCompletionHandle failure propagation
     #[tokio::test]
     async fn test_completion_handle_failure() {
-        let runtime = Arc::clone(get_runtime());
+        let runtime = get_runtime();
 
         // Create a failed completion
         let (tx, rx) = tokio::sync::oneshot::channel();
@@ -1121,7 +1119,7 @@ mod tests {
     /// Test FfiCompletionHandle can only be consumed once
     #[tokio::test]
     async fn test_completion_handle_single_consumption() {
-        let runtime = Arc::clone(get_runtime());
+        let runtime = get_runtime();
 
         let (tx, rx) = tokio::sync::oneshot::channel();
         let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
@@ -1148,7 +1146,7 @@ mod tests {
     /// Test FfiCompletionHandle async version
     #[tokio::test]
     async fn test_completion_handle_async() {
-        let runtime = Arc::clone(get_runtime());
+        let runtime = get_runtime();
 
         let (tx, rx) = tokio::sync::oneshot::channel();
         let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
@@ -1168,7 +1166,7 @@ mod tests {
     /// Test FfiCompletionHandle with dropped sender
     #[tokio::test]
     async fn test_completion_handle_sender_dropped() {
-        let runtime = Arc::clone(get_runtime());
+        let runtime = get_runtime();
 
         let (_tx, rx) = tokio::sync::oneshot::channel();
         let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
@@ -1214,7 +1212,7 @@ mod tests {
     async fn test_completion_handle_concurrent() {
         use std::sync::atomic::{AtomicU32, Ordering};
 
-        let runtime = Arc::clone(get_runtime());
+        let runtime = get_runtime();
         let success_count = Arc::new(AtomicU32::new(0));
         let mut handles = vec![];
 
@@ -1355,12 +1353,13 @@ mod tests {
     fn test_runtime_configuration() {
         let runtime = get_runtime();
 
-        // Verify runtime was created
-        assert!(Arc::strong_count(runtime) > 0);
+        // Verify runtime was created (not null)
+        // Runtime is static, so just verify we can access it
+        let _handle = runtime.handle();
 
         // Runtime should be accessible multiple times (returns same instance)
         let runtime2 = get_runtime();
-        assert!(Arc::ptr_eq(runtime, runtime2));
+        assert!(std::ptr::eq(runtime, runtime2));
     }
 
     /// Test environment variable configuration
