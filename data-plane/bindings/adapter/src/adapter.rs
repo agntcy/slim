@@ -1220,7 +1220,7 @@ mod tests {
         for _ in 0..10 {
             let (tx, rx) = tokio::sync::oneshot::channel();
             let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
-            let ffi_handle = Arc::new(FfiCompletionHandle::new(completion, runtime.clone()));
+            let ffi_handle = Arc::new(FfiCompletionHandle::new(completion, runtime));
 
             let count = Arc::clone(&success_count);
             let handle = tokio::spawn(async move {

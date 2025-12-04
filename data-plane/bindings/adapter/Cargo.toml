@@ -2,7 +2,7 @@
 name = "agntcy-slim-uniffi"
 edition = { workspace = true }
 license = { workspace = true }
-version = "0.1.0"
+version = "0.7.0"
 description = "UniFFI bindings and FFI adapter for SLIM data plane - enables language integrations (Go, Swift, Kotlin, etc.)"
 
 [lib]

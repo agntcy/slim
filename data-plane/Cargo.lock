@@ -320,7 +320,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-uniffi"
-version = "0.1.0"
+version = "0.7.0"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",

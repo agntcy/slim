@@ -635,7 +635,6 @@ mod tests {
         ApplicationPayload, ProtoMessage, ProtoPublish, ProtoPublishType, SessionHeader, SlimHeader,
     };
     use slim_session::SessionError;
-    use std::sync::OnceLock;
     use std::time::Duration;
     use tokio::sync::mpsc;
 
