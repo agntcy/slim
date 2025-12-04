@@ -224,7 +224,27 @@ impl From<SlimSessionError> for SlimError {
 /// TLS configuration for server/client
 #[derive(uniffi::Record)]
 pub struct TlsConfig {
+    /// Disable TLS entirely (plain text connection)
     pub insecure: bool,
+
+    /// Skip server certificate verification (client only, enables TLS but doesn't verify certs)
+    /// WARNING: Only use for testing - insecure in production!
+    pub insecure_skip_verify: Option<bool>,
+
+    /// Path to certificate file (PEM format)
+    pub cert_file: Option<String>,
+
+    /// Path to private key file (PEM format)
+    pub key_file: Option<String>,
+
+    /// Path to CA certificate file (PEM format) for verifying peer certificates
+    pub ca_file: Option<String>,
+
+    /// TLS version to use: "tls1.2" or "tls1.3" (default: "tls1.3")
+    pub tls_version: Option<String>,
+
+    /// Include system CA certificates pool (default: false)
+    pub include_system_ca_certs_pool: Option<bool>,
 }
 
 /// Server configuration for running a SLIM server
@@ -657,7 +677,27 @@ impl BindingsAdapter {
         use slim_config::grpc::server::ServerConfig as GrpcServerConfig;
         use slim_config::tls::server::TlsServerConfig;
 
-        let tls_config = TlsServerConfig::new().with_insecure(config.tls.insecure);
+        let mut tls_config = TlsServerConfig::new().with_insecure(config.tls.insecure);
+
+        // Apply optional TLS settings
+        if let (Some(cert_file), Some(key_file)) =
+            (config.tls.cert_file.as_ref(), config.tls.key_file.as_ref())
+        {
+            tls_config = tls_config.with_cert_and_key_file(cert_file, key_file);
+        }
+
+        if let Some(ca_file) = config.tls.ca_file.as_ref() {
+            tls_config = tls_config.with_ca_file(ca_file);
+        }
+
+        if let Some(tls_version) = config.tls.tls_version.as_ref() {
+            tls_config = tls_config.with_tls_version(tls_version);
+        }
+
+        if let Some(include_system_ca) = config.tls.include_system_ca_certs_pool {
+            tls_config = tls_config.with_include_system_ca_certs_pool(include_system_ca);
+        }
+
         let server_config =
             GrpcServerConfig::with_endpoint(&config.endpoint).with_tls_settings(tls_config);
 
@@ -708,7 +748,31 @@ impl BindingsAdapter {
         use slim_config::grpc::client::ClientConfig as GrpcClientConfig;
         use slim_config::tls::client::TlsClientConfig;
 
-        let tls_config = TlsClientConfig::new().with_insecure(config.tls.insecure);
+        let mut tls_config = TlsClientConfig::new().with_insecure(config.tls.insecure);
+
+        // Apply optional TLS settings
+        if let Some(skip_verify) = config.tls.insecure_skip_verify {
+            tls_config = tls_config.with_insecure_skip_verify(skip_verify);
+        }
+
+        if let (Some(cert_file), Some(key_file)) =
+            (config.tls.cert_file.as_ref(), config.tls.key_file.as_ref())
+        {
+            tls_config = tls_config.with_cert_and_key_file(cert_file, key_file);
+        }
+
+        if let Some(ca_file) = config.tls.ca_file.as_ref() {
+            tls_config = tls_config.with_ca_file(ca_file);
+        }
+
+        if let Some(tls_version) = config.tls.tls_version.as_ref() {
+            tls_config = tls_config.with_tls_version(tls_version);
+        }
+
+        if let Some(include_system_ca) = config.tls.include_system_ca_certs_pool {
+            tls_config = tls_config.with_include_system_ca_certs_pool(include_system_ca);
+        }
+
         let client_config =
             GrpcClientConfig::with_endpoint(&config.endpoint).with_tls_setting(tls_config);
 

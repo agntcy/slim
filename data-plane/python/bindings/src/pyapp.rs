@@ -180,6 +180,12 @@ impl PyApp {
                 endpoint: config.endpoint,
                 tls: slim_uniffi::TlsConfig {
                     insecure: config.tls_setting.insecure,
+                    insecure_skip_verify: None,
+                    cert_file: None,
+                    key_file: None,
+                    ca_file: None,
+                    tls_version: None,
+                    include_system_ca_certs_pool: None,
                 },
             };
 
@@ -214,6 +220,12 @@ impl PyApp {
                 endpoint: config.endpoint,
                 tls: slim_uniffi::TlsConfig {
                     insecure: config.tls_setting.insecure,
+                    insecure_skip_verify: None,
+                    cert_file: None,
+                    key_file: None,
+                    ca_file: None,
+                    tls_version: None,
+                    include_system_ca_certs_pool: None,
                 },
             };
 

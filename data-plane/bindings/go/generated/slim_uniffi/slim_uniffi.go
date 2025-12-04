@@ -2820,11 +2820,31 @@ func (_ FfiDestroyerSessionConfig) Destroy(value SessionConfig) {
 
 // TLS configuration for server/client
 type TlsConfig struct {
+	// Disable TLS entirely (plain text connection)
 	Insecure bool
+	// Skip server certificate verification (client only, enables TLS but doesn't verify certs)
+	// WARNING: Only use for testing - insecure in production!
+	InsecureSkipVerify *bool
+	// Path to certificate file (PEM format)
+	CertFile *string
+	// Path to private key file (PEM format)
+	KeyFile *string
+	// Path to CA certificate file (PEM format) for verifying peer certificates
+	CaFile *string
+	// TLS version to use: "tls1.2" or "tls1.3" (default: "tls1.3")
+	TlsVersion *string
+	// Include system CA certificates pool (default: false)
+	IncludeSystemCaCertsPool *bool
 }
 
 func (r *TlsConfig) Destroy() {
 	FfiDestroyerBool{}.Destroy(r.Insecure)
+	FfiDestroyerOptionalBool{}.Destroy(r.InsecureSkipVerify)
+	FfiDestroyerOptionalString{}.Destroy(r.CertFile)
+	FfiDestroyerOptionalString{}.Destroy(r.KeyFile)
+	FfiDestroyerOptionalString{}.Destroy(r.CaFile)
+	FfiDestroyerOptionalString{}.Destroy(r.TlsVersion)
+	FfiDestroyerOptionalBool{}.Destroy(r.IncludeSystemCaCertsPool)
 }
 
 type FfiConverterTlsConfig struct{}
@@ -2838,6 +2858,12 @@ func (c FfiConverterTlsConfig) Lift(rb RustBufferI) TlsConfig {
 func (c FfiConverterTlsConfig) Read(reader io.Reader) TlsConfig {
 	return TlsConfig{
 		FfiConverterBoolINSTANCE.Read(reader),
+		FfiConverterOptionalBoolINSTANCE.Read(reader),
+		FfiConverterOptionalStringINSTANCE.Read(reader),
+		FfiConverterOptionalStringINSTANCE.Read(reader),
+		FfiConverterOptionalStringINSTANCE.Read(reader),
+		FfiConverterOptionalStringINSTANCE.Read(reader),
+		FfiConverterOptionalBoolINSTANCE.Read(reader),
 	}
 }
 
@@ -2847,6 +2873,12 @@ func (c FfiConverterTlsConfig) Lower(value TlsConfig) C.RustBuffer {
 
 func (c FfiConverterTlsConfig) Write(writer io.Writer, value TlsConfig) {
 	FfiConverterBoolINSTANCE.Write(writer, value.Insecure)
+	FfiConverterOptionalBoolINSTANCE.Write(writer, value.InsecureSkipVerify)
+	FfiConverterOptionalStringINSTANCE.Write(writer, value.CertFile)
+	FfiConverterOptionalStringINSTANCE.Write(writer, value.KeyFile)
+	FfiConverterOptionalStringINSTANCE.Write(writer, value.CaFile)
+	FfiConverterOptionalStringINSTANCE.Write(writer, value.TlsVersion)
+	FfiConverterOptionalBoolINSTANCE.Write(writer, value.IncludeSystemCaCertsPool)
 }
 
 type FfiDestroyerTlsConfig struct{}
@@ -3315,6 +3347,43 @@ type FfiDestroyerOptionalUint64 struct{}
 func (_ FfiDestroyerOptionalUint64) Destroy(value *uint64) {
 	if value != nil {
 		FfiDestroyerUint64{}.Destroy(*value)
+	}
+}
+
+type FfiConverterOptionalBool struct{}
+
+var FfiConverterOptionalBoolINSTANCE = FfiConverterOptionalBool{}
+
+func (c FfiConverterOptionalBool) Lift(rb RustBufferI) *bool {
+	return LiftFromRustBuffer[*bool](c, rb)
+}
+
+func (_ FfiConverterOptionalBool) Read(reader io.Reader) *bool {
+	if readInt8(reader) == 0 {
+		return nil
+	}
+	temp := FfiConverterBoolINSTANCE.Read(reader)
+	return &temp
+}
+
+func (c FfiConverterOptionalBool) Lower(value *bool) C.RustBuffer {
+	return LowerIntoRustBuffer[*bool](c, value)
+}
+
+func (_ FfiConverterOptionalBool) Write(writer io.Writer, value *bool) {
+	if value == nil {
+		writeInt8(writer, 0)
+	} else {
+		writeInt8(writer, 1)
+		FfiConverterBoolINSTANCE.Write(writer, *value)
+	}
+}
+
+type FfiDestroyerOptionalBool struct{}
+
+func (_ FfiDestroyerOptionalBool) Destroy(value *bool) {
+	if value != nil {
+		FfiDestroyerBool{}.Destroy(*value)
 	}
 }
 
