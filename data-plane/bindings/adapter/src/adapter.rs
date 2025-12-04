@@ -138,13 +138,13 @@ impl From<&SlimName> for Name {
 #[derive(uniffi::Enum)]
 pub enum SessionType {
     PointToPoint,
-    Multicast,
+    Group,
 }
 
 /// Session configuration
 #[derive(uniffi::Record)]
 pub struct SessionConfig {
-    /// Session type (PointToPoint or Multicast)
+    /// Session type (PointToPoint or Group)
     pub session_type: SessionType,
 
     /// Enable MLS encryption for this session
@@ -168,7 +168,7 @@ impl From<SessionConfig> for SlimSessionConfig {
         SlimSessionConfig {
             session_type: match config.session_type {
                 SessionType::PointToPoint => ProtoSessionType::PointToPoint,
-                SessionType::Multicast => ProtoSessionType::Multicast,
+                SessionType::Group => ProtoSessionType::Multicast,
             },
             max_retries: config.max_retries,
             interval: config.interval_ms.map(std::time::Duration::from_millis),

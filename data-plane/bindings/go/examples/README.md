@@ -41,7 +41,7 @@ task example:p2p:alice
 task example:p2p:bob
 ```
 
-### 3. Group (Multicast) Example
+### 3. Group Example
 
 Demonstrates group messaging with moderator-participant pattern and concurrent message handling.
 
@@ -79,7 +79,7 @@ examples/
 ├── common/          # Shared utilities (ID parsing)
 ├── simple/          # Basic SLIM usage
 ├── point_to_point/  # 1:1 messaging
-└── group/           # Multicast messaging
+└── group/           # Group messaging
 ```
 
 ## Customizing Examples

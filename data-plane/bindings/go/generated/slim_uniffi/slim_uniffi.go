@@ -747,7 +747,7 @@ func uniffiCheckChecksums() {
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_uniffi_checksum_method_bindingssessioncontext_session_type()
 		})
-		if checksum != 3942 {
+		if checksum != 62232 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingssessioncontext_session_type: UniFFI API checksum mismatch")
 		}
@@ -1763,7 +1763,7 @@ type BindingsSessionContextInterface interface {
 	RemoveAsync(participant Name) error
 	// Get the session ID
 	SessionId() (uint32, error)
-	// Get the session type (PointToPoint or Multicast)
+	// Get the session type (PointToPoint or Group)
 	SessionType() (SessionType, error)
 	// Get the source name for this session
 	Source() (Name, error)
@@ -2265,7 +2265,7 @@ func (_self *BindingsSessionContext) SessionId() (uint32, error) {
 	}
 }
 
-// Get the session type (PointToPoint or Multicast)
+// Get the session type (PointToPoint or Group)
 func (_self *BindingsSessionContext) SessionType() (SessionType, error) {
 	_pointer := _self.ffiObject.incrementPointer("*BindingsSessionContext")
 	defer _self.ffiObject.decrementPointer()
@@ -2757,7 +2757,7 @@ func (_ FfiDestroyerServerConfig) Destroy(value ServerConfig) {
 
 // Session configuration
 type SessionConfig struct {
-	// Session type (PointToPoint or Multicast)
+	// Session type (PointToPoint or Group)
 	SessionType SessionType
 	// Enable MLS encryption for this session
 	EnableMls bool
@@ -2860,7 +2860,7 @@ type SessionType uint
 
 const (
 	SessionTypePointToPoint SessionType = 1
-	SessionTypeMulticast    SessionType = 2
+	SessionTypeGroup        SessionType = 2
 )
 
 type FfiConverterSessionType struct{}

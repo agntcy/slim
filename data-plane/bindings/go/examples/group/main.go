@@ -82,7 +82,7 @@ func runModerator(app *slim.BindingsAdapter, connID uint64, remote string, invit
 
 	// Create multicast session
 	config := slim.SessionConfig{
-		SessionType: slim.SessionTypeMulticast,
+		SessionType: slim.SessionTypeGroup,
 		EnableMls:   enableMLS,
 		MaxRetries:  &[]uint32{5}[0],    // 5 retries
 		IntervalMs:  &[]uint64{5000}[0], // 5 second timeout

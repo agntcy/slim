@@ -402,13 +402,13 @@ func TestListenForSessionTimeout(t *testing.T) {
 	}
 }
 
-// TestMulticastSession tests creating a multicast session
-func TestMulticastSession(t *testing.T) {
+// TestGroupSession tests creating a group session
+func TestGroupSession(t *testing.T) {
 	harness, _ := SetupTestHarness(t, "multicast-test")
 	defer harness.Cleanup()
 
 	sessionConfig := slim.SessionConfig{
-		SessionType: slim.SessionTypeMulticast,
+		SessionType: slim.SessionTypeGroup,
 		EnableMls:   false,
 	}
 
@@ -423,7 +423,7 @@ func TestMulticastSession(t *testing.T) {
 	}
 	defer session.Destroy()
 
-	t.Log("✅ Multicast session created successfully")
+	t.Log("✅ Group session created successfully")
 }
 
 // TestSessionInviteRemove tests inviting and removing participants
@@ -432,7 +432,7 @@ func TestSessionInviteRemove(t *testing.T) {
 	defer harness.Cleanup()
 
 	sessionConfig := slim.SessionConfig{
-		SessionType: slim.SessionTypeMulticast,
+		SessionType: slim.SessionTypeGroup,
 		EnableMls:   false,
 	}
 
@@ -552,7 +552,7 @@ func TestInviteAutoWait(t *testing.T) {
 	defer harness.Cleanup()
 
 	sessionConfig := slim.SessionConfig{
-		SessionType: slim.SessionTypeMulticast,
+		SessionType: slim.SessionTypeGroup,
 		EnableMls:   false,
 	}
 
@@ -598,7 +598,7 @@ func TestRemoveAutoWait(t *testing.T) {
 	defer harness.Cleanup()
 
 	sessionConfig := slim.SessionConfig{
-		SessionType: slim.SessionTypeMulticast,
+		SessionType: slim.SessionTypeGroup,
 		EnableMls:   false,
 	}
 

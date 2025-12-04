@@ -602,7 +602,7 @@ impl BindingsSessionContext {
         Ok(session.id())
     }
 
-    /// Get the session type (PointToPoint or Multicast)
+    /// Get the session type (PointToPoint or Group)
     pub fn session_type(&self) -> Result<SessionType, SlimError> {
         let session = self
             .session
@@ -613,7 +613,7 @@ impl BindingsSessionContext {
 
         match session.session_type() {
             ProtoSessionType::PointToPoint => Ok(SessionType::PointToPoint),
-            ProtoSessionType::Multicast => Ok(SessionType::Multicast),
+            ProtoSessionType::Multicast => Ok(SessionType::Group),
             ProtoSessionType::Unspecified => Err(SlimError::InvalidArgument {
                 message: "Session has unspecified type".to_string(),
             }),

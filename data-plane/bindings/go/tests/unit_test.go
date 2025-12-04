@@ -126,13 +126,13 @@ func TestSessionConfig(t *testing.T) {
 			enableMls:   true,
 		},
 		{
-			name:        "Multicast without MLS",
-			sessionType: slim.SessionTypeMulticast,
+			name:        "Group without MLS",
+			sessionType: slim.SessionTypeGroup,
 			enableMls:   false,
 		},
 		{
-			name:        "Multicast with MLS",
-			sessionType: slim.SessionTypeMulticast,
+			name:        "Group with MLS",
+			sessionType: slim.SessionTypeGroup,
 			enableMls:   true,
 		},
 	}
