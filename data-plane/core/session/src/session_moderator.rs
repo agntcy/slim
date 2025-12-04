@@ -1005,6 +1005,12 @@ where
             .map(|(k, v)| k.clone().with_id(*v))
             .collect();
 
+        if participants.len() == 1 {
+            // in this case the moderator is the only one remained
+            // in the group so there is nothing to do
+            return Ok(());
+        }
+
         let destination = self.common.settings.destination.clone();
         let close_id = rand::random::<u32>();
         let close = self.common.create_control_message(

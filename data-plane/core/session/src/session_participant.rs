@@ -44,6 +44,9 @@ where
     /// common session state
     common: SessionControllerCommon<P, V>,
 
+    /// connection id from where the remote messages are received
+    conn_id: Option<u64>,
+
     subscribed: bool,
 
     /// inner layer
@@ -64,6 +67,7 @@ where
             group_list: HashSet::new(),
             mls_state: None,
             common,
+            conn_id: None,
             subscribed: false,
             inner,
         }
@@ -184,6 +188,10 @@ where
                     )?;
                     debug!("start drain and notify the moderator");
                     msg.insert_metadata(LEAVING_SESSION.to_string(), TRUE_VAL.to_string());
+
+                    // remove the route and the subscription for the group
+                    // to avoid to get broadcast messages from the moderator
+                    self.disconnect_from_group().await?;
 
                     self.common.sender.on_message(&msg).await?;
                 }
@@ -431,7 +439,7 @@ where
                 let name = Name::from(removed_participant);
                 self.group_list.remove(&name);
 
-                tracing::info!("remove endpoint from the session {}", msg.get_source());
+                debug!("remove endpoint from the session {}", msg.get_source());
                 self.inner.remove_endpoint(&name);
             }
         }
@@ -476,7 +484,8 @@ where
 
         self.common.send_to_slim(reply).await?;
 
-        self.leave(&msg).await?;
+        self.disconnect_from_group().await?;
+        self.disconnect_from_moderator().await?;
 
         self.common
             .settings
@@ -508,6 +517,8 @@ where
 
         self.subscribed = true;
 
+        self.conn_id = Some(msg.get_incoming_conn());
+
         if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
             return Ok(());
         }
@@ -525,29 +536,36 @@ where
         self.common.send_to_slim(sub).await
     }
 
-    async fn leave(&self, msg: &Message) -> Result<(), SessionError> {
-        self.common
-            .delete_route(&self.common.settings.destination, msg.get_incoming_conn())
-            .await?;
-
+    async fn disconnect_from_group(&self) -> Result<(), SessionError> {
         if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
             return Ok(());
         }
 
-        self.common
-            .delete_route(
-                self.moderator_name.as_ref().unwrap(),
-                msg.get_incoming_conn(),
-            )
-            .await?;
-        let sub = Message::builder()
-            .source(self.common.settings.source.clone())
-            .destination(self.common.settings.destination.clone())
-            .flags(SlimHeaderFlags::default().with_forward_to(msg.get_incoming_conn()))
-            .build_unsubscribe()
-            .unwrap();
+        if let Some(conn_id) = self.conn_id {
+            self.common
+                .delete_route(&self.common.settings.destination, conn_id)
+                .await?;
 
-        self.common.send_to_slim(sub).await
+            let sub = Message::builder()
+                .source(self.common.settings.source.clone())
+                .destination(self.common.settings.destination.clone())
+                .flags(SlimHeaderFlags::default().with_forward_to(conn_id))
+                .build_unsubscribe()
+                .unwrap();
+
+            self.common.send_to_slim(sub).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn disconnect_from_moderator(&self) -> Result<(), SessionError> {
+        if let Some(conn_id) = self.conn_id {
+            self.common
+                .delete_route(self.moderator_name.as_ref().unwrap(), conn_id)
+                .await?;
+        }
+        Ok(())
     }
 }
 
@@ -1168,39 +1186,26 @@ mod tests {
             setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
         participant.subscribed = true;
+        participant.conn_id = Some(12345); // Set conn_id so disconnect_from_group sends messages
 
         let moderator = make_name(&["moderator", "app", "v1"]).with_id(300);
         participant.moderator_name = Some(moderator.clone());
 
-        let leave_msg = Message::builder()
-            .source(moderator.clone())
-            .destination(participant.common.settings.source.clone())
-            .identity("")
-            .forward_to(0)
-            .incoming_conn(12345)
-            .session_type(ProtoSessionType::Multicast)
-            .session_message_type(ProtoSessionMessageType::LeaveRequest)
-            .session_id(1)
-            .message_id(500)
-            .payload(CommandPayload::builder().leave_request(None).as_content())
-            .build_publish()
-            .unwrap();
-
         // Manually call leave to test unsubscribe
-        let result = participant.leave(&leave_msg).await;
+        let result = participant.disconnect_from_group().await;
+        assert!(result.is_ok());
+        let result = participant.disconnect_from_moderator().await;
         assert!(result.is_ok());
 
-        // Should have sent unsubscribe message (after the route deletion messages)
-        // Skip route deletion messages to find unsubscribe
-        let mut found_unsubscribe = false;
-        for _ in 0..5 {
-            if let Ok(Ok(_msg)) = rx_slim.try_recv() {
-                // Check if this is an unsubscribe message
-                // In the actual implementation, unsubscribe would be indicated by message type
-                found_unsubscribe = true;
-                break;
-            }
+        // disconnect_from_group sends: delete_route + unsubscribe
+        // disconnect_from_moderator sends: delete_route
+        let mut message_count = 0;
+        while let Ok(Ok(_msg)) = rx_slim.try_recv() {
+            message_count += 1;
         }
-        assert!(found_unsubscribe);
+        assert!(
+            message_count > 0,
+            "Should have sent unsubscribe and route deletion messages"
+        );
     }
 }
