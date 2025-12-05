@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.2](https://github.com/agntcy/slim/compare/slim-bindings-v0.7.1...slim-bindings-v0.7.2) (2025-12-05)
+
+
+### Features
+
+* Go bindings generation using uniffi ([#979](https://github.com/agntcy/slim/issues/979)) ([5b7d813](https://github.com/agntcy/slim/commit/5b7d813a95528788d87614502b170a63b6369812))
+* make backoff retry configurable ([#991](https://github.com/agntcy/slim/issues/991)) ([9392edd](https://github.com/agntcy/slim/commit/9392edddefb9bd694ac0117fbceb12cf1090b7fa))
+
 ## [0.7.1](https://github.com/agntcy/slim/compare/slim-bindings-v0.7.0...slim-bindings-v0.7.1) (2025-11-21)
 
 
