@@ -475,9 +475,9 @@ where
     }
 
     async fn leave(&self, msg: &Message) -> Result<(), SessionError> {
-        self.common
-            .delete_route(&self.common.settings.destination, msg.get_incoming_conn())
-            .await?;
+        //self.common
+        //    .delete_route(&self.common.settings.destination, msg.get_incoming_conn())
+        //    .await?;
 
         if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
             return Ok(());
