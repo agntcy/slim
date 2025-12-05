@@ -541,8 +541,17 @@ impl BindingsAdapter {
         )))
     }
 
-    /// Delete a session (synchronous - no async version needed)
+    /// Delete a session (blocking version for FFI)
     pub fn delete_session(
+        &self,
+        session: Arc<crate::BindingsSessionContext>,
+    ) -> Result<(), SlimError> {
+        self.runtime
+            .block_on(async { self.delete_session_async(session).await })
+    }
+
+    /// Delete a session (async version)
+    pub async fn delete_session_async(
         &self,
         session: Arc<crate::BindingsSessionContext>,
     ) -> Result<(), SlimError> {
@@ -553,12 +562,17 @@ impl BindingsAdapter {
                 message: "Session already closed or dropped".to_string(),
             })?;
 
-        self.app
-            .delete_session(&session_ref)
-            .map(|_| ())
-            .map_err(|e| SlimError::SessionError {
-                message: format!("Failed to delete session: {}", e),
-            })
+        let completion =
+            self.app
+                .delete_session(&session_ref)
+                .map_err(|e| SlimError::SessionError {
+                    message: format!("Failed to delete session: {}", e),
+                })?;
+
+        // Wait for session deletion to complete
+        completion.await.map_err(|e| SlimError::SessionError {
+            message: format!("Session deletion failed: {}", e),
+        })
     }
 
     /// Subscribe to a name (blocking version for FFI)

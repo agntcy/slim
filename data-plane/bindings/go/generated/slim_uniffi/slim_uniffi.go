@@ -423,9 +423,18 @@ func uniffiCheckChecksums() {
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_uniffi_checksum_method_bindingsadapter_delete_session()
 		})
-		if checksum != 3994 {
+		if checksum != 42998 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingsadapter_delete_session: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_uniffi_checksum_method_bindingsadapter_delete_session_async()
+		})
+		if checksum != 27780 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingsadapter_delete_session_async: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -1056,8 +1065,10 @@ type BindingsAdapterInterface interface {
 	// ensures the remote peer has acknowledged the session. For multicast sessions, this
 	// ensures the initial setup is complete.
 	CreateSessionAsync(config SessionConfig, destination Name) (*BindingsSessionContext, error)
-	// Delete a session (synchronous - no async version needed)
+	// Delete a session (blocking version for FFI)
 	DeleteSession(session *BindingsSessionContext) error
+	// Delete a session (async version)
+	DeleteSessionAsync(session *BindingsSessionContext) error
 	// Disconnect from a SLIM server (blocking version for FFI)
 	//
 	// # Arguments
@@ -1232,7 +1243,7 @@ func (_self *BindingsAdapter) CreateSessionAsync(config SessionConfig, destinati
 	return res, err
 }
 
-// Delete a session (synchronous - no async version needed)
+// Delete a session (blocking version for FFI)
 func (_self *BindingsAdapter) DeleteSession(session *BindingsSessionContext) error {
 	_pointer := _self.ffiObject.incrementPointer("*BindingsAdapter")
 	defer _self.ffiObject.decrementPointer()
@@ -1242,6 +1253,34 @@ func (_self *BindingsAdapter) DeleteSession(session *BindingsSessionContext) err
 		return false
 	})
 	return _uniffiErr.AsError()
+}
+
+// Delete a session (async version)
+func (_self *BindingsAdapter) DeleteSessionAsync(session *BindingsSessionContext) error {
+	_pointer := _self.ffiObject.incrementPointer("*BindingsAdapter")
+	defer _self.ffiObject.decrementPointer()
+	_, err := uniffiRustCallAsync[SlimError](
+		FfiConverterSlimErrorINSTANCE,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
+			C.ffi_slim_uniffi_rust_future_complete_void(handle, status)
+			return struct{}{}
+		},
+		// liftFn
+		func(_ struct{}) struct{} { return struct{}{} },
+		C.uniffi_slim_uniffi_fn_method_bindingsadapter_delete_session_async(
+			_pointer, FfiConverterBindingsSessionContextINSTANCE.Lower(session)),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_uniffi_rust_future_poll_void(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_uniffi_rust_future_free_void(handle)
+		},
+	)
+
+	return err
 }
 
 // Disconnect from a SLIM server (blocking version for FFI)
