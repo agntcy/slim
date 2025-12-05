@@ -72,12 +72,22 @@ func (s *NodeService) GetNodeByID(nodeID string) (*controlplaneApi.NodeEntry, er
 func getNodeConnDetails(node db.Node) []*controllerapi.ConnectionDetails {
 	connDetails := make([]*controllerapi.ConnectionDetails, 0, len(node.ConnDetails))
 	for _, conn := range node.ConnDetails {
-		connDetails = append(connDetails, &controllerapi.ConnectionDetails{
-			Endpoint:         conn.Endpoint,
-			MtlsRequired:     conn.MTLSRequired,
-			ExternalEndpoint: conn.ExternalEndpoint,
-			GroupName:        conn.GroupName,
-		})
+		cd := &controllerapi.ConnectionDetails{
+			Endpoint:     conn.Endpoint,
+			MtlsRequired: conn.MTLSRequired,
+			Metadata:     make(map[string]*controllerapi.MetadataValue),
+		}
+
+		// Add ExternalEndpoint to metadata if present
+		if conn.ExternalEndpoint != nil {
+			cd.Metadata["external_endpoint"] = &controllerapi.MetadataValue{
+				Value: &controllerapi.MetadataValue_StringValue{
+					StringValue: *conn.ExternalEndpoint,
+				},
+			}
+		}
+
+		connDetails = append(connDetails, cd)
 	}
 	return connDetails
 }

@@ -54,11 +54,11 @@ func newListNodesCmd(opts *options.CommonOptions) *cobra.Command {
 					for _, conn := range node.Connections {
 						fmt.Printf("  - Endpoint: %s\n", conn.Endpoint)
 						fmt.Printf("    MtlsRequired: %v\n", conn.MtlsRequired)
-						if conn.ExternalEndpoint != nil {
-							fmt.Printf("    ExternalEndpoint: %s\n", *conn.ExternalEndpoint)
-						}
-						if conn.GroupName != nil {
-							fmt.Printf("    GroupName: %s\n", *conn.GroupName)
+						// Check metadata for external_endpoint
+						if conn.Metadata != nil {
+							if extEndpoint, ok := conn.Metadata["external_endpoint"]; ok && extEndpoint.GetStringValue() != "" {
+								fmt.Printf("    ExternalEndpoint: %s\n", extEndpoint.GetStringValue())
+							}
 						}
 					}
 				} else {
