@@ -5,7 +5,7 @@
 name = "slim-mcp"
 description = "Model Context Protocol with SLIM as transport"
 readme = "README.md"
-version = "0.1.7"
+version = "0.1.8"
 requires-python = ">=3.11, <4.0"
 license = "Apache-2.0"
 classifiers = [
