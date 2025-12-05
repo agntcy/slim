@@ -17,13 +17,13 @@ use pyo3_stub_gen::derive::gen_stub_pymethods;
 use slim_session::CompletionHandle;
 use slim_session::{SessionConfig, SessionError};
 
-use crate::pymessage::PyMessageContext;
-use crate::utils::PyName;
+use slim_bindings::{BindingsAdapter, BindingsSessionContext, MessageContext};
 use slim_datapath::messages::Name;
 pub use slim_session::SESSION_UNSPECIFIED;
-use slim_uniffi::{BindingsAdapter, BindingsSessionContext, MessageContext};
-
 use slim_session::context::SessionContext;
+
+use crate::pymessage::PyMessageContext;
+use crate::utils::PyName;
 
 /// Handle for awaiting completion of asynchronous operations.
 /// This class wraps a `CompletionHandle` future, allowing Python code
@@ -122,7 +122,7 @@ pub(crate) struct PySessionContext {
 impl From<SessionContext> for PySessionContext {
     fn from(ctx: SessionContext) -> Self {
         // Convert to BindingsSessionContext with the global runtime
-        let bindings_ctx = BindingsSessionContext::new(ctx, slim_uniffi::get_runtime());
+        let bindings_ctx = BindingsSessionContext::new(ctx, slim_bindings::get_runtime());
 
         PySessionContext {
             internal: Arc::new(PySessionCtxInternal { bindings_ctx }),

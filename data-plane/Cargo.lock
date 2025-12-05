@@ -72,20 +72,21 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-bindings"
-version = "0.1.0"
+version = "0.7.0"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
  "agntcy-slim-datapath",
  "agntcy-slim-service",
  "agntcy-slim-session",
- "agntcy-slim-tracing",
- "agntcy-slim-uniffi",
- "pyo3",
- "pyo3-async-runtimes",
- "pyo3-stub-gen",
- "serde-pyobject",
+ "agntcy-slim-testing",
+ "num_cpus",
+ "parking_lot",
+ "thiserror 2.0.17",
  "tokio",
+ "tokio-test",
+ "tracing-test",
+ "uniffi",
 ]
 
 [[package]]
@@ -220,6 +221,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "agntcy-slim-python"
+version = "0.1.0"
+dependencies = [
+ "agntcy-slim-auth",
+ "agntcy-slim-bindings",
+ "agntcy-slim-config",
+ "agntcy-slim-datapath",
+ "agntcy-slim-service",
+ "agntcy-slim-session",
+ "agntcy-slim-tracing",
+ "pyo3",
+ "pyo3-async-runtimes",
+ "pyo3-stub-gen",
+ "serde-pyobject",
+ "tokio",
+]
+
+[[package]]
 name = "agntcy-slim-service"
 version = "0.8.2"
 dependencies = [
@@ -316,25 +335,6 @@ dependencies = [
  "tracing-opentelemetry",
  "tracing-subscriber",
  "uuid",
-]
-
-[[package]]
-name = "agntcy-slim-uniffi"
-version = "0.7.0"
-dependencies = [
- "agntcy-slim-auth",
- "agntcy-slim-config",
- "agntcy-slim-datapath",
- "agntcy-slim-service",
- "agntcy-slim-session",
- "agntcy-slim-testing",
- "num_cpus",
- "parking_lot",
- "thiserror 2.0.17",
- "tokio",
- "tokio-test",
- "tracing-test",
- "uniffi",
 ]
 
 [[package]]

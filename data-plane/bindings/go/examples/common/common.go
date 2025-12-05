@@ -13,7 +13,7 @@ import (
 	"fmt"
 	"strings"
 
-	slim "github.com/agntcy/slim/bindings/generated/slim_uniffi"
+	slim "github.com/agntcy/slim/bindings/generated/slim_bindings"
 )
 
 // Default configuration values

@@ -7,7 +7,7 @@ vars:
   # The Rust UniFFI bindings crate - in bindings/adapter (sibling to bindings/go)
   BINDINGS_DIR: ../adapter
   SERVICE_TARGET: ../../target/release
-  LIB_NAME: slim_uniffi
+  LIB_NAME: slim_bindings
   # Get absolute path for CGO flags
   ROOT_DIR:
     sh: pwd
@@ -19,38 +19,8 @@ vars:
 
 tasks:
   default:
-    desc: Show help (default task)
     cmds:
-      - task: help
-
-  help:
-    desc: Show available tasks
-    cmds:
-      - |
-        echo "SLIM Go Bindings - Available tasks:"
-        echo ""
-        echo "Build & Generate:"
-        echo "  task rust-build                - Build the Rust library with UniFFI (release mode)"
-        echo "  task generate                  - Generate Go bindings from compiled library"
-        echo "  task install-uniffi-bindgen-go - Install uniffi-bindgen-go"
-        echo ""
-        echo "Testing:"
-        echo "  task test                      - Run all tests"
-        echo "  task test-coverage             - Run tests with coverage report"
-        echo ""
-        echo "Utilities:"
-        echo "  task clean                     - Clean build artifacts"
-        echo "  task help                      - Show this help message"
-        echo ""
-        echo "Examples:"
-        echo "  task example                         - Run the simple example"
-        echo "  task example:server                  - Run the SLIM server"
-        echo "  task example:p2p:alice               - Run Alice (receiver) for point-to-point"
-        echo "  task example:p2p:bob                 - Run Bob (sender) for point-to-point"
-        echo "  task example:group:moderator         - Run group moderator (creates & invites)"
-        echo "  task example:group:participant:alice - Run Alice as group participant"
-        echo "  task example:group:participant:bob   - Run Bob as group participant"
-    silent: true
+      - task -l
 
   rust-build:
     desc: Build the Rust library with UniFFI (release mode)
