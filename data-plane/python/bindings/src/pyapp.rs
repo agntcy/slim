@@ -88,6 +88,7 @@ impl PyApp {
                 // IdentityProvider/IdentityVerifier are already AuthProvider/AuthVerifier type aliases
                 // Use BindingsAdapter's complete creation logic
                 BindingsAdapter::new(base_name, provider, verifier, local_service)
+                    .map(Arc::new)
                     .map_err(|e| format!("Failed to create BindingsAdapter: {}", e))
             })
             .map_err(|e: String| PyErr::new::<PyException, _>(e))?;

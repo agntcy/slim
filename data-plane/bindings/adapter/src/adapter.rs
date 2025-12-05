@@ -328,7 +328,7 @@ async fn create_app_with_secret_async(
     .await
     .map_err(|e| ServiceError::ConfigError(format!("Task join error: {}", e)))??;
 
-    Ok(adapter)
+    Ok(Arc::new(adapter))
 }
 
 /// Adapter that bridges the App API with language-bindings interface
@@ -368,7 +368,7 @@ impl BindingsAdapter {
         identity_provider: AuthProvider,
         identity_verifier: AuthVerifier,
         use_local_service: bool,
-    ) -> Result<Arc<Self>, SlimError> {
+    ) -> Result<Self, SlimError> {
         // Validate token
         let _identity_token =
             identity_provider
@@ -415,14 +415,12 @@ impl BindingsAdapter {
 
         let runtime = get_runtime();
 
-        let adapter = Arc::new(Self {
+        Ok(Self {
             app: Arc::new(app),
             notification_rx: Arc::new(RwLock::new(rx)),
             service_ref,
             runtime,
-        });
-
-        Ok(adapter)
+        })
     }
 
     /// Test-only constructor - Create a new BindingsAdapter with a provided service
@@ -437,7 +435,7 @@ impl BindingsAdapter {
     /// * `identity_verifier` - Authentication verifier (AuthVerifier enum)
     ///
     /// # Returns
-    /// * `Ok(Arc<BindingsAdapter>)` - Successfully created adapter
+    /// * `Ok(BindingsAdapter)` - Successfully created adapter
     /// * `Err(SlimError)` - If creation fails
     #[doc(hidden)]
     pub fn new_with_service(
@@ -445,7 +443,7 @@ impl BindingsAdapter {
         base_name: SlimName,
         identity_provider: AuthProvider,
         identity_verifier: AuthVerifier,
-    ) -> Result<Arc<Self>, SlimError> {
+    ) -> Result<Self, SlimError> {
         // Validate token
         let _identity_token =
             identity_provider
@@ -480,14 +478,12 @@ impl BindingsAdapter {
         // Use a global service reference since we don't own the service
         let service_ref = ServiceRef::Global(get_or_init_global_service());
 
-        let adapter = Arc::new(Self {
+        Ok(Self {
             app: Arc::new(app),
             notification_rx: Arc::new(RwLock::new(rx)),
             service_ref,
             runtime,
-        });
-
-        Ok(adapter)
+        })
     }
 }
 
@@ -911,25 +907,7 @@ impl FfiCompletionHandle {
     /// * `Ok(())` - Operation completed successfully
     /// * `Err(SlimError)` - Operation failed or handle already consumed
     pub fn wait(&self) -> Result<(), SlimError> {
-        let receiver = self
-            .receiver
-            .lock()
-            .take()
-            .ok_or_else(|| SlimError::InternalError {
-                message: "CompletionHandle already consumed (wait can only be called once)"
-                    .to_string(),
-            })?;
-
-        self.runtime.block_on(async {
-            receiver
-                .await
-                .map_err(|_| SlimError::InternalError {
-                    message: "Completion sender dropped before result was sent".to_string(),
-                })?
-                .map_err(|e| SlimError::SessionError {
-                    message: e.to_string(),
-                })
-        })
+        self.runtime.block_on(self.wait_async())
     }
 
     /// Wait for the operation to complete (async version)
