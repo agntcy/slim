@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.3](https://github.com/agntcy/slim/compare/slim-service-v0.8.2...slim-service-v0.8.3) - 2025-12-05
+
+### Added
+
+- Go bindings generation using uniffi ([#979](https://github.com/agntcy/slim/pull/979))
+- make backoff retry configurable ([#991](https://github.com/agntcy/slim/pull/991))
+
 ## [0.8.2](https://github.com/agntcy/slim/compare/slim-service-v0.8.1...slim-service-v0.8.2) - 2025-11-21
 
 ### Added
