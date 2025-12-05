@@ -400,12 +400,12 @@ uint64_t uniffi_slim_uniffi_fn_method_bindingsadapter_connect_async(void* ptr, R
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_UNIFFI_FN_METHOD_BINDINGSADAPTER_CREATE_SESSION
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_UNIFFI_FN_METHOD_BINDINGSADAPTER_CREATE_SESSION
-void* uniffi_slim_uniffi_fn_method_bindingsadapter_create_session(void* ptr, RustBuffer config, RustBuffer destination, RustCallStatus *out_status
+void* uniffi_slim_uniffi_fn_method_bindingsadapter_create_session(void* ptr, RustBuffer config, RustBuffer destination, uint64_t egress_conn, RustCallStatus *out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_UNIFFI_FN_METHOD_BINDINGSADAPTER_CREATE_SESSION_ASYNC
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_UNIFFI_FN_METHOD_BINDINGSADAPTER_CREATE_SESSION_ASYNC
-uint64_t uniffi_slim_uniffi_fn_method_bindingsadapter_create_session_async(void* ptr, RustBuffer config, RustBuffer destination
+uint64_t uniffi_slim_uniffi_fn_method_bindingsadapter_create_session_async(void* ptr, RustBuffer config, RustBuffer destination, uint64_t egress_conn
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_UNIFFI_FN_METHOD_BINDINGSADAPTER_DELETE_SESSION

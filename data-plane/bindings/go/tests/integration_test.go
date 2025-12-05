@@ -417,7 +417,7 @@ func TestGroupSession(t *testing.T) {
 		Id:         nil,
 	}
 
-	session, err := harness.Sender.CreateSession(sessionConfig, destination)
+	session, err := harness.Sender.CreateSession(sessionConfig, destination, 0)
 	if err != nil {
 		t.Fatalf("Failed to create multicast session: %v", err)
 	}
@@ -441,7 +441,7 @@ func TestSessionInviteRemove(t *testing.T) {
 		Id:         nil,
 	}
 
-	session, err := harness.Sender.CreateSession(sessionConfig, destination)
+	session, err := harness.Sender.CreateSession(sessionConfig, destination, 0)
 	if err != nil {
 		t.Fatalf("Failed to create session for invite test: %v", err)
 	}
@@ -534,7 +534,7 @@ func TestSessionCreationAutoWait(t *testing.T) {
 	// CreateSession should auto-wait for session establishment
 	// The harness.CreateSession internally calls app.CreateSession which auto-waits
 	start := time.Now()
-	session, err := harness.Sender.CreateSession(sessionConfig, harness.ReceiverName)
+	session, err := harness.Sender.CreateSession(sessionConfig, harness.ReceiverName, 0)
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -561,7 +561,7 @@ func TestInviteAutoWait(t *testing.T) {
 		Id:         nil,
 	}
 
-	session, err := harness.Sender.CreateSession(sessionConfig, destination)
+	session, err := harness.Sender.CreateSession(sessionConfig, destination, 0)
 	if err != nil {
 		t.Fatalf("Failed to create multicast session: %v", err)
 	}
@@ -607,7 +607,7 @@ func TestRemoveAutoWait(t *testing.T) {
 		Id:         nil,
 	}
 
-	session, err := harness.Sender.CreateSession(sessionConfig, destination)
+	session, err := harness.Sender.CreateSession(sessionConfig, destination, 0)
 	if err != nil {
 		t.Fatalf("Failed to create multicast session: %v", err)
 	}
@@ -770,6 +770,7 @@ func BenchmarkPublishFireAndForget(b *testing.B) {
 	session, err := app.CreateSession(
 		slim.SessionConfig{SessionType: slim.SessionTypePointToPoint, EnableMls: false},
 		slim.Name{Components: []string{"org", "receiver", "v1"}, Id: nil},
+		0,
 	)
 	if err != nil {
 		b.Skipf("Skipping benchmark - session creation failed: %v", err)
@@ -798,6 +799,7 @@ func BenchmarkPublishWithCompletion(b *testing.B) {
 	session, err := app.CreateSession(
 		slim.SessionConfig{SessionType: slim.SessionTypePointToPoint, EnableMls: false},
 		slim.Name{Components: []string{"org", "receiver", "v1"}, Id: nil},
+		0,
 	)
 	if err != nil {
 		b.Skipf("Skipping benchmark - session creation failed: %v", err)
@@ -829,6 +831,7 @@ func BenchmarkPublishWithCompletionAndWait(b *testing.B) {
 	session, err := app.CreateSession(
 		slim.SessionConfig{SessionType: slim.SessionTypePointToPoint, EnableMls: false},
 		slim.Name{Components: []string{"org", "receiver", "v1"}, Id: nil},
+		0,
 	)
 	if err != nil {
 		b.Skipf("Skipping benchmark - session creation failed: %v", err)

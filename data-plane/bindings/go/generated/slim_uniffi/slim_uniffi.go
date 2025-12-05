@@ -405,7 +405,7 @@ func uniffiCheckChecksums() {
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_uniffi_checksum_method_bindingsadapter_create_session()
 		})
-		if checksum != 15619 {
+		if checksum != 65438 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingsadapter_create_session: UniFFI API checksum mismatch")
 		}
@@ -414,7 +414,7 @@ func uniffiCheckChecksums() {
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_uniffi_checksum_method_bindingsadapter_create_session_async()
 		})
-		if checksum != 4395 {
+		if checksum != 26037 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingsadapter_create_session_async: UniFFI API checksum mismatch")
 		}
@@ -1057,14 +1057,14 @@ type BindingsAdapterInterface interface {
 	// to enable receiving inbound messages and sessions.
 	ConnectAsync(config ClientConfig) (uint64, error)
 	// Create a new session (blocking version for FFI)
-	CreateSession(config SessionConfig, destination Name) (*BindingsSessionContext, error)
+	CreateSession(config SessionConfig, destination Name, egressConn uint64) (*BindingsSessionContext, error)
 	// Create a new session (async version)
 	//
 	// **Auto-waits for session establishment:** This method automatically waits for the
 	// session handshake to complete before returning. For point-to-point sessions, this
 	// ensures the remote peer has acknowledged the session. For multicast sessions, this
 	// ensures the initial setup is complete.
-	CreateSessionAsync(config SessionConfig, destination Name) (*BindingsSessionContext, error)
+	CreateSessionAsync(config SessionConfig, destination Name, egressConn uint64) (*BindingsSessionContext, error)
 	// Delete a session (blocking version for FFI)
 	DeleteSession(session *BindingsSessionContext) error
 	// Delete a session (async version)
@@ -1193,12 +1193,12 @@ func (_self *BindingsAdapter) ConnectAsync(config ClientConfig) (uint64, error) 
 }
 
 // Create a new session (blocking version for FFI)
-func (_self *BindingsAdapter) CreateSession(config SessionConfig, destination Name) (*BindingsSessionContext, error) {
+func (_self *BindingsAdapter) CreateSession(config SessionConfig, destination Name, egressConn uint64) (*BindingsSessionContext, error) {
 	_pointer := _self.ffiObject.incrementPointer("*BindingsAdapter")
 	defer _self.ffiObject.decrementPointer()
 	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
 		return C.uniffi_slim_uniffi_fn_method_bindingsadapter_create_session(
-			_pointer, FfiConverterSessionConfigINSTANCE.Lower(config), FfiConverterNameINSTANCE.Lower(destination), _uniffiStatus)
+			_pointer, FfiConverterSessionConfigINSTANCE.Lower(config), FfiConverterNameINSTANCE.Lower(destination), FfiConverterUint64INSTANCE.Lower(egressConn), _uniffiStatus)
 	})
 	if _uniffiErr != nil {
 		var _uniffiDefaultValue *BindingsSessionContext
@@ -1214,7 +1214,7 @@ func (_self *BindingsAdapter) CreateSession(config SessionConfig, destination Na
 // session handshake to complete before returning. For point-to-point sessions, this
 // ensures the remote peer has acknowledged the session. For multicast sessions, this
 // ensures the initial setup is complete.
-func (_self *BindingsAdapter) CreateSessionAsync(config SessionConfig, destination Name) (*BindingsSessionContext, error) {
+func (_self *BindingsAdapter) CreateSessionAsync(config SessionConfig, destination Name, egressConn uint64) (*BindingsSessionContext, error) {
 	_pointer := _self.ffiObject.incrementPointer("*BindingsAdapter")
 	defer _self.ffiObject.decrementPointer()
 	res, err := uniffiRustCallAsync[SlimError](
@@ -1229,7 +1229,7 @@ func (_self *BindingsAdapter) CreateSessionAsync(config SessionConfig, destinati
 			return FfiConverterBindingsSessionContextINSTANCE.Lift(ffi)
 		},
 		C.uniffi_slim_uniffi_fn_method_bindingsadapter_create_session_async(
-			_pointer, FfiConverterSessionConfigINSTANCE.Lower(config), FfiConverterNameINSTANCE.Lower(destination)),
+			_pointer, FfiConverterSessionConfigINSTANCE.Lower(config), FfiConverterNameINSTANCE.Lower(destination), FfiConverterUint64INSTANCE.Lower(egressConn)),
 		// pollFn
 		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
 			C.ffi_slim_uniffi_rust_future_poll_pointer(handle, continuation, data)

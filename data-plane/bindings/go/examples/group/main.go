@@ -90,7 +90,7 @@ func runModerator(app *slim.BindingsAdapter, connID uint64, remote string, invit
 		Metadata:    make(map[string]string),
 	}
 
-	session, err := app.CreateSession(config, channelName)
+	session, err := app.CreateSession(config, channelName, connID)
 	if err != nil {
 		log.Fatalf("Failed to create session: %v", err)
 	}
