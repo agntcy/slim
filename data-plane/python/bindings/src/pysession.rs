@@ -236,7 +236,7 @@ impl PySessionContext {
                 let ctx = PySessionContext {
                     internal: internal_clone,
                 };
-                ctx.publish_to_py_internal(message_ctx, blob, payload_type, metadata)
+                ctx.publish_to_internal(message_ctx, blob, payload_type, metadata)
                     .await
                     .map(PyCompletionHandle::from)
                     .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
@@ -253,7 +253,7 @@ impl PySessionContext {
             let ctx = PySessionContext {
                 internal: internal_clone,
             };
-            ctx.invite_py_internal(name)
+            ctx.invite_internal(name)
                 .await
                 .map(PyCompletionHandle::from)
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
@@ -269,7 +269,7 @@ impl PySessionContext {
             let ctx = PySessionContext {
                 internal: internal_clone,
             };
-            ctx.remove_py_internal(name)
+            ctx.remove_internal(name)
                 .await
                 .map(PyCompletionHandle::from)
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
@@ -349,7 +349,7 @@ impl PySessionContext {
     }
 
     /// Publish a message as a reply to a received message
-    async fn publish_to_py_internal(
+    async fn publish_to_internal(
         &self,
         message_ctx: PyMessageContext,
         blob: Vec<u8>,
@@ -366,7 +366,7 @@ impl PySessionContext {
     }
 
     /// Invite a participant to this session (multicast only)
-    async fn invite_py_internal(&self, name: PyName) -> PyResult<CompletionHandle> {
+    async fn invite_internal(&self, name: PyName) -> PyResult<CompletionHandle> {
         self.internal
             .bindings_ctx
             .invite_internal(&name.into())
@@ -375,7 +375,7 @@ impl PySessionContext {
     }
 
     /// Remove a participant from this session (multicast only)
-    async fn remove_py_internal(&self, name: PyName) -> PyResult<CompletionHandle> {
+    async fn remove_internal(&self, name: PyName) -> PyResult<CompletionHandle> {
         self.internal
             .bindings_ctx
             .remove_internal(&name.into())

@@ -85,9 +85,11 @@ pub fn get_runtime() -> &'static tokio::runtime::Runtime {
 }
 
 /// Initialize the crypto provider
+///
+/// This must be called before any TLS operations. It's safe to call multiple times.
 #[uniffi::export]
 pub fn initialize_crypto_provider() {
-    // Crypto initialization happens automatically in slim_auth
+    slim_config::tls::provider::initialize_crypto_provider();
     // Also initialize the global runtime
     let _ = get_runtime();
 }

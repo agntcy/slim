@@ -378,7 +378,7 @@ func uniffiCheckChecksums() {
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_uniffi_checksum_func_initialize_crypto_provider()
 		})
-		if checksum != 2455 {
+		if checksum != 45020 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_uniffi: uniffi_slim_uniffi_checksum_func_initialize_crypto_provider: UniFFI API checksum mismatch")
 		}
@@ -3783,6 +3783,8 @@ func GetVersion() string {
 }
 
 // Initialize the crypto provider
+//
+// This must be called before any TLS operations. It's safe to call multiple times.
 func InitializeCryptoProvider() {
 	rustCall(func(_uniffiStatus *C.RustCallStatus) bool {
 		C.uniffi_slim_uniffi_fn_func_initialize_crypto_provider(_uniffiStatus)
