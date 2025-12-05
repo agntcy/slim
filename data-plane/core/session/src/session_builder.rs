@@ -9,8 +9,9 @@ use slim_datapath::messages::Name;
 use crate::{
     common::SessionMessage, errors::SessionError, session_config::SessionConfig,
     session_controller::SessionController, session_moderator::SessionModerator,
-    session_participant::SessionParticipant, session_settings::SessionSettings,
-    traits::MessageHandler, transmitter::SessionTransmitter,
+    session_participant::SessionParticipant, session_routes::SessionRoutes,
+    session_settings::SessionSettings, traits::MessageHandler,
+    transmitter::SessionTransmitter,
 };
 
 // Marker types for builder states
@@ -117,6 +118,7 @@ where
     storage_path: Option<std::path::PathBuf>,
     tx: Option<SessionTransmitter>,
     tx_to_session_layer: Option<tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>>,
+    routes_cache: Option<SessionRoutes>,
     graceful_shutdown_timeout: Option<std::time::Duration>,
     _target: PhantomData<Target>,
     _state: PhantomData<State>,
@@ -139,6 +141,7 @@ where
             storage_path: None,
             tx: None,
             tx_to_session_layer: None,
+            routes_cache: None,
             graceful_shutdown_timeout: None,
             _target: PhantomData,
             _state: PhantomData,
@@ -193,6 +196,11 @@ where
         self
     }
 
+    pub fn with_routes_cache(mut self, routes_cache: SessionRoutes) -> Self {
+        self.routes_cache = Some(routes_cache);
+        self
+    }
+
     pub fn with_graceful_shutdown_timeout(mut self, timeout: std::time::Duration) -> Self {
         self.graceful_shutdown_timeout = Some(timeout);
         self
@@ -209,6 +217,7 @@ where
             || self.storage_path.is_none()
             || self.tx.is_none()
             || self.tx_to_session_layer.is_none()
+            || self.routes_cache.is_none()
         {
             return Err(SessionError::ConfigurationError(
                 "Not all required fields are set in SessionBuilder".to_string(),
@@ -225,6 +234,7 @@ where
             storage_path: self.storage_path,
             tx: self.tx,
             tx_to_session_layer: self.tx_to_session_layer,
+            routes_cache: self.routes_cache,
             graceful_shutdown_timeout: self.graceful_shutdown_timeout,
             _target: PhantomData,
             _state: PhantomData,
@@ -281,6 +291,7 @@ where
         let source = self.source.clone().unwrap();
         let destination = self.destination.clone().unwrap();
         let config = self.config.clone().unwrap();
+        let routes_cache = self.routes_cache.clone().unwrap();
 
         let role = if config.initiator {
             "Moderator"
@@ -289,6 +300,8 @@ where
         };
         tracing::debug!("Building SessionController as {}", role);
 
+        
+
         let session_controller = if config.initiator {
             let (inner, tx, rx, settings) = self.build_session_stack(SessionModerator::new)?;
             SessionController::from_parts(
@@ -296,6 +309,7 @@ where
                 source,
                 destination,
                 config.clone(),
+                routes_cache,
                 settings,
                 tx,
                 rx,
@@ -303,7 +317,7 @@ where
             )
         } else {
             let (inner, tx, rx, settings) = self.build_session_stack(SessionParticipant::new)?;
-            SessionController::from_parts(id, source, destination, config, settings, tx, rx, inner)
+            SessionController::from_parts(id, source, destination, config, routes_cache, settings, tx, rx, inner)
         };
 
         Ok(session_controller)
@@ -348,6 +362,7 @@ where
             identity_provider: self.identity_provider.unwrap(),
             identity_verifier: self.identity_verifier.unwrap(),
             storage_path: self.storage_path.unwrap(),
+            routes_cache: self.routes_cache.clone().unwrap(),
             graceful_shutdown_timeout: self.graceful_shutdown_timeout,
         };
 

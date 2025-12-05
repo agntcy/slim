@@ -389,7 +389,7 @@ where
                 // same connection from where we got the message from the controller
                 let dst = Name::from(dst_name);
                 self.common
-                    .set_route(&dst, msg.get_incoming_conn())
+                    .add_route(&dst, msg.get_incoming_conn())
                     .await
                     .map_err(|e| self.handle_task_error(e))?;
 
@@ -450,7 +450,7 @@ where
 
         // set a route to the remote participant
         self.common
-            .set_route(&msg.get_source(), msg.get_incoming_conn())
+            .add_route(&msg.get_source(), msg.get_incoming_conn())
             .await?;
 
         // if this is a multicast session we need to add a route for the channel
@@ -459,7 +459,7 @@ where
         // different connections. In case the route exists already it will be just ignored
         if self.common.settings.config.session_type == ProtoSessionType::Multicast {
             self.common
-                .set_route(&self.common.settings.destination, msg.get_incoming_conn())
+                .add_route(&self.common.settings.destination, msg.get_incoming_conn())
                 .await?;
         }
 
@@ -1061,6 +1061,7 @@ mod tests {
             identity_provider,
             identity_verifier,
             storage_path,
+            routes_cache: crate::session_routes::SessionRoutes::default(),
             graceful_shutdown_timeout: None,
         };
 
@@ -1423,6 +1424,7 @@ mod tests {
             identity_provider,
             identity_verifier,
             storage_path,
+            routes_cache: crate::session_routes::SessionRoutes::default(),
             graceful_shutdown_timeout: None,
         };
 

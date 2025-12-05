@@ -250,7 +250,7 @@ where
         self.moderator_name = Some(source.clone());
 
         self.common
-            .set_route(&source, msg.get_incoming_conn())
+            .add_route(&source, msg.get_incoming_conn())
             .await?;
 
         let payload = if self.mls_state.is_some() {
@@ -445,7 +445,7 @@ where
         }
 
         self.common
-            .set_route(&self.common.settings.destination, msg.get_incoming_conn())
+            .add_route(&self.common.settings.destination, msg.get_incoming_conn())
             .await?;
         let sub = Message::builder()
             .source(self.common.settings.source.clone())
@@ -541,6 +541,7 @@ mod tests {
             identity_provider,
             identity_verifier,
             storage_path,
+            routes_cache: crate::session_routes::SessionRoutes::default(),
             graceful_shutdown_timeout: None,
         };
 

@@ -27,6 +27,7 @@ pub mod timer;
 pub mod timer_factory;
 pub mod traits;
 pub mod transmitter;
+pub mod session_routes;
 
 // Test utilities (only available during tests)
 #[cfg(test)]
