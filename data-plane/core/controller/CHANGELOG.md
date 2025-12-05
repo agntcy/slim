@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.4](https://github.com/agntcy/slim/compare/slim-controller-v0.4.3...slim-controller-v0.4.4) - 2025-12-05
+
+### Added
+
+- make backoff retry configurable ([#991](https://github.com/agntcy/slim/pull/991))
+
 ## [0.4.3](https://github.com/agntcy/slim/compare/slim-controller-v0.4.2...slim-controller-v0.4.3) - 2025-11-21
 
 ### Fixed
