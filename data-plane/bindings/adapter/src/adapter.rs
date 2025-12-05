@@ -322,11 +322,7 @@ async fn create_app_with_secret_async(
     let provider = AuthProvider::SharedSecret(shared_secret_impl.clone());
     let verifier = AuthVerifier::SharedSecret(shared_secret_impl);
 
-    let adapter = tokio::task::spawn_blocking(move || {
-        BindingsAdapter::new(slim_name, provider, verifier, false)
-    })
-    .await
-    .map_err(|e| ServiceError::ConfigError(format!("Task join error: {}", e)))??;
+    let adapter = BindingsAdapter::new(slim_name, provider, verifier, false)?;
 
     Ok(Arc::new(adapter))
 }
