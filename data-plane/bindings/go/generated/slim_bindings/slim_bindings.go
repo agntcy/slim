@@ -1,6 +1,6 @@
-package slim_uniffi
+package slim_bindings
 
-// #include <slim_uniffi.h>
+// #include <slim_bindings.h>
 import "C"
 
 import (
@@ -60,7 +60,7 @@ func (cb GoRustBuffer) AsReader() *bytes.Reader {
 
 func (cb GoRustBuffer) Free() {
 	rustCall(func(status *C.RustCallStatus) bool {
-		C.ffi_slim_uniffi_rustbuffer_free(cb.inner, status)
+		C.ffi_slim_bindings_rustbuffer_free(cb.inner, status)
 		return false
 	})
 }
@@ -85,7 +85,7 @@ func bytesToRustBuffer(b []byte) C.RustBuffer {
 	}
 
 	return rustCall(func(status *C.RustCallStatus) C.RustBuffer {
-		return C.ffi_slim_uniffi_rustbuffer_from_bytes(foreign, status)
+		return C.ffi_slim_bindings_rustbuffer_from_bytes(foreign, status)
 	})
 }
 
@@ -341,460 +341,460 @@ func uniffiCheckChecksums() {
 	bindingsContractVersion := 26
 	// Get the scaffolding contract version by calling the into the dylib
 	scaffoldingContractVersion := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint32_t {
-		return C.ffi_slim_uniffi_uniffi_contract_version()
+		return C.ffi_slim_bindings_uniffi_contract_version()
 	})
 	if bindingsContractVersion != int(scaffoldingContractVersion) {
 		// If this happens try cleaning and rebuilding your project
-		panic("slim_uniffi: UniFFI contract version mismatch")
+		panic("slim_bindings: UniFFI contract version mismatch")
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_func_create_app_with_secret()
+			return C.uniffi_slim_bindings_checksum_func_create_app_with_secret()
 		})
-		if checksum != 16309 {
+		if checksum != 8090 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_func_create_app_with_secret: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_func_create_app_with_secret: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_func_get_build_info()
+			return C.uniffi_slim_bindings_checksum_func_get_build_info()
 		})
-		if checksum != 43841 {
+		if checksum != 20767 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_func_get_build_info: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_func_get_build_info: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_func_get_version()
+			return C.uniffi_slim_bindings_checksum_func_get_version()
 		})
-		if checksum != 59357 {
+		if checksum != 28442 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_func_get_version: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_func_get_version: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_func_initialize_crypto_provider()
+			return C.uniffi_slim_bindings_checksum_func_initialize_crypto_provider()
 		})
-		if checksum != 45020 {
+		if checksum != 65424 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_func_initialize_crypto_provider: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_func_initialize_crypto_provider: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingsadapter_connect()
+			return C.uniffi_slim_bindings_checksum_method_bindingsadapter_connect()
 		})
-		if checksum != 52514 {
+		if checksum != 27094 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingsadapter_connect: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingsadapter_connect: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingsadapter_connect_async()
+			return C.uniffi_slim_bindings_checksum_method_bindingsadapter_connect_async()
 		})
-		if checksum != 55056 {
+		if checksum != 60988 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingsadapter_connect_async: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingsadapter_connect_async: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingsadapter_create_session()
+			return C.uniffi_slim_bindings_checksum_method_bindingsadapter_create_session()
 		})
-		if checksum != 15619 {
+		if checksum != 51245 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingsadapter_create_session: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingsadapter_create_session: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingsadapter_create_session_async()
+			return C.uniffi_slim_bindings_checksum_method_bindingsadapter_create_session_async()
 		})
-		if checksum != 4395 {
+		if checksum != 41646 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingsadapter_create_session_async: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingsadapter_create_session_async: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingsadapter_delete_session()
+			return C.uniffi_slim_bindings_checksum_method_bindingsadapter_delete_session()
 		})
-		if checksum != 42998 {
+		if checksum != 43581 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingsadapter_delete_session: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingsadapter_delete_session: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingsadapter_delete_session_async()
+			return C.uniffi_slim_bindings_checksum_method_bindingsadapter_delete_session_async()
 		})
-		if checksum != 27780 {
+		if checksum != 63854 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingsadapter_delete_session_async: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingsadapter_delete_session_async: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingsadapter_disconnect()
+			return C.uniffi_slim_bindings_checksum_method_bindingsadapter_disconnect()
 		})
-		if checksum != 26045 {
+		if checksum != 58917 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingsadapter_disconnect: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingsadapter_disconnect: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingsadapter_disconnect_async()
+			return C.uniffi_slim_bindings_checksum_method_bindingsadapter_disconnect_async()
 		})
-		if checksum != 2439 {
+		if checksum != 25893 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingsadapter_disconnect_async: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingsadapter_disconnect_async: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingsadapter_id()
+			return C.uniffi_slim_bindings_checksum_method_bindingsadapter_id()
 		})
-		if checksum != 25849 {
+		if checksum != 255 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingsadapter_id: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingsadapter_id: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingsadapter_listen_for_session()
+			return C.uniffi_slim_bindings_checksum_method_bindingsadapter_listen_for_session()
 		})
-		if checksum != 32153 {
+		if checksum != 17892 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingsadapter_listen_for_session: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingsadapter_listen_for_session: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingsadapter_listen_for_session_async()
+			return C.uniffi_slim_bindings_checksum_method_bindingsadapter_listen_for_session_async()
 		})
-		if checksum != 26275 {
+		if checksum != 38361 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingsadapter_listen_for_session_async: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingsadapter_listen_for_session_async: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingsadapter_name()
+			return C.uniffi_slim_bindings_checksum_method_bindingsadapter_name()
 		})
-		if checksum != 15082 {
+		if checksum != 52552 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingsadapter_name: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingsadapter_name: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingsadapter_remove_route()
+			return C.uniffi_slim_bindings_checksum_method_bindingsadapter_remove_route()
 		})
-		if checksum != 19630 {
+		if checksum != 38193 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingsadapter_remove_route: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingsadapter_remove_route: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingsadapter_remove_route_async()
+			return C.uniffi_slim_bindings_checksum_method_bindingsadapter_remove_route_async()
 		})
-		if checksum != 20543 {
+		if checksum != 19850 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingsadapter_remove_route_async: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingsadapter_remove_route_async: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingsadapter_run_server()
+			return C.uniffi_slim_bindings_checksum_method_bindingsadapter_run_server()
 		})
-		if checksum != 16275 {
+		if checksum != 10602 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingsadapter_run_server: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingsadapter_run_server: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingsadapter_run_server_async()
+			return C.uniffi_slim_bindings_checksum_method_bindingsadapter_run_server_async()
 		})
-		if checksum != 2670 {
+		if checksum != 15526 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingsadapter_run_server_async: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingsadapter_run_server_async: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingsadapter_set_route()
+			return C.uniffi_slim_bindings_checksum_method_bindingsadapter_set_route()
 		})
-		if checksum != 35835 {
+		if checksum != 15592 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingsadapter_set_route: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingsadapter_set_route: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingsadapter_set_route_async()
+			return C.uniffi_slim_bindings_checksum_method_bindingsadapter_set_route_async()
 		})
-		if checksum != 34541 {
+		if checksum != 3907 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingsadapter_set_route_async: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingsadapter_set_route_async: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingsadapter_stop_server()
+			return C.uniffi_slim_bindings_checksum_method_bindingsadapter_stop_server()
 		})
-		if checksum != 56301 {
+		if checksum != 5483 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingsadapter_stop_server: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingsadapter_stop_server: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingsadapter_subscribe()
+			return C.uniffi_slim_bindings_checksum_method_bindingsadapter_subscribe()
 		})
-		if checksum != 60014 {
+		if checksum != 20649 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingsadapter_subscribe: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingsadapter_subscribe: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingsadapter_subscribe_async()
+			return C.uniffi_slim_bindings_checksum_method_bindingsadapter_subscribe_async()
 		})
-		if checksum != 17572 {
+		if checksum != 53497 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingsadapter_subscribe_async: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingsadapter_subscribe_async: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingsadapter_unsubscribe()
+			return C.uniffi_slim_bindings_checksum_method_bindingsadapter_unsubscribe()
 		})
-		if checksum != 16690 {
+		if checksum != 62896 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingsadapter_unsubscribe: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingsadapter_unsubscribe: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingsadapter_unsubscribe_async()
+			return C.uniffi_slim_bindings_checksum_method_bindingsadapter_unsubscribe_async()
 		})
-		if checksum != 1141 {
+		if checksum != 10891 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingsadapter_unsubscribe_async: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingsadapter_unsubscribe_async: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingssessioncontext_destination()
+			return C.uniffi_slim_bindings_checksum_method_bindingssessioncontext_destination()
 		})
-		if checksum != 31698 {
+		if checksum != 53278 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingssessioncontext_destination: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingssessioncontext_destination: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingssessioncontext_get_message()
+			return C.uniffi_slim_bindings_checksum_method_bindingssessioncontext_get_message()
 		})
-		if checksum != 53632 {
+		if checksum != 32568 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingssessioncontext_get_message: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingssessioncontext_get_message: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingssessioncontext_get_message_async()
+			return C.uniffi_slim_bindings_checksum_method_bindingssessioncontext_get_message_async()
 		})
-		if checksum != 53313 {
+		if checksum != 34609 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingssessioncontext_get_message_async: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingssessioncontext_get_message_async: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingssessioncontext_invite()
+			return C.uniffi_slim_bindings_checksum_method_bindingssessioncontext_invite()
 		})
-		if checksum != 56933 {
+		if checksum != 32120 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingssessioncontext_invite: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingssessioncontext_invite: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingssessioncontext_invite_async()
+			return C.uniffi_slim_bindings_checksum_method_bindingssessioncontext_invite_async()
 		})
-		if checksum != 48431 {
+		if checksum != 55626 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingssessioncontext_invite_async: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingssessioncontext_invite_async: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingssessioncontext_is_initiator()
+			return C.uniffi_slim_bindings_checksum_method_bindingssessioncontext_is_initiator()
 		})
-		if checksum != 913 {
+		if checksum != 11659 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingssessioncontext_is_initiator: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingssessioncontext_is_initiator: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingssessioncontext_publish()
+			return C.uniffi_slim_bindings_checksum_method_bindingssessioncontext_publish()
 		})
-		if checksum != 22469 {
+		if checksum != 63851 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingssessioncontext_publish: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingssessioncontext_publish: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingssessioncontext_publish_async()
+			return C.uniffi_slim_bindings_checksum_method_bindingssessioncontext_publish_async()
 		})
-		if checksum != 31403 {
+		if checksum != 36943 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingssessioncontext_publish_async: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingssessioncontext_publish_async: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingssessioncontext_publish_to()
+			return C.uniffi_slim_bindings_checksum_method_bindingssessioncontext_publish_to()
 		})
-		if checksum != 62809 {
+		if checksum != 64932 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingssessioncontext_publish_to: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingssessioncontext_publish_to: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingssessioncontext_publish_to_async()
+			return C.uniffi_slim_bindings_checksum_method_bindingssessioncontext_publish_to_async()
 		})
-		if checksum != 60901 {
+		if checksum != 46041 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingssessioncontext_publish_to_async: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingssessioncontext_publish_to_async: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingssessioncontext_publish_to_with_completion()
+			return C.uniffi_slim_bindings_checksum_method_bindingssessioncontext_publish_to_with_completion()
 		})
-		if checksum != 59032 {
+		if checksum != 5189 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingssessioncontext_publish_to_with_completion: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingssessioncontext_publish_to_with_completion: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingssessioncontext_publish_to_with_completion_async()
+			return C.uniffi_slim_bindings_checksum_method_bindingssessioncontext_publish_to_with_completion_async()
 		})
-		if checksum != 55033 {
+		if checksum != 44848 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingssessioncontext_publish_to_with_completion_async: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingssessioncontext_publish_to_with_completion_async: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingssessioncontext_publish_with_completion()
+			return C.uniffi_slim_bindings_checksum_method_bindingssessioncontext_publish_with_completion()
 		})
-		if checksum != 35580 {
+		if checksum != 36035 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingssessioncontext_publish_with_completion: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingssessioncontext_publish_with_completion: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingssessioncontext_publish_with_completion_async()
+			return C.uniffi_slim_bindings_checksum_method_bindingssessioncontext_publish_with_completion_async()
 		})
-		if checksum != 8664 {
+		if checksum != 29252 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingssessioncontext_publish_with_completion_async: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingssessioncontext_publish_with_completion_async: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingssessioncontext_publish_with_params()
+			return C.uniffi_slim_bindings_checksum_method_bindingssessioncontext_publish_with_params()
 		})
-		if checksum != 21183 {
+		if checksum != 5665 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingssessioncontext_publish_with_params: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingssessioncontext_publish_with_params: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingssessioncontext_publish_with_params_async()
+			return C.uniffi_slim_bindings_checksum_method_bindingssessioncontext_publish_with_params_async()
 		})
-		if checksum != 53119 {
+		if checksum != 31616 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingssessioncontext_publish_with_params_async: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingssessioncontext_publish_with_params_async: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingssessioncontext_remove()
+			return C.uniffi_slim_bindings_checksum_method_bindingssessioncontext_remove()
 		})
-		if checksum != 21373 {
+		if checksum != 46627 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingssessioncontext_remove: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingssessioncontext_remove: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingssessioncontext_remove_async()
+			return C.uniffi_slim_bindings_checksum_method_bindingssessioncontext_remove_async()
 		})
-		if checksum != 20297 {
+		if checksum != 40982 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingssessioncontext_remove_async: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingssessioncontext_remove_async: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingssessioncontext_session_id()
+			return C.uniffi_slim_bindings_checksum_method_bindingssessioncontext_session_id()
 		})
-		if checksum != 22801 {
+		if checksum != 33411 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingssessioncontext_session_id: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingssessioncontext_session_id: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingssessioncontext_session_type()
+			return C.uniffi_slim_bindings_checksum_method_bindingssessioncontext_session_type()
 		})
-		if checksum != 62232 {
+		if checksum != 12628 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingssessioncontext_session_type: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingssessioncontext_session_type: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_bindingssessioncontext_source()
+			return C.uniffi_slim_bindings_checksum_method_bindingssessioncontext_source()
 		})
-		if checksum != 58064 {
+		if checksum != 40643 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_bindingssessioncontext_source: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingssessioncontext_source: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_fficompletionhandle_wait()
+			return C.uniffi_slim_bindings_checksum_method_fficompletionhandle_wait()
 		})
-		if checksum != 61130 {
+		if checksum != 29925 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_fficompletionhandle_wait: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_fficompletionhandle_wait: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_uniffi_checksum_method_fficompletionhandle_wait_async()
+			return C.uniffi_slim_bindings_checksum_method_fficompletionhandle_wait_async()
 		})
-		if checksum != 43296 {
+		if checksum != 64006 {
 			// If this happens try cleaning and rebuilding your project
-			panic("slim_uniffi: uniffi_slim_uniffi_checksum_method_fficompletionhandle_wait_async: UniFFI API checksum mismatch")
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_fficompletionhandle_wait_async: UniFFI API checksum mismatch")
 		}
 	}
 }
@@ -1148,7 +1148,7 @@ func (_self *BindingsAdapter) Connect(config ClientConfig) (uint64, error) {
 	_pointer := _self.ffiObject.incrementPointer("*BindingsAdapter")
 	defer _self.ffiObject.decrementPointer()
 	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) C.uint64_t {
-		return C.uniffi_slim_uniffi_fn_method_bindingsadapter_connect(
+		return C.uniffi_slim_bindings_fn_method_bindingsadapter_connect(
 			_pointer, FfiConverterClientConfigINSTANCE.Lower(config), _uniffiStatus)
 	})
 	if _uniffiErr != nil {
@@ -1170,22 +1170,22 @@ func (_self *BindingsAdapter) ConnectAsync(config ClientConfig) (uint64, error) 
 		FfiConverterSlimErrorINSTANCE,
 		// completeFn
 		func(handle C.uint64_t, status *C.RustCallStatus) C.uint64_t {
-			res := C.ffi_slim_uniffi_rust_future_complete_u64(handle, status)
+			res := C.ffi_slim_bindings_rust_future_complete_u64(handle, status)
 			return res
 		},
 		// liftFn
 		func(ffi C.uint64_t) uint64 {
 			return FfiConverterUint64INSTANCE.Lift(ffi)
 		},
-		C.uniffi_slim_uniffi_fn_method_bindingsadapter_connect_async(
+		C.uniffi_slim_bindings_fn_method_bindingsadapter_connect_async(
 			_pointer, FfiConverterClientConfigINSTANCE.Lower(config)),
 		// pollFn
 		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_poll_u64(handle, continuation, data)
+			C.ffi_slim_bindings_rust_future_poll_u64(handle, continuation, data)
 		},
 		// freeFn
 		func(handle C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_free_u64(handle)
+			C.ffi_slim_bindings_rust_future_free_u64(handle)
 		},
 	)
 
@@ -1197,7 +1197,7 @@ func (_self *BindingsAdapter) CreateSession(config SessionConfig, destination Na
 	_pointer := _self.ffiObject.incrementPointer("*BindingsAdapter")
 	defer _self.ffiObject.decrementPointer()
 	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
-		return C.uniffi_slim_uniffi_fn_method_bindingsadapter_create_session(
+		return C.uniffi_slim_bindings_fn_method_bindingsadapter_create_session(
 			_pointer, FfiConverterSessionConfigINSTANCE.Lower(config), FfiConverterNameINSTANCE.Lower(destination), _uniffiStatus)
 	})
 	if _uniffiErr != nil {
@@ -1221,22 +1221,22 @@ func (_self *BindingsAdapter) CreateSessionAsync(config SessionConfig, destinati
 		FfiConverterSlimErrorINSTANCE,
 		// completeFn
 		func(handle C.uint64_t, status *C.RustCallStatus) unsafe.Pointer {
-			res := C.ffi_slim_uniffi_rust_future_complete_pointer(handle, status)
+			res := C.ffi_slim_bindings_rust_future_complete_pointer(handle, status)
 			return res
 		},
 		// liftFn
 		func(ffi unsafe.Pointer) *BindingsSessionContext {
 			return FfiConverterBindingsSessionContextINSTANCE.Lift(ffi)
 		},
-		C.uniffi_slim_uniffi_fn_method_bindingsadapter_create_session_async(
+		C.uniffi_slim_bindings_fn_method_bindingsadapter_create_session_async(
 			_pointer, FfiConverterSessionConfigINSTANCE.Lower(config), FfiConverterNameINSTANCE.Lower(destination)),
 		// pollFn
 		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_poll_pointer(handle, continuation, data)
+			C.ffi_slim_bindings_rust_future_poll_pointer(handle, continuation, data)
 		},
 		// freeFn
 		func(handle C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_free_pointer(handle)
+			C.ffi_slim_bindings_rust_future_free_pointer(handle)
 		},
 	)
 
@@ -1248,7 +1248,7 @@ func (_self *BindingsAdapter) DeleteSession(session *BindingsSessionContext) err
 	_pointer := _self.ffiObject.incrementPointer("*BindingsAdapter")
 	defer _self.ffiObject.decrementPointer()
 	_, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) bool {
-		C.uniffi_slim_uniffi_fn_method_bindingsadapter_delete_session(
+		C.uniffi_slim_bindings_fn_method_bindingsadapter_delete_session(
 			_pointer, FfiConverterBindingsSessionContextINSTANCE.Lower(session), _uniffiStatus)
 		return false
 	})
@@ -1263,20 +1263,20 @@ func (_self *BindingsAdapter) DeleteSessionAsync(session *BindingsSessionContext
 		FfiConverterSlimErrorINSTANCE,
 		// completeFn
 		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
-			C.ffi_slim_uniffi_rust_future_complete_void(handle, status)
+			C.ffi_slim_bindings_rust_future_complete_void(handle, status)
 			return struct{}{}
 		},
 		// liftFn
 		func(_ struct{}) struct{} { return struct{}{} },
-		C.uniffi_slim_uniffi_fn_method_bindingsadapter_delete_session_async(
+		C.uniffi_slim_bindings_fn_method_bindingsadapter_delete_session_async(
 			_pointer, FfiConverterBindingsSessionContextINSTANCE.Lower(session)),
 		// pollFn
 		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_poll_void(handle, continuation, data)
+			C.ffi_slim_bindings_rust_future_poll_void(handle, continuation, data)
 		},
 		// freeFn
 		func(handle C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_free_void(handle)
+			C.ffi_slim_bindings_rust_future_free_void(handle)
 		},
 	)
 
@@ -1295,7 +1295,7 @@ func (_self *BindingsAdapter) Disconnect(connectionId uint64) error {
 	_pointer := _self.ffiObject.incrementPointer("*BindingsAdapter")
 	defer _self.ffiObject.decrementPointer()
 	_, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) bool {
-		C.uniffi_slim_uniffi_fn_method_bindingsadapter_disconnect(
+		C.uniffi_slim_bindings_fn_method_bindingsadapter_disconnect(
 			_pointer, FfiConverterUint64INSTANCE.Lower(connectionId), _uniffiStatus)
 		return false
 	})
@@ -1310,20 +1310,20 @@ func (_self *BindingsAdapter) DisconnectAsync(connectionId uint64) error {
 		FfiConverterSlimErrorINSTANCE,
 		// completeFn
 		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
-			C.ffi_slim_uniffi_rust_future_complete_void(handle, status)
+			C.ffi_slim_bindings_rust_future_complete_void(handle, status)
 			return struct{}{}
 		},
 		// liftFn
 		func(_ struct{}) struct{} { return struct{}{} },
-		C.uniffi_slim_uniffi_fn_method_bindingsadapter_disconnect_async(
+		C.uniffi_slim_bindings_fn_method_bindingsadapter_disconnect_async(
 			_pointer, FfiConverterUint64INSTANCE.Lower(connectionId)),
 		// pollFn
 		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_poll_void(handle, continuation, data)
+			C.ffi_slim_bindings_rust_future_poll_void(handle, continuation, data)
 		},
 		// freeFn
 		func(handle C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_free_void(handle)
+			C.ffi_slim_bindings_rust_future_free_void(handle)
 		},
 	)
 
@@ -1335,7 +1335,7 @@ func (_self *BindingsAdapter) Id() uint64 {
 	_pointer := _self.ffiObject.incrementPointer("*BindingsAdapter")
 	defer _self.ffiObject.decrementPointer()
 	return FfiConverterUint64INSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint64_t {
-		return C.uniffi_slim_uniffi_fn_method_bindingsadapter_id(
+		return C.uniffi_slim_bindings_fn_method_bindingsadapter_id(
 			_pointer, _uniffiStatus)
 	}))
 }
@@ -1345,7 +1345,7 @@ func (_self *BindingsAdapter) ListenForSession(timeoutMs *uint32) (*BindingsSess
 	_pointer := _self.ffiObject.incrementPointer("*BindingsAdapter")
 	defer _self.ffiObject.decrementPointer()
 	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
-		return C.uniffi_slim_uniffi_fn_method_bindingsadapter_listen_for_session(
+		return C.uniffi_slim_bindings_fn_method_bindingsadapter_listen_for_session(
 			_pointer, FfiConverterOptionalUint32INSTANCE.Lower(timeoutMs), _uniffiStatus)
 	})
 	if _uniffiErr != nil {
@@ -1364,22 +1364,22 @@ func (_self *BindingsAdapter) ListenForSessionAsync(timeoutMs *uint32) (*Binding
 		FfiConverterSlimErrorINSTANCE,
 		// completeFn
 		func(handle C.uint64_t, status *C.RustCallStatus) unsafe.Pointer {
-			res := C.ffi_slim_uniffi_rust_future_complete_pointer(handle, status)
+			res := C.ffi_slim_bindings_rust_future_complete_pointer(handle, status)
 			return res
 		},
 		// liftFn
 		func(ffi unsafe.Pointer) *BindingsSessionContext {
 			return FfiConverterBindingsSessionContextINSTANCE.Lift(ffi)
 		},
-		C.uniffi_slim_uniffi_fn_method_bindingsadapter_listen_for_session_async(
+		C.uniffi_slim_bindings_fn_method_bindingsadapter_listen_for_session_async(
 			_pointer, FfiConverterOptionalUint32INSTANCE.Lower(timeoutMs)),
 		// pollFn
 		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_poll_pointer(handle, continuation, data)
+			C.ffi_slim_bindings_rust_future_poll_pointer(handle, continuation, data)
 		},
 		// freeFn
 		func(handle C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_free_pointer(handle)
+			C.ffi_slim_bindings_rust_future_free_pointer(handle)
 		},
 	)
 
@@ -1392,7 +1392,7 @@ func (_self *BindingsAdapter) Name() Name {
 	defer _self.ffiObject.decrementPointer()
 	return FfiConverterNameINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
 		return GoRustBuffer{
-			inner: C.uniffi_slim_uniffi_fn_method_bindingsadapter_name(
+			inner: C.uniffi_slim_bindings_fn_method_bindingsadapter_name(
 				_pointer, _uniffiStatus),
 		}
 	}))
@@ -1403,7 +1403,7 @@ func (_self *BindingsAdapter) RemoveRoute(name Name, connectionId uint64) error 
 	_pointer := _self.ffiObject.incrementPointer("*BindingsAdapter")
 	defer _self.ffiObject.decrementPointer()
 	_, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) bool {
-		C.uniffi_slim_uniffi_fn_method_bindingsadapter_remove_route(
+		C.uniffi_slim_bindings_fn_method_bindingsadapter_remove_route(
 			_pointer, FfiConverterNameINSTANCE.Lower(name), FfiConverterUint64INSTANCE.Lower(connectionId), _uniffiStatus)
 		return false
 	})
@@ -1418,20 +1418,20 @@ func (_self *BindingsAdapter) RemoveRouteAsync(name Name, connectionId uint64) e
 		FfiConverterSlimErrorINSTANCE,
 		// completeFn
 		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
-			C.ffi_slim_uniffi_rust_future_complete_void(handle, status)
+			C.ffi_slim_bindings_rust_future_complete_void(handle, status)
 			return struct{}{}
 		},
 		// liftFn
 		func(_ struct{}) struct{} { return struct{}{} },
-		C.uniffi_slim_uniffi_fn_method_bindingsadapter_remove_route_async(
+		C.uniffi_slim_bindings_fn_method_bindingsadapter_remove_route_async(
 			_pointer, FfiConverterNameINSTANCE.Lower(name), FfiConverterUint64INSTANCE.Lower(connectionId)),
 		// pollFn
 		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_poll_void(handle, continuation, data)
+			C.ffi_slim_bindings_rust_future_poll_void(handle, continuation, data)
 		},
 		// freeFn
 		func(handle C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_free_void(handle)
+			C.ffi_slim_bindings_rust_future_free_void(handle)
 		},
 	)
 
@@ -1450,7 +1450,7 @@ func (_self *BindingsAdapter) RunServer(config ServerConfig) error {
 	_pointer := _self.ffiObject.incrementPointer("*BindingsAdapter")
 	defer _self.ffiObject.decrementPointer()
 	_, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) bool {
-		C.uniffi_slim_uniffi_fn_method_bindingsadapter_run_server(
+		C.uniffi_slim_bindings_fn_method_bindingsadapter_run_server(
 			_pointer, FfiConverterServerConfigINSTANCE.Lower(config), _uniffiStatus)
 		return false
 	})
@@ -1465,20 +1465,20 @@ func (_self *BindingsAdapter) RunServerAsync(config ServerConfig) error {
 		FfiConverterSlimErrorINSTANCE,
 		// completeFn
 		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
-			C.ffi_slim_uniffi_rust_future_complete_void(handle, status)
+			C.ffi_slim_bindings_rust_future_complete_void(handle, status)
 			return struct{}{}
 		},
 		// liftFn
 		func(_ struct{}) struct{} { return struct{}{} },
-		C.uniffi_slim_uniffi_fn_method_bindingsadapter_run_server_async(
+		C.uniffi_slim_bindings_fn_method_bindingsadapter_run_server_async(
 			_pointer, FfiConverterServerConfigINSTANCE.Lower(config)),
 		// pollFn
 		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_poll_void(handle, continuation, data)
+			C.ffi_slim_bindings_rust_future_poll_void(handle, continuation, data)
 		},
 		// freeFn
 		func(handle C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_free_void(handle)
+			C.ffi_slim_bindings_rust_future_free_void(handle)
 		},
 	)
 
@@ -1490,7 +1490,7 @@ func (_self *BindingsAdapter) SetRoute(name Name, connectionId uint64) error {
 	_pointer := _self.ffiObject.incrementPointer("*BindingsAdapter")
 	defer _self.ffiObject.decrementPointer()
 	_, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) bool {
-		C.uniffi_slim_uniffi_fn_method_bindingsadapter_set_route(
+		C.uniffi_slim_bindings_fn_method_bindingsadapter_set_route(
 			_pointer, FfiConverterNameINSTANCE.Lower(name), FfiConverterUint64INSTANCE.Lower(connectionId), _uniffiStatus)
 		return false
 	})
@@ -1505,20 +1505,20 @@ func (_self *BindingsAdapter) SetRouteAsync(name Name, connectionId uint64) erro
 		FfiConverterSlimErrorINSTANCE,
 		// completeFn
 		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
-			C.ffi_slim_uniffi_rust_future_complete_void(handle, status)
+			C.ffi_slim_bindings_rust_future_complete_void(handle, status)
 			return struct{}{}
 		},
 		// liftFn
 		func(_ struct{}) struct{} { return struct{}{} },
-		C.uniffi_slim_uniffi_fn_method_bindingsadapter_set_route_async(
+		C.uniffi_slim_bindings_fn_method_bindingsadapter_set_route_async(
 			_pointer, FfiConverterNameINSTANCE.Lower(name), FfiConverterUint64INSTANCE.Lower(connectionId)),
 		// pollFn
 		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_poll_void(handle, continuation, data)
+			C.ffi_slim_bindings_rust_future_poll_void(handle, continuation, data)
 		},
 		// freeFn
 		func(handle C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_free_void(handle)
+			C.ffi_slim_bindings_rust_future_free_void(handle)
 		},
 	)
 
@@ -1537,7 +1537,7 @@ func (_self *BindingsAdapter) StopServer(endpoint string) error {
 	_pointer := _self.ffiObject.incrementPointer("*BindingsAdapter")
 	defer _self.ffiObject.decrementPointer()
 	_, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) bool {
-		C.uniffi_slim_uniffi_fn_method_bindingsadapter_stop_server(
+		C.uniffi_slim_bindings_fn_method_bindingsadapter_stop_server(
 			_pointer, FfiConverterStringINSTANCE.Lower(endpoint), _uniffiStatus)
 		return false
 	})
@@ -1549,7 +1549,7 @@ func (_self *BindingsAdapter) Subscribe(name Name, connectionId *uint64) error {
 	_pointer := _self.ffiObject.incrementPointer("*BindingsAdapter")
 	defer _self.ffiObject.decrementPointer()
 	_, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) bool {
-		C.uniffi_slim_uniffi_fn_method_bindingsadapter_subscribe(
+		C.uniffi_slim_bindings_fn_method_bindingsadapter_subscribe(
 			_pointer, FfiConverterNameINSTANCE.Lower(name), FfiConverterOptionalUint64INSTANCE.Lower(connectionId), _uniffiStatus)
 		return false
 	})
@@ -1564,20 +1564,20 @@ func (_self *BindingsAdapter) SubscribeAsync(name Name, connectionId *uint64) er
 		FfiConverterSlimErrorINSTANCE,
 		// completeFn
 		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
-			C.ffi_slim_uniffi_rust_future_complete_void(handle, status)
+			C.ffi_slim_bindings_rust_future_complete_void(handle, status)
 			return struct{}{}
 		},
 		// liftFn
 		func(_ struct{}) struct{} { return struct{}{} },
-		C.uniffi_slim_uniffi_fn_method_bindingsadapter_subscribe_async(
+		C.uniffi_slim_bindings_fn_method_bindingsadapter_subscribe_async(
 			_pointer, FfiConverterNameINSTANCE.Lower(name), FfiConverterOptionalUint64INSTANCE.Lower(connectionId)),
 		// pollFn
 		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_poll_void(handle, continuation, data)
+			C.ffi_slim_bindings_rust_future_poll_void(handle, continuation, data)
 		},
 		// freeFn
 		func(handle C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_free_void(handle)
+			C.ffi_slim_bindings_rust_future_free_void(handle)
 		},
 	)
 
@@ -1589,7 +1589,7 @@ func (_self *BindingsAdapter) Unsubscribe(name Name, connectionId *uint64) error
 	_pointer := _self.ffiObject.incrementPointer("*BindingsAdapter")
 	defer _self.ffiObject.decrementPointer()
 	_, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) bool {
-		C.uniffi_slim_uniffi_fn_method_bindingsadapter_unsubscribe(
+		C.uniffi_slim_bindings_fn_method_bindingsadapter_unsubscribe(
 			_pointer, FfiConverterNameINSTANCE.Lower(name), FfiConverterOptionalUint64INSTANCE.Lower(connectionId), _uniffiStatus)
 		return false
 	})
@@ -1604,20 +1604,20 @@ func (_self *BindingsAdapter) UnsubscribeAsync(name Name, connectionId *uint64) 
 		FfiConverterSlimErrorINSTANCE,
 		// completeFn
 		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
-			C.ffi_slim_uniffi_rust_future_complete_void(handle, status)
+			C.ffi_slim_bindings_rust_future_complete_void(handle, status)
 			return struct{}{}
 		},
 		// liftFn
 		func(_ struct{}) struct{} { return struct{}{} },
-		C.uniffi_slim_uniffi_fn_method_bindingsadapter_unsubscribe_async(
+		C.uniffi_slim_bindings_fn_method_bindingsadapter_unsubscribe_async(
 			_pointer, FfiConverterNameINSTANCE.Lower(name), FfiConverterOptionalUint64INSTANCE.Lower(connectionId)),
 		// pollFn
 		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_poll_void(handle, continuation, data)
+			C.ffi_slim_bindings_rust_future_poll_void(handle, continuation, data)
 		},
 		// freeFn
 		func(handle C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_free_void(handle)
+			C.ffi_slim_bindings_rust_future_free_void(handle)
 		},
 	)
 
@@ -1637,10 +1637,10 @@ func (c FfiConverterBindingsAdapter) Lift(pointer unsafe.Pointer) *BindingsAdapt
 		newFfiObject(
 			pointer,
 			func(pointer unsafe.Pointer, status *C.RustCallStatus) unsafe.Pointer {
-				return C.uniffi_slim_uniffi_fn_clone_bindingsadapter(pointer, status)
+				return C.uniffi_slim_bindings_fn_clone_bindingsadapter(pointer, status)
 			},
 			func(pointer unsafe.Pointer, status *C.RustCallStatus) {
-				C.uniffi_slim_uniffi_fn_free_bindingsadapter(pointer, status)
+				C.uniffi_slim_bindings_fn_free_bindingsadapter(pointer, status)
 			},
 		),
 	}
@@ -1831,7 +1831,7 @@ func (_self *BindingsSessionContext) Destination() (Name, error) {
 	defer _self.ffiObject.decrementPointer()
 	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
 		return GoRustBuffer{
-			inner: C.uniffi_slim_uniffi_fn_method_bindingssessioncontext_destination(
+			inner: C.uniffi_slim_bindings_fn_method_bindingssessioncontext_destination(
 				_pointer, _uniffiStatus),
 		}
 	})
@@ -1856,7 +1856,7 @@ func (_self *BindingsSessionContext) GetMessage(timeoutMs *uint32) (ReceivedMess
 	defer _self.ffiObject.decrementPointer()
 	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
 		return GoRustBuffer{
-			inner: C.uniffi_slim_uniffi_fn_method_bindingssessioncontext_get_message(
+			inner: C.uniffi_slim_bindings_fn_method_bindingssessioncontext_get_message(
 				_pointer, FfiConverterOptionalUint32INSTANCE.Lower(timeoutMs), _uniffiStatus),
 		}
 	})
@@ -1876,7 +1876,7 @@ func (_self *BindingsSessionContext) GetMessageAsync(timeoutMs *uint32) (Receive
 		FfiConverterSlimErrorINSTANCE,
 		// completeFn
 		func(handle C.uint64_t, status *C.RustCallStatus) RustBufferI {
-			res := C.ffi_slim_uniffi_rust_future_complete_rust_buffer(handle, status)
+			res := C.ffi_slim_bindings_rust_future_complete_rust_buffer(handle, status)
 			return GoRustBuffer{
 				inner: res,
 			}
@@ -1885,15 +1885,15 @@ func (_self *BindingsSessionContext) GetMessageAsync(timeoutMs *uint32) (Receive
 		func(ffi RustBufferI) ReceivedMessage {
 			return FfiConverterReceivedMessageINSTANCE.Lift(ffi)
 		},
-		C.uniffi_slim_uniffi_fn_method_bindingssessioncontext_get_message_async(
+		C.uniffi_slim_bindings_fn_method_bindingssessioncontext_get_message_async(
 			_pointer, FfiConverterOptionalUint32INSTANCE.Lower(timeoutMs)),
 		// pollFn
 		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_poll_rust_buffer(handle, continuation, data)
+			C.ffi_slim_bindings_rust_future_poll_rust_buffer(handle, continuation, data)
 		},
 		// freeFn
 		func(handle C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_free_rust_buffer(handle)
+			C.ffi_slim_bindings_rust_future_free_rust_buffer(handle)
 		},
 	)
 
@@ -1908,7 +1908,7 @@ func (_self *BindingsSessionContext) Invite(participant Name) error {
 	_pointer := _self.ffiObject.incrementPointer("*BindingsSessionContext")
 	defer _self.ffiObject.decrementPointer()
 	_, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) bool {
-		C.uniffi_slim_uniffi_fn_method_bindingssessioncontext_invite(
+		C.uniffi_slim_bindings_fn_method_bindingssessioncontext_invite(
 			_pointer, FfiConverterNameINSTANCE.Lower(participant), _uniffiStatus)
 		return false
 	})
@@ -1926,20 +1926,20 @@ func (_self *BindingsSessionContext) InviteAsync(participant Name) error {
 		FfiConverterSlimErrorINSTANCE,
 		// completeFn
 		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
-			C.ffi_slim_uniffi_rust_future_complete_void(handle, status)
+			C.ffi_slim_bindings_rust_future_complete_void(handle, status)
 			return struct{}{}
 		},
 		// liftFn
 		func(_ struct{}) struct{} { return struct{}{} },
-		C.uniffi_slim_uniffi_fn_method_bindingssessioncontext_invite_async(
+		C.uniffi_slim_bindings_fn_method_bindingssessioncontext_invite_async(
 			_pointer, FfiConverterNameINSTANCE.Lower(participant)),
 		// pollFn
 		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_poll_void(handle, continuation, data)
+			C.ffi_slim_bindings_rust_future_poll_void(handle, continuation, data)
 		},
 		// freeFn
 		func(handle C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_free_void(handle)
+			C.ffi_slim_bindings_rust_future_free_void(handle)
 		},
 	)
 
@@ -1951,7 +1951,7 @@ func (_self *BindingsSessionContext) IsInitiator() (bool, error) {
 	_pointer := _self.ffiObject.incrementPointer("*BindingsSessionContext")
 	defer _self.ffiObject.decrementPointer()
 	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) C.int8_t {
-		return C.uniffi_slim_uniffi_fn_method_bindingssessioncontext_is_initiator(
+		return C.uniffi_slim_bindings_fn_method_bindingssessioncontext_is_initiator(
 			_pointer, _uniffiStatus)
 	})
 	if _uniffiErr != nil {
@@ -1985,7 +1985,7 @@ func (_self *BindingsSessionContext) Publish(data []byte, payloadType *string, m
 	_pointer := _self.ffiObject.incrementPointer("*BindingsSessionContext")
 	defer _self.ffiObject.decrementPointer()
 	_, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) bool {
-		C.uniffi_slim_uniffi_fn_method_bindingssessioncontext_publish(
+		C.uniffi_slim_bindings_fn_method_bindingssessioncontext_publish(
 			_pointer, FfiConverterBytesINSTANCE.Lower(data), FfiConverterOptionalStringINSTANCE.Lower(payloadType), FfiConverterOptionalMapStringStringINSTANCE.Lower(metadata), _uniffiStatus)
 		return false
 	})
@@ -2000,20 +2000,20 @@ func (_self *BindingsSessionContext) PublishAsync(data []byte, payloadType *stri
 		FfiConverterSlimErrorINSTANCE,
 		// completeFn
 		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
-			C.ffi_slim_uniffi_rust_future_complete_void(handle, status)
+			C.ffi_slim_bindings_rust_future_complete_void(handle, status)
 			return struct{}{}
 		},
 		// liftFn
 		func(_ struct{}) struct{} { return struct{}{} },
-		C.uniffi_slim_uniffi_fn_method_bindingssessioncontext_publish_async(
+		C.uniffi_slim_bindings_fn_method_bindingssessioncontext_publish_async(
 			_pointer, FfiConverterBytesINSTANCE.Lower(data), FfiConverterOptionalStringINSTANCE.Lower(payloadType), FfiConverterOptionalMapStringStringINSTANCE.Lower(metadata)),
 		// pollFn
 		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_poll_void(handle, continuation, data)
+			C.ffi_slim_bindings_rust_future_poll_void(handle, continuation, data)
 		},
 		// freeFn
 		func(handle C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_free_void(handle)
+			C.ffi_slim_bindings_rust_future_free_void(handle)
 		},
 	)
 
@@ -2039,7 +2039,7 @@ func (_self *BindingsSessionContext) PublishTo(messageContext MessageContext, da
 	_pointer := _self.ffiObject.incrementPointer("*BindingsSessionContext")
 	defer _self.ffiObject.decrementPointer()
 	_, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) bool {
-		C.uniffi_slim_uniffi_fn_method_bindingssessioncontext_publish_to(
+		C.uniffi_slim_bindings_fn_method_bindingssessioncontext_publish_to(
 			_pointer, FfiConverterMessageContextINSTANCE.Lower(messageContext), FfiConverterBytesINSTANCE.Lower(data), FfiConverterOptionalStringINSTANCE.Lower(payloadType), FfiConverterOptionalMapStringStringINSTANCE.Lower(metadata), _uniffiStatus)
 		return false
 	})
@@ -2054,20 +2054,20 @@ func (_self *BindingsSessionContext) PublishToAsync(messageContext MessageContex
 		FfiConverterSlimErrorINSTANCE,
 		// completeFn
 		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
-			C.ffi_slim_uniffi_rust_future_complete_void(handle, status)
+			C.ffi_slim_bindings_rust_future_complete_void(handle, status)
 			return struct{}{}
 		},
 		// liftFn
 		func(_ struct{}) struct{} { return struct{}{} },
-		C.uniffi_slim_uniffi_fn_method_bindingssessioncontext_publish_to_async(
+		C.uniffi_slim_bindings_fn_method_bindingssessioncontext_publish_to_async(
 			_pointer, FfiConverterMessageContextINSTANCE.Lower(messageContext), FfiConverterBytesINSTANCE.Lower(data), FfiConverterOptionalStringINSTANCE.Lower(payloadType), FfiConverterOptionalMapStringStringINSTANCE.Lower(metadata)),
 		// pollFn
 		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_poll_void(handle, continuation, data)
+			C.ffi_slim_bindings_rust_future_poll_void(handle, continuation, data)
 		},
 		// freeFn
 		func(handle C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_free_void(handle)
+			C.ffi_slim_bindings_rust_future_free_void(handle)
 		},
 	)
 
@@ -2092,7 +2092,7 @@ func (_self *BindingsSessionContext) PublishToWithCompletion(messageContext Mess
 	_pointer := _self.ffiObject.incrementPointer("*BindingsSessionContext")
 	defer _self.ffiObject.decrementPointer()
 	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
-		return C.uniffi_slim_uniffi_fn_method_bindingssessioncontext_publish_to_with_completion(
+		return C.uniffi_slim_bindings_fn_method_bindingssessioncontext_publish_to_with_completion(
 			_pointer, FfiConverterMessageContextINSTANCE.Lower(messageContext), FfiConverterBytesINSTANCE.Lower(data), FfiConverterOptionalStringINSTANCE.Lower(payloadType), FfiConverterOptionalMapStringStringINSTANCE.Lower(metadata), _uniffiStatus)
 	})
 	if _uniffiErr != nil {
@@ -2111,22 +2111,22 @@ func (_self *BindingsSessionContext) PublishToWithCompletionAsync(messageContext
 		FfiConverterSlimErrorINSTANCE,
 		// completeFn
 		func(handle C.uint64_t, status *C.RustCallStatus) unsafe.Pointer {
-			res := C.ffi_slim_uniffi_rust_future_complete_pointer(handle, status)
+			res := C.ffi_slim_bindings_rust_future_complete_pointer(handle, status)
 			return res
 		},
 		// liftFn
 		func(ffi unsafe.Pointer) *FfiCompletionHandle {
 			return FfiConverterFfiCompletionHandleINSTANCE.Lift(ffi)
 		},
-		C.uniffi_slim_uniffi_fn_method_bindingssessioncontext_publish_to_with_completion_async(
+		C.uniffi_slim_bindings_fn_method_bindingssessioncontext_publish_to_with_completion_async(
 			_pointer, FfiConverterMessageContextINSTANCE.Lower(messageContext), FfiConverterBytesINSTANCE.Lower(data), FfiConverterOptionalStringINSTANCE.Lower(payloadType), FfiConverterOptionalMapStringStringINSTANCE.Lower(metadata)),
 		// pollFn
 		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_poll_pointer(handle, continuation, data)
+			C.ffi_slim_bindings_rust_future_poll_pointer(handle, continuation, data)
 		},
 		// freeFn
 		func(handle C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_free_pointer(handle)
+			C.ffi_slim_bindings_rust_future_free_pointer(handle)
 		},
 	)
 
@@ -2159,7 +2159,7 @@ func (_self *BindingsSessionContext) PublishWithCompletion(data []byte, payloadT
 	_pointer := _self.ffiObject.incrementPointer("*BindingsSessionContext")
 	defer _self.ffiObject.decrementPointer()
 	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
-		return C.uniffi_slim_uniffi_fn_method_bindingssessioncontext_publish_with_completion(
+		return C.uniffi_slim_bindings_fn_method_bindingssessioncontext_publish_with_completion(
 			_pointer, FfiConverterBytesINSTANCE.Lower(data), FfiConverterOptionalStringINSTANCE.Lower(payloadType), FfiConverterOptionalMapStringStringINSTANCE.Lower(metadata), _uniffiStatus)
 	})
 	if _uniffiErr != nil {
@@ -2178,22 +2178,22 @@ func (_self *BindingsSessionContext) PublishWithCompletionAsync(data []byte, pay
 		FfiConverterSlimErrorINSTANCE,
 		// completeFn
 		func(handle C.uint64_t, status *C.RustCallStatus) unsafe.Pointer {
-			res := C.ffi_slim_uniffi_rust_future_complete_pointer(handle, status)
+			res := C.ffi_slim_bindings_rust_future_complete_pointer(handle, status)
 			return res
 		},
 		// liftFn
 		func(ffi unsafe.Pointer) *FfiCompletionHandle {
 			return FfiConverterFfiCompletionHandleINSTANCE.Lift(ffi)
 		},
-		C.uniffi_slim_uniffi_fn_method_bindingssessioncontext_publish_with_completion_async(
+		C.uniffi_slim_bindings_fn_method_bindingssessioncontext_publish_with_completion_async(
 			_pointer, FfiConverterBytesINSTANCE.Lower(data), FfiConverterOptionalStringINSTANCE.Lower(payloadType), FfiConverterOptionalMapStringStringINSTANCE.Lower(metadata)),
 		// pollFn
 		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_poll_pointer(handle, continuation, data)
+			C.ffi_slim_bindings_rust_future_poll_pointer(handle, continuation, data)
 		},
 		// freeFn
 		func(handle C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_free_pointer(handle)
+			C.ffi_slim_bindings_rust_future_free_pointer(handle)
 		},
 	)
 
@@ -2216,7 +2216,7 @@ func (_self *BindingsSessionContext) PublishWithParams(destination Name, fanout 
 	_pointer := _self.ffiObject.incrementPointer("*BindingsSessionContext")
 	defer _self.ffiObject.decrementPointer()
 	_, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) bool {
-		C.uniffi_slim_uniffi_fn_method_bindingssessioncontext_publish_with_params(
+		C.uniffi_slim_bindings_fn_method_bindingssessioncontext_publish_with_params(
 			_pointer, FfiConverterNameINSTANCE.Lower(destination), FfiConverterUint32INSTANCE.Lower(fanout), FfiConverterBytesINSTANCE.Lower(data), FfiConverterOptionalUint64INSTANCE.Lower(connectionOut), FfiConverterOptionalStringINSTANCE.Lower(payloadType), FfiConverterOptionalMapStringStringINSTANCE.Lower(metadata), _uniffiStatus)
 		return false
 	})
@@ -2231,20 +2231,20 @@ func (_self *BindingsSessionContext) PublishWithParamsAsync(destination Name, fa
 		FfiConverterSlimErrorINSTANCE,
 		// completeFn
 		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
-			C.ffi_slim_uniffi_rust_future_complete_void(handle, status)
+			C.ffi_slim_bindings_rust_future_complete_void(handle, status)
 			return struct{}{}
 		},
 		// liftFn
 		func(_ struct{}) struct{} { return struct{}{} },
-		C.uniffi_slim_uniffi_fn_method_bindingssessioncontext_publish_with_params_async(
+		C.uniffi_slim_bindings_fn_method_bindingssessioncontext_publish_with_params_async(
 			_pointer, FfiConverterNameINSTANCE.Lower(destination), FfiConverterUint32INSTANCE.Lower(fanout), FfiConverterBytesINSTANCE.Lower(data), FfiConverterOptionalUint64INSTANCE.Lower(connectionOut), FfiConverterOptionalStringINSTANCE.Lower(payloadType), FfiConverterOptionalMapStringStringINSTANCE.Lower(metadata)),
 		// pollFn
 		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_poll_void(handle, continuation, data)
+			C.ffi_slim_bindings_rust_future_poll_void(handle, continuation, data)
 		},
 		// freeFn
 		func(handle C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_free_void(handle)
+			C.ffi_slim_bindings_rust_future_free_void(handle)
 		},
 	)
 
@@ -2259,7 +2259,7 @@ func (_self *BindingsSessionContext) Remove(participant Name) error {
 	_pointer := _self.ffiObject.incrementPointer("*BindingsSessionContext")
 	defer _self.ffiObject.decrementPointer()
 	_, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) bool {
-		C.uniffi_slim_uniffi_fn_method_bindingssessioncontext_remove(
+		C.uniffi_slim_bindings_fn_method_bindingssessioncontext_remove(
 			_pointer, FfiConverterNameINSTANCE.Lower(participant), _uniffiStatus)
 		return false
 	})
@@ -2277,20 +2277,20 @@ func (_self *BindingsSessionContext) RemoveAsync(participant Name) error {
 		FfiConverterSlimErrorINSTANCE,
 		// completeFn
 		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
-			C.ffi_slim_uniffi_rust_future_complete_void(handle, status)
+			C.ffi_slim_bindings_rust_future_complete_void(handle, status)
 			return struct{}{}
 		},
 		// liftFn
 		func(_ struct{}) struct{} { return struct{}{} },
-		C.uniffi_slim_uniffi_fn_method_bindingssessioncontext_remove_async(
+		C.uniffi_slim_bindings_fn_method_bindingssessioncontext_remove_async(
 			_pointer, FfiConverterNameINSTANCE.Lower(participant)),
 		// pollFn
 		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_poll_void(handle, continuation, data)
+			C.ffi_slim_bindings_rust_future_poll_void(handle, continuation, data)
 		},
 		// freeFn
 		func(handle C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_free_void(handle)
+			C.ffi_slim_bindings_rust_future_free_void(handle)
 		},
 	)
 
@@ -2302,7 +2302,7 @@ func (_self *BindingsSessionContext) SessionId() (uint32, error) {
 	_pointer := _self.ffiObject.incrementPointer("*BindingsSessionContext")
 	defer _self.ffiObject.decrementPointer()
 	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) C.uint32_t {
-		return C.uniffi_slim_uniffi_fn_method_bindingssessioncontext_session_id(
+		return C.uniffi_slim_bindings_fn_method_bindingssessioncontext_session_id(
 			_pointer, _uniffiStatus)
 	})
 	if _uniffiErr != nil {
@@ -2319,7 +2319,7 @@ func (_self *BindingsSessionContext) SessionType() (SessionType, error) {
 	defer _self.ffiObject.decrementPointer()
 	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
 		return GoRustBuffer{
-			inner: C.uniffi_slim_uniffi_fn_method_bindingssessioncontext_session_type(
+			inner: C.uniffi_slim_bindings_fn_method_bindingssessioncontext_session_type(
 				_pointer, _uniffiStatus),
 		}
 	})
@@ -2337,7 +2337,7 @@ func (_self *BindingsSessionContext) Source() (Name, error) {
 	defer _self.ffiObject.decrementPointer()
 	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
 		return GoRustBuffer{
-			inner: C.uniffi_slim_uniffi_fn_method_bindingssessioncontext_source(
+			inner: C.uniffi_slim_bindings_fn_method_bindingssessioncontext_source(
 				_pointer, _uniffiStatus),
 		}
 	})
@@ -2362,10 +2362,10 @@ func (c FfiConverterBindingsSessionContext) Lift(pointer unsafe.Pointer) *Bindin
 		newFfiObject(
 			pointer,
 			func(pointer unsafe.Pointer, status *C.RustCallStatus) unsafe.Pointer {
-				return C.uniffi_slim_uniffi_fn_clone_bindingssessioncontext(pointer, status)
+				return C.uniffi_slim_bindings_fn_clone_bindingssessioncontext(pointer, status)
 			},
 			func(pointer unsafe.Pointer, status *C.RustCallStatus) {
-				C.uniffi_slim_uniffi_fn_free_bindingssessioncontext(pointer, status)
+				C.uniffi_slim_bindings_fn_free_bindingssessioncontext(pointer, status)
 			},
 		),
 	}
@@ -2479,7 +2479,7 @@ func (_self *FfiCompletionHandle) Wait() error {
 	_pointer := _self.ffiObject.incrementPointer("*FfiCompletionHandle")
 	defer _self.ffiObject.decrementPointer()
 	_, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) bool {
-		C.uniffi_slim_uniffi_fn_method_fficompletionhandle_wait(
+		C.uniffi_slim_bindings_fn_method_fficompletionhandle_wait(
 			_pointer, _uniffiStatus)
 		return false
 	})
@@ -2504,20 +2504,20 @@ func (_self *FfiCompletionHandle) WaitAsync() error {
 		FfiConverterSlimErrorINSTANCE,
 		// completeFn
 		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
-			C.ffi_slim_uniffi_rust_future_complete_void(handle, status)
+			C.ffi_slim_bindings_rust_future_complete_void(handle, status)
 			return struct{}{}
 		},
 		// liftFn
 		func(_ struct{}) struct{} { return struct{}{} },
-		C.uniffi_slim_uniffi_fn_method_fficompletionhandle_wait_async(
+		C.uniffi_slim_bindings_fn_method_fficompletionhandle_wait_async(
 			_pointer),
 		// pollFn
 		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_poll_void(handle, continuation, data)
+			C.ffi_slim_bindings_rust_future_poll_void(handle, continuation, data)
 		},
 		// freeFn
 		func(handle C.uint64_t) {
-			C.ffi_slim_uniffi_rust_future_free_void(handle)
+			C.ffi_slim_bindings_rust_future_free_void(handle)
 		},
 	)
 
@@ -2537,10 +2537,10 @@ func (c FfiConverterFfiCompletionHandle) Lift(pointer unsafe.Pointer) *FfiComple
 		newFfiObject(
 			pointer,
 			func(pointer unsafe.Pointer, status *C.RustCallStatus) unsafe.Pointer {
-				return C.uniffi_slim_uniffi_fn_clone_fficompletionhandle(pointer, status)
+				return C.uniffi_slim_bindings_fn_clone_fficompletionhandle(pointer, status)
 			},
 			func(pointer unsafe.Pointer, status *C.RustCallStatus) {
-				C.uniffi_slim_uniffi_fn_free_fficompletionhandle(pointer, status)
+				C.uniffi_slim_bindings_fn_free_fficompletionhandle(pointer, status)
 			},
 		),
 	}
@@ -3695,8 +3695,8 @@ type rustFuturePollFunc func(C.uint64_t, C.UniffiRustFutureContinuationCallback,
 type rustFutureCompleteFunc[T any] func(C.uint64_t, *C.RustCallStatus) T
 type rustFutureFreeFunc func(C.uint64_t)
 
-//export slim_uniffi_uniffiFutureContinuationCallback
-func slim_uniffi_uniffiFutureContinuationCallback(data C.uint64_t, pollResult C.int8_t) {
+//export slim_bindings_uniffiFutureContinuationCallback
+func slim_bindings_uniffiFutureContinuationCallback(data C.uint64_t, pollResult C.int8_t) {
 	h := cgo.Handle(uintptr(data))
 	waiter := h.Value().(chan int8)
 	waiter <- int8(pollResult)
@@ -3721,7 +3721,7 @@ func uniffiRustCallAsync[E any, T any, F any](
 	for pollResult != uniffiRustFuturePollReady {
 		pollFunc(
 			rustFuture,
-			(C.UniffiRustFutureContinuationCallback)(C.slim_uniffi_uniffiFutureContinuationCallback),
+			(C.UniffiRustFutureContinuationCallback)(C.slim_bindings_uniffiFutureContinuationCallback),
 			C.uint64_t(chanHandle),
 		)
 		pollResult = <-waiter
@@ -3740,8 +3740,8 @@ func uniffiRustCallAsync[E any, T any, F any](
 	return liftFunc(ffiValue), nil
 }
 
-//export slim_uniffi_uniffiFreeGorutine
-func slim_uniffi_uniffiFreeGorutine(data C.uint64_t) {
+//export slim_bindings_uniffiFreeGorutine
+func slim_bindings_uniffiFreeGorutine(data C.uint64_t) {
 	handle := cgo.Handle(uintptr(data))
 	defer handle.Delete()
 
@@ -3754,7 +3754,7 @@ func slim_uniffi_uniffiFreeGorutine(data C.uint64_t) {
 // This is the main entry point for creating a SLIM application from language bindings.
 func CreateAppWithSecret(appName Name, sharedSecret string) (*BindingsAdapter, error) {
 	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
-		return C.uniffi_slim_uniffi_fn_func_create_app_with_secret(FfiConverterNameINSTANCE.Lower(appName), FfiConverterStringINSTANCE.Lower(sharedSecret), _uniffiStatus)
+		return C.uniffi_slim_bindings_fn_func_create_app_with_secret(FfiConverterNameINSTANCE.Lower(appName), FfiConverterStringINSTANCE.Lower(sharedSecret), _uniffiStatus)
 	})
 	if _uniffiErr != nil {
 		var _uniffiDefaultValue *BindingsAdapter
@@ -3768,7 +3768,7 @@ func CreateAppWithSecret(appName Name, sharedSecret string) (*BindingsAdapter, e
 func GetBuildInfo() BuildInfo {
 	return FfiConverterBuildInfoINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
 		return GoRustBuffer{
-			inner: C.uniffi_slim_uniffi_fn_func_get_build_info(_uniffiStatus),
+			inner: C.uniffi_slim_bindings_fn_func_get_build_info(_uniffiStatus),
 		}
 	}))
 }
@@ -3777,7 +3777,7 @@ func GetBuildInfo() BuildInfo {
 func GetVersion() string {
 	return FfiConverterStringINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
 		return GoRustBuffer{
-			inner: C.uniffi_slim_uniffi_fn_func_get_version(_uniffiStatus),
+			inner: C.uniffi_slim_bindings_fn_func_get_version(_uniffiStatus),
 		}
 	}))
 }
@@ -3787,7 +3787,7 @@ func GetVersion() string {
 // This must be called before any TLS operations. It's safe to call multiple times.
 func InitializeCryptoProvider() {
 	rustCall(func(_uniffiStatus *C.RustCallStatus) bool {
-		C.uniffi_slim_uniffi_fn_func_initialize_crypto_provider(_uniffiStatus)
+		C.uniffi_slim_bindings_fn_func_initialize_crypto_provider(_uniffiStatus)
 		return false
 	})
 }
