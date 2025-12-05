@@ -127,6 +127,7 @@ impl std::fmt::Debug for Service {
             .field("servers", &self.config.servers())
             .field("clients", &self.config.clients())
             .field("group_name", &self.config.group_name)
+            .field("controller", &self.config.controller)
             .finish()
     }
 }
@@ -341,36 +342,27 @@ impl Service {
             ));
         }
 
-        match config.to_channel().await {
+        let ret = self
+            .message_processor
+            .connect(config.clone(), None, None)
+            .await
+            .map_err(|e| ServiceError::ConnectionError(e.to_string()));
+
+        let conn_id = match ret {
             Err(e) => {
-                error!("error reading channel config {:?}", e);
-                Err(ServiceError::ConfigError(e.to_string()))
+                error!("connection error: {:?}", e);
+                return Err(ServiceError::ConnectionError(e.to_string()));
             }
-            Ok(channel) => {
-                //let client_config = config.clone();
-                let ret = self
-                    .message_processor
-                    .connect(channel, Some(config.clone()), None, None)
-                    .await
-                    .map_err(|e| ServiceError::ConnectionError(e.to_string()));
+            Ok(conn_id) => conn_id.1,
+        };
 
-                let conn_id = match ret {
-                    Err(e) => {
-                        error!("connection error: {:?}", e);
-                        return Err(ServiceError::ConnectionError(e.to_string()));
-                    }
-                    Ok(conn_id) => conn_id.1,
-                };
+        // register the client
+        self.clients
+            .write()
+            .insert(config.endpoint.clone(), conn_id);
 
-                // register the client
-                self.clients
-                    .write()
-                    .insert(config.endpoint.clone(), conn_id);
-
-                // return the connection id
-                Ok(conn_id)
-            }
-        }
+        // return the connection id
+        Ok(conn_id)
     }
 
     pub fn disconnect(&self, conn: u64) -> Result<(), ServiceError> {
