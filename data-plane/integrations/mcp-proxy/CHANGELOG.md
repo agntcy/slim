@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1](https://github.com/agntcy/slim/compare/slim-mcp-proxy-v0.2.0...slim-mcp-proxy-v0.2.1) - 2025-12-05
+
+### Added
+
+- make backoff retry configurable ([#991](https://github.com/agntcy/slim/pull/991))
+- *(session)* graceful session draining + reliable blocking API completion ([#924](https://github.com/agntcy/slim/pull/924))
+- add backoff retry ([#939](https://github.com/agntcy/slim/pull/939))
+- Integrate SPIRE-based mTLS & identity, unify TLS sources, enhance gRPC config, and add flexible metadata support ([#892](https://github.com/agntcy/slim/pull/892))
+- add gha cache for docker builds ([#908](https://github.com/agntcy/slim/pull/908))
+- *(mls)* identity claims integration, strengthened validation, and PoP enforcement ([#885](https://github.com/agntcy/slim/pull/885))
+- async mls ([#877](https://github.com/agntcy/slim/pull/877))
+- expand SharedSecret Auth from simple secret:id to HMAC tokens ([#858](https://github.com/agntcy/slim/pull/858))
+- derive name ID part from identity token ([#851](https://github.com/agntcy/slim/pull/851))x
+- implementation of Spire for fetching the certificates/token directly from SPIFFE Workload API ([#646](https://github.com/agntcy/slim/pull/646))
+- implementation of Identity provider client credential flow ([#464](https://github.com/agntcy/slim/pull/464))
+- move session code in a new crate ([#828](https://github.com/agntcy/slim/pull/828))
+
+### Fixed
+
+- flaky integration test ([#981](https://github.com/agntcy/slim/pull/981))
+- early tracing initialization ([#978](https://github.com/agntcy/slim/pull/978))
+- *(session)* prevent session queue saturation ([#903](https://github.com/agntcy/slim/pull/903))
+
+### Other
+
+- move c toolchain config into cargo config ([#990](https://github.com/agntcy/slim/pull/990))
+- release ([#977](https://github.com/agntcy/slim/pull/977))
+- release ([#857](https://github.com/agntcy/slim/pull/857))
+- unify multicast and P2P session handling ([#904](https://github.com/agntcy/slim/pull/904))
+- implement all control message payload in protobuf ([#862](https://github.com/agntcy/slim/pull/862))
+- *(data-plane)* update project dependencies ([#861](https://github.com/agntcy/slim/pull/861))
+- common rust infrastructure for language bindings ([#840](https://github.com/agntcy/slim/pull/840))
+- release ([#854](https://github.com/agntcy/slim/pull/854))
+
 ## [0.2.0](https://github.com/agntcy/slim/compare/slim-mcp-proxy-v0.1.7...slim-mcp-proxy-v0.2.0) - 2025-10-09
 
 ### Added
