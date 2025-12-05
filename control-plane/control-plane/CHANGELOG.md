@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.2](https://github.com/agntcy/slim/compare/control-plane-v0.7.1...control-plane-v0.7.2) (2025-12-05)
+
+
+### Features
+
+* slimctl: show all properties of outlined routes ([#1002](https://github.com/agntcy/slim/issues/1002)) ([33fd62f](https://github.com/agntcy/slim/commit/33fd62f94a4d5a30a7a886fc44ed60ddd054b18c))
+* use Controller internal DB to find moderator node ([#992](https://github.com/agntcy/slim/issues/992)) ([0ca09a1](https://github.com/agntcy/slim/commit/0ca09a155f7420ba41f7022118f9680f77e2fdce))
+
 ## [0.7.1](https://github.com/agntcy/slim/compare/control-plane-v0.7.0...control-plane-v0.7.1) (2025-11-19)
 
 
