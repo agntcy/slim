@@ -39,6 +39,16 @@ async def amain() -> None:
         async for resp in responses:
             logger.info(f"Stream Response: {resp}")
 
+        # task to start and process a stream request
+        async def do_stream_request(index: int) -> None:
+            responses = stubs.ExampleUnaryStream(request, timeout=2)
+            async for resp in responses:
+                logger.info(f"Stream {index} Response: {resp}")
+
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(do_stream_request(1))
+            tg.create_task(do_stream_request(2))
+
         async def stream_requests() -> AsyncGenerator[ExampleRequest, None]:
             for i in range(10):
                 yield ExampleRequest(example_integer=i, example_string=f"Request {i}")

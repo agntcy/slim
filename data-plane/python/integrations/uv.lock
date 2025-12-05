@@ -2567,7 +2567,7 @@ testing = [
 
 [[package]]
 name = "slima2a"
-version = "0.1.0"
+version = "0.2.1"
 source = { editable = "slima2a" }
 dependencies = [
     { name = "a2a-sdk", extra = ["telemetry"] },
@@ -2612,7 +2612,7 @@ testing = [{ name = "pytest", specifier = ">=8.3.4" }]
 
 [[package]]
 name = "slimrpc"
-version = "0.1.0"
+version = "0.2.1"
 source = { editable = "slimrpc" }
 dependencies = [
     { name = "async-timeout" },
@@ -2636,7 +2636,7 @@ requires-dist = [
     { name = "async-timeout", specifier = ">=5.0.1" },
     { name = "googleapis-common-protos", specifier = ">=1.70.0" },
     { name = "grpcio", specifier = ">=1.74.0" },
-    { name = "slim-bindings", specifier = ">=0.7.1" },
+    { name = "slim-bindings", specifier = "~=0.7.1" },
 ]
 
 [package.metadata.requires-dev]
