@@ -29,7 +29,6 @@ tasks:
       PROFILE: '{{.PROFILE | default "debug"}}'
       RELEASE:
         sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
-      TARGET: '{{.TARGET | default ""}}'
     cmds:
       - task: rust:toolchain:run-command
         vars:
@@ -60,13 +59,18 @@ tasks:
       PROFILE: '{{.PROFILE | default "debug"}}'
       RELEASE:
         sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
-      TARGET: '{{.TARGET | default ""}}'
+      _TARGET:
+        sh: 'rustc -vV | grep "host: " | cut -d" " -f2'
+      TARGET: '{{.TARGET | default ._TARGET}}'
+      ARCH:
+        sh: 'echo {{.TARGET}} | cut -d"-" -f1'
+      OS:
+        sh: 'echo {{.TARGET}} | cut -d"-" -f3'
+      C_LIB:
+        sh: 'echo {{.TARGET}} | cut -d"-" -f4 || echo ""'
+      INTERPRETERS: '3.10 3.11 3.12 3.13 3.14'
     cmds:
-      - for:
-          matrix:
-            PYTHON: ["3.10", "3.11", "3.12", "3.13"]
-        cmd: |
-          uv python install {{.ITEM.PYTHON}}
+      - uv python install {{.INTERPRETERS}}
       - task: rust:toolchain:run-command
         vars:
           COMMAND: |
@@ -77,6 +81,18 @@ tasks:
               --group building
             )
 
+            MATURIN_ARGS=()
+
+            if [[ ${C_LIB} = "gnu" ]]; then
+              MATURIN_ARGS+=(
+                --compatibility manylinux_2_28
+              )
+            else
+              MATURIN_ARGS+=(
+                --compatibility musllinux_1_2
+              )
+            fi
+
             uv sync ${UV_ARGS[@]}
 
             uv run ${UV_ARGS[@]} maturin develop --uv {{.RELEASE}}
@@ -85,19 +101,20 @@ tasks:
             # maturin will try to add it to the wheel, and it will fail
             rm -f slim_bindings/*.pyd
 
-            PYTHONS=(3.10 3.11 3.12 3.13)
             uv run                            \
               ${UV_ARGS[@]}                   \
               maturin build {{.RELEASE}}      \
+              ${MATURIN_ARGS[@]}              \
               --out dist                      \
               --target {{.TARGET}}            \
               --frozen                        \
+              --zig                           \
               -i                              \
-              ${PYTHONS[@]}
+              {{.INTERPRETERS}}
 
   python:bindings:generate-stub:
     desc: "Generate stub file for the Python bindings"
-    cmds: 
+    cmds:
       - cmd: |
           export PYTHONHOME="$(dirname $(dirname $(realpath $(which .venv/bin/python))))"
           uv run cargo run --bin stub_gen
