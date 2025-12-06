@@ -82,18 +82,19 @@ tasks:
             )
 
             MATURIN_ARGS=(
+              {{.RELEASE}}
               --out dist
               --target {{.TARGET}}
               --frozen
               -i {{.INTERPRETERS}}
             )
 
-            if [[ ${C_LIB} = "gnu" ]]; then
+            if [[ "{{.C_LIB}}" = "gnu" ]]; then
               MATURIN_ARGS+=(
                 --compatibility manylinux_2_28
                 --zig
               )
-            elif [[ ${C_LIB} = "musl" ]]; then
+            elif [[ "{{.C_LIB}}" = "musl" ]]; then
               MATURIN_ARGS+=(
                 --compatibility musllinux_1_2
                 --zig
@@ -112,7 +113,7 @@ tasks:
 
             uv run                            \
               ${UV_ARGS[@]}                   \
-              maturin build {{.RELEASE}}      \
+              maturin build                   \
               ${MATURIN_ARGS[@]}
 
   python:bindings:generate-stub:
