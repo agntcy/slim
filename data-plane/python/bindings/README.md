@@ -276,7 +276,7 @@ version = "0.1.0"
 description = "Python program using SLIM"
 requires-python = ">=3.10"
 dependencies = [
-    "slim-bindings=~0.7.0"
+    "slim-bindings~=0.7.0"
 ]
 ```
 
@@ -290,7 +290,7 @@ description = "Python program using SLIM"
 
 [tool.poetry.dependencies]
 python = ">=3.10,<3.13"
-slim-bindings = "=~0.7.0"
+slim-bindings = "~=0.7.0"
 ```
 
 ---
