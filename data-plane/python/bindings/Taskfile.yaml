@@ -86,10 +86,12 @@ tasks:
             if [[ ${C_LIB} = "gnu" ]]; then
               MATURIN_ARGS+=(
                 --compatibility manylinux_2_28
+                --zig
               )
-            else
+            elif [[ ${C_LIB} = "musl" ]]; then
               MATURIN_ARGS+=(
                 --compatibility musllinux_1_2
+                --zig
               )
             fi
 
@@ -108,7 +110,6 @@ tasks:
               --out dist                      \
               --target {{.TARGET}}            \
               --frozen                        \
-              --zig                           \
               -i                              \
               {{.INTERPRETERS}}
 
