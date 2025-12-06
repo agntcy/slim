@@ -81,7 +81,12 @@ tasks:
               --group building
             )
 
-            MATURIN_ARGS=()
+            MATURIN_ARGS=(
+              --out dist
+              --target {{.TARGET}}
+              --frozen
+              -i {{.INTERPRETERS}}
+            )
 
             if [[ ${C_LIB} = "gnu" ]]; then
               MATURIN_ARGS+=(
@@ -103,15 +108,12 @@ tasks:
             # maturin will try to add it to the wheel, and it will fail
             rm -f slim_bindings/*.pyd
 
+            echo "Running maturin with the following args: ${MATURIN_ARGS[@]}"
+
             uv run                            \
               ${UV_ARGS[@]}                   \
               maturin build {{.RELEASE}}      \
-              ${MATURIN_ARGS[@]}              \
-              --out dist                      \
-              --target {{.TARGET}}            \
-              --frozen                        \
-              -i                              \
-              {{.INTERPRETERS}}
+              ${MATURIN_ARGS[@]}
 
   python:bindings:generate-stub:
     desc: "Generate stub file for the Python bindings"
