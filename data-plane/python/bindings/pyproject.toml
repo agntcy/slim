@@ -39,7 +39,7 @@ Changelog = "https://github.com/agntcy/slim/blob/main/data-plane/python/bindings
 [dependency-groups]
 building = [
     "maturin>=1.8.2",
-    "ziglang~=0.14.0",
+    "ziglang~=0.14.0; sys_platform == 'linux'",
     "maturin[patchelf]>=1.8.2; sys_platform == 'linux'",
 ]
 
