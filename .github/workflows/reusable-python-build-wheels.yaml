@@ -27,7 +27,7 @@ jobs:
           path: ./data-plane/python/bindings/dist
 
   python-bindings-wheels:
-    name: "Build Python Wheels: RUNNER: ${{ matrix.platform.runner }} OS: ${{ matrix.platform.os }} TARGET: ${{ matrix.platform.target }}"
+    name: "${{ matrix.platform.target }}: RUNNER: ${{ matrix.platform.runner }} OS: ${{ matrix.platform.os }}"
     runs-on: ${{ matrix.platform.runner }}
     defaults:
       run:
