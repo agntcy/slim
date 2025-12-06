@@ -1,0 +1,219 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+version: '3'
+
+vars:
+  # The Rust UniFFI bindings crate - in bindings/adapter (sibling to bindings/go)
+  BINDINGS_DIR: ../adapter
+  SERVICE_TARGET: ../../target/release
+  LIB_NAME: slim_uniffi
+  # Get absolute path for CGO flags
+  ROOT_DIR:
+    sh: pwd
+  LIB_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.dylib"
+  LIB_DIR: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}"
+  CGO_LDFLAGS: "-L{{.LIB_DIR}} -l{{.LIB_NAME}}"
+  DYLD_PATH: "{{.LIB_DIR}}:{{.ENV.DYLD_LIBRARY_PATH}}"
+  LD_PATH: "{{.LIB_DIR}}:{{.ENV.LD_LIBRARY_PATH}}"
+
+tasks:
+  default:
+    desc: Show help (default task)
+    cmds:
+      - task: help
+
+  help:
+    desc: Show available tasks
+    cmds:
+      - |
+        echo "SLIM Go Bindings - Available tasks:"
+        echo ""
+        echo "Build & Generate:"
+        echo "  task rust-build                - Build the Rust library with UniFFI (release mode)"
+        echo "  task generate                  - Generate Go bindings from compiled library"
+        echo "  task install-uniffi-bindgen-go - Install uniffi-bindgen-go"
+        echo ""
+        echo "Testing:"
+        echo "  task test                      - Run all tests"
+        echo "  task test-coverage             - Run tests with coverage report"
+        echo ""
+        echo "Utilities:"
+        echo "  task clean                     - Clean build artifacts"
+        echo "  task help                      - Show this help message"
+        echo ""
+        echo "Examples:"
+        echo "  task example                         - Run the simple example"
+        echo "  task example:server                  - Run the SLIM server"
+        echo "  task example:p2p:alice               - Run Alice (receiver) for point-to-point"
+        echo "  task example:p2p:bob                 - Run Bob (sender) for point-to-point"
+        echo "  task example:group:moderator         - Run group moderator (creates & invites)"
+        echo "  task example:group:participant:alice - Run Alice as group participant"
+        echo "  task example:group:participant:bob   - Run Bob as group participant"
+    silent: true
+
+  rust-build:
+    desc: Build the Rust library with UniFFI (release mode)
+    dir: "{{.BINDINGS_DIR}}"
+    cmds:
+      - echo "🦀 Building Rust bindings library with UniFFI (release mode)..."
+      - cargo build --release
+    silent: true
+
+  ensure-lib:
+    desc: Ensure the UniFFI library is built
+    cmds:
+      - |
+        if [ ! -f "{{.LIB_PATH}}" ]; then
+          echo "⚠️  UniFFI library not found, building now..."
+          task rust-build
+        else
+          echo "✅ Found UniFFI library: {{.LIB_PATH}}"
+        fi
+    silent: true
+
+  generate:
+    desc: Generate Go bindings from compiled library
+    deps: [ensure-lib]
+    cmds:
+      - echo "🔧 Generating Go bindings from compiled library..."
+      - |
+        uniffi-bindgen-go \
+          --library '{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.dylib' \
+          --out-dir generated
+      - cd generated && go mod init github.com/agntcy/slim/bindings/generated 2>/dev/null || true
+      - echo "✅ Bindings generated in generated/"
+    silent: true
+
+  install-uniffi-bindgen-go:
+    desc: Install uniffi-bindgen-go
+    cmds:
+      - cargo install uniffi-bindgen-go --git https://github.com/NordSecurity/uniffi-bindgen-go.git --tag v0.4.0+v0.28.3 --config net.git-fetch-with-cli=true
+
+  test:
+    desc: Run all tests
+    deps: [ensure-lib]
+    env:
+      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
+      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
+      LD_LIBRARY_PATH: "{{.LD_PATH}}"
+    cmds:
+      - echo "🧪 Running all tests..."
+      - go test -v ./...
+      - echo "✅ All Go tests passed"
+    silent: true
+
+  test-coverage:
+    desc: Run tests with coverage report
+    deps: [ensure-lib]
+    env:
+      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
+      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
+      LD_LIBRARY_PATH: "{{.LD_PATH}}"
+    cmds:
+      - echo "📊 Running tests with coverage..."
+      - go test -v -coverprofile=coverage.out ./...
+      - go tool cover -html=coverage.out -o coverage.html
+      - echo "✅ Coverage report generated in coverage.html"
+    silent: true
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - echo "🧹 Cleaning build artifacts..."
+      - cd {{.BINDINGS_DIR}} && cargo clean
+      - rm -rf generated/
+      - echo "✅ Clean complete"
+    silent: true
+
+  # Examples
+  example:
+    desc: Run the simple example
+    deps: [ensure-lib]
+    dir: examples/simple
+    env:
+      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
+      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
+      LD_LIBRARY_PATH: "{{.LD_PATH}}"
+    cmds:
+      - echo "🚀 Running simple example..."
+      - go run .
+    silent: true
+
+  example:server:
+    desc: Run the SLIM server
+    deps: [ensure-lib]
+    dir: cmd/server
+    env:
+      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
+      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
+      LD_LIBRARY_PATH: "{{.LD_PATH}}"
+    cmds:
+      - echo "🚀 Starting SLIM server..."
+      - go run . {{.CLI_ARGS}}
+    silent: true
+
+  example:p2p:alice:
+    desc: Run Alice (receiver) for point-to-point example
+    deps: [ensure-lib]
+    dir: examples/point_to_point
+    env:
+      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
+      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
+      LD_LIBRARY_PATH: "{{.LD_PATH}}"
+    cmds:
+      - echo "👩 Starting Alice (receiver)..."
+      - go run . --local="org/alice/app" --server="http://localhost:46357" {{.CLI_ARGS}}
+    silent: true
+
+  example:p2p:bob:
+    desc: Run Bob (sender) for point-to-point example
+    deps: [ensure-lib]
+    dir: examples/point_to_point
+    env:
+      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
+      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
+      LD_LIBRARY_PATH: "{{.LD_PATH}}"
+    cmds:
+      - echo "👨 Starting Bob (sender)..."
+      - go run . --local="org/bob/app" --remote="org/alice/app" --message="Hello SLIM" --iterations=5 --server="http://localhost:46357" {{.CLI_ARGS}}
+    silent: true
+
+  example:group:moderator:
+    desc: Run group moderator (creates session and invites participants)
+    deps: [ensure-lib]
+    dir: examples/group
+    env:
+      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
+      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
+      LD_LIBRARY_PATH: "{{.LD_PATH}}"
+    cmds:
+      - echo "👑 Starting group moderator..."
+      - go run . --local="org/moderator/app" --remote="org/default/chat-room" --invites="org/alice/app,org/bob/app" --server="http://localhost:46357" {{.CLI_ARGS}}
+    silent: true
+
+  example:group:participant:alice:
+    desc: Run group participant (waits for invitation)
+    deps: [ensure-lib]
+    dir: examples/group
+    env:
+      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
+      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
+      LD_LIBRARY_PATH: "{{.LD_PATH}}"
+    cmds:
+      - echo "👤 Starting group participant..."
+      - go run . --local="org/alice/app" --server="http://localhost:46357" {{.CLI_ARGS}}
+    silent: true
+  
+  example:group:participant:bob:
+    desc: Run group participant (waits for invitation)
+    deps: [ensure-lib]
+    dir: examples/group
+    env:
+      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
+      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
+      LD_LIBRARY_PATH: "{{.LD_PATH}}"
+    cmds:
+      - echo "👤 Starting group participant..."
+      - go run . --local="org/bob/app" --server="http://localhost:46357" {{.CLI_ARGS}}
+    silent: true

@@ -17,6 +17,7 @@ use slim_tracing::TracingConfiguration;
 use tokio::sync::OnceCell;
 
 use slim_datapath::messages::encoder::Name;
+use slim_uniffi::Name as FfiName;
 
 /// name class
 #[gen_stub_pyclass]
@@ -41,6 +42,21 @@ impl From<&PyName> for Name {
 impl From<Name> for PyName {
     fn from(name: Name) -> Self {
         PyName { name }
+    }
+}
+
+// Conversions between PyName and FFI Name (slim_uniffi::Name)
+impl From<FfiName> for PyName {
+    fn from(ffi_name: FfiName) -> Self {
+        // Convert FFI Name to datapath Name, then to PyName
+        let slim_name: Name = ffi_name.into();
+        PyName { name: slim_name }
+    }
+}
+
+impl From<PyName> for FfiName {
+    fn from(py_name: PyName) -> Self {
+        FfiName::from(&py_name.name)
     }
 }
 
