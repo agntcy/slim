@@ -1,0 +1,110 @@
+version: '3'
+
+vars:
+  CARGO: cargo
+  PACKAGE: agntcy-slimrpc
+
+tasks:
+  # Build tasks
+  build:
+    desc: Build the slimrpc library
+    cmds:
+      - "{{.CARGO}} build --package {{.PACKAGE}}"
+
+  build-examples:
+    desc: Build all examples
+    cmds:
+      - "{{.CARGO}} build --package {{.PACKAGE}} --examples"
+
+
+  # Test tasks
+  test:
+    desc: Run all tests
+    cmds:
+      - "{{.CARGO}} test --package {{.PACKAGE}}"
+
+  test-verbose:
+    desc: Run all tests with verbose output
+    cmds:
+      - "{{.CARGO}} test --package {{.PACKAGE}} -- --nocapture"
+
+  test-quiet:
+    desc: Run all tests quietly
+    cmds:
+      - "{{.CARGO}} test --package {{.PACKAGE}} --quiet"
+
+  # Check tasks
+  check:
+    desc: Check the project for errors
+    cmds:
+      - "{{.CARGO}} check --package {{.PACKAGE}}"
+
+  check-examples:
+    desc: Check examples for errors
+    cmds:
+      - "{{.CARGO}} check --package {{.PACKAGE}} --examples"
+
+  # Lint tasks
+  clippy:
+    desc: Run clippy linter
+    cmds:
+      - "{{.CARGO}} clippy --package {{.PACKAGE}} -- -D warnings"
+
+  fmt:
+    desc: Format code with rustfmt
+    cmds:
+      - "{{.CARGO}} fmt --package {{.PACKAGE}}"
+
+  fmt-check:
+    desc: Check code formatting
+    cmds:
+      - "{{.CARGO}} fmt --package {{.PACKAGE}} -- --check"
+
+  # Example tasks
+  run-server:
+    desc: Run the server example
+    cmds:
+      - "{{.CARGO}} run --package {{.PACKAGE}} --example server"
+
+  run-client:
+    desc: Run the client example
+    vars:
+      RPC_TYPE: '{{.RPC_TYPE | default "unary"}}'
+    cmds:
+      - "{{.CARGO}} run --package {{.PACKAGE}} --example client -- --rpc-type {{.RPC_TYPE}}"
+
+  run-client-unary:
+    desc: Run the client example (unary-unary RPC)
+    cmds:
+      - task: run-client
+        vars:
+          RPC_TYPE: unary
+
+  run-client-unary-stream:
+    desc: Run the client example (unary-stream RPC)
+    cmds:
+      - task: run-client
+        vars:
+          RPC_TYPE: unary-stream
+
+  run-client-stream-unary:
+    desc: Run the client example (stream-unary RPC)
+    cmds:
+      - task: run-client
+        vars:
+          RPC_TYPE: stream-unary
+
+  run-client-stream-stream:
+    desc: Run the client example (stream-stream RPC)
+    cmds:
+      - task: run-client
+        vars:
+          RPC_TYPE: stream-stream
+
+  # Clean tasks
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - "{{.CARGO}} clean --package {{.PACKAGE}}"
+
+ 
