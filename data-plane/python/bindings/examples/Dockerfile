@@ -2,18 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Build container with cross-compilation support
-FROM --platform=${BUILDPLATFORM} ghcr.io/astral-sh/uv:0.7.0-python3.13-bookworm AS builder
+FROM --platform=${BUILDPLATFORM} debian:bookworm AS builder
 
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
 ARG TARGETARCH
 
-ENV PATH="/root/.cargo/bin:${PATH}"
+ENV PATH="/root/.cargo/bin:/root/.local/bin:${PATH}"
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV UV_LINK_MODE=copy \
-    UV_COMPILE_BYTECODE=1 \
-    UV_PYTHON=python3.13 \
+    UV_PYTHON=python3.14 \
     UV_PROJECT_ENVIRONMENT=/app
 
 # Install dependencies required for building rust and Python bindings
@@ -40,10 +39,14 @@ DEBIAN_FRONTEND=noninteractive \
         unzip \
         git \
         lsb-release \
-        software-properties-common \
         gnupg \
         pkg-config \
+        ca-certificates \
+        lsb-release \
+        software-properties-common \
         ${PACKAGES}
+
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
 curl -L -o /tmp/llvm.sh https://apt.llvm.org/llvm.sh
 chmod +x /tmp/llvm.sh
@@ -77,15 +80,17 @@ esac
 
 cargo fetch --target ${RUSTARCH}-unknown-linux-gnu
 
-uv python install cpython-3.13.3-linux-${RUSTARCH}
-export PYO3_CROSS_INCLUDE_DIR=~/.local/share/uv/python/cpython-3.13.3-linux-${RUSTARCH}-gnu/include
-export PYO3_CROSS_LIB_DIR=~/.local/share/uv/python/cpython-3.13.3-linux-${RUSTARCH}-gnu/lib
+uv python install cpython-3.14-linux-${RUSTARCH}
+uv python pin cpython-3.14-linux-${RUSTARCH}
+
+export PYO3_CROSS_INCLUDE_DIR=~/.local/share/uv/python/cpython-3.14.2-linux-${RUSTARCH}-gnu/include
+export PYO3_CROSS_LIB_DIR=~/.local/share/uv/python/cpython-3.14.2-linux-${RUSTARCH}-gnu/lib
 export CARGO_BUILD_TARGET=${RUSTARCH}-unknown-linux-gnu
 task -v python:examples:build TARGET=${RUSTARCH}-unknown-linux-gnu PROFILE=release
 rm /app/bin/python && ln -s /usr/local/bin/python /app/bin/python
 EOF
 
-FROM python:3.13-bookworm AS slim-bindings-examples
+FROM python:3.14-bookworm AS slim-bindings-examples
 
 ARG TARGETARCH
 
