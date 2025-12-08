@@ -10,8 +10,8 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::ProtoSessionType;
 use slim_datapath::messages::Name;
 use slim_service::app::App;
-use slim_session::SessionConfig;
 use slim_session::session_controller::SessionController;
+use slim_session::SessionConfig;
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -46,15 +46,23 @@ where
         &self,
         method: &str,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<(Name, Arc<SessionController>, slim_session::context::SessionContext, HashMap<String, String>)> {
+    ) -> Result<(
+        Name,
+        Arc<SessionController>,
+        slim_session::context::SessionContext,
+        HashMap<String, String>,
+    )> {
         let service_name = service_and_method_to_name(&self.remote, method)
             .context("Failed to create service name")?;
 
-        info!("Setting route for service {} with conn_id {}", service_name, self.conn_id);
-        
+        info!(
+            "Setting route for service {} with conn_id {}",
+            service_name, self.conn_id
+        );
+
         // Set route using the stored connection ID
         self.app
-            .set_route(&service_name, self.conn_id) 
+            .set_route(&service_name, self.conn_id)
             .await
             .context("Failed to set route")?;
 
@@ -79,11 +87,14 @@ where
             .session_arc()
             .ok_or_else(|| SRPCError::Session("Failed to get session".to_string()))?;
 
-        init_ack
-            .await
-            .context("Failed to initialize session")?;
+        init_ack.await.context("Failed to initialize session")?;
 
-        Ok((service_name, session, session_ctx, metadata.unwrap_or_default()))
+        Ok((
+            service_name,
+            session,
+            session_ctx,
+            metadata.unwrap_or_default(),
+        ))
     }
 
     async fn send_unary(
@@ -125,7 +136,7 @@ where
         // Send end of stream
         let mut end_metadata = metadata.clone();
         end_metadata.insert("code".to_string(), "0".to_string());
-        
+
         session
             .publish(service_name, vec![], None, Some(end_metadata))
             .await
@@ -166,8 +177,11 @@ where
                 .get_payload()
                 .ok_or_else(|| SRPCError::Session("No payload in response".to_string()))?
                 .as_application_payload()
-                .map_err(|e| SRPCError::Session(format!("Failed to get application payload: {}", e)))?
-                .blob.clone();
+                .map_err(|e| {
+                    SRPCError::Session(format!("Failed to get application payload: {}", e))
+                })?
+                .blob
+                .clone();
 
             Ok((msg_ctx, response))
         })
@@ -229,7 +243,8 @@ where
         timeout: Option<Duration>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<Vec<u8>> {
-        let (service_name, session, mut session_ctx, metadata) = self.common_setup(method, metadata).await?;
+        let (service_name, session, mut session_ctx, metadata) =
+            self.common_setup(method, metadata).await?;
         let deadline = compute_deadline(timeout);
 
         self.send_unary(request, &session, &service_name, metadata, deadline)
@@ -249,7 +264,8 @@ where
         timeout: Option<Duration>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<Vec<u8>>> + Send>>> {
-        let (service_name, session, session_ctx, metadata) = self.common_setup(method, metadata).await?;
+        let (service_name, session, session_ctx, metadata) =
+            self.common_setup(method, metadata).await?;
         let deadline = compute_deadline(timeout);
 
         self.send_unary(request, &session, &service_name, metadata, deadline)
@@ -267,7 +283,8 @@ where
         timeout: Option<Duration>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<Vec<u8>> {
-        let (service_name, session, mut session_ctx, metadata) = self.common_setup(method, metadata).await?;
+        let (service_name, session, mut session_ctx, metadata) =
+            self.common_setup(method, metadata).await?;
         let deadline = compute_deadline(timeout);
 
         self.send_stream(request_stream, &session, &service_name, metadata, deadline)
@@ -287,7 +304,8 @@ where
         timeout: Option<Duration>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<Vec<u8>>> + Send>>> {
-        let (service_name, session, session_ctx, metadata) = self.common_setup(method, metadata).await?;
+        let (service_name, session, session_ctx, metadata) =
+            self.common_setup(method, metadata).await?;
         let deadline = compute_deadline(timeout);
 
         self.send_stream(request_stream, &session, &service_name, metadata, deadline)

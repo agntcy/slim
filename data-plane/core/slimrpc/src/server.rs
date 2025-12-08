@@ -74,18 +74,17 @@ where
         }
     }
 
-    pub fn register_rpc(
-        &mut self,
-        service_name: &str,
-        method_name: &str,
-        handler: RPCHandler,
-    ) {
+    pub fn register_rpc(&mut self, service_name: &str, method_name: &str, handler: RPCHandler) {
         let service_method = ServiceMethod::new(service_name, method_name);
         self.handlers.insert(service_method, Arc::new(handler));
     }
 
     pub async fn run(mut self) -> Result<()> {
-        info!("Subscribing to {} with conn_id {}", self.app.app_name(), self.conn_id);
+        info!(
+            "Subscribing to {} with conn_id {}",
+            self.app.app_name(),
+            self.conn_id
+        );
 
         // Subscribe to local name with connection ID
         self.app
@@ -102,8 +101,11 @@ where
             )
             .context("Failed to create subscription name")?;
 
-            info!("Subscribing to {} with conn_id {}", subscription_name, self.conn_id);
-            
+            info!(
+                "Subscribing to {} with conn_id {}",
+                subscription_name, self.conn_id
+            );
+
             self.app
                 .subscribe(&subscription_name, Some(self.conn_id))
                 .await
@@ -144,7 +146,7 @@ where
                                 error!("Failed to get session arc");
                                 continue;
                             }
-                            
+
                             let session = session_arc.unwrap();
                             info!(
                                 "New session created: id={}, from={}, to={}",
@@ -152,12 +154,12 @@ where
                                 session.dst(),
                                 session.source(),
                             );
-                            
+
                             // Normalize the source name by removing the ID component for matching
                             // (handlers are registered with NULL_COMPONENT as ID)
                             let normalized_source = session.source().clone().with_id(Name::NULL_COMPONENT);
-                            
-                            // Match handler by normalized source 
+
+                            // Match handler by normalized source
                             let handler = self.name_to_handler.get(&normalized_source);
                             if handler.is_none() {
                                 error!(
@@ -168,10 +170,10 @@ where
                                 );
                                 continue;
                             }
-                            
+
                             let handler = handler.unwrap().clone();
                             let app = self.app.clone();
-                            
+
                             tokio::spawn(async move {
                                 if let Err(e) = Self::handle_session(ctx, handler, app).await {
                                     error!("Error handling session: {:?}", e);
@@ -195,9 +197,9 @@ where
         handler: Arc<RPCHandler>,
         app: Arc<App<P, V>>,
     ) -> Result<()> {
-        let session = session_ctx.session_arc().ok_or_else(|| {
-            SRPCError::Session("Failed to get session".to_string())
-        })?;
+        let session = session_ctx
+            .session_arc()
+            .ok_or_else(|| SRPCError::Session("Failed to get session".to_string()))?;
 
         info!(
             "Handling session {} from {} to {}",
@@ -207,7 +209,7 @@ where
         );
 
         let session_context = SessionContext::from_session(&session);
-        
+
         // Get deadline from metadata
         let timeout = session
             .metadata()
@@ -235,7 +237,7 @@ where
                 for response in responses {
                     let mut metadata = HashMap::new();
                     metadata.insert("code".to_string(), "0".to_string()); // OK
-                    
+
                     session
                         .publish(session.dst(), response, None, Some(metadata))
                         .await
@@ -249,7 +251,7 @@ where
                 ) {
                     let mut metadata = HashMap::new();
                     metadata.insert("code".to_string(), "0".to_string());
-                    
+
                     session
                         .publish(session.dst(), vec![], None, Some(metadata))
                         .await
@@ -258,10 +260,10 @@ where
             }
             Ok(Err(e)) => {
                 error!("Handler error: {:?}", e);
-                
+
                 let mut metadata = HashMap::new();
                 metadata.insert("code".to_string(), "13".to_string()); // INTERNAL
-                
+
                 session
                     .publish(session.dst(), vec![], None, Some(metadata))
                     .await
@@ -283,9 +285,9 @@ where
         mut session_ctx: slim_session::context::SessionContext,
         session_context: SessionContext,
     ) -> Result<Vec<Vec<u8>>> {
-        let _session = session_ctx.session_arc().ok_or_else(|| {
-            SRPCError::Session("Failed to get session".to_string())
-        })?;
+        let _session = session_ctx
+            .session_arc()
+            .ok_or_else(|| SRPCError::Session("Failed to get session".to_string()))?;
 
         match handler {
             RPCHandler::UnaryUnary(h) => {
@@ -302,8 +304,11 @@ where
                     .get_payload()
                     .ok_or_else(|| SRPCError::Session("No payload in message".to_string()))?
                     .as_application_payload()
-                    .map_err(|e| SRPCError::Session(format!("Failed to get application payload: {}", e)))?
-                    .blob.clone();
+                    .map_err(|e| {
+                        SRPCError::Session(format!("Failed to get application payload: {}", e))
+                    })?
+                    .blob
+                    .clone();
 
                 let response = h.call(request, msg_ctx, session_context).await?;
                 Ok(vec![response])
@@ -322,26 +327,31 @@ where
                     .get_payload()
                     .ok_or_else(|| SRPCError::Session("No payload in message".to_string()))?
                     .as_application_payload()
-                    .map_err(|e| SRPCError::Session(format!("Failed to get application payload: {}", e)))?
-                    .blob.clone();
+                    .map_err(|e| {
+                        SRPCError::Session(format!("Failed to get application payload: {}", e))
+                    })?
+                    .blob
+                    .clone();
 
                 let mut response_stream = h.call(request, msg_ctx, session_context).await?;
                 let mut responses = Vec::new();
-                
+
                 while let Some(response) = response_stream.next().await {
                     responses.push(response?);
                 }
-                
+
                 Ok(responses)
             }
             RPCHandler::StreamUnary(h) => {
                 // Create request stream - pass ownership of rx to the stream
                 let (tx, rx_stream) = tokio::sync::mpsc::unbounded_channel();
                 let (_session_weak, rx) = session_ctx.into_parts();
-                
+
                 tokio::spawn(Self::spawn_request_reader(rx, tx));
-                
-                let request_stream = Box::pin(tokio_stream::wrappers::UnboundedReceiverStream::new(rx_stream));
+
+                let request_stream = Box::pin(
+                    tokio_stream::wrappers::UnboundedReceiverStream::new(rx_stream),
+                );
                 let response = h.call(request_stream, session_context).await?;
                 Ok(vec![response])
             }
@@ -349,17 +359,19 @@ where
                 // Create request stream - pass ownership of rx to the stream
                 let (tx, rx_stream) = tokio::sync::mpsc::unbounded_channel();
                 let (_session_weak, rx) = session_ctx.into_parts();
-                
+
                 tokio::spawn(Self::spawn_request_reader(rx, tx));
-                
-                let request_stream = Box::pin(tokio_stream::wrappers::UnboundedReceiverStream::new(rx_stream));
+
+                let request_stream = Box::pin(
+                    tokio_stream::wrappers::UnboundedReceiverStream::new(rx_stream),
+                );
                 let mut response_stream = h.call(request_stream, session_context).await?;
                 let mut responses = Vec::new();
-                
+
                 while let Some(response) = response_stream.next().await {
                     responses.push(response?);
                 }
-                
+
                 Ok(responses)
             }
         }
@@ -373,7 +385,7 @@ where
             match rx.recv().await {
                 Some(Ok(msg)) => {
                     let msg_ctx = MessageContext::from_message(&msg);
-                    
+
                     // Check for end of stream
                     let metadata = msg.get_metadata_map();
                     if metadata.get("code") == Some(&"0".to_string()) {
@@ -388,7 +400,12 @@ where
                         .and_then(|p| {
                             p.as_application_payload()
                                 .map(|app_payload| app_payload.blob.clone())
-                                .map_err(|e| SRPCError::Session(format!("Failed to get application payload: {}", e)))
+                                .map_err(|e| {
+                                    SRPCError::Session(format!(
+                                        "Failed to get application payload: {}",
+                                        e
+                                    ))
+                                })
                         });
 
                     match request {

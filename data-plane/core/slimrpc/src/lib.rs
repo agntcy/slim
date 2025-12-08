@@ -5,15 +5,15 @@ pub mod channel;
 pub mod common;
 pub mod context;
 pub mod error;
-pub mod server;
 pub mod rpc;
+pub mod server;
 
 pub use channel::Channel;
-pub use common::{SLIMAppConfig, MAX_TIMEOUT, DEADLINE_KEY};
+pub use common::{SLIMAppConfig, DEADLINE_KEY, MAX_TIMEOUT};
 pub use context::{MessageContext, SessionContext};
 pub use error::SRPCError;
 pub use rpc::{
-    RPCHandler, RPCHandlerType, RequestStream, ResponseStream,
-    UnaryUnaryHandler, UnaryStreamHandler, StreamUnaryHandler, StreamStreamHandler,
+    RPCHandler, RPCHandlerType, RequestStream, ResponseStream, StreamStreamHandler,
+    StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
 };
 pub use server::Server;
