@@ -21,7 +21,15 @@ use slim_datapath::{
 
 // Local crate
 use crate::{
-    MessageDirection, SessionError, Transmitter, common::SessionMessage, completion_handle::CompletionHandle, controller_sender::ControllerSender, session_builder::{ForController, SessionBuilder}, session_config::SessionConfig, session_routes::{Route, SessionRoutes}, session_settings::SessionSettings, traits::{MessageHandler, ProcessingState}
+    MessageDirection, SessionError, Transmitter,
+    common::SessionMessage,
+    completion_handle::CompletionHandle,
+    controller_sender::ControllerSender,
+    session_builder::{ForController, SessionBuilder},
+    session_config::SessionConfig,
+    session_routes::Route,
+    session_settings::SessionSettings,
+    traits::{MessageHandler, ProcessingState},
 };
 
 pub struct SessionController {
@@ -36,9 +44,6 @@ pub struct SessionController {
 
     /// session config
     pub(crate) config: SessionConfig,
-
-    /// cache of routes/subscriptions set by all the sessions
-    pub(crate) routes_cache: SessionRoutes,
 
     /// channel to send messages to the processing loop
     tx_controller: sync::mpsc::Sender<SessionMessage>,
@@ -67,7 +72,6 @@ impl SessionController {
         source: Name,
         destination: Name,
         config: SessionConfig,
-        routes_cache: SessionRoutes,
         settings: SessionSettings<P, V>,
         tx: sync::mpsc::Sender<SessionMessage>,
         rx: sync::mpsc::Receiver<SessionMessage>,
@@ -99,7 +103,6 @@ impl SessionController {
             source,
             destination,
             config,
-            routes_cache,
             tx_controller: tx,
             cancellation_token,
             handle: Mutex::new(Some(handle)),
@@ -590,7 +593,11 @@ where
         Ok(())
     }
 
-    pub(crate) async fn add_subscription(&self, name: &Name, conn: u64) -> Result<(), SessionError> {
+    pub(crate) async fn add_subscription(
+        &self,
+        name: &Name,
+        conn: u64,
+    ) -> Result<(), SessionError> {
         let session_route = Route {
             name: name.clone(),
             conn_id: conn,
@@ -609,7 +616,11 @@ where
         Ok(())
     }
 
-    pub(crate) async fn delete_subscription(&self, name: &Name, conn: u64) -> Result<(), SessionError> {
+    pub(crate) async fn delete_subscription(
+        &self,
+        name: &Name,
+        conn: u64,
+    ) -> Result<(), SessionError> {
         let session_route = Route {
             name: name.clone(),
             conn_id: conn,

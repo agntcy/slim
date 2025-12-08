@@ -10,8 +10,7 @@ use crate::{
     common::SessionMessage, errors::SessionError, session_config::SessionConfig,
     session_controller::SessionController, session_moderator::SessionModerator,
     session_participant::SessionParticipant, session_routes::SessionRoutes,
-    session_settings::SessionSettings, traits::MessageHandler,
-    transmitter::SessionTransmitter,
+    session_settings::SessionSettings, traits::MessageHandler, transmitter::SessionTransmitter,
 };
 
 // Marker types for builder states
@@ -291,7 +290,6 @@ where
         let source = self.source.clone().unwrap();
         let destination = self.destination.clone().unwrap();
         let config = self.config.clone().unwrap();
-        let routes_cache = self.routes_cache.clone().unwrap();
 
         let role = if config.initiator {
             "Moderator"
@@ -300,8 +298,6 @@ where
         };
         tracing::debug!("Building SessionController as {}", role);
 
-        
-
         let session_controller = if config.initiator {
             let (inner, tx, rx, settings) = self.build_session_stack(SessionModerator::new)?;
             SessionController::from_parts(
@@ -309,7 +305,6 @@ where
                 source,
                 destination,
                 config.clone(),
-                routes_cache,
                 settings,
                 tx,
                 rx,
@@ -317,7 +312,7 @@ where
             )
         } else {
             let (inner, tx, rx, settings) = self.build_session_stack(SessionParticipant::new)?;
-            SessionController::from_parts(id, source, destination, config, routes_cache, settings, tx, rx, inner)
+            SessionController::from_parts(id, source, destination, config, settings, tx, rx, inner)
         };
 
         Ok(session_controller)

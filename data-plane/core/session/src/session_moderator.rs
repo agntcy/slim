@@ -16,7 +16,7 @@ use slim_datapath::{
     },
     messages::{
         Name,
-        utils::{DELETE_GROUP, SlimHeaderFlags, TRUE_VAL},
+        utils::{DELETE_GROUP, TRUE_VAL},
     },
 };
 use tokio::sync::{Mutex, oneshot};
@@ -62,6 +62,9 @@ where
     /// Subscription status
     subscribed: bool,
 
+    /// connection id to the remote node
+    conn_id: Option<u64>,
+
     /// Inner message handler
     inner: I,
 }
@@ -83,6 +86,7 @@ where
             common,
             postponed_message: None,
             subscribed: false,
+            conn_id: None,
             inner,
         }
     }
@@ -252,6 +256,18 @@ where
         // Moderator-specific cleanup
         self.subscribed = false;
         self.common.sender.close();
+
+        // Remove route and subscription for multicast sessions
+        if self.common.settings.config.session_type == ProtoSessionType::Multicast
+            && let Some(conn) = self.conn_id
+        {
+            self.common
+                .delete_route(&self.common.settings.destination, conn)
+                .await?;
+            self.common
+                .delete_subscription(&self.common.settings.destination, conn)
+                .await?;
+        }
 
         // Shutdown inner layer
         MessageHandler::on_shutdown(&mut self.inner).await?;
@@ -944,6 +960,7 @@ where
         }
 
         self.subscribed = true;
+        self.conn_id = Some(conn);
 
         // if this is a point to point connection set the remote name so that we
         // can add also the right id to the message destination name
@@ -951,14 +968,9 @@ where
             self.common.settings.destination = remote;
         } else {
             // if this is a multicast session we need to subscribe for the channel name
-            let sub = Message::builder()
-                .source(self.common.settings.source.clone())
-                .destination(self.common.settings.destination.clone())
-                .flags(SlimHeaderFlags::default().with_forward_to(conn))
-                .build_subscribe()
-                .unwrap();
-
-            self.common.send_to_slim(sub).await?;
+            self.common
+                .add_subscription(&self.common.settings.destination, conn)
+                .await?;
         }
 
         // create mls group if needed

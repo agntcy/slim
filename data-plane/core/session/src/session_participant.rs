@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{CommandPayload, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType},
-    messages::{Name, utils::SlimHeaderFlags},
+    messages::Name,
 };
 
 use slim_mls::mls::Mls;
@@ -447,14 +447,9 @@ where
         self.common
             .add_route(&self.common.settings.destination, msg.get_incoming_conn())
             .await?;
-        let sub = Message::builder()
-            .source(self.common.settings.source.clone())
-            .destination(self.common.settings.destination.clone())
-            .flags(SlimHeaderFlags::default().with_forward_to(msg.get_incoming_conn()))
-            .build_subscribe()
-            .unwrap();
-
-        self.common.send_to_slim(sub).await
+        self.common
+            .add_subscription(&self.common.settings.destination, msg.get_incoming_conn())
+            .await
     }
 
     async fn leave(&self, msg: &Message) -> Result<(), SessionError> {
@@ -472,14 +467,9 @@ where
                 msg.get_incoming_conn(),
             )
             .await?;
-        let sub = Message::builder()
-            .source(self.common.settings.source.clone())
-            .destination(self.common.settings.destination.clone())
-            .flags(SlimHeaderFlags::default().with_forward_to(msg.get_incoming_conn()))
-            .build_unsubscribe()
-            .unwrap();
-
-        self.common.send_to_slim(sub).await
+        self.common
+            .delete_subscription(&self.common.settings.destination, msg.get_incoming_conn())
+            .await
     }
 }
 
