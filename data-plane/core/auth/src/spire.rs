@@ -197,7 +197,7 @@ async fn create_workload_client(
 ) -> Result<WorkloadApiClient, AuthError> {
     if let Some(path) = socket_path {
         WorkloadApiClient::new_from_path(path).await.map_err(|e| {
-            AuthError::ConfigError(format!("Failed to connect to SPIFFE Workload API: {}", e))
+            AuthError::ConfigError(format!("Failed to connect to SPIFFE Workload API (at path {}): {}", path, e))
         })
     } else {
         WorkloadApiClient::default().await.map_err(|e| {
