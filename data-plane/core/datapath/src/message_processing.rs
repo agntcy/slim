@@ -876,7 +876,7 @@ impl MessageProcessor {
                             .build_unsubscribe()
                             .unwrap();
                         if let Err(e) = tx.send(Ok(msg)).await {
-                            error!(
+                            debug!(
                                 "failed to send unsubscribe message to control plane for subscription {}: {}",
                                 local_sub, e
                             );

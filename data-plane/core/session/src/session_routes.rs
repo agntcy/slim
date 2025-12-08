@@ -7,12 +7,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 // each route is compose by a name and the related connection id
-// this allows as to distinguish between multiple routes to the same name
-// and in particular to distinguish between subscriptions and routes.
+// this allows as to distinguish between multiple routes to the same name.
+// the route boolean indicates whether it's a route (true) or a subscription (false)
 #[derive(Hash, Eq, PartialEq, Clone)]
 pub(crate) struct Route {
     pub(crate) name: Name,
     pub(crate) conn_id: u64,
+    pub(crate) route: bool,
 }
 
 #[derive(Default, Clone)]
@@ -64,6 +65,7 @@ mod tests {
         let route = Route {
             name: Name::from_strings(["test", "route", "v1"]).with_id(0),
             conn_id: 1,
+            route: true,
         };
         assert!(!routes.has_route(&route));
     }
@@ -74,6 +76,7 @@ mod tests {
         let route = Route {
             name: Name::from_strings(["test", "route", "v1"]).with_id(0),
             conn_id: 1,
+            route: true,
         };
 
         routes.add_route(route.clone());
@@ -86,6 +89,7 @@ mod tests {
         let route = Route {
             name: Name::from_strings(["test", "route", "v1"]).with_id(0),
             conn_id: 1,
+            route: true,
         };
 
         // Add route multiple times
@@ -107,6 +111,7 @@ mod tests {
         let route = Route {
             name: Name::from_strings(["test", "route", "v1"]).with_id(0),
             conn_id: 1,
+            route: true,
         };
 
         // Add route 3 times
@@ -129,6 +134,7 @@ mod tests {
         let route = Route {
             name: Name::from_strings(["test", "route", "v1"]).with_id(0),
             conn_id: 1,
+            route: true,
         };
 
         // Add route once
@@ -146,6 +152,7 @@ mod tests {
         let route = Route {
             name: Name::from_strings(["test", "route", "v1"]).with_id(0),
             conn_id: 1,
+            route: true,
         };
 
         // Remove a route that doesn't exist - should not panic
@@ -159,14 +166,17 @@ mod tests {
         let route1 = Route {
             name: Name::from_strings(["route", "one", "v1"]).with_id(0),
             conn_id: 1,
+            route: true,
         };
         let route2 = Route {
             name: Name::from_strings(["route", "two", "v1"]).with_id(0),
             conn_id: 1,
+            route: true,
         };
         let route3 = Route {
             name: Name::from_strings(["route", "three", "v1"]).with_id(0),
             conn_id: 1,
+            route: true,
         };
 
         // Add different routes
@@ -202,6 +212,7 @@ mod tests {
         let route = Route {
             name: Name::from_strings(["nonexistent", "route", "v1"]).with_id(0),
             conn_id: 1,
+            route: true,
         };
 
         assert!(!routes.has_route(&route));
@@ -215,6 +226,7 @@ mod tests {
         let route = Route {
             name: Name::from_strings(["concurrent", "route", "v1"]).with_id(0),
             conn_id: 1,
+            route: true,
         };
 
         let mut handles = vec![];
@@ -248,6 +260,7 @@ mod tests {
         let route = Route {
             name: Name::from_strings(["alternating", "route", "v1"]).with_id(0),
             conn_id: 1,
+            route: true,
         };
 
         // Add and remove alternately
@@ -276,10 +289,12 @@ mod tests {
         let route1 = Route {
             name: Name::from_strings(["test", "route", "v1"]).with_id(0),
             conn_id: 100,
+            route: true,
         };
         let route2 = Route {
             name: Name::from_strings(["test", "route", "v1"]).with_id(0),
             conn_id: 200,
+            route: true,
         };
 
         // These should be treated as different routes if conn_ids differ
@@ -300,6 +315,7 @@ mod tests {
         let route = Route {
             name: Name::from_strings(["shared", "route", "v1"]).with_id(0),
             conn_id: 1,
+            route: true,
         };
 
         routes1.add_route(route.clone());
@@ -323,6 +339,7 @@ mod tests {
         let route = Route {
             name: Name::from_strings(["test", "route", "v1"]).with_id(0),
             conn_id: 1,
+            route: true,
         };
 
         routes.add_route(route.clone());
@@ -333,5 +350,43 @@ mod tests {
         routes.remove_route(&route);
 
         assert!(!routes.has_route(&route));
+    }
+
+    #[test]
+    fn test_route_and_subscription_with_same_name_are_distinct() {
+        let routes = SessionRoutes::default();
+        let name = Name::from_strings(["test", "name", "v1"]).with_id(0);
+
+        // Create a route (route: true)
+        let route = Route {
+            name: name.clone(),
+            conn_id: 1,
+            route: true,
+        };
+
+        // Create a subscription (route: false)
+        let subscription = Route {
+            name: name.clone(),
+            conn_id: 1,
+            route: false,
+        };
+
+        // Add both
+        routes.add_route(route.clone());
+        routes.add_route(subscription.clone());
+
+        // Both should exist independently
+        assert!(routes.has_route(&route));
+        assert!(routes.has_route(&subscription));
+
+        // Remove the route - subscription should still exist
+        routes.remove_route(&route);
+        assert!(!routes.has_route(&route));
+        assert!(routes.has_route(&subscription));
+
+        // Remove the subscription - both should be gone
+        routes.remove_route(&subscription);
+        assert!(!routes.has_route(&route));
+        assert!(!routes.has_route(&subscription));
     }
 }

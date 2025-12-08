@@ -191,7 +191,7 @@ impl SessionController {
                             }
 
                             if let Err(e) = inner.on_message(session_message).await {
-                                tracing::error!(
+                                debug!(
                                     error=%e,
                                     "Error processing message{}",
                                     if draining { " during graceful shutdown" } else { "" }
@@ -559,6 +559,7 @@ where
         let session_route = Route {
             name: name.clone(),
             conn_id: conn,
+            route: true,
         };
         if !self.settings.routes_cache.has_route(&session_route) {
             let route = Message::builder()
@@ -578,6 +579,7 @@ where
         let session_route = Route {
             name: name.clone(),
             conn_id: conn,
+            route: true,
         };
         self.settings.routes_cache.remove_route(&session_route);
         if !self.settings.routes_cache.has_route(&session_route) {
@@ -601,6 +603,7 @@ where
         let session_route = Route {
             name: name.clone(),
             conn_id: conn,
+            route: false,
         };
         if !self.settings.routes_cache.has_route(&session_route) {
             let subscription = Message::builder()
@@ -624,6 +627,7 @@ where
         let session_route = Route {
             name: name.clone(),
             conn_id: conn,
+            route: false,
         };
         self.settings.routes_cache.remove_route(&session_route);
         if !self.settings.routes_cache.has_route(&session_route) {

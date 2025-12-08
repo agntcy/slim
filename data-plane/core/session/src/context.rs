@@ -147,8 +147,8 @@ mod tests {
         id: u32,
         app_tx: AppChannelSender,
     ) -> Arc<SessionController> {
-        use crate::session_routes::SessionRoutes;
         use crate::SlimChannelSender;
+        use crate::session_routes::SessionRoutes;
 
         let source = make_name(["a", "b", "c"]);
         let destination = make_name(["x", "y", "z"]);
