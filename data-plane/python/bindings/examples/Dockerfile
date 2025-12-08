@@ -80,8 +80,12 @@ esac
 
 cargo fetch --target ${RUSTARCH}-unknown-linux-gnu
 
-uv python install cpython-3.14-linux-${RUSTARCH}
-uv python pin cpython-3.14-linux-${RUSTARCH}
+# Install python toolchain manager and set up Python
+uv python install 3.14
+uv python pin 3.14
+
+# Cross-install CPython for the target architecture
+uv python install --no-bin --no-registry cpython-3.14-linux-${RUSTARCH}
 
 export PYO3_CROSS_INCLUDE_DIR=~/.local/share/uv/python/cpython-3.14.2-linux-${RUSTARCH}-gnu/include
 export PYO3_CROSS_LIB_DIR=~/.local/share/uv/python/cpython-3.14.2-linux-${RUSTARCH}-gnu/lib
