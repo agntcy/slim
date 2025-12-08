@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use agntcy_slimrpc::{
-    MessageContext, RequestStream, ResponseStream, Server, SessionContext, SLIMAppConfig,
-    StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler, RPCHandler,
+    MessageContext, RPCHandler, RequestStream, ResponseStream, SLIMAppConfig, Server,
+    SessionContext, StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
 };
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -50,9 +50,7 @@ impl UnaryUnaryHandler<Vec<u8>, Vec<u8>> for EchoUnaryHandler {
         let request_str = String::from_utf8_lossy(&request);
         info!(
             "UnaryUnary: Received '{}' from {} in session {}",
-            request_str,
-            msg_ctx.source_name,
-            session_ctx.session_id
+            request_str, msg_ctx.source_name, session_ctx.session_id
         );
 
         let response = format!("Echo: {}", request_str);
@@ -73,9 +71,7 @@ impl UnaryStreamHandler<Vec<u8>, Vec<u8>> for EchoUnaryStreamHandler {
         let request_str = String::from_utf8_lossy(&request).to_string();
         info!(
             "UnaryStream: Received '{}' from {} in session {}",
-            request_str,
-            msg_ctx.source_name,
-            session_ctx.session_id
+            request_str, msg_ctx.source_name, session_ctx.session_id
         );
 
         // Send 3 responses
@@ -97,7 +93,10 @@ impl StreamUnaryHandler<Vec<u8>, Vec<u8>> for EchoStreamUnaryHandler {
         mut request_stream: RequestStream<Vec<u8>>,
         session_ctx: SessionContext,
     ) -> agntcy_slimrpc::error::Result<Vec<u8>> {
-        info!("StreamUnary: Receiving stream in session {}", session_ctx.session_id);
+        info!(
+            "StreamUnary: Receiving stream in session {}",
+            session_ctx.session_id
+        );
 
         let mut messages = Vec::new();
         while let Some(result) = request_stream.next().await {
@@ -105,14 +104,14 @@ impl StreamUnaryHandler<Vec<u8>, Vec<u8>> for EchoStreamUnaryHandler {
             let request_str = String::from_utf8_lossy(&request);
             info!(
                 "StreamUnary: Received '{}' from {}",
-                request_str,
-                msg_ctx.source_name
+                request_str, msg_ctx.source_name
             );
             messages.push(request_str.to_string());
         }
 
-        let response = format!("Echo: Received {} messages: [{}]", 
-            messages.len(), 
+        let response = format!(
+            "Echo: Received {} messages: [{}]",
+            messages.len(),
             messages.join(", ")
         );
         Ok(response.into_bytes())
@@ -128,7 +127,10 @@ impl StreamStreamHandler<Vec<u8>, Vec<u8>> for EchoStreamStreamHandler {
         mut request_stream: RequestStream<Vec<u8>>,
         session_ctx: SessionContext,
     ) -> agntcy_slimrpc::error::Result<ResponseStream<Vec<u8>>> {
-        info!("StreamStream: Receiving stream in session {}", session_ctx.session_id);
+        info!(
+            "StreamStream: Receiving stream in session {}",
+            session_ctx.session_id
+        );
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
@@ -139,8 +141,7 @@ impl StreamStreamHandler<Vec<u8>, Vec<u8>> for EchoStreamStreamHandler {
                         let request_str = String::from_utf8_lossy(&request);
                         info!(
                             "StreamStream: Received '{}' from {}",
-                            request_str,
-                            msg_ctx.source_name
+                            request_str, msg_ctx.source_name
                         );
 
                         let response = format!("Echo: {}", request_str);
@@ -156,7 +157,9 @@ impl StreamStreamHandler<Vec<u8>, Vec<u8>> for EchoStreamStreamHandler {
             }
         });
 
-        Ok(Box::pin(tokio_stream::wrappers::UnboundedReceiverStream::new(rx)))
+        Ok(Box::pin(
+            tokio_stream::wrappers::UnboundedReceiverStream::new(rx),
+        ))
     }
 }
 
@@ -174,9 +177,7 @@ impl UnaryUnaryHandler<Vec<u8>, Vec<u8>> for SimpleEchoHandler {
         let request_str = String::from_utf8_lossy(&request);
         info!(
             "SimpleEcho: '{}' from {} in session {}",
-            request_str,
-            msg_ctx.source_name,
-            session_ctx.session_id
+            request_str, msg_ctx.source_name, session_ctx.session_id
         );
 
         // Simple echo back
@@ -186,11 +187,8 @@ impl UnaryUnaryHandler<Vec<u8>, Vec<u8>> for SimpleEchoHandler {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-
     // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_max_level(Level::INFO)
-        .init();
+    tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 
     let args = Args::parse();
 
