@@ -58,11 +58,8 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-
     // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_max_level(Level::INFO)
-        .init();
+    tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 
     let args = Args::parse();
 
@@ -107,10 +104,24 @@ async fn main() -> Result<()> {
             unary_stream_example(&channel, &args.method, &args.message, timeout).await?;
         }
         "stream-unary" => {
-            stream_unary_example(&channel, &args.method, &args.message, args.iterations, timeout).await?;
+            stream_unary_example(
+                &channel,
+                &args.method,
+                &args.message,
+                args.iterations,
+                timeout,
+            )
+            .await?;
         }
         "stream-stream" => {
-            stream_stream_example(&channel, &args.method, &args.message, args.iterations, timeout).await?;
+            stream_stream_example(
+                &channel,
+                &args.method,
+                &args.message,
+                args.iterations,
+                timeout,
+            )
+            .await?;
         }
         _ => {
             anyhow::bail!("Unknown RPC type: {}", args.rpc_type);
@@ -122,15 +133,18 @@ async fn main() -> Result<()> {
 }
 
 async fn unary_unary_example(
-    channel: &Channel<slim_auth::shared_secret::SharedSecret, slim_auth::shared_secret::SharedSecret>,
+    channel: &Channel<
+        slim_auth::shared_secret::SharedSecret,
+        slim_auth::shared_secret::SharedSecret,
+    >,
     method: &str,
     message: &str,
     timeout: Option<Duration>,
 ) -> Result<()> {
     info!("=== Unary-Unary RPC Example ===");
-    
+
     let request = message.as_bytes().to_vec();
-    
+
     info!("Sending request: {}", message);
     let response = channel
         .unary_unary(method, request, timeout, None)
@@ -144,15 +158,18 @@ async fn unary_unary_example(
 }
 
 async fn unary_stream_example(
-    channel: &Channel<slim_auth::shared_secret::SharedSecret, slim_auth::shared_secret::SharedSecret>,
+    channel: &Channel<
+        slim_auth::shared_secret::SharedSecret,
+        slim_auth::shared_secret::SharedSecret,
+    >,
     method: &str,
     message: &str,
     timeout: Option<Duration>,
 ) -> Result<()> {
     info!("=== Unary-Stream RPC Example ===");
-    
+
     let request = message.as_bytes().to_vec();
-    
+
     info!("Sending request: {}", message);
     let mut response_stream = channel
         .unary_stream(method, request, timeout, None)
@@ -173,14 +190,17 @@ async fn unary_stream_example(
 }
 
 async fn stream_unary_example(
-    channel: &Channel<slim_auth::shared_secret::SharedSecret, slim_auth::shared_secret::SharedSecret>,
+    channel: &Channel<
+        slim_auth::shared_secret::SharedSecret,
+        slim_auth::shared_secret::SharedSecret,
+    >,
     method: &str,
     message: &str,
     iterations: usize,
     timeout: Option<Duration>,
 ) -> Result<()> {
     info!("=== Stream-Unary RPC Example ===");
-    
+
     // Create request stream with owned strings
     let message_owned = message.to_string();
     let requests = (0..iterations).map(move |i| {
@@ -202,14 +222,17 @@ async fn stream_unary_example(
 }
 
 async fn stream_stream_example(
-    channel: &Channel<slim_auth::shared_secret::SharedSecret, slim_auth::shared_secret::SharedSecret>,
+    channel: &Channel<
+        slim_auth::shared_secret::SharedSecret,
+        slim_auth::shared_secret::SharedSecret,
+    >,
     method: &str,
     message: &str,
     iterations: usize,
     timeout: Option<Duration>,
 ) -> Result<()> {
     info!("=== Stream-Stream RPC Example ===");
-    
+
     // Create request stream with owned strings
     let message_owned = message.to_string();
     let requests = (0..iterations).map(move |i| {
