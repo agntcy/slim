@@ -146,30 +146,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut svc = build_client_service(DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID)?;
 
-    let (app, _rx) = svc
-        .create_app(
-            &name,
-            SharedSecret::new(&name.to_string(), TEST_VALID_SECRET)
-                .expect("Failed to create SharedSecret"),
-            SharedSecret::new(&name.to_string(), TEST_VALID_SECRET)
-                .expect("Failed to create SharedSecret"),
-        )
-        .map_err(|_| format!("Failed to create participant {}", name))?;
-
-    svc.run()
-        .await
-        .map_err(|_| format!("Failed to run participant {}", name))?;
-
-    let conn_id = svc
-        .get_connection_id(&svc.config().clients()[0].endpoint)
-        .ok_or(format!(
-            "Failed to get connection id for participant {}",
-            name,
-        ))?;
-
-    app.subscribe(&name, Some(conn_id))
-        .await
-        .map_err(|_| format!("Failed to subscribe for participant {}", name))?;
+    let (app, _rx, conn_id, _svc) = create_and_subscribe_app(svc, &name).await?;
 
     let conf = SessionConfig {
         session_type: slim_datapath::api::ProtoSessionType::Multicast,
