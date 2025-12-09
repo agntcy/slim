@@ -156,8 +156,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let multiple_remotes = *args.multiple_remotes();
 
     println!(
-        "run test with MLS = {} number of apps = {}, SLIM on = {}",
-        mls_enabled, apps, !without_slim,
+        "run test with MLS = {} number of apps = {}, SLIM on = {}, multiple remotes = {}",
+        mls_enabled, apps, !without_slim, multiple_remotes
     );
 
     // start slim node

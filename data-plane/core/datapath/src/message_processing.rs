@@ -16,7 +16,7 @@ use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::{Stream, StreamExt};
 use tokio_util::sync::CancellationToken;
-use tonic::codegen::{Body, StdError};
+
 use tonic::{Request, Response, Status};
 use tracing::{Span, debug, error, info};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -208,102 +208,101 @@ impl MessageProcessor {
             ))
     }
 
-    async fn try_to_connect<C>(
+    async fn try_to_connect(
         &self,
-        channel: C,
-        client_config: Option<ClientConfig>,
+        client_config: ClientConfig,
         local: Option<SocketAddr>,
         remote: Option<SocketAddr>,
         existing_conn_index: Option<u64>,
-        max_retry: u32,
-    ) -> Result<(JoinHandle<()>, u64), DataPathError>
-    where
-        C: tonic::client::GrpcService<tonic::body::Body>,
-        C::Error: Into<StdError>,
-        C::ResponseBody: Body<Data = bytes::Bytes> + std::marker::Send + 'static,
-        <C::ResponseBody as Body>::Error: Into<StdError> + std::marker::Send,
-    {
-        let mut client: DataPlaneServiceClient<C> = DataPlaneServiceClient::new(channel);
-        let mut i = 0;
-        while i < max_retry {
-            let (tx, rx) = mpsc::channel(128);
-            match client
-                .open_channel(Request::new(ReceiverStream::new(rx)))
-                .await
-            {
-                Ok(stream) => {
-                    let cancellation_token = CancellationToken::new();
-                    let connection = Connection::new(ConnectionType::Remote)
-                        .with_local_addr(local)
-                        .with_remote_addr(remote)
-                        .with_channel(Channel::Client(tx))
-                        .with_config_data(client_config.clone())
-                        .with_cancellation_token(Some(cancellation_token.clone()));
+    ) -> Result<(JoinHandle<()>, u64), DataPathError> {
+        let mut watch = std::pin::pin!(self.get_drain_watch()?.signaled());
 
-                    debug!(
-                        "new connection initiated locally: (remote: {:?} - local: {:?})",
-                        connection.remote_addr(),
-                        connection.local_addr()
-                    );
-
-                    // insert connection into connection table
-                    let opt = self
-                        .forwarder()
-                        .on_connection_established(connection, existing_conn_index);
-                    if opt.is_none() {
-                        error!("error adding connection to the connection table");
+        let channel = tokio::select! {
+            _ = &mut watch => {
+                return Err(DataPathError::ConnectionError(
+                    "data plane is shutting down".to_string(),
+                ));
+            }
+            res = client_config.to_channel() => {
+                match res {
+                    Ok(c) => c,
+                    Err(e) => {
+                        error!("cannot parse connection config, unable to connect {:?}", e.to_string());
                         return Err(DataPathError::ConnectionError(
-                            "error adding connection to the connection tables".to_string(),
+                            format!("cannot parse connection config: {}", e),
                         ));
                     }
-
-                    let conn_index = opt.unwrap();
-                    debug!(
-                        "new connection index = {:?}, is local {:?}",
-                        conn_index, false
-                    );
-
-                    // Start loop to process messages
-                    let ret = self.process_stream(
-                        stream.into_inner(),
-                        conn_index,
-                        client_config,
-                        cancellation_token,
-                        false,
-                        false,
-                    )?;
-                    return Ok((ret, conn_index));
-                }
-                Err(e) => {
-                    error!("connection error: {:?}.", e.to_string());
                 }
             }
-            i += 1;
+        };
 
-            // sleep 1 sec between each connection retry
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        let mut client = DataPlaneServiceClient::new(channel);
+        let (tx, rx) = mpsc::channel(128);
+
+        match client
+            .open_channel(Request::new(ReceiverStream::new(rx)))
+            .await
+        {
+            Ok(stream) => {
+                let cancellation_token = CancellationToken::new();
+                let connection = Connection::new(ConnectionType::Remote)
+                    .with_local_addr(local)
+                    .with_remote_addr(remote)
+                    .with_channel(Channel::Client(tx))
+                    .with_config_data(Some(client_config.clone()))
+                    .with_cancellation_token(Some(cancellation_token.clone()));
+
+                debug!(
+                    "new connection initiated locally: (remote: {:?} - local: {:?})",
+                    connection.remote_addr(),
+                    connection.local_addr()
+                );
+
+                // insert connection into connection table
+                let opt = self
+                    .forwarder()
+                    .on_connection_established(connection, existing_conn_index);
+                if opt.is_none() {
+                    error!("error adding connection to the connection table");
+                    return Err(DataPathError::ConnectionError(
+                        "error adding connection to the connection tables".to_string(),
+                    ));
+                }
+
+                let conn_index = opt.unwrap();
+                debug!(
+                    "new connection index = {:?}, is local {:?}",
+                    conn_index, false
+                );
+
+                // Start loop to process messages
+                let ret = self.process_stream(
+                    stream.into_inner(),
+                    conn_index,
+                    Some(client_config),
+                    cancellation_token,
+                    false,
+                    false,
+                )?;
+                Ok((ret, conn_index))
+            }
+            Err(e) => {
+                error!("connection error: {:?}.", e.to_string());
+                Err(DataPathError::ConnectionError(format!(
+                    "failed to open channel: {}",
+                    e
+                )))
+            }
         }
-
-        error!("unable to connect to the endpoint");
-        Err(DataPathError::ConnectionError(
-            "reached max connection retries".to_string(),
-        ))
     }
 
-    pub async fn connect<C>(
+    pub async fn connect(
         &self,
-        channel: C,
-        client_config: Option<ClientConfig>,
+        client_config: ClientConfig,
         local: Option<SocketAddr>,
         remote: Option<SocketAddr>,
-    ) -> Result<(JoinHandle<()>, u64), DataPathError>
-    where
-        C: tonic::client::GrpcService<tonic::body::Body>,
-        C::Error: Into<StdError>,
-        C::ResponseBody: Body<Data = bytes::Bytes> + std::marker::Send + 'static,
-        <C::ResponseBody as Body>::Error: Into<StdError> + std::marker::Send,
-    {
-        self.try_to_connect(channel, client_config, local, remote, None, 10)
+    ) -> Result<(JoinHandle<()>, u64), DataPathError> {
+        self.try_to_connect(client_config, local, remote, None)
             .await
     }
 
@@ -696,62 +695,46 @@ impl MessageProcessor {
 
     async fn reconnect(
         &self,
-        client_conf: Option<ClientConfig>,
+        client_conf: ClientConfig,
         conn_index: u64,
         cancellation_token: &CancellationToken,
     ) -> bool {
-        let config = client_conf.unwrap();
-        match config.to_channel().await {
-            Err(e) => {
-                error!(
-                    "cannot parse connection config, unable to reconnect {:?}",
-                    e.to_string()
-                );
+        info!("connection lost with remote endpoint, attempting to reconnect");
+
+        // These are the subscriptions that we forwarded to the remote SLIM on
+        // this connection. It is necessary to restore them to keep receive the messages
+        // The connections on the local subscription table (created using the set_route command)
+        // are still there and will be removed only if the reconnection process fails.
+        let remote_subscriptions = self
+            .forwarder()
+            .get_subscriptions_forwarded_on_connection(conn_index);
+
+        tokio::select! {
+            _ = cancellation_token.cancelled() => {
+                debug!("cancellation token signaled, stopping reconnection process");
                 false
             }
-            Ok(channel) => {
-                info!("connection lost with remote endpoint, try to reconnect");
-                // These are the subscriptions that we forwarded to the remote SLIM on
-                // this connection. It is necessary to restore them to keep receive the messages
-                // The connections on the local subscription table (created using the set_route command)
-                // are still there and will be removed only if the reconnection process will fail.
-                let remote_subscriptions = self
-                    .forwarder()
-                    .get_subscriptions_forwarded_on_connection(conn_index);
-
-                tokio::select! {
-                    _ = cancellation_token.cancelled() => {
-                        debug!("cancellation token signaled, stopping reconnection process");
-                        false
-                    }
-                    _ = self.get_drain_watch().unwrap().signaled() => {
-                        debug!("drain watch signaled, stopping reconnection process");
-                        false
-                    }
-                    res = self.try_to_connect(channel, Some(config), None, None, Some(conn_index), 120) => {
-                        match res {
-                            Ok(_) => {
-                                info!("connection re-established");
-                                // the subscription table should be ok already
-                                for r in remote_subscriptions.iter() {
-                                    let sub_msg = Message::builder()
-                                        .source(r.source().clone())
-                                        .destination(r.name().clone())
-                                        .identity(r.source_identity())
-                                        .build_subscribe()
-                                        .unwrap();
-                                    if self.send_msg(sub_msg, conn_index).await.is_err() {
-                                        error!("error restoring subscription on remote node");
-                                    }
-                                }
-                                true
-                            }
-                            Err(e) => {
-                                // TODO: notify the app that the connection is not working anymore
-                                error!("unable to connect to remote node {:?}", e.to_string());
-                                false
+            res = self.try_to_connect(client_conf, None, None, Some(conn_index)) => {
+                match res {
+                    Ok(_) => {
+                        info!("connection re-established successfully");
+                        // Restore subscriptions on the remote node
+                        for r in remote_subscriptions.iter() {
+                            let sub_msg = Message::builder()
+                                .source(r.source().clone())
+                                .destination(r.name().clone())
+                                .identity(r.source_identity())
+                                .build_subscribe()
+                                .unwrap();
+                            if self.send_msg(sub_msg, conn_index).await.is_err() {
+                                error!("error restoring subscription on remote node");
                             }
                         }
+                        true
+                    }
+                    Err(e) => {
+                        error!("unable to reconnect to remote node: {:?}", e);
+                        false
                     }
                 }
             }
@@ -848,10 +831,8 @@ impl MessageProcessor {
 
             let mut connected = false;
 
-            if try_to_reconnect && client_conf_clone.is_some() {
-                connected = self_clone
-                    .reconnect(client_conf_clone, conn_index, &token_clone)
-                    .await;
+            if try_to_reconnect && let Some(config) = client_conf_clone {
+                connected = self_clone.reconnect(config, conn_index, &token_clone).await;
             } else {
                 debug!("close connection {}", conn_index)
             }

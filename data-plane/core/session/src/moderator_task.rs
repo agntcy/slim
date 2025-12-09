@@ -37,7 +37,11 @@ fn unsupported_phase() -> SessionError {
 pub enum ModeratorTask {
     Add(AddParticipant),
     Remove(RemoveParticipant),
-    Close(CloseGroup),
+    // this task is used both on session close
+    // and on disconnection detection. in both cases
+    // we need to notify all the participant in the
+    // group and wait for the acks
+    CloseOrDisconnect(NotifyParticipants),
     #[allow(dead_code)]
     Update(UpdateParticipant),
 }
@@ -48,7 +52,7 @@ impl ModeratorTask {
         match self {
             ModeratorTask::Add(t) => t.ack_tx.take(),
             ModeratorTask::Remove(t) => t.ack_tx.take(),
-            ModeratorTask::Close(t) => t.ack_tx.take(),
+            ModeratorTask::CloseOrDisconnect(t) => t.ack_tx.take(),
             ModeratorTask::Update(t) => t.ack_tx.take(),
         }
     }
@@ -58,7 +62,7 @@ impl ModeratorTask {
             ModeratorTask::Add(_) => add_msg,
             ModeratorTask::Remove(_) => "failed to remove a participant from the group",
             ModeratorTask::Update(_) => "failed to update state of the participant",
-            ModeratorTask::Close(_) => "failed to close the session",
+            ModeratorTask::CloseOrDisconnect(_) => "failed to notify participants",
         }
     }
 }
@@ -95,7 +99,6 @@ impl TaskUpdate for ModeratorTask {
     fn leave_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
         match self {
             ModeratorTask::Remove(task) => task.leave_start(timer_id),
-            ModeratorTask::Close(task) => task.leave_start(timer_id),
             _ => Err(unsupported_phase()),
         }
     }
@@ -119,7 +122,7 @@ impl TaskUpdate for ModeratorTask {
             ModeratorTask::Add(task) => task.commit_start(timer_id),
             ModeratorTask::Remove(task) => task.commit_start(timer_id),
             ModeratorTask::Update(task) => task.commit_start(timer_id),
-            _ => Err(unsupported_phase()),
+            ModeratorTask::CloseOrDisconnect(task) => task.commit_start(timer_id),
         }
     }
 
@@ -135,7 +138,7 @@ impl TaskUpdate for ModeratorTask {
             ModeratorTask::Add(task) => task.update_phase_completed(timer_id),
             ModeratorTask::Remove(task) => task.update_phase_completed(timer_id),
             ModeratorTask::Update(task) => task.update_phase_completed(timer_id),
-            ModeratorTask::Close(task) => task.update_phase_completed(timer_id),
+            ModeratorTask::CloseOrDisconnect(task) => task.update_phase_completed(timer_id),
         }
     }
 
@@ -144,7 +147,7 @@ impl TaskUpdate for ModeratorTask {
             ModeratorTask::Add(task) => task.task_complete(),
             ModeratorTask::Remove(task) => task.task_complete(),
             ModeratorTask::Update(task) => task.task_complete(),
-            ModeratorTask::Close(task) => task.task_complete(),
+            ModeratorTask::CloseOrDisconnect(task) => task.task_complete(),
         }
     }
 }
@@ -386,22 +389,22 @@ impl TaskUpdate for RemoveParticipant {
 }
 
 #[derive(Debug, Default)]
-pub struct CloseGroup {
-    close: State,
-    /// Optional ack notifier to signal when the remove operation completes (after LeaveReply)
+pub struct NotifyParticipants {
+    notify: State,
+    /// Optional ack notifier to signal when the notify operation completes
     pub(crate) ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
 }
 
-impl CloseGroup {
+impl NotifyParticipants {
     pub(crate) fn new(ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>) -> Self {
         Self {
-            close: Default::default(),
+            notify: Default::default(),
             ack_tx,
         }
     }
 }
 
-impl TaskUpdate for CloseGroup {
+impl TaskUpdate for NotifyParticipants {
     fn discovery_start(&mut self, _timer_id: u32) -> Result<(), SessionError> {
         Err(unsupported_phase())
     }
@@ -418,11 +421,8 @@ impl TaskUpdate for CloseGroup {
         Err(unsupported_phase())
     }
 
-    fn leave_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        debug!("start close session task, timer id {}", timer_id);
-        self.close.received = false;
-        self.close.timer_id = timer_id;
-        Ok(())
+    fn leave_start(&mut self, _timer_id: u32) -> Result<(), SessionError> {
+        Err(unsupported_phase())
     }
 
     fn leave_complete(&mut self, _timer_id: u32) -> Result<(), SessionError> {
@@ -433,8 +433,11 @@ impl TaskUpdate for CloseGroup {
         Err(unsupported_phase())
     }
 
-    fn commit_start(&mut self, _timer_id: u32) -> Result<(), SessionError> {
-        Err(unsupported_phase())
+    fn commit_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
+        debug!("start notify participants task, timer id {}", timer_id);
+        self.notify.received = false;
+        self.notify.timer_id = timer_id;
+        Ok(())
     }
 
     fn proposal_start(&mut self, _timer_id: u32) -> Result<(), SessionError> {
@@ -442,11 +445,14 @@ impl TaskUpdate for CloseGroup {
     }
 
     fn update_phase_completed(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        if self.close.timer_id == timer_id {
-            self.close.received = true;
-            debug!("close completed on CloseGroup task, timer id {}", timer_id);
+        if self.notify.timer_id == timer_id {
+            self.notify.received = true;
+            debug!(
+                "notify participants completed on NotifyParticipants task, timer id {}",
+                timer_id
+            );
 
-            // Signal success to the ack notifier if present (remove operation complete)
+            // Signal success to the ack notifier if present (notify operation complete)
             if let Some(tx) = self.ack_tx.take() {
                 let _ = tx.send(Ok(()));
             }
@@ -460,7 +466,7 @@ impl TaskUpdate for CloseGroup {
     }
 
     fn task_complete(&self) -> bool {
-        self.close.received
+        self.notify.received
     }
 }
 
@@ -658,6 +664,32 @@ mod tests {
 
         task.update_phase_completed(timer_id)
             .expect("error on proposal completed");
+        assert!(task.task_complete());
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_close_group() {
+        let mut task = ModeratorTask::CloseOrDisconnect(NotifyParticipants::default());
+        assert!(!task.task_complete());
+
+        let timer_id = 10;
+        task.commit_start(timer_id).expect("error on commit start");
+        assert!(!task.task_complete());
+
+        let mut res = task.update_phase_completed(timer_id + 1);
+        assert_eq!(
+            res,
+            Err(SessionError::ModeratorTask(
+                "unexpected timer id".to_string(),
+            ))
+        );
+
+        res = task.discovery_start(timer_id);
+        assert_eq!(res, Err(unsupported_phase()));
+
+        task.update_phase_completed(timer_id)
+            .expect("error on notify completed");
         assert!(task.task_complete());
     }
 }

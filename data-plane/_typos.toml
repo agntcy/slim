@@ -5,5 +5,10 @@ extend-ignore-re = [
 ]
 
 [files]
-# Ignore all changelogs
-extend-exclude = ["**/CHANGELOG.md", "**/*.pem", "**/*.yaml"]
+# Ignore all changelogs and generated bindings files
+extend-exclude = [
+    "**/CHANGELOG.md",
+    "**/*.pem",
+    "**/*.yaml",
+    "bindings/go/generated/**",
+]

@@ -5,9 +5,9 @@ use std::collections::HashMap;
 
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
+use slim_bindings::{MessageContext, Name as FfiName};
 use slim_datapath::api::ProtoMessage;
-use slim_datapath::messages::Name;
-use slim_service::{MessageContext, ServiceError};
+use slim_service::ServiceError;
 
 use crate::utils::PyName;
 
@@ -57,12 +57,13 @@ impl PyMessageContext {
 impl From<MessageContext> for PyMessageContext {
     /// Convert a common MessageContext into a Python-specific MessageContext
     fn from(ctx: MessageContext) -> Self {
+        let empty_name = FfiName {
+            components: vec!["".to_string(), "".to_string(), "".to_string()],
+            id: None,
+        };
         PyMessageContext {
             source_name: PyName::from(ctx.source_name),
-            destination_name: PyName::from(
-                ctx.destination_name
-                    .unwrap_or_else(|| Name::from_strings(["", "", ""])),
-            ),
+            destination_name: PyName::from(ctx.destination_name.unwrap_or(empty_name)),
             payload_type: ctx.payload_type,
             metadata: ctx.metadata,
             input_connection: ctx.input_connection,

@@ -15,11 +15,11 @@ async def server(request):
     # create new server
     global svc_server
 
-    name = slim_bindings.PyName("agntcy", "default", "server")
-    provider = slim_bindings.PyIdentityProvider.SharedSecret(
+    name = slim_bindings.Name("agntcy", "default", "server")
+    provider = slim_bindings.IdentityProvider.SharedSecret(
         identity="server", shared_secret="secret"
     )
-    verifier = slim_bindings.PyIdentityVerifier.SharedSecret(
+    verifier = slim_bindings.IdentityVerifier.SharedSecret(
         identity="server", shared_secret="secret"
     )
 

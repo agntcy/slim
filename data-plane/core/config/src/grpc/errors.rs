@@ -30,6 +30,14 @@ pub enum ConfigError {
     ResolutionError,
     #[error("invalid uri: {0}")]
     InvalidUri(String),
+    #[error("tonic error: {error:?}")]
+    TonicTransportError { error: tonic::transport::Error },
     #[error("unknown error")]
     Unknown,
+}
+
+impl From<tonic::transport::Error> for ConfigError {
+    fn from(err: tonic::transport::Error) -> Self {
+        ConfigError::TonicTransportError { error: err }
+    }
 }

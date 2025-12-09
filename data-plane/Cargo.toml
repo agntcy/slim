@@ -1,6 +1,7 @@
 [workspace]
 
 members = [
+    "bindings/adapter",
     "core/auth",
     "core/config",
     "core/controller",
@@ -19,6 +20,7 @@ members = [
 ]
 
 default-members = [
+    "bindings/adapter",
     "core/config",
     "core/datapath",
     "core/slim",
@@ -39,6 +41,7 @@ resolver = "2"
 # Local dependencies
 agntcy-slim = { path = "core/slim", version = "0.7.1" }
 agntcy-slim-auth = { path = "core/auth", version = "0.4.1" }
+agntcy-slim-bindings = { path = "bindings/adapter", version = "0.7.0" }
 agntcy-slim-config = { path = "core/config", version = "0.4.3" }
 agntcy-slim-controller = { path = "core/controller", version = "0.4.3" }
 agntcy-slim-datapath = { path = "core/datapath", version = "0.10.3" }
@@ -82,6 +85,7 @@ mls-rs = { version = "0.50.1" }
 mls-rs-core = { version = "0.24.0" }
 mls-rs-crypto-awslc = { version = "0.19" }
 notify = "8.0.0"
+num_cpus = "1.16"
 oauth2 = "5"
 once_cell = "1.21.0"
 opentelemetry = { version = "0.31.0", features = ["trace", "metrics"] }
@@ -158,6 +162,7 @@ edition = "2024"
 ignored = [
     "agntcy-slim",
     "agntcy-slim-auth",
+    "agntcy-slim-bindings",
     "agntcy-slim-config",
     "agntcy-slim-controller",
     "agntcy-slim-datapath",

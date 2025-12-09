@@ -17,14 +17,13 @@ use pyo3_stub_gen::derive::gen_stub_pymethods;
 use slim_session::CompletionHandle;
 use slim_session::{SessionConfig, SessionError};
 
-use crate::pyidentity::{IdentityProvider, IdentityVerifier};
+use slim_bindings::{BindingsAdapter, BindingsSessionContext, MessageContext};
+use slim_datapath::messages::Name;
+pub use slim_session::SESSION_UNSPECIFIED;
+use slim_session::context::SessionContext;
+
 use crate::pymessage::PyMessageContext;
 use crate::utils::PyName;
-use slim_datapath::messages::Name;
-use slim_service::{BindingsAdapter, BindingsSessionContext, MessageContext};
-pub use slim_session::SESSION_UNSPECIFIED;
-
-use slim_session::context::SessionContext;
 
 /// Handle for awaiting completion of asynchronous operations.
 /// This class wraps a `CompletionHandle` future, allowing Python code
@@ -122,8 +121,8 @@ pub(crate) struct PySessionContext {
 
 impl From<SessionContext> for PySessionContext {
     fn from(ctx: SessionContext) -> Self {
-        // Convert to BindingsSessionContext
-        let bindings_ctx = BindingsSessionContext::from(ctx);
+        // Convert to BindingsSessionContext with the global runtime
+        let bindings_ctx = BindingsSessionContext::new(ctx, slim_bindings::get_runtime());
 
         PySessionContext {
             internal: Arc::new(PySessionCtxInternal { bindings_ctx }),
@@ -344,7 +343,7 @@ impl PySessionContext {
 
         self.internal
             .bindings_ctx
-            .publish(&target_name, fanout, blob, conn_out, payload_type, metadata)
+            .publish_internal(&target_name, fanout, blob, conn_out, payload_type, metadata)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     }
@@ -361,7 +360,7 @@ impl PySessionContext {
 
         self.internal
             .bindings_ctx
-            .publish_to(&ctx, blob, payload_type, metadata)
+            .publish_to_internal(&ctx, blob, payload_type, metadata)
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     }
@@ -370,7 +369,7 @@ impl PySessionContext {
     async fn invite_internal(&self, name: PyName) -> PyResult<CompletionHandle> {
         self.internal
             .bindings_ctx
-            .invite(&name.into())
+            .invite_internal(&name.into())
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     }
@@ -379,16 +378,13 @@ impl PySessionContext {
     async fn remove_internal(&self, name: PyName) -> PyResult<CompletionHandle> {
         self.internal
             .bindings_ctx
-            .remove(&name.into())
+            .remove_internal(&name.into())
             .await
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     }
 
     /// Delete this session and return a completion handle
-    pub(crate) async fn delete(
-        &self,
-        adapter: &BindingsAdapter<IdentityProvider, IdentityVerifier>,
-    ) -> PyResult<CompletionHandle> {
+    pub(crate) async fn delete(&self, adapter: &BindingsAdapter) -> PyResult<CompletionHandle> {
         let session = self
             .internal
             .bindings_ctx
@@ -397,7 +393,7 @@ impl PySessionContext {
             .ok_or_else(|| PyErr::new::<PyException, _>("session closed"))?;
 
         adapter
-            .delete_session(&session)
+            .delete_session_internal(&session)
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
     }
 }
