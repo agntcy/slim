@@ -94,8 +94,10 @@ async fn run_participant_task(name: Name) -> Result<(), String> {
     let (app, mut rx) = svc
         .create_app(
             &name,
-            SharedSecret::new(&name.to_string(), TEST_VALID_SECRET),
-            SharedSecret::new(&name.to_string(), TEST_VALID_SECRET),
+            SharedSecret::new(&name.to_string(), TEST_VALID_SECRET)
+                .expect("Failed to create SharedSecret"),
+            SharedSecret::new(&name.to_string(), TEST_VALID_SECRET)
+                .expect("Failed to create SharedSecret"),
         )
         .map_err(|_| format!("Failed to create participant {}", name))?;
 
@@ -221,10 +223,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (app, _rx) = svc
         .create_app(
             &name,
-            SharedSecret::new(&name.to_string(), TEST_VALID_SECRET),
-            SharedSecret::new(&name.to_string(), TEST_VALID_SECRET),
+            SharedSecret::new(&name.to_string(), TEST_VALID_SECRET)
+                .expect("Failed to create SharedSecret"),
+            SharedSecret::new(&name.to_string(), TEST_VALID_SECRET)
+                .expect("Failed to create SharedSecret"),
         )
-        .map_err(|_| format!("Failed to create moderator {}", name))?;
+        .map_err(|_| format!("Failed to create participant {}", name))?;
 
     svc.run()
         .await

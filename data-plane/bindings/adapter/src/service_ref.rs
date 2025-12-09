@@ -46,7 +46,7 @@ mod tests {
 
     /// Create test authentication components
     fn create_test_auth() -> (AuthProvider, AuthVerifier) {
-        let shared_secret = SharedSecret::new("test-app", TEST_VALID_SECRET);
+        let shared_secret = SharedSecret::new("test-app", TEST_VALID_SECRET).unwrap();
         let provider = AuthProvider::SharedSecret(shared_secret.clone());
         let verifier = AuthVerifier::SharedSecret(shared_secret);
         (provider, verifier)
