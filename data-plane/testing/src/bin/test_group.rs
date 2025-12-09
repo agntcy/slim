@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use clap::Parser;
 use parking_lot::RwLock;
-use slim_datapath::messages::Name;
 use slim_auth::shared_secret::SharedSecret;
+use slim_datapath::messages::Name;
 use slim_service::SlimHeaderFlags;
 use slim_session::{Notification, SessionConfig};
 use slim_testing::build_client_service;
