@@ -148,6 +148,7 @@ mod tests {
         app_tx: AppChannelSender,
     ) -> Arc<SessionController> {
         use crate::SlimChannelSender;
+        use crate::session_routes::SessionRoutes;
 
         let source = make_name(["a", "b", "c"]);
         let destination = make_name(["x", "y", "z"]);
@@ -182,6 +183,7 @@ mod tests {
                 .with_storage_path(std::env::temp_dir())
                 .with_tx(session_tx)
                 .with_tx_to_session_layer(tx_session)
+                .with_routes_cache(SessionRoutes::default())
                 .ready()
                 .expect("Failed to prepare SessionController builder")
                 .build()
