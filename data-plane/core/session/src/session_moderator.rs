@@ -588,7 +588,10 @@ where
         // different connections. In case the route exists already it will be just ignored
         if self.common.settings.config.session_type == ProtoSessionType::Multicast {
             self.common
-                .set_route(&self.common.settings.destination, self.common.settings.egress_conn)
+                .set_route(
+                    &self.common.settings.destination,
+                    self.common.settings.egress_conn,
+                )
                 .await?;
         }
 

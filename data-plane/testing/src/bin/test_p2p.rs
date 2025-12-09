@@ -269,7 +269,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let (session_ctx, completion_handle) = app
-        .create_session(conf, Name::from_strings(["org", "ns", "client"]), conn_id, None)
+        .create_session(
+            conf,
+            Name::from_strings(["org", "ns", "client"]),
+            conn_id,
+            None,
+        )
         .await
         .expect("error creating session");
 

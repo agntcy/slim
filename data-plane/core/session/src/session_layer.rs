@@ -182,7 +182,8 @@ where
         let is_p2p = session_config.session_type == ProtoSessionType::PointToPoint;
         let destination_clone = destination.clone();
 
-        let session = self.create_session_internal(session_config, local_name, destination, egress_conn, id)?;
+        let session =
+            self.create_session_internal(session_config, local_name, destination, egress_conn, id)?;
 
         // If session is p2p, initiate the discovery request now and return the ack
         // Otherwise, return an immediately resolved future
@@ -747,7 +748,8 @@ mod tests {
             metadata: Default::default(),
         };
 
-        let result = session_layer.create_session_internal(config, local_name, destination, 0, None);
+        let result =
+            session_layer.create_session_internal(config, local_name, destination, 0, None);
 
         assert!(result.is_ok());
         assert_eq!(session_layer.pool_size(), 1);

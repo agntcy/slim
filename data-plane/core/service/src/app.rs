@@ -125,7 +125,13 @@ where
         id: Option<u32>,
     ) -> Result<(SessionContext, slim_session::CompletionHandle), SessionError> {
         self.session_layer
-            .create_session(session_config, self.app_name.clone(), destination, egress_conn, id)
+            .create_session(
+                session_config,
+                self.app_name.clone(),
+                destination,
+                egress_conn,
+                id,
+            )
             .await
     }
 

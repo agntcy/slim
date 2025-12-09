@@ -504,8 +504,10 @@ impl BindingsAdapter {
         destination: Name,
         egress_conn: u64,
     ) -> Result<Arc<crate::BindingsSessionContext>, SlimError> {
-        self.runtime
-            .block_on(async { self.create_session_async(config, destination, egress_conn).await })
+        self.runtime.block_on(async {
+            self.create_session_async(config, destination, egress_conn)
+                .await
+        })
     }
 
     /// Create a new session (async version)
@@ -977,7 +979,10 @@ impl BindingsAdapter {
         ),
         SlimError,
     > {
-        let (session_ctx, completion) = self.app.create_session(config, destination, egress_conn,None).await?;
+        let (session_ctx, completion) = self
+            .app
+            .create_session(config, destination, egress_conn, None)
+            .await?;
 
         Ok((session_ctx, completion))
     }

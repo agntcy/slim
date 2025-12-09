@@ -462,7 +462,10 @@ where
         }
 
         self.common
-            .set_route(&self.common.settings.destination, self.common.settings.egress_conn)
+            .set_route(
+                &self.common.settings.destination,
+                self.common.settings.egress_conn,
+            )
             .await?;
         let sub = Message::builder()
             .source(self.common.settings.source.clone())
@@ -476,7 +479,10 @@ where
 
     async fn leave(&self) -> Result<(), SessionError> {
         self.common
-            .delete_route(&self.common.settings.destination, self.common.settings.egress_conn)
+            .delete_route(
+                &self.common.settings.destination,
+                self.common.settings.egress_conn,
+            )
             .await?;
 
         if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
@@ -833,25 +839,6 @@ mod tests {
             setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
 
-        let moderator = make_name(&["moderator", "app", "v1"]).with_id(300);
-        let welcome_msg = Message::builder()
-            .source(moderator.clone())
-            .destination(participant.common.settings.source.clone())
-            .identity("")
-            .forward_to(0)
-            .incoming_conn(12345)
-            .session_type(ProtoSessionType::Multicast)
-            .session_message_type(ProtoSessionMessageType::GroupWelcome)
-            .session_id(1)
-            .message_id(100)
-            .payload(
-                CommandPayload::builder()
-                    .group_welcome(vec![], None)
-                    .as_content(),
-            )
-            .build_publish()
-            .unwrap();
-
         let result = participant.join().await;
         assert!(result.is_ok());
         assert!(participant.subscribed);
@@ -867,30 +854,6 @@ mod tests {
             setup_participant(ProtoSessionType::PointToPoint);
         participant.init().await.unwrap();
 
-        let moderator = make_name(&["moderator", "app", "v1"]).with_id(300);
-        let msg = Message::builder()
-            .source(moderator.clone())
-            .destination(participant.common.settings.source.clone())
-            .identity("")
-            .forward_to(0)
-            .incoming_conn(12345)
-            .session_type(ProtoSessionType::PointToPoint)
-            .session_message_type(ProtoSessionMessageType::JoinRequest)
-            .session_id(1)
-            .message_id(100)
-            .payload(
-                CommandPayload::builder()
-                    .join_request(
-                        false,
-                        Some(3),
-                        Some(std::time::Duration::from_secs(1)),
-                        None,
-                    )
-                    .as_content(),
-            )
-            .build_publish()
-            .unwrap();
-
         let result = participant.join().await;
         assert!(result.is_ok());
         assert!(participant.subscribed);
@@ -902,25 +865,6 @@ mod tests {
         let (mut participant, mut rx_slim, _rx_session_layer) =
             setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
-
-        let moderator = make_name(&["moderator", "app", "v1"]).with_id(300);
-        let msg = Message::builder()
-            .source(moderator.clone())
-            .destination(participant.common.settings.source.clone())
-            .identity("")
-            .forward_to(0)
-            .incoming_conn(12345)
-            .session_type(ProtoSessionType::Multicast)
-            .session_message_type(ProtoSessionMessageType::GroupWelcome)
-            .session_id(1)
-            .message_id(100)
-            .payload(
-                CommandPayload::builder()
-                    .group_welcome(vec![], None)
-                    .as_content(),
-            )
-            .build_publish()
-            .unwrap();
 
         // First join
         participant.join().await.unwrap();
@@ -1121,20 +1065,6 @@ mod tests {
 
         let moderator = make_name(&["moderator", "app", "v1"]).with_id(300);
         participant.moderator_name = Some(moderator.clone());
-
-        let leave_msg = Message::builder()
-            .source(moderator.clone())
-            .destination(participant.common.settings.source.clone())
-            .identity("")
-            .forward_to(0)
-            .incoming_conn(12345)
-            .session_type(ProtoSessionType::Multicast)
-            .session_message_type(ProtoSessionMessageType::LeaveRequest)
-            .session_id(1)
-            .message_id(500)
-            .payload(CommandPayload::builder().leave_request(None).as_content())
-            .build_publish()
-            .unwrap();
 
         // Manually call leave to test unsubscribe
         let result = participant.leave().await;
