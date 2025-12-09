@@ -100,6 +100,16 @@ tasks:
                 --zig
               )
             fi
+            
+            # Workaround for windows
+            if [[ "{{.OS}}" = "windows" ]]; then
+              uv sync ${UV_ARGS[@]}
+              uv run ${UV_ARGS[@]} maturin develop --uv {{.RELEASE}}
+              
+              # This file if a leftover from the previous build, delete it otherwise
+              # maturin will try to add it to the wheel, and it will fail
+              rm -f slim_bindings/*.pyd
+            fi
 
             echo "Running maturin with the following args: ${MATURIN_ARGS[@]}"
 

@@ -22,12 +22,7 @@ DEBIAN_FRONTEND=noninteractive \
     apt-get update && \
     apt-get install --no-install-recommends -y \
         curl \
-        file \
-        make \
-        unzip \
         git \
-        lsb-release \
-        gnupg \
         ca-certificates \
         gcc \
         libc-dev
@@ -75,5 +70,6 @@ ARG TARGETARCH
 
 # Copy venv from builder with just the dependencies we need + our package
 COPY --from=builder --chown=app:app /src/data-plane/python/bindings/dist /dists
-
 RUN python -m pip install /dists/*.whl
+
+ENTRYPOINT ["examples"]
