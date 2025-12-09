@@ -104,7 +104,11 @@ class Slim:
         self.conn_ids: dict[str, int] = {}
 
         # For the moment we manage one connection only
-        self.conn_id: int | None = None
+        # For global service mode, use the app ID as the connection ID
+        if local_service:
+            self.conn_id: int | None = None
+        else:
+            self.conn_id: int | None = self._app.id
 
     @property
     def id(self) -> int:
