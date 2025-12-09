@@ -6,7 +6,7 @@ package tests
 import (
 	"testing"
 
-	slim "github.com/agntcy/slim/bindings/generated/slim_uniffi"
+	slim "github.com/agntcy/slim/bindings/generated/slim_bindings"
 )
 
 // TestInitializeCryptoProvider tests crypto initialization

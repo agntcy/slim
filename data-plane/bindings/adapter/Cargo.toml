@@ -1,12 +1,12 @@
 [package]
-name = "agntcy-slim-uniffi"
+name = "agntcy-slim-bindings"
 edition = { workspace = true }
 license = { workspace = true }
 version = "0.7.0"
 description = "UniFFI bindings and FFI adapter for SLIM data plane - enables language integrations (Go, Swift, Kotlin, etc.)"
 
 [lib]
-name = "slim_uniffi"
+name = "slim_bindings"
 crate-type = ["lib", "staticlib", "cdylib"]
 
 [dependencies]
