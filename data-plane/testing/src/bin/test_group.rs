@@ -11,7 +11,9 @@ use slim_datapath::messages::Name;
 use slim_service::SlimHeaderFlags;
 use slim_session::{Notification, SessionConfig};
 use slim_testing::build_client_service;
-use slim_testing::common::{run_slim_node, create_and_subscribe_app, DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID};
+use slim_testing::common::{
+    DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID, create_and_subscribe_app, run_slim_node,
+};
 
 #[derive(Parser, Debug)]
 pub struct Args {

@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::time::Duration;
+use crate::utils::TEST_VALID_SECRET;
 use slim_auth::shared_secret::SharedSecret;
 use slim_config::component::{Component, id::ID};
 use slim_config::grpc::server::ServerConfig as GrpcServerConfig;
@@ -10,8 +10,8 @@ use slim_datapath::messages::Name;
 use slim_service::{Service, ServiceConfiguration, app::App};
 use slim_session::{Notification, SessionError};
 use slim_tracing::TracingConfiguration;
+use std::time::Duration;
 use tokio::sync::mpsc;
-use crate::utils::TEST_VALID_SECRET;
 
 pub const DEFAULT_DATAPLANE_PORT: u16 = 46357;
 pub const DEFAULT_SERVICE_ID: &str = "slim/0";
@@ -58,7 +58,15 @@ pub async fn run_slim_node() -> Result<(), String> {
 pub async fn create_and_subscribe_app(
     mut svc: Service,
     name: &Name,
-) -> Result<(App<SharedSecret, SharedSecret>, mpsc::Receiver<Result<Notification, SessionError>>, u64, Service), String> {
+) -> Result<
+    (
+        App<SharedSecret, SharedSecret>,
+        mpsc::Receiver<Result<Notification, SessionError>>,
+        u64,
+        Service,
+    ),
+    String,
+> {
     let (app, rx) = svc
         .create_app(
             name,

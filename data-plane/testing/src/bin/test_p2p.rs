@@ -11,7 +11,9 @@ use parking_lot::RwLock;
 use slim_datapath::messages::Name;
 use slim_session::{Notification, SessionConfig};
 use slim_testing::build_client_service;
-use slim_testing::common::{run_slim_node, create_and_subscribe_app, DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID};
+use slim_testing::common::{
+    DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID, create_and_subscribe_app, run_slim_node,
+};
 
 #[derive(Parser, Debug)]
 pub struct Args {
@@ -19,21 +21,21 @@ pub struct Args {
     #[arg(
         short,
         long,
-        value_name = "MLS_DISABLED",
+        value_name = "DISABLE_MLS",
         required = false,
         default_value_t = false
     )]
-    mls_disabled: bool,
+    disable_mls: bool,
 
     /// Do not run SLIM node in background.
     #[arg(
         short,
         long,
-        value_name = "SLIM_DISABLED",
+        value_name = "WITHOUT_SLIM",
         required = false,
         default_value_t = false
     )]
-    slim_disabled: bool,
+    without_slim: bool,
 
     /// Apps to run.
     #[arg(
@@ -44,19 +46,33 @@ pub struct Args {
         default_value_t = 3
     )]
     apps: u32,
+
+    /// connect to multiple remotes.
+    #[arg(
+        short,
+        long,
+        value_name = "MULTIPLE_REMOTES",
+        required = false,
+        default_value_t = false
+    )]
+    multiple_remotes: bool,
 }
 
 impl Args {
-    pub fn mls_disabled(&self) -> &bool {
-        &self.mls_disabled
+    pub fn disable_mls(&self) -> &bool {
+        &self.disable_mls
     }
 
-    pub fn slim_disabled(&self) -> &bool {
-        &self.slim_disabled
+    pub fn without_slim(&self) -> &bool {
+        &self.without_slim
     }
 
     pub fn apps(&self) -> &u32 {
         &self.apps
+    }
+
+    pub fn multiple_remotes(&self) -> &bool {
+        &self.multiple_remotes
     }
 }
 
@@ -134,17 +150,18 @@ async fn run_client_task(name: Name) -> Result<(), String> {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // get command line conf
     let args = Args::parse();
-    let mls_enabled = !*args.mls_disabled();
-    let slim_disabled = *args.slim_disabled();
+    let mls_enabled = !*args.disable_mls();
+    let without_slim = *args.without_slim();
     let apps = *args.apps();
+    let multiple_remotes = *args.multiple_remotes();
 
     println!(
         "run test with MLS = {} number of apps = {}, SLIM on = {}",
-        mls_enabled, apps, !slim_disabled,
+        mls_enabled, apps, !without_slim,
     );
 
     // start slim node
-    if !slim_disabled {
+    if !without_slim {
         tokio::spawn(async move {
             let _ = run_slim_node().await;
         });
@@ -201,24 +218,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let mut sessions = vec![];
-    let (session_ctx, completion_handle) = app
-        .create_session(conf.clone(), clients[0].clone(), None)
-        .await
-        .expect("error creating session");
+    if multiple_remotes {
+        // connect to two different clients using the disocvery process
+        // in the session layer
+        for name in clients.iter().take(2) {
+            let (session_ctx, completion_handle) = app
+                .create_session(conf.clone(), name.clone(), None)
+                .await
+                .expect("error creating session");
 
-    // Wait for session to be established
-    completion_handle.await.expect("error establishing session");
-    sessions.push(session_ctx);
+            // Wait for session to be established
+            completion_handle.await.expect("error establishing session");
+            sessions.push(session_ctx);
+        }
+    } else {
+        // connect to the same client using multiple sessions
+        for _ in 0..2 {
+            let (session_ctx, completion_handle) = app
+                .create_session(conf.clone(), client_1_name.clone().with_id(0), None)
+                .await
+                .expect("error creating session");
 
-    // create a second session that runs in parallel to the other
-    let (session_ctx, completion_handle) = app
-        .create_session(conf, clients[1].clone(), None)
-        .await
-        .expect("error creating session");
-
-    // Wait for session to be established
-    completion_handle.await.expect("error establishing session");
-    sessions.push(session_ctx); 
+            // Wait for session to be established
+            completion_handle.await.expect("error establishing session");
+            sessions.push(session_ctx);
+        }
+    }
 
     tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
 
@@ -238,7 +263,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Expected per-session packets: 2*max_packets for session 0, 1*max_packets for session 1
     let expected_packets_session0 = 2 * max_packets;
-    let expected_packets_session1 = 1 * max_packets;
+    let expected_packets_session1 = max_packets;
 
     // Clone the Arc to session for later use
     let mut sessions_arc = vec![];
@@ -270,7 +295,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 msg.message_type.as_ref()
                             {
                                 let sender = msg.get_source();
-                                let p = &publish.get_payload().as_application_payload().unwrap().blob;
+                                let p =
+                                    &publish.get_payload().as_application_payload().unwrap().blob;
                                 let val = String::from_utf8(p.to_vec())
                                     .expect("error while parsing received message");
                                 if val != *"hello there" {
@@ -321,14 +347,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 client_2_name.clone()
             };
-            
+
             let completion_handler = session_arc
-                .publish(
-                    &client_name,
-                    p.clone(),
-                    None,
-                    None,
-                )
+                .publish(&client_name, p.clone(), None, None)
                 .await
                 .expect("an error occurred sending publication from moderator");
 
@@ -340,7 +361,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     futures::future::try_join_all(completion_handlers)
         .await
         .expect("an error occurred waiting for publication completion from moderator");
-
 
     tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
 
@@ -355,19 +375,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .expect("an error occurred waiting for session deletion");
 
-    
-
     let mut completion_handlers = vec![];
     for i in max_packets..max_packets * 2 {
         println!("main: send message {}", i);
 
         let completion_handler = sessions_arc[0]
-            .publish(
-                &client_1_name,
-                p.clone(),
-                None,
-                None,
-            )
+            .publish(&client_1_name, p.clone(), None, None)
             .await
             .expect("an error occurred sending publication from moderator");
 
@@ -378,7 +391,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     futures::future::try_join_all(completion_handlers)
         .await
         .expect("an error occurred waiting for publication completion from moderator");
-    
 
     // Wait for all messages to be received with a timeout
     tokio::select! {
@@ -399,7 +411,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     handle
         .await
         .expect("an error occurred waiting for session deletion");
-    
 
     // the total number of packets received must be max_packets * sessions.len()
     let mut sum = 0;
@@ -411,17 +422,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         println!("received {} messages from {}", n, c);
     }
-    
-    // For point-to-point sessions, we expect messages from exactly 2 clients,
-    // one for each session.
-    if found_sender.len() != 2 {
+
+    // if multiple-remotes is set we expect messages from exactly 2 clients,
+    // otherwise all messages must come from client_1_name.with_id(0)
+    if multiple_remotes && found_sender.len() != 2 {
         println!(
             "expected messages from 2 clients, but got messages from {} clients. test failed",
             found_sender.len(),
         );
         std::process::exit(1);
+    } else if !multiple_remotes
+        && (found_sender.len() != 1 || !found_sender.contains(&client_1_name.clone().with_id(0)))
+    {
+        println!(
+            "expected messages only from {}, but got messages from {:?}. test failed",
+            client_1_name.clone().with_id(0),
+            found_sender,
+        );
+        std::process::exit(1);
     }
-    
+
     if sum != expected_total {
         println!(
             "expected {} packets, received {}. test failed",
