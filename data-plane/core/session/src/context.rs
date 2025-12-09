@@ -177,6 +177,7 @@ mod tests {
                 .with_source(source)
                 .with_destination(destination)
                 .with_config(cfg)
+                .with_egress_conn(0)
                 .with_identity_provider(DummyProvider)
                 .with_identity_verifier(DummyVerifier)
                 .with_storage_path(std::env::temp_dir())

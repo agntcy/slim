@@ -1280,10 +1280,16 @@ mod tests {
             Some(ModeratorTask::Add(_))
         ));
 
-        // Should have sent a discovery request
-        let sent_msg = rx_slim.try_recv();
-        assert!(sent_msg.is_ok());
-        let msg = sent_msg.unwrap().unwrap();
+        // First message sent is now a subscribe route
+        let first_msg = rx_slim.try_recv();
+        assert!(first_msg.is_ok());
+        let first = first_msg.unwrap().unwrap();
+        assert!(first.is_subscribe(), "first message should be subscribe");
+
+        // Second message should be the discovery request
+        let discovery_msg = rx_slim.try_recv();
+        assert!(discovery_msg.is_ok());
+        let msg = discovery_msg.unwrap().unwrap();
         assert_eq!(
             msg.get_session_header().session_message_type(),
             ProtoSessionMessageType::DiscoveryRequest

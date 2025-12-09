@@ -762,6 +762,7 @@ mod tests {
                 .with_source(self.source.clone())
                 .with_destination(self.destination.clone())
                 .with_config(config)
+                .with_egress_conn(0)
                 .with_identity_provider(SharedSecret::new("test", SHARED_SECRET))
                 .with_identity_verifier(SharedSecret::new("test", SHARED_SECRET))
                 .with_storage_path(storage_path)
@@ -1179,6 +1180,7 @@ mod tests {
             .with_source(moderator_name.clone())
             .with_destination(participant_name.clone())
             .with_config(moderator_config)
+            .with_egress_conn(1)
             .with_identity_provider(SharedSecret::new("moderator", SHARED_SECRET))
             .with_identity_verifier(SharedSecret::new("moderator", SHARED_SECRET))
             .with_storage_path(storage_path_moderator.clone())
@@ -1212,6 +1214,7 @@ mod tests {
             .with_source(participant_name_id.clone())
             .with_destination(moderator_name.clone())
             .with_config(participant_config)
+            .with_egress_conn(1)
             .with_identity_provider(SharedSecret::new("participant", SHARED_SECRET))
             .with_identity_verifier(SharedSecret::new("participant", SHARED_SECRET))
             .with_storage_path(storage_path_participant.clone())
@@ -1227,6 +1230,20 @@ mod tests {
             .await
             .expect("error inviting participant");
 
+        // First message from moderator to slim is now a subscribe route
+        let first_msg = timeout(Duration::from_millis(100), rx_slim_moderator.recv())
+            .await
+            .expect("timeout waiting for first message on moderator slim channel")
+            .expect("channel closed")
+            .expect("error in first message");
+
+        assert!(
+            first_msg.is_subscribe(),
+            "first message should be subscribe"
+        );
+        assert_eq!(first_msg.get_dst(), participant_name);
+
+        // Second message should be the discovery request
         let received_discovery_request =
             timeout(Duration::from_millis(100), rx_slim_moderator.recv())
                 .await
