@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 // each route is composed by a name and the related connection id
-// this allows as to distinguish between multiple routes to the same name.
+// this allows us to distinguish between multiple routes to the same name.
 // the route boolean indicates whether it's a route (true) or a subscription (false)
 #[derive(Hash, Eq, PartialEq, Clone)]
 pub(crate) struct Route {
