@@ -63,15 +63,12 @@ jobs:
         uses: ./.github/actions/setup-go
 
       - name: Build Rust UniFFI library
-        working-directory: ${{ inputs.bindings-adapter-dir }}
-        run: cargo build --release
+        working-directory: ${{ inputs.go-bindings-dir }}
+        run: task rust-build
 
       - name: Install uniffi-bindgen-go
-        run: |
-          cargo install uniffi-bindgen-go \
-            --git https://github.com/NordSecurity/uniffi-bindgen-go.git \
-            --tag ${{ inputs.uniffi-bindgen-go-version }} \
-            --config net.git-fetch-with-cli=true
+        working-directory: ${{ inputs.go-bindings-dir }}
+        run: task install-uniffi-bindgen-go
 
       - name: Generate Go bindings
         working-directory: ${{ inputs.go-bindings-dir }}
