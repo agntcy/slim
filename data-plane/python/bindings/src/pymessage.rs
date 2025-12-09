@@ -5,9 +5,9 @@ use std::collections::HashMap;
 
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
+use slim_bindings::{MessageContext, Name as FfiName};
 use slim_datapath::api::ProtoMessage;
 use slim_service::ServiceError;
-use slim_uniffi::{MessageContext, Name as FfiName};
 
 use crate::utils::PyName;
 

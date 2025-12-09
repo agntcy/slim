@@ -11,10 +11,9 @@ use pyo3_stub_gen::derive::gen_stub_pymethods;
 use serde_pyobject::from_pyobject;
 use slim_auth::traits::TokenProvider;
 use slim_auth::traits::Verifier;
-
+use slim_bindings::BindingsAdapter;
 use slim_datapath::messages::encoder::Name;
 use slim_session::SessionConfig;
-use slim_uniffi::BindingsAdapter;
 
 use crate::pyidentity::IdentityProvider;
 use crate::pyidentity::IdentityVerifier;
@@ -27,9 +26,9 @@ use slim_config::grpc::client::ClientConfig as PyGrpcClientConfig;
 use slim_config::grpc::server::ServerConfig as PyGrpcServerConfig;
 
 /// Helper to convert PyName to FFI Name
-fn py_name_to_ffi(py_name: &PyName) -> slim_uniffi::Name {
+fn py_name_to_ffi(py_name: &PyName) -> slim_bindings::Name {
     let internal_name: Name = py_name.into();
-    slim_uniffi::Name {
+    slim_bindings::Name {
         components: internal_name
             .components_strings()
             .iter()
@@ -104,7 +103,7 @@ impl PyApp {
 
     #[getter]
     pub fn name(&self) -> PyName {
-        // adapter.name() returns slim_uniffi::Name, convert to PyName
+        // adapter.name() returns slim_bindings::Name, convert to PyName
         let ffi_name = self.internal.adapter.name();
         // Convert FFI Name back to datapath Name, then to PyName
         let components: [String; 3] = [
@@ -176,9 +175,9 @@ impl PyApp {
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             // Convert to FFI ServerConfig
-            let ffi_config = slim_uniffi::ServerConfig {
+            let ffi_config = slim_bindings::ServerConfig {
                 endpoint: config.endpoint,
-                tls: slim_uniffi::TlsConfig {
+                tls: slim_bindings::TlsConfig {
                     insecure: config.tls_setting.insecure,
                     insecure_skip_verify: None,
                     cert_file: None,
@@ -216,9 +215,9 @@ impl PyApp {
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             // Convert to FFI ClientConfig
-            let ffi_config = slim_uniffi::ClientConfig {
+            let ffi_config = slim_bindings::ClientConfig {
                 endpoint: config.endpoint,
-                tls: slim_uniffi::TlsConfig {
+                tls: slim_bindings::TlsConfig {
                     insecure: config.tls_setting.insecure,
                     insecure_skip_verify: None,
                     cert_file: None,

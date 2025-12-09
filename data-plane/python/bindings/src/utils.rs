@@ -13,11 +13,10 @@ use pyo3_stub_gen::derive::gen_stub_pyclass;
 use pyo3_stub_gen::derive::gen_stub_pyfunction;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
 use serde_pyobject::from_pyobject;
+use slim_bindings::Name as FfiName;
+use slim_datapath::messages::encoder::Name;
 use slim_tracing::TracingConfiguration;
 use tokio::sync::OnceCell;
-
-use slim_datapath::messages::encoder::Name;
-use slim_uniffi::Name as FfiName;
 
 /// name class
 #[gen_stub_pyclass]
@@ -45,7 +44,7 @@ impl From<Name> for PyName {
     }
 }
 
-// Conversions between PyName and FFI Name (slim_uniffi::Name)
+// Conversions between PyName and FFI Name (slim_bindings::Name)
 impl From<FfiName> for PyName {
     fn from(ffi_name: FfiName) -> Self {
         // Convert FFI Name to datapath Name, then to PyName
