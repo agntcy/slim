@@ -123,18 +123,19 @@ impl PyApp {
         &'a self,
         py: Python<'a>,
         destination: PyName,
+        egress_conn: u64,
         config: PySessionConfiguration,
     ) -> PyResult<Bound<'a, PyAny>> {
         let internal_clone = self.internal.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            // Convert to internal types (not FFI types)
+            // Convert to internal types
             let internal_config = SessionConfig::from(&config);
             let internal_dest: Name = (&destination).into();
 
             let (session_ctx, completion) = internal_clone
                 .adapter
-                .create_session_internal(internal_config, internal_dest)
+                .create_session_internal(internal_config, internal_dest, egress_conn)
                 .await
                 .map_err(|e| {
                     PyErr::new::<PyException, _>(format!("Failed to create session: {}", e))

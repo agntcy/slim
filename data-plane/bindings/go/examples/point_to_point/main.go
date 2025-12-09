@@ -68,7 +68,7 @@ func runSender(app *slim.BindingsAdapter, connID uint64, remote, message string,
 	}
 
 	fmt.Printf("[%d] 🔍 Creating session to %s...\n", instance, remote)
-	session, err := app.CreateSession(config, remoteName)
+	session, err := app.CreateSession(config, remoteName, connID)
 	if err != nil {
 		log.Fatalf("Failed to create session: %v", err)
 	}

@@ -45,6 +45,8 @@ async def test_end_to_end(server):
     svc_bob = create_svc(bob_name, local_service=server.local_service)
 
     # connect to the service
+    conn_id_alice = None
+    conn_id_bob = None
     if server.local_service:
         conn_id_alice = await svc_alice.connect(
             {"endpoint": "http://127.0.0.1:12344", "tls": {"insecure": True}},
@@ -63,6 +65,10 @@ async def test_end_to_end(server):
 
         # set routes
         await svc_alice.set_route(bob_name, conn_id_alice)
+    else:
+        # The app.id property contains the connection ID assigned by the global service
+        conn_id_alice = svc_alice.id
+        conn_id_bob = svc_bob.id
 
     await asyncio.sleep(1)
     print(alice_name)
@@ -71,6 +77,7 @@ async def test_end_to_end(server):
     # create point to point session
     session_context_alice, completion_handle = await svc_alice.create_session(
         bob_name,
+        conn_id_alice,
         slim_bindings.SessionConfiguration.PointToPoint(
             max_retries=5,
             timeout=datetime.timedelta(seconds=5),
@@ -260,6 +267,8 @@ async def test_auto_reconnect_after_server_restart(server):
     svc_alice = create_svc(alice_name, local_service=server.local_service)
     svc_bob = create_svc(bob_name, local_service=server.local_service)
 
+    conn_id_alice = None
+    conn_id_bob = None
     if server.local_service:
         # connect clients and subscribe for messages
         conn_id_alice = await svc_alice.connect(
@@ -279,10 +288,15 @@ async def test_auto_reconnect_after_server_restart(server):
 
         # Wait for routes to propagate
         await asyncio.sleep(1)
+    else:
+        # For global service mode get connection IDs from the 
+        conn_id_alice = svc_alice.id
+        conn_id_bob = svc_bob.id
 
     # create point to point session
     session_context, completion_handle = await svc_alice.create_session(
         bob_name,
+        conn_id_alice,
         slim_bindings.SessionConfiguration.PointToPoint(),
     )
 
@@ -321,8 +335,9 @@ async def test_auto_reconnect_after_server_restart(server):
     await h_alice
 
     # clean up
-    await svc_alice.disconnect(conn_id_alice)
-    await svc_bob.disconnect(conn_id_bob)
+    if server.local_service:
+        await svc_alice.disconnect(conn_id_alice)
+        await svc_bob.disconnect(conn_id_bob)
 
 
 @pytest.mark.asyncio
@@ -337,6 +352,7 @@ async def test_error_on_nonexistent_subscription(server):
 
     svc_alice = create_svc(name, local_service=server.local_service)
 
+    conn_id_alice = None
     if server.local_service:
         # connect client and subscribe for messages
         conn_id_alice = await svc_alice.connect(
@@ -346,6 +362,9 @@ async def test_error_on_nonexistent_subscription(server):
             "org", "default", "alice_nonsub", id=svc_alice.id
         )
         await svc_alice.subscribe(alice_class, conn_id_alice)
+    else:
+        # The app.id property contains the connection ID assigned by the global service
+        conn_id_alice = svc_alice.id
 
     # create Bob's name, but do not instantiate or subscribe Bob
     bob_name = slim_bindings.Name("org", "default", "bob_nonsub")
@@ -353,6 +372,7 @@ async def test_error_on_nonexistent_subscription(server):
     # create point to point session (Alice only)
     session_context, completion_handle = await svc_alice.create_session(
         bob_name,
+        conn_id_alice,
         slim_bindings.SessionConfiguration.PointToPoint(),
     )
 
@@ -366,7 +386,8 @@ async def test_error_on_nonexistent_subscription(server):
     await svc_alice.delete_session(session_context)
 
     # clean up
-    await svc_alice.disconnect(conn_id_alice)
+    if server.local_service:
+        await svc_alice.disconnect(conn_id_alice)
 
 
 @pytest.mark.asyncio
@@ -410,7 +431,7 @@ async def test_listen_for_session_timeout(server):
         )
 
     # Clean up
-    if conn_id_alice is not None:
+    if server.local_service:
         await svc_alice.disconnect(conn_id_alice)
 
 
@@ -430,11 +451,14 @@ async def test_get_message_timeout(server):
         conn_id_alice = await svc_alice.connect(
             {"endpoint": "http://127.0.0.1:12349", "tls": {"insecure": True}},
         )
+    else:
+        # The app.id property contains the connection ID assigned by the global service
+        conn_id_alice = svc_alice.id
 
     # Create a session (with dummy peer for timeout testing)
     dummy_peer = slim_bindings.Name("org", "default", "dummy_peer")
     session_context, completion_handle = await svc_alice.create_session(
-        dummy_peer, slim_bindings.SessionConfiguration.PointToPoint()
+        dummy_peer, conn_id_alice, slim_bindings.SessionConfiguration.PointToPoint()
     )
 
     # make sure the completion of the session creation hangs when awaited
@@ -471,5 +495,5 @@ async def test_get_message_timeout(server):
     # Clean up
     await svc_alice.delete_session(session_context)
 
-    if conn_id_alice is not None:
+    if server.local_service:
         await svc_alice.disconnect(conn_id_alice)

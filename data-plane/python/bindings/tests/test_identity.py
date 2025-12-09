@@ -131,6 +131,33 @@ async def test_identity_verification(server, audience):
         audience,
     )
 
+    # Connect to the service and set up subscriptions/routes
+    conn_id_sender = None
+    conn_id_receiver = None
+    if server.local_service:
+        conn_id_sender = await slim_sender.connect(
+            {"endpoint": server.endpoint, "tls": {"insecure": True}},
+        )
+        conn_id_receiver = await slim_receiver.connect(
+            {"endpoint": server.endpoint, "tls": {"insecure": True}},
+        )
+
+        # Update names to include connection IDs
+        sender_name = slim_bindings.Name("org", "default", "id_sender", id=slim_sender.id)
+        receiver_name = slim_bindings.Name("org", "default", "id_receiver", id=slim_receiver.id)
+        
+        await slim_sender.subscribe(sender_name)
+        await slim_receiver.subscribe(receiver_name)
+
+        await asyncio.sleep(1)
+
+    else:
+        # The app.id property contains the connection ID assigned by the global service
+        conn_id_sender = slim_sender.id
+        conn_id_receiver = slim_receiver.id
+
+    await asyncio.sleep(1)
+
     # Create PointToPoint session
     session_config = slim_bindings.SessionConfiguration.PointToPoint(
         max_retries=3,
@@ -195,3 +222,8 @@ async def test_identity_verification(server, audience):
         # delete sessions
         h = await slim_sender.delete_session(session_info)
         await h
+
+        if server.local_service:
+            # disconnect sender and receiver
+            await slim_sender.disconnect(server.endpoint)
+            await slim_receiver.disconnect(server.endpoint)

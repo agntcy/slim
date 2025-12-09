@@ -104,7 +104,11 @@ class Slim:
         self.conn_ids: dict[str, int] = {}
 
         # For the moment we manage one connection only
-        self.conn_id: int | None = None
+        # For global service mode, use the app ID as the connection ID
+        if local_service:
+            self.conn_id: int | None = None
+        else:
+            self.conn_id: int | None = self._app.id
 
     @property
     def id(self) -> int:
@@ -150,8 +154,11 @@ class Slim:
         Returns:
             Session: Wrapper exposing high-level async operations for the session.
         """
+        if self.conn_id is None:
+            raise RuntimeError("No active connection. Please connect first.")
+
         ctx, completion_handle = await self._app.create_session(
-            destination, session_config
+            destination, self.conn_id, session_config
         )
         return Session(ctx), completion_handle
 

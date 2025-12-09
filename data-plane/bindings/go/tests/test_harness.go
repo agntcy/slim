@@ -254,7 +254,7 @@ func (h *TestHarness) CreateSession() (*slim.BindingsSessionContext, error) {
 	}
 
 	h.t.Logf("[Sender] Creating session to %v...", h.ReceiverName.Components)
-	session, err := h.Sender.CreateSession(sessionConfig, h.ReceiverName)
+	session, err := h.Sender.CreateSession(sessionConfig, h.ReceiverName, 0)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create session: %w", err)
 	}

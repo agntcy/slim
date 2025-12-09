@@ -502,9 +502,12 @@ impl BindingsAdapter {
         &self,
         config: SessionConfig,
         destination: Name,
+        egress_conn: u64,
     ) -> Result<Arc<crate::BindingsSessionContext>, SlimError> {
-        self.runtime
-            .block_on(async { self.create_session_async(config, destination).await })
+        self.runtime.block_on(async {
+            self.create_session_async(config, destination, egress_conn)
+                .await
+        })
     }
 
     /// Create a new session (async version)
@@ -517,13 +520,14 @@ impl BindingsAdapter {
         &self,
         config: SessionConfig,
         destination: Name,
+        egress_conn: u64,
     ) -> Result<Arc<crate::BindingsSessionContext>, SlimError> {
         let slim_config: SlimSessionConfig = config.into();
         let slim_dest: SlimName = destination.into();
 
         let (session_ctx, completion) = self
             .app
-            .create_session(slim_config, slim_dest, None)
+            .create_session(slim_config, slim_dest, egress_conn, None)
             .await?;
 
         // Wait for session establishment to complete
@@ -967,6 +971,7 @@ impl BindingsAdapter {
         &self,
         config: SlimSessionConfig,
         destination: SlimName,
+        egress_conn: u64,
     ) -> Result<
         (
             slim_session::context::SessionContext,
@@ -974,7 +979,10 @@ impl BindingsAdapter {
         ),
         SlimError,
     > {
-        let (session_ctx, completion) = self.app.create_session(config, destination, None).await?;
+        let (session_ctx, completion) = self
+            .app
+            .create_session(config, destination, egress_conn, None)
+            .await?;
 
         Ok((session_ctx, completion))
     }
@@ -1290,7 +1298,7 @@ mod tests {
         // This should auto-wait for session establishment
         // If it returns without error, the session is fully established
         let result = adapter
-            .create_session_async(session_config, destination)
+            .create_session_async(session_config, destination, 1)
             .await;
 
         // In a real scenario with network, this would verify the session is ready
@@ -1337,7 +1345,7 @@ mod tests {
 
         // Try to create a session (may fail without network)
         if let Ok(session) = adapter
-            .create_session_async(session_config, destination)
+            .create_session_async(session_config, destination, 1)
             .await
         {
             let data = b"test message".to_vec();

@@ -111,6 +111,7 @@ where
     id: Option<u32>,
     source: Option<Name>,
     destination: Option<Name>,
+    egress_conn: Option<u64>,
     config: Option<SessionConfig>,
     identity_provider: Option<P>,
     identity_verifier: Option<V>,
@@ -133,6 +134,7 @@ where
             id: None,
             source: None,
             destination: None,
+            egress_conn: None,
             config: None,
             identity_provider: None,
             identity_verifier: None,
@@ -157,6 +159,11 @@ where
 
     pub fn with_destination(mut self, destination: Name) -> Self {
         self.destination = Some(destination);
+        self
+    }
+
+    pub fn with_egress_conn(mut self, conn: u64) -> Self {
+        self.egress_conn = Some(conn);
         self
     }
 
@@ -203,6 +210,7 @@ where
         if self.id.is_none()
             || self.source.is_none()
             || self.destination.is_none()
+            || self.egress_conn.is_none()
             || self.config.is_none()
             || self.identity_provider.is_none()
             || self.identity_verifier.is_none()
@@ -219,6 +227,7 @@ where
             id: self.id,
             source: self.source,
             destination: self.destination,
+            egress_conn: self.egress_conn,
             config: self.config,
             identity_provider: self.identity_provider,
             identity_verifier: self.identity_verifier,
@@ -341,6 +350,7 @@ where
             id: self.id.unwrap(),
             source: self.source.unwrap(),
             destination: self.destination.unwrap(),
+            egress_conn: self.egress_conn.unwrap(),
             config: self.config.unwrap(),
             tx: self.tx.unwrap(),
             tx_session: tx_session.clone(),
@@ -507,6 +517,7 @@ mod tests {
                 .with_source(create_test_name("source"))
                 .with_destination(create_test_name("dest"))
                 .with_config(create_test_config(true))
+                .with_egress_conn(0)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(std::path::PathBuf::from("/tmp"))
@@ -720,6 +731,7 @@ mod tests {
                 .with_source(create_test_name("source"))
                 .with_destination(create_test_name("dest"))
                 .with_config(create_test_config(true))
+                .with_egress_conn(0)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(std::path::PathBuf::from("/tmp"))
@@ -884,6 +896,7 @@ mod tests {
             .with_source(create_test_name("source"))
             .with_destination(create_test_name("dest"))
             .with_config(create_test_config(true))
+            .with_egress_conn(0)
             .with_identity_provider(MockTokenProvider)
             .with_identity_verifier(MockVerifier)
             .with_storage_path(std::path::PathBuf::from("/tmp"))
@@ -905,6 +918,7 @@ mod tests {
         builder.id = Some(1);
         builder.source = Some(create_test_name("source"));
         builder.destination = Some(create_test_name("dest"));
+        builder.egress_conn = Some(0);
         builder.config = Some(create_test_config(true));
         builder.identity_provider = Some(MockTokenProvider);
         builder.identity_verifier = Some(MockVerifier);
@@ -1103,6 +1117,7 @@ mod tests {
                 .with_source(create_test_name("participant"))
                 .with_destination(create_test_name("moderator"))
                 .with_config(config)
+                .with_egress_conn(0)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir.clone())
@@ -1142,6 +1157,7 @@ mod tests {
                 .with_source(create_test_name("moderator"))
                 .with_destination(create_test_name("participant"))
                 .with_config(config)
+                .with_egress_conn(0)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir.clone())
@@ -1187,6 +1203,7 @@ mod tests {
                 .with_source(create_test_name("moderator"))
                 .with_destination(create_test_name("group"))
                 .with_config(config)
+                .with_egress_conn(0)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir.clone())
@@ -1228,6 +1245,7 @@ mod tests {
                 .with_source(create_test_name("source"))
                 .with_destination(create_test_name("dest"))
                 .with_config(config)
+                .with_egress_conn(0)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir.clone())
@@ -1258,6 +1276,7 @@ mod tests {
                 .with_source(create_test_name("source"))
                 .with_destination(create_test_name("dest"))
                 .with_config(config.clone())
+                .with_egress_conn(0)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir.clone())
@@ -1298,6 +1317,7 @@ mod tests {
                 .with_source(create_test_name("source"))
                 .with_destination(create_test_name("dest"))
                 .with_config(config)
+                .with_egress_conn(0)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir.clone())
@@ -1335,6 +1355,7 @@ mod tests {
                 .with_source(source.clone())
                 .with_destination(destination.clone())
                 .with_config(create_test_config(false))
+                .with_egress_conn(0)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir.clone())
@@ -1371,6 +1392,7 @@ mod tests {
                 .with_source(create_test_name("source1"))
                 .with_destination(create_test_name("dest1"))
                 .with_config(create_test_config(false))
+                .with_egress_conn(0)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir1.clone())
@@ -1383,6 +1405,7 @@ mod tests {
                 .with_source(create_test_name("source2"))
                 .with_destination(create_test_name("dest2"))
                 .with_config(create_test_config(true))
+                .with_egress_conn(0)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir2.clone())
@@ -1424,10 +1447,11 @@ mod tests {
                 .with_source(create_test_name("source"))
                 .with_destination(create_test_name("dest"))
                 .with_config(config)
+                .with_egress_conn(0)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
                 .with_storage_path(temp_dir.clone())
-               .with_tx(create_test_transmitter())
+                .with_tx(create_test_transmitter())
                 .with_tx_to_session_layer(tx_to_session);
 
         let controller = builder.ready().unwrap().build();

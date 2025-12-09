@@ -196,11 +196,6 @@ async fn main() {
             // add to the participants list
             let p = parse_string_type(n);
             participants.push(p.clone());
-
-            // add route
-            app.set_route(&p, conn_id)
-                .await
-                .expect("an error accoured while adding a route");
         }
     }
 
@@ -218,7 +213,7 @@ async fn main() {
             metadata: HashMap::new(),
         };
         let (session_ctx, completion_handle) = app
-            .create_session(config, channel_name.clone(), Some(12345))
+            .create_session(config, channel_name.clone(), conn_id, Some(12345))
             .await
             .expect("error creating session");
 

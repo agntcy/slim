@@ -52,7 +52,7 @@ func main() {
 	}
 
 	fmt.Println("📡 Creating session to destination...")
-	session, err := app.CreateSession(sessionConfig, destination)
+	session, err := app.CreateSession(sessionConfig, destination, 0)
 	if err != nil {
 		log.Fatalf("❌ Failed to create session: %v", err)
 	}
