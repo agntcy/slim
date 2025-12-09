@@ -980,9 +980,7 @@ mod tests {
     #[tokio::test]
     async fn test_publish_async_session_missing() {
         let (ctx, _tx) = make_context();
-        let result = ctx
-            .publish_async(b"test".to_vec(), None, None)
-            .await;
+        let result = ctx.publish_async(b"test".to_vec(), None, None).await;
         assert!(result.is_err());
         match result.unwrap_err() {
             crate::adapter::SlimError::SessionError { message } => {
@@ -1089,7 +1087,7 @@ mod tests {
         let result = ctx
             .publish_with_params_async(
                 dest,
-                3,                                    // fanout
+                3, // fanout
                 b"test payload".to_vec(),
                 Some(456),                            // connection_out
                 Some("application/json".to_string()), // payload_type
