@@ -104,9 +104,19 @@ tasks:
         vars:
           BIN: "test-p2p"
           ARGS: ""
-          BIN_ARGS: "--mls-disabled"
+          BIN_ARGS: "--disable-mls"
       - task: testing:toolchain:run
         vars:
           BIN: "test-p2p"
           ARGS: ""
           BIN_ARGS: ""
+      - task: testing:toolchain:run
+        vars:
+          BIN: "test-p2p"
+          ARGS: ""
+          BIN_ARGS: "--multiple-remotes"
+      - task: testing:toolchain:run
+        vars:
+          BIN: "test-p2p"
+          ARGS: ""
+          BIN_ARGS: "--disable-mls --multiple-remotes"
