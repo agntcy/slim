@@ -68,7 +68,7 @@ tasks:
         sh: 'echo {{.TARGET}} | cut -d"-" -f3'
       C_LIB:
         sh: 'echo {{.TARGET}} | cut -d"-" -f4 || echo ""'
-      INTERPRETERS: '3.10 3.11 3.12 3.13 3.14'
+      INTERPRETERS: '{{.INTERPRETERS | default "3.10 3.11 3.12 3.13 3.14"}}'
     cmds:
       - uv python install {{.INTERPRETERS}}
       - task: rust:toolchain:run-command
@@ -100,14 +100,6 @@ tasks:
                 --zig
               )
             fi
-
-            uv sync ${UV_ARGS[@]}
-
-            uv run ${UV_ARGS[@]} maturin develop --uv {{.RELEASE}}
-
-            # This file if a leftover from the previous build, delete it otherwise
-            # maturin will try to add it to the wheel, and it will fail
-            rm -f slim_bindings/*.pyd
 
             echo "Running maturin with the following args: ${MATURIN_ARGS[@]}"
 

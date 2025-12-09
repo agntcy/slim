@@ -17,19 +17,6 @@ ENV UV_LINK_MODE=copy \
 
 # Install dependencies required for building rust and Python bindings
 RUN --mount=type=cache,target=/app/data-plane/target <<EOF
-case ${TARGETARCH} in
-    "amd64")
-        PACKAGES="gcc-x86-64-linux-gnu g++-x86-64-linux-gnu"
-        ;;
-    "arm64")
-        PACKAGES="gcc-aarch64-linux-gnu g++-aarch64-linux-gnu"
-        ;;
-    *)
-        echo "Unsupported platform: ${TARGETPLATFORM}"
-        exit 1
-        ;;
-esac
-
 DEBIAN_FRONTEND=noninteractive \
     apt-get update && \
     apt-get install --no-install-recommends -y \
@@ -40,17 +27,11 @@ DEBIAN_FRONTEND=noninteractive \
         git \
         lsb-release \
         gnupg \
-        pkg-config \
         ca-certificates \
-        lsb-release \
-        software-properties-common \
-        ${PACKAGES}
+        gcc \
+        libc-dev
 
 curl -LsSf https://astral.sh/uv/install.sh | sh
-
-curl -L -o /tmp/llvm.sh https://apt.llvm.org/llvm.sh
-chmod +x /tmp/llvm.sh
-/tmp/llvm.sh 19
 
 curl -1sLf 'https://dl.cloudsmith.io/public/task/task/setup.deb.sh' | bash
 apt-get install -y task
@@ -61,7 +42,7 @@ EOF
 
 # Copy code into builder
 COPY . /src
-WORKDIR /src/data-plane/python
+WORKDIR /src/data-plane/python/bindings
 
 # Build the Python bindings with cross-compilation
 RUN <<EOF
@@ -78,20 +59,13 @@ case ${TARGETARCH} in
         ;;
 esac
 
-cargo fetch --target ${RUSTARCH}-unknown-linux-gnu
+export CC_x86_64_unknown_linux_gnu=cc
+export AR_x86_64_unknown_linux_gnu=ar
+export STRIP_x86_64_unknown_linux_gnu=strip
 
-# Install python toolchain manager and set up Python
-uv python install 3.14
-uv python pin 3.14
-
-# Cross-install CPython for the target architecture
-uv python install --no-bin --no-registry cpython-3.14-linux-${RUSTARCH}
-
-export PYO3_CROSS_INCLUDE_DIR=~/.local/share/uv/python/cpython-3.14.2-linux-${RUSTARCH}-gnu/include
-export PYO3_CROSS_LIB_DIR=~/.local/share/uv/python/cpython-3.14.2-linux-${RUSTARCH}-gnu/lib
-export CARGO_BUILD_TARGET=${RUSTARCH}-unknown-linux-gnu
-task -v python:examples:build TARGET=${RUSTARCH}-unknown-linux-gnu PROFILE=release
-rm /app/bin/python && ln -s /usr/local/bin/python /app/bin/python
+TARGET=${RUSTARCH}-unknown-linux-gnu
+task python:bindings:packaging TARGET=${TARGET} PROFILE=release INTERPRETERS="3.14"
+uv build --package slim-bindings-examples
 EOF
 
 FROM python:3.14-bookworm AS slim-bindings-examples
@@ -99,6 +73,6 @@ FROM python:3.14-bookworm AS slim-bindings-examples
 ARG TARGETARCH
 
 # Copy venv from builder with just the dependencies we need + our package
-COPY --from=builder --chown=app:app /app /app
+COPY --from=builder --chown=app:app /src/data-plane/python/bindings/dist /dists
 
-ENTRYPOINT ["/app/bin/examples"]
+RUN python -m pip install /dists/*.whl
