@@ -501,7 +501,7 @@ func TestCompletionHandleDoubleWait(t *testing.T) {
 	defer completion.Destroy()
 
 	// First wait should work
-	err = completion.Wait()
+	err = completion.Wait(nil)
 	if err != nil {
 		t.Logf("First wait failed (may be expected): %v", err)
 	} else {
@@ -509,7 +509,7 @@ func TestCompletionHandleDoubleWait(t *testing.T) {
 	}
 
 	// Second wait should fail
-	err = completion.Wait()
+	err = completion.Wait(nil)
 	if err == nil {
 		t.Error("Expected error on second wait, got nil")
 	} else {
@@ -652,7 +652,7 @@ func TestCompletionHandleAsync(t *testing.T) {
 	// Use WaitAsync in a goroutine
 	done := make(chan error, 1)
 	go func() {
-		err := completion.WaitAsync()
+		err := completion.WaitAsync(nil)
 		done <- err
 	}()
 
@@ -694,7 +694,7 @@ func TestBatchPublishWithCompletion(t *testing.T) {
 	// Now wait for all completions
 	successCount := 0
 	for i, completion := range completions {
-		err := completion.Wait()
+		err := completion.Wait(nil)
 		if err != nil {
 			t.Logf("Message %d delivery failed: %v", i, err)
 		} else {
@@ -738,7 +738,7 @@ func TestFireAndForgetVsWithCompletion(t *testing.T) {
 	defer completion.Destroy()
 
 	// Wait for delivery confirmation
-	err = completion.Wait()
+	err = completion.Wait(nil)
 	if err != nil {
 		t.Fatalf("Completion wait failed: %v", err)
 	}
@@ -842,7 +842,7 @@ func BenchmarkPublishWithCompletionAndWait(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		completion, err := session.PublishWithCompletion(message, nil, nil)
 		if err == nil {
-			_ = completion.Wait()
+			_ = completion.Wait(nil)
 			completion.Destroy()
 		}
 	}
