@@ -1,0 +1,143 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+---
+version: '3'
+
+silent: true
+set: [pipefail]
+shopt: [globstar]
+
+verbose: false
+
+env:
+  SHARED_SECRET: "demo-secret-key-for-examples012345"
+
+vars:
+  # Reference to parent project
+  PARENT_DIR: ..
+
+tasks:
+  default:
+    desc: Show help (default task)
+    cmds:
+      - task: help
+
+  help:
+    desc: Show available tasks for examples
+    cmds:
+      - |
+        echo "SLIM Python Bindings Examples - Available tasks:"
+        echo ""
+        echo "Simple Example:"
+        echo "  task simple                  - Run the simple example"
+        echo ""
+        echo "Point-to-Point Examples:"
+        echo "  task p2p:alice               - Run Alice (receiver)"
+        echo "  task p2p:bob                 - Run Bob (sender)"
+        echo ""
+        echo "Group Examples:"
+        echo "  task group:moderator         - Run group moderator (creates & invites)"
+        echo "  task group:participant:alice - Run Alice as group participant"
+        echo "  task group:participant:bob   - Run Bob as group participant"
+        echo ""
+        echo "Utilities:"
+        echo "  task clean                   - Clean example artifacts"
+    silent: true
+
+  # Simple Example
+  simple:
+    desc: Run the simple example
+    env:
+      SHARED_SECRET: "{{.SHARED_SECRET}}"
+    cmds:
+      - echo "🚀 Running simple example..."
+      - uv run --directory simple python main.py
+
+  # Point-to-Point Examples
+  p2p:alice:
+    desc: Run Alice (receiver) for point-to-point example
+    env:
+      SHARED_SECRET: "{{.SHARED_SECRET}}"
+    cmds:
+      - echo "👩 Starting Alice (receiver)..."
+      - |
+        uv run --directory point_to_point python main.py     \
+          --local="org/alice/app"                             \
+          --server="http://localhost:46357"                   \
+          --secret="$SHARED_SECRET" {{.CLI_ARGS}}
+    vars:
+      CLI_ARGS: '{{.CLI_ARGS | default ""}}'
+
+  p2p:bob:
+    desc: Run Bob (sender) for point-to-point example
+    env:
+      SHARED_SECRET: "{{.SHARED_SECRET}}"      
+    cmds:
+      - echo "👨 Starting Bob (sender)..."
+      - |
+        uv run --directory point_to_point python main.py     \
+          --local="org/bob/app"                               \
+          --remote="org/alice/app"                            \
+          --message="Hello SLIM"                              \
+          --iterations=5                                      \
+          --server="http://localhost:46357"                   \
+          --secret="$SHARED_SECRET" {{.CLI_ARGS}}
+    vars:
+      CLI_ARGS: '{{.CLI_ARGS | default ""}}'
+
+  # Group Examples
+  group:moderator:
+    desc: Run group moderator (creates session and invites participants)
+    env:
+      SHARED_SECRET: "{{.SHARED_SECRET}}"
+    cmds:
+      - echo "👑 Starting group moderator..."
+      - |
+        uv run --directory group python main.py              \
+          --local="org/moderator/app"                         \
+          --remote="org/default/chat-room"                    \
+          --invites="org/alice/app,org/bob/app"               \
+          --server="http://localhost:46357"                   \
+          --secret="$SHARED_SECRET" {{.CLI_ARGS}}
+    vars:
+      CLI_ARGS: '{{.CLI_ARGS | default ""}}'
+
+  group:participant:alice:
+    desc: Run group participant Alice (waits for invitation)
+    env:
+      SHARED_SECRET: "{{.SHARED_SECRET}}"
+    cmds:
+      - echo "👤 Starting group participant Alice..."
+      - |
+        uv run --directory group python main.py              \
+          --local="org/alice/app"                             \
+          --server="http://localhost:46357"                   \
+          --secret="$SHARED_SECRET" {{.CLI_ARGS}}
+    vars:
+      CLI_ARGS: '{{.CLI_ARGS | default ""}}'
+  
+  group:participant:bob:
+    desc: Run group participant Bob (waits for invitation)
+    env:
+      SHARED_SECRET: "{{.SHARED_SECRET}}"
+    cmds:
+      - echo "👤 Starting group participant Bob..."
+      - |
+        uv run --directory group python main.py              \
+          --local="org/bob/app"                               \
+          --server="http://localhost:46357"                   \
+          --secret="$SHARED_SECRET" {{.CLI_ARGS}}
+    vars:
+      CLI_ARGS: '{{.CLI_ARGS | default ""}}'
+
+  # Utilities
+  clean:
+    desc: Clean example artifacts
+    cmds:
+      - echo "🧹 Cleaning example artifacts..."
+      - rm -rf __pycache__/
+      - rm -rf */__pycache__/
+      - rm -rf .pytest_cache/
+      - echo "✅ Clean complete"
+

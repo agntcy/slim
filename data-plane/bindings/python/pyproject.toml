@@ -1,0 +1,57 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "slim-uniffi-bindings"
+version = "0.7.0"
+description = "Python bindings for SLIM (Secure Low-Latency Interactive Messaging) using UniFFI"
+requires-python = ">=3.10"
+readme = "README.md"
+license = "Apache-2.0"
+authors = [
+    {name = "AGNTCY Contributors", email = "slim@agntcy.io"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+[project.urls]
+Repository = "https://github.com/agntcy/slim"
+Issues = "https://github.com/agntcy/slim/issues"
+
+[dependency-groups]
+testing = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["slim_uniffi_bindings"]
+include = [
+    "slim_uniffi_bindings/generated/*.dylib",
+    "slim_uniffi_bindings/generated/*.so", 
+    "slim_uniffi_bindings/generated/*.dll"
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["*_test.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+markers = [
+    "integration: marks tests as integration tests (need running server)",
+]
+
+[tool.uv]
+default-groups = ["testing"]
+
