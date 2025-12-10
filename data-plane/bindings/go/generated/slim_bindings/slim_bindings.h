@@ -630,12 +630,12 @@ void uniffi_slim_bindings_fn_free_fficompletionhandle(void* ptr, RustCallStatus 
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_FFICOMPLETIONHANDLE_WAIT
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_FFICOMPLETIONHANDLE_WAIT
-void uniffi_slim_bindings_fn_method_fficompletionhandle_wait(void* ptr, RustCallStatus *out_status
+void uniffi_slim_bindings_fn_method_fficompletionhandle_wait(void* ptr, RustBuffer timeout_ms, RustCallStatus *out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_FFICOMPLETIONHANDLE_WAIT_ASYNC
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_FFICOMPLETIONHANDLE_WAIT_ASYNC
-uint64_t uniffi_slim_bindings_fn_method_fficompletionhandle_wait_async(void* ptr
+uint64_t uniffi_slim_bindings_fn_method_fficompletionhandle_wait_async(void* ptr, RustBuffer timeout_ms
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_CREATE_APP_WITH_SECRET
