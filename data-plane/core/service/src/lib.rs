@@ -24,8 +24,8 @@
 //! let service = Service::builder().build("svc-0".to_string()).expect("Failed to create service");
 //!
 //! // Create authentication components
-//! let provider = SharedSecret::new("myapp", TEST_VALID_SECRET);
-//! let verifier = SharedSecret::new("myapp", TEST_VALID_SECRET);
+//! let provider = SharedSecret::new("myapp", TEST_VALID_SECRET)?;
+//! let verifier = SharedSecret::new("myapp", TEST_VALID_SECRET)?;
 //!
 //! // Create an app for messaging
 //! let app_name = Name::from_strings(["org", "ns", "app"]);

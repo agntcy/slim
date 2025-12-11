@@ -70,8 +70,8 @@ pub async fn create_and_subscribe_app(
     let (app, rx) = svc
         .create_app(
             name,
-            SharedSecret::new(&name.to_string(), TEST_VALID_SECRET),
-            SharedSecret::new(&name.to_string(), TEST_VALID_SECRET),
+            SharedSecret::new(&name.to_string(), TEST_VALID_SECRET).map_err(|e| e.to_string())?,
+            SharedSecret::new(&name.to_string(), TEST_VALID_SECRET).map_err(|e| e.to_string())?,
         )
         .map_err(|_| format!("Failed to create app for {}", name))?;
 

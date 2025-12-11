@@ -12,6 +12,7 @@
 //! - **Hybrid API**: Both sync (FFI-exposed) and async (internal) methods
 //! - **Runtime management**: Manages Tokio runtime for blocking operations
 
+use slim_auth::traits::Verifier;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -318,11 +319,30 @@ async fn create_app_with_secret_async(
     shared_secret: String,
 ) -> Result<Arc<BindingsAdapter>, SlimError> {
     let slim_name: SlimName = app_name.into();
-    let shared_secret_impl = SharedSecret::new(&slim_name.components_strings()[1], &shared_secret);
+    let shared_secret_impl = SharedSecret::new(&slim_name.components_strings()[1], &shared_secret)
+        .map_err(|e| SlimError::AuthError {
+            message: e.to_string(),
+        })?;
 
     // Wrap in enum types for flexible auth support
-    let provider = AuthProvider::SharedSecret(shared_secret_impl.clone());
-    let verifier = AuthVerifier::SharedSecret(shared_secret_impl);
+    let mut provider = AuthProvider::SharedSecret(shared_secret_impl.clone());
+    let mut verifier = AuthVerifier::SharedSecret(shared_secret_impl);
+
+    // Initialize the identity provider
+    provider
+        .initialize()
+        .await
+        .map_err(|e| SlimError::AuthError {
+            message: e.to_string(),
+        })?;
+
+    // Initialize the identity verifier
+    verifier
+        .initialize()
+        .await
+        .map_err(|e| SlimError::AuthError {
+            message: e.to_string(),
+        })?;
 
     let adapter = BindingsAdapter::new(slim_name, provider, verifier, false)?;
 
@@ -1050,7 +1070,7 @@ mod tests {
     #[tokio::test]
     async fn test_adapter_creation() {
         let base_name = SlimName::from_strings(["org", "namespace", "test-app"]);
-        let shared_secret = SharedSecret::new("test-app", TEST_VALID_SECRET);
+        let shared_secret = SharedSecret::new("test-app", TEST_VALID_SECRET).unwrap();
         let provider = AuthProvider::SharedSecret(shared_secret.clone());
         let verifier = AuthVerifier::SharedSecret(shared_secret);
 
@@ -1065,7 +1085,7 @@ mod tests {
     #[tokio::test]
     async fn test_deterministic_id_generation() {
         let base_name = SlimName::from_strings(["org", "namespace", "test-app"]);
-        let shared_secret = SharedSecret::new("test-app", TEST_VALID_SECRET);
+        let shared_secret = SharedSecret::new("test-app", TEST_VALID_SECRET).unwrap();
         let provider = AuthProvider::SharedSecret(shared_secret.clone());
         let verifier = AuthVerifier::SharedSecret(shared_secret);
 
@@ -1266,7 +1286,7 @@ mod tests {
         // In a real scenario, this would ensure the session is fully established
 
         let base_name = SlimName::from_strings(["org", "namespace", "create-test"]);
-        let shared_secret = SharedSecret::new("create-test", TEST_VALID_SECRET);
+        let shared_secret = SharedSecret::new("create-test", TEST_VALID_SECRET).unwrap();
         let provider = AuthProvider::SharedSecret(shared_secret.clone());
         let verifier = AuthVerifier::SharedSecret(shared_secret);
 
@@ -1314,7 +1334,7 @@ mod tests {
         // the completion handle would actually track message delivery
 
         let base_name = SlimName::from_strings(["org", "namespace", "publish-test"]);
-        let shared_secret = SharedSecret::new("publish-test", TEST_VALID_SECRET);
+        let shared_secret = SharedSecret::new("publish-test", TEST_VALID_SECRET).unwrap();
         let provider = AuthProvider::SharedSecret(shared_secret.clone());
         let verifier = AuthVerifier::SharedSecret(shared_secret);
 

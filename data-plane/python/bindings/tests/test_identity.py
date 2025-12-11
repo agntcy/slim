@@ -195,3 +195,116 @@ async def test_identity_verification(server, audience):
         # delete sessions
         h = await slim_sender.delete_session(session_info)
         await h
+
+
+def test_invalid_shared_secret_too_short():
+    """Test that creating a Slim instance with too short shared secret raises an exception."""
+    name = slim_bindings.Name("org", "default", "test_app")
+
+    # Create provider and verifier with a secret that's too short (minimum is 32 characters)
+    short_secret = "tooshort"
+
+    provider = slim_bindings.IdentityProvider.SharedSecret(
+        identity="test_app",
+        shared_secret=short_secret,
+    )
+
+    verifier = slim_bindings.IdentityVerifier.SharedSecret(
+        identity="test_app",
+        shared_secret=short_secret,
+    )
+
+    # Should raise an exception when creating the Slim instance
+    with pytest.raises(Exception) as exc_info:
+        slim_bindings.Slim(name, provider, verifier, local_service=False)
+
+    # Verify the error message mentions the secret being too short
+    assert (
+        "shared_secret too short" in str(exc_info.value).lower()
+        or "failed to create sharedsecret" in str(exc_info.value).lower()
+    )
+
+
+def test_invalid_shared_secret_empty_id():
+    """Test that creating a Slim instance with empty identity ID raises an exception."""
+    name = slim_bindings.Name("org", "default", "test_app")
+
+    # Valid secret length but empty ID
+    valid_secret = "a" * 32  # 32 characters minimum
+
+    provider = slim_bindings.IdentityProvider.SharedSecret(
+        identity="",  # Empty identity ID
+        shared_secret=valid_secret,
+    )
+
+    verifier = slim_bindings.IdentityVerifier.SharedSecret(
+        identity="",  # Empty identity ID
+        shared_secret=valid_secret,
+    )
+
+    # Should raise an exception when creating the Slim instance
+    with pytest.raises(Exception) as exc_info:
+        slim_bindings.Slim(name, provider, verifier, local_service=False)
+
+    # Verify the error message mentions invalid ID
+    assert "id" in str(exc_info.value).lower() and (
+        "empty" in str(exc_info.value).lower()
+        or "failed" in str(exc_info.value).lower()
+    )
+
+
+def test_invalid_shared_secret_id_with_colon():
+    """Test that creating a Slim instance with ID containing colon raises an exception."""
+    name = slim_bindings.Name("org", "default", "test_app")
+
+    # Valid secret length but invalid ID (contains colon)
+    valid_secret = "a" * 32  # 32 characters minimum
+
+    provider = slim_bindings.IdentityProvider.SharedSecret(
+        identity="invalid:id",  # ID with colon
+        shared_secret=valid_secret,
+    )
+
+    verifier = slim_bindings.IdentityVerifier.SharedSecret(
+        identity="invalid:id",  # ID with colon
+        shared_secret=valid_secret,
+    )
+
+    # Should raise an exception when creating the Slim instance
+    with pytest.raises(Exception) as exc_info:
+        slim_bindings.Slim(name, provider, verifier, local_service=False)
+
+    # Verify the error message mentions the colon issue
+    assert (
+        ":" in str(exc_info.value)
+        or "failed to create sharedsecret" in str(exc_info.value).lower()
+    )
+
+
+def test_invalid_jwt_missing_public_key():
+    """Test that creating a JWT verifier without public key and without autoresolve raises an exception."""
+    name = slim_bindings.Name("org", "default", "test_app")
+
+    private_key = slim_bindings.Key(
+        algorithm=slim_bindings.Algorithm.ES256,
+        format=slim_bindings.KeyFormat.Pem,
+        key=slim_bindings.KeyData.File(path=f"{keys_folder}/ec256.pem"),
+    )
+
+    provider = slim_bindings.IdentityProvider.Jwt(
+        private_key=private_key,
+        duration=datetime.timedelta(seconds=60),
+    )
+
+    # Create verifier without public key and without autoresolve
+    verifier = slim_bindings.IdentityVerifier.Jwt(
+        public_key=None,  # No public key
+        autoresolve=False,  # No autoresolve
+    )
+
+    # Should raise an exception when creating the Slim instance
+    with pytest.raises(Exception) as exc_info:
+        slim_bindings.Slim(name, provider, verifier, local_service=False)
+
+    # Verify the error message mentions missing public key
+    assert "public key" in str(exc_info.value).lower()
