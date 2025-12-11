@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.2](https://github.com/agntcy/slim/compare/slim-bindings-examples-v0.7.1...slim-bindings-examples-v0.7.2) (2025-12-11)
+
+
+### Features
+
+* Update group state on unexpected application stop ([#1014](https://github.com/agntcy/slim/issues/1014)) ([2385cfb](https://github.com/agntcy/slim/commit/2385cfbe694c4d2a0f047ff10b640885d81f6be2))
+
 ## [0.7.1](https://github.com/agntcy/slim/compare/slim-bindings-examples-v0.7.0...slim-bindings-examples-v0.7.1) (2025-11-21)
 
 
