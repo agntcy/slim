@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/agntcy/slim/compare/slimctl-v0.7.0...slimctl-v0.7.1) (2025-12-11)
+
+
+### Features
+
+* slimctl: show all properties of outlined routes ([#1002](https://github.com/agntcy/slim/issues/1002)) ([33fd62f](https://github.com/agntcy/slim/commit/33fd62f94a4d5a30a7a886fc44ed60ddd054b18c))
+
 ## [0.7.0](https://github.com/agntcy/slim/compare/slimctl-v0.6.0...slimctl-v0.7.0) (2025-11-18)
 
 
