@@ -143,6 +143,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let channel_name = Name::from_strings(["channel", "channel", "channel"]);
 
     let svc = build_client_service(DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID)?;
+
     let (app, _rx, conn_id, _svc) = create_and_subscribe_app(svc, &name).await?;
 
     let conf = SessionConfig {

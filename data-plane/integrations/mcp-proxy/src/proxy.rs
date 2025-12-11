@@ -226,8 +226,8 @@ impl Proxy {
         let (app, mut slim_rx) = service
             .create_app(
                 &self.name,
-                SharedSecret::new("id", SECRET),
-                SharedSecret::new("id", SECRET),
+                SharedSecret::new("id", SECRET).expect("Failed to create SharedSecret"),
+                SharedSecret::new("id", SECRET).expect("Failed to create SharedSecret"),
             )
             .expect("failed to create app");
 

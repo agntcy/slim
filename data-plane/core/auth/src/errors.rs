@@ -14,6 +14,11 @@ pub enum AuthError {
     #[error("token invalid: {0}")]
     TokenInvalid(String),
 
+    #[error(
+        "SPIRE identity verifier is not supported on Windows. SPIRE requires Unix domain sockets which are not available on Windows platforms"
+    )]
+    SpireUnsupportedOnWindows,
+
     #[error("signing error: {0}")]
     SigningError(String),
 

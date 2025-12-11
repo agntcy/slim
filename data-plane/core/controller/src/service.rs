@@ -1619,14 +1619,12 @@ mod tests {
             clients: vec![],
             message_processor: Arc::new(message_processor_server),
             pubsub_servers: vec![server_config.clone()],
-            auth_provider: Some(AuthProvider::SharedSecret(SharedSecret::new(
-                "server",
-                TEST_VALID_SECRET,
-            ))),
-            auth_verifier: Some(AuthVerifier::SharedSecret(SharedSecret::new(
-                "server",
-                TEST_VALID_SECRET,
-            ))),
+            auth_provider: Some(AuthProvider::SharedSecret(
+                SharedSecret::new("server", TEST_VALID_SECRET).unwrap(),
+            )),
+            auth_verifier: Some(AuthVerifier::SharedSecret(
+                SharedSecret::new("server", TEST_VALID_SECRET).unwrap(),
+            )),
         });
 
         let control_plane_client = ControlPlane::new(ControlPlaneSettings {
@@ -1636,14 +1634,12 @@ mod tests {
             clients: vec![client_config.clone()],
             message_processor: Arc::new(message_processor_client),
             pubsub_servers: vec![],
-            auth_provider: Some(AuthProvider::SharedSecret(SharedSecret::new(
-                "client",
-                TEST_VALID_SECRET,
-            ))),
-            auth_verifier: Some(AuthVerifier::SharedSecret(SharedSecret::new(
-                "client",
-                TEST_VALID_SECRET,
-            ))),
+            auth_provider: Some(AuthProvider::SharedSecret(
+                SharedSecret::new("client", TEST_VALID_SECRET).unwrap(),
+            )),
+            auth_verifier: Some(AuthVerifier::SharedSecret(
+                SharedSecret::new("client", TEST_VALID_SECRET).unwrap(),
+            )),
         });
 
         (control_plane_server, control_plane_client, client_config)

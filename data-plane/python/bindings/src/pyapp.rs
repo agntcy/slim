@@ -9,6 +9,7 @@ use pyo3::types::PyDict;
 use pyo3_stub_gen::derive::gen_stub_pyclass;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
 use serde_pyobject::from_pyobject;
+use slim_auth::errors::AuthError;
 use slim_auth::traits::TokenProvider;
 use slim_auth::traits::Verifier;
 use slim_bindings::BindingsAdapter;
@@ -61,35 +62,37 @@ impl PyApp {
         verifier: PyIdentityVerifier,
         local_service: bool,
     ) -> PyResult<Self> {
-        let adapter = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(async move {
-                // Convert the PyIdentityProvider into IdentityProvider
-                let mut provider: IdentityProvider = provider.into();
+        async fn create_adapter(
+            name: PyName,
+            provider: PyIdentityProvider,
+            verifier: PyIdentityVerifier,
+            local_service: bool,
+        ) -> Result<BindingsAdapter, AuthError> {
+            // Convert the PyIdentityProvider into IdentityProvider
+            let mut provider: IdentityProvider = provider.try_into()?;
 
-                // Initialize the identity provider
-                provider
-                    .initialize()
-                    .await
-                    .map_err(|e| format!("Failed to initialize provider: {}", e))?;
+            // Initialize the identity provider
+            provider.initialize().await?;
 
-                // Convert the PyIdentityVerifier into IdentityVerifier
-                let mut verifier: IdentityVerifier = verifier.into();
+            // Convert the PyIdentityVerifier into IdentityVerifier
+            let mut verifier: IdentityVerifier = verifier.try_into()?;
 
-                // Initialize the identity verifier
-                verifier
-                    .initialize()
-                    .await
-                    .map_err(|e| format!("Failed to initialize verifier: {}", e))?;
+            // Initialize the identity verifier
+            verifier.initialize().await?;
 
-                // Convert PyName into Name
-                let base_name: Name = name.into();
+            // Convert PyName into Name
+            let base_name: Name = name.into();
 
-                // IdentityProvider/IdentityVerifier are already AuthProvider/AuthVerifier type aliases
-                // Use BindingsAdapter's complete creation logic
-                BindingsAdapter::new(base_name, provider, verifier, local_service)
-                    .map_err(|e| format!("Failed to create BindingsAdapter: {}", e))
+            // IdentityProvider/IdentityVerifier are already AuthProvider/AuthVerifier type aliases
+            // Use BindingsAdapter's complete creation logic
+            BindingsAdapter::new(base_name, provider, verifier, local_service).map_err(|e| {
+                AuthError::TokenInvalid(format!("Failed to create BindingsAdapter: {}", e))
             })
-            .map_err(|e: String| PyErr::new::<PyException, _>(e))?;
+        }
+
+        let adapter = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(create_adapter(name, provider, verifier, local_service))
+            .map_err(|e: AuthError| PyErr::new::<PyException, _>(e.to_string()))?;
 
         let internal = Arc::new(PyAppInternal { adapter });
 

@@ -830,8 +830,8 @@ mod tests {
                 .with_source(self.source.clone())
                 .with_destination(self.destination.clone())
                 .with_config(config)
-                .with_identity_provider(SharedSecret::new("test", SHARED_SECRET))
-                .with_identity_verifier(SharedSecret::new("test", SHARED_SECRET))
+                .with_identity_provider(SharedSecret::new("test", SHARED_SECRET).unwrap())
+                .with_identity_verifier(SharedSecret::new("test", SHARED_SECRET).unwrap())
                 .with_storage_path(storage_path)
                 .with_tx(tx)
                 .with_tx_to_session_layer(tx_session_layer)
@@ -1248,8 +1248,8 @@ mod tests {
             .with_source(moderator_name.clone())
             .with_destination(participant_name.clone())
             .with_config(moderator_config)
-            .with_identity_provider(SharedSecret::new("moderator", SHARED_SECRET))
-            .with_identity_verifier(SharedSecret::new("moderator", SHARED_SECRET))
+            .with_identity_provider(SharedSecret::new("moderator", SHARED_SECRET).unwrap())
+            .with_identity_verifier(SharedSecret::new("moderator", SHARED_SECRET).unwrap())
             .with_storage_path(storage_path_moderator.clone())
             .with_tx(tx_moderator.clone())
             .with_routes_cache(SessionRoutes::default())
@@ -1282,8 +1282,8 @@ mod tests {
             .with_source(participant_name_id.clone())
             .with_destination(moderator_name.clone())
             .with_config(participant_config)
-            .with_identity_provider(SharedSecret::new("participant", SHARED_SECRET))
-            .with_identity_verifier(SharedSecret::new("participant", SHARED_SECRET))
+            .with_identity_provider(SharedSecret::new("participant", SHARED_SECRET).unwrap())
+            .with_identity_verifier(SharedSecret::new("participant", SHARED_SECRET).unwrap())
             .with_storage_path(storage_path_participant.clone())
             .with_tx(tx_participant.clone())
             .with_routes_cache(SessionRoutes::default())
@@ -1772,8 +1772,8 @@ mod tests {
             tx: SessionTransmitter::new(tx_slim, tx_app),
             tx_session: tx_session.clone(),
             tx_to_session_layer: tx_session_layer,
-            identity_provider: SharedSecret::new("src", SHARED_SECRET),
-            identity_verifier: SharedSecret::new("src", SHARED_SECRET),
+            identity_provider: SharedSecret::new("src", SHARED_SECRET).unwrap(),
+            identity_verifier: SharedSecret::new("src", SHARED_SECRET).unwrap(),
             storage_path: std::path::PathBuf::from("/tmp/internal_draining_test"),
             routes_cache: SessionRoutes::default(),
             graceful_shutdown_timeout: Some(Duration::from_secs(10)),
@@ -1941,8 +1941,8 @@ mod tests {
             tx: SessionTransmitter::new(tx_slim, tx_app),
             tx_session,
             tx_to_session_layer: tx_session_layer,
-            identity_provider: SharedSecret::new("test", SHARED_SECRET),
-            identity_verifier: SharedSecret::new("test", SHARED_SECRET),
+            identity_provider: SharedSecret::new("test", SHARED_SECRET).unwrap(),
+            identity_verifier: SharedSecret::new("test", SHARED_SECRET).unwrap(),
             storage_path: std::path::PathBuf::from("/tmp/test_draining"),
             routes_cache: SessionRoutes::default(),
             graceful_shutdown_timeout,

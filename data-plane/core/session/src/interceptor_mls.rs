@@ -141,8 +141,8 @@ mod tests {
     #[tokio::test]
     async fn test_mls_interceptor_without_group() {
         let mut mls = Mls::new(
-            SharedSecret::new("test", TEST_VALID_SECRET),
-            SharedSecret::new("test", TEST_VALID_SECRET),
+            SharedSecret::new("test", TEST_VALID_SECRET).unwrap(),
+            SharedSecret::new("test", TEST_VALID_SECRET).unwrap(),
             std::path::PathBuf::from("/tmp/mls_interceptor_test_without_group"),
         );
         mls.initialize().await.unwrap();
@@ -174,13 +174,13 @@ mod tests {
     #[tokio::test]
     async fn test_mls_interceptor_with_group() {
         let mut alice_mls = Mls::new(
-            SharedSecret::new("alice", TEST_VALID_SECRET),
-            SharedSecret::new("alice", TEST_VALID_SECRET),
+            SharedSecret::new("alice", TEST_VALID_SECRET).unwrap(),
+            SharedSecret::new("alice", TEST_VALID_SECRET).unwrap(),
             std::path::PathBuf::from("/tmp/mls_interceptor_test_alice"),
         );
         let mut bob_mls = Mls::new(
-            SharedSecret::new("bob", TEST_VALID_SECRET),
-            SharedSecret::new("bob", TEST_VALID_SECRET),
+            SharedSecret::new("bob", TEST_VALID_SECRET).unwrap(),
+            SharedSecret::new("bob", TEST_VALID_SECRET).unwrap(),
             std::path::PathBuf::from("/tmp/mls_interceptor_test_bob"),
         );
 
