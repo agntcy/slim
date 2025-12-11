@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0](https://github.com/agntcy/slim/compare/slim-datapath-v0.10.3...slim-datapath-v0.11.0) - 2025-12-11
+
+### Added
+
+- make backoff retry configurable ([#991](https://github.com/agntcy/slim/pull/991))
+- Update group state on unexpected application stop ([#1014](https://github.com/agntcy/slim/pull/1014))
+- detect and handle unexpected participant disconnections ([#1004](https://github.com/agntcy/slim/pull/1004))
+
+### Fixed
+
+- *(session)* correctly remove routes on session close ([#1039](https://github.com/agntcy/slim/pull/1039))
+
 ## [0.10.3](https://github.com/agntcy/slim/compare/slim-datapath-v0.10.2...slim-datapath-v0.10.3) - 2025-11-21
 
 ### Added
