@@ -16,7 +16,7 @@ members = [
 
 [[package]]
 name = "a2a-sdk"
-version = "0.3.5"
+version = "0.3.20"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "google-api-core" },
@@ -25,9 +25,9 @@ dependencies = [
     { name = "protobuf" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/cf/0d/12ebef081b096ca5fafd1ec8cc589739abba07b46ae7899c7420e599f2a6/a2a_sdk-0.3.5.tar.gz", hash = "sha256:48cf37dedeb63cf0a072512221a12ed4b3950df695c9d65eadb839a99392c3e5", size = 222064, upload-time = "2025-09-08T17:30:35.826Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0a/c1/4c7968e44a318fbfaf82e142b2f63aedcf62ca8da5ee0cea6104a1a29580/a2a_sdk-0.3.20.tar.gz", hash = "sha256:f05bbdf4a8ada6be81dc7e7c73da3add767b20065195d94e8eb6d671d7ea658a", size = 229272, upload-time = "2025-12-03T15:48:22.349Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4c/96/c33802d929b0f884cb6e509195d69914632536256d273bd7127e900d79ea/a2a_sdk-0.3.5-py3-none-any.whl", hash = "sha256:fd85b1e4e7be18a89b5d723e4013171510150a235275876f98de9e1ba869457e", size = 136911, upload-time = "2025-09-08T17:30:34.091Z" },
+    { url = "https://files.pythonhosted.org/packages/11/33/719a9331421ee5df0338505548b58b4129a6aca82bba5c8e0593ac8864c7/a2a_sdk-0.3.20-py3-none-any.whl", hash = "sha256:35da261aae28fd22440b61f8eb16a8343b60809e1f7ef028a06d01f17b48a8b9", size = 141547, upload-time = "2025-12-03T15:48:20.812Z" },
 ]
 
 [package.optional-dependencies]
@@ -2567,7 +2567,7 @@ testing = [
 
 [[package]]
 name = "slima2a"
-version = "0.1.0"
+version = "0.2.1"
 source = { editable = "slima2a" }
 dependencies = [
     { name = "a2a-sdk", extra = ["telemetry"] },
@@ -2592,7 +2592,7 @@ testing = [
 
 [package.metadata]
 requires-dist = [
-    { name = "a2a-sdk", extras = ["telemetry"], specifier = ">=0.3.0" },
+    { name = "a2a-sdk", extras = ["telemetry"], specifier = "==0.3.20" },
     { name = "slimrpc", editable = "slimrpc" },
 ]
 
@@ -2612,7 +2612,7 @@ testing = [{ name = "pytest", specifier = ">=8.3.4" }]
 
 [[package]]
 name = "slimrpc"
-version = "0.1.0"
+version = "0.2.1"
 source = { editable = "slimrpc" }
 dependencies = [
     { name = "async-timeout" },
@@ -2636,7 +2636,7 @@ requires-dist = [
     { name = "async-timeout", specifier = ">=5.0.1" },
     { name = "googleapis-common-protos", specifier = ">=1.70.0" },
     { name = "grpcio", specifier = ">=1.74.0" },
-    { name = "slim-bindings", specifier = ">=0.7.1" },
+    { name = "slim-bindings", specifier = "~=0.7.1" },
 ]
 
 [package.metadata.requires-dev]
