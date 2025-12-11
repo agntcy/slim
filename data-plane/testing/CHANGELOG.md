@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.2](https://github.com/agntcy/slim/compare/slim-testutils-v0.7.1...slim-testutils-v0.7.2) (2025-12-11)
+
+
+### Bug Fixes
+
+* **bindings:** improve identity error handling ([#1042](https://github.com/agntcy/slim/issues/1042)) ([44002b5](https://github.com/agntcy/slim/commit/44002b51c598f3780645b8f3fac48f5e34a373cb))
+* **session:** correctly remove routes on session close ([#1039](https://github.com/agntcy/slim/issues/1039)) ([df21fe3](https://github.com/agntcy/slim/commit/df21fe377bf0b416a123ef688d3beafc3bd0488b))
+
 ## [0.7.1](https://github.com/agntcy/slim/compare/slim-testutils-v0.7.0...slim-testutils-v0.7.1) (2025-11-21)
 
 
