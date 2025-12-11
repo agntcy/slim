@@ -1313,7 +1313,10 @@ mod tests {
         let runtime = get_runtime();
 
         // Create a completion that will never complete (sender not sent)
-        let (_tx, rx) = tokio::sync::oneshot::channel();
+        // NOTE: We must hold onto `tx` so the channel stays open.
+        // If we use `_tx`, it gets dropped immediately and the receiver
+        // returns RecvError instead of timing out.
+        let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), SlimSessionError>>();
         let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
         let ffi_handle = FfiCompletionHandle::new(completion, runtime);
 
@@ -1329,6 +1332,9 @@ mod tests {
             Err(e) => panic!("Expected Timeout error, got: {:?}", e),
             Ok(_) => panic!("Expected timeout, got Ok"),
         }
+
+        // Explicitly drop tx after the test to avoid unused variable warning
+        drop(tx);
     }
 
     /// Test FfiCompletionHandle with timeout that completes in time
@@ -1892,7 +1898,7 @@ mod tests {
     #[tokio::test]
     async fn test_adapter_id_and_name() {
         let base_name = SlimName::from_strings(["org", "namespace", "id-test"]);
-        let shared_secret = SharedSecret::new("id-test", TEST_VALID_SECRET);
+        let shared_secret = SharedSecret::new("id-test", TEST_VALID_SECRET).unwrap();
         let provider = AuthProvider::SharedSecret(shared_secret.clone());
         let verifier = AuthVerifier::SharedSecret(shared_secret);
 
@@ -1915,7 +1921,7 @@ mod tests {
     #[tokio::test]
     async fn test_adapter_with_local_service() {
         let base_name = SlimName::from_strings(["org", "namespace", "local-test"]);
-        let shared_secret = SharedSecret::new("local-test", TEST_VALID_SECRET);
+        let shared_secret = SharedSecret::new("local-test", TEST_VALID_SECRET).unwrap();
         let provider = AuthProvider::SharedSecret(shared_secret.clone());
         let verifier = AuthVerifier::SharedSecret(shared_secret);
 
@@ -1936,7 +1942,7 @@ mod tests {
 
         for ns in namespaces {
             let base_name = SlimName::from_strings(ns);
-            let shared_secret = SharedSecret::new(ns[2], TEST_VALID_SECRET);
+            let shared_secret = SharedSecret::new(ns[2], TEST_VALID_SECRET).unwrap();
             let provider = AuthProvider::SharedSecret(shared_secret.clone());
             let verifier = AuthVerifier::SharedSecret(shared_secret);
 
@@ -2071,7 +2077,7 @@ mod tests {
     #[tokio::test]
     async fn test_listen_for_session_timeout() {
         let base_name = SlimName::from_strings(["org", "namespace", "listen-test"]);
-        let shared_secret = SharedSecret::new("listen-test", TEST_VALID_SECRET);
+        let shared_secret = SharedSecret::new("listen-test", TEST_VALID_SECRET).unwrap();
         let provider = AuthProvider::SharedSecret(shared_secret.clone());
         let verifier = AuthVerifier::SharedSecret(shared_secret);
 
@@ -2102,7 +2108,7 @@ mod tests {
     #[tokio::test]
     async fn test_subscribe_unsubscribe() {
         let base_name = SlimName::from_strings(["org", "namespace", "sub-test"]);
-        let shared_secret = SharedSecret::new("sub-test", TEST_VALID_SECRET);
+        let shared_secret = SharedSecret::new("sub-test", TEST_VALID_SECRET).unwrap();
         let provider = AuthProvider::SharedSecret(shared_secret.clone());
         let verifier = AuthVerifier::SharedSecret(shared_secret);
 
@@ -2133,7 +2139,7 @@ mod tests {
     #[tokio::test]
     async fn test_set_remove_route() {
         let base_name = SlimName::from_strings(["org", "namespace", "route-test"]);
-        let shared_secret = SharedSecret::new("route-test", TEST_VALID_SECRET);
+        let shared_secret = SharedSecret::new("route-test", TEST_VALID_SECRET).unwrap();
         let provider = AuthProvider::SharedSecret(shared_secret.clone());
         let verifier = AuthVerifier::SharedSecret(shared_secret);
 
@@ -2166,7 +2172,7 @@ mod tests {
     #[tokio::test]
     async fn test_stop_server_nonexistent() {
         let base_name = SlimName::from_strings(["org", "namespace", "stop-test"]);
-        let shared_secret = SharedSecret::new("stop-test", TEST_VALID_SECRET);
+        let shared_secret = SharedSecret::new("stop-test", TEST_VALID_SECRET).unwrap();
         let provider = AuthProvider::SharedSecret(shared_secret.clone());
         let verifier = AuthVerifier::SharedSecret(shared_secret);
 
@@ -2187,7 +2193,7 @@ mod tests {
     #[tokio::test]
     async fn test_disconnect_invalid_id() {
         let base_name = SlimName::from_strings(["org", "namespace", "disconnect-test"]);
-        let shared_secret = SharedSecret::new("disconnect-test", TEST_VALID_SECRET);
+        let shared_secret = SharedSecret::new("disconnect-test", TEST_VALID_SECRET).unwrap();
         let provider = AuthProvider::SharedSecret(shared_secret.clone());
         let verifier = AuthVerifier::SharedSecret(shared_secret);
 
@@ -2208,7 +2214,7 @@ mod tests {
     #[tokio::test]
     async fn test_delete_session_flow() {
         let base_name = SlimName::from_strings(["org", "namespace", "delete-test"]);
-        let shared_secret = SharedSecret::new("delete-test", TEST_VALID_SECRET);
+        let shared_secret = SharedSecret::new("delete-test", TEST_VALID_SECRET).unwrap();
         let provider = AuthProvider::SharedSecret(shared_secret.clone());
         let verifier = AuthVerifier::SharedSecret(shared_secret);
 
@@ -2253,7 +2259,7 @@ mod tests {
     #[tokio::test]
     async fn test_listen_for_session_blocking_timeout() {
         let base_name = SlimName::from_strings(["org", "namespace", "blocking-listen"]);
-        let shared_secret = SharedSecret::new("blocking-listen", TEST_VALID_SECRET);
+        let shared_secret = SharedSecret::new("blocking-listen", TEST_VALID_SECRET).unwrap();
         let provider = AuthProvider::SharedSecret(shared_secret.clone());
         let verifier = AuthVerifier::SharedSecret(shared_secret);
 
@@ -2278,7 +2284,7 @@ mod tests {
     #[tokio::test]
     async fn test_subscribe_blocking() {
         let base_name = SlimName::from_strings(["org", "namespace", "blocking-sub"]);
-        let shared_secret = SharedSecret::new("blocking-sub", TEST_VALID_SECRET);
+        let shared_secret = SharedSecret::new("blocking-sub", TEST_VALID_SECRET).unwrap();
         let provider = AuthProvider::SharedSecret(shared_secret.clone());
         let verifier = AuthVerifier::SharedSecret(shared_secret);
 
