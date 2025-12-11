@@ -375,9 +375,7 @@ impl TryFrom<PyIdentityProvider> for IdentityProvider {
                 #[cfg(target_family = "windows")]
                 {
                     let _ = (socket_path, target_spiffe_id, jwt_audiences);
-                    Err(AuthError::TokenInvalid(
-                        "SPIRE identity provider is not supported on Windows. SPIRE requires Unix domain sockets which are not available on Windows platforms.".to_string()
-                    ))
+                    Err(AuthError::SpireUnsupportedOnWindows)
                 }
             }
         }
@@ -606,9 +604,7 @@ impl TryFrom<PyIdentityVerifier> for IdentityVerifier {
                 #[cfg(target_family = "windows")]
                 {
                     let _ = (socket_path, target_spiffe_id);
-                    Err(AuthError::TokenInvalid(
-                        "SPIRE identity verifier is not supported on Windows. SPIRE requires Unix domain sockets which are not available on Windows platforms.".to_string()
-                    ))
+                    Err(AuthError::SpireUnsupportedOnWindows)
                 }
             }
         }
