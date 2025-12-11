@@ -103,13 +103,18 @@ async def receive_loop(
             continue
 
 
-async def keyboard_loop(session_ready, shared_session_container, local_app):
+async def keyboard_loop(
+    created_session, session_ready, shared_session_container, local_app
+):
     """
     Interactive loop allowing participants to publish messages.
 
     Typing 'exit' or 'quit' (case-insensitive) terminates the loop.
+    Typing 'remove NAME' removes a participant from the group
+    Typing 'invite NAME' invites a participant to the group
     Each line is published to the group channel as UTF-8 bytes.
     """
+
     try:
         # 1. Initialize an async session
         prompt_session = PromptSession(style=custom_style)
@@ -117,10 +122,24 @@ async def keyboard_loop(session_ready, shared_session_container, local_app):
         # Wait for the session to be established
         await session_ready.wait()
 
-        print_formatted_text(
-            f"Welcome to the group {shared_session_container[0].dst}!\nSend a message to the group, or type 'exit' or 'quit' to quit.",
-            style=custom_style,
-        )
+        if created_session:
+            print_formatted_text(
+                f"Welcome to the group {shared_session_container[0].dst}!\n"
+                "Commands:\n"
+                "  - Type a message to send it to the group\n"
+                "  - 'remove NAME' to remove a participant\n"
+                "  - 'invite NAME' to invite a participant\n"
+                "  - 'exit' or 'quit' to leave the group",
+                style=custom_style,
+            )
+        else:
+            print_formatted_text(
+                f"Welcome to the group {shared_session_container[0].dst}!\n"
+                "Commands:\n"
+                "  - Type a message to send it to the group\n"
+                "  - 'exit' or 'quit' to leave the group",
+                style=custom_style,
+            )
 
         while True:
             # Run blocking input() in a worker thread so we do not block the event loop.
@@ -133,6 +152,38 @@ async def keyboard_loop(session_ready, shared_session_container, local_app):
                 handle = await local_app.delete_session(shared_session_container[0])
                 await handle
                 break
+
+            if user_input.lower().startswith("invite "):
+                # Extract the ID after "invite "
+                invite_id = user_input[7:].strip()  # Skip "invite " (7 chars)
+                parts = invite_id.split()
+                if len(parts) != 1:
+                    print_formatted_text(
+                        "Error: 'invite' command expects exactly one participant ID (e.g., 'invite org/ns/client-1')",
+                        style=custom_style,
+                    )
+                    continue
+                print(f"Inviting participant: {invite_id}")
+                invite_name = split_id(invite_id)
+                handle = await shared_session_container[0].invite(invite_name)
+                await handle
+                continue
+
+            if user_input.lower().startswith("remove "):
+                # Extract the ID after "remove "
+                remove_id = user_input[7:].strip()  # Skip "remove " (7 chars)
+                parts = remove_id.split()
+                if len(parts) != 1:
+                    print_formatted_text(
+                        "Error: 'remove' command expects exactly one participant ID (e.g., 'remove org/ns/client-1')",
+                        style=custom_style,
+                    )
+                    continue
+                print(f"Removing participant: {remove_id}")
+                remove_name = split_id(remove_id)
+                handle = await shared_session_container[0].remove(remove_name)
+                await handle
+                continue
 
             # Send message to the channel_name specified when creating the session.
             # As the session is group, all participants will receive it.
@@ -250,7 +301,9 @@ async def run_client(
 
     tasks.append(
         asyncio.create_task(
-            keyboard_loop(session_ready, shared_session_container, local_app)
+            keyboard_loop(
+                created_session, session_ready, shared_session_container, local_app
+            )
         )
     )
 

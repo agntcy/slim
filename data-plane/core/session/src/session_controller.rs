@@ -24,7 +24,7 @@ use crate::{
     MessageDirection, SessionError, Transmitter,
     common::SessionMessage,
     completion_handle::CompletionHandle,
-    controller_sender::ControllerSender,
+    controller_sender::{ControllerSender, PING_INTERVAL},
     session_builder::{ForController, SessionBuilder},
     session_config::SessionConfig,
     session_routes::Route,
@@ -423,7 +423,7 @@ impl SessionController {
             ProtoSessionType::Multicast => {
                 if !self.is_initiator() {
                     return Err(SessionError::Processing(
-                        "cannot invite participant to this session session".into(),
+                        "cannot invite participant to this session".into(),
                     ));
                 }
                 self.invite_participant_internal(destination).await
@@ -443,7 +443,7 @@ impl SessionController {
             ProtoSessionType::Multicast => {
                 if !self.is_initiator() {
                     return Err(SessionError::Processing(
-                        "cannot remove participant from this session session".into(),
+                        "cannot remove participant from this session".into(),
                     ));
                 }
                 let msg = Message::builder()
@@ -528,21 +528,14 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     pub(crate) fn new(settings: SessionSettings<P, V>) -> Self {
-        let ping_interval = if settings.config.initiator {
-            Some(Duration::from_secs(10))
-        } else {
-            None
-        };
-
-        // Create the controller sender
-        // Note: Only initiators (moderators) send pings to detect participant disconnections.
-        // Participants monitor ping reception to detect moderator disconnections (see participant logic).
+        // Create the controller sender.
         let controller_sender = ControllerSender::new(
             settings.config.get_timer_settings(),
             settings.source.clone(),
             settings.config.session_type,
             settings.id,
-            ping_interval,
+            Some(PING_INTERVAL),
+            settings.config.initiator,
             // send messages to slim/app
             settings.tx.clone(),
             // send signal to the controller
