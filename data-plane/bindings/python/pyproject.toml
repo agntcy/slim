@@ -55,3 +55,6 @@ markers = [
 [tool.uv]
 default-groups = ["testing"]
 
+[tool.uv.workspace]
+members = ["examples"]
+
