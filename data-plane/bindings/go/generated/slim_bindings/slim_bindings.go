@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"runtime/cgo"
 	"sync/atomic"
+	"time"
 	"unsafe"
 )
 
@@ -783,7 +784,7 @@ func uniffiCheckChecksums() {
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_bindings_checksum_method_fficompletionhandle_wait()
 		})
-		if checksum != 4204 {
+		if checksum != 40168 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_bindings: uniffi_slim_bindings_checksum_method_fficompletionhandle_wait: UniFFI API checksum mismatch")
 		}
@@ -792,9 +793,27 @@ func uniffiCheckChecksums() {
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_bindings_checksum_method_fficompletionhandle_wait_async()
 		})
-		if checksum != 20948 {
+		if checksum != 15030 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_bindings: uniffi_slim_bindings_checksum_method_fficompletionhandle_wait_async: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_method_fficompletionhandle_wait_for()
+		})
+		if checksum != 59303 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_fficompletionhandle_wait_for: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_method_fficompletionhandle_wait_for_async()
+		})
+		if checksum != 30150 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_fficompletionhandle_wait_for_async: UniFFI API checksum mismatch")
 		}
 	}
 }
@@ -971,6 +990,44 @@ func (c FfiConverterBytes) Read(reader io.Reader) []byte {
 type FfiDestroyerBytes struct{}
 
 func (FfiDestroyerBytes) Destroy(_ []byte) {}
+
+// FfiConverterDuration converts between uniffi duration and Go duration.
+type FfiConverterDuration struct{}
+
+var FfiConverterDurationINSTANCE = FfiConverterDuration{}
+
+func (c FfiConverterDuration) Lift(rb RustBufferI) time.Duration {
+	return LiftFromRustBuffer[time.Duration](c, rb)
+}
+
+func (c FfiConverterDuration) Read(reader io.Reader) time.Duration {
+	sec := readUint64(reader)
+	nsec := readUint32(reader)
+	return time.Duration(sec*1_000_000_000 + uint64(nsec))
+}
+
+func (c FfiConverterDuration) Lower(value time.Duration) C.RustBuffer {
+	return LowerIntoRustBuffer[time.Duration](c, value)
+}
+
+func (c FfiConverterDuration) Write(writer io.Writer, value time.Duration) {
+	if value.Nanoseconds() < 0 {
+		// Rust does not support negative durations:
+		// https://www.reddit.com/r/rust/comments/ljl55u/why_rusts_duration_not_supporting_negative_values/
+		// This panic is very bad, because it depends on user input, and in Go user input related
+		// error are supposed to be returned as errors, and not cause panics. However, with the
+		// current architecture, its not possible to return an error from here, so panic is used as
+		// the only other option to signal an error.
+		panic("negative duration is not allowed")
+	}
+
+	writeUint64(writer, uint64(value)/1_000_000_000)
+	writeUint32(writer, uint32(uint64(value)%1_000_000_000))
+}
+
+type FfiDestroyerDuration struct{}
+
+func (FfiDestroyerDuration) Destroy(_ time.Duration) {}
 
 // Below is an implementation of synchronization requirements outlined in the link.
 // https://github.com/mozilla/uniffi-rs/blob/0dc031132d9493ca812c3af6e7dd60ad2ea95bf0/uniffi_bindgen/src/bindings/kotlin/templates/ObjectRuntime.kt#L31
@@ -2415,24 +2472,20 @@ func (_ FfiDestroyerBindingsSessionContext) Destroy(value *BindingsSessionContex
 // completion.wait()?; // Wait for delivery confirmation
 // ```
 type FfiCompletionHandleInterface interface {
-	// Wait for the operation to complete (blocking version for FFI)
+	// Wait for the operation to complete indefinitely (blocking version)
 	//
-	// This blocks the calling thread until the operation completes or the timeout expires.
+	// This blocks the calling thread until the operation completes.
 	// Use this from Go or other languages when you need to ensure
 	// an operation has finished before proceeding.
 	//
 	// **Note:** This can only be called once per handle. Subsequent calls
 	// will return an error.
 	//
-	// # Arguments
-	// * `timeout_ms` - Optional timeout in milliseconds. If None, waits indefinitely.
-	//
 	// # Returns
 	// * `Ok(())` - Operation completed successfully
-	// * `Err(SlimError::Timeout)` - If the operation timed out
 	// * `Err(SlimError)` - Operation failed or handle already consumed
-	Wait(timeoutMs *uint32) error
-	// Wait for the operation to complete (async version)
+	Wait() error
+	// Wait for the operation to complete indefinitely (async version)
 	//
 	// This is the async version that integrates with UniFFI's polling mechanism.
 	// The operation will yield control while waiting.
@@ -2440,14 +2493,43 @@ type FfiCompletionHandleInterface interface {
 	// **Note:** This can only be called once per handle. Subsequent calls
 	// will return an error.
 	//
+	// # Returns
+	// * `Ok(())` - Operation completed successfully
+	// * `Err(SlimError)` - Operation failed or handle already consumed
+	WaitAsync() error
+	// Wait for the operation to complete with a timeout (blocking version)
+	//
+	// This blocks the calling thread until the operation completes or the timeout expires.
+	// Use this from Go or other languages when you need to ensure
+	// an operation has finished before proceeding with a time limit.
+	//
+	// **Note:** This can only be called once per handle. Subsequent calls
+	// will return an error.
+	//
 	// # Arguments
-	// * `timeout_ms` - Optional timeout in milliseconds. If None, waits indefinitely.
+	// * `timeout` - Maximum time to wait for completion
 	//
 	// # Returns
 	// * `Ok(())` - Operation completed successfully
 	// * `Err(SlimError::Timeout)` - If the operation timed out
 	// * `Err(SlimError)` - Operation failed or handle already consumed
-	WaitAsync(timeoutMs *uint32) error
+	WaitFor(timeout time.Duration) error
+	// Wait for the operation to complete with a timeout (async version)
+	//
+	// This is the async version that integrates with UniFFI's polling mechanism.
+	// The operation will yield control while waiting until completion or timeout.
+	//
+	// **Note:** This can only be called once per handle. Subsequent calls
+	// will return an error.
+	//
+	// # Arguments
+	// * `timeout` - Maximum time to wait for completion
+	//
+	// # Returns
+	// * `Ok(())` - Operation completed successfully
+	// * `Err(SlimError::Timeout)` - If the operation timed out
+	// * `Err(SlimError)` - Operation failed or handle already consumed
+	WaitForAsync(timeout time.Duration) error
 }
 
 // FFI-compatible completion handle for async operations
@@ -2471,34 +2553,30 @@ type FfiCompletionHandle struct {
 	ffiObject FfiObject
 }
 
-// Wait for the operation to complete (blocking version for FFI)
+// Wait for the operation to complete indefinitely (blocking version)
 //
-// This blocks the calling thread until the operation completes or the timeout expires.
+// This blocks the calling thread until the operation completes.
 // Use this from Go or other languages when you need to ensure
 // an operation has finished before proceeding.
 //
 // **Note:** This can only be called once per handle. Subsequent calls
 // will return an error.
 //
-// # Arguments
-// * `timeout_ms` - Optional timeout in milliseconds. If None, waits indefinitely.
-//
 // # Returns
 // * `Ok(())` - Operation completed successfully
-// * `Err(SlimError::Timeout)` - If the operation timed out
 // * `Err(SlimError)` - Operation failed or handle already consumed
-func (_self *FfiCompletionHandle) Wait(timeoutMs *uint32) error {
+func (_self *FfiCompletionHandle) Wait() error {
 	_pointer := _self.ffiObject.incrementPointer("*FfiCompletionHandle")
 	defer _self.ffiObject.decrementPointer()
 	_, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) bool {
 		C.uniffi_slim_bindings_fn_method_fficompletionhandle_wait(
-			_pointer, FfiConverterOptionalUint32INSTANCE.Lower(timeoutMs), _uniffiStatus)
+			_pointer, _uniffiStatus)
 		return false
 	})
 	return _uniffiErr.AsError()
 }
 
-// Wait for the operation to complete (async version)
+// Wait for the operation to complete indefinitely (async version)
 //
 // This is the async version that integrates with UniFFI's polling mechanism.
 // The operation will yield control while waiting.
@@ -2506,14 +2584,10 @@ func (_self *FfiCompletionHandle) Wait(timeoutMs *uint32) error {
 // **Note:** This can only be called once per handle. Subsequent calls
 // will return an error.
 //
-// # Arguments
-// * `timeout_ms` - Optional timeout in milliseconds. If None, waits indefinitely.
-//
 // # Returns
 // * `Ok(())` - Operation completed successfully
-// * `Err(SlimError::Timeout)` - If the operation timed out
 // * `Err(SlimError)` - Operation failed or handle already consumed
-func (_self *FfiCompletionHandle) WaitAsync(timeoutMs *uint32) error {
+func (_self *FfiCompletionHandle) WaitAsync() error {
 	_pointer := _self.ffiObject.incrementPointer("*FfiCompletionHandle")
 	defer _self.ffiObject.decrementPointer()
 	_, err := uniffiRustCallAsync[SlimError](
@@ -2526,7 +2600,76 @@ func (_self *FfiCompletionHandle) WaitAsync(timeoutMs *uint32) error {
 		// liftFn
 		func(_ struct{}) struct{} { return struct{}{} },
 		C.uniffi_slim_bindings_fn_method_fficompletionhandle_wait_async(
-			_pointer, FfiConverterOptionalUint32INSTANCE.Lower(timeoutMs)),
+			_pointer),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_poll_void(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_free_void(handle)
+		},
+	)
+
+	return err
+}
+
+// Wait for the operation to complete with a timeout (blocking version)
+//
+// This blocks the calling thread until the operation completes or the timeout expires.
+// Use this from Go or other languages when you need to ensure
+// an operation has finished before proceeding with a time limit.
+//
+// **Note:** This can only be called once per handle. Subsequent calls
+// will return an error.
+//
+// # Arguments
+// * `timeout` - Maximum time to wait for completion
+//
+// # Returns
+// * `Ok(())` - Operation completed successfully
+// * `Err(SlimError::Timeout)` - If the operation timed out
+// * `Err(SlimError)` - Operation failed or handle already consumed
+func (_self *FfiCompletionHandle) WaitFor(timeout time.Duration) error {
+	_pointer := _self.ffiObject.incrementPointer("*FfiCompletionHandle")
+	defer _self.ffiObject.decrementPointer()
+	_, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) bool {
+		C.uniffi_slim_bindings_fn_method_fficompletionhandle_wait_for(
+			_pointer, FfiConverterDurationINSTANCE.Lower(timeout), _uniffiStatus)
+		return false
+	})
+	return _uniffiErr.AsError()
+}
+
+// Wait for the operation to complete with a timeout (async version)
+//
+// This is the async version that integrates with UniFFI's polling mechanism.
+// The operation will yield control while waiting until completion or timeout.
+//
+// **Note:** This can only be called once per handle. Subsequent calls
+// will return an error.
+//
+// # Arguments
+// * `timeout` - Maximum time to wait for completion
+//
+// # Returns
+// * `Ok(())` - Operation completed successfully
+// * `Err(SlimError::Timeout)` - If the operation timed out
+// * `Err(SlimError)` - Operation failed or handle already consumed
+func (_self *FfiCompletionHandle) WaitForAsync(timeout time.Duration) error {
+	_pointer := _self.ffiObject.incrementPointer("*FfiCompletionHandle")
+	defer _self.ffiObject.decrementPointer()
+	_, err := uniffiRustCallAsync[SlimError](
+		FfiConverterSlimErrorINSTANCE,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
+			C.ffi_slim_bindings_rust_future_complete_void(handle, status)
+			return struct{}{}
+		},
+		// liftFn
+		func(_ struct{}) struct{} { return struct{}{} },
+		C.uniffi_slim_bindings_fn_method_fficompletionhandle_wait_for_async(
+			_pointer, FfiConverterDurationINSTANCE.Lower(timeout)),
 		// pollFn
 		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
 			C.ffi_slim_bindings_rust_future_poll_void(handle, continuation, data)
