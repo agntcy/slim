@@ -13,6 +13,7 @@ agntcy-slim-config = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
 bincode = { workspace = true }
 bit-vec = { workspace = true }
+display-error-chain = { workspace = true }
 drain = { workspace = true }
 h2 = { workspace = true }
 opentelemetry = { workspace = true }

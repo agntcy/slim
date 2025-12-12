@@ -173,9 +173,8 @@ where
                 self.common.sender.start_drain();
                 Ok(())
             }
-            _ => Err(SessionError::Processing(format!(
-                "Unexpected message type {:?}",
-                message
+            _ => Err(SessionError::SessionMessageInternalUnexpected(Box::new(
+                message,
             ))),
         }
     }
@@ -437,7 +436,7 @@ where
                 session_id: self.common.settings.id,
             }))
             .await
-            .map_err(|e| SessionError::Processing(format!("failed to notify session layer: {}", e)))
+            .map_err(|_e| SessionError::SessionDeleteMessageSendFailed)
     }
 
     async fn on_ping(&mut self, mut msg: Message) -> Result<(), SessionError> {

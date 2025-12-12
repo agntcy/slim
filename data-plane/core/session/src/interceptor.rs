@@ -83,10 +83,7 @@ where
 {
     async fn on_msg_from_app(&self, msg: &mut Message) -> Result<(), SessionError> {
         // Let's try first to get the identity without an async call
-        let identity = self
-            .provider
-            .get_token()
-            .map_err(|e| SessionError::IdentityPushError(e.to_string()))?;
+        let identity = self.provider.get_token()?;
 
         // Add the identity to the message metadata
         msg.get_slim_header_mut().set_identity(identity);
@@ -105,10 +102,7 @@ where
             }
             Err(_e) => {
                 // Try async verification if the sync one fails
-                self.verifier
-                    .verify(&identity)
-                    .await
-                    .map_err(|e| SessionError::IdentityError(e.to_string()))?;
+                self.verifier.verify(&identity).await?;
 
                 // TODO(msardara): do something with the claims if needed
 

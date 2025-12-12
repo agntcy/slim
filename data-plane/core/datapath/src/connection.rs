@@ -8,12 +8,10 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tonic::Status;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub(crate) enum Channel {
     Server(mpsc::Sender<Result<Message, Status>>),
     Client(mpsc::Sender<Message>),
-    #[default]
-    Unknown,
 }
 
 /// Connection type
@@ -30,7 +28,7 @@ pub(crate) enum Type {
     Unknown,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 #[allow(dead_code)]
 /// Connection information
 pub struct Connection {
@@ -56,10 +54,14 @@ pub struct Connection {
 /// Implementation of Connection
 impl Connection {
     /// Create a new Connection
-    pub(crate) fn new(connection_type: Type) -> Self {
+    pub(crate) fn new(connection_type: Type, channel: Channel) -> Self {
         Self {
+            remote_addr: None,
+            local_addr: None,
+            channel,
+            config_data: None,
             connection_type,
-            ..Default::default()
+            cancellation_token: None,
         }
     }
 
@@ -74,11 +76,6 @@ impl Connection {
     /// Set the local address
     pub(crate) fn with_local_addr(self, local_addr: Option<SocketAddr>) -> Self {
         Self { local_addr, ..self }
-    }
-
-    /// Set the channel to send messages
-    pub(crate) fn with_channel(self, channel: Channel) -> Self {
-        Self { channel, ..self }
     }
 
     /// Set the configuration data for the connection

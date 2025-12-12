@@ -9,8 +9,9 @@ use parking_lot::{RawRwLock, RwLock, lock_api::RwLockWriteGuard};
 use rand::Rng;
 use tracing::{debug, error, warn};
 
+use super::SubscriptionTable;
 use super::pool::Pool;
-use super::{SubscriptionTable, errors::SubscriptionTableError};
+use crate::errors::DataPathError;
 use crate::messages::Name;
 
 #[derive(Debug, Clone)]
@@ -85,17 +86,17 @@ impl Connections {
         }
     }
 
-    fn remove(&mut self, conn: u64) -> Result<(), SubscriptionTableError> {
+    fn remove(&mut self, conn: u64) -> Result<(), DataPathError> {
         let conn_index_opt = self.index.get(&conn);
         if conn_index_opt.is_none() {
-            error!("cannot find the index for connection {}", conn);
-            return Err(SubscriptionTableError::ConnectionIdNotFound);
+            error!(%conn, "cannot find the index for connection");
+            return Err(DataPathError::ConnectionIdNotFound(conn));
         }
         let conn_index = conn_index_opt.unwrap();
         let conn_id_opt = self.pool.get_mut(*conn_index);
         if conn_id_opt.is_none() {
-            error!("cannot find the connection {} in the pool", conn);
-            return Err(SubscriptionTableError::ConnectionIdNotFound);
+            error!(%conn, "cannot find the connection in the pool");
+            return Err(DataPathError::ConnectionIdNotFound(conn));
         }
         let conn_id = conn_id_opt.unwrap();
         if conn_id.counter == 1 {
@@ -207,16 +208,11 @@ impl NameState {
         }
     }
 
-    fn remove(
-        &mut self,
-        id: &u64,
-        conn: u64,
-        is_local: bool,
-    ) -> Result<(), SubscriptionTableError> {
+    fn remove(&mut self, id: &u64, conn: u64, is_local: bool) -> Result<(), DataPathError> {
         match self.ids.get_mut(id) {
             None => {
                 warn!("id {} not found", id);
-                Err(SubscriptionTableError::IdNotFound)
+                Err(DataPathError::IdNotFound(*id))
             }
             Some(connection_ids) => {
                 let mut index = 0;
@@ -433,7 +429,7 @@ fn add_subscription_to_connection(
     name: Name,
     conn_index: u64,
     mut map: RwLockWriteGuard<'_, RawRwLock, HashMap<u64, HashSet<Name>>>,
-) -> Result<(), SubscriptionTableError> {
+) -> Result<(), DataPathError> {
     let name_str = name.to_string();
 
     let set = map.get_mut(&conn_index);
@@ -474,23 +470,19 @@ fn remove_subscription_from_sub_table(
     conn_index: u64,
     is_local: bool,
     table: &mut RwLockWriteGuard<'_, RawRwLock, HashMap<InternalName, NameState>>,
-) -> Result<(), SubscriptionTableError> {
+) -> Result<(), DataPathError> {
     // Convert &Name to &InternalName. This is unsafe, but we know the types are compatible.
     let query_name = unsafe { std::mem::transmute::<&Name, &InternalName>(name) };
 
-    match table.get_mut(query_name) {
-        None => {
-            debug!("subscription not found {}", name);
-            Err(SubscriptionTableError::SubscriptionNotFound)
+    if let Some(state) = table.get_mut(query_name) {
+        state.remove(&name.id(), conn_index, is_local)?;
+        if state.ids.is_empty() {
+            table.remove(query_name);
         }
-        Some(state) => {
-            state.remove(&name.id(), conn_index, is_local)?;
-            // we may need to remove the state
-            if state.ids.is_empty() {
-                table.remove(query_name);
-            }
-            Ok(())
-        }
+        Ok(())
+    } else {
+        debug!("subscription not found {}", name);
+        Err(DataPathError::SubscriptionNotFound(name.clone()))
     }
 }
 
@@ -498,12 +490,12 @@ fn remove_subscription_from_connection(
     name: &Name,
     conn_index: u64,
     mut map: RwLockWriteGuard<'_, RawRwLock, HashMap<u64, HashSet<Name>>>,
-) -> Result<(), SubscriptionTableError> {
+) -> Result<(), DataPathError> {
     let set = map.get_mut(&conn_index);
     match set {
         None => {
             warn!(%conn_index, "connection not found");
-            return Err(SubscriptionTableError::ConnectionIdNotFound);
+            return Err(DataPathError::ConnectionIdNotFound(conn_index));
         }
         Some(s) => {
             if !s.remove(name) {
@@ -511,7 +503,7 @@ fn remove_subscription_from_connection(
                     "subscription for name {} not found on connection {}",
                     name, conn_index,
                 );
-                return Err(SubscriptionTableError::SubscriptionNotFound);
+                return Err(DataPathError::SubscriptionNotFound(name.clone()));
             }
             if s.is_empty() {
                 map.remove(&conn_index);
@@ -526,6 +518,8 @@ fn remove_subscription_from_connection(
 }
 
 impl SubscriptionTable for SubscriptionTableImpl {
+    type Error = DataPathError;
+
     fn for_each<F>(&self, mut f: F)
     where
         F: FnMut(&Name, u64, &[u64], &[u64]),
@@ -539,12 +533,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         }
     }
 
-    fn add_subscription(
-        &self,
-        name: Name,
-        conn: u64,
-        is_local: bool,
-    ) -> Result<(), SubscriptionTableError> {
+    fn add_subscription(&self, name: Name, conn: u64, is_local: bool) -> Result<(), Self::Error> {
         {
             let conn_table = self.connections.read();
             match conn_table.get(&conn) {
@@ -576,7 +565,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         name: &Name,
         conn: u64,
         is_local: bool,
-    ) -> Result<(), SubscriptionTableError> {
+    ) -> Result<(), Self::Error> {
         {
             let mut table = self.table.write();
             remove_subscription_from_sub_table(name, conn, is_local, &mut table)?;
@@ -588,16 +577,12 @@ impl SubscriptionTable for SubscriptionTableImpl {
         Ok(())
     }
 
-    fn remove_connection(
-        &self,
-        conn: u64,
-        is_local: bool,
-    ) -> Result<HashSet<Name>, SubscriptionTableError> {
+    fn remove_connection(&self, conn: u64, is_local: bool) -> Result<HashSet<Name>, Self::Error> {
         let removed_subscriptions = self
             .connections
             .write()
             .remove(&conn)
-            .ok_or(SubscriptionTableError::ConnectionIdNotFound)?;
+            .ok_or(DataPathError::ConnectionIdNotFound(conn))?;
         let mut table = self.table.write();
         for name in &removed_subscriptions {
             debug!("remove subscription {} from connection {}", name, conn);
@@ -606,7 +591,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         Ok(removed_subscriptions)
     }
 
-    fn match_one(&self, name: &Name, incoming_conn: u64) -> Result<u64, SubscriptionTableError> {
+    fn match_one(&self, name: &Name, incoming_conn: u64) -> Result<u64, Self::Error> {
         let table = self.table.read();
 
         let query_name = unsafe { std::mem::transmute::<&Name, &InternalName>(name) };
@@ -614,7 +599,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         match table.get(query_name) {
             None => {
                 debug!("match not found for type {:}", name);
-                Err(SubscriptionTableError::NoMatch(format!("{}", name)))
+                Err(DataPathError::NoMatch(name.clone()))
             }
             Some(state) => {
                 // first try to send the message to the local connections
@@ -628,17 +613,13 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 if let Some(out) = remote_out {
                     return Ok(out);
                 }
-                error!("no output connection available");
-                Err(SubscriptionTableError::NoMatch(format!("{}", name)))
+                error!(%name, "no output connection available");
+                Err(DataPathError::NoMatch(name.clone()))
             }
         }
     }
 
-    fn match_all(
-        &self,
-        name: &Name,
-        incoming_conn: u64,
-    ) -> Result<Vec<u64>, SubscriptionTableError> {
+    fn match_all(&self, name: &Name, incoming_conn: u64) -> Result<Vec<u64>, Self::Error> {
         let table = self.table.read();
 
         let query_name = unsafe { std::mem::transmute::<&Name, &InternalName>(name) };
@@ -646,7 +627,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         match table.get(query_name) {
             None => {
                 debug!("match not found for type {:}", name);
-                Err(SubscriptionTableError::NoMatch(format!("{}", name)))
+                Err(DataPathError::NoMatch(name.clone()))
             }
             Some(state) => {
                 // first try to send the message to the local connections
@@ -665,8 +646,8 @@ impl SubscriptionTable for SubscriptionTableImpl {
                     return Ok(out);
                 }
 
-                error!("no connection available (local/remote)");
-                Err(SubscriptionTableError::NoMatch(format!("{}", name)))
+                error!(%name, "no connection available (local/remote)");
+                Err(DataPathError::NoMatch(name.clone()))
             }
         }
     }
@@ -690,10 +671,10 @@ mod tests {
 
         let t = SubscriptionTableImpl::default();
 
-        assert_eq!(t.add_subscription(name1.clone(), 1, false), Ok(()));
-        assert_eq!(t.add_subscription(name1.clone(), 2, false), Ok(()));
-        assert_eq!(t.add_subscription(name1_1.clone(), 3, false), Ok(()));
-        assert_eq!(t.add_subscription(name2_2.clone(), 3, false), Ok(()));
+        assert!(t.add_subscription(name1.clone(), 1, false).is_ok());
+        assert!(t.add_subscription(name1.clone(), 2, false).is_ok());
+        assert!(t.add_subscription(name1_1.clone(), 3, false).is_ok());
+        assert!(t.add_subscription(name2_2.clone(), 3, false).is_ok());
 
         // returns three matches on connection 1,2,3
         let out = t.match_all(&name1, 100).unwrap();
@@ -708,7 +689,7 @@ mod tests {
         assert!(out.contains(&2));
         assert!(out.contains(&3));
 
-        assert_eq!(t.remove_subscription(&name1, 2, false), Ok(()));
+        assert!(t.remove_subscription(&name1, 2, false).is_ok());
 
         // return two matches on connection 1,3
         let out = t.match_all(&name1, 100).unwrap();
@@ -716,7 +697,7 @@ mod tests {
         assert!(out.contains(&1));
         assert!(out.contains(&3));
 
-        assert_eq!(t.remove_subscription(&name1_1, 3, false), Ok(()));
+        assert!(t.remove_subscription(&name1_1, 3, false).is_ok());
 
         // return one matches on connection 1
         let out = t.match_all(&name1, 100).unwrap();
@@ -724,13 +705,11 @@ mod tests {
         assert!(out.contains(&1));
 
         // return no match
-        assert_eq!(
-            t.match_all(&name1, 1),
-            Err(SubscriptionTableError::NoMatch(format!("{}", name1,)))
-        );
+        let err = t.match_all(&name1, 1);
+        assert!(matches!(err, Err(DataPathError::NoMatch(_))));
 
         // add subscription again
-        assert_eq!(t.add_subscription(name1_1.clone(), 2, false), Ok(()));
+        assert!(t.add_subscription(name1_1.clone(), 2, false).is_ok());
 
         // returns two matches on connection 1 and 2
         let out = t.match_all(&name1, 100).unwrap();
@@ -763,7 +742,7 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert!(out.contains(&1));
 
-        assert_eq!(t.add_subscription(name2_2.clone(), 4, false), Ok(()));
+        assert!(t.add_subscription(name2_2.clone(), 4, false).is_ok());
 
         // run multiple times for randomness
         for _ in 0..20 {
@@ -782,10 +761,10 @@ mod tests {
             }
         }
 
-        assert_eq!(t.remove_subscription(&name2_2, 4, false), Ok(()));
+        assert!(t.remove_subscription(&name2_2, 4, false).is_ok());
 
         // test local vs remote
-        assert_eq!(t.add_subscription(name1.clone(), 2, true), Ok(()));
+        assert!(t.add_subscription(name1.clone(), 2, true).is_ok());
 
         // returns one match on connection 2
         let out = t.match_all(&name1, 100).unwrap();
@@ -806,27 +785,21 @@ mod tests {
         assert_eq!(out, 1);
 
         // test errors
-        assert_eq!(
-            t.remove_connection(4, false),
-            Err(SubscriptionTableError::ConnectionIdNotFound)
-        );
+        let err = t.remove_connection(4, false);
+        assert!(matches!(err, Err(DataPathError::ConnectionIdNotFound(_))));
 
-        assert_eq!(t.match_one(&name1_1, 100), Ok(2));
+        assert_eq!(t.match_one(&name1_1, 100).unwrap(), 2);
 
-        assert_eq!(
+        assert!(
             // this generates a warning
-            t.add_subscription(name2_2.clone(), 3, false),
-            Ok(())
+            t.add_subscription(name2_2.clone(), 3, false).is_ok()
         );
 
-        assert_eq!(
-            t.remove_subscription(&name3, 2, false),
-            Err(SubscriptionTableError::SubscriptionNotFound)
-        );
-        assert_eq!(
-            t.remove_subscription(&name2, 2, false),
-            Err(SubscriptionTableError::IdNotFound)
-        );
+        let err = t.remove_subscription(&name3, 2, false);
+        assert!(matches!(err, Err(DataPathError::SubscriptionNotFound(_))));
+
+        let err = t.remove_subscription(&name2, 2, false);
+        assert!(matches!(err, Err(DataPathError::IdNotFound(_))));
     }
 
     #[test]
@@ -836,9 +809,9 @@ mod tests {
 
         let t = SubscriptionTableImpl::default();
 
-        assert_eq!(t.add_subscription(name1.clone(), 1, false), Ok(()));
-        assert_eq!(t.add_subscription(name1.clone(), 2, false), Ok(()));
-        assert_eq!(t.add_subscription(name2.clone(), 3, true), Ok(()));
+        assert!(t.add_subscription(name1.clone(), 1, false).is_ok());
+        assert!(t.add_subscription(name1.clone(), 2, false).is_ok());
+        assert!(t.add_subscription(name2.clone(), 3, true).is_ok());
 
         let mut h = HashMap::new();
 

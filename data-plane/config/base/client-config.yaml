@@ -18,8 +18,4 @@ services:
         - endpoint: "http://localhost:46357"
           tls:
             insecure: true
-          backoff:
-            type: fixed_interval
-            interval: 2000ms
-            max_attempts: 5
       servers: []

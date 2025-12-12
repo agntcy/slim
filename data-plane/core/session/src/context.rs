@@ -129,13 +129,13 @@ mod tests {
         where
             Claims: serde::de::DeserializeOwned + Send,
         {
-            Err(AuthError::TokenInvalid("na".into()))
+            Err(AuthError::TokenInvalid)
         }
         fn try_get_claims<Claims>(&self, _t: impl Into<String>) -> Result<Claims, AuthError>
         where
             Claims: serde::de::DeserializeOwned + Send,
         {
-            Err(AuthError::TokenInvalid("na".into()))
+            Err(AuthError::TokenInvalid)
         }
     }
 

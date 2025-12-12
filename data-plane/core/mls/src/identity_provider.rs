@@ -12,7 +12,7 @@ use tracing::debug;
 
 use slim_auth::{errors::AuthError, traits::Verifier};
 
-use crate::errors::SlimIdentityError;
+use crate::errors::MlsError;
 use crate::identity_claims::IdentityClaims;
 
 #[derive(Clone)]
@@ -34,14 +34,12 @@ where
     async fn resolve_slim_identity(
         &self,
         signing_id: &SigningIdentity,
-    ) -> Result<IdentityClaims, SlimIdentityError> {
+    ) -> Result<IdentityClaims, MlsError> {
         let basic_cred = signing_id
             .credential
             .as_basic()
-            .ok_or(SlimIdentityError::NotBasicCredential)?;
-
-        let credential_data =
-            std::str::from_utf8(&basic_cred.identifier).map_err(SlimIdentityError::InvalidUtf8)?;
+            .ok_or(MlsError::NotBasicCredential)?;
+        let credential_data = std::str::from_utf8(&basic_cred.identifier)?;
 
         // Verify token and extract claims
         let claims: serde_json::Value = match self.identity_verifier.try_get_claims(credential_data)
@@ -49,18 +47,10 @@ where
             Ok(claims) => claims,
             Err(AuthError::WouldBlockOn) => {
                 // Fallback to async verification
-                self.identity_verifier
-                    .get_claims(credential_data)
-                    .await
-                    .map_err(|e| {
-                        SlimIdentityError::VerificationFailed(format!(
-                            "could not get claims from token: {}",
-                            e
-                        ))
-                    })?
+                self.identity_verifier.get_claims(credential_data).await?
             }
             Err(e) => {
-                return Err(SlimIdentityError::VerificationFailed(format!(
+                return Err(MlsError::verification_failed(format!(
                     "could not get claims from token: {}",
                     e
                 )));
@@ -79,16 +69,12 @@ where
         Ok(identity_claims)
     }
 
-    fn verify_public_key_match(
-        expected: &str,
-        found: &str,
-        subject: &str,
-    ) -> Result<(), SlimIdentityError> {
+    fn verify_public_key_match(expected: &str, found: &str, subject: &str) -> Result<(), MlsError> {
         if found != expected {
             tracing::error!(
-                expected = %expected, found = %found, subject = %subject, "Public key mismatch",
+                expected = %expected, found = %found, subject = %subject, "public key mismatch",
             );
-            return Err(SlimIdentityError::PublicKeyMismatch {
+            return Err(MlsError::PublicKeyMismatch {
                 expected: expected.to_string(),
                 found: found.to_string(),
             });
@@ -102,7 +88,7 @@ impl<V> IdentityProvider for SlimIdentityProvider<V>
 where
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    type Error = SlimIdentityError;
+    type Error = MlsError;
 
     async fn validate_member(
         &self,
@@ -132,8 +118,8 @@ where
         _timestamp: Option<MlsTime>,
         _extensions: Option<&ExtensionList>,
     ) -> Result<(), Self::Error> {
-        tracing::error!("Validating external senders is not supported in SlimIdentityProvider");
-        Err(SlimIdentityError::ExternalCommitNotSupported)
+        tracing::error!("validating external senders is not supported in SlimIdentityProvider");
+        Err(MlsError::ExternalCommitNotSupported)
     }
 
     async fn identity(

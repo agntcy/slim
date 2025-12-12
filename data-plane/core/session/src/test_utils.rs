@@ -64,14 +64,14 @@ impl Verifier for MockVerifier {
     where
         Claims: serde::de::DeserializeOwned,
     {
-        Err(AuthError::TokenInvalid("mock".to_string()))
+        Err(AuthError::TokenInvalid)
     }
 
     fn try_get_claims<Claims>(&self, _token: impl Into<String>) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned,
     {
-        Err(AuthError::TokenInvalid("mock".to_string()))
+        Err(AuthError::TokenInvalid)
     }
 }
 
@@ -97,7 +97,7 @@ impl Transmitter for MockTransmitter {
     async fn send_to_slim(&self, message: Result<Message, Status>) -> Result<(), SessionError> {
         self.slim_tx
             .send(message)
-            .map_err(|_| SessionError::Processing("channel closed".to_string()))
+            .map_err(|_| SessionError::SlimMessageSendFailed)
     }
 
     async fn send_to_app(

@@ -219,10 +219,7 @@ def test_invalid_shared_secret_too_short():
         slim_bindings.Slim(name, provider, verifier, local_service=False)
 
     # Verify the error message mentions the secret being too short
-    assert (
-        "shared_secret too short" in str(exc_info.value).lower()
-        or "failed to create sharedsecret" in str(exc_info.value).lower()
-    )
+    assert "short" in str(exc_info.value).lower()
 
 
 def test_invalid_shared_secret_empty_id():
@@ -247,10 +244,7 @@ def test_invalid_shared_secret_empty_id():
         slim_bindings.Slim(name, provider, verifier, local_service=False)
 
     # Verify the error message mentions invalid ID
-    assert "id" in str(exc_info.value).lower() and (
-        "empty" in str(exc_info.value).lower()
-        or "failed" in str(exc_info.value).lower()
-    )
+    assert "malformed" in str(exc_info.value).lower()
 
 
 def test_invalid_shared_secret_id_with_colon():
@@ -307,4 +301,4 @@ def test_invalid_jwt_missing_public_key():
         slim_bindings.Slim(name, provider, verifier, local_service=False)
 
     # Verify the error message mentions missing public key
-    assert "public key" in str(exc_info.value).lower()
+    assert "missing" in str(exc_info.value).lower()

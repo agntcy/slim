@@ -6,6 +6,7 @@ use std::{
     time::Duration,
 };
 
+use display_error_chain::ErrorChainExt;
 use slim_datapath::{
     api::{CommandPayload, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType},
     messages::Name,
@@ -157,9 +158,7 @@ impl ControllerSender {
 
     pub async fn on_message(&mut self, message: &Message) -> Result<(), SessionError> {
         if self.draining_state == ControllerSenderDrainStatus::Completed {
-            return Err(SessionError::Processing(
-                "sender closed, drop message".to_string(),
-            ));
+            return Err(SessionError::SessionDrainingDrop);
         }
 
         match message.get_session_message_type() {
@@ -168,10 +167,8 @@ impl ControllerSender {
             | slim_datapath::api::ProtoSessionMessageType::LeaveRequest
             | slim_datapath::api::ProtoSessionMessageType::GroupWelcome => {
                 if self.draining_state == ControllerSenderDrainStatus::Initiated {
-                    // draining period is started, do no accept any new message
-                    return Err(SessionError::Processing(
-                        "draining period started, do not accept new messages".to_string(),
-                    ));
+                    // draining period started; reject new messages
+                    return Err(SessionError::SessionDrainingDrop);
                 }
                 let mut missing_replies = HashSet::new();
                 let mut name = message.get_dst();
@@ -247,18 +244,14 @@ impl ControllerSender {
                     .collect::<HashSet<_>>();
 
                 // remove the endpoint also from the group list
-                let payload = message.extract_group_remove().map_err(|e| {
-                    SessionError::Processing(format!(
-                        "failed to extract group remove payload: {}",
-                        e
-                    ))
-                })?;
+                let payload = message.extract_group_remove()?;
 
-                let to_remove = Name::from(payload.removed_participant.as_ref().ok_or(
-                    SessionError::Processing(
-                        "missing removed participant in GroupRemove message".to_string(),
-                    ),
-                )?);
+                let to_remove = Name::from(
+                    payload
+                        .removed_participant
+                        .as_ref()
+                        .ok_or(SessionError::MissingRemovedParticipantInGroupRemove)?,
+                );
 
                 self.group_list.remove(&to_remove);
 
@@ -306,10 +299,7 @@ impl ControllerSender {
         };
 
         self.pending_replies.insert(id, pending);
-        self.tx
-            .send_to_slim(Ok(message.clone()))
-            .await
-            .map_err(|e| SessionError::SlimTransmission(e.to_string()))
+        self.tx.send_to_slim(Ok(message.clone())).await
     }
 
     fn on_reply_message(&mut self, message: &Message) {
@@ -376,17 +366,10 @@ impl ControllerSender {
 
         // the timer is not related to a ping, resent the message if possible
         if let Some(pending) = self.pending_replies.get(&id) {
-            return self
-                .tx
-                .send_to_slim(Ok(pending.message.clone()))
-                .await
-                .map_err(|e| SessionError::SlimTransmission(e.to_string()));
+            return self.tx.send_to_slim(Ok(pending.message.clone())).await;
         };
 
-        Err(SessionError::SlimTransmission(format!(
-            "timer {} does not exists",
-            id
-        )))
+        Err(SessionError::TimerNotFound(id))
     }
 
     async fn handle_ping_timeout(&mut self, id: u32) -> Result<(), SessionError> {
@@ -395,9 +378,7 @@ impl ControllerSender {
             .ping_state
             .as_ref()
             .map(|ps| ps.ping_timer.get_id() == id)
-            .ok_or(SessionError::Processing(
-                "ping state not initialized".to_string(),
-            ))?;
+            .ok_or(SessionError::PingStateNotInitialized)?;
 
         if should_handle_ping_interval {
             debug!("ping interval timeout, check current group state");
@@ -428,9 +409,7 @@ impl ControllerSender {
                     builder = builder.fanout(256);
                 }
 
-                let ping = builder
-                    .build_publish()
-                    .map_err(|e| SessionError::Processing(e.to_string()))?;
+                let ping = builder.build_publish()?;
 
                 debug!("send a new ping with id {}", ping_id);
 
@@ -443,10 +422,7 @@ impl ControllerSender {
                     .collect::<HashSet<_>>();
 
                 // Send the ping message to slim
-                self.tx
-                    .send_to_slim(Ok(ping.clone()))
-                    .await
-                    .map_err(|e| SessionError::SlimTransmission(e.to_string()))?;
+                self.tx.send_to_slim(Ok(ping.clone())).await?;
 
                 if let Some(ping_state) = self.ping_state.as_mut() {
                     ping_state.ping = Some(PendingReply {
@@ -475,11 +451,7 @@ impl ControllerSender {
             if let Some(ping_message) = message_to_send {
                 debug!("ping message {} timeout, send it again", id);
                 // simply resend the message
-                return self
-                    .tx
-                    .send_to_slim(Ok(ping_message))
-                    .await
-                    .map_err(|e| SessionError::SlimTransmission(e.to_string()));
+                return self.tx.send_to_slim(Ok(ping_message)).await;
             }
         }
 
@@ -520,7 +492,7 @@ impl ControllerSender {
                         .tx_session
                         .try_send(SessionMessage::ParticipantDisconnected { name: k.clone() })
                     {
-                        tracing::error!("failed to send participant disconnected message: {}", e);
+                        tracing::error!(error = %e.chain(), "failed to send participant disconnected message");
                     }
                     false // remove from missing_pings
                 } else {

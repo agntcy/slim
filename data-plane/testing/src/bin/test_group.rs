@@ -8,7 +8,7 @@ use std::time::Duration;
 use clap::Parser;
 use parking_lot::RwLock;
 use slim_datapath::messages::Name;
-use slim_service::SlimHeaderFlags;
+use slim_service::{ServiceError, SlimHeaderFlags};
 use slim_session::{Notification, SessionConfig};
 use slim_testing::build_client_service;
 use slim_testing::common::{
@@ -34,10 +34,10 @@ impl Args {
     }
 }
 
-async fn run_participant_task(name: Name) -> Result<(), String> {
+async fn run_participant_task(name: Name) -> Result<(), ServiceError> {
     println!("Participant {} task starting...", name);
 
-    let svc = build_client_service(DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID)?;
+    let svc = build_client_service(DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID);
     let (_app, mut rx, _conn_id, _svc) = create_and_subscribe_app(svc, &name).await?;
 
     let moderator = Name::from_strings(["org", "ns", "moderator"]).with_id(1);
@@ -142,7 +142,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let name = Name::from_strings(["org", "ns", "moderator"]).with_id(1);
     let channel_name = Name::from_strings(["channel", "channel", "channel"]);
 
-    let svc = build_client_service(DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID)?;
+    let svc = build_client_service(DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID);
 
     let (app, _rx, conn_id, _svc) = create_and_subscribe_app(svc, &name).await?;
 

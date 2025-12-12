@@ -68,7 +68,7 @@ impl MessageContext {
     /// * The returned `Vec<u8>` is the raw application payload
     pub fn from_proto_message(msg: ProtoMessage) -> Result<(Self, Vec<u8>), ServiceError> {
         let Some(ProtoPublishType(publish)) = msg.message_type.as_ref() else {
-            return Err(ServiceError::ReceiveError(
+            return Err(ServiceError::ReceiveDecodeFailure(
                 "unsupported message type".to_string(),
             ));
         };
@@ -301,10 +301,10 @@ mod tests {
         assert!(result.is_err());
 
         match result.unwrap_err() {
-            ServiceError::ReceiveError(msg) => {
+            ServiceError::ReceiveDecodeFailure(msg) => {
                 assert_eq!(msg, "unsupported message type");
             }
-            _ => panic!("Expected ReceiveError"),
+            _ => panic!("Expected ReceiveDecodeFailure"),
         }
     }
 

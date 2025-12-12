@@ -1,8 +1,10 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+pub mod utils;
+
 use opentelemetry::{KeyValue, global, trace::TracerProvider as _};
-use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_otlp::{ExporterBuildError, WithExportConfig};
 use opentelemetry_sdk::{
     Resource,
     metrics::{MeterProviderBuilder, PeriodicReader, SdkMeterProvider},
@@ -17,18 +19,24 @@ use tracing::Level;
 use tracing_opentelemetry::{MetricsLayer, OpenTelemetryLayer};
 use tracing_subscriber::{EnvFilter, Layer, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
-use slim_config::{grpc::client::ClientConfig, tls::client::TlsClientConfig};
-
-pub mod utils;
+use slim_config::{
+    grpc::{client::ClientConfig, errors::ConfigError as GrpcConfigError},
+    tls::client::TlsClientConfig,
+};
 
 const OTEL_EXPORTER_OTLP_ENDPOINT: &str = "http://localhost:4317";
 
 #[derive(Error, Debug)]
 pub enum ConfigError {
-    #[error("error loading GRPC config: {0}")]
-    GRPCError(String),
+    // gRPC / remote configuration
+    #[error("error loading GRPC config")]
+    GRPCError(#[from] GrpcConfigError),
 
-    #[error("error parsing filter directives: {0}")]
+    #[error("error building exporter")]
+    OpenTelemetryInitError(#[from] ExporterBuildError),
+
+    // Filter parsing / directives
+    #[error("error parsing filter directives")]
     FilterParseError(#[from] tracing_subscriber::filter::ParseError),
 }
 
@@ -486,8 +494,7 @@ impl TracingConfiguration {
             let exporter = opentelemetry_otlp::SpanExporter::builder()
                 .with_tonic()
                 .with_endpoint(&endpoint)
-                .build()
-                .map_err(|e| ConfigError::GRPCError(e.to_string()))?;
+                .build()?;
 
             let tracer_provider = SdkTracerProvider::builder()
                 // TODO(zkacsand): customize sampling strategy
@@ -503,8 +510,7 @@ impl TracingConfiguration {
                 .with_tonic()
                 .with_endpoint(&endpoint)
                 .with_temporality(opentelemetry_sdk::metrics::Temporality::default())
-                .build()
-                .map_err(|e| ConfigError::GRPCError(e.to_string()))?;
+                .build()?;
 
             let reader = PeriodicReader::builder(exporter)
                 .with_interval(std::time::Duration::from_secs(

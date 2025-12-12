@@ -5,6 +5,7 @@ use std::net::SocketAddr;
 use std::{pin::Pin, sync::Arc};
 
 use crate::api::DataPlaneServiceServer;
+use display_error_chain::ErrorChainExt;
 use opentelemetry::propagation::{Extractor, Injector};
 use opentelemetry::trace::TraceContextExt;
 use parking_lot::RwLock;
@@ -156,14 +157,15 @@ impl MessageProcessor {
         &self,
         config: &ServerConfig,
     ) -> Result<CancellationToken, DataPathError> {
-        info!(%config, "starting dataplane server");
+        debug!(%config, "starting dataplane server");
         let watch = self.get_drain_watch()?;
         // Wrap self in an Arc since the server builder expects an Arc<MessageProcessor>
         let svc = Arc::new(self.clone());
-        config
+        let res = config
             .run_server(&[DataPlaneServiceServer::from_arc(svc)], watch)
-            .await
-            .map_err(|e| DataPathError::ConnectionError(format!("failed to run server: {}", e)))
+            .await?;
+
+        Ok(res)
     }
 
     pub async fn shutdown(&self) -> Result<(), DataPathError> {
@@ -173,7 +175,7 @@ impl MessageProcessor {
             .drain_signal
             .write()
             .take()
-            .ok_or(DataPathError::AlreadyCloseError)?;
+            .ok_or(DataPathError::AlreadyClosedError)?;
 
         // Take drain watch
         self.internal.drain_watch.write().take();
@@ -181,7 +183,7 @@ impl MessageProcessor {
         // Signal completion to all tasks
         tokio::time::timeout(std::time::Duration::from_secs(10), signal.drain())
             .await
-            .map_err(|_e| DataPathError::CloseTimeoutError)
+            .map_err(|_e| DataPathError::ShutdownTimeoutError)
     }
 
     fn set_tx_control_plane(&self, tx: Sender<Result<Message, Status>>) {
@@ -203,9 +205,7 @@ impl MessageProcessor {
             .drain_watch
             .read()
             .clone()
-            .ok_or(DataPathError::ConnectionError(
-                "data plane is shutting down".to_string(),
-            ))
+            .ok_or(DataPathError::AlreadyClosedError)
     }
 
     async fn try_to_connect(
@@ -219,81 +219,55 @@ impl MessageProcessor {
 
         let channel = tokio::select! {
             _ = &mut watch => {
-                return Err(DataPathError::ConnectionError(
-                    "data plane is shutting down".to_string(),
-                ));
+                return Err(DataPathError::ShuttingDownError);
             }
             res = client_config.to_channel() => {
-                match res {
-                    Ok(c) => c,
-                    Err(e) => {
-                        error!("cannot parse connection config, unable to connect {:?}", e.to_string());
-                        return Err(DataPathError::ConnectionError(
-                            format!("cannot parse connection config: {}", e),
-                        ));
-                    }
-                }
+                res?
             }
         };
 
         let mut client = DataPlaneServiceClient::new(channel);
         let (tx, rx) = mpsc::channel(128);
 
-        match client
+        let stream = client
             .open_channel(Request::new(ReceiverStream::new(rx)))
-            .await
-        {
-            Ok(stream) => {
-                let cancellation_token = CancellationToken::new();
-                let connection = Connection::new(ConnectionType::Remote)
-                    .with_local_addr(local)
-                    .with_remote_addr(remote)
-                    .with_channel(Channel::Client(tx))
-                    .with_config_data(Some(client_config.clone()))
-                    .with_cancellation_token(Some(cancellation_token.clone()));
+            .await?;
 
-                debug!(
-                    "new connection initiated locally: (remote: {:?} - local: {:?})",
-                    connection.remote_addr(),
-                    connection.local_addr()
-                );
+        let cancellation_token = CancellationToken::new();
+        let connection = Connection::new(ConnectionType::Remote, Channel::Client(tx))
+            .with_local_addr(local)
+            .with_remote_addr(remote)
+            .with_config_data(Some(client_config.clone()))
+            .with_cancellation_token(Some(cancellation_token.clone()));
 
-                // insert connection into connection table
-                let opt = self
-                    .forwarder()
-                    .on_connection_established(connection, existing_conn_index);
-                if opt.is_none() {
-                    error!("error adding connection to the connection table");
-                    return Err(DataPathError::ConnectionError(
-                        "error adding connection to the connection tables".to_string(),
-                    ));
-                }
+        debug!(
+            "new connection initiated locally: (remote: {:?} - local: {:?})",
+            connection.remote_addr(),
+            connection.local_addr()
+        );
 
-                let conn_index = opt.unwrap();
-                debug!(
-                    "new connection index = {:?}, is local {:?}",
-                    conn_index, false
-                );
+        // insert connection into connection table
+        let conn_index = self
+            .forwarder()
+            .on_connection_established(connection, existing_conn_index)
+            .ok_or(DataPathError::ConnectionTableAddError)?;
 
-                // Start loop to process messages
-                let ret = self.process_stream(
-                    stream.into_inner(),
-                    conn_index,
-                    Some(client_config),
-                    cancellation_token,
-                    false,
-                    false,
-                )?;
-                Ok((ret, conn_index))
-            }
-            Err(e) => {
-                error!("connection error: {:?}.", e.to_string());
-                Err(DataPathError::ConnectionError(format!(
-                    "failed to open channel: {}",
-                    e
-                )))
-            }
-        }
+        debug!(
+            "new connection index = {:?}, is local {:?}",
+            conn_index, false
+        );
+
+        // Start loop to process messages
+        let handle = self.process_stream(
+            stream.into_inner(),
+            conn_index,
+            Some(client_config),
+            cancellation_token,
+            false,
+            false,
+        )?;
+
+        Ok((handle, conn_index))
     }
 
     pub async fn connect(
@@ -310,20 +284,16 @@ impl MessageProcessor {
         let connection = match self.forwarder().get_connection(conn) {
             Some(c) => c,
             None => {
-                error!("error handling disconnect: connection unknown");
-                return Err(DataPathError::DisconnectionError(
-                    "connection not found".to_string(),
-                ));
+                error!(%conn, "error handling disconnect: connection unknown");
+                return Err(DataPathError::DisconnectionError(conn));
             }
         };
 
         let token = match connection.cancellation_token() {
             Some(t) => t,
             None => {
-                error!("error handling disconnect: missing cancellation token");
-                return Err(DataPathError::DisconnectionError(
-                    "missing cancellation token".to_string(),
-                ));
+                error!(%conn, "error handling disconnect: missing cancellation token");
+                return Err(DataPathError::DisconnectionError(conn));
             }
         };
 
@@ -333,9 +303,7 @@ impl MessageProcessor {
         connection
             .config_data()
             .cloned()
-            .ok_or(DataPathError::DisconnectionError(
-                "missing client config data".to_string(),
-            ))
+            .ok_or(DataPathError::DisconnectionError(conn))
     }
 
     pub fn register_local_connection(
@@ -365,8 +333,7 @@ impl MessageProcessor {
 
         // create a connection
         let cancellation_token = CancellationToken::new();
-        let connection = Connection::new(ConnectionType::Local)
-            .with_channel(Channel::Server(tx2))
+        let connection = Connection::new(ConnectionType::Local, Channel::Server(tx2))
             .with_cancellation_token(Some(cancellation_token.clone()));
 
         // add it to the connection table
@@ -407,7 +374,7 @@ impl MessageProcessor {
                     && let Err(e) = span.set_parent(ctx)
                 {
                     // log the error but don't fail the message sending
-                    error!("error setting parent context: {:?}", e);
+                    error!(error = %e.chain(), "error setting parent context");
                 }
                 let _guard = span.enter();
                 inject_current_context(&mut msg);
@@ -417,20 +384,14 @@ impl MessageProcessor {
                     Channel::Server(s) => s
                         .send(Ok(msg))
                         .await
-                        .map_err(|e| DataPathError::MessageSendError(e.to_string())),
+                        .map_err(|_e| DataPathError::ConnectionNotFound(out_conn)),
                     Channel::Client(s) => s
                         .send(msg)
                         .await
-                        .map_err(|e| DataPathError::MessageSendError(e.to_string())),
-                    _ => Err(DataPathError::MessageSendError(
-                        "connection not found".to_string(),
-                    )),
+                        .map_err(|_e| DataPathError::ConnectionNotFound(out_conn)),
                 }
             }
-            None => Err(DataPathError::MessageSendError(format!(
-                "connection {:?} not found",
-                out_conn
-            ))),
+            None => Err(DataPathError::ConnectionNotFound(out_conn)),
         }
     }
 
@@ -450,10 +411,7 @@ impl MessageProcessor {
         // without performing any match in the subscription table
         if let Some(val) = msg.get_forward_to() {
             debug!("forwarding message to connection {}", val);
-            return self
-                .send_msg(msg, val)
-                .await
-                .map_err(|e| DataPathError::PublicationError(e.to_string()));
+            return self.send_msg(msg, val).await;
         }
 
         match self
@@ -465,17 +423,13 @@ impl MessageProcessor {
                 // in the other cases clone only len - 1 times.
                 let mut i = 0;
                 while i < out_vec.len() - 1 {
-                    self.send_msg(msg.clone(), out_vec[i])
-                        .await
-                        .map_err(|e| DataPathError::PublicationError(e.to_string()))?;
+                    self.send_msg(msg.clone(), out_vec[i]).await?;
                     i += 1;
                 }
-                self.send_msg(msg, out_vec[i])
-                    .await
-                    .map_err(|e| DataPathError::PublicationError(e.to_string()))?;
+                self.send_msg(msg, out_vec[i]).await?;
                 Ok(())
             }
-            Err(e) => Err(DataPathError::PublicationError(e.to_string())),
+            Err(e) => Err(e),
         }
     }
 
@@ -543,21 +497,19 @@ impl MessageProcessor {
         let connection = self
             .forwarder()
             .get_connection(conn)
-            .ok_or_else(|| DataPathError::SubscriptionError("connection not found".to_string()))?;
+            .ok_or(DataPathError::ConnectionNotFound(conn))?;
 
         debug!(
             "subscription update (add = {}) for name: {} - connection: {}",
             add, dst, conn
         );
 
-        if let Err(e) = self.forwarder().on_subscription_msg(
+        self.forwarder().on_subscription_msg(
             dst.clone(),
             conn,
             connection.is_local_connection(),
             add,
-        ) {
-            return Err(DataPathError::SubscriptionError(e.to_string()));
-        }
+        )?;
 
         match forward {
             None => {
@@ -572,14 +524,10 @@ impl MessageProcessor {
                 let identity = msg.get_identity();
 
                 // send message
-                match self.send_msg(msg, out_conn).await {
-                    Ok(_) => {
-                        self.forwarder()
-                            .on_forwarded_subscription(source, dst, identity, out_conn, add);
-                        Ok(())
-                    }
-                    Err(e) => Err(DataPathError::UnsubscriptionError(e.to_string())),
-                }
+                self.send_msg(msg, out_conn).await.map(|_| {
+                    self.forwarder()
+                        .on_forwarded_subscription(source, dst, identity, out_conn, add);
+                })
             }
         }
     }
@@ -617,7 +565,7 @@ impl MessageProcessor {
                 message_type = "none"
             );
 
-            return Err(DataPathError::InvalidMessage(err.to_string()));
+            return Err(DataPathError::InvalidMessage(err));
         }
 
         // add incoming connection to the SLIM header
@@ -643,7 +591,7 @@ impl MessageProcessor {
                 && let Err(e) = span.set_parent(ctx)
             {
                 // log the error but don't fail the message processing
-                error!("error setting parent context: {:?}", e);
+                error!(error = %e.chain(), "error setting parent context");
             }
             let _guard = span.enter();
 
@@ -662,7 +610,7 @@ impl MessageProcessor {
                 //////////////////////////////////////////////////////
 
                 // drop message
-                Err(DataPathError::ProcessingError(e.to_string()))
+                Err(e)
             }
         }
     }
@@ -726,14 +674,14 @@ impl MessageProcessor {
                                 .identity(r.source_identity())
                                 .build_subscribe()
                                 .unwrap();
-                            if self.send_msg(sub_msg, conn_index).await.is_err() {
-                                error!("error restoring subscription on remote node");
+                            if let Err(e) = self.send_msg(sub_msg, conn_index).await {
+                                error!(error = %e.chain(), "error restoring subscription on remote node");
                             }
                         }
                         true
                     }
                     Err(e) => {
-                        error!("unable to reconnect to remote node: {:?}", e);
+                        error!(error = %e.chain(), "unable to reconnect to remote node");
                         false
                     }
                 }
@@ -785,7 +733,7 @@ impl MessageProcessor {
                                         }
 
                                         if let Err(e) = self_clone.handle_new_message(conn_index, is_local, msg).await {
-                                            error!(%conn_index, %e, "error processing incoming message");
+                                            error!(%conn_index, error = %e.chain(), "error processing incoming message");
                                             // If the message is coming from a local app, notify it
                                             if is_local {
                                                 // try to forward error to the local app
@@ -799,7 +747,7 @@ impl MessageProcessor {
                                                 info!(%conn_index, "connection closed by peer");
                                             }
                                         } else {
-                                            error!("error receiving messages {:?}", e);
+                                            error!(error = %e.chain(), "error receiving messages");
                                         }
                                         break;
                                     }
@@ -915,10 +863,9 @@ impl DataPlaneService for MessageProcessor {
         let stream = request.into_inner();
         let (tx, rx) = mpsc::channel(128);
 
-        let connection = Connection::new(ConnectionType::Remote)
+        let connection = Connection::new(ConnectionType::Remote, Channel::Server(tx))
             .with_remote_addr(remote_addr)
-            .with_local_addr(local_addr)
-            .with_channel(Channel::Server(tx));
+            .with_local_addr(local_addr);
 
         debug!(
             "new connection received from remote: (remote: {:?} - local: {:?})",
@@ -942,7 +889,7 @@ impl DataPlaneService for MessageProcessor {
             false,
         )
         .map_err(|e| {
-            error!("error starting new processing stream: {:?}", e);
+            error!(error = %e.chain(), "error starting new processing stream");
             Status::unavailable(format!("error processing stream: {:?}", e))
         })?;
 

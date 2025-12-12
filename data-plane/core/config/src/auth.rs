@@ -8,36 +8,42 @@ pub mod oidc;
 pub mod spire;
 pub mod static_jwt;
 
+use slim_auth::errors::AuthError as SlimAuthError;
+
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum AuthError {
-    #[error("config error: {0}")]
-    ConfigError(String),
+pub enum ConfigAuthError {
+    // Configuration
+    #[error("username cannot be empty")]
+    AuthBasicEmptyUsername,
+    #[error("password cannot be empty")]
+    AuthBasicEmptyPassword,
 
-    #[error("token expired")]
-    TokenExpired,
+    #[error("client id cannot be empty")]
+    AuthOidcEmptyClientId,
+    #[error("client secret cannot be empty")]
+    AuthOidcEmptyClientSecret,
 
-    #[error("token invalid: {0}")]
-    TokenInvalid(String),
+    // Propagated auth library errors
+    #[error("internal auth error")]
+    AuthInternalError(#[from] SlimAuthError),
 
-    #[error("sign error: {0}")]
-    SigningError(String),
-
-    #[error("invalid header: {0}")]
-    InvalidHeader(String),
+    // Verifier errors
+    #[error("audience required")]
+    AuthJwtAudienceRequired,
 }
 
 pub trait ClientAuthenticator {
     // associated types
     type ClientLayer;
 
-    fn get_client_layer(&self) -> Result<Self::ClientLayer, AuthError>;
+    fn get_client_layer(&self) -> Result<Self::ClientLayer, ConfigAuthError>;
 }
 
 pub trait ServerAuthenticator<Response: Default> {
     // associated types
     type ServerLayer;
 
-    fn get_server_layer(&self) -> Result<Self::ServerLayer, AuthError>;
+    fn get_server_layer(&self) -> Result<Self::ServerLayer, ConfigAuthError>;
 }

@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 // Third-party crates
+use display_error_chain::ErrorChainExt;
 use parking_lot::RwLock as SyncRwLock;
 use tokio::sync::mpsc;
 use tracing::{debug, error};
@@ -146,10 +147,7 @@ where
     async fn send_message_without_context(&self, mut msg: Message) -> Result<(), ServiceError> {
         // these messages are not associated to a session yet
         // so they will bypass the interceptors. Add the identity
-        let identity = self
-            .session_layer
-            .get_identity_token()
-            .map_err(ServiceError::SessionError)?;
+        let identity = self.session_layer.get_identity_token()?;
 
         // Add the identity to the message metadata
         msg.get_slim_header_mut().set_identity(identity);
@@ -159,7 +157,7 @@ where
             .send(Ok(msg))
             .await
             .map_err(|e| {
-                error!("error sending message {}", e);
+                error!(error = %e.chain(), "error sending message");
                 ServiceError::MessageSendingError(e.to_string())
             })
     }
@@ -291,7 +289,15 @@ where
                     next = rx.recv() => {
                         match next {
                             None => {
-                                debug!("no more messages to process");
+                                error!(%app_name, "slim channel closed, stopping message processing loop");
+
+                                // Send error to application
+                                let tx_app = session_layer.tx_app();
+                                if let Err(send_err) = tx_app.send(Err(SessionError::SlimChannelClosed)).await {
+                                    // Channel closed, likely during shutdown - log but don't panic
+                                    debug!("failed to send slim channel closed error to application: {:?}", send_err);
+                                }
+
                                 break;
                             }
                             Some(msg) => {
@@ -323,15 +329,16 @@ where
                                                 debug!("session not found, ignoring message");
                                                 continue;
                                             }
-                                            error!("error handling message: {}", e);
+                                            error!(error = %e.chain(), "error handling message");
                                         }
                                     }
                                     Err(e) => {
-                                        error!("error: {}", e);
+                                        // Log the error but do nothing with it
+                                        error!(error = %e.chain(), "received error from SLIM");
 
                                         // if internal error, forward it to application
                                         let tx_app = session_layer.tx_app();
-                                        if let Err(send_err) = tx_app.send(Err(SessionError::Forward(e.to_string()))).await {
+                                        if let Err(send_err) = tx_app.send(Err(SessionError::SlimReception(e))).await {
                                             // Channel closed, likely during shutdown - log but don't panic
                                             debug!("failed to send error to application (channel closed): {:?}", send_err);
                                         }

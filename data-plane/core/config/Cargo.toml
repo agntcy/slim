@@ -14,8 +14,10 @@ path = "src/grpc/schema/generate_schema.rs"
 
 [dependencies]
 agntcy-slim-auth = { workspace = true }
+anyhow = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
+display-error-chain = { workspace = true }
 drain = { workspace = true }
 duration-string = { workspace = true }
 futures = { workspace = true }

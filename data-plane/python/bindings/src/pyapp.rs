@@ -9,10 +9,10 @@ use pyo3::types::PyDict;
 use pyo3_stub_gen::derive::gen_stub_pyclass;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
 use serde_pyobject::from_pyobject;
-use slim_auth::errors::AuthError;
 use slim_auth::traits::TokenProvider;
 use slim_auth::traits::Verifier;
 use slim_bindings::BindingsAdapter;
+use slim_bindings::SlimError;
 use slim_datapath::messages::encoder::Name;
 use slim_session::SessionConfig;
 
@@ -67,7 +67,7 @@ impl PyApp {
             provider: PyIdentityProvider,
             verifier: PyIdentityVerifier,
             local_service: bool,
-        ) -> Result<BindingsAdapter, AuthError> {
+        ) -> Result<BindingsAdapter, SlimError> {
             // Convert the PyIdentityProvider into IdentityProvider
             let mut provider: IdentityProvider = provider.try_into()?;
 
@@ -85,14 +85,12 @@ impl PyApp {
 
             // IdentityProvider/IdentityVerifier are already AuthProvider/AuthVerifier type aliases
             // Use BindingsAdapter's complete creation logic
-            BindingsAdapter::new(base_name, provider, verifier, local_service).map_err(|e| {
-                AuthError::TokenInvalid(format!("Failed to create BindingsAdapter: {}", e))
-            })
+            BindingsAdapter::new(base_name, provider, verifier, local_service)
         }
 
         let adapter = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(create_adapter(name, provider, verifier, local_service))
-            .map_err(|e: AuthError| PyErr::new::<PyException, _>(e.to_string()))?;
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
 
         let internal = Arc::new(PyAppInternal { adapter });
 

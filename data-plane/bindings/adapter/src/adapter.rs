@@ -12,6 +12,7 @@
 //! - **Hybrid API**: Both sync (FFI-exposed) and async (internal) methods
 //! - **Runtime management**: Manages Tokio runtime for blocking operations
 
+use slim_auth::errors::AuthError;
 use slim_auth::traits::Verifier;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -28,6 +29,7 @@ use slim_service::Service;
 use slim_service::app::App;
 use slim_service::errors::ServiceError;
 use slim_session::SessionConfig as SlimSessionConfig;
+use slim_session::errors::SessionError;
 use slim_session::session_controller::SessionController;
 use slim_session::{Notification, SessionError as SlimSessionError};
 
@@ -208,8 +210,8 @@ impl From<SessionConfig> for SlimSessionConfig {
 /// Error types for SLIM operations
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum SlimError {
-    #[error("Configuration error: {message}")]
-    ConfigError { message: String },
+    #[error("service error: {message}")]
+    ServiceError { message: String },
     #[error("Session error: {message}")]
     SessionError { message: String },
     #[error("Receive error: {message}")]
@@ -226,26 +228,21 @@ pub enum SlimError {
     InternalError { message: String },
 }
 
-impl From<ServiceError> for SlimError {
-    fn from(err: ServiceError) -> Self {
-        match err {
-            ServiceError::ConfigError(msg) => SlimError::ConfigError { message: msg },
-            ServiceError::ReceiveError(msg) => SlimError::ReceiveError { message: msg },
-            ServiceError::SessionError(msg) => SlimError::SessionError { message: msg },
-            _ => SlimError::InternalError {
-                message: err.to_string(),
-            },
+macro_rules! impl_from_error_for_slim {
+    ($source:ty, $variant:ident) => {
+        impl From<$source> for SlimError {
+            fn from(err: $source) -> Self {
+                SlimError::$variant {
+                    message: err.to_string(),
+                }
+            }
         }
-    }
+    };
 }
 
-impl From<SlimSessionError> for SlimError {
-    fn from(err: SlimSessionError) -> Self {
-        SlimError::SessionError {
-            message: err.to_string(),
-        }
-    }
-}
+impl_from_error_for_slim!(ServiceError, ServiceError);
+impl_from_error_for_slim!(SessionError, SessionError);
+impl_from_error_for_slim!(AuthError, AuthError);
 
 /// TLS configuration for server/client
 #[derive(uniffi::Record)]
@@ -319,30 +316,17 @@ async fn create_app_with_secret_async(
     shared_secret: String,
 ) -> Result<Arc<BindingsAdapter>, SlimError> {
     let slim_name: SlimName = app_name.into();
-    let shared_secret_impl = SharedSecret::new(&slim_name.components_strings()[1], &shared_secret)
-        .map_err(|e| SlimError::AuthError {
-            message: e.to_string(),
-        })?;
+    let shared_secret_impl = SharedSecret::new(&slim_name.components_strings()[1], &shared_secret)?;
 
     // Wrap in enum types for flexible auth support
     let mut provider = AuthProvider::SharedSecret(shared_secret_impl.clone());
     let mut verifier = AuthVerifier::SharedSecret(shared_secret_impl);
 
     // Initialize the identity provider
-    provider
-        .initialize()
-        .await
-        .map_err(|e| SlimError::AuthError {
-            message: e.to_string(),
-        })?;
+    provider.initialize().await?;
 
     // Initialize the identity verifier
-    verifier
-        .initialize()
-        .await
-        .map_err(|e| SlimError::AuthError {
-            message: e.to_string(),
-        })?;
+    verifier.initialize().await?;
 
     let adapter = BindingsAdapter::new(slim_name, provider, verifier, false)?;
 
@@ -388,19 +372,10 @@ impl BindingsAdapter {
         use_local_service: bool,
     ) -> Result<Self, SlimError> {
         // Validate token
-        let _identity_token =
-            identity_provider
-                .get_token()
-                .map_err(|e| SlimError::ConfigError {
-                    message: format!("Failed to get token from provider: {}", e),
-                })?;
+        let _identity_token = identity_provider.get_token()?;
 
         // Get ID from token and generate name with token ID
-        let token_id = identity_provider
-            .get_id()
-            .map_err(|e| SlimError::ConfigError {
-                message: format!("Failed to get ID from token: {}", e),
-            })?;
+        let token_id = identity_provider.get_id()?;
 
         // Use a hash of the token ID to convert to u64 for name generation
         let id_hash = {
@@ -413,11 +388,7 @@ impl BindingsAdapter {
 
         // Create or get service
         let service_ref = if use_local_service {
-            let svc = Service::builder()
-                .build("local-bindings-service".to_string())
-                .map_err(|e| SlimError::ConfigError {
-                    message: format!("Failed to create local service: {}", e),
-                })?;
+            let svc = Service::builder().build("local-bindings-service".to_string())?;
             ServiceRef::Local(Box::new(svc))
         } else {
             ServiceRef::Global(get_or_init_global_service())
@@ -427,74 +398,9 @@ impl BindingsAdapter {
         let service = service_ref.get_service();
 
         // Create the app
-        let (app, rx) = service
-            .create_app(&app_name, identity_provider, identity_verifier)
-            .map_err(SlimError::from)?;
+        let (app, rx) = service.create_app(&app_name, identity_provider, identity_verifier)?;
 
         let runtime = get_runtime();
-
-        Ok(Self {
-            app: Arc::new(app),
-            notification_rx: Arc::new(RwLock::new(rx)),
-            service_ref,
-            runtime,
-        })
-    }
-
-    /// Test-only constructor - Create a new BindingsAdapter with a provided service
-    ///
-    /// This method allows tests to pass in their own Service instance for better
-    /// control and isolation during testing. Not exposed via FFI.
-    ///
-    /// # Arguments
-    /// * `service` - Pre-configured Service instance to use
-    /// * `base_name` - Base name for the app (ID will be generated from token)
-    /// * `identity_provider` - Authentication provider (AuthProvider enum)
-    /// * `identity_verifier` - Authentication verifier (AuthVerifier enum)
-    ///
-    /// # Returns
-    /// * `Ok(BindingsAdapter)` - Successfully created adapter
-    /// * `Err(SlimError)` - If creation fails
-    #[doc(hidden)]
-    pub fn new_with_service(
-        service: &Service,
-        base_name: SlimName,
-        identity_provider: AuthProvider,
-        identity_verifier: AuthVerifier,
-    ) -> Result<Self, SlimError> {
-        // Validate token
-        let _identity_token =
-            identity_provider
-                .get_token()
-                .map_err(|e| SlimError::ConfigError {
-                    message: format!("Failed to get token from provider: {}", e),
-                })?;
-
-        // Get ID from token and generate name with token ID
-        let token_id = identity_provider
-            .get_id()
-            .map_err(|e| SlimError::ConfigError {
-                message: format!("Failed to get ID from token: {}", e),
-            })?;
-
-        // Use a hash of the token ID to convert to u64 for name generation
-        let id_hash = {
-            use std::hash::{Hash, Hasher};
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            token_id.hash(&mut hasher);
-            hasher.finish()
-        };
-        let app_name = base_name.with_id(id_hash);
-
-        // Create the app using the provided service
-        let (app, rx) = service
-            .create_app(&app_name, identity_provider, identity_verifier)
-            .map_err(SlimError::from)?;
-
-        let runtime = get_runtime();
-
-        // Use a global service reference since we don't own the service
-        let service_ref = ServiceRef::Global(get_or_init_global_service());
 
         Ok(Self {
             app: Arc::new(app),
@@ -548,9 +454,7 @@ impl BindingsAdapter {
 
         // Wait for session establishment to complete
         // This ensures the session is fully ready before returning
-        completion.await.map_err(|e| SlimError::SessionError {
-            message: format!("Session establishment failed: {}", e),
-        })?;
+        completion.await?;
 
         // Create BindingsSessionContext with the runtime
         Ok(Arc::new(crate::BindingsSessionContext::new(
@@ -580,17 +484,12 @@ impl BindingsAdapter {
                 message: "Session already closed or dropped".to_string(),
             })?;
 
-        let completion =
-            self.app
-                .delete_session(&session_ref)
-                .map_err(|e| SlimError::SessionError {
-                    message: format!("Failed to delete session: {}", e),
-                })?;
+        let completion = self.app.delete_session(&session_ref)?;
 
         // Wait for session deletion to complete
-        completion.await.map_err(|e| SlimError::SessionError {
-            message: format!("Session deletion failed: {}", e),
-        })
+        completion.await?;
+
+        Ok(())
     }
 
     /// Subscribe to a name (blocking version for FFI)
@@ -755,10 +654,9 @@ impl BindingsAdapter {
         self.service_ref
             .get_service()
             .run_server(&server_config)
-            .await
-            .map_err(|e| SlimError::ConfigError {
-                message: format!("Failed to run server: {}", e),
-            })
+            .await?;
+
+        Ok(())
     }
 
     /// Stop a running SLIM server (blocking version for FFI)
@@ -770,12 +668,8 @@ impl BindingsAdapter {
     /// * `Ok(())` - Server stopped successfully
     /// * `Err(SlimError)` - If server not found or stop fails
     pub fn stop_server(&self, endpoint: String) -> Result<(), SlimError> {
-        self.service_ref
-            .get_service()
-            .stop_server(&endpoint)
-            .map_err(|e| SlimError::ConfigError {
-                message: format!("Failed to stop server: {}", e),
-            })
+        self.service_ref.get_service().stop_server(&endpoint)?;
+        Ok(())
     }
 
     /// Connect to a SLIM server as a client (blocking version for FFI)
@@ -831,10 +725,7 @@ impl BindingsAdapter {
             .service_ref
             .get_service()
             .connect(&client_config)
-            .await
-            .map_err(|e| SlimError::ConfigError {
-                message: format!("Failed to connect: {}", e),
-            })?;
+            .await?;
 
         // Automatically subscribe to our own name so we can receive messages.
         // If subscription fails, clean up the connection to avoid resource leaks.
@@ -862,12 +753,9 @@ impl BindingsAdapter {
 
     /// Disconnect from a SLIM server (async version)
     pub async fn disconnect_async(&self, connection_id: u64) -> Result<(), SlimError> {
-        self.service_ref
-            .get_service()
-            .disconnect(connection_id)
-            .map_err(|e| SlimError::ConfigError {
-                message: format!("Failed to disconnect: {}", e),
-            })
+        self.service_ref.get_service().disconnect(connection_id)?;
+
+        Ok(())
     }
 }
 
@@ -963,14 +851,11 @@ impl FfiCompletionHandle {
                     .to_string(),
             })?;
 
-        receiver
-            .await
-            .map_err(|_| SlimError::InternalError {
-                message: "Completion sender dropped before result was sent".to_string(),
-            })?
-            .map_err(|e| SlimError::SessionError {
-                message: e.to_string(),
-            })
+        receiver.await.map_err(|e| SlimError::InternalError {
+            message: format!("completionHandle receiver error: {}", e),
+        })??;
+
+        Ok(())
     }
 }
 
@@ -1045,11 +930,9 @@ impl BindingsAdapter {
         &self,
         session: &SessionController,
     ) -> Result<slim_session::CompletionHandle, SlimError> {
-        self.app
-            .delete_session(session)
-            .map_err(|e| SlimError::SessionError {
-                message: format!("Failed to delete session: {}", e),
-            })
+        let ret = self.app.delete_session(session)?;
+
+        Ok(ret)
     }
 }
 
@@ -1133,21 +1016,12 @@ mod tests {
         let ffi_handle = FfiCompletionHandle::new(completion, runtime);
 
         // Send error
-        tx.send(Err(slim_session::SessionError::Generic(
-            "test error".to_string(),
-        )))
-        .unwrap();
+        tx.send(Err(slim_session::SessionError::SlimMessageSendFailed))
+            .unwrap();
 
         // Wait should fail with error
         let result = ffi_handle.wait_async().await;
-        assert!(result.is_err(), "Completion should fail");
-
-        match result {
-            Err(SlimError::SessionError { message }) => {
-                assert!(message.contains("test error"));
-            }
-            _ => panic!("Expected SessionError"),
-        }
+        assert!(result.is_err_and(|e| matches!(e, SlimError::SessionError { .. })));
     }
 
     /// Test FfiCompletionHandle can only be consumed once

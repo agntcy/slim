@@ -10,6 +10,7 @@
 
 #![cfg(target_os = "linux")]
 
+use slim_auth::errors::AuthError;
 use slim_auth::metadata::MetadataMap;
 use slim_auth::spire::SpireIdentityManager;
 use slim_auth::traits::{TokenProvider, Verifier};
@@ -132,7 +133,7 @@ async fn test_spiffe_provider_initialization() {
                 tracing::info!("Provider initialized successfully");
             }
             Err(e) => {
-                tracing::error!("Provider initialization failed: {}", e);
+                tracing::error!(error = %e.chain(), "provider initialization failed");
                 should_panic = true;
                 break 'test_block;
             }
@@ -144,7 +145,7 @@ async fn test_spiffe_provider_initialization() {
                 tracing::info!("Verifier initialized successfully");
             }
             Err(e) => {
-                tracing::error!("Verifier initialization failed: {}", e);
+                tracing::error!(error = %e.chain(), "verifier initialization failed");
                 should_panic = true;
                 break 'test_block;
             }
@@ -166,7 +167,7 @@ async fn test_spiffe_provider_initialization() {
                 );
             }
             Err(e) => {
-                tracing::error!("Failed to get X.509 bundle: {}", e);
+                tracing::error!(error = %e.chain(), "failed to get X.509 bundle");
                 should_panic = true;
                 break 'test_block;
             }
@@ -179,7 +180,7 @@ async fn test_spiffe_provider_initialization() {
                 assert!(svid.spiffe_id().to_string().contains("example.org"));
             }
             Err(e) => {
-                tracing::error!("X.509 SVID fetch failed: {}", e);
+                tracing::error!(error = %e.chain(), "x.509 SVID fetch failed");
                 should_panic = true;
                 break 'test_block;
             }
@@ -194,7 +195,7 @@ async fn test_spiffe_provider_initialization() {
                 assert_eq!(parts.len(), 3, "JWT should have 3 parts");
             }
             Err(e) => {
-                tracing::error!("JWT token fetch failed: {}", e);
+                tracing::error!(error = %e.chain(), "jwt token fetch failed");
                 should_panic = true;
                 break 'test_block;
             }
@@ -254,7 +255,7 @@ async fn test_spiffe_provider_initialization() {
                 }
             }
             Err(e) => {
-                tracing::error!("JWT token with claims fetch failed: {}", e);
+                tracing::error!(error = %e.chain(), "JWT token with claims fetch failed}");
                 should_panic = true;
                 break 'test_block;
             }
@@ -329,11 +330,10 @@ async fn test_spiffe_provider_error_handling() {
 
     // Should fail to initialize
     let init_result = provider.initialize().await;
-    assert!(init_result.is_err(), "Should fail with invalid socket");
-
-    let err = format!("{}", init_result.unwrap_err());
-    assert!(err.contains("Failed to connect") || err.contains("SPIFFE"));
-    tracing::info!("Correctly handles invalid socket path: {}", err);
+    assert!(
+        init_result.is_err_and(|e| matches!(e, AuthError::SpiffeGrpcError(_))),
+        "Should fail with invalid socket"
+    );
 
     // Provider should still be in uninitialized state
     assert_manager_uninitialized(&provider);

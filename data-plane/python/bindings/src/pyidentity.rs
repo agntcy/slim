@@ -565,9 +565,7 @@ impl TryFrom<PyIdentityVerifier> for IdentityVerifier {
                     (Some(key), _) => builder.public_key(&key.into()).build()?,
                     (_, true) => builder.auto_resolve_keys(true).build()?,
                     (_, _) => {
-                        return Err(AuthError::TokenInvalid(
-                            "Public key must be provided for JWT verifier".to_string(),
-                        ));
+                        return Err(AuthError::JwtMissingDecodingKeyOrKeyResolver);
                     }
                 };
 
