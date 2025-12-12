@@ -28,7 +28,6 @@ import (
 	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/node"
 	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/slim"
 	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/version"
-	"github.com/agntcy/slim/control-plane/slimctl/internal/manager"
 )
 
 var k = koanf.New(".")
@@ -178,7 +177,6 @@ func main() {
 
 	// add the slim command tree
 	ctx := context.Background()
-
 
 	rootCmd.AddCommand(slim.NewSlimCmd(ctx, conf.AppConfig))
 
