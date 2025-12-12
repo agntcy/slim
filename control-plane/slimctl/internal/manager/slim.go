@@ -27,16 +27,17 @@ type manager struct {
 	Endpoint string
 }
 
-// NewService creates a new Service.
+// NewManager creates a new Manager. If logger is nil, a no-op logger is used.
 func NewManager(logger *zap.Logger, secret string, endpoint string) Manager {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &manager{Logger: logger, Secret: secret, Endpoint: endpoint}
 }
 
 // Start starts the local slim instance.
 func (s *manager) Start(ctx context.Context) error {
-	if s.Logger != nil {
-		s.Logger.Info("Starting slim instance")
-	}
+	s.Logger.Info("Starting slim instance")
 
 	// Initialize crypto
 	slim.InitializeCryptoProvider()
@@ -100,16 +101,12 @@ func (s *manager) Start(ctx context.Context) error {
 
 // Stop stops the local slim instance.
 func (s *manager) Stop(ctx context.Context) error {
-	if s.Logger != nil {
-		s.Logger.Info("Stopping slim instance")
-	}
+	s.Logger.Info("Stopping slim instance")
 	return nil
 }
 
 // Status returns the status of the local slim instance.
 func (s *manager) Status(ctx context.Context) (string, error) {
-	if s.Logger != nil {
-		s.Logger.Info("Getting status of slim instance")
-	}
+	s.Logger.Info("Getting status of slim instance")
 	return "unknown", nil
 }
