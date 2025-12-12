@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,6 +26,7 @@ import (
 	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/config"
 	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/controller"
 	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/node"
+	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/slim"
 	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/version"
 )
 
@@ -153,6 +155,14 @@ func main() {
 		"path to client TLS key",
 	)
 
+	// add the command groups
+	rootCmd.AddGroup(
+		&cobra.Group{ID: "slimctl", Title: "Commands for SLIM CLI configuration & version info"},
+		&cobra.Group{ID: "node", Title: "Commands to interact with SLIM nodes"},
+		&cobra.Group{ID: "controller", Title: "Commands to interact with the SLIM Control Plane"},
+		&cobra.Group{ID: "slim", Title: "Commands for managing a local SLIM instance"},
+	)
+
 	// add the version command
 	rootCmd.AddCommand(version.NewVersionCmd(conf.AppConfig.CommonOpts))
 
@@ -165,11 +175,10 @@ func main() {
 	// add the node command tree
 	rootCmd.AddCommand(node.NewNodeCmd(conf.AppConfig.CommonOpts))
 
-	rootCmd.AddGroup(
-		&cobra.Group{ID: "slimctl", Title: "Commands for SLIM CLI configuration & version info"},
-		&cobra.Group{ID: "node", Title: "Commands to interact with SLIM nodes"},
-		&cobra.Group{ID: "controller", Title: "Commands to interact with the SLIM Control Plane"},
-	)
+	// add the slim command tree
+	ctx := context.Background()
+
+	rootCmd.AddCommand(slim.NewSlimCmd(ctx, conf.AppConfig))
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "CLI error: %v", err)
