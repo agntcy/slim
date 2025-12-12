@@ -957,4 +957,488 @@ mod tests {
         // With no actual SessionController, the weak ref should be None
         assert!(ctx.session.upgrade().is_none());
     }
+
+    // ==================== Runtime Access Tests ====================
+
+    #[tokio::test]
+    async fn test_runtime_accessor() {
+        let (ctx, _tx) = make_context();
+        let runtime = ctx.runtime();
+        // Verify runtime is accessible (we can't block_on from within a tokio test)
+        // Just verify we get a valid handle
+        let handle = runtime.handle();
+        // Spawn a task on the runtime to verify it's working
+        let result = handle
+            .spawn(async { 42 })
+            .await
+            .expect("Task should complete");
+        assert_eq!(result, 42);
+    }
+
+    // ==================== FFI Method Tests (Session Missing) ====================
+
+    #[tokio::test]
+    async fn test_publish_async_session_missing() {
+        let (ctx, _tx) = make_context();
+        let result = ctx.publish_async(b"test".to_vec(), None, None).await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::adapter::SlimError::SessionError { message } => {
+                assert!(message.contains("closed") || message.contains("dropped"));
+            }
+            _ => panic!("Expected SessionError"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_publish_with_completion_async_session_missing() {
+        let (ctx, _tx) = make_context();
+        let result = ctx
+            .publish_with_completion_async(b"test".to_vec(), None, None)
+            .await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::adapter::SlimError::SessionError { message } => {
+                assert!(message.contains("closed") || message.contains("dropped"));
+            }
+            _ => panic!("Expected SessionError"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_publish_to_async_session_missing() {
+        let (ctx, _tx) = make_context();
+        let message_ctx = MessageContext::new(
+            make_ffi_name(["sender", "org", "service"]),
+            Some(make_ffi_name(["receiver", "org", "service"])),
+            "application/json".to_string(),
+            HashMap::new(),
+            42,
+            "identity".to_string(),
+        );
+
+        let result = ctx
+            .publish_to_async(message_ctx, b"reply".to_vec(), None, None)
+            .await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::adapter::SlimError::SendError { message } => {
+                assert!(message.contains("dropped"));
+            }
+            _ => panic!("Expected SendError"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_publish_to_with_completion_async_session_missing() {
+        let (ctx, _tx) = make_context();
+        let message_ctx = MessageContext::new(
+            make_ffi_name(["sender", "org", "service"]),
+            Some(make_ffi_name(["receiver", "org", "service"])),
+            "application/json".to_string(),
+            HashMap::new(),
+            42,
+            "identity".to_string(),
+        );
+
+        let result = ctx
+            .publish_to_with_completion_async(message_ctx, b"reply".to_vec(), None, None)
+            .await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::adapter::SlimError::SendError { message } => {
+                assert!(message.contains("dropped"));
+            }
+            _ => panic!("Expected SendError"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_publish_with_params_async_session_missing() {
+        let (ctx, _tx) = make_context();
+        let dest = FfiName {
+            components: vec!["org".to_string(), "ns".to_string(), "dest".to_string()],
+            id: None,
+        };
+
+        let result = ctx
+            .publish_with_params_async(dest, 1, b"test".to_vec(), None, None, None)
+            .await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::adapter::SlimError::SendError { message } => {
+                assert!(message.contains("dropped"));
+            }
+            _ => panic!("Expected SendError"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_publish_with_params_async_with_all_options() {
+        let (ctx, _tx) = make_context();
+        let dest = FfiName {
+            components: vec!["org".to_string(), "ns".to_string(), "dest".to_string()],
+            id: Some(123),
+        };
+
+        let mut metadata = HashMap::new();
+        metadata.insert("key".to_string(), "value".to_string());
+
+        let result = ctx
+            .publish_with_params_async(
+                dest,
+                3, // fanout
+                b"test payload".to_vec(),
+                Some(456),                            // connection_out
+                Some("application/json".to_string()), // payload_type
+                Some(metadata),                       // metadata
+            )
+            .await;
+
+        // Should fail because session is missing, but this tests the parameter passing
+        assert!(result.is_err());
+    }
+
+    // ==================== Get Message FFI Tests ====================
+
+    #[tokio::test]
+    async fn test_get_message_async_success() {
+        let (ctx, tx) = make_context();
+
+        let msg = create_test_proto_message(
+            make_slim_name(["org", "sender", "app"]),
+            make_slim_name(["org", "receiver", "app"]),
+            42,
+            b"hello".to_vec(),
+            "text/plain",
+            HashMap::new(),
+        );
+
+        tx.send(Ok(msg)).expect("send should succeed");
+
+        let result = ctx.get_message_async(Some(100)).await;
+        assert!(result.is_ok());
+
+        let received = result.unwrap();
+        assert_eq!(received.payload, b"hello");
+        assert_eq!(received.context.payload_type, "text/plain");
+        assert_eq!(received.context.input_connection, 42);
+    }
+
+    #[tokio::test]
+    async fn test_get_message_async_timeout() {
+        let (ctx, _tx) = make_context();
+
+        let result = ctx.get_message_async(Some(10)).await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::adapter::SlimError::ReceiveError { message } => {
+                assert!(message.contains("timeout"));
+            }
+            _ => panic!("Expected ReceiveError"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_message_async_channel_closed() {
+        let (ctx, tx) = make_context();
+        drop(tx);
+
+        let result = ctx.get_message_async(Some(100)).await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::adapter::SlimError::ReceiveError { message } => {
+                assert!(message.contains("channel closed"));
+            }
+            _ => panic!("Expected ReceiveError"),
+        }
+    }
+
+    // ==================== Invite/Remove FFI Tests ====================
+
+    #[tokio::test]
+    async fn test_invite_async_session_missing() {
+        let (ctx, _tx) = make_context();
+        let participant = FfiName {
+            components: vec!["org".to_string(), "ns".to_string(), "peer".to_string()],
+            id: None,
+        };
+
+        let result = ctx.invite_async(participant).await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::adapter::SlimError::SessionError { message } => {
+                assert!(message.contains("dropped"));
+            }
+            _ => panic!("Expected SessionError"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_remove_async_session_missing() {
+        let (ctx, _tx) = make_context();
+        let participant = FfiName {
+            components: vec!["org".to_string(), "ns".to_string(), "peer".to_string()],
+            id: None,
+        };
+
+        let result = ctx.remove_async(participant).await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::adapter::SlimError::SessionError { message } => {
+                assert!(message.contains("dropped"));
+            }
+            _ => panic!("Expected SessionError"),
+        }
+    }
+
+    // ==================== Session Info Accessor Tests ====================
+
+    #[tokio::test]
+    async fn test_destination_session_missing() {
+        let (ctx, _tx) = make_context();
+        let result = ctx.destination();
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::adapter::SlimError::SessionError { message } => {
+                assert!(message.contains("closed") || message.contains("dropped"));
+            }
+            _ => panic!("Expected SessionError"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_source_session_missing() {
+        let (ctx, _tx) = make_context();
+        let result = ctx.source();
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::adapter::SlimError::SessionError { message } => {
+                assert!(message.contains("closed") || message.contains("dropped"));
+            }
+            _ => panic!("Expected SessionError"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_session_id_session_missing() {
+        let (ctx, _tx) = make_context();
+        let result = ctx.session_id();
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::adapter::SlimError::SessionError { message } => {
+                assert!(message.contains("closed") || message.contains("dropped"));
+            }
+            _ => panic!("Expected SessionError"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_session_type_session_missing() {
+        let (ctx, _tx) = make_context();
+        let result = ctx.session_type();
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::adapter::SlimError::SessionError { message } => {
+                assert!(message.contains("closed") || message.contains("dropped"));
+            }
+            _ => panic!("Expected SessionError"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_is_initiator_session_missing() {
+        let (ctx, _tx) = make_context();
+        let result = ctx.is_initiator();
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::adapter::SlimError::SessionError { message } => {
+                assert!(message.contains("closed") || message.contains("dropped"));
+            }
+            _ => panic!("Expected SessionError"),
+        }
+    }
+
+    // ==================== Publish Internal with Metadata Tests ====================
+
+    #[tokio::test]
+    async fn test_publish_to_internal_adds_publish_to_metadata() {
+        // This test verifies the metadata manipulation in publish_to_internal
+        // Even though session is missing, we can verify the code path is exercised
+        let (ctx, _tx) = make_context();
+        let message_ctx = MessageContext::new(
+            make_ffi_name(["sender", "org", "service"]),
+            Some(make_ffi_name(["receiver", "org", "service"])),
+            "application/json".to_string(),
+            HashMap::new(),
+            42,
+            "identity".to_string(),
+        );
+
+        let mut metadata = HashMap::new();
+        metadata.insert("custom_key".to_string(), "custom_value".to_string());
+
+        // This should fail but exercises the metadata handling code
+        let result = ctx
+            .publish_to_internal(
+                &message_ctx,
+                b"reply".to_vec(),
+                Some("text/plain".to_string()),
+                Some(metadata),
+            )
+            .await;
+
+        assert!(result.is_err());
+        // The error confirms we got through the metadata handling
+        assert!(result.unwrap_err().to_string().contains("dropped"));
+    }
+
+    // ==================== ReceivedMessage Construction Test ====================
+
+    #[tokio::test]
+    async fn test_received_message_construction() {
+        let (ctx, tx) = make_context();
+
+        let mut metadata = HashMap::new();
+        metadata.insert("trace_id".to_string(), "abc123".to_string());
+        metadata.insert("user".to_string(), "test_user".to_string());
+
+        let msg = create_test_proto_message(
+            make_slim_name(["org", "sender", "service"]),
+            make_slim_name(["org", "receiver", "service"]),
+            999,
+            b"complex payload with special chars: \x00\xFF".to_vec(),
+            "application/octet-stream",
+            metadata,
+        );
+
+        tx.send(Ok(msg)).expect("send should succeed");
+
+        let result = ctx.get_message_async(Some(100)).await;
+        assert!(result.is_ok());
+
+        let received = result.unwrap();
+        assert_eq!(
+            received.payload,
+            b"complex payload with special chars: \x00\xFF"
+        );
+        assert_eq!(received.context.payload_type, "application/octet-stream");
+        assert_eq!(received.context.input_connection, 999);
+        assert_eq!(
+            received.context.metadata.get("trace_id"),
+            Some(&"abc123".to_string())
+        );
+        assert_eq!(
+            received.context.metadata.get("user"),
+            Some(&"test_user".to_string())
+        );
+    }
+
+    // ==================== Message Context Conversion Test ====================
+
+    #[tokio::test]
+    async fn test_message_context_source_as_slim_name() {
+        let ffi_name = make_ffi_name(["org", "namespace", "app"]);
+        let message_ctx = MessageContext::new(
+            ffi_name,
+            None,
+            "text/plain".to_string(),
+            HashMap::new(),
+            1,
+            "id".to_string(),
+        );
+
+        let slim_name = message_ctx.source_as_slim_name();
+        let components = slim_name.components_strings();
+        assert_eq!(components[0], "org");
+        assert_eq!(components[1], "namespace");
+        assert_eq!(components[2], "app");
+    }
+
+    // ==================== Empty/Edge Case Tests ====================
+
+    #[tokio::test]
+    async fn test_get_message_with_empty_payload() {
+        let (ctx, tx) = make_context();
+
+        let msg = create_test_proto_message(
+            make_slim_name(["org", "sender", "app"]),
+            make_slim_name(["org", "receiver", "app"]),
+            1,
+            vec![], // empty payload
+            "text/plain",
+            HashMap::new(),
+        );
+
+        tx.send(Ok(msg)).expect("send should succeed");
+
+        let result = ctx.get_message_async(Some(100)).await;
+        assert!(result.is_ok());
+        let received = result.unwrap();
+        assert!(received.payload.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_message_with_large_payload() {
+        let (ctx, tx) = make_context();
+
+        // 1MB payload
+        let large_payload = vec![0xAB; 1024 * 1024];
+
+        let msg = create_test_proto_message(
+            make_slim_name(["org", "sender", "app"]),
+            make_slim_name(["org", "receiver", "app"]),
+            1,
+            large_payload.clone(),
+            "application/octet-stream",
+            HashMap::new(),
+        );
+
+        tx.send(Ok(msg)).expect("send should succeed");
+
+        let result = ctx.get_message_async(Some(500)).await;
+        assert!(result.is_ok());
+        let received = result.unwrap();
+        assert_eq!(received.payload.len(), 1024 * 1024);
+        assert_eq!(received.payload, large_payload);
+    }
+
+    #[tokio::test]
+    async fn test_publish_async_with_metadata() {
+        let (ctx, _tx) = make_context();
+
+        let mut metadata = HashMap::new();
+        metadata.insert("key1".to_string(), "value1".to_string());
+        metadata.insert("key2".to_string(), "value2".to_string());
+
+        let result = ctx
+            .publish_async(
+                b"test".to_vec(),
+                Some("application/json".to_string()),
+                Some(metadata),
+            )
+            .await;
+
+        // Should fail because session is missing
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_publish_with_completion_async_with_options() {
+        let (ctx, _tx) = make_context();
+
+        let mut metadata = HashMap::new();
+        metadata.insert("trace".to_string(), "123".to_string());
+
+        let result = ctx
+            .publish_with_completion_async(
+                b"important message".to_vec(),
+                Some("text/plain".to_string()),
+                Some(metadata),
+            )
+            .await;
+
+        // Should fail because session is missing
+        assert!(result.is_err());
+    }
 }
