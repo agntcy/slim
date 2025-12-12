@@ -10,7 +10,7 @@ use tonic::Status;
 #[derive(Error, Debug)]
 pub enum ControllerError {
     // Configuration / setup
-    #[error("configuration error {0}")]
+    #[error("configuration error")]
     ConfigError(#[from] ConfigError),
 
     // Connection lifecycle
@@ -20,7 +20,7 @@ pub enum ControllerError {
     AlreadyStopped,
     #[error("timeout waiting for shutdown to complete")]
     ShutdownTimeout,
-    #[error("grpc error: {0}")]
+    #[error("grpc error")]
     GrpcError(#[from] Status),
 
     // Clients / Servers errors
@@ -33,12 +33,14 @@ pub enum ControllerError {
     MalformedName(String),
 
     // Propagated lower-level errors
-    #[error("datapath error: {0}")]
+    #[error("datapath error")]
     Datapath(#[from] DataPathError),
     #[error("error sending message to data plane: {0}")]
     DatapathSendError(String),
-    #[error("auth error: {0}")]
+    #[error("auth error")]
     Auth(#[from] AuthError),
+    #[error("message error")]
+    MessageError(#[from] slim_datapath::messages::utils::MessageError),
 
     // Payload / validation
     #[error("payload missing")]

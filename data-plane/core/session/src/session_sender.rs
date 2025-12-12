@@ -390,8 +390,7 @@ impl SessionSender {
                 self.session_id,
                 message_id,
                 None,
-            )
-            .map_err(SessionError::build_error)?;
+            )?;
 
             // send the message
             self.tx.send_to_slim(Ok(msg)).await

@@ -12,7 +12,7 @@ use slim::runtime;
 use slim_config::component::Component;
 use slim_config::tls::provider;
 
-fn main() -> Result<()> {
+fn main() -> anyhow::Result<()> {
     let args = args::Args::parse();
 
     // If the version flag is set, print the build info and exit
@@ -25,7 +25,8 @@ fn main() -> Result<()> {
     let config_file = args.config().context("config file is required")?;
 
     // create configured components
-    let mut config = config::ConfigLoader::new(config_file).expect("failed to load configuration");
+    let mut config =
+        config::ConfigLoader::new(config_file).context("failed to load configuration")?;
 
     // print build info
     info!("{}", build_info::BUILD_INFO);
@@ -66,13 +67,13 @@ fn main() -> Result<()> {
         // wait for shutdown signal
         tokio::select! {
             _ = slim_signal::shutdown() => {
-                info!("Received shutdown signal");
+                debug!("Received shutdown signal");
             }
         }
 
         // Gracefully stop services
         for service in services.iter_mut() {
-            info!("Stopping service: {}", service.0);
+            info!(service = %service.0, "stopping service");
             service
                 .1
                 .shutdown()

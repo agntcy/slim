@@ -74,9 +74,7 @@ where
             return Ok(());
         }
 
-        let payload = msg
-            .extract_group_welcome()
-            .map_err(|e| SessionError::extract_error("group_welcome", e))?;
+        let payload = msg.extract_group_welcome()?;
         let mls_payload = payload
             .mls
             .as_ref()
@@ -125,8 +123,8 @@ where
 
                     self.process_commit_message(mls_payload).await?;
                 }
-                _ => {
-                    error!("unknown control message type, drop it");
+                _type => {
+                    error!(?_type, "unknown control message type, drop it");
                     return Err(SessionError::SessionMessageTypeUnknown(
                         msg.get_session_header().session_message_type(),
                     ));

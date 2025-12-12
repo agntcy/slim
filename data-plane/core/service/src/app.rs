@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 // Third-party crates
+use display_error_chain::ErrorChainExt;
 use parking_lot::RwLock as SyncRwLock;
 use tokio::sync::mpsc;
 use tracing::{debug, error};
@@ -156,7 +157,7 @@ where
             .send(Ok(msg))
             .await
             .map_err(|e| {
-                error!("error sending message {}", e);
+                error!(error = %e.chain(), "error sending message");
                 ServiceError::MessageSendingError(e.to_string())
             })
     }
@@ -288,7 +289,7 @@ where
                     next = rx.recv() => {
                         match next {
                             None => {
-                                error!("SLIM channel closed, stopping message processing loop for {}", app_name);
+                                error!(%app_name, "slim channel closed, stopping message processing loop");
 
                                 // Send error to application
                                 let tx_app = session_layer.tx_app();
@@ -328,12 +329,12 @@ where
                                                 debug!("session not found, ignoring message");
                                                 continue;
                                             }
-                                            error!("error handling message: {}", e);
+                                            error!(error = %e.chain(), "error handling message");
                                         }
                                     }
                                     Err(e) => {
                                         // Log the error but do nothing with it
-                                        error!("error: {}", e);
+                                        error!(error = %e.chain(), "received error from SLIM");
 
                                         // if internal error, forward it to application
                                         let tx_app = session_layer.tx_app();

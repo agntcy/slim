@@ -7,6 +7,7 @@ use crate::metadata::MetadataMap;
 use crate::resolver::JwksCache;
 use crate::traits::{TokenProvider, Verifier};
 use async_trait::async_trait;
+use display_error_chain::ErrorChainExt;
 use futures::executor::block_on;
 use jsonwebtoken_aws_lc::jwk::JwkSet;
 use jsonwebtoken_aws_lc::{DecodingKey, Validation, decode, decode_header};
@@ -308,7 +309,7 @@ impl OidcTokenProvider {
                             if cache_key == current_cache_key
                                 && let Err(e) = provider_clone.refresh_token_background().await
                             {
-                                tracing::error!("Failed to refresh token in background: {}", e);
+                                tracing::error!(error = %e.chain(), "failed to refresh token in background");
                             }
                         }
                     }
@@ -327,7 +328,7 @@ impl OidcTokenProvider {
         match self.fetch_new_token().await {
             Ok(_) => Ok(()),
             Err(e) => {
-                tracing::error!("Background token refresh failed: {}", e);
+                tracing::error!(error = %e.chain(), "failed to refresh token in background");
                 Err(e)
             }
         }
@@ -857,9 +858,8 @@ mod tests {
                 // Test that initialization works
                 provider.initialize().await.unwrap();
             }
-            Err(e) => {
-                tracing::error!("Provider creation failed: {:?}", e);
-                panic!("Provider creation should have succeeded");
+            Err(_e) => {
+                panic!("provider creation should have succeeded");
             }
         }
     }

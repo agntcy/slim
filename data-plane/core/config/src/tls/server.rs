@@ -270,9 +270,7 @@ impl TlsServerConfig {
                     .await?
                     .finish()?;
 
-                WebPkiClientVerifier::builder(root_store.into())
-                    .build()
-                    .map_err(ConfigError::VerifierBuilder)?
+                WebPkiClientVerifier::builder(root_store.into()).build()?
             }
         };
 

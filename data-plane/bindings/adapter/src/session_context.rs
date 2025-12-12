@@ -298,10 +298,7 @@ impl BindingsSessionContext {
                 payload_type,
                 metadata,
             )
-            .await
-            .map_err(|e| SlimError::SendError {
-                message: e.to_string(),
-            })?;
+            .await?;
 
         Ok(Arc::new(FfiCompletionHandle::new(completion, self.runtime)))
     }
@@ -344,10 +341,9 @@ impl BindingsSessionContext {
     ) -> Result<(), SlimError> {
         self.publish_to_internal(&message_context, data, payload_type, metadata)
             .await
-            .map(|_| ())
-            .map_err(|e| SlimError::SendError {
-                message: e.to_string(),
-            })
+            .map(|_| ())?;
+
+        Ok(())
     }
 
     /// Publish a reply message with delivery confirmation (blocking version)
@@ -387,10 +383,7 @@ impl BindingsSessionContext {
     ) -> Result<Arc<FfiCompletionHandle>, SlimError> {
         let completion = self
             .publish_to_internal(&message_context, data, payload_type, metadata)
-            .await
-            .map_err(|e| SlimError::SendError {
-                message: e.to_string(),
-            })?;
+            .await?;
 
         Ok(Arc::new(FfiCompletionHandle::new(completion, self.runtime)))
     }
@@ -450,10 +443,9 @@ impl BindingsSessionContext {
             metadata,
         )
         .await
-        .map(|_| ())
-        .map_err(|e| SlimError::SendError {
-            message: e.to_string(),
-        })
+        .map(|_| ())?;
+
+        Ok(())
     }
 
     /// Receive a message from the session (blocking version for FFI)
@@ -476,12 +468,7 @@ impl BindingsSessionContext {
     ) -> Result<ReceivedMessage, SlimError> {
         let timeout = timeout_ms.map(|ms| std::time::Duration::from_millis(ms as u64));
 
-        let (ctx, payload) =
-            self.get_session_message(timeout)
-                .await
-                .map_err(|e| SlimError::ReceiveError {
-                    message: e.to_string(),
-                })?;
+        let (ctx, payload) = self.get_session_message(timeout).await?;
 
         Ok(ReceivedMessage {
             context: ctx,
@@ -505,17 +492,12 @@ impl BindingsSessionContext {
     pub async fn invite_async(&self, participant: Name) -> Result<(), SlimError> {
         let slim_name: SlimName = participant.into();
 
-        let completion =
-            self.invite_internal(&slim_name)
-                .await
-                .map_err(|e| SlimError::SessionError {
-                    message: e.to_string(),
-                })?;
+        let completion = self.invite_internal(&slim_name).await?;
 
         // Wait for invitation to complete
-        completion.await.map_err(|e| SlimError::SessionError {
-            message: format!("Invitation failed: {}", e),
-        })
+        completion.await?;
+
+        Ok(())
     }
 
     /// Remove a participant from the session (blocking version for FFI)
@@ -534,12 +516,7 @@ impl BindingsSessionContext {
     pub async fn remove_async(&self, participant: Name) -> Result<(), SlimError> {
         let slim_name: SlimName = participant.into();
 
-        let completion =
-            self.remove_internal(&slim_name)
-                .await
-                .map_err(|e| SlimError::SessionError {
-                    message: e.to_string(),
-                })?;
+        let completion = self.remove_internal(&slim_name).await?;
 
         // Wait for removal to complete
         completion.await?;

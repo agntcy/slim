@@ -10,6 +10,7 @@ name = "slim_tracing"
 
 [dependencies]
 agntcy-slim-config = { workspace = true }
+display-error-chain = { workspace = true }
 once_cell = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }

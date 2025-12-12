@@ -10,11 +10,11 @@ pub enum ServiceError {
     // Configuration / setup
     #[error("no server or client configured")]
     NoServerOrClientConfigured,
-    #[error("grpc configuration error: {0}")]
+    #[error("grpc configuration error")]
     GrpcConfigError(#[from] slim_config::grpc::errors::ConfigError),
     #[error("invalid configuration: {0}")]
     InvalidConfig(String),
-    #[error("id error: {0}")]
+    #[error("id error")]
     IdError(#[from] IdError),
 
     // App construction
@@ -30,7 +30,7 @@ pub enum ServiceError {
     AppNotFound(String),
 
     // Auth
-    #[error("provider auth error: {0}")]
+    #[error("provider auth error")]
     ProviderAuthError(#[from] AuthError),
 
     // Connection lifecycle
@@ -42,6 +42,8 @@ pub enum ServiceError {
     ClientAlreadyConnected(String),
     #[error("server not found: {0}")]
     ServerNotFound(String),
+    #[error("connection not found: {0}")]
+    ConnectionNotFoundForEndpoint(String),
 
     // Routing / subscription operations
     #[error("error sending subscription: {0}")]
@@ -75,15 +77,15 @@ pub enum ServiceError {
     SessionError(#[from] slim_session::errors::SessionError),
 
     // Controller / datapath typed propagation
-    #[error("controller error: {0}")]
+    #[error("controller error")]
     Controller(#[from] slim_controller::errors::ControllerError),
-    #[error("datapath error: {0}")]
+    #[error("datapath error")]
     DataPath(#[from] slim_datapath::errors::DataPathError),
 
     // Storage
     #[error("storage error: {0}")]
     StorageError(String), // legacy string variant
-    #[error("storage I/O error: {0}")]
+    #[error("storage I/O error")]
     StorageIo(#[from] std::io::Error),
     #[error("storage home directory unavailable")]
     HomeDirUnavailable,

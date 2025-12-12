@@ -19,13 +19,13 @@ use slim_config::component::configuration::Configuration;
 use slim_config::component::id::ID;
 use slim_config::component::{Component, ComponentBuilder};
 use slim_config::provider::ConfigResolver;
-use slim_service::{Service, ServiceBuilder};
+use slim_service::{Service, ServiceBuilder, ServiceError};
 use slim_tracing::TracingConfiguration;
 
 #[derive(Error, Debug)]
 pub enum ConfigError {
     // File / I/O
-    #[error("io error: {0}")]
+    #[error("io error")]
     IoError(#[from] std::io::Error),
 
     // Parsing / structural validity
@@ -33,11 +33,11 @@ pub enum ConfigError {
     InvalidYaml,
     #[error("invalid configuration - key {0} not valid")]
     InvalidKey(String),
-    #[error("invalid configuration")]
-    Invalid(String),
+    #[error("validation error")]
+    Invalid(#[from] ServiceError),
 
     // YAML decoding (typed propagation)
-    #[error("yaml parse error: {0}")]
+    #[error("yaml parse error")]
     YamlError(#[from] serde_yaml::Error),
 
     // Services / resolution
@@ -45,7 +45,7 @@ pub enum ConfigError {
     InvalidNoServices,
 
     // Provider errors
-    #[error("config provider error: {0}")]
+    #[error("config provider error")]
     ConfigProviderError(#[from] slim_config::provider::ProviderError),
 }
 
@@ -197,19 +197,18 @@ where
     B: ComponentBuilder,
     B::Config: Configuration + std::fmt::Debug,
     for<'de> <B as ComponentBuilder>::Config: Deserialize<'de>,
+    ConfigError: From<<B::Config as Configuration>::Error>,
+    ConfigError: From<<B::Component as Component>::Error>,
 {
     // Typed YAML value conversion (produces ConfigError::YamlError)
     let config: B::Config = serde_yaml::from_value(component_config)?;
 
-    config.validate().map_err(|e| {
-        debug!(error = ?e, "Component configuration validation failed");
-        ConfigError::Invalid(e.to_string())
-    })?;
+    config.validate()?;
     debug!(component_id = id.name(), "Resolved component configuration");
 
-    builder
-        .build_with_config(id.name(), &config)
-        .map_err(|e| ConfigError::Invalid(e.to_string()))
+    let res = builder.build_with_config(id.name(), &config)?;
+
+    Ok(res)
 }
 
 fn build_service(name: &Value, config: &Value) -> Result<Service, ConfigError> {

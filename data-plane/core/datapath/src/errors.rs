@@ -12,8 +12,8 @@ pub enum DataPathError {
     #[error("connection error")]
     ConnectionError,
     #[error("disconnection error")]
-    DisconnectionError,
-    #[error("grpc error: {0}")]
+    DisconnectionError(u64),
+    #[error("grpc error")]
     GrpcError(#[from] tonic::Status),
 
     // Message classification / validation
@@ -43,7 +43,7 @@ pub enum DataPathError {
     ConnectionTableAddError,
 
     // Configuration error
-    #[error("configuration error: {0}")]
+    #[error("configuration error")]
     ConfigurationError(#[from] ConfigError),
 
     // Shutdown errors

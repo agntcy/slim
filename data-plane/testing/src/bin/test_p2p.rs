@@ -9,6 +9,7 @@ use clap::Parser;
 use parking_lot::RwLock;
 
 use slim_datapath::messages::Name;
+use slim_service::ServiceError;
 use slim_session::{Notification, SessionConfig};
 use slim_testing::build_client_service;
 use slim_testing::common::{
@@ -76,7 +77,7 @@ impl Args {
     }
 }
 
-async fn run_client_task(name: Name) -> Result<(), String> {
+async fn run_client_task(name: Name) -> Result<(), ServiceError> {
     /* this is the same */
     println!("client {} task starting...", name);
 

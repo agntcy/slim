@@ -5,6 +5,7 @@ use std::net::SocketAddr;
 use std::{pin::Pin, sync::Arc};
 
 use crate::api::DataPlaneServiceServer;
+use display_error_chain::ErrorChainExt;
 use opentelemetry::propagation::{Extractor, Injector};
 use opentelemetry::trace::TraceContextExt;
 use parking_lot::RwLock;
@@ -156,7 +157,7 @@ impl MessageProcessor {
         &self,
         config: &ServerConfig,
     ) -> Result<CancellationToken, DataPathError> {
-        info!(%config, "starting dataplane server");
+        debug!(%config, "starting dataplane server");
         let watch = self.get_drain_watch()?;
         // Wrap self in an Arc since the server builder expects an Arc<MessageProcessor>
         let svc = Arc::new(self.clone());
@@ -283,16 +284,16 @@ impl MessageProcessor {
         let connection = match self.forwarder().get_connection(conn) {
             Some(c) => c,
             None => {
-                error!("error handling disconnect: connection unknown");
-                return Err(DataPathError::DisconnectionError);
+                error!(%conn, "error handling disconnect: connection unknown");
+                return Err(DataPathError::DisconnectionError(conn));
             }
         };
 
         let token = match connection.cancellation_token() {
             Some(t) => t,
             None => {
-                error!("error handling disconnect: missing cancellation token");
-                return Err(DataPathError::DisconnectionError);
+                error!(%conn, "error handling disconnect: missing cancellation token");
+                return Err(DataPathError::DisconnectionError(conn));
             }
         };
 
@@ -302,7 +303,7 @@ impl MessageProcessor {
         connection
             .config_data()
             .cloned()
-            .ok_or(DataPathError::DisconnectionError)
+            .ok_or(DataPathError::DisconnectionError(conn))
     }
 
     pub fn register_local_connection(
@@ -373,7 +374,7 @@ impl MessageProcessor {
                     && let Err(e) = span.set_parent(ctx)
                 {
                     // log the error but don't fail the message sending
-                    error!("error setting parent context: {:?}", e);
+                    error!(error = %e.chain(), "error setting parent context");
                 }
                 let _guard = span.enter();
                 inject_current_context(&mut msg);
@@ -590,7 +591,7 @@ impl MessageProcessor {
                 && let Err(e) = span.set_parent(ctx)
             {
                 // log the error but don't fail the message processing
-                error!("error setting parent context: {:?}", e);
+                error!(error = %e.chain(), "error setting parent context");
             }
             let _guard = span.enter();
 
@@ -673,14 +674,14 @@ impl MessageProcessor {
                                 .identity(r.source_identity())
                                 .build_subscribe()
                                 .unwrap();
-                            if self.send_msg(sub_msg, conn_index).await.is_err() {
-                                error!("error restoring subscription on remote node");
+                            if let Err(e) = self.send_msg(sub_msg, conn_index).await {
+                                error!(error = %e.chain(), "error restoring subscription on remote node");
                             }
                         }
                         true
                     }
                     Err(e) => {
-                        error!("unable to reconnect to remote node: {:?}", e);
+                        error!(error = %e.chain(), "unable to reconnect to remote node");
                         false
                     }
                 }
@@ -732,7 +733,7 @@ impl MessageProcessor {
                                         }
 
                                         if let Err(e) = self_clone.handle_new_message(conn_index, is_local, msg).await {
-                                            error!(%conn_index, %e, "error processing incoming message");
+                                            error!(%conn_index, error = %e.chain(), "error processing incoming message");
                                             // If the message is coming from a local app, notify it
                                             if is_local {
                                                 // try to forward error to the local app
@@ -746,7 +747,7 @@ impl MessageProcessor {
                                                 info!(%conn_index, "connection closed by peer");
                                             }
                                         } else {
-                                            error!("error receiving messages {:?}", e);
+                                            error!(error = %e.chain(), "error receiving messages");
                                         }
                                         break;
                                     }
@@ -888,7 +889,7 @@ impl DataPlaneService for MessageProcessor {
             false,
         )
         .map_err(|e| {
-            error!("error starting new processing stream: {:?}", e);
+            error!(error = %e.chain(), "error starting new processing stream");
             Status::unavailable(format!("error processing stream: {:?}", e))
         })?;
 

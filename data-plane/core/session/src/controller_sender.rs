@@ -6,6 +6,7 @@ use std::{
     time::Duration,
 };
 
+use display_error_chain::ErrorChainExt;
 use slim_datapath::{
     api::{CommandPayload, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType},
     messages::Name,
@@ -491,7 +492,7 @@ impl ControllerSender {
                         .tx_session
                         .try_send(SessionMessage::ParticipantDisconnected { name: k.clone() })
                     {
-                        tracing::error!("failed to send participant disconnected message: {}", e);
+                        tracing::error!(error = %e.chain(), "failed to send participant disconnected message");
                     }
                     false // remove from missing_pings
                 } else {

@@ -19,10 +19,10 @@ pub enum ProviderError {
     #[error("unknown error")]
     Unknown,
     // Env provider errors
-    #[error("environment variable error: {0}")]
+    #[error("environment variable error")]
     EnvVarError(#[from] std::env::VarError),
     // File provider errors
-    #[error("file error: {0}")]
+    #[error("file error")]
     FileError(#[from] std::io::Error),
 }
 

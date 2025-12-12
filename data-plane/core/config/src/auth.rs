@@ -26,7 +26,7 @@ pub enum ConfigAuthError {
     AuthOidcEmptyClientSecret,
 
     // Propagated auth library errors
-    #[error("internal auth error: {0}")]
+    #[error("internal auth error")]
     AuthInternalError(#[from] SlimAuthError),
 
     // Verifier errors

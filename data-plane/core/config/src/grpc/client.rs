@@ -5,6 +5,7 @@ use duration_string::DurationString;
 use rustls_pki_types::ServerName;
 use tokio_retry::RetryIf;
 
+use display_error_chain::ErrorChainExt;
 use std::time::Duration;
 use std::{collections::HashMap, str::FromStr};
 use tower::ServiceExt;
@@ -79,16 +80,14 @@ macro_rules! create_connector {
                         https_connector(s, &tls, $server_name.map(|s| s.to_string()))
                     })
                     .service($base_connector);
-                $builder
-                    .connect_with_connector(connector)
-                    .await
-                    .map_err(|e| ConfigError::from(e))
+                let ret = $builder.connect_with_connector(connector).await?;
+                Ok(ret)
             }
             (None, true) => Ok($builder.connect_with_connector_lazy($base_connector)),
-            (None, false) => $builder
-                .connect_with_connector($base_connector)
-                .await
-                .map_err(|e| ConfigError::from(e)),
+            (None, false) => {
+                let ret = $builder.connect_with_connector($base_connector).await?;
+                Ok(ret)
+            }
         }
     };
 }
@@ -586,11 +585,11 @@ impl ClientConfig {
                     // If the error is not related to transport, do not retry
                     match e {
                         ConfigError::TransportError(e) => {
-                            tracing::warn!("Transport error encountered: {:?}. Retrying...", e);
+                            tracing::warn!(error = %e.chain(), "Transport error encountered. Retrying...");
                             true
                         }
                         _ => {
-                            tracing::error!("Non-retryable error encountered: {}", e);
+                            tracing::error!(error = %e.chain(), "non-retryable error encountered");
                             false
                         }
                     }

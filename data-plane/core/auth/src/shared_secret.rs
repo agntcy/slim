@@ -371,7 +371,7 @@ impl SharedSecret {
             return Err(AuthError::TokenMalformed);
         }
         let key = hmac::Key::new(hmac::HMAC_SHA256, self.0.shared_secret.as_bytes());
-        hmac::verify(&key, message.as_bytes(), &expected).map_err(|_e| AuthError::TokenInvalid2)
+        hmac::verify(&key, message.as_bytes(), &expected).map_err(|_e| AuthError::TokenInvalid)
     }
 
     fn build_message(&self, id: &str, timestamp: u64, nonce: &str, claims_b64: &str) -> String {
@@ -404,12 +404,12 @@ impl SharedSecret {
         if ts > now {
             let diff = ts - now;
             if diff > self.0.clock_skew.as_secs() {
-                return Err(AuthError::TokenInvalid2);
+                return Err(AuthError::TokenInvalid);
             }
         } else {
             let age = now - ts;
             if age > self.0.validity_window.as_secs() {
-                return Err(AuthError::TokenInvalid2);
+                return Err(AuthError::TokenInvalid);
             }
         }
         Ok(())
@@ -638,7 +638,7 @@ mod tests {
         let mac = s.create_hmac_b64(&message).unwrap();
         let token = format!("{}:{}:{}::{}", s.id(), past_ts, nonce, mac);
         let res = s.try_verify(token);
-        assert!(res.is_err_and(|e| matches!(e, AuthError::TokenInvalid2)));
+        assert!(res.is_err_and(|e| matches!(e, AuthError::TokenInvalid)));
     }
 
     #[test]
@@ -713,7 +713,7 @@ mod tests {
         thread::sleep(Duration::from_secs(2));
         let res = s.try_verify(token);
         // Expiration still trumps; token expired.
-        assert!(res.is_err_and(|e| matches!(e, AuthError::TokenInvalid2)));
+        assert!(res.is_err_and(|e| matches!(e, AuthError::TokenInvalid)));
     }
 
     #[test]

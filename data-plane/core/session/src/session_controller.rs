@@ -4,6 +4,7 @@
 // Standard library imports
 use std::{collections::HashMap, time::Duration};
 
+use display_error_chain::ErrorChainExt;
 use parking_lot::Mutex;
 use tokio::sync::{self, oneshot};
 // Third-party crates
@@ -136,12 +137,10 @@ impl SessionController {
     {
         // Start with an infinite timeout (will be updated on graceful shutdown)
         let mut shutdown_deadline = std::pin::pin!(tokio::time::sleep(Duration::MAX));
-        // Pin the cancellation token
-        // let mut cancellation_token = std::pin::pin!(cancellation_token.cancelled());
 
         // Init the inner components
         if let Err(e) = inner.init().await {
-            tracing::error!(error=%e, "Error during initialization of session");
+            tracing::error!(error = %e.chain(), "error during initialization of session");
         }
 
         loop {
@@ -155,7 +154,7 @@ impl SessionController {
                     debug!("consuming pending messages before entering draining state");
                     while let Ok(msg) = rx.try_recv() {
                         if let Err(e) = inner.on_message(msg).await {
-                            tracing::error!(error=%e, "Error processing message during draining. Close immediately.");
+                            tracing::error!(error = %e.chain(), "error processing message during draining - close immediately.");
                             break;
                         }
                     }
@@ -164,7 +163,7 @@ impl SessionController {
                     if let Err(e) = inner.on_message(SessionMessage::StartDrain {
                         grace_period: shutdown_timeout
                     }).await {
-                        tracing::error!(error=%e, "Error during start drain");
+                        tracing::error!(error = %e.chain(),  "error during start drain");
                         break;
                     }
 
@@ -226,7 +225,7 @@ impl SessionController {
 
         // Perform final shutdown
         if let Err(e) = inner.on_shutdown().await {
-            tracing::error!(error=%e, "Error during shutdown of session");
+            tracing::error!(error = %e.chain(), "error during shutdown of session");
         }
     }
 
@@ -369,8 +368,7 @@ impl SessionController {
             .session_id(self.id())
             .message_id(rand::random::<u32>()) // this will be changed by the session itself
             .application_payload(&ct, blob)
-            .build_publish()
-            .map_err(SessionError::build_error)?;
+            .build_publish()?;
         if let Some(map) = metadata
             && !map.is_empty()
         {
@@ -386,7 +384,8 @@ impl SessionController {
         let payload = CommandPayload::builder()
             .discovery_request(None)
             .as_content();
-        Message::builder()
+
+        let msg = Message::builder()
             .source(self.source().clone())
             .destination(destination.clone())
             .identity("")
@@ -395,8 +394,9 @@ impl SessionController {
             .session_id(self.id())
             .message_id(rand::random::<u32>())
             .payload(payload)
-            .build_publish()
-            .map_err(SessionError::build_error)
+            .build_publish()?;
+
+        Ok(msg)
     }
 
     pub(crate) async fn invite_participant_internal(
@@ -442,8 +442,7 @@ impl SessionController {
                     .session_id(self.id())
                     .message_id(rand::random::<u32>())
                     .payload(CommandPayload::builder().leave_request(None).as_content())
-                    .build_publish()
-                    .map_err(|e| SessionError::extract_error("leave_request", e))?;
+                    .build_publish()?;
                 self.publish_message(msg).await
             }
             _ => Err(SessionError::SessionTypeUnknown(self.session_type())),
@@ -483,15 +482,16 @@ pub fn handle_channel_discovery_message(
 
     debug!("Received discovery request, reply to the msg source");
 
-    Message::builder()
+    let msg = Message::builder()
         .with_slim_header(slim_header)
         .session_type(session_type)
         .session_message_type(ProtoSessionMessageType::DiscoveryReply)
         .session_id(session_id)
         .message_id(msg_id)
         .payload(CommandPayload::builder().discovery_reply().as_content())
-        .build_publish()
-        .map_err(SessionError::build_error)
+        .build_publish()?;
+
+    Ok(msg)
 }
 
 pub(crate) struct SessionControllerCommon<P, V>
@@ -668,7 +668,9 @@ where
             builder = builder.fanout(256);
         }
 
-        builder.build_publish().map_err(SessionError::build_error)
+        let ret = builder.build_publish()?;
+
+        Ok(ret)
     }
 
     /// Send control message without creating ack channel (for internal use by moderator)

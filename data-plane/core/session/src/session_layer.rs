@@ -298,8 +298,8 @@ where
             // This should never happen, but just in case
             if ret.is_some() {
                 error!(
-                    "session ID {} was taken during insertion: this should not happen",
-                    session_id
+                    %session_id,
+                    "session ID was taken during insertion: this should not happen",
                 );
                 return Err(SessionError::SessionIdAlreadyUsed(session_id));
             }
@@ -325,8 +325,8 @@ where
                                     warn!("requested to delete unknown session id {}", session_id);
                                 }
                             }
-                            Some(Ok(_)) => {
-                                error!("received unexpected message");
+                            Some(Ok(m)) => {
+                                error!(?m, "received unexpected message");
                             }
                             Some(Err(e)) => {
                                 warn!("error from session: {:?}", e);
@@ -456,9 +456,7 @@ where
                     ProtoSessionType::PointToPoint => {
                         let conf = crate::SessionConfig::from_join_request(
                             ProtoSessionType::PointToPoint,
-                            message
-                                .extract_command_payload()
-                                .map_err(|e| SessionError::extract_error("command_payload", e))?,
+                            message.extract_command_payload()?,
                             message.get_metadata_map(),
                             false,
                         )?;
@@ -472,9 +470,7 @@ where
                     }
                     ProtoSessionType::Multicast => {
                         // Multicast sessions require timer settings; reject if missing.
-                        let payload = message
-                            .extract_join_request()
-                            .map_err(|e| SessionError::extract_error("join_request", e))?;
+                        let payload = message.extract_join_request()?;
 
                         if payload.timer_settings.is_none() {
                             return Err(SessionError::MissingPayload {
@@ -492,9 +488,7 @@ where
                         let initiator = message.remove_metadata(IS_MODERATOR).is_some();
                         let conf = crate::SessionConfig::from_join_request(
                             ProtoSessionType::Multicast,
-                            message
-                                .extract_command_payload()
-                                .map_err(|e| SessionError::extract_error("command_payload", e))?,
+                            message.extract_command_payload()?,
                             message.get_metadata_map(),
                             initiator,
                         )?;

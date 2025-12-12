@@ -6,6 +6,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
+use display_error_chain::ErrorChainExt;
 use slim_auth::metadata::MetadataValue;
 use slim_config::component::id::ID;
 use slim_config::grpc::server::ServerConfig;
@@ -256,8 +257,6 @@ impl ControlPlane {
     /// # Errors
     /// If there is an error starting any of the servers or clients, it will return a ControllerError.
     pub async fn run(&mut self) -> Result<(), ControllerError> {
-        info!("starting controller service");
-
         let rx = self
             .rx_slim_option
             .take()
@@ -343,7 +342,7 @@ impl ControlPlane {
             .send(Ok(subscribe_msg))
             .await
             .map_err(|e| {
-                error!("failed to send subscribe message to data plane: {}", e);
+                error!(error = %e.chain(), "failed to send subscribe message to data plane");
                 ControllerError::DatapathSendError(e.to_string())
             })?;
 
@@ -402,7 +401,7 @@ impl ControlPlane {
                                         controller.send_or_queue_subscription_notification(ctrl, &clients).await;
                                     }
                                     Err(e) => {
-                                        error!("received error from the data plane {}", e.to_string());
+                                        error!(error = %e.chain(), "received error from the data plane");
                                         continue;
                                     }
                                 }
@@ -484,8 +483,6 @@ impl ControlPlane {
     /// This function starts a server using the provided server configuration.
     /// It checks if the server is already running and if not, it starts a new server.
     pub async fn run_server(&mut self, config: ServerConfig) -> Result<(), ControllerError> {
-        info!(%config.endpoint, "starting control plane server");
-
         // Check if the server is already running
         if self
             .controller
@@ -494,7 +491,7 @@ impl ControlPlane {
             .read()
             .contains_key(&config.endpoint)
         {
-            error!("server {} is already running", config.endpoint);
+            error!(endpoint = config.endpoint, "server is already running",);
             return Err(ControllerError::ServerAlreadyRunning(config.endpoint));
         }
 
@@ -512,7 +509,7 @@ impl ControlPlane {
             .write()
             .insert(config.endpoint.clone(), token.clone());
 
-        info!(%config.endpoint, "control plane server started");
+        info!(%config.endpoint, "started controlplane server");
 
         Ok(())
     }
@@ -572,10 +569,7 @@ fn create_channel_message(
         .session_id(session_id)
         .message_id(message_id)
         .payload(payload.ok_or(ControllerError::PayloadMissing)?)
-        .build_publish()
-        .map_err(|e| {
-            ControllerError::Datapath(slim_datapath::errors::DataPathError::InvalidMessage(e))
-        })?;
+        .build_publish()?;
 
     Ok(message)
 }
@@ -904,7 +898,7 @@ impl ControllerService {
                         };
 
                         if let Err(e) = tx.send(Ok(reply)).await {
-                            error!("failed to send ConfigurationCommandAck: {}", e);
+                            error!(error = %e.chain(), "failed to send ConfigurationCommandAck");
                         }
 
                         info!(
@@ -950,7 +944,7 @@ impl ControllerService {
                                             },
                                         });
                                     } else {
-                                        error!("no connection entry for id {}", cid);
+                                        error!(%cid, "no connection entry for id");
                                     }
                                 }
                                 entries.push(entry);
@@ -969,7 +963,7 @@ impl ControllerService {
                             };
 
                             if let Err(e) = tx.try_send(Ok(resp)) {
-                                error!("failed to send subscription batch: {}", e);
+                                error!(error = %e.chain(), "failed to send subscription batch");
                             }
                         }
                     }
@@ -1003,7 +997,7 @@ impl ControllerService {
                             };
 
                             if let Err(e) = tx.try_send(Ok(resp)) {
-                                error!("failed to send connection list batch: {}", e);
+                                error!(error = %e.chain(), "failed to send connection list batch");
                             }
                         }
                     }
@@ -1039,7 +1033,7 @@ impl ControllerService {
                         if let Some(first_moderator) = req.moderators.first() {
                             let moderator_name = get_name_from_string(first_moderator)?;
                             if !moderator_name.has_id() {
-                                error!("invalid moderator ID");
+                                error!("missing moderator ID");
                                 success = false;
                             } else {
                                 let channel_name = get_name_from_string(&req.channel_name)?;
@@ -1051,14 +1045,14 @@ impl ControllerService {
                                     &self.inner.auth_provider,
                                 )?;
 
-                                debug!("Send session creation message: {:?}", creation_msg);
+                                debug!("send session creation message: {:?}", creation_msg);
                                 if let Err(e) = self.send_control_message(creation_msg).await {
-                                    error!("failed to send channel creation: {}", e);
+                                    error!(error = %e.chain(), "failed to send channel creation");
                                     success = false;
                                 }
                             }
                         } else {
-                            error!("no moderators specified create channel request");
+                            error!("no moderators specified in create channel request message");
                             success = false;
                         };
 
@@ -1074,7 +1068,7 @@ impl ControllerService {
                         };
 
                         if let Err(e) = tx.send(Ok(reply)).await {
-                            error!("failed to send Ack: {}", e);
+                            error!(error = %e.chain(), "failed to send ack");
                         }
                     }
                     Payload::DeleteChannelRequest(req) => {
@@ -1085,7 +1079,7 @@ impl ControllerService {
                         if let Some(first_moderator) = req.moderators.first() {
                             let moderator_name = get_name_from_string(first_moderator)?;
                             if !moderator_name.has_id() {
-                                error!("invalid moderator ID");
+                                error!("missing moderator ID");
                                 success = false;
                             } else {
                                 let channel_name = get_name_from_string(&req.channel_name)?;
@@ -1099,7 +1093,7 @@ impl ControllerService {
 
                                 debug!("Send delete session message: {:?}", delete_msg);
                                 if let Err(e) = self.send_control_message(delete_msg).await {
-                                    error!("failed to send delete channel: {}", e);
+                                    error!(error = %e.chain(), "failed to send delete channel");
                                     success = false;
                                 }
                             }
@@ -1120,7 +1114,7 @@ impl ControllerService {
                         };
 
                         if let Err(e) = tx.send(Ok(reply)).await {
-                            error!("failed to send Ack: {}", e);
+                            error!(error = %e.chain(), "failed to send ack");
                         }
                     }
                     Payload::AddParticipantRequest(req) => {
@@ -1134,7 +1128,7 @@ impl ControllerService {
                         if let Some(first_moderator) = req.moderators.first() {
                             let moderator_name = get_name_from_string(first_moderator)?;
                             if !moderator_name.has_id() {
-                                error!("invalid moderator ID");
+                                error!("missing moderator ID");
                                 success = false;
                             } else {
                                 let channel_name = get_name_from_string(&req.channel_name)?;
@@ -1151,7 +1145,7 @@ impl ControllerService {
                                 debug!("Send invite participant: {:?}", invite_msg);
 
                                 if let Err(e) = self.send_control_message(invite_msg).await {
-                                    error!("failed to send channel creation: {}", e);
+                                    error!(error = %e.chain(), "failed to send channel creation");
                                     success = false;
                                 }
                             }
@@ -1171,7 +1165,7 @@ impl ControllerService {
                         };
 
                         if let Err(e) = tx.send(Ok(reply)).await {
-                            error!("failed to send Ack: {}", e);
+                            error!(error = %e.chain(), "failed to send ack");
                         }
                     }
                     Payload::DeleteParticipantRequest(req) => {
@@ -1182,7 +1176,7 @@ impl ControllerService {
                         if let Some(first_moderator) = req.moderators.first() {
                             let moderator_name = get_name_from_string(first_moderator)?;
                             if !moderator_name.has_id() {
-                                error!("invalid moderator ID");
+                                error!("missing moderator ID");
                                 success = false;
                             } else {
                                 let channel_name = get_name_from_string(&req.channel_name)?;
@@ -1197,7 +1191,7 @@ impl ControllerService {
                                 )?;
 
                                 if let Err(e) = self.send_control_message(remove_msg).await {
-                                    error!("failed to send channel creation: {}", e);
+                                    error!(error = %e.chain(), "failed to send channel creation");
                                     success = false;
                                 }
                             }
@@ -1218,7 +1212,7 @@ impl ControllerService {
                         };
 
                         if let Err(e) = tx.send(Ok(reply)).await {
-                            error!("failed to send Ack: {}", e);
+                            error!(error = %e.chain(), "failed to send ack");
                         }
                     }
                     Payload::ListChannelRequest(_) => {}
@@ -1229,8 +1223,8 @@ impl ControllerService {
             }
             None => {
                 error!(
-                    "received control message {} with no payload",
-                    msg.message_id
+                    message_id = %msg.message_id,
+                    "received control message with no payload",
                 );
             }
         }
@@ -1241,7 +1235,7 @@ impl ControllerService {
     /// Send a control message to SLIM.
     async fn send_control_message(&self, msg: DataPlaneMessage) -> Result<(), ControllerError> {
         self.inner.tx_slim.send(Ok(msg)).await.map_err(|e| {
-            error!("error sending message into datapath: {}", e);
+            error!(error = %e.chain(), "error sending message into datapath");
             ControllerError::Datapath(slim_datapath::errors::DataPathError::ConnectionError)
         })
     }
@@ -1322,9 +1316,9 @@ impl ControllerService {
         for notification in notifications {
             if let Err(e) = tx.send(Ok(notification)).await {
                 error!(
-                    "failed to send queued notification to control plane {}: {}",
-                    endpoint,
-                    e.to_string()
+                    error = %e.chain(),
+                    %endpoint,
+                    "failed to send queued notification to control plane",
                 );
 
                 // we can unwrap here because we know we sent a Ok(ControlMessage)
@@ -1375,7 +1369,7 @@ impl ControllerService {
             if config.is_some()
                 && let Err(e) = tx.send(Ok(register_request)).await
             {
-                error!("failed to send register request: {}", e);
+                error!(error = %e.chain(), "failed to send register request");
                 return;
             }
 
@@ -1389,7 +1383,7 @@ impl ControllerService {
                         match next {
                             Some(Ok(msg)) => {
                                 if let Err(e) = this.handle_new_control_message(msg, &tx).await {
-                                    error!("error processing incoming control message: {:?}", e);
+                                    error!(error = %e.chain(), "error processing incoming control message");
                                 }
                             }
                             Some(Err(e)) => {
@@ -1399,7 +1393,7 @@ impl ControllerService {
                                         retry_connect = true;
                                     }
                                 } else {
-                                    error!(%e, "error receiving control messages");
+                                    error!(error = %e.chain(), "error receiving control messages");
                                 }
 
                                 break;
@@ -1430,7 +1424,7 @@ impl ControllerService {
                     .await
                     .map_or_else(
                         |e| {
-                            error!("failed to reconnect to control plane: {}", e);
+                            error!(error = %e.chain(), "failed to reconnect to control plane");
                         },
                         |tx| {
                             info!(%config.endpoint, "reconnected to control plane");
@@ -1523,7 +1517,7 @@ impl GrpcControllerService for ControllerService {
 
         self.process_control_message_stream(None, stream, tx.clone(), cancellation_token.clone())
             .map_err(|e| {
-                error!("error processing control message stream: {}", e);
+                error!(error = %e.chain(), "error processing control message stream");
                 Status::unavailable("failed to process control message stream")
             })?;
 

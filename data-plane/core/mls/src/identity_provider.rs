@@ -47,10 +47,7 @@ where
             Ok(claims) => claims,
             Err(AuthError::WouldBlockOn) => {
                 // Fallback to async verification
-                self.identity_verifier
-                    .get_claims(credential_data)
-                    .await
-                    .map_err(MlsError::verification_failed)?
+                self.identity_verifier.get_claims(credential_data).await?
             }
             Err(e) => {
                 return Err(MlsError::verification_failed(format!(
@@ -75,7 +72,7 @@ where
     fn verify_public_key_match(expected: &str, found: &str, subject: &str) -> Result<(), MlsError> {
         if found != expected {
             tracing::error!(
-                expected = %expected, found = %found, subject = %subject, "Public key mismatch",
+                expected = %expected, found = %found, subject = %subject, "public key mismatch",
             );
             return Err(MlsError::PublicKeyMismatch {
                 expected: expected.to_string(),
@@ -121,7 +118,7 @@ where
         _timestamp: Option<MlsTime>,
         _extensions: Option<&ExtensionList>,
     ) -> Result<(), Self::Error> {
-        tracing::error!("Validating external senders is not supported in SlimIdentityProvider");
+        tracing::error!("validating external senders is not supported in SlimIdentityProvider");
         Err(MlsError::ExternalCommitNotSupported)
     }
 

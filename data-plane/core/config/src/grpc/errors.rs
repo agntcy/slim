@@ -17,29 +17,29 @@ pub enum ConfigError {
     MissingEndpoint,
 
     // Address / parsing
-    #[error("endpoint parse error: {0}")]
+    #[error("endpoint parse error")]
     EndpointParse(#[from] std::net::AddrParseError),
-    #[error("URI parse error: {0}")]
+    #[error("URI parse error")]
     UriParse(#[from] http::uri::InvalidUri),
 
     // Network / transport
-    #[error("transport error: {0}")]
+    #[error("transport error")]
     TransportError(#[from] tonic::transport::Error),
-    #[error("bind error: {0}")]
+    #[error("bind error")]
     Bind(#[from] std::io::Error),
 
     // Header parsing
-    #[error("header name parse error: {0}")]
+    #[error("header name parse error")]
     HeaderNameParse(#[from] http::header::InvalidHeaderName),
-    #[error("header value parse error: {0}")]
+    #[error("header value parse error")]
     HeaderValueParse(#[from] http::header::InvalidHeaderValue),
 
     // Rate limiting
-    #[error("rate limit parse error: {0}")]
+    #[error("rate limit parse error")]
     RateLimitParse(#[from] std::num::ParseIntError),
 
     // TLS configuration
-    #[error("TLS config error: {0}")]
+    #[error("TLS config error")]
     TlsConfig(#[from] crate::tls::errors::ConfigError),
 
     // Authentication

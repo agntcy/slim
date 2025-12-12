@@ -89,13 +89,13 @@ impl Connections {
     fn remove(&mut self, conn: u64) -> Result<(), DataPathError> {
         let conn_index_opt = self.index.get(&conn);
         if conn_index_opt.is_none() {
-            error!("cannot find the index for connection {}", conn);
+            error!(%conn, "cannot find the index for connection");
             return Err(DataPathError::ConnectionIdNotFound(conn));
         }
         let conn_index = conn_index_opt.unwrap();
         let conn_id_opt = self.pool.get_mut(*conn_index);
         if conn_id_opt.is_none() {
-            error!("cannot find the connection {} in the pool", conn);
+            error!(%conn, "cannot find the connection in the pool");
             return Err(DataPathError::ConnectionIdNotFound(conn));
         }
         let conn_id = conn_id_opt.unwrap();
@@ -613,7 +613,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 if let Some(out) = remote_out {
                     return Ok(out);
                 }
-                error!("no output connection available");
+                error!(%name, "no output connection available");
                 Err(DataPathError::NoMatch(name.clone()))
             }
         }
@@ -646,7 +646,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
                     return Ok(out);
                 }
 
-                error!("no connection available (local/remote)");
+                error!(%name, "no connection available (local/remote)");
                 Err(DataPathError::NoMatch(name.clone()))
             }
         }

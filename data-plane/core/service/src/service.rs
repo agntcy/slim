@@ -7,6 +7,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+use display_error_chain::ErrorChainExt;
 // Third-party crates
 use serde::Deserialize;
 use tokio::sync::mpsc;
@@ -146,7 +147,7 @@ impl Drop for Service {
         for (endpoint, conn_id) in self.clients.write().drain() {
             debug!(%endpoint, conn_id = %conn_id, "disconnecting client on drop");
             if let Err(e) = self.message_processor.disconnect(conn_id) {
-                tracing::error!("disconnect error for endpoint {}: {}", endpoint, e);
+                tracing::error!(%endpoint, error = %e.chain(), "disconnect error");
             }
         }
     }
@@ -193,13 +194,11 @@ impl Service {
         // Run servers
         for server in self.config.servers().iter() {
             self.run_server(server).await?;
-            info!("started server {}", server.endpoint);
         }
 
         // Run clients
         for client in self.config.clients() {
             _ = self.connect(client).await?;
-            info!("client connected to {}", client.endpoint);
         }
 
         // Controller service
@@ -224,7 +223,7 @@ impl Service {
 
         // Cancel and drain all server cancellation tokens
         for (endpoint, token) in self.cancellation_tokens.write().drain() {
-            info!(%endpoint, "cancelling server");
+            info!(%endpoint, "stopping server");
             token.cancel();
         }
 
@@ -232,7 +231,7 @@ impl Service {
         for (endpoint, conn_id) in self.clients.write().drain() {
             info!(%endpoint, conn_id = %conn_id, "disconnecting client");
             if let Err(e) = self.message_processor.disconnect(conn_id) {
-                tracing::error!("disconnect error for endpoint {}: {}", endpoint, e);
+                tracing::error!(%endpoint, error = %e.chain(), "disconnect error");
             }
         }
 
@@ -309,15 +308,13 @@ impl Service {
     }
 
     pub async fn run_server(&self, config: &ServerConfig) -> Result<(), ServiceError> {
-        info!("starting server {}", config.endpoint);
-        let cancellation_token = self
-            .message_processor
-            .run_server(config)
-            .await
-            .map_err(|e| ServiceError::ConnectionError(e.to_string()))?;
+        let cancellation_token = self.message_processor.run_server(config).await?;
         self.cancellation_tokens
             .write()
             .insert(config.endpoint.clone(), cancellation_token);
+
+        info!(endpoint = %config.endpoint, "started dataplane server");
+
         Ok(())
     }
 

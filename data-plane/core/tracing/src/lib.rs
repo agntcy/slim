@@ -1,6 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+pub mod utils;
+
 use opentelemetry::{KeyValue, global, trace::TracerProvider as _};
 use opentelemetry_otlp::{ExporterBuildError, WithExportConfig};
 use opentelemetry_sdk::{
@@ -22,21 +24,19 @@ use slim_config::{
     tls::client::TlsClientConfig,
 };
 
-pub mod utils;
-
 const OTEL_EXPORTER_OTLP_ENDPOINT: &str = "http://localhost:4317";
 
 #[derive(Error, Debug)]
 pub enum ConfigError {
     // gRPC / remote configuration
-    #[error("error loading GRPC config: {0}")]
+    #[error("error loading GRPC config")]
     GRPCError(#[from] GrpcConfigError),
 
-    #[error("error building exporter: {0}")]
+    #[error("error building exporter")]
     OpenTelemetryInitError(#[from] ExporterBuildError),
 
     // Filter parsing / directives
-    #[error("error parsing filter directives: {0}")]
+    #[error("error parsing filter directives")]
     FilterParseError(#[from] tracing_subscriber::filter::ParseError),
 }
 

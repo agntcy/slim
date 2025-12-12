@@ -56,41 +56,41 @@ pub enum AuthError {
     HmacKeyMissing,
 
     // Time
-    #[error("time error: {0}")]
+    #[error("time error")]
     TimeError(#[from] std::time::SystemTimeError),
 
     // URL parsing
-    #[error("URL parse error: {0}")]
+    #[error("URL parse error")]
     UrlParseError(#[from] url::ParseError),
 
     // Header parsing
-    #[error("invalid header name: {0}")]
+    #[error("invalid header name")]
     HeaderNameError(#[from] http::header::InvalidHeaderName),
-    #[error("invalid header value: {0}")]
+    #[error("invalid header value")]
     HeaderValueError(#[from] http::header::InvalidHeaderValue),
 
     // File watcher
-    #[error("file watcher error: {0}")]
+    #[error("file watcher error")]
     FileWatcherError(#[from] crate::file_watcher::FileWatcherError),
 
     // Token lifecycle
     #[error("no token available")]
     GetTokenError,
     #[error("token invalid")]
-    TokenInvalid2,
+    TokenInvalid,
     #[error("token malformed")]
     TokenMalformed,
     #[error("token invalid: missing subject claim")]
     TokenInvalidMissingSub,
     #[error("token invalid: replay")]
     TokenInvalidReplay,
-    #[error("token invalid: {0}")]
+    #[error("token invalid")]
     JwtTokenInvalid(#[from] jsonwebtoken_aws_lc::errors::Error),
     #[error("token invalid - missing or invalid exp claim")]
     TokenInvalidMissingExp,
 
     // HTTP / networking
-    #[error("HTTP request error: {0}")]
+    #[error("HTTP request error")]
     HttpError(#[from] reqwest::Error),
 
     // JWKS / key resolution
@@ -108,13 +108,13 @@ pub enum AuthError {
     SpiffeCustomClaimsSerialize { source: serde_json::Error },
 
     // SPIFFE / SPIRE integration
-    #[error("spiffe error: {0}")]
+    #[error("spiffe error")]
     SpiffeError(#[from] SpiffeIdError),
-    #[error("spiffe grpc error: {0}")]
+    #[error("spiffe grpc error")]
     SpiffeGrpcError(#[from] GrpcClientError),
     #[error("spiffe workload api unavailable")]
     SpiffeWorkloadApiUnavailable,
-    #[error("spiffe x509 dource error: {0}")]
+    #[error("spiffe x509 dource error")]
     SpiffeX509SourceError(#[from] X509SourceError),
     #[error("jwt source not initialized")]
     SpiffeJwtSourceNotInitialized,
@@ -122,7 +122,7 @@ pub enum AuthError {
     SpiffeJwtSvidMissing,
     #[error("missing jwt bundle")]
     SpiffeJwtBundleMissing,
-    #[error("invalid JWT svid: {0}")]
+    #[error("invalid JWT svid")]
     SpiffeInvalidJwtSvid(#[from] JwtSvidError),
     #[error("failed to fetch x509 SVID")]
     SpiffeX509SvidMissing,
@@ -146,9 +146,9 @@ pub enum AuthError {
     SpiffeCustomAudiencesError,
 
     // Serialization
-    #[error("JSON serialization error: {0}")]
+    #[error("JSON serialization error")]
     JsonError(#[from] serde_json::Error),
-    #[error("base64 decode error: {0}")]
+    #[error("base64 decode error")]
     Base64DecodeError(#[from] base64::DecodeError),
 
     // Operational

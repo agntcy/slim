@@ -12,7 +12,7 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum FileWatcherError {
-    #[error("watch error: {0}")]
+    #[error("watch error")]
     WatchError(#[from] notify::Error),
 }
 

@@ -188,8 +188,7 @@ impl SessionReceiver {
             message.get_session_header().session_id,
             message.get_id(),
             publish_meta,
-        )
-        .map_err(SessionError::build_error)?;
+        )?;
 
         self.tx.send_to_slim(Ok(ack)).await
     }
@@ -270,8 +269,7 @@ impl SessionReceiver {
                 self.session_id,
                 rtx_id,
                 None,
-            )
-            .map_err(SessionError::build_error)?;
+            )?;
 
             // for each RTX start a timer
             debug!("create rtx timer for message {} form {}", rtx_id, source);

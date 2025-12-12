@@ -7,6 +7,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::{net::SocketAddr, str::FromStr, time::Duration};
 
+use display_error_chain::ErrorChainExt;
 use duration_string::DurationString;
 use futures::FutureExt;
 use schemars::JsonSchema;
@@ -450,7 +451,7 @@ impl ServerConfig {
                             debug!("server shutdown");
                         }
                         Err(e) => {
-                            tracing::error!("server error: {:?}", e);
+                            tracing::error!(error = %e.chain(), "server error");
                         }
                     }
                 }

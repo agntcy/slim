@@ -133,7 +133,7 @@ async fn test_spiffe_provider_initialization() {
                 tracing::info!("Provider initialized successfully");
             }
             Err(e) => {
-                tracing::error!("Provider initialization failed: {}", e);
+                tracing::error!(error = %e.chain(), "provider initialization failed");
                 should_panic = true;
                 break 'test_block;
             }
@@ -145,7 +145,7 @@ async fn test_spiffe_provider_initialization() {
                 tracing::info!("Verifier initialized successfully");
             }
             Err(e) => {
-                tracing::error!("Verifier initialization failed: {}", e);
+                tracing::error!(error = %e.chain(), "verifier initialization failed");
                 should_panic = true;
                 break 'test_block;
             }
@@ -167,7 +167,7 @@ async fn test_spiffe_provider_initialization() {
                 );
             }
             Err(e) => {
-                tracing::error!("Failed to get X.509 bundle: {}", e);
+                tracing::error!(error = %e.chain(), "failed to get X.509 bundle");
                 should_panic = true;
                 break 'test_block;
             }
@@ -180,7 +180,7 @@ async fn test_spiffe_provider_initialization() {
                 assert!(svid.spiffe_id().to_string().contains("example.org"));
             }
             Err(e) => {
-                tracing::error!("X.509 SVID fetch failed: {}", e);
+                tracing::error!(error = %e.chain(), "x.509 SVID fetch failed");
                 should_panic = true;
                 break 'test_block;
             }
@@ -195,7 +195,7 @@ async fn test_spiffe_provider_initialization() {
                 assert_eq!(parts.len(), 3, "JWT should have 3 parts");
             }
             Err(e) => {
-                tracing::error!("JWT token fetch failed: {}", e);
+                tracing::error!(error = %e.chain(), "jwt token fetch failed");
                 should_panic = true;
                 break 'test_block;
             }
@@ -255,7 +255,7 @@ async fn test_spiffe_provider_initialization() {
                 }
             }
             Err(e) => {
-                tracing::error!("JWT token with claims fetch failed: {}", e);
+                tracing::error!(error = %e.chain(), "JWT token with claims fetch failed}");
                 should_panic = true;
                 break 'test_block;
             }

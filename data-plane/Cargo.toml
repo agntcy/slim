@@ -61,6 +61,7 @@ bytes = "1.9.0"
 clap = { version = "4.5.23", features = ["derive", "env"] }
 
 criterion = { version = "0.5", features = ["html_reports"] }
+display-error-chain = { version = "0.2" }
 drain = { version = "0.2", features = ["retain"] }
 duration-string = { version = "0.5.3", features = ["serde"] }
 futures = "0.3.31"

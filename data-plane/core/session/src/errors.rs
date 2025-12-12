@@ -19,11 +19,11 @@ pub enum SessionError {
     // Transport and channel errors
     #[error("SLIM channel closed")]
     SlimChannelClosed,
-    #[error("error receiving message from SLIM: {0}")]
+    #[error("error receiving message from SLIM")]
     SlimReception(#[from] Status),
 
     // Message processing and validation errors
-    #[error("message error: {0}")]
+    #[error("message error")]
     MessageError(#[from] MessageError),
     #[error("missing removed participant in GroupRemove message")]
     MissingRemovedParticipantInGroupRemove,
@@ -59,11 +59,11 @@ pub enum SessionError {
     InvalidSessionId(u32),
 
     // Cryptography (MLS)
-    #[error("mls operation error: {0}")]
+    #[error("mls operation error")]
     MlsOp(#[from] MlsError),
 
     // Authorization and roles
-    #[error("auth error: {0}")]
+    #[error("auth error")]
     Auth(#[from] AuthError),
 
     // Acknowledgements and routing

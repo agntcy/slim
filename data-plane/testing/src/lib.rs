@@ -47,7 +47,7 @@ pub enum ParsingError {
     MissingType,
     #[error("parsing error - unknown type (must be PUB or SUB)")]
     UnknownType,
-    #[error("parse int error: {0}")]
+    #[error("parse int error")]
     ParseIntError(#[from] ParseIntError),
     #[error("unexpected number of receivers: {actual}/{expected}")]
     UnexpectedNumberOfReceivers { expected: usize, actual: usize },

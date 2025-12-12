@@ -135,7 +135,7 @@ mod tests {
         let client_config_clone = client_config.clone();
         let _server = tokio::spawn(async move {
             if let Err(e) = run_server(client_config_clone, server_config).await {
-                tracing::error!("server error: {e}");
+                tracing::error!(error = %e, "server error");
             }
         });
 
@@ -918,7 +918,7 @@ mod tests {
 
         // Cleanup (propagate error if cleanup itself fails)
         if let Err(e) = env.cleanup().await {
-            tracing::error!("Failed to cleanup SPIRE test environment: {e}");
+            tracing::error!(error = %e.chain(), "Failed to cleanup SPIRE test environment");
             return Err(e);
         }
 

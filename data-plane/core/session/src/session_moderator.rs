@@ -8,6 +8,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use display_error_chain::ErrorChainExt;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
@@ -1136,8 +1137,8 @@ where
             }))
             .await;
 
-        if res.is_err() {
-            tracing::error!("an error occurred while signaling session close");
+        if let Err(e) = res {
+            tracing::error!(error = %e.chain(), "an error occurred while signaling session close");
         }
     }
 }

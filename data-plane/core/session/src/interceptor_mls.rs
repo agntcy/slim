@@ -146,13 +146,7 @@ mod tests {
             .unwrap();
 
         let result = interceptor.on_msg_from_app(&mut msg).await;
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("MLS group does not exist")
-        );
+        assert!(result.is_err_and(|e| matches!(e, SessionError::MlsOp(_))));
     }
 
     #[tokio::test]

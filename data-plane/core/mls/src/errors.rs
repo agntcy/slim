@@ -2,14 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use mls_rs::error::IntoAnyError;
+use slim_auth::errors::AuthError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum MlsError {
     // I/O / serialization
-    #[error("I/O error: {0}")]
+    #[error("I/O error")]
     Io(#[from] std::io::Error),
-    #[error("Serialization/Deserialization error: {0}")]
+    #[error("Serialization/Deserialization error")]
     Serde(#[from] serde_json::Error),
 
     // Underlying MLS library
@@ -19,6 +20,10 @@ pub enum MlsError {
     // Crypto / provider
     #[error("crypto provider error: {0}")]
     CryptoProviderError(String),
+
+    // Auth / identity provider
+    #[error("identity provider error")]
+    IdentityProviderError(#[from] AuthError),
 
     // Ciphersuite / client / group lifecycle
     #[error("Requested ciphersuite is unavailable")]
@@ -40,7 +45,7 @@ pub enum MlsError {
 
     // Storage / identity persistence
     #[error("Failed to create storage directory: {0}")]
-    StorageDirectoryCreation(std::io::Error),
+    StorageIo(std::io::Error),
     #[error("Failed to get token: {0}")]
     TokenRetrievalFailed(String),
     #[error("Failed to sync file: {0}")]
@@ -53,7 +58,7 @@ pub enum MlsError {
     // Identity / claims (merged from SlimIdentityError)
     #[error("Not a basic credential")]
     NotBasicCredential,
-    #[error("Invalid UTF-8 in credential: {0}")]
+    #[error("Invalid UTF-8 in credential")]
     InvalidUtf8(#[from] std::str::Utf8Error),
     #[error("Identity verification failed: {0}")]
     VerificationFailed(String),

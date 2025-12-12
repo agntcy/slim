@@ -3,6 +3,7 @@
 
 use anyhow::{Context, Result};
 use clap::Parser;
+use display_error_chain::ErrorChainExt;
 use prost::Message;
 use tracing::{error, info};
 
@@ -25,10 +26,10 @@ fn spawn_session_receiver(
             if let Some(m) = message_clone {
                 if let Some(s) = session.upgrade() {
                         if let Err(e) = s.publish(s.dst(), m.encode_to_vec(), None, None).await {
-                            error!("Failed to publish message to session: {:?}", e);
+                            error!(error = %e.chain(), "failed to publish message to session");
                         }
                 } else {
-                    error!("Failed to upgrade session weak reference");
+                    error!("failed to upgrade session weak reference");
                 }
             }
 
@@ -65,7 +66,7 @@ fn spawn_session_receiver(
                                 }
                             },
                             Some(Err(e)) => {
-                                error!("error receiving session message: {:?}", e);
+                                error!(error = %e.chain(), "error receiving session message");
                                 continue;
                             }
                         };
@@ -164,7 +165,7 @@ async fn main() -> Result<()> {
                     Some(res) => match res {
                         Ok(n) => n,
                         Err(e) => {
-                            error!("error receiving app notification: {:?}", e);
+                            error!(error = %e.chain(), "error receiving app notification");
                             continue;
                         }
                     }

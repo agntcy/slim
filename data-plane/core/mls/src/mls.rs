@@ -54,7 +54,9 @@ impl StoredIdentity {
     fn load_from_storage(storage_path: &std::path::Path) -> Result<Self, MlsError> {
         let identity_file = storage_path.join(IDENTITY_FILENAME);
         let data = std::fs::read(&identity_file)?;
-        serde_json::from_slice(&data).map_err(MlsError::from)
+        let ret = serde_json::from_slice(&data)?;
+
+        Ok(ret)
     }
 
     fn save_to_storage(&self, storage_path: &std::path::Path) -> Result<(), MlsError> {
@@ -62,8 +64,8 @@ impl StoredIdentity {
         let json = serde_json::to_vec_pretty(self)?;
         let mut file = File::create(&identity_file)?;
         file.write_all(&json)?;
-        file.sync_all()
-            .map_err(|e| MlsError::FileSyncFailed(e.to_string()))?;
+        file.sync_all()?;
+
         Ok(())
     }
 }
@@ -171,8 +173,7 @@ where
         let token = self
             .identity_provider
             .get_token_with_claims(IdentityClaims::from_public_key_bytes(public_key.as_ref()))
-            .await
-            .map_err(MlsError::token_retrieval_failed)?;
+            .await?;
 
         let credential_data = token.as_bytes().to_vec();
 
@@ -214,7 +215,7 @@ where
     pub async fn initialize(&mut self) -> Result<(), MlsError> {
         let storage_path = self.get_storage_path();
         debug!("Using storage path: {}", storage_path.display());
-        std::fs::create_dir_all(&storage_path).map_err(MlsError::StorageDirectoryCreation)?;
+        std::fs::create_dir_all(&storage_path)?;
 
         let stored_identity = if StoredIdentity::exists(&storage_path) {
             debug!("Loading existing identity from file");
@@ -223,11 +224,7 @@ where
             debug!("Creating new identity");
             let (private_key, public_key) = Self::generate_key_pair().await?;
 
-            self.identity = Some(
-                self.identity_provider
-                    .get_id()
-                    .map_err(MlsError::identifier_not_found)?,
-            );
+            self.identity = Some(self.identity_provider.get_id()?);
 
             let stored = StoredIdentity {
                 identifier: self
@@ -327,7 +324,7 @@ where
         let commit = commit.build().await?;
 
         // create the commit message to broadcast in the group
-        let commit_msg = commit.commit_message.to_bytes().map_err(MlsError::from)?;
+        let commit_msg = commit.commit_message.to_bytes()?;
 
         // extract and serialize the first welcome message
         let welcome = commit
@@ -504,14 +501,16 @@ where
             "Created credential rotation proposal, stored new keys and incremented credential version"
         );
 
-        update_proposal.to_bytes().map_err(MlsError::from)
+        let ret = update_proposal.to_bytes()?;
+
+        Ok(ret)
     }
 
     /// Get a token from the identity provider
     pub fn get_token(&self) -> Result<String, MlsError> {
-        self.identity_provider
-            .get_token()
-            .map_err(MlsError::token_retrieval_failed)
+        let ret = self.identity_provider.get_token()?;
+
+        Ok(ret)
     }
 }
 

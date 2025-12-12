@@ -15,13 +15,13 @@ pub enum ConfigError {
     #[error("invalid tls version: {0}")]
     InvalidTlsVersion(String),
     // PEM / certificate/key parsing
-    #[error("invalid pem format: {0}")]
+    #[error("invalid pem format")]
     InvalidPem(#[from] rustls_pki_types::pem::Error),
     // File content/read validation
     #[error("error reading cert/key from file: {0}")]
     InvalidFile(String),
     // Low-level I/O
-    #[error("file I/O error: {0}")]
+    #[error("file I/O error")]
     FileIo(#[from] std::io::Error),
     // SPIRE integration / configuration
     #[error("error in spire configuration: {details}, config={config:?}")]
@@ -30,14 +30,14 @@ pub enum ConfigError {
         details: Box<String>,
         config: Box<spire::SpireConfig>,
     },
-    #[error("auth error: {0}")]
+    #[error("auth error")]
     AuthError(#[from] slim_auth::errors::AuthError),
 
-    #[error("auth config error: {0}")]
+    #[error("auth config error")]
     ConfigAuthError(#[from] crate::auth::ConfigAuthError),
 
     // rustls library errors
-    #[error("rustls error: {0}")]
+    #[error("rustls error")]
     Rustls(#[from] rustls::Error),
     // Builder pattern errors
     #[error("config builder error: {0}")]
@@ -46,7 +46,7 @@ pub enum ConfigError {
     #[error("missing server cert or key")]
     MissingServerCertAndKey,
     // Verifier construction errors
-    #[error("verifier builder error: {0}")]
+    #[error("verifier builder error")]
     VerifierBuilder(#[from] VerifierBuilderError),
     // Unknown / catch-all
     #[error("unknown error")]
