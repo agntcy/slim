@@ -1,6 +1,6 @@
 module github.com/agntcy/slim/control-plane/slimctl
 
-go 1.25.4
+go 1.24.2
 
 require (
 	github.com/agntcy/slim/control-plane/common v0.0.0-00010101000000-000000000000
@@ -35,6 +35,6 @@ require (
 )
 
 replace (
-	github.com/agntcy/slim/control-plane/common => ../common
 	github.com/agntcy/slim/bindings/generated => ../../data-plane/bindings/go/generated
+	github.com/agntcy/slim/control-plane/common => ../common
 )
