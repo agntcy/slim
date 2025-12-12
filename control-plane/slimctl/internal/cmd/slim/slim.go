@@ -6,11 +6,13 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/agntcy/slim/control-plane/slimctl/internal/cfg"
 	"github.com/agntcy/slim/control-plane/slimctl/internal/manager"
 )
 
 // NewSlimCmd creates the base 'slim' command.
-func NewSlimCmd(ctx context.Context, manager manager.Manager) *cobra.Command {
+func NewSlimCmd(ctx context.Context, appConfig *cfg.AppConfig) *cobra.Command {
+	manager := manager.NewManager(appConfig.CommonOpts.Logger, "", "")
 	slimCmd := &cobra.Command{
 		Use:     "slim",
 		Aliases: []string{"s"},

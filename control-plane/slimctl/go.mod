@@ -15,6 +15,7 @@ require (
 )
 
 require (
+	github.com/agntcy/slim/bindings/generated v0.0.0-00010101000000-000000000000
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
@@ -33,4 +34,7 @@ require (
 	google.golang.org/grpc v1.73.0 // indirect
 )
 
-replace github.com/agntcy/slim/control-plane/common => ../common
+replace (
+	github.com/agntcy/slim/control-plane/common => ../common
+	github.com/agntcy/slim/bindings/generated => ../../data-plane/bindings/go/generated
+)

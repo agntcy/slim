@@ -178,9 +178,9 @@ func main() {
 
 	// add the slim command tree
 	ctx := context.Background()
-	manager := manager.NewManager(conf.AppConfig.CommonOpts.Logger)
 
-	rootCmd.AddCommand(slim.NewSlimCmd(ctx, manager))
+
+	rootCmd.AddCommand(slim.NewSlimCmd(ctx, conf.AppConfig))
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "CLI error: %v", err)
