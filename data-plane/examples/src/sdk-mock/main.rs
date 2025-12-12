@@ -130,8 +130,10 @@ async fn main() {
     let (app, mut rx) = svc
         .create_app(
             &name,
-            SharedSecret::new(local_name, TEST_VALID_SECRET),
-            SharedSecret::new(local_name, TEST_VALID_SECRET),
+            SharedSecret::new(local_name, TEST_VALID_SECRET)
+                .expect("Failed to create SharedSecret"),
+            SharedSecret::new(local_name, TEST_VALID_SECRET)
+                .expect("Failed to create SharedSecret"),
         )
         .expect("failed to create app");
 

@@ -105,7 +105,7 @@ impl Config {
     fn get_token_provider_auth(&self) -> Option<AuthProvider> {
         match &self.token_provider {
             TokenProviderAuthConfig::SharedSecret { data } => {
-                Some(AuthProvider::shared_secret_from_str("control-plane", data))
+                AuthProvider::shared_secret_from_str("control-plane", data).ok()
             }
             TokenProviderAuthConfig::StaticJwt(static_jwt_config) => {
                 let provider = static_jwt_config
@@ -126,7 +126,7 @@ impl Config {
     fn get_token_verifier_auth(&self) -> Option<AuthVerifier> {
         match &self.token_verifier {
             TokenVerifierAuthConfig::SharedSecret { data } => {
-                Some(AuthVerifier::shared_secret_from_str("control-plane", data))
+                AuthVerifier::shared_secret_from_str("control-plane", data).ok()
             }
             TokenVerifierAuthConfig::Jwt(jwt_config) => {
                 let verifier = jwt_config

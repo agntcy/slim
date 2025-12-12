@@ -376,8 +376,8 @@ mod tests {
 
         App::new(
             &name,
-            SharedSecret::new("a", TEST_VALID_SECRET),
-            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+            SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
             0,
             tx_slim,
             tx_app,
@@ -393,8 +393,8 @@ mod tests {
 
         let app = App::new(
             &name,
-            SharedSecret::new("a", TEST_VALID_SECRET),
-            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+            SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
             0,
             tx_slim.clone(),
             tx_app.clone(),
@@ -431,8 +431,8 @@ mod tests {
 
         let app = App::new(
             &name,
-            SharedSecret::new("a", TEST_VALID_SECRET),
-            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+            SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
             0,
             tx_slim.clone(),
             tx_app.clone(),
@@ -472,8 +472,8 @@ mod tests {
 
         let app = App::new(
             &name,
-            SharedSecret::new("a", TEST_VALID_SECRET),
-            SharedSecret::new("a", TEST_VALID_SECRET),
+            SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+            SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
             0,
             tx_slim.clone(),
             tx_app.clone(),
@@ -522,7 +522,7 @@ mod tests {
         let source = Name::from_strings(["org", "ns", "source"]).with_id(0);
         let dest = Name::from_strings(["org", "ns", "dest"]).with_id(0);
 
-        let identity = SharedSecret::new("a", TEST_VALID_SECRET);
+        let identity = SharedSecret::new("a", TEST_VALID_SECRET).unwrap();
 
         let app = App::new(
             &dest,
@@ -625,7 +625,7 @@ mod tests {
         let dst = Name::from_strings(["cisco", "default", "remote"]).with_id(0);
         let source = Name::from_strings(["cisco", "default", "local"]).with_id(0);
 
-        let identity = SharedSecret::new("a", TEST_VALID_SECRET);
+        let identity = SharedSecret::new("a", TEST_VALID_SECRET).unwrap();
 
         let app = App::new(
             &source,
@@ -838,16 +838,16 @@ mod tests {
         let (subscriber_app, mut subscriber_notifications) = service
             .create_app(
                 &subscriber_name,
-                SharedSecret::new("a", TEST_VALID_SECRET),
-                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
             )
             .unwrap();
 
         let (publisher_app, _publisher_notifications) = service
             .create_app(
                 &publisher_name,
-                SharedSecret::new("a", TEST_VALID_SECRET),
-                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
             )
             .unwrap();
 
@@ -993,8 +993,8 @@ mod tests {
         let (moderator_app, mut _moderator_notifications) = service
             .create_app(
                 &moderator_name,
-                SharedSecret::new("a", TEST_VALID_SECRET),
-                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
             )
             .unwrap();
 
@@ -1008,8 +1008,8 @@ mod tests {
             let (app, notifications) = service
                 .create_app(
                     &participant_name,
-                    SharedSecret::new("a", TEST_VALID_SECRET),
-                    SharedSecret::new("a", TEST_VALID_SECRET),
+                    SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+                    SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                 )
                 .unwrap();
 
@@ -1141,16 +1141,16 @@ mod tests {
         let (sender_app, _sender_notifications) = service
             .create_app(
                 &sender_name,
-                SharedSecret::new("a", TEST_VALID_SECRET),
-                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
             )
             .unwrap();
 
         let (receiver_app, mut receiver_notifications) = service
             .create_app(
                 &receiver_name,
-                SharedSecret::new("a", TEST_VALID_SECRET),
-                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
             )
             .unwrap();
 
@@ -1311,24 +1311,24 @@ mod tests {
         let (moderator_app, _moderator_notifications) = service
             .create_app(
                 &moderator_name,
-                SharedSecret::new("a", TEST_VALID_SECRET),
-                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
             )
             .unwrap();
 
         let (_participant1_app, mut participant1_notifications) = service
             .create_app(
                 &participant1_name,
-                SharedSecret::new("a", TEST_VALID_SECRET),
-                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
             )
             .unwrap();
 
         let (_participant2_app, mut participant2_notifications) = service
             .create_app(
                 &participant2_name,
-                SharedSecret::new("a", TEST_VALID_SECRET),
-                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
             )
             .unwrap();
 

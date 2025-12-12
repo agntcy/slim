@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+pub mod common;
 pub mod utils;
 
 use std::{num::ParseIntError, str::SplitWhitespace};
@@ -121,7 +122,7 @@ pub fn parse_pub(mut iter: SplitWhitespace<'_>) -> Result<ParsedMessage, Parsing
     // this a valid publication, get pub id
     let id = iter
         .next()
-        .ok_or_else(|| ParsingError::MissingPublicationId)?
+        .ok_or(ParsingError::MissingPublicationId)?
         .parse::<u64>()?;
 
     // get the publication name

@@ -13,6 +13,8 @@ pub enum DataPathError {
     ConnectionError,
     #[error("disconnection error")]
     DisconnectionError,
+    #[error("grpc error: {0}")]
+    GrpcError(#[from] tonic::Status),
 
     // Message classification / validation
     #[error("unknown message type")]
@@ -37,6 +39,8 @@ pub enum DataPathError {
     // Processing
     #[error("message processing error: {0}")]
     ProcessingError(MessageError),
+    #[error("error adding connection to connection table")]
+    ConnectionTableAddError,
 
     // Configuration error
     #[error("configuration error: {0}")]
@@ -45,6 +49,8 @@ pub enum DataPathError {
     // Shutdown errors
     #[error("data path is already closed")]
     AlreadyClosedError,
+    #[error("data pplane is shutting down")]
+    ShuttingDownError,
     #[error("timeout during shutdown")]
     ShutdownTimeoutError,
 }

@@ -1,0 +1,89 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+---
+name: go-bindings-build-and-test
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: Github hosted runner or Self hosted runner
+        required: false
+        type: string
+        default: ubuntu-latest
+      rust-workspace:
+        description: Rust workspace directory for caching
+        required: false
+        type: string
+        default: ./data-plane
+      bindings-adapter-dir:
+        description: Directory containing the Rust UniFFI adapter crate
+        required: false
+        type: string
+        default: ./data-plane/bindings/adapter
+      go-bindings-dir:
+        description: Directory containing Go bindings and tests
+        required: false
+        type: string
+        default: ./data-plane/bindings/go
+      library-output-dir:
+        description: Directory where the compiled library will be located
+        required: false
+        type: string
+        default: ./data-plane/target/release
+      library-name:
+        description: Name of the compiled library (without lib prefix and extension)
+        required: false
+        type: string
+        default: slim_bindings
+      uniffi-bindgen-go-version:
+        description: Version tag for uniffi-bindgen-go
+        required: false
+        type: string
+        default: v0.4.0+v0.28.3
+
+jobs:
+  go-bindings-test:
+    runs-on: ${{ inputs.runner }}
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          workspace: ${{ inputs.rust-workspace }}
+
+      - name: Setup Go
+        uses: ./.github/actions/setup-go
+
+      - name: Build Rust UniFFI library
+        working-directory: ${{ inputs.go-bindings-dir }}
+        run: task rust-build
+
+      - name: Install uniffi-bindgen-go
+        working-directory: ${{ inputs.go-bindings-dir }}
+        run: task install-uniffi-bindgen-go
+
+      - name: Generate Go bindings
+        working-directory: ${{ inputs.go-bindings-dir }}
+        run: |
+          uniffi-bindgen-go \
+            --library ${{ github.workspace }}/${{ inputs.library-output-dir }}/lib${{ inputs.library-name }}.so \
+            --out-dir generated
+          cd generated && go mod init github.com/agntcy/slim/bindings/generated 2>/dev/null || true
+
+      - name: Run Go bindings tests
+        working-directory: ${{ inputs.go-bindings-dir }}
+        env:
+          CGO_LDFLAGS: "-L${{ github.workspace }}/${{ inputs.library-output-dir }} -l${{ inputs.library-name }}"
+          LD_LIBRARY_PATH: "${{ github.workspace }}/${{ inputs.library-output-dir }}"
+        run: |
+          echo "Running Go bindings tests..."
+          go test -v ./...
+

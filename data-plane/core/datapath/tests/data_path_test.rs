@@ -42,16 +42,13 @@ mod tests {
         // connect client
         let mut client_config = ClientConfig::with_endpoint("http://127.0.0.1:50051");
         client_config.tls_setting.insecure = true;
-        let channel = client_config.to_channel().await.unwrap();
-
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         // create bidirectional stream
         info!("Client connected");
         let (_, conn_index) = msg_processor
             .connect(
-                channel,
-                None,
+                client_config,
                 None,
                 Some(SocketAddr::from(([127, 0, 0, 1], 50051))),
             )
@@ -176,13 +173,11 @@ mod tests {
         // create a client config we will attach to the connection
         let mut client_config = ClientConfig::with_endpoint("http://127.0.0.1:50052");
         client_config.tls_setting.insecure = true;
-        let channel = client_config.to_channel().await.unwrap();
 
         // connect with client_config Some(...)
         let (_, conn_index) = msg_processor
             .connect(
-                channel,
-                Some(client_config.clone()),
+                client_config.clone(),
                 None,
                 Some(SocketAddr::from(([127, 0, 0, 1], 50052))),
             )

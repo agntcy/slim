@@ -209,11 +209,11 @@ impl ClientAuthenticator for Config {
     type ClientLayer = AddJwtLayer<OidcTokenProvider>;
 
     fn get_client_layer(&self) -> Result<Self::ClientLayer, ConfigAuthError> {
-        if !self.client_id.is_some() {
+        if self.client_id.is_none() {
             return Err(ConfigAuthError::AuthOidcEmptyClientId);
         }
 
-        if !self.client_secret.is_some() {
+        if self.client_secret.is_none() {
             return Err(ConfigAuthError::AuthOidcEmptyClientSecret);
         }
 

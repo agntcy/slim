@@ -57,7 +57,7 @@ impl ModeratorTask {
         }
     }
 
-    pub(crate) fn failure_message<'a>(&self) -> SessionError {
+    pub(crate) fn failure_message(&self) -> SessionError {
         match self {
             ModeratorTask::Add(_) => SessionError::ModeratorTaskAddFailed,
             ModeratorTask::Remove(_) => SessionError::ModeratorTaskRemoveFailed,

@@ -58,7 +58,7 @@ impl Connection {
         Self {
             remote_addr: None,
             local_addr: None,
-            channel: channel,
+            channel,
             config_data: None,
             connection_type,
             cancellation_token: None,

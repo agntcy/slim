@@ -87,13 +87,12 @@ impl FileWatcher {
     }
 
     pub fn add_file(&mut self, file_name: &str) -> Result<(), FileWatcherError> {
-        let res = self
-            .watcher
+        self.watcher
             .watch(Path::new(file_name), RecursiveMode::NonRecursive)?;
 
         debug!("added file {} to watcher", file_name);
 
-        Ok(res)
+        Ok(())
     }
 
     pub fn stop_watcher(&self) {

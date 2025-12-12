@@ -129,6 +129,7 @@ impl std::fmt::Debug for Service {
             .field("servers", &self.config.servers())
             .field("clients", &self.config.clients())
             .field("group_name", &self.config.group_name)
+            .field("controller", &self.config.controller)
             .finish()
     }
 }
@@ -338,12 +339,10 @@ impl Service {
             ));
         }
 
-        let channel = config.to_channel().await?;
-
         // Propagate DataPathError directly (ServiceError::DataPath via #[from])
-        let (_idx, conn_id) = self
+        let (_handle, conn_id) = self
             .message_processor
-            .connect(channel, Some(config.clone()), None, None)
+            .connect(config.clone(), None, None)
             .await?;
 
         // register the client
@@ -351,6 +350,7 @@ impl Service {
             .write()
             .insert(config.endpoint.clone(), conn_id);
 
+        // return the connection id
         Ok(conn_id)
     }
 
@@ -573,8 +573,8 @@ mod tests {
         let (sub_app, mut sub_rx) = service
             .create_app(
                 &subscriber_name,
-                SharedSecret::new("a", TEST_VALID_SECRET),
-                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
             )
             .expect("failed to create app");
 
@@ -583,8 +583,8 @@ mod tests {
         let (pub_app, _rx) = service
             .create_app(
                 &publisher_name,
-                SharedSecret::new("a", TEST_VALID_SECRET),
-                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
             )
             .expect("failed to create app");
 
@@ -692,8 +692,8 @@ mod tests {
         let (app, _) = service
             .create_app(
                 &name,
-                SharedSecret::new("a", TEST_VALID_SECRET),
-                SharedSecret::new("a", TEST_VALID_SECRET),
+                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
             )
             .expect("failed to create app");
 

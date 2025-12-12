@@ -7,6 +7,7 @@ description = "Main service and public API to interact with SLIM data plane."
 
 [lib]
 name = "slim_service"
+crate-type = ["lib"]
 
 [dependencies]
 agntcy-slim-auth = { workspace = true }

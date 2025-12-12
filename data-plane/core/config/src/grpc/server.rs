@@ -220,9 +220,9 @@ impl Configuration for ServerConfig {
 
     fn validate(&self) -> Result<(), Self::Error> {
         // Validate the client configuration
-        let res = self.tls_setting.validate()?;
+        self.tls_setting.validate()?;
 
-        Ok(res)
+        Ok(())
     }
 }
 

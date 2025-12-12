@@ -533,8 +533,8 @@ mod tests {
     #[tokio::test]
     async fn test_mls_creation() -> Result<(), Box<dyn std::error::Error>> {
         let mut mls = Mls::new(
-            SharedSecret::new("alice", SHARED_SECRET),
-            SharedSecret::new("alice", SHARED_SECRET),
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
             std::path::PathBuf::from("/tmp/mls_test_creation"),
         );
 
@@ -547,8 +547,8 @@ mod tests {
     #[tokio::test]
     async fn test_group_creation() -> Result<(), Box<dyn std::error::Error>> {
         let mut mls = Mls::new(
-            SharedSecret::new("alice", SHARED_SECRET),
-            SharedSecret::new("alice", SHARED_SECRET),
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
             std::path::PathBuf::from("/tmp/mls_test_group_creation"),
         );
 
@@ -562,8 +562,8 @@ mod tests {
     #[tokio::test]
     async fn test_key_package_generation() -> Result<(), Box<dyn std::error::Error>> {
         let mut mls = Mls::new(
-            SharedSecret::new("alice", SHARED_SECRET),
-            SharedSecret::new("alice", SHARED_SECRET),
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
             std::path::PathBuf::from("/tmp/mls_test_key_package"),
         );
 
@@ -577,23 +577,23 @@ mod tests {
     async fn test_messaging() -> Result<(), Box<dyn std::error::Error>> {
         // alice will work as moderator
         let mut alice = Mls::new(
-            SharedSecret::new("alice", SHARED_SECRET),
-            SharedSecret::new("alice", SHARED_SECRET),
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
             std::path::PathBuf::from("/tmp/mls_test_messaging_alice"),
         );
         let mut bob = Mls::new(
-            SharedSecret::new("bob", SHARED_SECRET),
-            SharedSecret::new("bob", SHARED_SECRET),
+            SharedSecret::new("bob", SHARED_SECRET).unwrap(),
+            SharedSecret::new("bob", SHARED_SECRET).unwrap(),
             std::path::PathBuf::from("/tmp/mls_test_messaging_bob"),
         );
         let mut charlie = Mls::new(
-            SharedSecret::new("charlie", SHARED_SECRET),
-            SharedSecret::new("charlie", SHARED_SECRET),
+            SharedSecret::new("charlie", SHARED_SECRET).unwrap(),
+            SharedSecret::new("charlie", SHARED_SECRET).unwrap(),
             std::path::PathBuf::from("/tmp/mls_test_messaging_charlie"),
         );
         let mut daniel = Mls::new(
-            SharedSecret::new("daniel", SHARED_SECRET),
-            SharedSecret::new("daniel", SHARED_SECRET),
+            SharedSecret::new("daniel", SHARED_SECRET).unwrap(),
+            SharedSecret::new("daniel", SHARED_SECRET).unwrap(),
             std::path::PathBuf::from("/tmp/mls_test_messaging_daniel"),
         );
 
@@ -725,13 +725,13 @@ mod tests {
     #[tokio::test]
     async fn test_decrypt_message() -> Result<(), Box<dyn std::error::Error>> {
         let mut alice = Mls::new(
-            SharedSecret::new("alice", SHARED_SECRET),
-            SharedSecret::new("alice", SHARED_SECRET),
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
             std::path::PathBuf::from("/tmp/mls_test_decrypt_alice"),
         );
         let mut bob = Mls::new(
-            SharedSecret::new("bob", SHARED_SECRET),
-            SharedSecret::new("bob", SHARED_SECRET),
+            SharedSecret::new("bob", SHARED_SECRET).unwrap(),
+            SharedSecret::new("bob", SHARED_SECRET).unwrap(),
             std::path::PathBuf::from("/tmp/mls_test_decrypt_bob"),
         );
 
@@ -754,7 +754,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_shared_secret_rotation_same_identity() -> Result<(), Box<dyn std::error::Error>> {
-        let identity_a = SharedSecret::new("alice", SHARED_SECRET);
+        let identity_a = SharedSecret::new("alice", SHARED_SECRET).unwrap();
 
         // make sure the token provider is rotating the tokens
         let token_a = identity_a.get_token().unwrap();
@@ -767,7 +767,7 @@ mod tests {
             std::path::PathBuf::from("/tmp/mls_test_rotation_alice"),
         );
 
-        let identity_b = SharedSecret::new("bob", SHARED_SECRET);
+        let identity_b = SharedSecret::new("bob", SHARED_SECRET).unwrap();
         let mut bob = Mls::new(
             identity_b.clone(),
             identity_b.clone(),
@@ -792,11 +792,13 @@ mod tests {
             SharedSecret::new(
                 "alice",
                 "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas123",
-            ),
+            )
+            .unwrap(),
             SharedSecret::new(
                 "alice",
                 "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas123",
-            ),
+            )
+            .unwrap(),
             std::path::PathBuf::from("/tmp/mls_test_rotation_alice_v2"),
         );
         alice_rotated_secret.initialize().await?;
@@ -822,7 +824,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(bob_path);
         let _ = std::fs::remove_dir_all(moderator_path);
 
-        let secret_m = SharedSecret::new("moderator", SHARED_SECRET);
+        let secret_m = SharedSecret::new("moderator", SHARED_SECRET).unwrap();
         let mut moderator = Mls::new(
             secret_m.clone(),
             secret_m.clone(),
@@ -833,11 +835,11 @@ mod tests {
         // Moderator creates the group
         let _group_id = moderator.create_group().await?;
 
-        let secret_a = SharedSecret::new("alice", SHARED_SECRET);
+        let secret_a = SharedSecret::new("alice", SHARED_SECRET).unwrap();
         let mut alice = Mls::new(secret_a.clone(), secret_a.clone(), alice_path.into());
         alice.initialize().await?;
 
-        let secret_b = SharedSecret::new("bob", SHARED_SECRET);
+        let secret_b = SharedSecret::new("bob", SHARED_SECRET).unwrap();
         let mut bob = Mls::new(secret_b.clone(), secret_b.clone(), bob_path.into());
         bob.initialize().await?;
 
@@ -912,8 +914,8 @@ mod tests {
     ) -> Result<Mls<SharedSecret, SharedSecret>, Box<dyn std::error::Error>> {
         let _ = std::fs::remove_dir_all(path);
         let mut mls = Mls::new(
-            SharedSecret::new(name, SHARED_SECRET),
-            SharedSecret::new(name, SHARED_SECRET),
+            SharedSecret::new(name, SHARED_SECRET).unwrap(),
+            SharedSecret::new(name, SHARED_SECRET).unwrap(),
             path.into(),
         );
         mls.initialize().await?;
@@ -946,7 +948,7 @@ mod tests {
     fn verify_token_embeds_pubkey(token: &str, expected_pubkey_bytes: &[u8]) {
         use base64::Engine;
         use base64::engine::general_purpose::STANDARD as BASE64;
-        let verifier = SharedSecret::new("alice", SHARED_SECRET);
+        let verifier = SharedSecret::new("alice", SHARED_SECRET).unwrap();
         let claims_json: serde_json::Value = verifier.try_get_claims(token).expect("claims");
         let claims = IdentityClaims::from_json(&claims_json).expect("identity claims");
         assert_eq!(
@@ -994,7 +996,7 @@ mod tests {
         );
 
         // Validate
-        let verifier = SharedSecret::new("alice", SHARED_SECRET);
+        let verifier = SharedSecret::new("alice", SHARED_SECRET).unwrap();
         let provider = SlimIdentityProvider::new(verifier.clone());
         let validation_res = provider
             .validate_member(&fake_identity, None, MemberValidationContext::None)
@@ -1042,7 +1044,7 @@ mod tests {
         let fake_identity = SigningIdentity::new(stolen_cred.into_credential(), alice_pub.clone());
 
         // Build MLS client with mismatched private key
-        let verifier = SharedSecret::new("alice", SHARED_SECRET);
+        let verifier = SharedSecret::new("alice", SHARED_SECRET).unwrap();
         let crypto_provider = AwsLcCryptoProvider::default();
         let identity_provider = SlimIdentityProvider::new(verifier.clone());
         let client = Client::builder()

@@ -581,7 +581,10 @@ impl TokenProvider for SignerJwt {
     }
 
     fn get_id(&self) -> Result<String, AuthError> {
-        self.claims.sub.clone().ok_or(AuthError::TokenInvalidMissingSub)
+        self.claims
+            .sub
+            .clone()
+            .ok_or(AuthError::TokenInvalidMissingSub)
     }
 }
 

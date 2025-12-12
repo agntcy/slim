@@ -37,7 +37,6 @@ pub enum ControllerError {
     Datapath(#[from] DataPathError),
     #[error("error sending message to data plane: {0}")]
     DatapathSendError(String),
-
     #[error("auth error: {0}")]
     Auth(#[from] AuthError),
 

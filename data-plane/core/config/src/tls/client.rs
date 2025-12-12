@@ -21,7 +21,11 @@ use tracing::warn;
 
 use super::common::{Config, RustlsConfigLoader, TlsSource};
 use crate::{
-    component::configuration::Configuration, tls::{common::{StaticCertResolver, TlsComponent, WatcherCertResolver}, errors::ConfigError}
+    component::configuration::Configuration,
+    tls::{
+        common::{StaticCertResolver, TlsComponent, WatcherCertResolver},
+        errors::ConfigError,
+    },
 };
 
 #[cfg(not(target_family = "windows"))]

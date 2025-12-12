@@ -118,8 +118,10 @@ async fn main() -> Result<()> {
     let (app, mut app_rx) = svc
         .create_app(
             &local_name,
-            SharedSecret::new(&local_name.to_string(), secret),
-            SharedSecret::new(&local_name.to_string(), secret),
+            SharedSecret::new(&local_name.to_string(), secret)
+                .expect("Failed to create SharedSecret"),
+            SharedSecret::new(&local_name.to_string(), secret)
+                .expect("Failed to create SharedSecret"),
         )
         .with_context(|| format!("Failed to create app for name {}", local_name))?;
 

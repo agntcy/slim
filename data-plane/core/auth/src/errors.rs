@@ -4,7 +4,8 @@
 use http::StatusCode;
 use jsonwebtoken_aws_lc::jwk::KeyAlgorithm;
 use spiffe::{
-    JwtSvidError, SpiffeIdError, TrustDomain, error::GrpcClientError, workload_api::x509_source::X509SourceError
+    JwtSvidError, SpiffeIdError, TrustDomain, error::GrpcClientError,
+    workload_api::x509_source::X509SourceError,
 };
 use thiserror::Error;
 
@@ -27,7 +28,7 @@ pub enum AuthError {
     JwtNoStaticTokenConfigured,
     #[error("JWK format not supported for encoding (signing) keys")]
     JwtJwkFormatNotSupportedForEncoding,
-    #[error("failed fo fetch JWKS for issuer - status_code: {0}")]
+    #[error("failed to fetch JWKS for issuer - status_code: {0}")]
     JwtFetchJwksFailed(StatusCode),
     #[error("StaticTokenProvider does not support custom claims")]
     JwtStaticUnsupportedCustomClaims,
@@ -37,7 +38,7 @@ pub enum AuthError {
     OidcDiscoveryMissingTokenEndpoint,
     #[error("key not found: {0}")]
     OidcKeyNotFound(String),
-    #[error("kid is missing and multile keys are available")]
+    #[error("kid is missing and multiple keys are available")]
     OidcMissingKidWithMultipleKeys,
     #[error("OIDC Token Provider does not support custom claims")]
     OidcUnsupportedCustomClaims,

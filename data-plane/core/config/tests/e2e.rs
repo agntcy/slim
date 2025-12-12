@@ -776,6 +776,7 @@ mod tests {
     #[traced_test]
     #[cfg(target_os = "linux")]
     async fn test_tls_spiffe_grpc_configuration() -> Result<(), Box<dyn std::error::Error>> {
+        use slim_config::grpc::client::BackoffConfig;
         // SPIFFE / SPIRE mTLS integration test.
         // Sets up a SPIRE server + agent and uses SPIFFE directly in both client and server
         // without manual certificate/key extraction.
@@ -900,6 +901,10 @@ mod tests {
 
         let client_config = ClientConfig::with_endpoint("https://[::1]:50074")
             .with_tls_setting(client_tls)
+            .with_backoff(BackoffConfig::new_fixed_interval(
+                std::time::Duration::from_millis(100),
+                1,
+            ))
             .with_server_name(env.dns_name());
 
         // Perform round‑trip; expect failure

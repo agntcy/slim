@@ -17,7 +17,8 @@ use crate::{
     component::configuration::Configuration,
     tls::{
         RootStoreBuilder,
-        common::{CaSource, StaticCertResolver, WatcherCertResolver}, errors::ConfigError,
+        common::{CaSource, StaticCertResolver, WatcherCertResolver},
+        errors::ConfigError,
     },
 };
 

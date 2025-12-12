@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{CommandPayload, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType},
-    messages::{Name, utils::SlimHeaderFlags},
+    messages::Name,
 };
 
 use slim_mls::mls::Mls;
@@ -256,7 +256,7 @@ where
         self.moderator_name = Some(source.clone());
 
         self.common
-            .set_route(&source, msg.get_incoming_conn())
+            .add_route(&source, msg.get_incoming_conn())
             .await?;
 
         let payload = if self.mls_state.is_some() {
@@ -461,16 +461,11 @@ where
         }
 
         self.common
-            .set_route(&self.common.settings.destination, msg.get_incoming_conn())
+            .add_route(&self.common.settings.destination, msg.get_incoming_conn())
             .await?;
-        let sub = Message::builder()
-            .source(self.common.settings.source.clone())
-            .destination(self.common.settings.destination.clone())
-            .flags(SlimHeaderFlags::default().with_forward_to(msg.get_incoming_conn()))
-            .build_subscribe()
-            .unwrap();
-
-        self.common.send_to_slim(sub).await
+        self.common
+            .add_subscription(&self.common.settings.destination, msg.get_incoming_conn())
+            .await
     }
 
     async fn leave(&self, msg: &Message) -> Result<(), SessionError> {
@@ -488,14 +483,9 @@ where
                 msg.get_incoming_conn(),
             )
             .await?;
-        let sub = Message::builder()
-            .source(self.common.settings.source.clone())
-            .destination(self.common.settings.destination.clone())
-            .flags(SlimHeaderFlags::default().with_forward_to(msg.get_incoming_conn()))
-            .build_unsubscribe()
-            .unwrap();
-
-        self.common.send_to_slim(sub).await
+        self.common
+            .delete_subscription(&self.common.settings.destination, msg.get_incoming_conn())
+            .await
     }
 }
 
@@ -557,6 +547,7 @@ mod tests {
             identity_provider,
             identity_verifier,
             storage_path,
+            routes_cache: crate::session_routes::SessionRoutes::default(),
             graceful_shutdown_timeout: None,
         };
 

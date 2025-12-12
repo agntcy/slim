@@ -3,8 +3,8 @@
 
 pub mod client;
 pub mod common;
-pub mod provider;
 pub mod errors;
+pub mod provider;
 pub mod root_store_builder;
 pub mod server;
 

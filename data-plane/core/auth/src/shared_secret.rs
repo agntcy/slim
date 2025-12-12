@@ -28,14 +28,14 @@ SPDX-License-Identifier: Apache-2.0
 //!
 //! Typical usage (no replay protection):
 //! ```ignore
-//! let auth = SharedSecret::new("service", secret_string);
+//! let auth = SharedSecret::new("service", secret_string)?;
 //! let token = auth.get_token()?;
 //! auth.try_verify(&token)?;
 //! ```
 //!
 //! Enabling replay protection:
 //! ```ignore
-//! let auth = SharedSecret::new("service", secret_string)
+//! let auth = SharedSecret::new("service", secret_string)?
 //!     .with_replay_cache_enabled(4096);
 //! let token = auth.get_token()?;
 //! auth.try_verify(&token)?; // second verify of same token will fail
@@ -180,9 +180,9 @@ impl std::fmt::Debug for SharedSecret {
 impl SharedSecret {
     /// Construct a new shared secret instance with randomized `id` suffix.
     /// Replay protection starts DISABLED.
-    pub fn new(id: &str, shared_secret: &str) -> Self {
-        Self::validate_id(id).expect("invalid id");
-        Self::validate_secret(shared_secret).expect("invalid shared_secret");
+    pub fn new(id: &str, shared_secret: &str) -> Result<Self, AuthError> {
+        Self::validate_id(id)?;
+        Self::validate_secret(shared_secret)?;
 
         let random_suffix: String = rand::rng()
             .sample_iter(&Alphanumeric)
@@ -200,7 +200,7 @@ impl SharedSecret {
             replay_cache_enabled: false,
             replay_cache: Mutex::new(ReplayCache::new(DEFAULT_REPLAY_CACHE_MAX)),
         };
-        SharedSecret(Arc::new(internal))
+        Ok(SharedSecret(Arc::new(internal)))
     }
 
     /// Enable replay cache with specified maximum size.
@@ -560,22 +560,22 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "invalid shared_secret")]
     fn test_secret_too_short() {
-        let _ = SharedSecret::new("svc", "shortsecret");
+        let result = SharedSecret::new("svc", "shortsecret");
+        assert!(result.is_err_and(|e| matches!(e, AuthError::HmacKeyTooShort)));
     }
 
     #[test]
     fn test_id_validation() {
-        assert!(std::panic::catch_unwind(|| SharedSecret::new("good-id", &valid_secret())).is_ok());
-        assert!(std::panic::catch_unwind(|| SharedSecret::new("bad:id", &valid_secret())).is_err());
-        assert!(std::panic::catch_unwind(|| SharedSecret::new("bad id", &valid_secret())).is_err());
-        assert!(std::panic::catch_unwind(|| SharedSecret::new("", &valid_secret())).is_err());
+        assert!(SharedSecret::new("good-id", &valid_secret()).is_ok());
+        assert!(SharedSecret::new("bad:id", &valid_secret()).is_err());
+        assert!(SharedSecret::new("bad id", &valid_secret()).is_err());
+        assert!(SharedSecret::new("", &valid_secret()).is_err());
     }
 
     #[test]
     fn test_token_generation_format() {
-        let s = SharedSecret::new("app", &valid_secret());
+        let s = SharedSecret::new("app", &valid_secret()).unwrap();
         let token = s.get_token().unwrap();
         let parts: Vec<_> = token.split(':').collect();
         assert_eq!(parts.len(), 5);
@@ -588,22 +588,24 @@ mod tests {
 
     #[test]
     fn test_verify_valid_token() {
-        let s = SharedSecret::new("svc", &valid_secret());
+        let s = SharedSecret::new("svc", &valid_secret()).unwrap();
         let token = s.get_token().unwrap();
         assert!(s.try_verify(token).is_ok());
     }
 
     #[test]
     fn test_cross_instance_verification() {
-        let a = SharedSecret::new("svc", &valid_secret());
-        let b = SharedSecret::new("svc", &valid_secret());
+        let a = SharedSecret::new("svc", &valid_secret()).unwrap();
+        let b = SharedSecret::new("svc", &valid_secret()).unwrap();
         let token = a.get_token().unwrap();
         assert!(b.try_verify(token).is_ok());
     }
 
     #[test]
     fn test_future_timestamp_exceeds_skew() {
-        let s = SharedSecret::new("svc", &valid_secret()).with_clock_skew(Duration::from_secs(2));
+        let s = SharedSecret::new("svc", &valid_secret())
+            .unwrap()
+            .with_clock_skew(Duration::from_secs(2));
         let future_ts = s.get_current_timestamp() + 10;
         let nonce = s.gen_nonce();
         let message = s.build_message(s.id(), future_ts, &nonce, "");
@@ -614,7 +616,9 @@ mod tests {
 
     #[test]
     fn test_future_timestamp_within_skew() {
-        let s = SharedSecret::new("svc", &valid_secret()).with_clock_skew(Duration::from_secs(10));
+        let s = SharedSecret::new("svc", &valid_secret())
+            .unwrap()
+            .with_clock_skew(Duration::from_secs(10));
         let future_ts = s.get_current_timestamp() + 5;
         let nonce = s.gen_nonce();
         let message = s.build_message(s.id(), future_ts, &nonce, "");
@@ -625,8 +629,9 @@ mod tests {
 
     #[test]
     fn test_expired_token() {
-        let s =
-            SharedSecret::new("svc", &valid_secret()).with_validity_window(Duration::from_secs(1));
+        let s = SharedSecret::new("svc", &valid_secret())
+            .unwrap()
+            .with_validity_window(Duration::from_secs(1));
         let past_ts = s.get_current_timestamp().saturating_sub(10);
         let nonce = s.gen_nonce();
         let message = s.build_message(s.id(), past_ts, &nonce, "");
@@ -638,7 +643,9 @@ mod tests {
 
     #[test]
     fn test_replay_detection_enabled() {
-        let s = SharedSecret::new("svc", &valid_secret()).with_replay_cache_enabled(128);
+        let s = SharedSecret::new("svc", &valid_secret())
+            .unwrap()
+            .with_replay_cache_enabled(128);
         let token = s.get_token().unwrap();
         assert!(s.try_verify(token.clone()).is_ok());
         let replay = s.try_verify(token);
@@ -647,7 +654,7 @@ mod tests {
 
     #[test]
     fn test_replay_allowed_when_disabled() {
-        let s = SharedSecret::new("svc", &valid_secret()); // default disabled
+        let s = SharedSecret::new("svc", &valid_secret()).unwrap(); // default disabled
         let token = s.get_token().unwrap();
         assert!(s.try_verify(token.clone()).is_ok());
         // Second verify should also succeed because replay protection off.
@@ -656,7 +663,7 @@ mod tests {
 
     #[test]
     fn test_wrong_mac() {
-        let s = SharedSecret::new("svc", &valid_secret());
+        let s = SharedSecret::new("svc", &valid_secret()).unwrap();
         let ts = s.get_current_timestamp();
         let nonce = s.gen_nonce();
         let bad_mac = "!!notbase64";
@@ -666,14 +673,14 @@ mod tests {
 
     #[test]
     fn test_invalid_token_format_parts() {
-        let s = SharedSecret::new("svc", &valid_secret());
+        let s = SharedSecret::new("svc", &valid_secret()).unwrap();
         assert!(s.try_verify("only:two:parts").is_err());
         assert!(s.try_verify("a:b:c:d:e").is_err());
     }
 
     #[test]
     fn test_invalid_timestamp_parse() {
-        let s = SharedSecret::new("svc", &valid_secret());
+        let s = SharedSecret::new("svc", &valid_secret()).unwrap();
         let nonce = s.gen_nonce();
         let mac = s
             .create_hmac_b64(&s.build_message(s.id(), s.get_current_timestamp(), &nonce, ""))
@@ -684,7 +691,7 @@ mod tests {
 
     #[test]
     fn test_hmac_verification_failure() {
-        let s = SharedSecret::new("svc", &valid_secret());
+        let s = SharedSecret::new("svc", &valid_secret()).unwrap();
         let ts = s.get_current_timestamp();
         let nonce = s.gen_nonce();
         let message = s.build_message(s.id(), ts, &nonce, "");
@@ -698,6 +705,7 @@ mod tests {
     #[test]
     fn test_replay_after_expiration_enabled() {
         let s = SharedSecret::new("svc", &valid_secret())
+            .unwrap()
             .with_validity_window(Duration::from_secs(1))
             .with_replay_cache_enabled(128);
         let token = s.get_token().unwrap();
@@ -710,7 +718,7 @@ mod tests {
 
     #[test]
     fn test_nonce_uniqueness_and_length() {
-        let s = SharedSecret::new("svc", &valid_secret());
+        let s = SharedSecret::new("svc", &valid_secret()).unwrap();
         let mut nonces = std::collections::HashSet::new();
         for _ in 0..50 {
             let t = s.get_token().unwrap();
@@ -727,7 +735,7 @@ mod tests {
 
     #[test]
     fn test_mac_encoding_error() {
-        let s = SharedSecret::new("svc", &valid_secret());
+        let s = SharedSecret::new("svc", &valid_secret()).unwrap();
         let ts = s.get_current_timestamp();
         let nonce = s.gen_nonce();
         let bad_mac = "*invalid*mac*";
@@ -738,7 +746,9 @@ mod tests {
 
     #[test]
     fn test_replay_detection_multiple_enabled() {
-        let s = SharedSecret::new("svc", &valid_secret()).with_replay_cache_enabled(256);
+        let s = SharedSecret::new("svc", &valid_secret())
+            .unwrap()
+            .with_replay_cache_enabled(256);
         let t1 = s.get_token().unwrap();
         let t2 = s.get_token().unwrap();
         assert!(s.try_verify(t1.clone()).is_ok());
@@ -749,7 +759,7 @@ mod tests {
 
     #[test]
     fn test_claims_disabled() {
-        let s = SharedSecret::new("svc", &valid_secret()); // replay disabled
+        let s = SharedSecret::new("svc", &valid_secret()).unwrap(); // replay disabled
         let token = s.get_token().unwrap();
         let claims: BasicClaims = s.try_get_claims(token).unwrap();
         assert!(claims.sub.starts_with("svc_"));
@@ -758,7 +768,9 @@ mod tests {
 
     #[test]
     fn test_claims_enabled() {
-        let s = SharedSecret::new("svc", &valid_secret()).with_replay_cache_enabled(64);
+        let s = SharedSecret::new("svc", &valid_secret())
+            .unwrap()
+            .with_replay_cache_enabled(64);
         let token = s.get_token().unwrap();
         let claims: BasicClaims = s.try_get_claims(token).unwrap();
         assert!(claims.sub.starts_with("svc_"));
@@ -767,7 +779,9 @@ mod tests {
 
     #[test]
     fn test_replay_cache_capacity_enabled() {
-        let s = SharedSecret::new("svc", &valid_secret()).with_replay_cache_enabled(2);
+        let s = SharedSecret::new("svc", &valid_secret())
+            .unwrap()
+            .with_replay_cache_enabled(2);
         let t1 = s.get_token().unwrap();
         thread::sleep(Duration::from_millis(10));
         let t2 = s.get_token().unwrap();
@@ -782,7 +796,9 @@ mod tests {
 
     #[test]
     fn test_clone_preserves_replay_cache_enabled() {
-        let s = SharedSecret::new("svc", &valid_secret()).with_replay_cache_enabled(128);
+        let s = SharedSecret::new("svc", &valid_secret())
+            .unwrap()
+            .with_replay_cache_enabled(128);
         let token = s.get_token().unwrap();
         assert!(s.try_verify(token.clone()).is_ok());
         let cloned = s.clone();
@@ -793,7 +809,9 @@ mod tests {
 
     #[test]
     fn test_builder_preserves_replay_cache_enabled() {
-        let s = SharedSecret::new("svc", &valid_secret()).with_replay_cache_enabled(128);
+        let s = SharedSecret::new("svc", &valid_secret())
+            .unwrap()
+            .with_replay_cache_enabled(128);
         let token = s.get_token().unwrap();
         assert!(s.try_verify(token.clone()).is_ok());
         // Adjust validity window; replay state preserved.
@@ -805,7 +823,9 @@ mod tests {
 
     #[test]
     fn test_disable_replay_cache_builder() {
-        let s = SharedSecret::new("svc", &valid_secret()).with_replay_cache_enabled(64);
+        let s = SharedSecret::new("svc", &valid_secret())
+            .unwrap()
+            .with_replay_cache_enabled(64);
         let token = s.get_token().unwrap();
         assert!(s.try_verify(token.clone()).is_ok()); // first verify ok
         // Disabling replay cache allows re-verification.
@@ -816,7 +836,7 @@ mod tests {
 
     #[test]
     fn test_replay_cache_max_noop_when_disabled() {
-        let s = SharedSecret::new("svc", &valid_secret());
+        let s = SharedSecret::new("svc", &valid_secret()).unwrap();
         let original_max = s.replay_cache_max();
         let s2 = s.with_replay_cache_max(original_max * 2);
         assert_eq!(original_max, s2.replay_cache_max());
@@ -825,7 +845,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_custom_claims() {
-        let s = SharedSecret::new("svc", &valid_secret());
+        let s = SharedSecret::new("svc", &valid_secret()).unwrap();
 
         // Create custom claims
         let mut custom_claims = MetadataMap::new();
@@ -861,7 +881,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_custom_claims_empty() {
-        let s = SharedSecret::new("svc", &valid_secret());
+        let s = SharedSecret::new("svc", &valid_secret()).unwrap();
 
         // Generate token with empty custom claims
         let custom_claims = MetadataMap::new();

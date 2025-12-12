@@ -23,8 +23,8 @@ pub enum ConfigError {
     UriParse(#[from] http::uri::InvalidUri),
 
     // Network / transport
-    #[error("tcp incoming error: {0}")]
-    TcpIncoming(#[from] tonic::transport::Error),
+    #[error("transport error: {0}")]
+    TransportError(#[from] tonic::transport::Error),
     #[error("bind error: {0}")]
     Bind(#[from] std::io::Error),
 
