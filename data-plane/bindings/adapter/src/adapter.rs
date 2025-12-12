@@ -485,7 +485,7 @@ impl BindingsAdapter {
     }
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl BindingsAdapter {
     /// Get the app ID (derived from name)
     pub fn id(&self) -> u64 {
