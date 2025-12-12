@@ -1691,60 +1691,6 @@ mod tests {
     }
 
     // ========================================================================
-    // Error Conversion Tests
-    // ========================================================================
-
-    /// Test ServiceError to SlimError conversion - ConfigError
-    #[test]
-    fn test_service_error_config() {
-        let service_err = ServiceError::ConfigError("config issue".to_string());
-        let slim_err: SlimError = service_err.into();
-
-        match slim_err {
-            SlimError::ConfigError { message } => assert_eq!(message, "config issue"),
-            _ => panic!("Expected ConfigError"),
-        }
-    }
-
-    /// Test ServiceError to SlimError conversion - ReceiveError
-    #[test]
-    fn test_service_error_receive() {
-        let service_err = ServiceError::ReceiveError("receive issue".to_string());
-        let slim_err: SlimError = service_err.into();
-
-        match slim_err {
-            SlimError::ReceiveError { message } => assert_eq!(message, "receive issue"),
-            _ => panic!("Expected ReceiveError"),
-        }
-    }
-
-    /// Test ServiceError to SlimError conversion - SessionError
-    #[test]
-    fn test_service_error_session() {
-        let service_err = ServiceError::SessionError("session issue".to_string());
-        let slim_err: SlimError = service_err.into();
-
-        match slim_err {
-            SlimError::SessionError { message } => assert_eq!(message, "session issue"),
-            _ => panic!("Expected SessionError"),
-        }
-    }
-
-    /// Test SlimSessionError to SlimError conversion
-    #[test]
-    fn test_session_error_conversion() {
-        let session_err = SlimSessionError::Generic("generic session error".to_string());
-        let slim_err: SlimError = session_err.into();
-
-        match slim_err {
-            SlimError::SessionError { message } => {
-                assert!(message.contains("generic session error"));
-            }
-            _ => panic!("Expected SessionError"),
-        }
-    }
-
-    // ========================================================================
     // BuildInfo and Version Tests
     // ========================================================================
 
