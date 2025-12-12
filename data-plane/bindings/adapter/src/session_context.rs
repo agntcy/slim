@@ -169,7 +169,7 @@ impl BindingsSessionContext {
 // FFI-exported methods (UniFFI)
 // ============================================================================
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl BindingsSessionContext {
     /// Publish a message to the session's destination (fire-and-forget, blocking version)
     ///
