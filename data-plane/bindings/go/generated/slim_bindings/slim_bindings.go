@@ -4,6 +4,7 @@ package slim_bindings
 #cgo CFLAGS: -I${SRCDIR}
 #cgo linux,amd64 LDFLAGS: -L${SRCDIR} -lslim_bindings -ldl -lm -Wl,-rpath,${SRCDIR}
 #cgo linux,arm64 LDFLAGS: -L${SRCDIR} -lslim_bindings -ldl -lm -Wl,-rpath,${SRCDIR}
+#cgo darwin,amd64 LDFLAGS: -L${SRCDIR} -lslim_bindings -ldl -lm -Wl,-rpath,${SRCDIR}
 #cgo darwin,arm64 LDFLAGS: -L${SRCDIR} -lslim_bindings -ldl -lm -Wl,-rpath,${SRCDIR}
 #include <slim_bindings.h>
 */
