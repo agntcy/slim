@@ -935,27 +935,43 @@ impl FfiCompletionHandle {
 
 #[uniffi::export]
 impl FfiCompletionHandle {
-    /// Wait for the operation to complete (blocking version for FFI)
+    /// Wait for the operation to complete indefinitely (blocking version)
     ///
-    /// This blocks the calling thread until the operation completes or the timeout expires.
+    /// This blocks the calling thread until the operation completes.
     /// Use this from Go or other languages when you need to ensure
     /// an operation has finished before proceeding.
     ///
     /// **Note:** This can only be called once per handle. Subsequent calls
     /// will return an error.
     ///
+    /// # Returns
+    /// * `Ok(())` - Operation completed successfully
+    /// * `Err(SlimError)` - Operation failed or handle already consumed
+    pub fn wait(&self) -> Result<(), SlimError> {
+        self.runtime.block_on(self.wait_async())
+    }
+
+    /// Wait for the operation to complete with a timeout (blocking version)
+    ///
+    /// This blocks the calling thread until the operation completes or the timeout expires.
+    /// Use this from Go or other languages when you need to ensure
+    /// an operation has finished before proceeding with a time limit.
+    ///
+    /// **Note:** This can only be called once per handle. Subsequent calls
+    /// will return an error.
+    ///
     /// # Arguments
-    /// * `timeout_ms` - Optional timeout in milliseconds. If None, waits indefinitely.
+    /// * `timeout` - Maximum time to wait for completion
     ///
     /// # Returns
     /// * `Ok(())` - Operation completed successfully
     /// * `Err(SlimError::Timeout)` - If the operation timed out
     /// * `Err(SlimError)` - Operation failed or handle already consumed
-    pub fn wait(&self, timeout_ms: Option<u32>) -> Result<(), SlimError> {
-        self.runtime.block_on(self.wait_async(timeout_ms))
+    pub fn wait_for(&self, timeout: std::time::Duration) -> Result<(), SlimError> {
+        self.runtime.block_on(self.wait_for_async(timeout))
     }
 
-    /// Wait for the operation to complete (async version)
+    /// Wait for the operation to complete indefinitely (async version)
     ///
     /// This is the async version that integrates with UniFFI's polling mechanism.
     /// The operation will yield control while waiting.
@@ -963,14 +979,36 @@ impl FfiCompletionHandle {
     /// **Note:** This can only be called once per handle. Subsequent calls
     /// will return an error.
     ///
+    /// # Returns
+    /// * `Ok(())` - Operation completed successfully
+    /// * `Err(SlimError)` - Operation failed or handle already consumed
+    pub async fn wait_async(&self) -> Result<(), SlimError> {
+        self.wait_internal(None).await
+    }
+
+    /// Wait for the operation to complete with a timeout (async version)
+    ///
+    /// This is the async version that integrates with UniFFI's polling mechanism.
+    /// The operation will yield control while waiting until completion or timeout.
+    ///
+    /// **Note:** This can only be called once per handle. Subsequent calls
+    /// will return an error.
+    ///
     /// # Arguments
-    /// * `timeout_ms` - Optional timeout in milliseconds. If None, waits indefinitely.
+    /// * `timeout` - Maximum time to wait for completion
     ///
     /// # Returns
     /// * `Ok(())` - Operation completed successfully
     /// * `Err(SlimError::Timeout)` - If the operation timed out
     /// * `Err(SlimError)` - Operation failed or handle already consumed
-    pub async fn wait_async(&self, timeout_ms: Option<u32>) -> Result<(), SlimError> {
+    pub async fn wait_for_async(&self, timeout: std::time::Duration) -> Result<(), SlimError> {
+        self.wait_internal(Some(timeout)).await
+    }
+}
+
+impl FfiCompletionHandle {
+    /// Internal implementation for wait operations
+    async fn wait_internal(&self, timeout: Option<std::time::Duration>) -> Result<(), SlimError> {
         let receiver = self
             .receiver
             .lock()
@@ -991,9 +1029,8 @@ impl FfiCompletionHandle {
                 })
         };
 
-        if let Some(ms) = timeout_ms {
-            let timeout = std::time::Duration::from_millis(ms as u64);
-            tokio::time::timeout(timeout, wait_future)
+        if let Some(duration) = timeout {
+            tokio::time::timeout(duration, wait_future)
                 .await
                 .map_err(|_| SlimError::Timeout)?
         } else {
@@ -1146,7 +1183,7 @@ mod tests {
         tx.send(Ok(())).unwrap();
 
         // Wait should succeed
-        let result = ffi_handle.wait_async(None).await;
+        let result = ffi_handle.wait_async().await;
         assert!(result.is_ok(), "Completion should succeed");
     }
 
@@ -1167,7 +1204,7 @@ mod tests {
         .unwrap();
 
         // Wait should fail with error
-        let result = ffi_handle.wait_async(None).await;
+        let result = ffi_handle.wait_async().await;
         assert!(result.is_err(), "Completion should fail");
 
         match result {
@@ -1190,11 +1227,11 @@ mod tests {
         tx.send(Ok(())).unwrap();
 
         // First wait should succeed
-        let result1 = ffi_handle.wait_async(None).await;
+        let result1 = ffi_handle.wait_async().await;
         assert!(result1.is_ok(), "First wait should succeed");
 
         // Second wait should fail (already consumed)
-        let result2 = ffi_handle.wait_async(None).await;
+        let result2 = ffi_handle.wait_async().await;
         assert!(result2.is_err(), "Second wait should fail");
 
         match result2 {
@@ -1221,7 +1258,7 @@ mod tests {
         });
 
         // Async wait should succeed
-        let result = ffi_handle.wait_async(None).await;
+        let result = ffi_handle.wait_async().await;
         assert!(result.is_ok(), "Async wait should succeed");
     }
 
@@ -1241,7 +1278,7 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         // Wait should fail because sender was dropped (or already consumed by background task)
-        let result = ffi_handle.wait_async(None).await;
+        let result = ffi_handle.wait_async().await;
         assert!(
             result.is_err(),
             "Should fail when sender is dropped or already consumed"
@@ -1290,7 +1327,7 @@ mod tests {
                 tx.send(Ok(())).unwrap();
 
                 // Wait for completion
-                if ffi_handle.wait_async(None).await.is_ok() {
+                if ffi_handle.wait_async().await.is_ok() {
                     count.fetch_add(1, Ordering::SeqCst);
                 }
             });
@@ -1321,7 +1358,9 @@ mod tests {
         let ffi_handle = FfiCompletionHandle::new(completion, runtime);
 
         // Wait with a short timeout - should timeout
-        let result = ffi_handle.wait_async(Some(50)).await;
+        let result = ffi_handle
+            .wait_for_async(std::time::Duration::from_millis(50))
+            .await;
         assert!(
             result.is_err(),
             "Should timeout when operation doesn't complete"
@@ -1350,7 +1389,9 @@ mod tests {
         tx.send(Ok(())).unwrap();
 
         // Wait with a generous timeout - should succeed
-        let result = ffi_handle.wait_async(Some(5000)).await;
+        let result = ffi_handle
+            .wait_for_async(std::time::Duration::from_millis(5000))
+            .await;
         assert!(
             result.is_ok(),
             "Should succeed when operation completes before timeout"

@@ -295,7 +295,7 @@ func (h *TestHarness) SendMessageWithCompletion(session *slim.BindingsSessionCon
 	defer completion.Destroy()
 
 	h.t.Logf("[Sender] Waiting for delivery confirmation...")
-	err = completion.Wait(nil)
+	err = completion.Wait()
 	if err != nil {
 		return fmt.Errorf("message delivery failed: %w", err)
 	}
