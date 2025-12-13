@@ -8,7 +8,7 @@
 
 SLIM (Secure Low-Latency Interactive Messaging) facilitates communication
 between AI agents. It supports various communication patterns such as unicast,
-anycast and multicast groups. Built on the gRPC framework, SLIM ensures secure
+anycast and multicast groups. Built on the gRPC framework, SLIM ensures 
 secure and scalable interactions among agents.
 
 
