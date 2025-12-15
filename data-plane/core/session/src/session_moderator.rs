@@ -131,9 +131,9 @@ where
             } => {
                 if message.get_session_message_type().is_command_message() {
                     debug!(
-                        "received {:?} from {}",
-                        message.get_session_message_type(),
-                        message.get_source()
+                        message = ?message.get_session_message_type(),
+                        source = %message.get_source(),
+                        "received  message",
                     );
                     self.process_control_message(message, ack_tx).await
                 } else {
@@ -244,11 +244,9 @@ where
             SessionMessage::ParticipantDisconnected {
                 name: opt_participant,
             } => {
-                let participant = opt_participant.ok_or_else(|| {
-                    SessionError::Processing(
-                        "Participant name is required for disconnection event".to_string(),
-                    )
-                })?;
+                let participant = opt_participant.ok_or(SessionError::Processing(
+                    "Participant name is required for disconnection event".to_string(),
+                ))?;
 
                 debug!(
                     "Participant {} is not anymore connected to the current session",
@@ -378,7 +376,7 @@ where
     ) -> Result<(Vec<Name>, Option<MlsPayload>), SessionError> {
         // Build participants list with current participants
         // the group update needs to be received by everybody
-        // in the group unless only there are only 2 participants
+        // in the group unless there are only 2 participants
         // (the moderator and a participant)
         let participants_vec: Vec<Name> = self
             .group_list
@@ -917,7 +915,7 @@ where
             return Ok(());
         }
 
-        debug!("disconnection detected for participant {}", disconnected);
+        debug!(%disconnected, "disconnection detected");
 
         // Send error notification to the application
         let error = SessionError::ParticipantDisconnected(format!(
@@ -947,7 +945,7 @@ where
             self.common.send_to_slim(reply).await?;
 
             // replace LEAVING_SESSION with DISCONNECTION_DETECTED so that if the process of the
-            // message need to be delay because the moderator is busy we do not send the reply twice
+            // message needs to be delayed because the moderator is busy we do not send the reply twice
             msg.remove_metadata(LEAVING_SESSION);
             msg.insert_metadata(DISCONNECTION_DETECTED.to_string(), TRUE_VAL.to_string());
             let header = msg.get_slim_header_mut();

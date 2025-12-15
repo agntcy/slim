@@ -111,9 +111,9 @@ where
             } => {
                 if message.get_session_message_type().is_command_message() {
                     debug!(
-                        "received {:?} from {}",
-                        message.get_session_message_type(),
-                        message.get_source()
+                        message = ?message.get_session_message_type(),
+                        source = %message.get_source(),
+                        "received message",
                     );
                     self.process_control_message(message).await
                 } else {

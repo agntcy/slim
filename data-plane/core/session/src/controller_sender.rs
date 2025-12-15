@@ -25,7 +25,7 @@ use crate::{
 pub const PING_INTERVAL: Duration = Duration::from_secs(10);
 /// Maximum number of consecutive ping failures before a participant is considered disconnected.
 const MAX_PING_FAILURE: u32 = 3;
-/// ynthetic moderator name used by participants to track ping reception
+/// Synthetic moderator name used by participants to track ping reception
 static MODERATOR_NAME: std::sync::LazyLock<Name> =
     std::sync::LazyLock::new(|| Name::from_strings(["agntcy", "ns", "moderator"]));
 
@@ -56,9 +56,9 @@ struct PingState {
     /// Used only if this endpoint is sending ping messages
     ping: Option<PendingReply>,
 
-    /// this indicates if a least one ping message was received
-    /// during the last ping timer. It is used only be participants
-    /// end set to true on the ping reception
+    /// This indicates if at least one ping message was received
+    /// during the last ping timer. It is used only by participants
+    /// and set to true on the ping reception
     received_ping: bool,
 
     /// Ping timer factor set to create ping related timers
@@ -364,7 +364,7 @@ impl ControllerSender {
     }
 
     fn on_ping_message(&mut self, message: &Message) {
-        debug!("received ping message {}", message.get_id());
+        debug!(id = %message.get_id(), "received ping message");
         if self.initiator {
             // if this is an initiator update the missing acks
             if let Some(ping_state) = &mut self.ping_state
@@ -386,7 +386,7 @@ impl ControllerSender {
             }
         }
 
-        debug!("received a ping but the state is not set, ignore the message");
+        debug!(id = %message.get_id(), "received a ping but the state is not set, ignore the message");
     }
 
     pub fn is_still_pending(&self, message_id: u32) -> bool {
@@ -398,7 +398,7 @@ impl ControllerSender {
         id: u32,
         msg_type: ProtoSessionMessageType,
     ) -> Result<(), SessionError> {
-        debug!("timeout for the message {} of type {:?}", id, msg_type);
+        debug!(%id, ?msg_type, "timeout for message");
 
         // check if the timeout is related to a ping
         if self.ping_state.is_some() && msg_type == ProtoSessionMessageType::Ping {
@@ -428,12 +428,12 @@ impl ControllerSender {
         {
             if ping_state.received_ping {
                 // reset the state
-                debug!("received at least on ping message, reset the state");
+                debug!(%id, "received at least on ping message, reset the state");
                 ping_state.received_ping = false;
                 ping_state.missing_pings.clear();
             } else {
                 // update the missing ping map and detect moderator disconnection
-                debug!("missing ping message from moderator");
+                debug!(%id, "missing ping message from moderator");
                 let val = ping_state
                     .missing_pings
                     .entry(MODERATOR_NAME.clone())
@@ -445,7 +445,7 @@ impl ControllerSender {
                         .tx_session
                         .try_send(SessionMessage::ParticipantDisconnected { name: None })
                     {
-                        debug!("failed to send participant disconnected message: {}", e);
+                        debug!(error = %e, "failed to send participant disconnected message");
                     }
                 }
             }
@@ -638,7 +638,7 @@ impl ControllerSender {
     }
 
     pub fn remove_participant(&mut self, name: &Name) {
-        // this is used only by the moderator when a participant closed is
+        // this is used only by the moderator when a participant closed its
         // session remotely. This remove is needed so that the moderator
         // will not expect acks from the participant that is leaving the
         // group during the group update phase
