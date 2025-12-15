@@ -8,13 +8,13 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum MlsError {
     // I/O / serialization
-    #[error("I/O error")]
+    #[error("i/o error")]
     Io(#[from] std::io::Error),
-    #[error("Serialization/Deserialization error")]
+    #[error("serialization/deserialization error")]
     Serde(#[from] serde_json::Error),
 
     // Underlying MLS library
-    #[error("MLS error")]
+    #[error("mls error")]
     Mls(#[from] mls_rs::error::MlsError),
 
     // Crypto / provider
@@ -26,11 +26,11 @@ pub enum MlsError {
     IdentityProviderError(#[from] AuthError),
 
     // Ciphersuite / client / group lifecycle
-    #[error("Requested ciphersuite is unavailable")]
+    #[error("requested ciphersuite is unavailable")]
     CiphersuiteUnavailable,
-    #[error("MLS client not initialized")]
+    #[error("mls client not initialized")]
     ClientNotInitialized,
-    #[error("MLS group does not exist")]
+    #[error("mls group does not exist")]
     GroupNotExists,
 
     // Payload expectations
@@ -38,41 +38,41 @@ pub enum MlsError {
     NoGroupAddPayload,
     #[error("no mls remove payload found")]
     NoGroupRemovePayload,
-    #[error("No welcome message generated")]
+    #[error("no welcome message generated")]
     NoWelcomeMessage,
-    #[error("Unknown payload type")]
+    #[error("unknown payload type")]
     UnknownPayloadType,
 
     // Storage / identity persistence
-    #[error("Failed to create storage directory: {0}")]
+    #[error("failed to create storage directory: {0}")]
     StorageIo(std::io::Error),
-    #[error("Failed to get token: {0}")]
+    #[error("failed to get token: {0}")]
     TokenRetrievalFailed(String),
-    #[error("Failed to sync file: {0}")]
+    #[error("failed to sync file: {0}")]
     FileSyncFailed(String),
-    #[error("Identifier not found: {0}")]
+    #[error("identifier not found: {0}")]
     IdentifierNotFound(String),
-    #[error("Credential not found in stored identity")]
+    #[error("credential not found in stored identity")]
     CredentialNotFound,
 
     // Identity / claims (merged from SlimIdentityError)
-    #[error("Not a basic credential")]
+    #[error("not a basic credential")]
     NotBasicCredential,
-    #[error("Invalid UTF-8 in credential")]
+    #[error("invalid UTF-8 in credential")]
     InvalidUtf8(#[from] std::str::Utf8Error),
-    #[error("Identity verification failed: {0}")]
+    #[error("identity verification failed: {0}")]
     VerificationFailed(String),
-    #[error("External sender validation failed: {0}")]
+    #[error("external sender validation failed: {0}")]
     ExternalSenderFailed(String),
-    #[error("Public key not found in signed identity")]
+    #[error("public key not found in signed identity")]
     PublicKeyNotFound,
     #[error(
-        "Public key mismatch: identity public key does not match provided public key: expected: {expected}, found: {found}"
+        "public key mismatch: identity public key does not match provided public key: expected: {expected}, found: {found}"
     )]
     PublicKeyMismatch { expected: String, found: String },
-    #[error("Subject not found")]
+    #[error("subject not found")]
     SubjectNotFound,
-    #[error("External commit not supported")]
+    #[error("external commit not supported")]
     ExternalCommitNotSupported,
 }
 

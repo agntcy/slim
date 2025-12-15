@@ -55,5 +55,3 @@ pub enum CompressionError {
     #[error("unsupported compression type {0}")]
     UnsupportedType(String),
 }
-
-// Display impl removed; thiserror provides Display automatically.

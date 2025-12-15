@@ -274,7 +274,6 @@ where
         &mut self,
         msg: &Message,
     ) -> Result<(CommitMsg, WelcomeMsg), SessionError> {
-        // Directly propagate underlying MessageError via SessionError::from(MessageError)
         let payload = msg.extract_join_reply()?;
 
         // Propagate MlsError directly (will become SessionError::MlsOp via #[from])
@@ -306,7 +305,7 @@ where
                 return Err(SessionError::ParticipantNotFound(name));
             }
         };
-        // Direct propagation of MlsError
+
         let ret = self.common.mls.lock().await.remove_member(id).await?;
 
         // remove the participant from the list

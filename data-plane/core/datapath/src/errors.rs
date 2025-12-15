@@ -49,7 +49,7 @@ pub enum DataPathError {
     // Shutdown errors
     #[error("data path is already closed")]
     AlreadyClosedError,
-    #[error("data pplane is shutting down")]
+    #[error("data plane is shutting down")]
     ShuttingDownError,
     #[error("timeout during shutdown")]
     ShutdownTimeoutError,

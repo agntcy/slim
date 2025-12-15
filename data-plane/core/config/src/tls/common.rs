@@ -849,7 +849,6 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
         let cert_file_path = create_temp_file_simple(TEST_CLIENT_CERT_PEM, suffix);
 
         let result = WatcherCertResolver::new(&key_file_path, &cert_file_path, provider);
-        println!("----------> {:?}", result);
         assert!(result.is_err_and(|e| matches!(e, ConfigError::InvalidPem(_))));
 
         // Clean up

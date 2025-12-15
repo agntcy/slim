@@ -613,7 +613,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 if let Some(out) = remote_out {
                     return Ok(out);
                 }
-                error!(%name, "no output connection available");
+                debug!(%name, "no output connection available");
                 Err(DataPathError::NoMatch(name.clone()))
             }
         }
@@ -646,7 +646,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
                     return Ok(out);
                 }
 
-                error!(%name, "no connection available (local/remote)");
+                debug!(%name, "no connection available (local/remote)");
                 Err(DataPathError::NoMatch(name.clone()))
             }
         }

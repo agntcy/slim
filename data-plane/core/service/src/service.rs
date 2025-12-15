@@ -272,12 +272,8 @@ impl Service {
         let hashed_name = hasher.finish();
 
         let home_dir = dirs::home_dir().ok_or(ServiceError::HomeDirUnavailable)?;
-        // switched to typed variant: HomeDirUnavailable
-        // previous StorageError(String) mapping removed
         let storage_path = home_dir.join(".slim").join(hashed_name.to_string());
         std::fs::create_dir_all(&storage_path)?;
-        // switched to typed variant StorageIo
-        // previous StorageError(String) mapping removed
 
         // Channels to communicate with SLIM
         let (conn_id, tx_slim, rx_slim) =
@@ -336,7 +332,6 @@ impl Service {
             ));
         }
 
-        // Propagate DataPathError directly (ServiceError::DataPath via #[from])
         let (_handle, conn_id) = self
             .message_processor
             .connect(config.clone(), None, None)

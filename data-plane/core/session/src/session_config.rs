@@ -213,7 +213,6 @@ mod tests {
             true,
         );
 
-        println!("{:?}", result);
         assert!(result.is_err_and(|e| matches!(
             e,
             SessionError::MessageError(MessageError::InvalidCommandPayloadType {

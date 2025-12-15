@@ -8,7 +8,7 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum IdError {
     // Validation / format
-    #[error("id cannot be emapty")]
+    #[error("id cannot be empty")]
     Empty,
     #[error("kind contains invalid character(s): {0}")]
     InvalidCharacter(String),
