@@ -6,7 +6,7 @@ package integration
 // Test message constants for expected log outputs in integration tests
 const (
 	// SLIM Node messages
-	MsgCreateChannelRequest     = "received a create channel request"
+	MsgCreateChannelRequest     = "received a channel create request"
 	MsgParticipantAddRequest    = "received a participant add request"
 	MsgParticipantDeleteRequest = "received a participant delete request"
 	MsgChannelDeleteRequest     = "received a channel delete request"

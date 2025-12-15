@@ -18,6 +18,7 @@ agntcy-slim-service = { workspace = true }
 agntcy-slim-session = { workspace = true }
 
 # External dependencies
+display-error-chain = { workspace = true }
 num_cpus = { workspace = true }
 parking_lot = { workspace = true }
 thiserror = { workspace = true }
@@ -31,4 +32,3 @@ uniffi = { version = "0.28.3", features = ["build"] }
 agntcy-slim-testing = { workspace = true }
 tokio-test = { workspace = true }
 tracing-test = { workspace = true }
-

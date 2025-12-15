@@ -309,7 +309,7 @@ impl Service {
             .write()
             .insert(config.endpoint.clone(), cancellation_token);
 
-        info!(endpoint = %config.endpoint, "started dataplane server");
+        info!(endpoint = %config.endpoint, "dataplane server started");
 
         Ok(())
     }
@@ -341,6 +341,8 @@ impl Service {
         self.clients
             .write()
             .insert(config.endpoint.clone(), conn_id);
+
+        tracing::info!(endpoint = %config.endpoint, conn_id = %conn_id, "client connected");
 
         // return the connection id
         Ok(conn_id)
@@ -540,7 +542,9 @@ mod tests {
         );
 
         // verify disconnect log
-        assert!(logs_contain("removed client mapping for endpoint endpoint=http://0.0.0.0:12346"));
+        assert!(logs_contain(
+            "removed client mapping for endpoint endpoint=http://0.0.0.0:12346"
+        ));
     }
 
     #[tokio::test]

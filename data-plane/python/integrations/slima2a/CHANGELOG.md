@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/agntcy/slim/compare/slima2a-v0.2.1...slima2a-v0.2.2) (2025-12-11)
+
+
+### Features
+
+* **slima2a:** Bump a2a-sdk to 0.3.20 ([#1044](https://github.com/agntcy/slim/issues/1044)) ([08baf20](https://github.com/agntcy/slim/commit/08baf2059f8ba0f7547e0b0f609147f237cc973b))
+
 ## [0.2.1](https://github.com/agntcy/slim/compare/slima2a-v0.2.0...slima2a-v0.2.1) (2025-12-02)
 
 

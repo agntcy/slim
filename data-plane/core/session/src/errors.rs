@@ -7,7 +7,7 @@ use thiserror::Error;
 
 // Local crate
 use slim_auth::errors::AuthError;
-use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType};
+use slim_datapath::api::{ProtoMessage, ProtoSessionMessageType, ProtoSessionType};
 use slim_datapath::messages::utils::MessageError;
 use slim_mls::errors::MlsError;
 use tonic::Status;
@@ -37,6 +37,8 @@ pub enum SessionError {
     SessionMessageInternalUnexpected(Box<SessionMessage>),
     #[error("session message type unknown: {0:?}")]
     SessionMessageTypeUnknown(ProtoSessionMessageType),
+    #[error("message type unexpected: {0:?}")]
+    MessageTypeUnexpected(Box<ProtoMessage>),
     #[error("session message type unexpected: {0:?}")]
     SessionMessageTypeUnexpected(ProtoSessionMessageType),
 
@@ -53,6 +55,8 @@ pub enum SessionError {
     MessageLost(u32),
     #[error("session closed")]
     SessionClosed,
+    #[error("receive timeout waiting for message")]
+    ReceiveTimeout,
     #[error("session id already used: {0}")]
     SessionIdAlreadyUsed(u32),
     #[error("invalid session id: {0}")]

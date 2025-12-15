@@ -1021,7 +1021,7 @@ impl ControllerService {
                         // received a deregister node response, do nothing
                     }
                     Payload::CreateChannelRequest(req) => {
-                        info!("received a create channel request");
+                        info!("received a channel create request");
 
                         let mut success = true;
                         // Get the first moderator from the list, as we support only one for now
@@ -1067,7 +1067,7 @@ impl ControllerService {
                         }
                     }
                     Payload::DeleteChannelRequest(req) => {
-                        info!("received a delete channel request");
+                        info!("received a channel delete request");
                         let mut success = true;
 
                         // Get the first moderator from the list, as we support only one for now

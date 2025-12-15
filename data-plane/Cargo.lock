@@ -83,6 +83,7 @@ dependencies = [
  "agntcy-slim-service",
  "agntcy-slim-session",
  "agntcy-slim-testing",
+ "display-error-chain",
  "num_cpus",
  "parking_lot",
  "thiserror 2.0.17",
