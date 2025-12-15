@@ -5,6 +5,8 @@
 use tokio::sync::oneshot;
 use tracing::debug;
 
+use slim_datapath::api::ProtoMessage as Message;
+
 // Local crate
 use crate::errors::SessionError;
 
@@ -63,6 +65,14 @@ impl ModeratorTask {
             ModeratorTask::Remove(_) => SessionError::ModeratorTaskRemoveFailed,
             ModeratorTask::Update(_) => SessionError::ModeratorTaskUpdateFailed,
             ModeratorTask::CloseOrDisconnect(_) => SessionError::ModeratorTaskCloseFailed,
+        }
+    }
+    pub(crate) fn ack_msg(&self) -> Option<&Message> {
+        match self {
+            ModeratorTask::Add(t) => t.ack_msg.as_ref(),
+            ModeratorTask::Remove(t) => t.ack_msg.as_ref(),
+            ModeratorTask::CloseOrDisconnect(t) => t.ack_msg.as_ref(),
+            ModeratorTask::Update(t) => t.ack_msg.as_ref(),
         }
     }
 }
@@ -158,17 +168,22 @@ pub struct AddParticipant {
     join: State,
     welcome: State,
     commit: State,
+    ack_msg: Option<Message>,
     /// Optional ack notifier to signal when the invite operation completes (after JoinReply)
     pub(crate) ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
 }
 
 impl AddParticipant {
-    pub(crate) fn new(ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>) -> Self {
+    pub(crate) fn new(
+        ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
+        ack_msg: Option<Message>,
+    ) -> Self {
         Self {
             discovery: Default::default(),
             join: Default::default(),
             welcome: Default::default(),
             commit: Default::default(),
+            ack_msg,
             ack_tx,
         }
     }
@@ -282,15 +297,20 @@ impl TaskUpdate for AddParticipant {
 pub struct RemoveParticipant {
     commit: State,
     leave: State,
+    ack_msg: Option<Message>,
     /// Optional ack notifier to signal when the remove operation completes (after LeaveReply)
     pub(crate) ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
 }
 
 impl RemoveParticipant {
-    pub(crate) fn new(ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>) -> Self {
+    pub(crate) fn new(
+        ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
+        ack_msg: Option<Message>,
+    ) -> Self {
         Self {
             commit: Default::default(),
             leave: Default::default(),
+            ack_msg,
             ack_tx,
         }
     }
@@ -381,14 +401,19 @@ impl TaskUpdate for RemoveParticipant {
 #[derive(Debug, Default)]
 pub struct NotifyParticipants {
     notify: State,
+    ack_msg: Option<Message>,
     /// Optional ack notifier to signal when the notify operation completes
     pub(crate) ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
 }
 
 impl NotifyParticipants {
-    pub(crate) fn new(ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>) -> Self {
+    pub(crate) fn new(
+        ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
+        ack_msg: Option<Message>,
+    ) -> Self {
         Self {
             notify: Default::default(),
+            ack_msg,
             ack_tx,
         }
     }
@@ -462,6 +487,7 @@ impl TaskUpdate for NotifyParticipants {
 pub struct UpdateParticipant {
     proposal: State,
     commit: State,
+    ack_msg: Option<Message>,
     /// Optional ack notifier to signal when the update operation completes
     pub(crate) ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
 }
