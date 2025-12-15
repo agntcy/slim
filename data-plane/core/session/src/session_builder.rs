@@ -294,7 +294,7 @@ where
         } else {
             "Participant"
         };
-        tracing::debug!("Building SessionController as {}", role);
+        tracing::debug!(%role, "Building SessionController");
 
         let session_controller = if config.initiator {
             let (inner, tx, rx, settings) = self.build_session_stack(SessionModerator::new)?;

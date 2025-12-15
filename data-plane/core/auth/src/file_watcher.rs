@@ -60,7 +60,7 @@ impl FileWatcher {
                                                 continue;
                                             }
                                             if let Some(p) = event.paths.first().and_then(|p| p.to_str()) {
-                                                debug!("detected event {:?}", event);
+                                                debug!(event = ?event, "detected event");
                                                 callback(p);
                                             }
                                         }
@@ -90,7 +90,7 @@ impl FileWatcher {
         self.watcher
             .watch(Path::new(file_name), RecursiveMode::NonRecursive)?;
 
-        debug!("added file {} to watcher", file_name);
+        debug!(%file_name, "start watching file");
 
         Ok(())
     }

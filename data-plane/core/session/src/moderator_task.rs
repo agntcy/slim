@@ -177,8 +177,8 @@ impl AddParticipant {
 impl TaskUpdate for AddParticipant {
     fn discovery_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
         debug!(
-            "start discovery on AddParticipan task, timer id {}",
-            timer_id
+            %timer_id,
+            "start discovery on AddParticipan task",
         );
         self.discovery.received = false;
         self.discovery.timer_id = timer_id;
@@ -189,8 +189,8 @@ impl TaskUpdate for AddParticipant {
         if self.discovery.timer_id == timer_id {
             self.discovery.received = true;
             debug!(
-                "discovery completed on AddParticipan task, timer id {}",
-                timer_id
+                %timer_id,
+                "discovery completed on AddParticipan task"
             );
             Ok(())
         } else {
@@ -199,7 +199,7 @@ impl TaskUpdate for AddParticipant {
     }
 
     fn join_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        debug!("start join on AddParticipan task, timer id {}", timer_id);
+        debug!(%timer_id, "start join on AddParticipan task");
         self.join.received = false;
         self.join.timer_id = timer_id;
         Ok(())
@@ -209,8 +209,8 @@ impl TaskUpdate for AddParticipant {
         if self.join.timer_id == timer_id {
             self.join.received = true;
             debug!(
-                "join completed on AddParticipan task, timer id {}",
-                timer_id
+                %timer_id,
+                "join completed on AddParticipan task"
             );
 
             // Signal success to the ack notifier if present (invite operation complete)
@@ -233,14 +233,14 @@ impl TaskUpdate for AddParticipant {
     }
 
     fn welcome_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        debug!("start welcome on AddParticipan task, timer id {}", timer_id);
+        debug!(%timer_id, "start welcome on AddParticipan task");
         self.welcome.received = false;
         self.welcome.timer_id = timer_id;
         Ok(())
     }
 
     fn commit_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        debug!("start commit on AddParticipan task, timer id {}", timer_id);
+        debug!(%timer_id, "start commit on AddParticipan task");
         self.commit.received = false;
         self.commit.timer_id = timer_id;
         Ok(())
@@ -254,15 +254,15 @@ impl TaskUpdate for AddParticipant {
         if self.welcome.timer_id == timer_id {
             self.welcome.received = true;
             debug!(
-                "welcome completed on AddParticipan task, timer id {}",
-                timer_id
+                %timer_id,
+                "welcome completed on AddParticipan task",
             );
             Ok(())
         } else if self.commit.timer_id == timer_id {
             self.commit.received = true;
             debug!(
-                "commit completed on AddParticipan task, timer id {}",
-                timer_id
+                %timer_id,
+                "commit completed on AddParticipan task",
             );
             Ok(())
         } else {
@@ -315,8 +315,8 @@ impl TaskUpdate for RemoveParticipant {
 
     fn leave_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
         debug!(
-            "start leave on RemoveParticipant task, timer id {}",
-            timer_id
+            %timer_id,
+            "start leave on RemoveParticipant task",
         );
         self.leave.received = false;
         self.leave.timer_id = timer_id;
@@ -327,8 +327,8 @@ impl TaskUpdate for RemoveParticipant {
         if self.leave.timer_id == timer_id {
             self.leave.received = true;
             debug!(
-                "leave completed on RemoveParticipant task, timer id {}",
-                timer_id
+                %timer_id,
+                "leave completed on RemoveParticipant task",
             );
 
             // Signal success to the ack notifier if present (remove operation complete)
@@ -348,8 +348,8 @@ impl TaskUpdate for RemoveParticipant {
 
     fn commit_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
         debug!(
-            "start commit on RemoveParticipanMls task, timer id {}",
-            timer_id
+            %timer_id,
+            "start commit on RemoveParticipanMls task",
         );
         self.commit.received = false;
         self.commit.timer_id = timer_id;
@@ -364,8 +364,8 @@ impl TaskUpdate for RemoveParticipant {
         if self.commit.timer_id == timer_id {
             self.commit.received = true;
             debug!(
-                "commit completed on RemoveParticipanMls task, timer id {}",
-                timer_id
+                %timer_id,
+                "commit completed on RemoveParticipanMls task",
             );
             Ok(())
         } else {
@@ -424,7 +424,7 @@ impl TaskUpdate for NotifyParticipants {
     }
 
     fn commit_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        debug!("start notify participants task, timer id {}", timer_id);
+        debug!(%timer_id, "start notify participants task");
         self.notify.received = false;
         self.notify.timer_id = timer_id;
         Ok(())
@@ -438,8 +438,8 @@ impl TaskUpdate for NotifyParticipants {
         if self.notify.timer_id == timer_id {
             self.notify.received = true;
             debug!(
-                "notify participants completed on NotifyParticipants task, timer id {}",
-                timer_id
+                %timer_id,
+                "notify participants completed on NotifyParticipants task",
             );
 
             // Signal success to the ack notifier if present (notify operation complete)
@@ -497,8 +497,8 @@ impl TaskUpdate for UpdateParticipant {
 
     fn commit_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
         debug!(
-            "start commit on UpdateParticipanMls task, timer id {}",
-            timer_id
+            %timer_id,
+            "start commit on UpdateParticipanMls task",
         );
         self.commit.received = false;
         self.commit.timer_id = timer_id;
@@ -506,9 +506,8 @@ impl TaskUpdate for UpdateParticipant {
     }
 
     fn proposal_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        debug!(
-            "start proposal on UpdateParticipanMls task, timer id {}",
-            timer_id
+        debug!(%timer_id,
+            "start proposal on UpdateParticipanMls task",
         );
         self.proposal.received = false;
         self.proposal.timer_id = timer_id;
@@ -519,15 +518,15 @@ impl TaskUpdate for UpdateParticipant {
         if self.proposal.timer_id == timer_id {
             self.proposal.received = true;
             debug!(
-                "proposal completed on UpdateParticipanMls task, timer id {}",
-                timer_id
+                %timer_id,
+                "proposal completed on UpdateParticipanMls task",
             );
             Ok(())
         } else if self.commit.timer_id == timer_id {
             self.commit.received = true;
             debug!(
-                "commit completed on UpdateParticipanMls task, timer id {}",
-                timer_id
+                %timer_id,
+                "commit completed on UpdateParticipanMls task",
             );
             Ok(())
         } else {

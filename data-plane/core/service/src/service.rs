@@ -356,15 +356,15 @@ impl Service {
                 if let Some(stored_conn) = clients.get(&endpoint) {
                     if *stored_conn == conn {
                         clients.remove(&endpoint);
-                        info!(%endpoint, "removed client mapping");
+                        info!(%endpoint, "removed client mapping for endpoint");
                     } else {
                         debug!(
-                            "client mapping endpoint {} has different conn_id {} != {}",
-                            endpoint, stored_conn, conn
+                            %endpoint, %stored_conn, %conn,
+                            "client mapping endpoint has different conn_id",
                         );
                     }
                 } else {
-                    debug!("no client mapping found for endpoint {}", endpoint);
+                    debug!(%endpoint, "no client mapping found for endpoint");
                 }
                 Ok(())
             }
@@ -540,7 +540,7 @@ mod tests {
         );
 
         // verify disconnect log
-        assert!(logs_contain("disconnect from conn"));
+        assert!(logs_contain("removed client mapping for endpoint endpoint=http://0.0.0.0:12346"));
     }
 
     #[tokio::test]

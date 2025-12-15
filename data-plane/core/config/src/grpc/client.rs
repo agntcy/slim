@@ -576,7 +576,7 @@ impl ClientConfig {
                     let http_connector = http_connector.clone();
                     let tls_config = tls_config.clone();
                     async move {
-                        tracing::debug!("Attempting to create gRPC channel to {}", uri);
+                        tracing::debug!(%uri, "Attempting to create gRPC channel");
                         self.create_channel_with_connector(uri, builder, http_connector, tls_config)
                             .await
                     }
@@ -929,7 +929,6 @@ mod test {
     #[allow(unused_imports)]
     use super::*;
     use crate::tls::common::CaSource;
-    use tracing::debug;
     use tracing_test::traced_test;
 
     #[test]
@@ -1003,7 +1002,7 @@ mod test {
             tls.insecure = false;
             tls
         };
-        debug!("{}/testdata/{}", test_path, "ca.crt");
+
         channel = client.to_channel_lazy().await;
         assert!(channel.is_ok());
 

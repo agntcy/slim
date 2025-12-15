@@ -78,14 +78,13 @@ impl Timer {
             let mut timeouts = 0;
             let mut last_duration = duration;
 
-            trace!("timer {} started", timer_id);
+            trace!(%timer_id, "timer started");
             loop {
                 let timer_duration = match timer_type {
                     TimerType::Constant => {
                         trace!(
-                            "constant timer {}, next in {} ms",
-                            timer_id,
-                            duration.as_millis()
+                            %timer_id, next_ms = duration.as_millis(),
+                            "constant timer",
                         );
                         duration
                     }
@@ -97,9 +96,8 @@ impl Timer {
                         match max_duration {
                             None => {
                                 trace!(
-                                    "exponential timer {}, next in {} ms",
-                                    timer_id,
-                                    d.as_millis()
+                                    %timer_id, next_ms = d.as_millis(),
+                                    "exponential timer",
                                 );
                                 last_duration = d;
                                 d
@@ -107,17 +105,16 @@ impl Timer {
                             Some(max_d) => {
                                 if d > max_d {
                                     trace!(
-                                        "exponential timer {}, next in {} ms (use max duration)",
-                                        timer_id,
-                                        max_d.as_millis()
+                                        %timer_id,
+                                        next_ms = max_d.as_millis(),
+                                        "exponential timer (use max duration)",
                                     );
                                     last_duration = max_d;
                                     max_d
                                 } else {
                                     trace!(
-                                        "exponential timer {}, next in {} ms",
-                                        timer_id,
-                                        d.as_millis()
+                                        %timer_id, next_ms = max_d.as_millis(),
+                                        "exponential timer",
                                     );
                                     last_duration = d;
                                     d
@@ -192,20 +189,20 @@ mod tests {
     impl TimerObserver for Observer {
         async fn on_timeout(&self, timer_id: u32, timeouts: u32) {
             debug!(
-                "timeout number {} for timer id {}, retry",
-                timeouts, timer_id
+                %timeouts, %timer_id,
+                "timeout occurred, retry",
             );
         }
 
         async fn on_failure(&self, timer_id: u32, timeouts: u32) {
             debug!(
-                "timeout number {} for timer id {}, stop retry",
-                timeouts, timer_id
+                %timeouts, %timer_id,
+                "timeout occurred, stop retry",
             );
         }
 
         async fn on_stop(&self, timer_id: u32) {
-            debug!("timer id {} cancelled", timer_id);
+            debug!(%timer_id, "timer cancelled");
         }
     }
 
@@ -226,13 +223,13 @@ mod tests {
         time::sleep(Duration::from_millis(500)).await;
 
         // check logs to validate the test
-        let expected_msg = "timeout number 1 for timer id 10, retry";
+        let expected_msg = "timeout occurred, retry timeouts=1 timer_id=10";
         assert!(logs_contain(expected_msg));
-        let expected_msg = "timeout number 2 for timer id 10, retry";
+        let expected_msg = "timeout occurred, retry timeouts=2 timer_id=10";
         assert!(logs_contain(expected_msg));
-        let expected_msg = "timeout number 3 for timer id 10, retry";
+        let expected_msg = "timeout occurred, retry timeouts=3 timer_id=10";
         assert!(logs_contain(expected_msg));
-        let expected_msg = "timeout number 4 for timer id 10, stop retry";
+        let expected_msg = "timeout occurred, stop retry timeouts=4 timer_id=10";
         assert!(logs_contain(expected_msg));
 
         let o = Arc::new(Observer { id: 20 });
@@ -247,15 +244,15 @@ mod tests {
         t.start(o);
         time::sleep(Duration::from_millis(1200)).await;
 
-        let expected_msg = "exponential timer 20, next in 100 ms";
+        let expected_msg = "exponential timer timer_id=20 next_ms=400";
         assert!(logs_contain(expected_msg));
-        let expected_msg = "exponential timer 20, next in 200 ms";
+        let expected_msg = "exponential timer timer_id=20 next_ms=400";
         assert!(logs_contain(expected_msg));
-        let expected_msg = "exponential timer 20, next in 400 ms";
+        let expected_msg = "exponential timer timer_id=20 next_ms=400";
         assert!(logs_contain(expected_msg));
-        let expected_msg = "exponential timer 20, next in 400 ms (use max duration)";
+        let expected_msg = "exponential timer (use max duration) timer_id=20 next_ms=400";
         assert!(logs_contain(expected_msg));
-        let expected_msg = "timeout number 4 for timer id 20, stop retry";
+        let expected_msg = "timeout occurred, stop retry timeouts=4 timer_id=20";
         assert!(logs_contain(expected_msg));
 
         let o = Arc::new(Observer { id: 30 });
@@ -272,17 +269,17 @@ mod tests {
         time::sleep(Duration::from_millis(2000)).await;
         t.stop();
         time::sleep(Duration::from_millis(500)).await;
-        let expected_msg = "exponential timer 30, next in 100 ms";
+        let expected_msg = "exponential timer timer_id=30 next_ms=400";
         assert!(logs_contain(expected_msg));
-        let expected_msg = "exponential timer 30, next in 200 ms";
+        let expected_msg = "exponential timer timer_id=30 next_ms=800";
         assert!(logs_contain(expected_msg));
-        let expected_msg = "exponential timer 30, next in 400 ms";
+        let expected_msg = "exponential timer timer_id=30 next_ms=1600";
         assert!(logs_contain(expected_msg));
-        let expected_msg = "exponential timer 30, next in 800 ms";
+        let expected_msg = "exponential timer timer_id=30 next_ms=800";
         assert!(logs_contain(expected_msg));
-        let expected_msg = "exponential timer 30, next in 1600 ms";
+        let expected_msg = "exponential timer timer_id=30 next_ms=1600";
         assert!(logs_contain(expected_msg));
-        let expected_msg = "timer id 30 cancelled";
+        let expected_msg = "timer cancelled timer_id=30";
         assert!(logs_contain(expected_msg))
     }
 
@@ -308,13 +305,13 @@ mod tests {
         time::sleep(Duration::from_millis(500)).await;
 
         // check logs to validate the test
-        let expected_msg = "timeout number 1 for timer id 10, retry";
+        let expected_msg = "timeout occurred, retry timeouts=1 timer_id=10";
         assert!(logs_contain(expected_msg));
-        let expected_msg = "timeout number 2 for timer id 10, retry";
+        let expected_msg = "timeout occurred, retry timeouts=2 timer_id=10";
         assert!(logs_contain(expected_msg));
-        let expected_msg = "timeout number 3 for timer id 10, retry";
+        let expected_msg = "timeout occurred, retry timeouts=3 timer_id=10";
         assert!(logs_contain(expected_msg));
-        let expected_msg = "timer id 10 cancelled";
+        let expected_msg = "timer cancelled timer_id=10";
         assert!(logs_contain(expected_msg));
     }
 
@@ -360,49 +357,49 @@ mod tests {
         time::sleep(Duration::from_millis(500)).await;
 
         // timeouts after 100ms
-        let expected_msg = "timeout number 1 for timer id 1, retry";
+        let expected_msg = "timeout occurred, retry timeouts=1 timer_id=1";
         assert!(logs_contain(expected_msg));
 
         // timeouts after 200ms
-        let expected_msg = "timeout number 1 for timer id 2, retry";
+        let expected_msg = "timeout occurred, retry timeouts=1 timer_id=2";
         assert!(logs_contain(expected_msg));
-        let expected_msg = "timeout number 1 for timer id 3, retry";
+        let expected_msg = "timeout occurred, retry timeouts=1 timer_id=3";
         assert!(logs_contain(expected_msg));
-        let expected_msg = "timeout number 2 for timer id 1, retry";
+        let expected_msg = "timeout occurred, retry timeouts=2 timer_id=1";
         assert!(logs_contain(expected_msg));
 
         // timeouts after 300ms
-        let expected_msg = "timeout number 3 for timer id 1, retry";
+        let expected_msg = "timeout occurred, retry timeouts=3 timer_id=1";
         assert!(logs_contain(expected_msg));
 
         // timeouts after 400ms
-        let expected_msg = "timeout number 2 for timer id 2, retry";
+        let expected_msg = "timeout occurred, retry timeouts=2 timer_id=2";
         assert!(logs_contain(expected_msg));
-        let expected_msg = "timeout number 2 for timer id 3, retry";
+        let expected_msg = "timeout occurred, retry timeouts=2 timer_id=3";
         assert!(logs_contain(expected_msg));
-        let expected_msg = "timeout number 4 for timer id 1, retry";
+        let expected_msg = "timeout occurred, retry timeouts=4 timer_id=1";
         assert!(logs_contain(expected_msg));
 
         // timeouts after 500ms
-        let expected_msg = "timeout number 4 for timer id 1, retry";
+        let expected_msg = "timeout occurred, retry timeouts=4 timer_id=1";
         assert!(logs_contain(expected_msg));
 
         // timeouts after 600ms
-        let expected_msg = "timeout number 3 for timer id 2, retry";
+        let expected_msg = "timeout occurred, retry timeouts=3 timer_id=2";
         assert!(logs_contain(expected_msg));
-        let expected_msg = "timeout number 3 for timer id 3, retry";
+        let expected_msg = "timeout occurred, retry timeouts=3 timer_id=3";
         assert!(logs_contain(expected_msg));
-        let expected_msg = "timeout number 5 for timer id 1, retry";
+        let expected_msg = "timeout occurred, retry timeouts=5 timer_id=1";
         assert!(logs_contain(expected_msg));
 
         // timeouts after 700ms
-        let expected_msg = "timeout number 6 for timer id 1, stop retry";
+        let expected_msg = "timeout occurred, stop retry timeouts=6 timer_id=1";
         assert!(logs_contain(expected_msg));
 
         // stop timer 2 and 3
-        let expected_msg = "timer id 2 cancelled";
+        let expected_msg = "timer cancelled timer_id=2";
         assert!(logs_contain(expected_msg));
-        let expected_msg = "timer id 3 cancelled";
+        let expected_msg = "timer cancelled timer_id=3";
         assert!(logs_contain(expected_msg));
     }
 
@@ -423,28 +420,28 @@ mod tests {
 
         time::sleep(Duration::from_millis(350)).await;
 
-        let expected_msg = "timeout number 3 for timer id 10, retry";
+        let expected_msg = "timeout occurred, retry timeouts=3 timer_id=10";
         assert!(logs_contain(expected_msg));
 
         t.reset(o.clone());
 
         time::sleep(Duration::from_millis(250)).await;
 
-        let expected_msg = "timeout number 2 for timer id 10, retry";
+        let expected_msg = "timeout occurred, retry timeouts=2 timer_id=10";
         assert!(logs_contain(expected_msg));
 
         t.reset(o.clone());
 
         time::sleep(Duration::from_millis(700)).await;
 
-        let expected_msg = "timeout number 6 for timer id 10, stop retry";
+        let expected_msg = "timeout occurred, stop retry timeouts=6 timer_id=10";
         assert!(logs_contain(expected_msg));
 
         t.reset(o);
 
         time::sleep(Duration::from_millis(700)).await;
 
-        let expected_msg = "timeout number 6 for timer id 10, stop retry";
+        let expected_msg = "timeout occurred, stop retry timeouts=6 timer_id=10";
         assert!(logs_contain(expected_msg));
     }
 
@@ -465,7 +462,7 @@ mod tests {
 
         time::sleep(Duration::from_millis(350)).await;
 
-        let expected_msg = "timeout number 3 for timer id 10, retry";
+        let expected_msg = "timeout occurred, retry timeouts=3 timer_id=10";
         assert!(logs_contain(expected_msg));
     }
 }

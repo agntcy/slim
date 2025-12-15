@@ -78,12 +78,12 @@ impl Session {
                 ack_tx,
             } => {
                 debug!(
-                    "received message {} type {:?} on {} from {} (direction {:?})",
-                    message.get_id(),
-                    message.get_session_message_type(),
-                    self.local_name,
-                    message.get_source(),
-                    direction
+                    message_id = %message.get_id(),
+                    session_message_type = ?message.get_session_message_type(),
+                    name = %self.local_name,
+                    source = %message.get_source(),
+                    direction = ?direction,
+                    "received message",
                 );
                 self.on_application_message(message, direction, ack_tx)
                     .await
@@ -113,12 +113,12 @@ impl Session {
     }
 
     pub async fn add_endpoint(&mut self, endpoint: &Name) -> Result<(), SessionError> {
-        debug!("add participant {} on {}", endpoint, self.local_name);
+        debug!(%endpoint, local_name = %self.local_name, "add participant");
         self.sender.add_endpoint(endpoint).await
     }
 
     pub fn remove_endpoint(&mut self, endpoint: &Name) {
-        debug!("remove participant {} on {}", endpoint, self.local_name);
+        debug!(%endpoint, local_name = %self.local_name, "remove participant");
         self.sender.remove_endpoint(endpoint);
         self.receiver.remove_endpoint(endpoint);
     }

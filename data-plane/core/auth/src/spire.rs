@@ -65,6 +65,7 @@
 use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use display_error_chain::ErrorChainExt;
 use futures::StreamExt;
 use jsonwebtoken_aws_lc::TokenData;
 use parking_lot::RwLock;
@@ -176,7 +177,7 @@ impl CustomClaimsCodec {
                         }
                     },
                     Err(e) => {
-                        tracing::warn!("Failed to decode custom claims base64: {}", e);
+                        tracing::warn!(error = %e.chain(), "Failed to decode custom claims base64");
                         filtered_audiences.push(aud.clone());
                     }
                 }
@@ -316,7 +317,7 @@ impl SpireIdentityManager {
             .get_svid()
             .map_err(|e| AuthError::SpiffeX509SvidFetch { source: e })?
             .ok_or(AuthError::SpiffeX509SvidMissing)?;
-        debug!("Retrieved X509 SVID with SPIFFE ID: {}", svid.spiffe_id());
+        debug!(spiffe_id = %svid.spiffe_id(), "Retrieved X509 SVID");
         Ok(svid)
     }
 
@@ -657,8 +658,9 @@ impl JwtSource {
                     ).await {
                         Ok(()) => {
                             tracing::debug!(
-                                "jwt_source: performed regular JWT SVID refresh - next refresh in {} s",
-                                refresh_timer.as_ref().deadline().duration_since(tokio::time::Instant::now()).as_secs()
+                                next_refresh = %refresh_timer.as_ref().deadline().duration_since(tokio::time::Instant::now()).as_secs(),
+                                "jwt_source: performed regular JWT SVID refresh",
+
                             );
                         },
                         Err(err) => {
@@ -727,9 +729,8 @@ impl JwtSource {
 
                 tracing::debug!(
                     next_duration_secs = next_duration.as_secs(),
-                    "jwt_source: next refresh scheduled at {:?} in {} seconds",
-                    deadline,
-                    next_duration.as_secs()
+                    deadline = ?deadline,
+                    "jwt_source: next refresh scheduled",
                 );
 
                 Ok(())
@@ -972,9 +973,9 @@ fn calculate_backoff_with_token_expiry<T: JwtLike>(
 
         if requested_backoff > max_safe_backoff {
             tracing::debug!(
-                "jwt_source: capping backoff to {}s to prevent token expiration ({}s remaining)",
-                max_safe_backoff.as_secs(),
-                remaining_lifetime.as_secs()
+                max_safe_backoff = %max_safe_backoff.as_secs(),
+                remaining_lifetime = %remaining_lifetime.as_secs(),
+                "jwt_source: capping backoff to prevent token expiration",
             );
             max_safe_backoff
         } else {
@@ -1046,9 +1047,8 @@ impl Verifier for SpireIdentityManager {
         let jwt_svid = JwtSvid::parse_and_validate(&token.into(), &bundles, &self.jwt_audiences)?;
 
         debug!(
-            "Successfully extracted claims for SPIFFE ID: {}",
-            jwt_svid.spiffe_id()
-        );
+            spiffe_id = %jwt_svid.spiffe_id(),
+            "Successfully extracted claims"        );
 
         // Extract custom claims from audiences and filter them out
         let audiences = jwt_svid.audience();

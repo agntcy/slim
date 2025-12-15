@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 
 use clap::Parser;
+use display_error_chain::ErrorChainExt;
 use tracing::info;
 
 use slim::config;
@@ -44,7 +45,7 @@ fn spawn_session_receiver(
                                         Err(_) => {
                                             info!(
                                                 msg_len = %payload.as_application_payload().unwrap().blob.len(),
-                                                "received encrypted message: {} bytes",
+                                                "received encrypted message",
                                             );
                                         }
                                     }
@@ -59,7 +60,7 @@ fn spawn_session_receiver(
                                 }
                             },
                             Some(Err(e)) => {
-                                info!(error = %e, "received message error");
+                                info!(error = %e.chain(), "received message error");
                                 break;
                             }
                             None => {
@@ -79,7 +80,7 @@ fn spawn_session_receiver(
                                 if let Err(e) = session_arc
                                     .publish(&route, reply_bytes, None, None).await
                                 {
-                                    info!(error = %e, "error sending periodic reply");
+                                    info!(error = %e.chain(), "error sending periodic reply");
                                 }
                             } else {
                                 info!("session already dropped; cannot send reply");

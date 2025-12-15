@@ -60,7 +60,7 @@ fn main() -> anyhow::Result<()> {
 
         // start services
         for service in services.iter_mut() {
-            info!(service = %service.0, %"Starting service");
+            info!(service = %service.0, "Starting service");
             service.1.start().await.context("failed to start service")?;
         }
 

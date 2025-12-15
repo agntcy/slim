@@ -231,15 +231,15 @@ where
             | ProtoSessionMessageType::JoinReply
             | ProtoSessionMessageType::LeaveReply => {
                 debug!(
-                    "Unexpected control message type {:?}",
-                    message.get_session_message_type()
+                    control_message_type = ?message.get_session_message_type(),
+                    "Unexpected control message type",
                 );
                 Ok(())
             }
             _ => {
                 debug!(
-                    "Unexpected message type {:?}",
-                    message.get_session_message_type()
+                    message_type = ?message.get_session_message_type(),
+                    "Unexpected message type",
                 );
                 Ok(())
             }
@@ -248,9 +248,9 @@ where
 
     async fn on_join_request(&mut self, msg: Message) -> Result<(), SessionError> {
         debug!(
-            "received join request on {} with id {}",
-            self.common.settings.source,
-            msg.get_id()
+            name = %self.common.settings.source,
+            id = %msg.get_id(),
+            "received join request",
         );
         let source = msg.get_source();
         self.moderator_name = Some(source.clone());
@@ -288,9 +288,9 @@ where
 
     async fn on_welcome(&mut self, msg: Message) -> Result<(), SessionError> {
         debug!(
-            "received welcome on {} with id {}",
-            self.common.settings.source,
-            msg.get_id()
+            name = %self.common.settings.source,
+            id = %msg.get_id(),
+            "received welcome message",
         );
 
         if self.mls_state.is_some() {
@@ -314,7 +314,7 @@ where
             self.group_list.insert(name.clone());
 
             if name != self.common.settings.source {
-                debug!("add endpoint to the session {}", msg.get_source());
+                debug!(name = %msg.get_source(), "add endpoint to the session");
                 self.add_endpoint(&name).await?;
             }
         }
@@ -336,9 +336,9 @@ where
         add: bool,
     ) -> Result<(), SessionError> {
         debug!(
-            "received update on {} with id {}",
-            self.common.settings.source,
-            msg.get_id()
+            name = %self.common.settings.source,
+            id = %msg.get_id(),
+            "received update",
         );
 
         if self.mls_state.is_some() {
@@ -352,8 +352,8 @@ where
 
             if !ret {
                 debug!(
-                    "Message with id {} already processed, drop it",
-                    msg.get_id()
+                    id = %msg.get_id(),
+                    "Message already processed, drop it",
                 );
                 return Ok(());
             }
@@ -369,7 +369,7 @@ where
                 let name = Name::from(new_participant);
                 self.group_list.insert(name.clone());
 
-                debug!("add endpoint to the session {}", msg.get_source());
+                debug!(name  = %msg.get_source(), "add endpoint to session");
                 self.add_endpoint(&name).await?;
             }
         } else {
@@ -382,7 +382,7 @@ where
                 let name = Name::from(removed_participant);
                 self.group_list.remove(&name);
 
-                debug!("remove endpoint from the session {}", msg.get_source());
+                debug!(name = %msg.get_source(), "remove endpoint from session");
                 self.inner.remove_endpoint(&name);
             }
         }
@@ -398,7 +398,7 @@ where
     }
 
     async fn on_leave_request(&mut self, msg: Message) -> Result<(), SessionError> {
-        debug!("close the session");
+        debug!("close session");
         self.common.processing_state = ProcessingState::Draining;
         self.inner
             .on_message(SessionMessage::StartDrain {

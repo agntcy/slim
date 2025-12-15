@@ -41,7 +41,7 @@ struct PingTimerObserver {
 #[async_trait]
 impl TimerObserver for PingTimerObserver {
     async fn on_timeout(&self, timer_id: u32, timeouts: u32) {
-        trace!("timeout number {} for rtx {}, retry", timeouts, timer_id);
+        trace!(n_timeouts = %timeouts, %timer_id, "timeout for rtx, retry");
         let _ = self.tx_proxy_session.send(timer_id).await;
     }
 

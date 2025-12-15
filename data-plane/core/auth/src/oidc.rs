@@ -205,7 +205,7 @@ impl OidcTokenProvider {
 
         // Fetch initial token to populate cache
         if let Err(e) = self.fetch_new_token().await {
-            tracing::warn!("Warning: Failed to fetch initial token: {}", e);
+            tracing::warn!(error = %e.chain(), "Warning: Failed to fetch initial token");
             // Don't fail initialization, let background task handle it
         }
         Ok(())
@@ -338,7 +338,7 @@ impl OidcTokenProvider {
     pub fn shutdown(&self) {
         if let Err(e) = self.shutdown_tx.send(true) {
             // Print the error message during drop
-            tracing::debug!("Failed to send shutdown signal: {}", e);
+            tracing::debug!(error = %e.chain(), "Failed to send shutdown signal");
         }
     }
 }
@@ -375,7 +375,7 @@ impl Drop for OidcTokenProvider {
         // Signal shutdown when the provider is dropped
         if let Err(e) = self.shutdown_tx.send(true) {
             // Print the error message during drop
-            tracing::debug!("Failed to send shutdown signal: {}", e);
+            tracing::debug!(error = %e.chain(), "Failed to send shutdown signal");
         }
     }
 }

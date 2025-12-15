@@ -47,7 +47,7 @@ fn spawn_session_receiver(
 
                                 let publisher = msg.get_slim_header().get_source();
                                 let msg_id = msg.get_id();
-                                info!(from = %publisher, %id, "CLIENT: message");
+                                info!(from = %publisher, %msg_id, "CLIENT: message");
 
                                 if let Some(c) = msg.get_payload() {
                                     let blob = &c.as_application_payload().unwrap().blob;
@@ -58,7 +58,7 @@ fn spawn_session_receiver(
                                             info!(message = %text);
                                         },
                                         Err(e) => {
-                                            info!(msg_len = %blob.len(), error = %e, "received encrypted/binary message");
+                                            info!(msg_len = %blob.len(), error = %e.chain(), "received encrypted/binary message");
                                         }
                                     }
                                 } else {

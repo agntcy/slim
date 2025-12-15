@@ -102,7 +102,7 @@ where
             .stored_commits_proposals
             .remove(&(self.last_mls_msg_id + 1))
         {
-            trace!("processing stored message {}", msg.get_id());
+            trace!(id = %msg.get_id(), "processing stored message");
 
             // increment the last mls message id
             self.last_mls_msg_id += 1;
@@ -139,7 +139,7 @@ where
         &mut self,
         mls_payload: &MlsPayload,
     ) -> Result<(), SessionError> {
-        trace!("processing stored commit {}", mls_payload.commit_id);
+        trace!(id = %mls_payload.commit_id,  "processing stored commit",);
 
         // process the commit message
         self.mls
@@ -156,7 +156,7 @@ where
         proposal: Message,
         local_name: &Name,
     ) -> Result<(), SessionError> {
-        trace!("processing stored proposal {}", proposal.get_id());
+        trace!(id = proposal.get_id(), "processing stored proposal");
 
         let payload = proposal.extract_group_proposal()?;
 
@@ -215,8 +215,8 @@ where
 
         if commit_id <= self.last_mls_msg_id {
             debug!(
-                "Message with id {} already processed, drop it. last message id {}",
-                commit_id, self.last_mls_msg_id
+                %commit_id, last_message_id = self.last_mls_msg_id,
+                "Message already processed, drop it.",
             );
             return Ok(false);
         }
@@ -224,7 +224,7 @@ where
         // store commit in hash map
         match self.stored_commits_proposals.entry(commit_id) {
             Entry::Occupied(_) => {
-                debug!("Message with id {} already exists, drop it", commit_id);
+                debug!(%commit_id, "Message already exists, drop it");
                 Ok(false)
             }
             Entry::Vacant(entry) => {

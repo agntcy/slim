@@ -47,7 +47,7 @@ impl TimerObserver for ReliableTimerObserver {
     }
 
     async fn on_stop(&self, message_id: u32) {
-        debug!("timer stopped: {}", message_id);
+        debug!(timer_id = %message_id, "timer stopped");
     }
 }
 

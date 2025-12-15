@@ -247,8 +247,7 @@ async fn test_spiffe_provider_initialization() {
                     }
                     Err(e) => {
                         tracing::warn!(
-                            "JWT verification failed (may be expected in test environment): {}",
-                            e
+                            error = %e.chain(), "JWT verification failed (may be expected in test environment)",
                         );
                         // Don't panic here as verification might fail in test environment
                     }

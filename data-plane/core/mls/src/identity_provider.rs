@@ -61,10 +61,10 @@ where
         let identity_claims = IdentityClaims::from_json(&claims)?;
 
         debug!(
-            "Extracted public key from claims: {}",
-            identity_claims.public_key
+            claims = %claims,
+            "Extracted public key from claims",
         );
-        debug!("Extracted subject from claims: {}", identity_claims.subject);
+        debug!(sub = %identity_claims.subject, "Extracted subject from claims");
 
         Ok(identity_claims)
     }
@@ -144,7 +144,7 @@ where
 
         // Successor is valid if both identities have the same subject
         let is_valid = pred_claims.subject == succ_claims.subject;
-        debug!("Identity succession validation result: {}", is_valid);
+        debug!(%is_valid, "Identity succession validation result");
         Ok(is_valid)
     }
 

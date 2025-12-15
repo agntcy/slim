@@ -230,8 +230,8 @@ where
             }
             SessionMessage::ParticipantDisconnected { name: participant } => {
                 debug!(
-                    "Participant {} is not anymore connected to the current session",
-                    participant
+                    %participant,
+                    "Participant not anymore connected to the current session",
                 );
 
                 // create a leave request message for the participant that
@@ -548,9 +548,9 @@ where
             .map_err(|e| self.handle_task_error(e))?;
 
         debug!(
-            "send discovery request to {} with id {}",
-            discovery.get_dst(),
-            discovery.get_id()
+            dst = %discovery.get_dst(),
+            id = discovery.get_id(),
+            "send discovery request",
         );
         self.common
             .send_with_timer(discovery)
@@ -560,9 +560,9 @@ where
 
     async fn on_discovery_reply(&mut self, msg: Message) -> Result<(), SessionError> {
         debug!(
-            "discovery reply coming from {} with id {}",
-            msg.get_source(),
-            msg.get_id()
+            source = %msg.get_source(),
+            id = msg.get_id(),
+            "discovery reply",
         );
         // update sender status to stop timers
         self.common.sender.on_message(&msg).await?;
@@ -612,9 +612,9 @@ where
             .as_content();
 
         debug!(
-            "send join request to {} with id {}",
-            msg.get_slim_header().get_source(),
-            msg_id
+            dst = %msg.get_slim_header().get_source(),
+            id = msg_id,
+            "send join request",
         );
         self.common
             .send_control_message(
@@ -634,9 +634,9 @@ where
 
     async fn on_join_reply(&mut self, msg: Message) -> Result<(), SessionError> {
         debug!(
-            "join reply coming from {} with id {}",
-            msg.get_source(),
-            msg.get_id()
+            source = %msg.get_source(),
+            id = msg.get_id(),
+            "join reply",
         );
         // stop the timer for the join request
         self.common.sender.on_message(&msg).await?;
@@ -656,7 +656,7 @@ where
             .insert(new_participant_name, new_participant_id);
 
         // notify the local session that a new participant was added to the group
-        debug!("add endpoint to the session {}", msg.get_source());
+        debug!(session_name = %msg.get_source(), "add endpoint");
         self.add_endpoint(&msg.get_source()).await?;
 
         // get mls data if MLS is enabled
@@ -699,7 +699,7 @@ where
                 .group_add(msg.get_source().clone(), participants_vec.clone(), commit)
                 .as_content();
             let add_msg_id = rand::random::<u32>();
-            debug!("send add update to channel with id {}", add_msg_id);
+            debug!(id = %add_msg_id, "send add update to channel");
             self.common
                 .send_control_message(
                     &self.common.settings.destination.clone(),
@@ -731,9 +731,9 @@ where
             .group_welcome(participants_vec, welcome)
             .as_content();
         debug!(
-            "send welcome message to {} with id {}",
-            msg.get_slim_header().get_source(),
-            welcome_msg_id
+            dst = %msg.get_slim_header().get_source(),
+            id = %welcome_msg_id,
+            "send welcome message",
         );
         self.common
             .send_control_message(
@@ -763,7 +763,7 @@ where
     ) -> Result<(), SessionError> {
         if self.current_task.is_some() {
             // if busy postpone the task and add it to the todo list with its ack_tx
-            debug!("Moderator is busy. Add  leave request task to the list and process it later");
+            debug!("Moderator is busy. Add leave request task to the list and process it later");
             self.tasks_todo.push_back((msg, ack_tx));
             return Ok(());
         }
@@ -816,8 +816,8 @@ where
 
         // Remove the participant from the group list and compute MLS payload
         debug!(
-            "remove endpoint from the session {}",
-            leave_message.get_dst()
+            session_name = %leave_message.get_dst(),
+            "remove endpoint from the session",
         );
 
         let (participants_vec, mls_payload) = self
@@ -861,7 +861,8 @@ where
         msg: Message,
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
     ) -> Result<(), SessionError> {
-        debug!("disconnection detected for participant {}", msg.get_dst());
+        debug!(
+           participant = %msg.get_dst(), "disconnection detected for participant");
 
         // Send error notification to the application
         let error = SessionError::ParticipantDisconnected(msg.get_dst());
@@ -905,8 +906,8 @@ where
 
         // Remove the participant from the group list and compute MLS payload
         debug!(
-            "remove disconnected endpoint {} from the session",
-            disconnected
+            endpoint = %disconnected,
+            "remove disconnected endpoint from the session",
         );
 
         let (participants_vec, mls_payload) = self
@@ -959,9 +960,9 @@ where
 
     async fn on_leave_reply(&mut self, msg: Message) -> Result<(), SessionError> {
         debug!(
-            "received leave reply from {} with id {}",
-            msg.get_source(),
-            msg.get_id()
+            from = %msg.get_source(),
+            id = %msg.get_id(),
+            "received leave reply",
         );
         let msg_id = msg.get_id();
 
@@ -981,9 +982,9 @@ where
 
     async fn on_group_ack(&mut self, msg: Message) -> Result<(), SessionError> {
         debug!(
-            "got group ack from {} with id {}",
-            msg.get_source(),
-            msg.get_id()
+            from = %msg.get_source(),
+            id = %msg.get_id(),
+            "received group ack",
         );
         // notify the sender
         self.common.sender.on_message(&msg).await?;
@@ -992,8 +993,8 @@ where
         let msg_id = msg.get_id();
         if !self.common.sender.is_still_pending(msg_id) {
             debug!(
-                "process group ack for message {}. try to close task",
-                msg_id
+                id = %msg_id,
+                "process group ack. try to close task",
             );
             // we received all the messages related to this timer
             // check if we are done and move on
@@ -1025,8 +1026,8 @@ where
             self.task_done().await?;
         } else {
             debug!(
-                "timer for message {} is still pending, do not close the task",
-                msg_id
+                id = %msg_id,
+                "timer for message still pending, do not close the task",
             );
         }
 

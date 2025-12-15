@@ -211,7 +211,7 @@ impl NameState {
     fn remove(&mut self, id: &u64, conn: u64, is_local: bool) -> Result<(), DataPathError> {
         match self.ids.get_mut(id) {
             None => {
-                warn!("id {} not found", id);
+                warn!(%id, "not found");
                 Err(DataPathError::IdNotFound(*id))
             }
             Some(connection_ids) => {
@@ -260,7 +260,7 @@ impl NameState {
                 }
 
                 // We cannot return any connection for this name
-                debug!("cannot find out connection, name does not exists {:?}", id);
+                debug!(name = %id, "cannot find out connection, name does not exists");
                 None
             }
             Some(vec) => {
@@ -317,7 +317,7 @@ impl NameState {
         let val = self.ids.get(&id);
         match val {
             None => {
-                debug!("cannot find out connection, id does not exists {:?}", id);
+                debug!(%id, "cannot find out connection, id does not exists");
                 None
             }
             Some(vec) => {
@@ -409,8 +409,8 @@ fn add_subscription_to_sub_table(
     match table.get_mut(&internal_name) {
         None => {
             debug!(
-                "subscription table: add first subscription for {} on connection {}",
-                internal_name.0, conn
+                name = %internal_name.0, %conn,
+                "subscription table: add first subscription",
             );
             // the subscription does not exists, init
             // create and init type state
@@ -436,8 +436,8 @@ fn add_subscription_to_connection(
     match set {
         None => {
             debug!(
-                "add first subscription for name {} on connection {}",
-                name_str, conn_index,
+                name = %name_str, %conn_index,
+                "add first subscription for name",
             );
             let mut set = HashSet::new();
             set.insert(name);
@@ -445,22 +445,22 @@ fn add_subscription_to_connection(
         }
         Some(s) => {
             debug!(
-                "add subscription for name {} on connection {}",
-                name_str, conn_index,
+                name = %name_str, %conn_index, "add subscription",
             );
 
             if !s.insert(name) {
                 warn!(
-                    "subscription for name {} already exists for connection {}, ignore the message",
-                    name_str, conn_index,
+                    name = %name_str,
+                    %conn_index,
+                    "subscription already exists for connection, ignore the message",
                 );
                 return Ok(());
             }
         }
     }
     debug!(
-        "subscription for name {} successfully added on connection {}",
-        name_str, conn_index,
+        name = %name_str, %conn_index,
+        "subscription successfully added on connection",
     );
     Ok(())
 }
@@ -500,8 +500,8 @@ fn remove_subscription_from_connection(
         Some(s) => {
             if !s.remove(name) {
                 warn!(
-                    "subscription for name {} not found on connection {}",
-                    name, conn_index,
+                    %name, %conn_index,
+                    "subscription not found for connection",
                 );
                 return Err(DataPathError::SubscriptionNotFound(name.clone()));
             }
@@ -511,8 +511,8 @@ fn remove_subscription_from_connection(
         }
     }
     debug!(
-        "subscription for name {} successfully removed on connection {}",
-        name, conn_index,
+        %name, %conn_index,
+        "subscription successfully removed",
     );
     Ok(())
 }
@@ -541,8 +541,8 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 Some(set) => {
                     if set.contains(&name) {
                         debug!(
-                            "subscription {:?} on connection {:?} already exists, ignore the message",
-                            name, conn
+                            %name, %conn,
+                            "subscription already exists, ignore the message",
                         );
                         return Ok(());
                     }
@@ -585,7 +585,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
             .ok_or(DataPathError::ConnectionIdNotFound(conn))?;
         let mut table = self.table.write();
         for name in &removed_subscriptions {
-            debug!("remove subscription {} from connection {}", name, conn);
+            debug!(%name, %conn, "remove subscription");
             remove_subscription_from_sub_table(name, conn, is_local, &mut table)?;
         }
         Ok(removed_subscriptions)
@@ -598,7 +598,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
 
         match table.get(query_name) {
             None => {
-                debug!("match not found for type {:}", name);
+                debug!(%name, "match not found for name");
                 Err(DataPathError::NoMatch(name.clone()))
             }
             Some(state) => {
@@ -626,7 +626,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
 
         match table.get(query_name) {
             None => {
-                debug!("match not found for type {:}", name);
+                debug!(%name, "match not found for name");
                 Err(DataPathError::NoMatch(name.clone()))
             }
             Some(state) => {
@@ -635,14 +635,14 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 // be sent try on remote ones
                 let local_out = state.get_all_connections(name.id(), incoming_conn, true);
                 if let Some(out) = local_out {
-                    debug!("found local connections {:?}", out);
+                    debug!(?out, "found local connections");
                     return Ok(out);
                 }
 
                 debug!("no local connection available, trying remote connections");
                 let remote_out = state.get_all_connections(name.id(), incoming_conn, false);
                 if let Some(out) = remote_out {
-                    debug!("found remote connections {:?}", out);
+                    debug!(?out, "found remote connections");
                     return Ok(out);
                 }
 

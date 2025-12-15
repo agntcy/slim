@@ -100,8 +100,9 @@ pub fn build(config: &RuntimeConfiguration) -> SlimRuntime {
 
     let cores = if config.n_cores > n_cpu {
         warn!(
-            "Requested number of cores ({}) is greater than available cores ({}). Using all available cores",
-            config.n_cores, n_cpu
+            requested = %config.n_cores,
+            available = %n_cpu,
+            "Requested number of cores is greater than available cores. Using all available cores",
         );
         n_cpu
     } else if config.n_cores == 0 {

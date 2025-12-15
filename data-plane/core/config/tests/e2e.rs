@@ -158,7 +158,7 @@ mod tests {
         };
 
         // print response
-        debug!("RESPONSE={:?}", response);
+        debug!(?response);
 
         Ok(())
     }

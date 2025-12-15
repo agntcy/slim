@@ -214,7 +214,7 @@ where
 
     pub async fn initialize(&mut self) -> Result<(), MlsError> {
         let storage_path = self.get_storage_path();
-        debug!("Using storage path: {}", storage_path.display());
+        debug!(storage_path = ?storage_path, "Using storage path");
         std::fs::create_dir_all(&storage_path)?;
 
         let stored_identity = if StoredIdentity::exists(&storage_path) {
@@ -279,8 +279,8 @@ where
         let group_id = group.group_id().to_vec();
         self.group = Some(group);
         debug!(
-            "MLS group created successfully with ID: {:?}",
-            hex::encode(&group_id)
+            id = ?hex::encode(&group_id),
+            "MLS group created successfully",
         );
 
         Ok(group_id)
@@ -357,7 +357,7 @@ where
     }
 
     pub async fn remove_member(&mut self, identity: &[u8]) -> Result<CommitMsg, MlsError> {
-        debug!("Removing member from the  MLS group");
+        debug!("Removing member from the MLS group");
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
         let m = group.member_with_identity(identity).await?;
@@ -392,8 +392,8 @@ where
         let group_id = group.group_id().to_vec();
         self.group = Some(group);
         debug!(
-            "Successfully joined MLS group with ID: {:?}",
-            hex::encode(&group_id)
+            id = %hex::encode(&group_id),
+            "Successfully joined MLS group",
         );
 
         Ok(group_id)

@@ -9,6 +9,7 @@
 use lazy_static::lazy_static;
 use std::collections::{HashMap, HashSet};
 
+use display_error_chain::ErrorChainExt;
 use serde::Deserialize;
 use serde_yaml::{Value, from_str};
 use thiserror::Error;
@@ -123,7 +124,7 @@ impl ConfigLoader {
                 .cloned()
                 .map(|v| {
                     serde_yaml::from_value(v).unwrap_or_else(|e| {
-                        warn!(error = ?e, "invalid tracing config, falling back to default");
+                        warn!(error = %e.chain(), "invalid tracing config, falling back to default");
                         TracingConfiguration::default()
                     })
                 })
@@ -142,7 +143,7 @@ impl ConfigLoader {
                 .cloned()
                 .map(|v| {
                     serde_yaml::from_value(v).unwrap_or_else(|e| {
-                        warn!(error = ?e, "invalid runtime config, falling back to default");
+                        warn!(error = %e.chain(), "invalid runtime config, falling back to default");
                         RuntimeConfiguration::default()
                     })
                 })

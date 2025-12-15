@@ -291,16 +291,16 @@ impl SlimHeader {
 
         if let Some(val) = self.get_recv_from() {
             debug!(
-                "received recv_from command, update state on connection {}",
-                val
+                conn = %val,
+                "received recv_from command, update state on connection",
             );
             return (val, None);
         }
 
         if let Some(val) = self.get_forward_to() {
             debug!(
-                "received forward_to command, update state and forward to connection {}",
-                val
+                conn = %val,
+                "received forward_to command, update state and forward to connection",
             );
             return (incoming, Some(val));
         }

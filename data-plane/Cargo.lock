@@ -22,6 +22,7 @@ dependencies = [
  "agntcy-slim-tracing",
  "anyhow",
  "clap",
+ "display-error-chain",
  "duration-string",
  "jemallocator",
  "lazy_static",

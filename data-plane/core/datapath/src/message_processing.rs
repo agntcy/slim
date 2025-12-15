@@ -241,9 +241,9 @@ impl MessageProcessor {
             .with_cancellation_token(Some(cancellation_token.clone()));
 
         debug!(
-            "new connection initiated locally: (remote: {:?} - local: {:?})",
-            connection.remote_addr(),
-            connection.local_addr()
+            remote = ?connection.remote_addr(),
+            local = ?connection.local_addr(),
+            "new connection initiated locally",
         );
 
         // insert connection into connection table
@@ -253,8 +253,9 @@ impl MessageProcessor {
             .ok_or(DataPathError::ConnectionTableAddError)?;
 
         debug!(
-            "new connection index = {:?}, is local {:?}",
-            conn_index, false
+            %conn_index,
+            is_local = false,
+            "new connection index",
         );
 
         // Start loop to process messages
@@ -342,7 +343,7 @@ impl MessageProcessor {
             .on_connection_established(connection, None)
             .unwrap();
 
-        debug!("local connection established with id: {:?}", conn_id);
+        debug!(%conn_id, "local connection established");
         info!(telemetry = true, counter.num_active_connections = 1);
 
         // this loop will process messages from the local app
@@ -403,14 +404,15 @@ impl MessageProcessor {
         fanout: u32,
     ) -> Result<(), DataPathError> {
         debug!(
-            "match and forward message: name: {} - fanout: {}",
-            name, fanout,
+            %name,
+            %fanout,
+            "match and forward message"
         );
 
         // if the message already contains an output connection, use that one
         // without performing any match in the subscription table
         if let Some(val) = msg.get_forward_to() {
-            debug!("forwarding message to connection {}", val);
+            debug!(conn = %val, "forwarding message to connection");
             return self.send_msg(msg, val).await;
         }
 
@@ -435,8 +437,9 @@ impl MessageProcessor {
 
     async fn process_publish(&self, msg: Message, in_connection: u64) -> Result<(), DataPathError> {
         debug!(
-            "received publication from connection {}: {:?}",
-            in_connection, msg
+            %in_connection,
+            ?msg,
+            "received publication"
         );
 
         // telemetry /////////////////////////////////////////
@@ -472,8 +475,10 @@ impl MessageProcessor {
         add: bool,
     ) -> Result<(), DataPathError> {
         debug!(
-            "received subscription (add = {}) from connection {}: {:?}",
-            add, in_connection, msg
+            %in_connection,
+            ?msg,
+            "received {}subscription",
+            if add { "" } else { "un" }
         );
 
         // telemetry /////////////////////////////////////////
@@ -500,8 +505,11 @@ impl MessageProcessor {
             .ok_or(DataPathError::ConnectionNotFound(conn))?;
 
         debug!(
-            "subscription update (add = {}) for name: {} - connection: {}",
-            add, dst, conn
+            %conn,
+            %dst,
+            is_local = connection.is_local_connection(),
+            "processing {}subscription",
+            if add { "" } else { "un" }
         );
 
         self.forwarder().on_subscription_msg(
@@ -517,7 +525,7 @@ impl MessageProcessor {
                 Ok(())
             }
             Some(out_conn) => {
-                debug!("forward subscription (add = {}) to {}", add, out_conn);
+                debug!(%out_conn, "forwarding {}subscription to connection", if add { "" } else { "un" });
 
                 // get source name and identity
                 let source = msg.get_source();
@@ -628,7 +636,7 @@ impl MessageProcessor {
                     );
 
                     if tx.send(Err(status)).await.is_err() {
-                        debug!("unable to notify the error to the local app: {:?}", err);
+                        debug!(error = %err.chain(), "unable to notify the error to the local app");
                     }
                 }
             }
@@ -760,12 +768,12 @@ impl MessageProcessor {
                         }
                     }
                     _ = &mut watch => {
-                        debug!("shutting down stream on drain: {}", conn_index);
+                        debug!(%conn_index, "shutting down stream on drain");
                         try_to_reconnect = false;
                         break;
                     }
                     _ = token_clone.cancelled() => {
-                        debug!("shutting down stream on cancellation token: {}", conn_index);
+                        debug!(%conn_index, "shutting down stream on cancellation token");
                         try_to_reconnect = false;
                         break;
                     }
@@ -782,7 +790,7 @@ impl MessageProcessor {
             if try_to_reconnect && let Some(config) = client_conf_clone {
                 connected = self_clone.reconnect(config, conn_index, &token_clone).await;
             } else {
-                debug!("close connection {}", conn_index)
+                debug!(%conn_index, "close connection")
             }
 
             if !connected {
@@ -795,8 +803,8 @@ impl MessageProcessor {
                 if let (false, Some(tx)) = (is_local, tx_cp) {
                     for local_sub in local_subs {
                         debug!(
-                            "notify control plane about lost subscription: {}",
-                            local_sub
+                            %local_sub,
+                            "notify control plane about lost subscription",
                         );
                         let msg = Message::builder()
                             .source(local_sub.clone())
@@ -806,8 +814,9 @@ impl MessageProcessor {
                             .unwrap();
                         if let Err(e) = tx.send(Ok(msg)).await {
                             debug!(
-                                "failed to send unsubscribe message to control plane for subscription {}: {}",
-                                local_sub, e
+                                %local_sub,
+                                error = %e.chain(),
+                                "failed to send unsubscribe message to control plane for subscription",
                             );
                         }
                     }
@@ -868,9 +877,9 @@ impl DataPlaneService for MessageProcessor {
             .with_local_addr(local_addr);
 
         debug!(
-            "new connection received from remote: (remote: {:?} - local: {:?})",
-            connection.remote_addr(),
-            connection.local_addr()
+            remote = ?connection.remote_addr(),
+            local = ?connection.local_addr(),
+            "new connection received from remote",
         );
         info!(telemetry = true, counter.num_active_connections = 1);
 

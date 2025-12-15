@@ -5,6 +5,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use display_error_chain::ErrorChainExt;
 // Third-party crates
 use parking_lot::RwLock as SyncRwLock;
 use rand::Rng;
@@ -149,7 +150,7 @@ where
         };
 
         if !removed {
-            warn!("tried to remove unknown app name {}", name);
+            warn!(%name, "tried to remove unknown app name");
         }
     }
 
@@ -320,16 +321,16 @@ where
                     next = rx_session.recv() => {
                         match next {
                             Some(Ok(SessionMessage::DeleteSession { session_id })) => {
-                                debug!("received closing signal from session {}, cancel it from the pool", session_id);
+                                debug!(%session_id, "received closing signal, cancel session from the pool");
                                 if pool_clone.write().remove(&session_id).is_none() {
-                                    warn!("requested to delete unknown session id {}", session_id);
+                                    warn!(%session_id, "requested to delete unknown session");
                                 }
                             }
                             Some(Ok(m)) => {
                                 error!(?m, "received unexpected message");
                             }
                             Some(Err(e)) => {
-                                warn!("error from session: {:?}", e);
+                                warn!(error = %e.chain(), "error from session");
                             }
                             None => {
                                 // All senders dropped; exit loop.
@@ -344,7 +345,7 @@ where
 
     /// Remove a session from the pool and return a handle to optionally wait on
     pub fn remove_session(&self, id: u32) -> Result<CompletionHandle, SessionError> {
-        debug!("try to remove session {}", id);
+        debug!(%id, "try to remove session");
         // get the read lock
         let binding = self.pool.read();
         let session = binding.get(&id).ok_or(SessionError::SessionNotFound(id))?;
@@ -412,9 +413,9 @@ where
             .await?;
 
         tracing::trace!(
-            "received message from SLIM {} {}",
-            message.get_session_message_type().as_str_name(),
-            message.get_id()
+            msg_type = %message.get_session_message_type().as_str_name(),
+            session_id = %message.get_id(),
+            "received message from SLIM",
         );
 
         let (id, session_type, session_message_type) = {
@@ -502,8 +503,8 @@ where
                     }
                     _ => {
                         warn!(
-                            "received channel join request with unknown session type: {}",
-                            session_type.as_str_name()
+                            session_type = %session_type.as_str_name(),
+                            "received channel join request with unknown session type",
                         );
                         return Err(SessionError::SessionTypeUnknown(session_type));
                     }
@@ -522,10 +523,7 @@ where
             | ProtoSessionMessageType::MsgAck
             | ProtoSessionMessageType::RtxRequest
             | ProtoSessionMessageType::RtxReply => {
-                tracing::debug!(
-                    "received channel message with unknown session id {:?} ",
-                    message
-                );
+                tracing::debug!(?message, "received channel message with unknown session id",);
                 // We can ignore these messages
                 return Ok(());
             }

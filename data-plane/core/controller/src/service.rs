@@ -359,7 +359,7 @@ impl ControlPlane {
                             Some(res) => {
                                 match res {
                                     Ok(msg) => {
-                                        debug!("Send sub/unsub to control plane for message: {:?}", msg);
+                                        debug!(?msg, "Send sub/unsub to control plane for message");
 
                                         let mut sub_vec = vec![];
                                         let mut unsub_vec = vec![];
@@ -703,7 +703,7 @@ impl ControllerService {
 
                         // Process connections to create
                         for conn in &config.connections_to_create {
-                            info!(%conn, "received a connection to create");
+                            info!(?conn, "received a connection to create");
                             let mut connection_success = true;
                             let mut connection_error_msg = String::new();
 
@@ -805,11 +805,10 @@ impl ControllerService {
 
                                 if let Err(e) = self.send_control_message(msg).await {
                                     subscription_success = false;
-                                    subscription_error_msg = format!("error = %e, Failed to subscribe");
+                                    subscription_error_msg =
+                                        format!("Failed to subscribe: {}", e.chain());
                                 } else {
-                                    info!(?subscription,
-                                        "Successfully created subscription",
-                                    );
+                                    info!(?subscription, "Successfully created subscription",);
                                 }
                             }
 
@@ -869,9 +868,7 @@ impl ControllerService {
                                     subscription_error_msg =
                                         format!("Failed to unsubscribe: {}", e);
                                 } else {
-                                    info!(?subscription,
-                                        "Successfully deleted subscription"
-                                    );
+                                    info!(?subscription, "Successfully deleted subscription");
                                 }
                             }
 
@@ -1141,7 +1138,7 @@ impl ControllerService {
                                     &self.inner.auth_provider,
                                 )?;
 
-                                debug!("Send invite participant: {:?}", invite_msg);
+                                debug!(?invite_msg, "Send invite participant");
 
                                 if let Err(e) = self.send_control_message(invite_msg).await {
                                     error!(error = %e.chain(), "failed to send channel creation");
@@ -1258,8 +1255,8 @@ impl ControllerService {
                 has_active_connection = true;
             } else {
                 debug!(
-                    "failed to send notification to control plane {}",
-                    c.endpoint
+                    endpoint = %c.endpoint,
+                    "failed to send notification to control plane"
                 );
             }
         }

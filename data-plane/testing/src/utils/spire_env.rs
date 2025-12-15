@@ -124,7 +124,7 @@ impl SpireTestEnvironment {
         message: &str,
         timeout: Duration,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        tracing::info!("Waiting for log message: '{}'", message);
+        tracing::info!(%message, "Waiting for log message");
 
         let logs_options = LogsOptions::<String> {
             follow: true,
@@ -143,9 +143,9 @@ impl SpireTestEnvironment {
 
             if let Ok(log) = log_result {
                 let log_str = log.to_string();
-                tracing::debug!("Container log: {}", log_str);
+                tracing::debug!(container_log = %log_str);
                 if log_str.contains(message) {
-                    tracing::info!("Found log message: '{}'", message);
+                    tracing::info!(%message, "Found log message");
                     return Ok(());
                 }
             }
@@ -156,7 +156,7 @@ impl SpireTestEnvironment {
 
     /// Create Docker network for container communication
     async fn create_network(&self) -> Result<(), Box<dyn std::error::Error>> {
-        tracing::info!("Creating Docker network: {}", self.network_name);
+        tracing::info!(name = %self.network_name, "Creating Docker network");
 
         let create_network_options = CreateNetworkOptions {
             name: self.network_name.clone(),
@@ -165,7 +165,7 @@ impl SpireTestEnvironment {
         };
 
         self.docker.create_network(create_network_options).await?;
-        tracing::info!("Docker network created: {}", self.network_name);
+        tracing::info!(name = %self.network_name, "Docker network created");
 
         Ok(())
     }
@@ -173,7 +173,7 @@ impl SpireTestEnvironment {
     /// Pull Docker image if not present
     async fn pull_image(&self, image: &str, tag: &str) -> Result<(), Box<dyn std::error::Error>> {
         let image_name = format!("{}:{}", image, tag);
-        tracing::info!("Pulling Docker image: {}", image_name);
+        tracing::info!(image = %image_name, "Pulling Docker image");
 
         let options = Some(CreateImageOptions {
             from_image: image,
@@ -187,7 +187,7 @@ impl SpireTestEnvironment {
             match result {
                 Ok(info) => {
                     if let Some(status) = info.status {
-                        tracing::debug!("Pull status: {}", status);
+                        tracing::debug!(pull_status = %status);
                     }
                     if let Some(error) = info.error {
                         return Err(format!("Error pulling image: {}", error).into());
@@ -197,7 +197,7 @@ impl SpireTestEnvironment {
             }
         }
 
-        tracing::info!("Successfully pulled image: {}", image_name);
+        tracing::info!(image = %image_name, "Successfully pulled image");
         Ok(())
     }
 
@@ -324,7 +324,7 @@ plugins {{
             .and_then(|binding| binding.host_port.as_ref())
             .and_then(|port| port.parse::<u16>().ok());
 
-        tracing::info!("SPIRE server exposed on host port: {:?}", self.server_port);
+        tracing::info!(port = self.server_port, "SPIRE server exposed on host port");
 
         Ok(())
     }
@@ -368,7 +368,7 @@ plugins {{
             .unwrap_or(token_output.trim())
             .to_string();
 
-        tracing::info!("Generated join token: {}", join_token);
+        tracing::info!(%join_token, "Generated join token");
         Ok(join_token)
     }
 
@@ -414,7 +414,7 @@ plugins {{
             join_token = join_token
         );
 
-        tracing::info!("SPIRE agent config:\n{}", agent_config);
+        tracing::info!(%agent_config, "SPIRE agent config");
 
         let agent_config_path = self.temp_dir.join("agent.conf");
         fs::write(&agent_config_path, agent_config).await?;
@@ -524,7 +524,7 @@ plugins {{
             }
         }
 
-        tracing::info!("Workload registration output: {}", register_output);
+        tracing::info!(output = %register_output, "Workload registration");
 
         let inspect_exec = self.docker.inspect_exec(&register_exec.id).await?;
 
