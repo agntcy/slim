@@ -74,7 +74,7 @@ pub struct Proxy {
 fn start_proxy_session(ctx: SessionContext, mcp_server: String) {
     let session_id_val = ctx.session_arc().unwrap().id();
     ctx.spawn_receiver(move |mut rx, weak| async move {
-        info!("Session handler task started (session id={})", session_id_val);
+        info!(%session_id_val, "Session handler task started");
 
         let binding = weak.upgrade();
         let remote_name = binding.as_ref().unwrap().dst();

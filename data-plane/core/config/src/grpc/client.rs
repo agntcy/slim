@@ -771,7 +771,7 @@ impl ClientConfig {
     ) -> Result<ConnectionType, ConfigError> {
         let proxy_uri = intercept.uri();
 
-        tracing::info!("Creating proxy tunnel to {}", proxy_uri);
+        tracing::info!(%proxy_uri, "Creating proxy tunnel");
 
         // Check if the proxy URL uses HTTPS
         if proxy_uri.scheme_str() == Some("https") {

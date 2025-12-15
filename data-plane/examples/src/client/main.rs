@@ -43,22 +43,22 @@ fn spawn_session_receiver(
                             }
                             Some(Ok(msg)) => {
                                 info!("CLIENT: received something from rx.recv()");
-                                info!("CLIENT: message details: {:?}", msg);
+                                info!(?msg, "CLIENT: message details");
 
                                 let publisher = msg.get_slim_header().get_source();
                                 let msg_id = msg.get_id();
-                                info!("CLIENT: message from {:?}, id: {}", publisher, msg_id);
+                                info!(from = %publisher, %id, "CLIENT: message");
 
                                 if let Some(c) = msg.get_payload() {
                                     let blob = &c.as_application_payload().unwrap().blob;
-                                    info!("CLIENT: message has payload of {} bytes", blob.len());
+                                    info!(payload_length = %blob.len());
 
                                     match String::from_utf8(blob.to_vec()) {
                                         Ok(text) => {
-                                            info!("received message: {}", text);
+                                            info!(message = %text);
                                         },
                                         Err(e) => {
-                                            info!("received encrypted/binary message: {} bytes, error: {}", blob.len(), e);
+                                            info!(msg_len = %blob.len(), error = %e, "received encrypted/binary message");
                                         }
                                     }
                                 } else {

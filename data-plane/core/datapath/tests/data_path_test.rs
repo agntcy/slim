@@ -61,7 +61,7 @@ mod tests {
             let res = msg_processor.send_msg(msg, conn_index);
             match res.await {
                 Ok(_) => {
-                    info!("sent message {:?} to the server", n);
+                    info!(%n, "sent message to the server");
                 }
                 Err(err) => {
                     panic!("error sending message {:?}", err);
@@ -82,7 +82,7 @@ mod tests {
             // let's assume that the connection index is 0
             let res = msg_processor.send_msg(msg, 0).await;
             match res {
-                Ok(_) => info!("sent message {:?} to the client", n),
+                Ok(_) => info!(%n, "sent message to the client"),
                 Err(e) => panic!("error sending message {:?}", e),
             };
         }

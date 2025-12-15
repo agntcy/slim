@@ -115,7 +115,7 @@ async fn test_spiffe_provider_initialization() {
 
     // Now test our SPIFFE provider
     let config = env.get_spiffe_config();
-    tracing::info!("Creating SpiffeIdentityManager with config: {:?}", config);
+    tracing::info!(?config, "Creating SpiffeIdentityManager");
 
     // Sleep 3 seconds
     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
@@ -155,12 +155,12 @@ async fn test_spiffe_provider_initialization() {
         match verifier.get_x509_bundle() {
             Ok(x509_bundle) => {
                 tracing::info!(
-                    "Successfully retrieved X.509 bundle for trust domain: {}",
-                    x509_bundle.trust_domain()
+                    trust_domain = %x509_bundle.trust_domain(), "Successfully retrieved X.509 bundle",
+
                 );
                 // Verify the bundle has authorities (CA certificates)
                 let authorities = x509_bundle.authorities();
-                tracing::info!("Bundle contains {} CA certificate(s)", authorities.len());
+                tracing::info!(n_certificates = %authorities.len(), "CA certificate(s) in bundle");
                 assert!(
                     !authorities.is_empty(),
                     "Bundle should contain at least one CA certificate"
@@ -176,7 +176,7 @@ async fn test_spiffe_provider_initialization() {
         // Test X.509 SVID retrieval
         match provider.get_x509_svid() {
             Ok(svid) => {
-                tracing::info!("Got X.509 SVID: {}", svid.spiffe_id());
+                tracing::info!(spiffe_id = %svid.spiffe_id(), "Got X.509 SVID");
                 assert!(svid.spiffe_id().to_string().contains("example.org"));
             }
             Err(e) => {
@@ -220,11 +220,11 @@ async fn test_spiffe_provider_initialization() {
                     .await
                 {
                     Ok(claims) => {
-                        tracing::info!("Successfully verified JWT token with claims: {:?}", claims);
+                        tracing::info!(%claims, "Successfully verified JWT token with claims");
 
                         // Verify that custom_claims exists
                         if let Some(custom_claims) = claims.get("custom_claims") {
-                            tracing::info!("Found custom_claims: {:?}", custom_claims);
+                            tracing::info!(?custom_claims, "Found custom_claims");
 
                             // Verify the specific custom claim we set
                             if let Some(pubkey) = custom_claims.get("pubkey") {

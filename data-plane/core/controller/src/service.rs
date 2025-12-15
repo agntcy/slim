@@ -703,7 +703,7 @@ impl ControllerService {
 
                         // Process connections to create
                         for conn in &config.connections_to_create {
-                            info!("received a connection to create: {:?}", conn);
+                            info!(%conn, "received a connection to create");
                             let mut connection_success = true;
                             let mut connection_error_msg = String::new();
 
@@ -735,13 +735,13 @@ impl ControllerService {
                                                     .write()
                                                     .insert(client_endpoint.clone(), conn_id.1);
                                                 info!(
-                                                    "Successfully created connection to {}",
-                                                    client_endpoint
+                                                    endpoint = %client_endpoint, "Successfully created connection",
+
                                                 );
                                             }
                                         }
                                     } else {
-                                        info!("Connection to {} already exists", client_endpoint);
+                                        info!(endpoint = %client_endpoint, "Connection already exists");
                                     }
                                 }
                             }
@@ -805,11 +805,10 @@ impl ControllerService {
 
                                 if let Err(e) = self.send_control_message(msg).await {
                                     subscription_success = false;
-                                    subscription_error_msg = format!("Failed to subscribe: {}", e);
+                                    subscription_error_msg = format!("error = %e, Failed to subscribe");
                                 } else {
-                                    info!(
-                                        "Successfully created subscription for {:?}",
-                                        subscription
+                                    info!(?subscription,
+                                        "Successfully created subscription",
                                     );
                                 }
                             }
@@ -870,9 +869,8 @@ impl ControllerService {
                                     subscription_error_msg =
                                         format!("Failed to unsubscribe: {}", e);
                                 } else {
-                                    info!(
-                                        "Successfully deleted subscription for {:?}",
-                                        subscription
+                                    info!(?subscription,
+                                        "Successfully deleted subscription"
                                     );
                                 }
                             }
@@ -902,10 +900,10 @@ impl ControllerService {
                         }
 
                         info!(
-                            "Processed ConfigurationCommand with {} connections, {} subscriptions to set, {} subscriptions to delete",
-                            config.connections_to_create.len(),
-                            config.subscriptions_to_set.len(),
-                            config.subscriptions_to_delete.len()
+                            connections = %config.connections_to_create.len(),
+                            subscriptions_to_set = %config.subscriptions_to_set.len(),
+                            subscriptions_to_del = %config.subscriptions_to_delete.len(),
+                            "Processed ConfigurationCommand"
                         );
                     }
                     Payload::SubscriptionListRequest(_) => {
@@ -1072,7 +1070,7 @@ impl ControllerService {
                         }
                     }
                     Payload::DeleteChannelRequest(req) => {
-                        info!("received a channel delete request");
+                        info!("received a delete channel request");
                         let mut success = true;
 
                         // Get the first moderator from the list, as we support only one for now
@@ -1119,8 +1117,9 @@ impl ControllerService {
                     }
                     Payload::AddParticipantRequest(req) => {
                         info!(
-                            "received a participant add request for channel: {}, participant: {}",
-                            req.channel_name, req.participant_name
+                            channel_name = %req.channel_name,
+                            participant_name = %req.participant_name,
+                            "received a participant add request",
                         );
 
                         let mut success = true;

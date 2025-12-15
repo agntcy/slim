@@ -347,7 +347,7 @@ impl Service {
     }
 
     pub fn disconnect(&self, conn: u64) -> Result<(), ServiceError> {
-        info!("disconnect from conn {}", conn);
+        info!(%conn, "disconnect");
 
         match self.message_processor.disconnect(conn) {
             Ok(cfg) => {
@@ -356,7 +356,7 @@ impl Service {
                 if let Some(stored_conn) = clients.get(&endpoint) {
                     if *stored_conn == conn {
                         clients.remove(&endpoint);
-                        info!("removed client mapping for endpoint {}", endpoint);
+                        info!(%endpoint, "removed client mapping");
                     } else {
                         debug!(
                             "client mapping endpoint {} has different conn_id {} != {}",

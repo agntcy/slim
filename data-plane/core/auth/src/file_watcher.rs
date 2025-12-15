@@ -141,7 +141,7 @@ mod tests {
 
         // create the watcher
         let mut w = FileWatcher::create_watcher(move |file: &str| {
-            info!("modification detected on file {}", file);
+            info!(%file, "modification detected");
             let mut map = clone_map.write();
             match map.get_mut(file) {
                 Some(val) => {

@@ -29,7 +29,7 @@ fn main() -> anyhow::Result<()> {
         config::ConfigLoader::new(config_file).context("failed to load configuration")?;
 
     // print build info
-    info!("{}", build_info::BUILD_INFO);
+    info!(build_info = %build_info::BUILD_INFO);
 
     // Make sure the crypto provider is initialized at this point
     provider::initialize_crypto_provider();
@@ -60,7 +60,7 @@ fn main() -> anyhow::Result<()> {
 
         // start services
         for service in services.iter_mut() {
-            info!("Starting service: {}", service.0);
+            info!(service = %service.0, %"Starting service");
             service.1.start().await.context("failed to start service")?;
         }
 

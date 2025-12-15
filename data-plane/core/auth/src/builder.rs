@@ -124,12 +124,12 @@ impl<S> JwtBuilder<S> {
             validation.set_audience(audience);
         }
         if let Some(issuer) = &self.issuer {
-            tracing::info!("Setting issuer: {}", issuer);
+            tracing::info!(%issuer, "Setting issuer");
             validation.set_issuer(&[issuer]);
         }
 
         if !self.required_claims.is_empty() {
-            tracing::info!("Setting required claims: {:?}", self.required_claims);
+            tracing::info!(claims = ?self.required_claims, "Setting required claims");
             validation.set_required_spec_claims(self.required_claims.as_ref());
         }
 
