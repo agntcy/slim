@@ -78,12 +78,12 @@ impl Session {
                 ack_tx,
             } => {
                 debug!(
-                    "received message {} type {:?} on {} from {} (direction {:?})",
-                    message.get_id(),
-                    message.get_session_message_type(),
-                    self.local_name,
-                    message.get_source(),
-                    direction
+                    message_id = %message.get_id(),
+                    session_message_type = ?message.get_session_message_type(),
+                    name = %self.local_name,
+                    source = %message.get_source(),
+                    direction = ?direction,
+                    "received message",
                 );
                 self.on_application_message(message, direction, ack_tx)
                     .await
@@ -106,20 +106,19 @@ impl Session {
                 self.receiver.start_drain();
                 Ok(())
             }
-            _ => Err(SessionError::Processing(format!(
-                "Unexpected message type {:?}",
-                message
+            _ => Err(SessionError::SessionMessageInternalUnexpected(Box::new(
+                message,
             ))),
         }
     }
 
     pub async fn add_endpoint(&mut self, endpoint: &Name) -> Result<(), SessionError> {
-        debug!("add participant {} on {}", endpoint, self.local_name);
+        debug!(%endpoint, local_name = %self.local_name, "add participant");
         self.sender.add_endpoint(endpoint).await
     }
 
     pub fn remove_endpoint(&mut self, endpoint: &Name) {
-        debug!("remove participant {} on {}", endpoint, self.local_name);
+        debug!(%endpoint, local_name = %self.local_name, "remove participant");
         self.sender.remove_endpoint(endpoint);
         self.receiver.remove_endpoint(endpoint);
     }
@@ -142,31 +141,20 @@ impl Session {
                     self.sender.on_message(message, ack_tx).await
                 } else {
                     // message from slim to the app, give it to the receiver
-                    // Signal ack immediately for incoming messages
-                    if let Some(tx) = ack_tx {
-                        let _ = tx.send(Ok(()));
-                    }
                     self.receiver.on_message(message).await
                 }
             }
             ProtoSessionMessageType::MsgAck | ProtoSessionMessageType::RtxRequest => {
                 self.sender.on_message(message, ack_tx).await
             }
-            ProtoSessionMessageType::RtxReply => {
-                // Signal ack immediately for control messages
-                if let Some(tx) = ack_tx {
-                    let _ = tx.send(Ok(()));
-                }
-                self.receiver.on_message(message).await
-            }
+            ProtoSessionMessageType::RtxReply => self.receiver.on_message(message).await,
             _ => {
                 if let Some(tx) = ack_tx {
                     let _ = tx.send(Ok(()));
                 }
-                Err(SessionError::Processing(format!(
-                    "Unexpected message type {:?}",
-                    message.get_session_message_type()
-                )))
+                Err(SessionError::SessionMessageTypeUnexpected(
+                    message.get_session_message_type(),
+                ))
             }
         }
     }
@@ -182,10 +170,7 @@ impl Session {
             ProtoSessionMessageType::RtxRequest => {
                 self.receiver.on_timer_timeout(id, name.unwrap()).await
             }
-            _ => Err(SessionError::Processing(format!(
-                "Unexpected message type {:?}",
-                message_type
-            ))),
+            _ => Err(SessionError::SessionMessageTypeUnexpected(message_type)),
         }
     }
 
@@ -200,10 +185,7 @@ impl Session {
             ProtoSessionMessageType::RtxRequest => {
                 self.receiver.on_timer_failure(id, name.unwrap()).await
             }
-            _ => Err(SessionError::Processing(format!(
-                "Unexpected message type {:?}",
-                message_type
-            ))),
+            _ => Err(SessionError::SessionMessageTypeUnexpected(message_type)),
         }
     }
 }

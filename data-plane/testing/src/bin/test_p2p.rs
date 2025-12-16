@@ -9,6 +9,7 @@ use clap::Parser;
 use parking_lot::RwLock;
 
 use slim_datapath::messages::Name;
+use slim_service::ServiceError;
 use slim_session::{Notification, SessionConfig};
 use slim_testing::build_client_service;
 use slim_testing::common::{
@@ -76,12 +77,11 @@ impl Args {
     }
 }
 
-async fn run_client_task(name: Name) -> Result<(), String> {
+async fn run_client_task(name: Name) -> Result<(), ServiceError> {
     /* this is the same */
     println!("client {} task starting...", name);
 
-    let svc = build_client_service(DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID)
-        .map_err(|e| format!("Failed to build client service: {}", e))?;
+    let svc = build_client_service(DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID);
 
     let (_app, mut rx, conn_id, _svc) = create_and_subscribe_app(svc, &name).await?;
 
@@ -168,7 +168,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // start clients
-    let tot_clients = apps;
+    let mut tot_clients = apps;
+    if !multiple_remotes {
+        // if create a single replica of each client
+        tot_clients = 1;
+    }
     let mut clients = vec![];
     let client_1_name = Name::from_strings(["org", "ns", "client-1"]);
     let client_2_name = Name::from_strings(["org", "ns", "client-2"]);
@@ -196,8 +200,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // start moderator
     let name = Name::from_strings(["org", "ns", "main"]).with_id(1);
 
-    let svc = build_client_service(DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID)
-        .map_err(|e| format!("Failed to build client service: {}", e))?;
+    let svc = build_client_service(DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID);
 
     let (app, _rx, conn_id, _svc) = create_and_subscribe_app(svc, &name).await?;
 
@@ -217,9 +220,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("an error occurred while adding a route");
     }
 
+    // wait for the creation of all the clients
+    tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
+
     let mut sessions = vec![];
     if multiple_remotes {
-        // connect to two different clients using the disocvery process
+        // connect to two different clients using the discovery process
         // in the session layer
         for name in clients.iter().take(2) {
             let (session_ctx, completion_handle) = app
@@ -235,7 +241,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // connect to the same client using multiple sessions
         for _ in 0..2 {
             let (session_ctx, completion_handle) = app
-                .create_session(conf.clone(), client_1_name.clone().with_id(0), None)
+                .create_session(conf.clone(), client_1_name.clone(), None)
                 .await
                 .expect("error creating session");
 

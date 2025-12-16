@@ -116,8 +116,7 @@ var _ = Describe("SLIM server + client connection using configuration files", fu
 			serverCmd.Dir = dataPlaneDir
 			serverSession, err := gexec.Start(serverCmd, GinkgoWriter, GinkgoWriter)
 			Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("failed to start server SLIM with config %s", c.ServerPath))
-
-			Eventually(serverSession, 15*time.Second).Should(gbytes.Say("running service"))
+			Eventually(serverSession, 15*time.Second).Should(gbytes.Say("dataplane server started"))
 
 			// Ensure server cleanup
 			defer func() {
@@ -139,7 +138,7 @@ var _ = Describe("SLIM server + client connection using configuration files", fu
 				}
 			}()
 
-			Eventually(clientSession, 15*time.Second).Should(gbytes.Say("client connected to"))
+			Eventually(clientSession, 15*time.Second).Should(gbytes.Say("client connected"))
 		})
 	}
 })

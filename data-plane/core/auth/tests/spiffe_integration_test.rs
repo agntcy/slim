@@ -10,6 +10,8 @@
 
 #![cfg(target_os = "linux")]
 
+use display_error_chain::ErrorChainExt;
+use slim_auth::errors::AuthError;
 use slim_auth::metadata::MetadataMap;
 use slim_auth::spire::SpireIdentityManager;
 use slim_auth::traits::{TokenProvider, Verifier};
@@ -114,7 +116,7 @@ async fn test_spiffe_provider_initialization() {
 
     // Now test our SPIFFE provider
     let config = env.get_spiffe_config();
-    tracing::info!("Creating SpiffeIdentityManager with config: {:?}", config);
+    tracing::info!(?config, "Creating SpiffeIdentityManager");
 
     // Sleep 3 seconds
     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
@@ -132,7 +134,7 @@ async fn test_spiffe_provider_initialization() {
                 tracing::info!("Provider initialized successfully");
             }
             Err(e) => {
-                tracing::error!("Provider initialization failed: {}", e);
+                tracing::error!(error = %e.chain(), "provider initialization failed");
                 should_panic = true;
                 break 'test_block;
             }
@@ -144,7 +146,7 @@ async fn test_spiffe_provider_initialization() {
                 tracing::info!("Verifier initialized successfully");
             }
             Err(e) => {
-                tracing::error!("Verifier initialization failed: {}", e);
+                tracing::error!(error = %e.chain(), "verifier initialization failed");
                 should_panic = true;
                 break 'test_block;
             }
@@ -154,19 +156,19 @@ async fn test_spiffe_provider_initialization() {
         match verifier.get_x509_bundle() {
             Ok(x509_bundle) => {
                 tracing::info!(
-                    "Successfully retrieved X.509 bundle for trust domain: {}",
-                    x509_bundle.trust_domain()
+                    trust_domain = %x509_bundle.trust_domain(), "Successfully retrieved X.509 bundle",
+
                 );
                 // Verify the bundle has authorities (CA certificates)
                 let authorities = x509_bundle.authorities();
-                tracing::info!("Bundle contains {} CA certificate(s)", authorities.len());
+                tracing::info!(n_certificates = %authorities.len(), "CA certificate(s) in bundle");
                 assert!(
                     !authorities.is_empty(),
                     "Bundle should contain at least one CA certificate"
                 );
             }
             Err(e) => {
-                tracing::error!("Failed to get X.509 bundle: {}", e);
+                tracing::error!(error = %e.chain(), "failed to get X.509 bundle");
                 should_panic = true;
                 break 'test_block;
             }
@@ -175,11 +177,11 @@ async fn test_spiffe_provider_initialization() {
         // Test X.509 SVID retrieval
         match provider.get_x509_svid() {
             Ok(svid) => {
-                tracing::info!("Got X.509 SVID: {}", svid.spiffe_id());
+                tracing::info!(spiffe_id = %svid.spiffe_id(), "Got X.509 SVID");
                 assert!(svid.spiffe_id().to_string().contains("example.org"));
             }
             Err(e) => {
-                tracing::error!("X.509 SVID fetch failed: {}", e);
+                tracing::error!(error = %e.chain(), "x.509 SVID fetch failed");
                 should_panic = true;
                 break 'test_block;
             }
@@ -194,7 +196,7 @@ async fn test_spiffe_provider_initialization() {
                 assert_eq!(parts.len(), 3, "JWT should have 3 parts");
             }
             Err(e) => {
-                tracing::error!("JWT token fetch failed: {}", e);
+                tracing::error!(error = %e.chain(), "jwt token fetch failed");
                 should_panic = true;
                 break 'test_block;
             }
@@ -219,11 +221,11 @@ async fn test_spiffe_provider_initialization() {
                     .await
                 {
                     Ok(claims) => {
-                        tracing::info!("Successfully verified JWT token with claims: {:?}", claims);
+                        tracing::info!(%claims, "Successfully verified JWT token with claims");
 
                         // Verify that custom_claims exists
                         if let Some(custom_claims) = claims.get("custom_claims") {
-                            tracing::info!("Found custom_claims: {:?}", custom_claims);
+                            tracing::info!(?custom_claims, "Found custom_claims");
 
                             // Verify the specific custom claim we set
                             if let Some(pubkey) = custom_claims.get("pubkey") {
@@ -246,15 +248,14 @@ async fn test_spiffe_provider_initialization() {
                     }
                     Err(e) => {
                         tracing::warn!(
-                            "JWT verification failed (may be expected in test environment): {}",
-                            e
+                            error = %e.chain(), "JWT verification failed (may be expected in test environment)",
                         );
                         // Don't panic here as verification might fail in test environment
                     }
                 }
             }
             Err(e) => {
-                tracing::error!("JWT token with claims fetch failed: {}", e);
+                tracing::error!(error = %e.chain(), "JWT token with claims fetch failed");
                 should_panic = true;
                 break 'test_block;
             }
@@ -329,11 +330,10 @@ async fn test_spiffe_provider_error_handling() {
 
     // Should fail to initialize
     let init_result = provider.initialize().await;
-    assert!(init_result.is_err(), "Should fail with invalid socket");
-
-    let err = format!("{}", init_result.unwrap_err());
-    assert!(err.contains("Failed to connect") || err.contains("SPIFFE"));
-    tracing::info!("Correctly handles invalid socket path: {}", err);
+    assert!(
+        init_result.is_err_and(|e| matches!(e, AuthError::SpiffeGrpcError(_))),
+        "Should fail with invalid socket"
+    );
 
     // Provider should still be in uninitialized state
     assert_manager_uninitialized(&provider);

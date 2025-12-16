@@ -10,7 +10,6 @@ use tokio::sync::RwLock;
 use slim_datapath::api::ProtoSessionType;
 use slim_datapath::messages::Name as SlimName;
 use slim_datapath::messages::utils::{PUBLISH_TO, SlimHeaderFlags, TRUE_VAL};
-use slim_service::errors::ServiceError;
 use slim_session::SessionError;
 use slim_session::context::SessionContext;
 
@@ -65,18 +64,16 @@ impl BindingsSessionContext {
         conn_out: Option<u64>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<CompletionHandle, ServiceError> {
-        let session = self
-            .session
-            .upgrade()
-            .ok_or_else(|| ServiceError::SessionError("Session has been dropped".to_string()))?;
+    ) -> Result<CompletionHandle, SessionError> {
+        let session = self.session.upgrade().ok_or(SessionError::SessionClosed)?;
 
         let flags = SlimHeaderFlags::new(fanout, None, conn_out, None, None);
 
-        session
+        let ret = session
             .publish_with_flags(name, flags, blob, payload_type, metadata)
-            .await
-            .map_err(|e| ServiceError::SessionError(e.to_string()))
+            .await?;
+
+        Ok(ret)
     }
 
     /// Publish a message as a reply (internal API for language bindings)
@@ -89,11 +86,8 @@ impl BindingsSessionContext {
         blob: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<CompletionHandle, ServiceError> {
-        let session = self
-            .session
-            .upgrade()
-            .ok_or_else(|| ServiceError::SessionError("Session has been dropped".to_string()))?;
+    ) -> Result<CompletionHandle, SessionError> {
+        let session = self.session.upgrade().ok_or(SessionError::SessionClosed)?;
 
         let flags = SlimHeaderFlags::new(
             1, // fanout = 1 for reply semantics
@@ -109,7 +103,7 @@ impl BindingsSessionContext {
         // Convert FFI Name to SlimName for the datapath layer
         let source_name = message_ctx.source_as_slim_name();
 
-        session
+        let ret = session
             .publish_with_flags(
                 &source_name, // reply to the original source
                 flags,
@@ -117,8 +111,9 @@ impl BindingsSessionContext {
                 payload_type,
                 Some(final_metadata),
             )
-            .await
-            .map_err(|e| ServiceError::SessionError(e.to_string()))
+            .await?;
+
+        Ok(ret)
     }
 
     /// Invite a peer to join this session (internal API for language bindings)
@@ -129,10 +124,7 @@ impl BindingsSessionContext {
         &self,
         destination: &SlimName,
     ) -> Result<CompletionHandle, SessionError> {
-        let session = self
-            .session
-            .upgrade()
-            .ok_or_else(|| SessionError::Processing("Session has been dropped".to_string()))?;
+        let session = self.session.upgrade().ok_or(SessionError::SessionClosed)?;
 
         session.invite_participant(destination).await
     }
@@ -145,10 +137,7 @@ impl BindingsSessionContext {
         &self,
         destination: &SlimName,
     ) -> Result<CompletionHandle, SessionError> {
-        let session = self
-            .session
-            .upgrade()
-            .ok_or_else(|| SessionError::Processing("Session has been dropped".to_string()))?;
+        let session = self.session.upgrade().ok_or(SessionError::SessionClosed)?;
 
         session.remove_participant(destination).await
     }
@@ -157,27 +146,19 @@ impl BindingsSessionContext {
     pub async fn get_session_message(
         &self,
         timeout: Option<std::time::Duration>,
-    ) -> Result<(MessageContext, Vec<u8>), ServiceError> {
+    ) -> Result<(MessageContext, Vec<u8>), SessionError> {
         let mut rx = self.rx.write().await;
 
         let recv_future = async {
-            let msg = rx
-                .recv()
-                .await
-                .ok_or_else(|| ServiceError::ReceiveError("session channel closed".to_string()))?;
+            let msg = rx.recv().await.ok_or(SessionError::SessionClosed)??;
 
-            let msg = msg.map_err(|e| {
-                ServiceError::ReceiveError(format!("failed to decode message: {}", e))
-            })?;
             MessageContext::from_proto_message(msg)
         };
 
         if let Some(timeout_duration) = timeout {
             tokio::time::timeout(timeout_duration, recv_future)
                 .await
-                .map_err(|_| {
-                    ServiceError::ReceiveError("timeout waiting for message".to_string())
-                })?
+                .map_err(|_| SessionError::ReceiveTimeout)?
         } else {
             recv_future.await
         }
@@ -246,10 +227,9 @@ impl BindingsSessionContext {
             metadata,
         )
         .await
-        .map(|_| ())
-        .map_err(|e| SlimError::SendError {
-            message: e.to_string(),
-        })
+        .map(|_| ())?; // ignore completion handle
+
+        Ok(())
     }
 
     /// Publish a message with delivery confirmation (blocking version)
@@ -311,10 +291,7 @@ impl BindingsSessionContext {
                 payload_type,
                 metadata,
             )
-            .await
-            .map_err(|e| SlimError::SendError {
-                message: e.to_string(),
-            })?;
+            .await?;
 
         Ok(Arc::new(FfiCompletionHandle::new(completion, self.runtime)))
     }
@@ -357,10 +334,9 @@ impl BindingsSessionContext {
     ) -> Result<(), SlimError> {
         self.publish_to_internal(&message_context, data, payload_type, metadata)
             .await
-            .map(|_| ())
-            .map_err(|e| SlimError::SendError {
-                message: e.to_string(),
-            })
+            .map(|_| ())?;
+
+        Ok(())
     }
 
     /// Publish a reply message with delivery confirmation (blocking version)
@@ -400,10 +376,7 @@ impl BindingsSessionContext {
     ) -> Result<Arc<FfiCompletionHandle>, SlimError> {
         let completion = self
             .publish_to_internal(&message_context, data, payload_type, metadata)
-            .await
-            .map_err(|e| SlimError::SendError {
-                message: e.to_string(),
-            })?;
+            .await?;
 
         Ok(Arc::new(FfiCompletionHandle::new(completion, self.runtime)))
     }
@@ -463,10 +436,9 @@ impl BindingsSessionContext {
             metadata,
         )
         .await
-        .map(|_| ())
-        .map_err(|e| SlimError::SendError {
-            message: e.to_string(),
-        })
+        .map(|_| ())?;
+
+        Ok(())
     }
 
     /// Receive a message from the session (blocking version for FFI)
@@ -489,12 +461,7 @@ impl BindingsSessionContext {
     ) -> Result<ReceivedMessage, SlimError> {
         let timeout = timeout_ms.map(|ms| std::time::Duration::from_millis(ms as u64));
 
-        let (ctx, payload) =
-            self.get_session_message(timeout)
-                .await
-                .map_err(|e| SlimError::ReceiveError {
-                    message: e.to_string(),
-                })?;
+        let (ctx, payload) = self.get_session_message(timeout).await?;
 
         Ok(ReceivedMessage {
             context: ctx,
@@ -518,17 +485,12 @@ impl BindingsSessionContext {
     pub async fn invite_async(&self, participant: Name) -> Result<(), SlimError> {
         let slim_name: SlimName = participant.into();
 
-        let completion =
-            self.invite_internal(&slim_name)
-                .await
-                .map_err(|e| SlimError::SessionError {
-                    message: e.to_string(),
-                })?;
+        let completion = self.invite_internal(&slim_name).await?;
 
         // Wait for invitation to complete
-        completion.await.map_err(|e| SlimError::SessionError {
-            message: format!("Invitation failed: {}", e),
-        })
+        completion.await?;
+
+        Ok(())
     }
 
     /// Remove a participant from the session (blocking version for FFI)
@@ -547,17 +509,12 @@ impl BindingsSessionContext {
     pub async fn remove_async(&self, participant: Name) -> Result<(), SlimError> {
         let slim_name: SlimName = participant.into();
 
-        let completion =
-            self.remove_internal(&slim_name)
-                .await
-                .map_err(|e| SlimError::SessionError {
-                    message: e.to_string(),
-                })?;
+        let completion = self.remove_internal(&slim_name).await?;
 
         // Wait for removal to complete
-        completion.await.map_err(|e| SlimError::SessionError {
-            message: format!("Participant removal failed: {}", e),
-        })
+        completion.await?;
+
+        Ok(())
     }
 
     /// Get the destination name for this session
@@ -752,13 +709,7 @@ mod tests {
         let result = ctx
             .get_session_message(Some(Duration::from_millis(50)))
             .await;
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("session channel closed")
-        );
+        assert!(result.is_err_and(|e| matches!(e, SessionError::SessionClosed)));
     }
 
     #[tokio::test]
@@ -766,19 +717,12 @@ mod tests {
         let (ctx, tx) = make_context();
 
         // Send an error through the channel (simulates decode failure)
-        tx.send(Err(SessionError::Processing("decode failed".to_string())))
-            .expect("send should succeed");
+        tx.send(Err(SessionError::SlimMessageSendFailed)).unwrap();
 
         let result = ctx
             .get_session_message(Some(Duration::from_millis(100)))
             .await;
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("failed to decode message")
-        );
+        assert!(result.is_err_and(|e| matches!(e, SessionError::SlimMessageSendFailed)));
     }
 
     #[tokio::test]
@@ -869,7 +813,7 @@ mod tests {
     #[tokio::test]
     async fn test_publish_internal_errors_when_session_missing() {
         let (ctx, _tx) = make_context();
-        let err = ctx
+        let res = ctx
             .publish_internal(
                 &make_slim_name(["dest", "app", "v1"]),
                 1,
@@ -878,9 +822,8 @@ mod tests {
                 Some("text/plain".to_string()),
                 None,
             )
-            .await
-            .unwrap_err();
-        assert!(err.to_string().contains("Session has been dropped"));
+            .await;
+        assert!(res.is_err_and(|e| matches!(e, SessionError::SessionClosed)));
     }
 
     #[tokio::test]
@@ -889,7 +832,7 @@ mod tests {
         let mut metadata = HashMap::new();
         metadata.insert("key".to_string(), "value".to_string());
 
-        let err = ctx
+        let res = ctx
             .publish_internal(
                 &make_slim_name(["dest", "app", "v1"]),
                 3,                                    // fanout
@@ -898,9 +841,8 @@ mod tests {
                 Some("application/json".to_string()), // payload_type
                 Some(metadata),                       // metadata
             )
-            .await
-            .unwrap_err();
-        assert!(err.to_string().contains("Session has been dropped"));
+            .await;
+        assert!(res.is_err_and(|e| matches!(e, SessionError::SessionClosed)));
     }
 
     #[tokio::test]
@@ -915,16 +857,15 @@ mod tests {
             "unique".to_string(),
         );
 
-        let err = ctx
+        let res = ctx
             .publish_to_internal(
                 &message_ctx,
                 b"reply".to_vec(),
                 Some("json".to_string()),
                 None,
             )
-            .await
-            .unwrap_err();
-        assert!(err.to_string().contains("Session has been dropped"));
+            .await;
+        assert!(res.is_err_and(|e| matches!(e, SessionError::SessionClosed)));
     }
 
     // ==================== Invite/Remove Tests (Session Missing) ====================
@@ -932,11 +873,10 @@ mod tests {
     #[tokio::test]
     async fn test_invite_internal_errors_when_session_missing() {
         let (ctx, _tx) = make_context();
-        let err = ctx
+        let res = ctx
             .invite_internal(&make_slim_name(["org", "peer", "app"]))
-            .await
-            .unwrap_err();
-        assert!(err.to_string().contains("Session has been dropped"));
+            .await;
+        assert!(res.is_err_and(|e| matches!(e, SessionError::SessionClosed)));
     }
 
     #[tokio::test]
@@ -944,9 +884,8 @@ mod tests {
         let (ctx, _tx) = make_context();
         let err = ctx
             .remove_internal(&make_slim_name(["org", "peer", "app"]))
-            .await
-            .unwrap_err();
-        assert!(err.to_string().contains("Session has been dropped"));
+            .await;
+        assert!(err.is_err_and(|e| matches!(e, SessionError::SessionClosed)));
     }
 
     // ==================== Context Creation Tests ====================
@@ -1020,13 +959,13 @@ mod tests {
         let result = ctx
             .publish_to_async(message_ctx, b"reply".to_vec(), None, None)
             .await;
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            crate::adapter::SlimError::SendError { message } => {
-                assert!(message.contains("dropped"));
+        assert!(result.is_err_and(|e| {
+            if let crate::adapter::SlimError::SessionError { message } = e {
+                message.contains("closed")
+            } else {
+                false
             }
-            _ => panic!("Expected SendError"),
-        }
+        }));
     }
 
     #[tokio::test]
@@ -1044,13 +983,13 @@ mod tests {
         let result = ctx
             .publish_to_with_completion_async(message_ctx, b"reply".to_vec(), None, None)
             .await;
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            crate::adapter::SlimError::SendError { message } => {
-                assert!(message.contains("dropped"));
+        assert!(result.is_err_and(|e| {
+            if let crate::adapter::SlimError::SessionError { message } = e {
+                message.contains("closed")
+            } else {
+                false
             }
-            _ => panic!("Expected SendError"),
-        }
+        }));
     }
 
     #[tokio::test]
@@ -1064,13 +1003,13 @@ mod tests {
         let result = ctx
             .publish_with_params_async(dest, 1, b"test".to_vec(), None, None, None)
             .await;
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            crate::adapter::SlimError::SendError { message } => {
-                assert!(message.contains("dropped"));
+        assert!(result.is_err_and(|e| {
+            if let crate::adapter::SlimError::SessionError { message } = e {
+                message.contains("closed")
+            } else {
+                false
             }
-            _ => panic!("Expected SendError"),
-        }
+        }));
     }
 
     #[tokio::test]
@@ -1130,13 +1069,13 @@ mod tests {
         let (ctx, _tx) = make_context();
 
         let result = ctx.get_message_async(Some(10)).await;
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            crate::adapter::SlimError::ReceiveError { message } => {
-                assert!(message.contains("timeout"));
+        assert!(result.is_err_and(|e| {
+            if let crate::adapter::SlimError::SessionError { message } = e {
+                message.contains("receive timeout")
+            } else {
+                false
             }
-            _ => panic!("Expected ReceiveError"),
-        }
+        }));
     }
 
     #[tokio::test]
@@ -1145,13 +1084,7 @@ mod tests {
         drop(tx);
 
         let result = ctx.get_message_async(Some(100)).await;
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            crate::adapter::SlimError::ReceiveError { message } => {
-                assert!(message.contains("channel closed"));
-            }
-            _ => panic!("Expected ReceiveError"),
-        }
+        assert!(result.is_err_and(|e| matches!(e, crate::adapter::SlimError::SessionError { .. })));
     }
 
     // ==================== Invite/Remove FFI Tests ====================
@@ -1165,13 +1098,13 @@ mod tests {
         };
 
         let result = ctx.invite_async(participant).await;
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            crate::adapter::SlimError::SessionError { message } => {
-                assert!(message.contains("dropped"));
+        assert!(result.is_err_and(|e| {
+            if let crate::adapter::SlimError::SessionError { message } = e {
+                message.contains("closed")
+            } else {
+                false
             }
-            _ => panic!("Expected SessionError"),
-        }
+        }));
     }
 
     #[tokio::test]
@@ -1183,13 +1116,13 @@ mod tests {
         };
 
         let result = ctx.remove_async(participant).await;
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            crate::adapter::SlimError::SessionError { message } => {
-                assert!(message.contains("dropped"));
+        assert!(result.is_err_and(|e| {
+            if let crate::adapter::SlimError::SessionError { message } = e {
+                message.contains("closed")
+            } else {
+                false
             }
-            _ => panic!("Expected SessionError"),
-        }
+        }));
     }
 
     // ==================== Session Info Accessor Tests ====================
@@ -1288,9 +1221,7 @@ mod tests {
             )
             .await;
 
-        assert!(result.is_err());
-        // The error confirms we got through the metadata handling
-        assert!(result.unwrap_err().to_string().contains("dropped"));
+        assert!(result.is_err_and(|e| matches!(e, SessionError::SessionClosed)));
     }
 
     // ==================== ReceivedMessage Construction Test ====================

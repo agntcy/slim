@@ -26,16 +26,16 @@ impl Greeter for TestGreeter {
         &self,
         request: Request<HelloRequest>,
     ) -> Result<Response<HelloReply>, Status> {
-        info!("Got a request from {:?}", request.remote_addr());
+        info!(from = ?request.remote_addr(), "Got a request from");
 
         // print request headers and make sure the one we set in the configuration are there
         for key_and_value in request.metadata().iter() {
             match key_and_value {
                 KeyAndValueRef::Ascii(ref key, ref value) => {
-                    info!("Ascii: {:?}: {:?}", key, value)
+                    info!(key = ?key, value = ?value, "ascii")
                 }
                 KeyAndValueRef::Binary(ref key, ref value) => {
-                    info!("Binary: {:?}: {:?}", key, value)
+                    info!(key = ?key, value = ?value, "binary")
                 }
             }
         }
@@ -105,7 +105,7 @@ mod tests {
         client_config: ClientConfig,
         server_config: ServerConfig,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        info!("GreeterServer listening on {}", server_config.endpoint);
+        info!(bind_address = %server_config.endpoint, "GreeterServer listening");
 
         // instantiate server from config and start listening
         let greeter = TestGreeter::new(client_config);
@@ -135,7 +135,7 @@ mod tests {
         let client_config_clone = client_config.clone();
         let _server = tokio::spawn(async move {
             if let Err(e) = run_server(client_config_clone, server_config).await {
-                tracing::error!("server error: {e}");
+                tracing::error!(error = %e, "server error");
             }
         });
 
@@ -158,7 +158,7 @@ mod tests {
         };
 
         // print response
-        debug!("RESPONSE={:?}", response);
+        debug!(?response);
 
         Ok(())
     }
@@ -918,7 +918,7 @@ mod tests {
 
         // Cleanup (propagate error if cleanup itself fails)
         if let Err(e) = env.cleanup().await {
-            tracing::error!("Failed to cleanup SPIRE test environment: {e}");
+            tracing::error!(error = %e, "Failed to cleanup SPIRE test environment");
             return Err(e);
         }
 

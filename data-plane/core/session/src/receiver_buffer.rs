@@ -77,7 +77,7 @@ impl ReceiverBuffer {
 
     // returns a list of messages that we can return to the application
     pub fn on_lost_message(&mut self, msg_id: u32) -> Vec<Option<Message>> {
-        debug!("message {} is definitely lost", msg_id);
+        debug!(id = %msg_id, "message definitely lost");
         self.lost_msgs.insert(msg_id as usize);
         self.release_msgs()
     }
@@ -85,7 +85,7 @@ impl ReceiverBuffer {
     // returns a list of lost messages for which RTX needs to be sent
     #[allow(dead_code)]
     pub fn on_beacon_message(&mut self, msg_id: u32) -> Vec<u32> {
-        debug!("received beacon for msg {}", msg_id);
+        debug!(id = %msg_id,"received beacon");
         let (_recv, rtx) = self.internal_on_received_message(msg_id as usize, None);
         rtx
     }
@@ -127,7 +127,7 @@ impl ReceiverBuffer {
         msg_id: usize,
         msg: Option<Message>,
     ) -> (Vec<Option<Message>>, Vec<u32>) {
-        debug!("Received message id {}", msg_id);
+        debug!(id = %msg_id, "Received message");
 
         let next_expected = if self.last_sent == usize::MAX {
             usize::MAX // Special value indicating no message received yet
@@ -142,7 +142,7 @@ impl ReceiverBuffer {
                     // if this is the first packet received (case last_sent == usize::MAX) we consider it a
                     // valid one and the buffer is initialized accordingly. in this way a stream can start from
                     // a random number or it can be joined at any time
-                    debug!("No loss detected, return message {}", msg_id);
+                    debug!(id = %msg_id, "No loss detected, return message");
                     self.last_sent = msg_id;
                     return (vec![Some(m)], vec![]);
                 }
@@ -174,12 +174,12 @@ impl ReceiverBuffer {
             match msg {
                 Some(m) => {
                     self.buffer = vec![None; num_missing];
-                    debug!("Losses found, missing {} packets", self.buffer.len());
+                    debug!(losses = %self.buffer.len(), "Losses found");
                     self.buffer.push(Some(m));
                     // Add RTX requests for all missing packets
                     let mut current = next_expected;
                     for _ in 0..num_missing {
-                        trace!("add {} to rtx vector", current);
+                        trace!(%current, "add to rtx vector");
                         rtx.push(current as u32);
                         current = Self::add_with_wraparound(current, 1);
                     }
@@ -187,11 +187,11 @@ impl ReceiverBuffer {
                 None => {
                     // we got a beacon message so we miss also msg_id
                     self.buffer = vec![None; num_missing + 1];
-                    debug!("Losses found, missing {} packets", self.buffer.len());
+                    debug!(losses = %self.buffer.len(), "Losses found");
                     // Add RTX requests for all missing packets including msg_id
                     let mut current = next_expected;
                     for _ in 0..=num_missing {
-                        trace!("add {} to rtx vector", current);
+                        trace!(%current, "add to rtx vector");
                         rtx.push(current as u32);
                         current = Self::add_with_wraparound(current, 1);
                     }
@@ -200,14 +200,14 @@ impl ReceiverBuffer {
             (vec![], rtx)
         } else {
             debug!(
-                "buffer is not empty and received OOO packet {}, process it",
-                msg_id
+                id = %msg_id,
+                "buffer is not empty and received OOO packet, process it",
             );
             trace!(
-                "buffer status: last sent {}, first entry {}, len {}",
-                self.last_sent,
-                self.first_entry,
-                self.buffer.len()
+                last_sent = %self.last_sent,
+                first_entry = %self.first_entry,
+                len = %self.buffer.len(),
+                "buffer status",
             );
 
             let next_expected = Self::add_with_wraparound(self.last_sent, 1);
@@ -220,8 +220,10 @@ impl ReceiverBuffer {
 
             if msg_in_range {
                 debug!(
-                    "message {} is inside the buffer range {} - {}",
-                    msg_id, next_expected, buffer_end
+                    id = %msg_id,
+                    %next_expected,
+                    %buffer_end,
+                    "message is inside the buffer range",
                 );
                 // if mgs is None there is nothing to do here
                 if msg.is_none() {
@@ -230,15 +232,16 @@ impl ReceiverBuffer {
 
                 // find the position of the message in the buffer
                 let pos = Self::id_distance(next_expected, msg_id) + self.first_entry;
-                debug!("try to insert message {} at pos {}", msg_id, pos);
+                debug!(%msg_id, %pos, "try to insert message");
                 if self.buffer[pos].is_some() {
                     // this is a duplicate message, drop it and do nothing
                     info!("Received DUP message, drop it");
                     return (vec![], vec![]);
                 }
                 debug!(
-                    "add message {} at pos {} and try to release msgs",
-                    msg_id, pos
+                    %msg_id,
+                    %pos,
+                    "add message and try to release msgs",
                 );
                 // add the message to the buffer and check if it is possible
                 // to send some message to the application
@@ -258,15 +261,15 @@ impl ReceiverBuffer {
                     self.buffer.push(None);
                     rtx.push(current as u32);
                     debug!(
-                        "detect packet loss {} to add at the end of the buffer",
-                        current
+                        %current,
+                        "detect packet loss to add at the end of the buffer",
                     );
                     current = Self::add_with_wraparound(current, 1);
                 }
 
                 match msg {
                     Some(m) => {
-                        debug!("add packet {} at the end of the buffer", msg_id);
+                        debug!(id = %msg_id,"add packet at the end of the buffer");
                         self.buffer.push(Some(m));
                     }
                     None => {
@@ -290,8 +293,10 @@ impl ReceiverBuffer {
                 self.last_sent = Self::add_with_wraparound(self.last_sent, 1);
                 self.first_entry += 1;
                 debug!(
-                    "return message at pos {}, new buffer state: last_sent {}, first_index {}",
-                    i, self.last_sent, self.first_entry
+                    pos = %i,
+                    last_sent = %self.last_sent,
+                    first_index = %self.first_entry,
+                    "return message at pos, new buffer state",
                 );
             } else {
                 // check if the msg id is in the set of lost messages
@@ -306,8 +311,10 @@ impl ReceiverBuffer {
                     self.last_sent = next_id;
                     self.first_entry += 1;
                     debug!(
-                        "message {} is lost, return none, new buffer state: last_sent {}, first_index {}",
-                        self.last_sent, self.last_sent, self.first_entry
+                        lost_message = self.last_sent,
+                        last_sent = %self.last_sent,
+                        first_index = %self.first_entry,
+                        "message lost, return none, new buffer state",
                     );
                 } else {
                     // we need to wait a bit more
@@ -333,8 +340,8 @@ impl ReceiverBuffer {
                 ret.push(None);
                 self.lost_msgs.remove(&self.last_sent);
                 debug!(
-                    "found another lost message to release, last_sent {}",
-                    self.last_sent
+                    last_sent = %self.last_sent,
+                    "found another lost message to release",
                 );
             } else {
                 stop = true;

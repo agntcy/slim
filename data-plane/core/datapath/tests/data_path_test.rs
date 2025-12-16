@@ -61,7 +61,7 @@ mod tests {
             let res = msg_processor.send_msg(msg, conn_index);
             match res.await {
                 Ok(_) => {
-                    info!("sent message {:?} to the server", n);
+                    info!(%n, "sent message to the server");
                 }
                 Err(err) => {
                     panic!("error sending message {:?}", err);
@@ -82,7 +82,7 @@ mod tests {
             // let's assume that the connection index is 0
             let res = msg_processor.send_msg(msg, 0).await;
             match res {
-                Ok(_) => info!("sent message {:?} to the client", n),
+                Ok(_) => info!(%n, "sent message to the client"),
                 Err(e) => panic!("error sending message {:?}", e),
             };
         }
@@ -134,7 +134,7 @@ mod tests {
 
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        let expected_msg = "subscription update (add = true) for name";
+        let expected_msg = "processing subscription";
         assert!(logs_contain(expected_msg));
 
         // try to send a forward_to message
@@ -142,7 +142,7 @@ mod tests {
         tx.send(Ok(fwd_to)).await.unwrap();
 
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        let expected_msg = "forward subscription (add = true) to 0";
+        let expected_msg = "forwarding subscription to connection";
         assert!(logs_contain(expected_msg));
     }
 
@@ -260,10 +260,9 @@ mod tests {
             .shutdown()
             .await
             .expect_err("second shutdown must fail");
-        assert_eq!(
-            err,
-            DataPathError::AlreadyCloseError,
-            "expected AlreadyCloseError on second shutdown"
+        assert!(
+            matches!(err, DataPathError::AlreadyClosedError),
+            "error must be AlreadyClosedError"
         );
     }
 }

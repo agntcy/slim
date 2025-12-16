@@ -27,8 +27,8 @@ mod imp {
             .await;
         info!(
             target: "slim::signal",
-            "received signal {}, starting shutdown",
-            name,
+            signal = %name,
+            "received signal, starting shutdown",
         );
     }
 }

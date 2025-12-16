@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use display_error_chain::ErrorChainExt;
 use notify::event::ModifyKind;
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::Path;
@@ -10,10 +11,10 @@ use tracing::debug;
 
 use thiserror::Error;
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug)]
 pub enum FileWatcherError {
-    #[error("watch error: {0}")]
-    WatchError(String),
+    #[error("watch error")]
+    WatchError(#[from] notify::Error),
 }
 
 #[derive(Debug)]
@@ -60,12 +61,12 @@ impl FileWatcher {
                                                 continue;
                                             }
                                             if let Some(p) = event.paths.first().and_then(|p| p.to_str()) {
-                                                debug!("detected event {:?}", event);
+                                                debug!(event = ?event, "detected event");
                                                 callback(p);
                                             }
                                         }
                                     }
-                                    Err(e) => println!("watch error: {:?}", e),
+                                    Err(e) => tracing::error!(error = %e.chain(), "watch error"),
                                 }
                             }
                             None => {
@@ -87,16 +88,12 @@ impl FileWatcher {
     }
 
     pub fn add_file(&mut self, file_name: &str) -> Result<(), FileWatcherError> {
-        match self
-            .watcher
-            .watch(Path::new(file_name), RecursiveMode::NonRecursive)
-        {
-            Ok(_) => {
-                debug!("start watching file {}", file_name);
-                Ok(())
-            }
-            Err(e) => Err(FileWatcherError::WatchError(e.to_string())),
-        }
+        self.watcher
+            .watch(Path::new(file_name), RecursiveMode::NonRecursive)?;
+
+        debug!(%file_name, "start watching file");
+
+        Ok(())
     }
 
     pub fn stop_watcher(&self) {
@@ -145,7 +142,7 @@ mod tests {
 
         // create the watcher
         let mut w = FileWatcher::create_watcher(move |file: &str| {
-            info!("modification detected on file {}", file);
+            info!(%file, "modification detected");
             let mut map = clone_map.write();
             match map.get_mut(file) {
                 Some(val) => {
@@ -166,7 +163,7 @@ mod tests {
 
         // add file to watcher
         let res = w.add_file(full_test_file_name);
-        assert_eq!(res, Ok(()));
+        assert!(res.is_ok());
 
         // modify the file
         modify_file(full_test_file_name, "CONFIG 2").expect("Failed to modify file");
@@ -193,7 +190,7 @@ mod tests {
 
         // add file to watcher
         let res = w.add_file(full_test_file_name_2);
-        assert_eq!(res, Ok(()));
+        assert!(res.is_ok());
 
         // modify the file
         modify_file(full_test_file_name_2, "CONFIG 2").expect("Failed to modify file");
