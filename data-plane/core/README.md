@@ -57,11 +57,6 @@ Signal handling utilities for graceful startup and shutdown of services.
 Observability module providing logging, metrics, and distributed tracing
 capabilities.
 
-### [nop_component](./nop_component/)
-
-Reference implementation of a minimal SLIM component useful for testing and as a
-template for custom components.
-
 ## Architecture
 
 The SLIM framework follows a layered architecture:
@@ -86,7 +81,6 @@ individual module:
 - [slim-service](./service/README.md)
 - [slim-signal](./signal/README.md)
 - [slim-tracing](./tracing/README.md)
-- [nop_component](./nop_component/README.md)
 
 ## Using SLIM in Your Project
 
