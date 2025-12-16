@@ -51,9 +51,7 @@ impl SessionConfig {
         metadata: HashMap<String, String>,
         initiator: bool,
     ) -> Result<Self, SessionError> {
-        let join = payload.as_join_request_payload().map_err(|e| {
-            SessionError::Processing(format!("failed to get join request payload: {}", e))
-        })?;
+        let join = payload.as_join_request_payload()?;
         let (duration, max_retries) = if let Some(ts) = &join.timer_settings {
             (
                 Some(std::time::Duration::from_millis(ts.timeout as u64)),
@@ -79,6 +77,7 @@ mod tests {
     use super::*;
     use slim_datapath::api::CommandPayload;
     use slim_datapath::messages::Name;
+    use slim_datapath::messages::utils::MessageError;
     use std::time::Duration;
 
     #[test]
@@ -214,12 +213,13 @@ mod tests {
             true,
         );
 
-        assert!(result.is_err());
-        if let Err(SessionError::Processing(msg)) = result {
-            assert!(msg.contains("failed to get join request payload"));
-        } else {
-            panic!("Expected SessionError::Processing");
-        }
+        assert!(result.is_err_and(|e| matches!(
+            e,
+            SessionError::MessageError(MessageError::InvalidCommandPayloadType {
+                expected: _,
+                got: _
+            })
+        )));
     }
 
     #[test]

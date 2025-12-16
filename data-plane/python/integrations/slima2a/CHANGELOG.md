@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.2.2](https://github.com/agntcy/slim/compare/slima2a-v0.2.1...slima2a-v0.2.2) (2025-12-11)
+
+
+### Features
+
+* **slima2a:** Bump a2a-sdk to 0.3.20 ([#1044](https://github.com/agntcy/slim/issues/1044)) ([08baf20](https://github.com/agntcy/slim/commit/08baf2059f8ba0f7547e0b0f609147f237cc973b))
+
+## [0.2.1](https://github.com/agntcy/slim/compare/slima2a-v0.2.0...slima2a-v0.2.1) (2025-12-02)
+
+
+### Bug Fixes
+
+* **slima2a:** update slimrpc dependency to ~=0.2.0 ([#1018](https://github.com/agntcy/slim/issues/1018)) ([a2ca8ba](https://github.com/agntcy/slim/commit/a2ca8bae38755babe2c5a540fcce8d8c5f24c27d))
+
+## [0.2.0](https://github.com/agntcy/slim/compare/slima2a-v0.1.0...slima2a-v0.2.0) (2025-12-02)
+
+
+### Features
+
+* **slimrpc,slima2a,slim-mcp:** Upgrade to v0.7.1 slim_bindings ([#839](https://github.com/agntcy/slim/issues/839)) ([eedb157](https://github.com/agntcy/slim/commit/eedb157d63b1562eda4b92162f7183355632cc12))
+* **slimrpc:** Add option to use existing local app for server ([#775](https://github.com/agntcy/slim/issues/775)) ([5e91347](https://github.com/agntcy/slim/commit/5e9134716159d18e1d25d22b4d2eb4a51062ecd3))
+
 ## 0.1.0 (2025-09-18)
 
 

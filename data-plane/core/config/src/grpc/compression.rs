@@ -3,8 +3,8 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::fmt;
 use std::str::FromStr;
+use thiserror::Error;
 
 /// CompressionType represents the supported compression types for gRPC messages.
 /// The supported types are: Gzip, Zlib, Deflate, Snappy, Zstd, Lz4, None, and Empty.
@@ -49,18 +49,9 @@ impl FromStr for CompressionType {
 }
 
 /// Custom error type for handling unsupported compression types
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum CompressionError {
+    // Parsing / unsupported compression type
+    #[error("unsupported compression type {0}")]
     UnsupportedType(String),
-}
-
-/// Implement the Display trait for better error messages.
-impl fmt::Display for CompressionError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            CompressionError::UnsupportedType(t) => {
-                write!(f, "unsupported compression type {:?}", t)
-            }
-        }
-    }
 }

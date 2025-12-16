@@ -1,6 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::auth::ConfigAuthError;
+use slim_auth::errors::AuthError;
 use thiserror::Error;
 
 /// Errors for Config.
@@ -8,28 +10,49 @@ use thiserror::Error;
 /// It is used to provide more context to the error messages.
 #[derive(Error, Debug)]
 pub enum ConfigError {
+    // Configuration / required fields
     #[error("missing the grpc server service")]
     MissingServices,
     #[error("missing grpc endpoint")]
     MissingEndpoint,
-    #[error("error parsing grpc endpoint: {0}")]
-    EndpointParseError(String),
-    #[error("tcp incoming error: {0}")]
-    TcpIncomingError(String),
-    #[error("failed to parse uri: {0}]")]
-    UriParseError(String),
-    #[error("failed to parse headers: {0}")]
-    HeaderParseError(String),
-    #[error("failed to parse rate limit configuration: {0}")]
-    RateLimitParseError(String),
-    #[error("tls setting error: {0}")]
-    TLSSettingError(String),
-    #[error("auth config error: {0}")]
-    AuthConfigError(String),
+
+    // Address / parsing
+    #[error("endpoint parse error")]
+    EndpointParse(#[from] std::net::AddrParseError),
+    #[error("URI parse error")]
+    UriParse(#[from] http::uri::InvalidUri),
+
+    // Network / transport
+    #[error("transport error")]
+    TransportError(#[from] tonic::transport::Error),
+    #[error("bind error")]
+    Bind(#[from] std::io::Error),
+
+    // Header parsing
+    #[error("header name parse error")]
+    HeaderNameParse(#[from] http::header::InvalidHeaderName),
+    #[error("header value parse error")]
+    HeaderValueParse(#[from] http::header::InvalidHeaderValue),
+
+    // Rate limiting
+    #[error("rate limit parse error")]
+    RateLimitParse(#[from] std::num::ParseIntError),
+
+    // TLS configuration
+    #[error("TLS config error")]
+    TlsConfig(#[from] crate::tls::errors::ConfigError),
+
+    // Authentication
+    #[error("auth error")]
+    AuthError(#[from] AuthError),
+    #[error("auth config error")]
+    AuthConfigError(#[from] ConfigAuthError),
+
+    // Resolution / operational
     #[error("resolution error")]
     ResolutionError,
-    #[error("invalid uri: {0}")]
-    InvalidUri(String),
+
+    // Unknown / catch-all
     #[error("unknown error")]
     Unknown,
 }

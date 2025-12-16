@@ -25,6 +25,7 @@ agntcy-slim-signal = { workspace = true }
 agntcy-slim-testing = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
+display-error-chain = { workspace = true }
 prost = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

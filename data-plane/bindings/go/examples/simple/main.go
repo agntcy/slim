@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"log"
 
-	slim "github.com/agntcy/slim/bindings/generated/slim_service"
+	slim "github.com/agntcy/slim/bindings/generated/slim_bindings"
 )
 
 func main() {
@@ -15,7 +15,7 @@ func main() {
 	fmt.Println("==================================================")
 
 	// Initialize crypto provider (required before any operations)
-	slim.InitializeCrypto()
+	slim.InitializeCryptoProvider()
 	fmt.Println("✅ Crypto initialized")
 
 	// Get version

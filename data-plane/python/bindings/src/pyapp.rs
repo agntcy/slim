@@ -11,9 +11,9 @@ use pyo3_stub_gen::derive::gen_stub_pymethods;
 use serde_pyobject::from_pyobject;
 use slim_auth::traits::TokenProvider;
 use slim_auth::traits::Verifier;
-
+use slim_bindings::BindingsAdapter;
+use slim_bindings::SlimError;
 use slim_datapath::messages::encoder::Name;
-use slim_service::bindings::BindingsAdapter;
 use slim_session::SessionConfig;
 
 use crate::pyidentity::IdentityProvider;
@@ -27,9 +27,9 @@ use slim_config::grpc::client::ClientConfig as PyGrpcClientConfig;
 use slim_config::grpc::server::ServerConfig as PyGrpcServerConfig;
 
 /// Helper to convert PyName to FFI Name
-fn py_name_to_ffi(py_name: &PyName) -> slim_service::Name {
+fn py_name_to_ffi(py_name: &PyName) -> slim_bindings::Name {
     let internal_name: Name = py_name.into();
-    slim_service::Name {
+    slim_bindings::Name {
         components: internal_name
             .components_strings()
             .iter()
@@ -49,7 +49,7 @@ pub struct PyApp {
 struct PyAppInternal {
     /// The adapter instance (uses AuthProvider/AuthVerifier enums internally)
     /// The adapter manages the service internally
-    adapter: Arc<BindingsAdapter>,
+    adapter: BindingsAdapter,
 }
 
 #[gen_stub_pymethods]
@@ -62,35 +62,38 @@ impl PyApp {
         verifier: PyIdentityVerifier,
         local_service: bool,
     ) -> PyResult<Self> {
-        let adapter = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(async move {
-                // Convert the PyIdentityProvider into IdentityProvider
-                let mut provider: IdentityProvider = provider.into();
+        async fn create_adapter(
+            name: PyName,
+            provider: PyIdentityProvider,
+            verifier: PyIdentityVerifier,
+            local_service: bool,
+        ) -> Result<BindingsAdapter, SlimError> {
+            // Convert the PyIdentityProvider into IdentityProvider
+            let mut provider: IdentityProvider = provider.try_into()?;
 
-                // Initialize the identity provider
-                provider
-                    .initialize()
-                    .await
-                    .map_err(|e| format!("Failed to initialize provider: {}", e))?;
+            // Initialize the identity provider
+            provider.initialize().await?;
 
-                // Convert the PyIdentityVerifier into IdentityVerifier
-                let mut verifier: IdentityVerifier = verifier.into();
+            // Convert the PyIdentityVerifier into IdentityVerifier
+            let mut verifier: IdentityVerifier = verifier.try_into()?;
 
-                // Initialize the identity verifier
-                verifier
-                    .initialize()
-                    .await
-                    .map_err(|e| format!("Failed to initialize verifier: {}", e))?;
+<<<<<<< HEAD
+            // Initialize the identity verifier
+            verifier.initialize().await?;
 
-                // Convert PyName into Name
-                let base_name: Name = name.into();
+            // Convert PyName into Name
+            let base_name: Name = name.into();
 
+<<<<<<< HEAD
                 // IdentityProvider/IdentityVerifier are already AuthProvider/AuthVerifier type aliases
-                // Use BindingsAdapter's complete creation logic
-                BindingsAdapter::new(base_name, provider, verifier, local_service)
-                    .map_err(|e| format!("Failed to create BindingsAdapter: {}", e))
-            })
-            .map_err(|e: String| PyErr::new::<PyException, _>(e))?;
+            // IdentityProvider/IdentityVerifier are already AuthProvider/AuthVerifier type aliases
+            // Use BindingsAdapter's complete creation logic
+            BindingsAdapter::new(base_name, provider, verifier, local_service)
+        }
+
+        let adapter = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(create_adapter(name, provider, verifier, local_service))
+            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
 
         let internal = Arc::new(PyAppInternal { adapter });
 
@@ -104,7 +107,7 @@ impl PyApp {
 
     #[getter]
     pub fn name(&self) -> PyName {
-        // adapter.name() returns slim_service::Name, convert to PyName
+        // adapter.name() returns slim_bindings::Name, convert to PyName
         let ffi_name = self.internal.adapter.name();
         // Convert FFI Name back to datapath Name, then to PyName
         let components: [String; 3] = [
@@ -176,10 +179,16 @@ impl PyApp {
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             // Convert to FFI ServerConfig
-            let ffi_config = slim_service::ServerConfig {
+            let ffi_config = slim_bindings::ServerConfig {
                 endpoint: config.endpoint,
-                tls: slim_service::TlsConfig {
+                tls: slim_bindings::TlsConfig {
                     insecure: config.tls_setting.insecure,
+                    insecure_skip_verify: None,
+                    cert_file: None,
+                    key_file: None,
+                    ca_file: None,
+                    tls_version: None,
+                    include_system_ca_certs_pool: None,
                 },
             };
 
@@ -192,15 +201,14 @@ impl PyApp {
     }
 
     #[gen_stub(override_return_type(type_repr="collections.abc.Awaitable", imports=("collections.abc",)))]
-    fn stop_server<'a>(&'a self, py: Python<'a>, _endpoint: String) -> PyResult<Bound<'a, PyAny>> {
-        let _internal_clone = self.internal.clone();
+    fn stop_server<'a>(&'a self, py: Python<'a>, endpoint: String) -> PyResult<Bound<'a, PyAny>> {
+        let internal_clone = self.internal.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            // TODO: stop_server is not exposed through the FFI adapter interface
-            // This needs to be added to BindingsAdapter if Python bindings require it
-            Err::<(), _>(PyErr::new::<PyException, _>(
-                "stop_server is not yet implemented in the new FFI adapter",
-            ))
+            internal_clone
+                .adapter
+                .stop_server(endpoint)
+                .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })
     }
 
@@ -211,10 +219,16 @@ impl PyApp {
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             // Convert to FFI ClientConfig
-            let ffi_config = slim_service::ClientConfig {
+            let ffi_config = slim_bindings::ClientConfig {
                 endpoint: config.endpoint,
-                tls: slim_service::TlsConfig {
+                tls: slim_bindings::TlsConfig {
                     insecure: config.tls_setting.insecure,
+                    insecure_skip_verify: None,
+                    cert_file: None,
+                    key_file: None,
+                    ca_file: None,
+                    tls_version: None,
+                    include_system_ca_certs_pool: None,
                 },
             };
 

@@ -7,8 +7,6 @@ use std::time;
 use tokio::runtime::{Builder, Runtime};
 use tracing::{info, warn};
 
-use slim_config::component::configuration::ConfigurationError;
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RuntimeConfiguration {
     /// the number of cores to use for this runtime
@@ -94,7 +92,7 @@ pub struct SlimRuntime {
     pub runtime: Runtime,
 }
 
-pub fn build(config: &RuntimeConfiguration) -> Result<SlimRuntime, ConfigurationError> {
+pub fn build(config: &RuntimeConfiguration) -> SlimRuntime {
     let n_cpu = num_cpus::get();
     debug_assert!(n_cpu > 0, "failed to get number of CPUs");
 
@@ -102,8 +100,9 @@ pub fn build(config: &RuntimeConfiguration) -> Result<SlimRuntime, Configuration
 
     let cores = if config.n_cores > n_cpu {
         warn!(
-            "Requested number of cores ({}) is greater than available cores ({}). Using all available cores",
-            config.n_cores, n_cpu
+            requested = %config.n_cores,
+            available = %n_cpu,
+            "Requested number of cores is greater than available cores. Using all available cores",
         );
         n_cpu
     } else if config.n_cores == 0 {
@@ -137,10 +136,10 @@ pub fn build(config: &RuntimeConfiguration) -> Result<SlimRuntime, Configuration
         }
     };
 
-    Ok(SlimRuntime {
+    SlimRuntime {
         config: config.clone(),
         runtime,
-    })
+    }
 }
 
 // Tests
@@ -169,7 +168,7 @@ mod tests {
     #[test]
     fn test_runtime_builder() {
         let config = RuntimeConfiguration::default();
-        let runtime = build(&config).unwrap();
+        let runtime = build(&config);
         assert_eq!(runtime.config.n_cores, 0);
     }
 
@@ -180,7 +179,7 @@ mod tests {
             thread_name: "test".to_string(),
             drain_timeout: time::Duration::from_secs(10).into(),
         };
-        let runtime = build(&config).unwrap();
+        let runtime = build(&config);
         assert_eq!(runtime.config.n_cores, 3);
         assert_eq!(config.drain_timeout, time::Duration::from_secs(10));
     }
@@ -192,7 +191,7 @@ mod tests {
             thread_name: "test".to_string(),
             drain_timeout: time::Duration::from_secs(10).into(),
         };
-        let runtime = build(&config).unwrap();
+        let runtime = build(&config);
         assert_eq!(runtime.config.n_cores, 100);
         assert_eq!(config.drain_timeout, time::Duration::from_secs(10));
     }

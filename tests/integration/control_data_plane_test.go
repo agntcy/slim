@@ -95,10 +95,10 @@ var _ = Describe("Routing", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			Eventually(clientBSession.Out, 5*time.Second).
-				Should(gbytes.Say(`received message: hello from the a`))
+				Should(gbytes.Say(`hello from the a`))
 
 			Eventually(clientASession.Out, 5*time.Second).
-				Should(gbytes.Say(`received message: hello from the b`))
+				Should(gbytes.Say(`hello from the b`))
 		})
 
 		It("should have the valid routes and connections", func() {

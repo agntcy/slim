@@ -7,7 +7,7 @@ use std::{collections::HashMap, time::Duration};
 use tracing::debug;
 
 use super::encoder::Name;
-use crate::api::proto::dataplane::v1::{GroupClosePayload, GroupNackPayload};
+use crate::api::proto::dataplane::v1::{GroupClosePayload, GroupNackPayload, PingPayload};
 use crate::api::{
     Content, MessageType, ProtoMessage, ProtoName, ProtoPublish, ProtoPublishType,
     ProtoSessionType, ProtoSubscribe, ProtoSubscribeType, ProtoUnsubscribe, ProtoUnsubscribeType,
@@ -24,11 +24,38 @@ use crate::api::{
 use thiserror::Error;
 use tracing::error;
 
-// constant strings used in messages metadata
+/// IS_MODERATOR is used in the Join request metadata to indicate whether a participant is the moderator/initiator of a session.
+/// The value is set to `TRUE_VAL` when the participant is a moderator.
 pub const IS_MODERATOR: &str = "IS_MODERATOR";
+
+/// DELETE_GROUP indicates that the entire group should be deleted.
+/// When added to a leave request message, it signals to the moderator that the group needs to be closed.
+/// The value is set to `TRUE_VAL` to trigger group deletion.
 pub const DELETE_GROUP: &str = "DELETE_GROUP";
+
+/// PUBLISH_TO indicates that a message should bypass normal sequencing and be delivered directly to the specified endpoint.
+/// This is used in group sessions when the application API `publish_to` is used instead of `publish`.
+/// The value is set to `TRUE_VAL` for direct delivery without buffering.
 pub const PUBLISH_TO: &str = "PUBLISH_TO";
+
+/// DISCONNECTION_DETECTED indicates that a participant disconnection was detected (not a graceful leave).
+/// This is used in the leave request message and internally by the moderator when
+/// a disconnection is detected due to missing ping replies from the participant.
+/// The value is set to `TRUE_VAL` when disconnection is detected.
+pub const DISCONNECTION_DETECTED: &str = "DISCONNECTION_DETECTED";
+
+/// LEAVING_SESSION indicates that a participant is gracefully leaving the session.
+/// This is used in the leave request message sent by a participant closing the session to the moderator.
+/// The value is set to `TRUE_VAL` for graceful departure.
+pub const LEAVING_SESSION: &str = "LEAVING_SESSION";
+
+/// Standard string value representing a boolean "true" in message metadata.
 pub const TRUE_VAL: &str = "TRUE";
+
+/// Maximum message ID for normal sequenced messages.
+/// Messages with IDs in the range [0, MAX_PUBLISH_ID] follow normal sequencing.
+/// Messages with IDs > MAX_PUBLISH_ID (used for `PUBLISH_TO` messages) bypass sequencing.
+/// Value: Half of u32::MAX to allow a separate ID space for out-of-band messages.
 pub const MAX_PUBLISH_ID: u32 = u32::MAX / 2;
 
 #[derive(Error, Debug, PartialEq)]
@@ -52,9 +79,16 @@ pub enum MessageError {
     #[error("content is not a command payload")]
     NotCommandPayload,
     #[error("invalid command payload type: expected {expected}, got {got}")]
-    InvalidCommandPayloadType { expected: String, got: String },
-    #[error("builder error: {0}")]
-    BuilderError(String),
+    InvalidCommandPayloadType {
+        expected: Box<String>,
+        got: Box<String>,
+    },
+
+    // Builder errors
+    #[error("builder error: source is required")]
+    BuilderErrorSourceRequired,
+    #[error("builder error: destination is required")]
+    BuilderErrorDestinationRequired,
 }
 
 /// ProtoName from Name
@@ -283,16 +317,16 @@ impl SlimHeader {
 
         if let Some(val) = self.get_recv_from() {
             debug!(
-                "received recv_from command, update state on connection {}",
-                val
+                conn = %val,
+                "received recv_from command, update state on connection",
             );
             return (val, None);
         }
 
         if let Some(val) = self.get_forward_to() {
             debug!(
-                "received forward_to command, update state and forward to connection {}",
-                val
+                conn = %val,
+                "received forward_to command, update state and forward to connection",
             );
             return (incoming, Some(val));
         }
@@ -362,6 +396,7 @@ impl SessionMessageType {
                 | SessionMessageType::GroupProposal
                 | SessionMessageType::GroupAck
                 | SessionMessageType::GroupNack
+                | SessionMessageType::Ping
         )
     }
 }
@@ -808,6 +843,7 @@ impl ProtoMessage {
         extract_group_proposal => as_group_proposal_payload(GroupProposalPayload),
         extract_group_ack => as_group_ack_payload(GroupAckPayload),
         extract_group_nack => as_group_nack_payload(GroupNackPayload),
+        extract_ping => as_ping_payload(PingPayload),
     }
 }
 
@@ -854,12 +890,12 @@ macro_rules! impl_command_payload_getters {
                 match &self.command_payload_type {
                     Some(CommandPayloadType::$variant(payload)) => Ok(payload),
                     Some(other) => Err(MessageError::InvalidCommandPayloadType {
-                        expected: stringify!($variant).to_string(),
-                        got: format!("{:?}", other),
+                        expected: Box::new(stringify!($variant).to_string()),
+                        got: Box::new(format!("{:?}", other)),
                     }),
                     None => Err(MessageError::InvalidCommandPayloadType {
-                        expected: stringify!($variant).to_string(),
-                        got: "None".to_string(),
+                        expected: Box::new(stringify!($variant).to_string()),
+                        got: Box::new("None".to_string()),
                     }),
                 }
             }
@@ -889,6 +925,7 @@ impl CommandPayload {
         as_group_proposal_payload => GroupProposal(GroupProposalPayload),
         as_group_ack_payload => GroupAck(GroupAckPayload),
         as_group_nack_payload => GroupNack(GroupNackPayload),
+        as_ping_payload => Ping(PingPayload),
     }
 }
 
@@ -1124,6 +1161,14 @@ impl CommandPayloadBuilder {
         let payload = GroupNackPayload {};
         CommandPayload {
             command_payload_type: Some(CommandPayloadType::GroupNack(payload)),
+        }
+    }
+
+    /// Creates a ping payload
+    pub fn ping(self) -> CommandPayload {
+        let payload = PingPayload {};
+        CommandPayload {
+            command_payload_type: Some(CommandPayloadType::Ping(payload)),
         }
     }
 }
@@ -1420,10 +1465,10 @@ impl ProtoMessageBuilder {
     pub fn build_publish(self) -> Result<ProtoMessage, MessageError> {
         let source = self
             .source
-            .ok_or_else(|| MessageError::BuilderError("source is required".to_string()))?;
+            .ok_or(MessageError::BuilderErrorSourceRequired)?;
         let destination = self
             .destination
-            .ok_or_else(|| MessageError::BuilderError("destination is required".to_string()))?;
+            .ok_or(MessageError::BuilderErrorDestinationRequired)?;
 
         let slim_header = Some(SlimHeader::new(
             &source,
@@ -1456,10 +1501,10 @@ impl ProtoMessageBuilder {
     pub fn build_subscribe(self) -> Result<ProtoMessage, MessageError> {
         let source = self
             .source
-            .ok_or_else(|| MessageError::BuilderError("source is required".to_string()))?;
+            .ok_or(MessageError::BuilderErrorSourceRequired)?;
         let destination = self
             .destination
-            .ok_or_else(|| MessageError::BuilderError("destination is required".to_string()))?;
+            .ok_or(MessageError::BuilderErrorDestinationRequired)?;
 
         let subscribe =
             ProtoSubscribe::new(&source, &destination, self.identity.as_deref(), self.flags);
@@ -1474,10 +1519,10 @@ impl ProtoMessageBuilder {
     pub fn build_unsubscribe(self) -> Result<ProtoMessage, MessageError> {
         let source = self
             .source
-            .ok_or_else(|| MessageError::BuilderError("source is required".to_string()))?;
+            .ok_or(MessageError::BuilderErrorSourceRequired)?;
         let destination = self
             .destination
-            .ok_or_else(|| MessageError::BuilderError("destination is required".to_string()))?;
+            .ok_or(MessageError::BuilderErrorDestinationRequired)?;
 
         let unsubscribe =
             ProtoUnsubscribe::new(&source, &destination, self.identity.as_deref(), self.flags);
@@ -1908,7 +1953,7 @@ mod tests {
     #[test]
     fn test_service_type_to_int() {
         // Get total number of service types
-        let total_service_types = SessionMessageType::GroupNack as i32;
+        let total_service_types = SessionMessageType::Ping as i32;
 
         for i in 0..total_service_types {
             // int -> ServiceType
@@ -2059,6 +2104,10 @@ mod tests {
         // Test group nack
         let payload = CommandPayload::builder().group_nack();
         assert!(payload.as_group_nack_payload().is_ok());
+
+        // Test ping
+        let payload = CommandPayload::builder().ping();
+        assert!(payload.as_ping_payload().is_ok());
     }
 
     #[test]

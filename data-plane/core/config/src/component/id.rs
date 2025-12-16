@@ -7,14 +7,13 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum IdError {
-    #[error("id cannot be emapty")]
+    // Validation / format
+    #[error("id cannot be empty")]
     Empty,
     #[error("kind contains invalid character(s): {0}")]
     InvalidCharacter(String),
     #[error("name part is too long: {0}")]
     NameTooLong(String),
-    #[error("unknown error")]
-    Unknown,
 }
 
 // Constant for the separator used in composite keys

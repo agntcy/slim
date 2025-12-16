@@ -12,10 +12,18 @@ mod file;
 
 #[derive(Error, Debug)]
 pub enum ProviderError {
+    // Lookup / resolution
     #[error("not found")]
     NotFound,
+    // Unknown / catch-all
     #[error("unknown error")]
     Unknown,
+    // Env provider errors
+    #[error("environment variable error")]
+    EnvVarError(#[from] std::env::VarError),
+    // File provider errors
+    #[error("file error")]
+    FileError(#[from] std::io::Error),
 }
 
 // Define a trait for reading YAML content from different sources
@@ -106,7 +114,7 @@ mod tests {
     fn test_resolve() {
         let testdata_path: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata");
 
-        debug!("testdata_path: {}", testdata_path);
+        debug!(%testdata_path);
 
         // set an env variable to test
         unsafe {

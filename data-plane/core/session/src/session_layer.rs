@@ -5,6 +5,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use display_error_chain::ErrorChainExt;
 // Third-party crates
 use parking_lot::RwLock as SyncRwLock;
 use rand::Rng;
@@ -22,6 +23,7 @@ use crate::notification::Notification;
 use crate::session_config::SessionConfig;
 use crate::session_controller::SessionController;
 
+use crate::session_routes::SessionRoutes;
 use crate::transmitter::{AppTransmitter, SessionTransmitter};
 
 // Local crate
@@ -64,6 +66,9 @@ where
     // Transmitter to bypass sessions
     transmitter: T,
 
+    // cache of routes/subscriptions set by all the sessions
+    routes_cache: SessionRoutes,
+
     /// Storage path for app data
     storage_path: std::path::PathBuf,
 
@@ -101,6 +106,7 @@ where
             tx_slim,
             tx_app,
             transmitter,
+            routes_cache: SessionRoutes::default(),
             storage_path,
             tx_session,
         };
@@ -144,7 +150,7 @@ where
         };
 
         if !removed {
-            warn!("tried to remove unknown app name {}", name);
+            warn!(%name, "tried to remove unknown app name");
         }
     }
 
@@ -156,14 +162,13 @@ where
             .get(&name)
             .cloned()
             .map(|n| n.with_id(self.app_id))
-            .ok_or(SessionError::SubscriptionNotFound(name.to_string()))
+            .ok_or(SessionError::SubscriptionNotFound(name))
     }
 
     /// Get identity token from the identity provider
-    pub fn get_identity_token(&self) -> Result<String, String> {
-        self.identity_provider
-            .get_token()
-            .map_err(|e| e.to_string())
+    pub fn get_identity_token(&self) -> Result<String, SessionError> {
+        let token = self.identity_provider.get_token()?;
+        Ok(token)
     }
 
     /// Public interface to create a new session
@@ -189,7 +194,7 @@ where
             session
                 .session()
                 .upgrade()
-                .ok_or_else(|| SessionError::SessionNotFound(session.session_id()))?
+                .ok_or(SessionError::SessionNotFound(u32::MAX))?
                 .invite_participant_internal(&destination_clone)
                 .await
                 .inspect_err(|_| {
@@ -226,12 +231,12 @@ where
                     Some(id) => {
                         // make sure provided id is in range
                         if !SESSION_RANGE.contains(&id) {
-                            return Err(SessionError::InvalidSessionId(id.to_string()));
+                            return Err(SessionError::InvalidSessionId(id));
                         }
 
                         // check if the session ID is already used
                         if pool.contains_key(&id) {
-                            return Err(SessionError::SessionIdAlreadyUsed(id.to_string()));
+                            return Err(SessionError::SessionIdAlreadyUsed(id));
                         }
 
                         id
@@ -270,6 +275,7 @@ where
                 .with_storage_path(self.storage_path.clone())
                 .with_tx(tx)
                 .with_tx_to_session_layer(self.tx_session.clone())
+                .with_routes_cache(self.routes_cache.clone())
                 .ready()?;
 
             // Perform the async build operation without holding any lock
@@ -282,7 +288,7 @@ where
             if pool.contains_key(&session_id) {
                 // If a specific ID was provided, return an error
                 if id.is_some() {
-                    return Err(SessionError::SessionIdAlreadyUsed(session_id.to_string()));
+                    return Err(SessionError::SessionIdAlreadyUsed(session_id));
                 }
                 // If ID was randomly generated, retry with a new ID
                 continue;
@@ -293,10 +299,10 @@ where
             // This should never happen, but just in case
             if ret.is_some() {
                 error!(
-                    "session ID {} was taken during insertion: this should not happen",
-                    session_id
+                    %session_id,
+                    "session ID was taken during insertion: this should not happen",
                 );
-                return Err(SessionError::SessionIdAlreadyUsed(session_id.to_string()));
+                return Err(SessionError::SessionIdAlreadyUsed(session_id));
             }
 
             return Ok(SessionContext::new(session_controller, app_rx));
@@ -315,16 +321,16 @@ where
                     next = rx_session.recv() => {
                         match next {
                             Some(Ok(SessionMessage::DeleteSession { session_id })) => {
-                                debug!("received closing signal from session {}, cancel it from the pool", session_id);
+                                debug!(%session_id, "received closing signal, cancel session from the pool");
                                 if pool_clone.write().remove(&session_id).is_none() {
-                                    warn!("requested to delete unknown session id {}", session_id);
+                                    warn!(%session_id, "requested to delete unknown session");
                                 }
                             }
-                            Some(Ok(_)) => {
-                                error!("received unexpected message");
+                            Some(Ok(m)) => {
+                                error!(?m, "received unexpected message");
                             }
                             Some(Err(e)) => {
-                                warn!("error from session: {:?}", e);
+                                warn!(error = %e.chain(), "error from session");
                             }
                             None => {
                                 // All senders dropped; exit loop.
@@ -339,7 +345,7 @@ where
 
     /// Remove a session from the pool and return a handle to optionally wait on
     pub fn remove_session(&self, id: u32) -> Result<CompletionHandle, SessionError> {
-        debug!("try to remove session {}", id);
+        debug!(%id, "try to remove session");
         // get the read lock
         let binding = self.pool.read();
         let session = binding.get(&id).ok_or(SessionError::SessionNotFound(id))?;
@@ -363,17 +369,7 @@ where
         // Close all sessions and return completion handles
         pool.iter()
             .map(|(id, session)| {
-                let result = session.close().map(|join_handle| {
-                    // Spawn a task to await the join handle and send the result through a oneshot channel
-                    let (tx, rx) = tokio::sync::oneshot::channel();
-                    tokio::spawn(async move {
-                        let result = join_handle.await.map(|_| ()).map_err(|e| {
-                            SessionError::Processing(format!("Session cleanup failed: {}", e))
-                        });
-                        let _ = tx.send(result);
-                    });
-                    CompletionHandle::from_oneshot_receiver(rx)
-                });
+                let result = session.close().map(CompletionHandle::from_join_handle);
                 (*id, result)
             })
             .collect()
@@ -400,12 +396,10 @@ where
                     session_type,
                 )?;
 
-                self.transmitter.send_to_slim(Ok(msg)).await.map_err(|e| {
-                    SessionError::SlimTransmission(format!("error sending discovery reply: {}", e))
-                })
+                self.transmitter.send_to_slim(Ok(msg)).await
             }
-            _ => Err(SessionError::SlimTransmission(
-                "unexpected message type".to_string(),
+            _ => Err(SessionError::SessionMessageTypeUnexpected(
+                session_message_type,
             )),
         }
     }
@@ -419,9 +413,9 @@ where
             .await?;
 
         tracing::trace!(
-            "received message from SLIM {} {}",
-            message.get_session_message_type().as_str_name(),
-            message.get_id()
+            msg_type = %message.get_session_message_type().as_str_name(),
+            session_id = %message.get_id(),
+            "received message from SLIM",
         );
 
         let (id, session_type, session_message_type) = {
@@ -463,12 +457,7 @@ where
                     ProtoSessionType::PointToPoint => {
                         let conf = crate::SessionConfig::from_join_request(
                             ProtoSessionType::PointToPoint,
-                            message.extract_command_payload().map_err(|e| {
-                                SessionError::Processing(format!(
-                                    "failed to extract command payload: {}",
-                                    e
-                                ))
-                            })?,
+                            message.extract_command_payload()?,
                             message.get_metadata_map(),
                             false,
                         )?;
@@ -482,37 +471,25 @@ where
                     }
                     ProtoSessionType::Multicast => {
                         // Multicast sessions require timer settings; reject if missing.
-                        let payload = message.extract_join_request().map_err(|e| {
-                            SessionError::Processing(format!(
-                                "failed to extract join request payload: {}",
-                                e
-                            ))
-                        })?;
+                        let payload = message.extract_join_request()?;
 
                         if payload.timer_settings.is_none() {
-                            return Err(SessionError::Processing(
-                                "missing timer options".to_string(),
-                            ));
+                            return Err(SessionError::MissingPayload {
+                                context: "timer options",
+                            });
                         }
 
                         let channel = if let Some(c) = &payload.channel {
                             Name::from(c)
                         } else {
-                            return Err(SessionError::Processing(
-                                "missing channel name".to_string(),
-                            ));
+                            return Err(SessionError::MissingChannelName);
                         };
 
                         // Determine initiator (moderator) before building metadata snapshot.
                         let initiator = message.remove_metadata(IS_MODERATOR).is_some();
                         let conf = crate::SessionConfig::from_join_request(
                             ProtoSessionType::Multicast,
-                            message.extract_command_payload().map_err(|e| {
-                                SessionError::Processing(format!(
-                                    "failed to extract command payload: {}",
-                                    e
-                                ))
-                            })?,
+                            message.extract_command_payload()?,
                             message.get_metadata_map(),
                             initiator,
                         )?;
@@ -526,12 +503,10 @@ where
                     }
                     _ => {
                         warn!(
-                            "received channel join request with unknown session type: {}",
-                            session_type.as_str_name()
+                            session_type = %session_type.as_str_name(),
+                            "received channel join request with unknown session type",
                         );
-                        return Err(SessionError::SessionUnknown(
-                            session_type.as_str_name().to_string(),
-                        ));
+                        return Err(SessionError::SessionTypeUnknown(session_type));
                     }
                 }
             }
@@ -548,16 +523,13 @@ where
             | ProtoSessionMessageType::MsgAck
             | ProtoSessionMessageType::RtxRequest
             | ProtoSessionMessageType::RtxReply => {
-                tracing::debug!(
-                    "received channel message with unknown session id {:?} ",
-                    message
-                );
+                tracing::debug!(?message, "received channel message with unknown session id",);
                 // We can ignore these messages
                 return Ok(());
             }
             _ => {
-                return Err(SessionError::SessionUnknown(
-                    session_message_type.as_str_name().to_string(),
+                return Err(SessionError::SessionMessageTypeUnknown(
+                    session_message_type,
                 ));
             }
         };
@@ -566,9 +538,7 @@ where
         new_session
             .session()
             .upgrade()
-            .ok_or(SessionError::SessionClosed(
-                "newly created session already closed: this should not happen".to_string(),
-            ))?
+            .ok_or(SessionError::SessionClosed)?
             .on_message_from_slim(message)
             .await?;
 
@@ -576,7 +546,7 @@ where
         self.tx_app
             .send(Ok(Notification::NewSession(new_session)))
             .await
-            .map_err(|e| SessionError::AppTransmission(format!("error sending new session: {}", e)))
+            .map_err(|_e| SessionError::NewSessionSendFailed)
     }
 
     /// Handle a discovery request message.
@@ -995,11 +965,10 @@ mod tests {
             )
             .await;
 
-        assert!(result.is_err());
-        match result {
-            Err(SessionError::SlimTransmission(_)) => {}
-            _ => panic!("Expected SlimTransmission error"),
-        }
+        assert!(result.is_err_and(|e| matches!(
+            e,
+            SessionError::SessionMessageTypeUnexpected(ProtoSessionMessageType::Msg)
+        )));
     }
 
     #[tokio::test]

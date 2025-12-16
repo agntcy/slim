@@ -46,7 +46,7 @@ async def main() -> None:
     )
 
     servicer = SRPCHandler(agent_card, request_handler)
-    server = slimrpc.Server(
+    server = await slimrpc.Server.from_slim_app_config(
         slim_app_config=slimrpc.SLIMAppConfig(
             identity="agntcy/demo/travel_planner_agent",
             slim_client_config={

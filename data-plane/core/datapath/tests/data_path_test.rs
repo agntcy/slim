@@ -42,16 +42,13 @@ mod tests {
         // connect client
         let mut client_config = ClientConfig::with_endpoint("http://127.0.0.1:50051");
         client_config.tls_setting.insecure = true;
-        let channel = client_config.to_channel().await.unwrap();
-
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         // create bidirectional stream
         info!("Client connected");
         let (_, conn_index) = msg_processor
             .connect(
-                channel,
-                None,
+                client_config,
                 None,
                 Some(SocketAddr::from(([127, 0, 0, 1], 50051))),
             )
@@ -64,7 +61,7 @@ mod tests {
             let res = msg_processor.send_msg(msg, conn_index);
             match res.await {
                 Ok(_) => {
-                    info!("sent message {:?} to the server", n);
+                    info!(%n, "sent message to the server");
                 }
                 Err(err) => {
                     panic!("error sending message {:?}", err);
@@ -85,7 +82,7 @@ mod tests {
             // let's assume that the connection index is 0
             let res = msg_processor.send_msg(msg, 0).await;
             match res {
-                Ok(_) => info!("sent message {:?} to the client", n),
+                Ok(_) => info!(%n, "sent message to the client"),
                 Err(e) => panic!("error sending message {:?}", e),
             };
         }
@@ -137,7 +134,7 @@ mod tests {
 
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        let expected_msg = "subscription update (add = true) for name";
+        let expected_msg = "processing subscription";
         assert!(logs_contain(expected_msg));
 
         // try to send a forward_to message
@@ -145,7 +142,7 @@ mod tests {
         tx.send(Ok(fwd_to)).await.unwrap();
 
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        let expected_msg = "forward subscription (add = true) to 0";
+        let expected_msg = "forwarding subscription to connection";
         assert!(logs_contain(expected_msg));
     }
 
@@ -176,13 +173,11 @@ mod tests {
         // create a client config we will attach to the connection
         let mut client_config = ClientConfig::with_endpoint("http://127.0.0.1:50052");
         client_config.tls_setting.insecure = true;
-        let channel = client_config.to_channel().await.unwrap();
 
         // connect with client_config Some(...)
         let (_, conn_index) = msg_processor
             .connect(
-                channel,
-                Some(client_config.clone()),
+                client_config.clone(),
                 None,
                 Some(SocketAddr::from(([127, 0, 0, 1], 50052))),
             )
@@ -265,10 +260,9 @@ mod tests {
             .shutdown()
             .await
             .expect_err("second shutdown must fail");
-        assert_eq!(
-            err,
-            DataPathError::AlreadyCloseError,
-            "expected AlreadyCloseError on second shutdown"
+        assert!(
+            matches!(err, DataPathError::AlreadyClosedError),
+            "error must be AlreadyClosedError"
         );
     }
 }

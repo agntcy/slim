@@ -7,45 +7,32 @@
 use std::collections::HashSet;
 
 pub mod connection_table;
-pub mod errors;
 pub mod remote_subscription_table;
 pub mod subscription_table;
 
 pub mod pool;
 
 use crate::messages::Name;
-use errors::SubscriptionTableError;
 
 pub trait SubscriptionTable {
+    type Error;
+
     fn for_each<F>(&self, f: F)
     where
         F: FnMut(&Name, u64, &[u64], &[u64]);
 
-    fn add_subscription(
-        &self,
-        name: Name,
-        conn: u64,
-        is_local: bool,
-    ) -> Result<(), SubscriptionTableError>;
+    fn add_subscription(&self, name: Name, conn: u64, is_local: bool) -> Result<(), Self::Error>;
 
     fn remove_subscription(
         &self,
         name: &Name,
         conn: u64,
         is_local: bool,
-    ) -> Result<(), SubscriptionTableError>;
+    ) -> Result<(), Self::Error>;
 
-    fn remove_connection(
-        &self,
-        conn: u64,
-        is_local: bool,
-    ) -> Result<HashSet<Name>, SubscriptionTableError>;
+    fn remove_connection(&self, conn: u64, is_local: bool) -> Result<HashSet<Name>, Self::Error>;
 
-    fn match_one(&self, name: &Name, incoming_conn: u64) -> Result<u64, SubscriptionTableError>;
+    fn match_one(&self, name: &Name, incoming_conn: u64) -> Result<u64, Self::Error>;
 
-    fn match_all(
-        &self,
-        name: &Name,
-        incoming_conn: u64,
-    ) -> Result<Vec<u64>, SubscriptionTableError>;
+    fn match_all(&self, name: &Name, incoming_conn: u64) -> Result<Vec<u64>, Self::Error>;
 }

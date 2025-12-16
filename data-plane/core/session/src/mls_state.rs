@@ -17,7 +17,10 @@ use slim_datapath::api::{MlsPayload, ProtoMessage as Message, ProtoSessionMessag
 // Local crate
 use crate::SessionError;
 use slim_datapath::messages::Name;
-use slim_mls::mls::{CommitMsg, KeyPackageMsg, Mls, MlsIdentity, ProposalMsg, WelcomeMsg};
+use slim_mls::{
+    errors::MlsError,
+    mls::{CommitMsg, KeyPackageMsg, Mls, MlsIdentity, ProposalMsg, WelcomeMsg},
+};
 
 #[derive(Debug)]
 pub struct MlsState<P, V>
@@ -46,11 +49,7 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     pub(crate) async fn new(mls: Arc<Mutex<Mls<P, V>>>) -> Result<Self, SessionError> {
-        mls.lock()
-            .await
-            .initialize()
-            .await
-            .map_err(|e| SessionError::MLSInit(e.to_string()))?;
+        mls.lock().await.initialize().await?;
 
         Ok(MlsState {
             mls,
@@ -61,12 +60,8 @@ where
     }
 
     pub(crate) async fn generate_key_package(&mut self) -> Result<KeyPackageMsg, SessionError> {
-        self.mls
-            .lock()
-            .await
-            .generate_key_package()
-            .await
-            .map_err(|e| SessionError::MLSInit(e.to_string()))
+        let ret = self.mls.lock().await.generate_key_package().await?;
+        Ok(ret)
     }
 
     pub(crate) async fn process_welcome_message(
@@ -79,22 +74,15 @@ where
             return Ok(());
         }
 
-        let payload = msg.extract_group_welcome().map_err(|e| {
-            SessionError::WelcomeMessage(format!("failed to extract welcome payload: {}", e))
-        })?;
-        let mls_payload = payload.mls.as_ref().ok_or_else(|| {
-            SessionError::WelcomeMessage("missing mls payload in welcome message".to_string())
-        })?;
+        let payload = msg.extract_group_welcome()?;
+        let mls_payload = payload
+            .mls
+            .as_ref()
+            .ok_or(SessionError::WelcomeMessageMissingMlsPayload)?;
         self.last_mls_msg_id = mls_payload.commit_id;
         let welcome = &mls_payload.mls_content;
 
-        self.group = self
-            .mls
-            .lock()
-            .await
-            .process_welcome(welcome)
-            .await
-            .map_err(|e| SessionError::WelcomeMessage(e.to_string()))?;
+        self.group = self.mls.lock().await.process_welcome(welcome).await?;
 
         Ok(())
     }
@@ -114,7 +102,7 @@ where
             .stored_commits_proposals
             .remove(&(self.last_mls_msg_id + 1))
         {
-            trace!("processing stored message {}", msg.get_id());
+            trace!(id = %msg.get_id(), "processing stored message");
 
             // increment the last mls message id
             self.last_mls_msg_id += 1;
@@ -125,36 +113,20 @@ where
                     self.process_proposal_message(msg, local_name).await?;
                 }
                 ProtoSessionMessageType::GroupAdd => {
-                    let payload = msg.extract_group_add().map_err(|e| {
-                        SessionError::Processing(format!(
-                            "failed to extract group add payload: {}",
-                            e
-                        ))
-                    })?;
-                    let mls_payload = payload.mls.as_ref().ok_or_else(|| {
-                        SessionError::Processing("missing mls payload in add message".to_string())
-                    })?;
+                    let payload = msg.extract_group_add()?;
+                    let mls_payload = payload.mls.as_ref().ok_or(MlsError::NoGroupAddPayload)?;
                     self.process_commit_message(mls_payload).await?;
                 }
                 ProtoSessionMessageType::GroupRemove => {
-                    let payload = msg.extract_group_remove().map_err(|e| {
-                        SessionError::Processing(format!(
-                            "failed to extract group remove payload: {}",
-                            e
-                        ))
-                    })?;
-                    let mls_payload = payload.mls.as_ref().ok_or_else(|| {
-                        SessionError::Processing(
-                            "missing mls payload in remove message".to_string(),
-                        )
-                    })?;
+                    let payload = msg.extract_group_remove()?;
+                    let mls_payload = payload.mls.as_ref().ok_or(MlsError::NoGroupRemovePayload)?;
 
                     self.process_commit_message(mls_payload).await?;
                 }
-                _ => {
-                    error!("unknown control message type, drop it");
-                    return Err(SessionError::Processing(
-                        "unknown control message type".to_string(),
+                _type => {
+                    error!(?_type, "unknown control message type, drop it");
+                    return Err(SessionError::SessionMessageTypeUnknown(
+                        msg.get_session_header().session_message_type(),
                     ));
                 }
             }
@@ -167,15 +139,16 @@ where
         &mut self,
         mls_payload: &MlsPayload,
     ) -> Result<(), SessionError> {
-        trace!("processing stored commit {}", mls_payload.commit_id);
+        trace!(id = %mls_payload.commit_id,  "processing stored commit",);
 
         // process the commit message
         self.mls
             .lock()
             .await
             .process_commit(&mls_payload.mls_content)
-            .await
-            .map_err(|e| SessionError::CommitMessage(e.to_string()))
+            .await?;
+
+        Ok(())
     }
 
     async fn process_proposal_message(
@@ -183,15 +156,15 @@ where
         proposal: Message,
         local_name: &Name,
     ) -> Result<(), SessionError> {
-        trace!("processing stored proposal {}", proposal.get_id());
+        trace!(id = proposal.get_id(), "processing stored proposal");
 
-        let payload = proposal.extract_group_proposal().map_err(|e| {
-            SessionError::Processing(format!("failed to extract group proposal payload: {}", e))
-        })?;
+        let payload = proposal.extract_group_proposal()?;
 
-        let original_source = Name::from(payload.source.as_ref().ok_or_else(|| {
-            SessionError::Processing("missing source in proposal payload".to_string())
-        })?);
+        let original_source = Name::from(payload.source.as_ref().ok_or(
+            SessionError::MissingPayload {
+                context: "proposal source",
+            },
+        )?);
         if original_source == *local_name {
             // drop the message as we are the original source
             debug!("Known proposal, drop the message");
@@ -202,8 +175,7 @@ where
             .lock()
             .await
             .process_proposal(&payload.mls_proposal, false)
-            .await
-            .map_err(|e| SessionError::CommitMessage(e.to_string()))?;
+            .await?;
 
         Ok(())
     }
@@ -217,9 +189,7 @@ where
             return Ok(false);
         }
 
-        let command_payload = msg.extract_command_payload().map_err(|e| {
-            SessionError::MLSIdMessage(format!("failed to extract command payload: {}", e))
-        })?;
+        let command_payload = msg.extract_command_payload()?;
 
         let commit_id = match msg.get_session_header().session_message_type() {
             ProtoSessionMessageType::GroupAdd => {
@@ -227,7 +197,7 @@ where
                     .as_group_add_payload()?
                     .mls
                     .as_ref()
-                    .ok_or_else(|| SessionError::MLSIdMessage("missing mls payload".to_string()))?
+                    .ok_or(MlsError::NoGroupAddPayload)?
                     .commit_id
             }
             ProtoSessionMessageType::GroupRemove => {
@@ -235,20 +205,18 @@ where
                     .as_group_remove_payload()?
                     .mls
                     .as_ref()
-                    .ok_or_else(|| SessionError::MLSIdMessage("missing mls payload".to_string()))?
+                    .ok_or(MlsError::NoGroupRemovePayload)?
                     .commit_id
             }
             _ => {
-                return Err(SessionError::MLSIdMessage(
-                    "unexpected message type".to_string(),
-                ));
+                return Err(MlsError::UnknownPayloadType.into());
             }
         };
 
         if commit_id <= self.last_mls_msg_id {
             debug!(
-                "Message with id {} already processed, drop it. last message id {}",
-                commit_id, self.last_mls_msg_id
+                %commit_id, last_message_id = self.last_mls_msg_id,
+                "Message already processed, drop it.",
             );
             return Ok(false);
         }
@@ -256,7 +224,7 @@ where
         // store commit in hash map
         match self.stored_commits_proposals.entry(commit_id) {
             Entry::Occupied(_) => {
-                debug!("Message with id {} already exists, drop it", commit_id);
+                debug!(%commit_id, "Message already exists, drop it");
                 Ok(false)
             }
             Entry::Vacant(entry) => {
@@ -298,44 +266,30 @@ where
     }
 
     pub(crate) async fn init_moderator(&mut self) -> Result<(), SessionError> {
-        self.common
-            .mls
-            .lock()
-            .await
-            .create_group()
-            .await
-            .map(|_| ())
-            .map_err(|e| SessionError::MLSInit(e.to_string()))
+        self.common.mls.lock().await.create_group().await?;
+        Ok(())
     }
 
     pub(crate) async fn add_participant(
         &mut self,
         msg: &Message,
     ) -> Result<(CommitMsg, WelcomeMsg), SessionError> {
-        let payload = msg.extract_join_reply().map_err(|e| {
-            SessionError::AddParticipant(format!("failed to extract join reply payload: {}", e))
-        })?;
+        let payload = msg.extract_join_reply()?;
 
-        match self
+        // Propagate MlsError directly (will become SessionError::MlsOp via #[from])
+        let ret = self
             .common
             .mls
             .lock()
             .await
             .add_member(payload.key_package())
-            .await
-        {
-            Ok(ret) => {
-                // add participant to the list
-                self.participants
-                    .insert(msg.get_source(), ret.member_identity);
+            .await?;
 
-                Ok((ret.commit_message, ret.welcome_message))
-            }
-            Err(e) => {
-                error!(%e, "error adding new endpoint");
-                Err(SessionError::AddParticipant(e.to_string()))
-            }
-        }
+        // add participant to the list
+        self.participants
+            .insert(msg.get_source(), ret.member_identity);
+
+        Ok((ret.commit_message, ret.welcome_message))
     }
 
     pub(crate) async fn remove_participant(
@@ -348,19 +302,11 @@ where
             Some(id) => id,
             None => {
                 error!("the name does not exists in the group");
-                return Err(SessionError::RemoveParticipant(
-                    "participant does not exists".to_owned(),
-                ));
+                return Err(SessionError::ParticipantNotFound(name));
             }
         };
-        let ret = self
-            .common
-            .mls
-            .lock()
-            .await
-            .remove_member(id)
-            .await
-            .map_err(|e| SessionError::RemoveParticipant(e.to_string()))?;
+
+        let ret = self.common.mls.lock().await.remove_member(id).await?;
 
         // remove the participant from the list
         self.participants.remove(&name);
@@ -379,8 +325,7 @@ where
             .lock()
             .await
             .process_proposal(proposal, true)
-            .await
-            .map_err(|e| SessionError::CommitMessage(e.to_string()))?;
+            .await?;
 
         Ok(commit)
     }
@@ -395,8 +340,7 @@ where
             .lock()
             .await
             .process_local_pending_proposal()
-            .await
-            .map_err(|e| SessionError::CommitMessage(e.to_string()))?;
+            .await?;
 
         Ok(commit)
     }

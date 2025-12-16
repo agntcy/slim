@@ -3,8 +3,8 @@
 
 use std::sync::OnceLock;
 
-use crate::service::Service;
 use slim_config::component::ComponentBuilder;
+use slim_service::Service;
 
 // Global static service instance for bindings
 static GLOBAL_SERVICE: OnceLock<Service> = OnceLock::new();
@@ -42,11 +42,11 @@ mod tests {
     use slim_datapath::messages::Name;
     use slim_testing::utils::TEST_VALID_SECRET;
 
-    use crate::bindings::adapter::BindingsAdapter;
+    use crate::adapter::BindingsAdapter;
 
     /// Create test authentication components
     fn create_test_auth() -> (AuthProvider, AuthVerifier) {
-        let shared_secret = SharedSecret::new("test-app", TEST_VALID_SECRET);
+        let shared_secret = SharedSecret::new("test-app", TEST_VALID_SECRET).unwrap();
         let provider = AuthProvider::SharedSecret(shared_secret.clone());
         let verifier = AuthVerifier::SharedSecret(shared_secret);
         (provider, verifier)

@@ -4,15 +4,19 @@
 use std::collections::HashMap;
 
 use slim_datapath::api::{ProtoMessage, ProtoPublishType};
-use slim_datapath::messages::Name;
+use slim_datapath::messages::Name as SlimName;
 
-use crate::errors::ServiceError;
+use slim_session::SessionError;
 
-/// Generic message context for language bindings
+// Import the FFI Name type for use in MessageContext fields
+use crate::adapter::Name;
+
+/// Generic message context for language bindings (UniFFI-compatible)
 ///
 /// Provides routing and descriptive metadata needed for replying,
 /// auditing, and instrumentation across different language bindings.
-#[derive(Debug, Clone, PartialEq)]
+/// This type is exported to foreign languages via UniFFI.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct MessageContext {
     /// Fully-qualified sender identity
     pub source_name: Name,
@@ -48,6 +52,11 @@ impl MessageContext {
         }
     }
 
+    /// Get the source name as a SlimName (for internal use)
+    pub fn source_as_slim_name(&self) -> SlimName {
+        SlimName::from(self.source_name.clone())
+    }
+
     /// Build a `MessageContext` plus the raw payload bytes from a low-level
     /// `ProtoMessage`. Returns an error if the message type is unsupported
     /// (i.e. not a publish payload).
@@ -57,15 +66,14 @@ impl MessageContext {
     /// * `payload_type` defaults to "msg" if unset
     /// * `metadata` is copied from the underlying protocol envelope
     /// * The returned `Vec<u8>` is the raw application payload
-    pub fn from_proto_message(msg: ProtoMessage) -> Result<(Self, Vec<u8>), ServiceError> {
+    pub fn from_proto_message(msg: ProtoMessage) -> Result<(Self, Vec<u8>), SessionError> {
         let Some(ProtoPublishType(publish)) = msg.message_type.as_ref() else {
-            return Err(ServiceError::ReceiveError(
-                "unsupported message type".to_string(),
-            ));
+            return Err(SessionError::MessageTypeUnexpected(Box::new(msg)));
         };
 
-        let source = msg.get_source();
-        let destination = Some(msg.get_dst());
+        // Convert SlimName to FFI Name
+        let source = Name::from(&msg.get_source());
+        let destination = Some(Name::from(&msg.get_dst()));
         let input_connection = msg.get_incoming_conn();
         let payload_bytes = publish
             .msg
@@ -106,13 +114,26 @@ mod tests {
     use slim_datapath::api::{
         ApplicationPayload, ProtoMessage, ProtoPublish, ProtoPublishType, SessionHeader, SlimHeader,
     };
-    use slim_datapath::messages::Name;
     use std::collections::HashMap;
+
+    /// Helper to create FFI Name from string parts (matches what SlimName converts to)
+    fn ffi_name(parts: [&str; 3]) -> Name {
+        // SlimName.id() returns u64::MAX by default, and our From impl always sets Some(id)
+        Name {
+            components: parts.iter().map(|s| s.to_string()).collect(),
+            id: Some(u64::MAX), // Default SlimName ID
+        }
+    }
+
+    /// Helper to create SlimName for ProtoMessage construction
+    fn slim_name(parts: [&str; 3]) -> SlimName {
+        SlimName::from_strings(parts)
+    }
 
     // Helper function to create a test ProtoMessage with Publish type
     fn create_test_proto_message(
-        source: Name,
-        dest: Name,
+        source: SlimName,
+        dest: SlimName,
         connection_id: u64,
         payload: Vec<u8>,
         content_type: String,
@@ -142,8 +163,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_message_context_creation() {
-        let source = Name::from_strings(["org", "namespace", "sender"]);
-        let destination = Some(Name::from_strings(["org", "namespace", "receiver"]));
+        let source = ffi_name(["org", "namespace", "sender"]);
+        let destination = Some(ffi_name(["org", "namespace", "receiver"]));
         let mut metadata = HashMap::new();
         metadata.insert("test".to_string(), "value".to_string());
 
@@ -169,10 +190,14 @@ mod tests {
         // Create test data
         let payload_data = b"test payload".to_vec();
         let content_type = "application/json".to_string();
-        let source_name = Name::from_strings(["org", "sender", "service"]);
-        let dest_name = Name::from_strings(["org", "receiver", "service"]);
+        let source_slim = slim_name(["org", "sender", "service"]);
+        let dest_slim = slim_name(["org", "receiver", "service"]);
         let connection_id = 12345u64;
         let identity = "test-identity".to_string();
+
+        // Expected FFI names
+        let source_ffi = ffi_name(["org", "sender", "service"]);
+        let dest_ffi = ffi_name(["org", "receiver", "service"]);
 
         // Create metadata
         let mut metadata = HashMap::new();
@@ -180,8 +205,8 @@ mod tests {
         metadata.insert("user_id".to_string(), "user456".to_string());
 
         let mut proto_msg = create_test_proto_message(
-            source_name.clone(),
-            dest_name.clone(),
+            source_slim,
+            dest_slim,
             connection_id,
             payload_data.clone(),
             content_type.clone(),
@@ -198,9 +223,9 @@ mod tests {
 
         let (ctx, payload) = result.unwrap();
 
-        // Verify context fields
-        assert_eq!(ctx.source_name, source_name);
-        assert_eq!(ctx.destination_name, Some(dest_name));
+        // Verify context fields (comparing FFI Names)
+        assert_eq!(ctx.source_name, source_ffi);
+        assert_eq!(ctx.destination_name, Some(dest_ffi));
         assert_eq!(ctx.payload_type, content_type);
         assert_eq!(ctx.metadata, metadata);
         assert_eq!(ctx.input_connection, connection_id);
@@ -212,13 +237,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_from_proto_message_with_default_content_type() {
-        let source_name = Name::from_strings(["org", "sender", "service"]);
-        let dest_name = Name::from_strings(["org", "receiver", "service"]);
+        let source_slim = slim_name(["org", "sender", "service"]);
+        let dest_slim = slim_name(["org", "receiver", "service"]);
         let payload_data = b"test payload".to_vec();
 
         let proto_msg = create_test_proto_message(
-            source_name,
-            dest_name,
+            source_slim,
+            dest_slim,
             42,
             payload_data,
             String::new(), // Empty content type should default to "msg"
@@ -234,13 +259,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_from_proto_message_with_no_content() {
-        let source_name = Name::from_strings(["org", "sender", "service"]);
-        let _dest_name = Name::from_strings(["org", "receiver", "service"]);
+        let source_slim = slim_name(["org", "sender", "service"]);
+        let dest_slim = slim_name(["org", "receiver", "service"]);
 
         // Create ProtoPublish without msg content
         let mut slim_header = SlimHeader::default();
-        slim_header.set_source(&source_name);
-        slim_header.set_destination(&_dest_name);
+        slim_header.set_source(&source_slim);
+        slim_header.set_destination(&dest_slim);
 
         let publish = ProtoPublish {
             header: Some(slim_header),
@@ -271,25 +296,20 @@ mod tests {
         };
 
         let result = MessageContext::from_proto_message(proto_msg);
-        assert!(result.is_err());
-
-        match result.unwrap_err() {
-            ServiceError::ReceiveError(msg) => {
-                assert_eq!(msg, "unsupported message type");
-            }
-            _ => panic!("Expected ReceiveError"),
-        }
+        assert!(result.is_err_and(|e| matches!(e, SessionError::MessageTypeUnexpected(_))));
     }
 
     #[tokio::test]
     async fn test_from_proto_message_with_empty_metadata() {
-        let source_name = Name::from_strings(["test", "source", "v1"]);
-        let dest_name = Name::from_strings(["test", "dest", "v1"]);
+        let source_slim = slim_name(["test", "source", "v1"]);
+        let dest_slim = slim_name(["test", "dest", "v1"]);
+        let source_ffi = ffi_name(["test", "source", "v1"]);
+        let dest_ffi = ffi_name(["test", "dest", "v1"]);
         let payload_data = b"test".to_vec();
 
         let proto_msg = create_test_proto_message(
-            source_name.clone(),
-            dest_name.clone(),
+            source_slim,
+            dest_slim,
             99,
             payload_data.clone(),
             "text/plain".to_string(),
@@ -300,8 +320,8 @@ mod tests {
         assert!(result.is_ok());
 
         let (ctx, payload) = result.unwrap();
-        assert_eq!(ctx.source_name, source_name);
-        assert_eq!(ctx.destination_name, Some(dest_name));
+        assert_eq!(ctx.source_name, source_ffi);
+        assert_eq!(ctx.destination_name, Some(dest_ffi));
         assert_eq!(ctx.payload_type, "text/plain");
         assert_eq!(ctx.metadata, HashMap::new()); // Should be empty
         assert_eq!(ctx.input_connection, 99);

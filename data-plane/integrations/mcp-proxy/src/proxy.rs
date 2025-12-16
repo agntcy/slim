@@ -41,7 +41,7 @@ struct PingTimerObserver {
 #[async_trait]
 impl TimerObserver for PingTimerObserver {
     async fn on_timeout(&self, timer_id: u32, timeouts: u32) {
-        trace!("timeout number {} for rtx {}, retry", timeouts, timer_id);
+        trace!(n_timeouts = %timeouts, %timer_id, "timeout for rtx, retry");
         let _ = self.tx_proxy_session.send(timer_id).await;
     }
 
@@ -74,7 +74,7 @@ pub struct Proxy {
 fn start_proxy_session(ctx: SessionContext, mcp_server: String) {
     let session_id_val = ctx.session_arc().unwrap().id();
     ctx.spawn_receiver(move |mut rx, weak| async move {
-        info!("Session handler task started (session id={})", session_id_val);
+        info!(%session_id_val, "Session handler task started");
 
         let binding = weak.upgrade();
         let remote_name = binding.as_ref().unwrap().dst();
@@ -226,8 +226,8 @@ impl Proxy {
         let (app, mut slim_rx) = service
             .create_app(
                 &self.name,
-                SharedSecret::new("id", SECRET),
-                SharedSecret::new("id", SECRET),
+                SharedSecret::new("id", SECRET).expect("Failed to create SharedSecret"),
+                SharedSecret::new("id", SECRET).expect("Failed to create SharedSecret"),
             )
             .expect("failed to create app");
 

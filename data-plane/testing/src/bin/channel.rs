@@ -168,8 +168,10 @@ async fn main() {
     let (app, mut rx) = svc
         .create_app(
             &local_name,
-            SharedSecret::new(&local_name_str, slim_testing::utils::TEST_VALID_SECRET),
-            SharedSecret::new(&local_name_str, slim_testing::utils::TEST_VALID_SECRET),
+            SharedSecret::new(&local_name_str, slim_testing::utils::TEST_VALID_SECRET)
+                .expect("Failed to create SharedSecret"),
+            SharedSecret::new(&local_name_str, slim_testing::utils::TEST_VALID_SECRET)
+                .expect("Failed to create SharedSecret"),
         )
         .expect("failed to create app");
 
@@ -180,7 +182,7 @@ async fn main() {
     let conn_id = svc
         .get_connection_id(&svc.config().clients()[0].endpoint)
         .unwrap();
-    info!("remote connection id = {}", conn_id);
+    info!(remote_connection_id = %conn_id);
 
     // subscribe for local name
     app.subscribe(&local_name, Some(conn_id))
@@ -226,7 +228,7 @@ async fn main() {
 
         // invite all participants
         for p in participants {
-            info!("Invite participant {}", p);
+            info!(participant = %p, "Invite participant");
             session_ctx
                 .session_arc()
                 .unwrap()
@@ -254,7 +256,7 @@ async fn main() {
                                 let p =
                                     &publish.get_payload().as_application_payload().unwrap().blob;
                                 if let Ok(payload) = String::from_utf8(p.to_vec()) {
-                                    info!("received message: {}", payload);
+                                    info!(%payload, "received message");
                                 }
                             }
                         }
@@ -267,7 +269,7 @@ async fn main() {
         });
 
         for i in 0..max_packets.unwrap_or(u64::MAX) {
-            info!("moderator: send message {}", i);
+            info!(%i, "moderator: send message");
             // create payload
             let mut pstr = msg_payload_str.clone();
             pstr.push_str(&i.to_string());
@@ -332,9 +334,9 @@ async fn main() {
                                             } else {
                                                 String::new()
                                             };
-                                            info!("received message: {}", payload);
+                                            info!(%payload, "received message");
                                             if publisher == moderator_clone {
-                                                info!("reply to moderator with message {}", msg_id);
+                                                info!(%msg_id, "reply to moderator");
                                                 let mut pstr = msg_payload_str_clone.clone();
                                                 pstr.push_str(&msg_id.to_string());
                                                 let p = pstr.as_bytes().to_vec();

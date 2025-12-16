@@ -1,0 +1,34 @@
+[package]
+name = "agntcy-slim-bindings"
+edition = { workspace = true }
+license = { workspace = true }
+version = "0.7.0"
+description = "UniFFI bindings and FFI adapter for SLIM data plane - enables language integrations (Go, Swift, Kotlin, etc.)"
+
+[lib]
+name = "slim_bindings"
+crate-type = ["lib", "staticlib", "cdylib"]
+
+[dependencies]
+# Local workspace dependencies
+agntcy-slim-auth = { workspace = true }
+agntcy-slim-config = { workspace = true }
+agntcy-slim-datapath = { workspace = true }
+agntcy-slim-service = { workspace = true }
+agntcy-slim-session = { workspace = true }
+
+# External dependencies
+display-error-chain = { workspace = true }
+num_cpus = { workspace = true }
+parking_lot = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+uniffi = { version = "0.28.3", features = ["cli"] }
+
+[build-dependencies]
+uniffi = { version = "0.28.3", features = ["build"] }
+
+[dev-dependencies]
+agntcy-slim-testing = { workspace = true }
+tokio-test = { workspace = true }
+tracing-test = { workspace = true }

@@ -41,6 +41,7 @@ use slim_auth::jwt::KeyFormat;
 
 use slim_auth::jwt::StaticTokenProvider;
 
+use slim_auth::errors::AuthError;
 use slim_auth::jwt::{Algorithm, KeyData};
 use slim_auth::shared_secret::SharedSecret;
 
@@ -308,12 +309,15 @@ pub(crate) enum PyIdentityProvider {
     },
 }
 
-impl From<PyIdentityProvider> for IdentityProvider {
-    fn from(value: PyIdentityProvider) -> Self {
+impl TryFrom<PyIdentityProvider> for IdentityProvider {
+    type Error = AuthError;
+
+    fn try_from(value: PyIdentityProvider) -> Result<Self, Self::Error> {
         match value {
-            PyIdentityProvider::StaticJwt { path } => AuthProvider::StaticToken(
-                StaticTokenProvider::from(JwtBuilder::new().token_file(path).build().unwrap()),
-            ),
+            PyIdentityProvider::StaticJwt { path } => {
+                let jwt = JwtBuilder::new().token_file(path).build()?;
+                Ok(AuthProvider::StaticToken(StaticTokenProvider::from(jwt)))
+            }
             PyIdentityProvider::Jwt {
                 private_key,
                 duration,
@@ -336,15 +340,17 @@ impl From<PyIdentityProvider> for IdentityProvider {
                 let signer = builder
                     .private_key(&private_key.into())
                     .token_duration(duration)
-                    .build()
-                    .expect("Failed to build SignerJwt");
+                    .build()?;
 
-                AuthProvider::JwtSigner(signer)
+                Ok(AuthProvider::JwtSigner(signer))
             }
             PyIdentityProvider::SharedSecret {
                 identity,
                 shared_secret,
-            } => AuthProvider::SharedSecret(SharedSecret::new(&identity, &shared_secret)),
+            } => {
+                let secret = SharedSecret::new(&identity, &shared_secret)?;
+                Ok(AuthProvider::SharedSecret(secret))
+            }
             PyIdentityProvider::Spire {
                 socket_path,
                 target_spiffe_id,
@@ -364,14 +370,12 @@ impl From<PyIdentityProvider> for IdentityProvider {
                     }
                     let mgr = builder.build();
                     // Not initialized yet; caller may invoke .init() before use.
-                    AuthProvider::Spire(mgr)
+                    Ok(AuthProvider::Spire(mgr))
                 }
                 #[cfg(target_family = "windows")]
                 {
                     let _ = (socket_path, target_spiffe_id, jwt_audiences);
-                    panic!(
-                        "SPIRE identity provider is not supported on Windows. SPIRE requires Unix domain sockets which are not available on Windows platforms."
-                    );
+                    Err(AuthError::SpireUnsupportedOnWindows)
                 }
             }
         }
@@ -514,8 +518,10 @@ pub(crate) enum PyIdentityVerifier {
     },
 }
 
-impl From<PyIdentityVerifier> for IdentityVerifier {
-    fn from(value: PyIdentityVerifier) -> Self {
+impl TryFrom<PyIdentityVerifier> for IdentityVerifier {
+    type Error = AuthError;
+
+    fn try_from(value: PyIdentityVerifier) -> Result<Self, Self::Error> {
         match value {
             PyIdentityVerifier::Jwt {
                 public_key,
@@ -556,17 +562,22 @@ impl From<PyIdentityVerifier> for IdentityVerifier {
                 builder = builder.require_exp();
 
                 let ret = match (public_key, autoresolve) {
-                    (Some(key), _) => builder.public_key(&key.into()).build().unwrap(),
-                    (_, true) => builder.auto_resolve_keys(true).build().unwrap(),
-                    (_, _) => panic!("Public key must be provided for JWT verifier"),
+                    (Some(key), _) => builder.public_key(&key.into()).build()?,
+                    (_, true) => builder.auto_resolve_keys(true).build()?,
+                    (_, _) => {
+                        return Err(AuthError::JwtMissingDecodingKeyOrKeyResolver);
+                    }
                 };
 
-                AuthVerifier::JwtVerifier(ret)
+                Ok(AuthVerifier::JwtVerifier(ret))
             }
             PyIdentityVerifier::SharedSecret {
                 identity,
                 shared_secret,
-            } => AuthVerifier::SharedSecret(SharedSecret::new(&identity, &shared_secret)),
+            } => {
+                let secret = SharedSecret::new(&identity, &shared_secret)?;
+                Ok(AuthVerifier::SharedSecret(secret))
+            }
             PyIdentityVerifier::Spire {
                 socket_path,
                 target_spiffe_id,
@@ -586,14 +597,12 @@ impl From<PyIdentityVerifier> for IdentityVerifier {
                     }
                     let mgr = builder.build();
                     // Not initialized yet; caller may invoke .init() before use.
-                    AuthVerifier::Spire(mgr)
+                    Ok(AuthVerifier::Spire(mgr))
                 }
                 #[cfg(target_family = "windows")]
                 {
                     let _ = (socket_path, target_spiffe_id, jwt_audiences);
-                    panic!(
-                        "SPIRE identity verifier is not supported on Windows. SPIRE requires Unix domain sockets which are not available on Windows platforms."
-                    );
+                    Err(AuthError::SpireUnsupportedOnWindows)
                 }
             }
         }

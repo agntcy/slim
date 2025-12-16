@@ -69,7 +69,7 @@ var _ = Describe("Routing", func() {
 				GinkgoWriter, GinkgoWriter,
 			)
 			Expect(errCP).NotTo(HaveOccurred())
-			Eventually(serverBSession.Out, 15*time.Second).Should(gbytes.Say(`Connection attempt: #\d+ successful`))
+			Eventually(serverBSession.Out, 15*time.Second).Should(gbytes.Say(`connected to control plane`))
 
 			var errA error
 			serverASession, errA = gexec.Start(
@@ -116,10 +116,10 @@ var _ = Describe("Routing", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			Eventually(clientBSession.Out, 5*time.Second).
-				Should(gbytes.Say(`received message: hello from the a`))
+				Should(gbytes.Say(`hello from the a`))
 
 			Eventually(clientASession.Out, 5*time.Second).
-				Should(gbytes.Say(`received message: hello from the b`))
+				Should(gbytes.Say(`hello from the b`))
 
 			// test listing routes for node a
 			routeListOutA, err := exec.Command(

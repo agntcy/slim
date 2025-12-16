@@ -1,5 +1,5 @@
 [package]
-name = "agntcy-slim-bindings"
+name = "agntcy-slim-python"
 edition = { workspace = true }
 license = { workspace = true }
 publish = false
@@ -9,11 +9,12 @@ version = "0.1.0"
 name = "pydantic_core._pydantic_core"
 
 [lib]
-name = "_slim_bindings"
+name = "_slim_python"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 agntcy-slim-auth = { workspace = true }
+agntcy-slim-bindings = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-service = { workspace = true }

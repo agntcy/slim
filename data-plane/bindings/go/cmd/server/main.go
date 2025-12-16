@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	slim "github.com/agntcy/slim/bindings/generated/slim_service"
+	slim "github.com/agntcy/slim/bindings/generated/slim_bindings"
 )
 
 func main() {
@@ -29,7 +29,7 @@ func main() {
 	fmt.Println()
 
 	// Initialize crypto
-	slim.InitializeCrypto()
+	slim.InitializeCryptoProvider()
 
 	// Create server app
 	serverName := slim.Name{
@@ -67,11 +67,10 @@ func main() {
 	time.Sleep(100 * time.Millisecond)
 
 	fmt.Println("✅ Server running and listening")
-	fmt.Println("   📡 Clients can now connect")
 	fmt.Println()
-	fmt.Println("💡 Tip: Watch for connection logs below")
+	fmt.Println("📡 Clients can now connect")
+	fmt.Println()
 	fmt.Println("Press Ctrl+C to stop")
-	fmt.Println()
 
 	// Wait for interrupt or error
 	sigChan := make(chan os.Signal, 1)

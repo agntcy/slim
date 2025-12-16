@@ -10,7 +10,8 @@ logger = logging.getLogger(__name__)
 
 
 async def amain() -> None:
-    channel_factory = slimrpc.ChannelFactory(
+    channel = await slimrpc.Channel.from_slim_app_config(
+        remote="agntcy/grpc/server",
         slim_app_config=slimrpc.SLIMAppConfig(
             identity="agntcy/grpc/client",
             slim_client_config={
@@ -20,11 +21,9 @@ async def amain() -> None:
                 },
             },
             enable_opentelemetry=False,
-            shared_secret="my_shared_secret",
+            shared_secret="my_shared_secret_for_testing_purposes_only",
         ),
     )
-
-    channel = channel_factory.new_channel(remote="agntcy/grpc/server")
 
     # Stubs
     stubs = TestStub(channel)
@@ -46,8 +45,14 @@ async def amain() -> None:
 
         response = await stubs.ExampleStreamUnary(stream_requests(), timeout=2)
         logger.info(f"Stream Unary Response: {response}")
+
+        stream = stubs.ExampleStreamStream(stream_requests(), timeout=2)
+        async for resp in stream:
+            logger.info(f"Stream Stream Response: {resp}")
+        logger.info("Stream Stream completed")
+
     except asyncio.TimeoutError:
-        logger.error("timeout while waiting for response")
+        logger.exception("timeout while waiting for response")
 
     await asyncio.sleep(1)
 

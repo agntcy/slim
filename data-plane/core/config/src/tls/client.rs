@@ -19,10 +19,13 @@ use serde;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use super::common::{Config, ConfigError, RustlsConfigLoader, TlsSource};
+use super::common::{Config, RustlsConfigLoader, TlsSource};
 use crate::{
-    component::configuration::{Configuration, ConfigurationError},
-    tls::common::{StaticCertResolver, TlsComponent, WatcherCertResolver},
+    component::configuration::Configuration,
+    tls::{
+        common::{StaticCertResolver, TlsComponent, WatcherCertResolver},
+        errors::ConfigError,
+    },
 };
 
 #[cfg(not(target_family = "windows"))]
@@ -304,11 +307,7 @@ impl TlsClientConfig {
                 // Dynamic spire client cert resolver (no manual cert/key injection)
                 let spire_resolver =
                     SpireCertResolver::new(spire_cfg.clone(), config_builder.crypto_provider())
-                        .await
-                        .map_err(|e| ConfigError::InvalidSpireConfig {
-                            details: format!("failed to create spire cert resolver: {}", e),
-                            config: spire_cfg.clone(),
-                        })?;
+                        .await?;
                 config_builder.with_client_cert_resolver(Arc::new(spire_resolver))
             }
             TlsSource::File { cert, key, .. } => {
@@ -350,7 +349,9 @@ impl RustlsConfigLoader<RustlsClientConfig> for TlsClientConfig {
 }
 
 impl Configuration for TlsClientConfig {
-    fn validate(&self) -> Result<(), ConfigurationError> {
+    type Error = ConfigError;
+
+    fn validate(&self) -> Result<(), Self::Error> {
         // TODO(msardara): validate the configuration
         Ok(())
     }

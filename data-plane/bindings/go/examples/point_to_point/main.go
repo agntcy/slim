@@ -9,7 +9,7 @@ import (
 	"log"
 	"time"
 
-	slim "github.com/agntcy/slim/bindings/generated/slim_service"
+	slim "github.com/agntcy/slim/bindings/generated/slim_bindings"
 	"github.com/agntcy/slim/bindings/go/examples/common"
 )
 
@@ -116,7 +116,7 @@ func runReceiver(app *slim.BindingsAdapter, instance uint64) {
 	}
 }
 
-func handleSession(app *slim.BindingsAdapter, session *slim.FfiSessionContext, instance uint64) {
+func handleSession(app *slim.BindingsAdapter, session *slim.BindingsSessionContext, instance uint64) {
 	defer func() {
 		if err := app.DeleteSession(session); err != nil {
 			log.Printf("[%d] ⚠️  Warning: failed to delete session: %v", instance, err)

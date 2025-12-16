@@ -4,6 +4,7 @@
 // Standard library imports
 use std::{collections::HashMap, time::Duration};
 
+use display_error_chain::ErrorChainExt;
 use parking_lot::Mutex;
 use tokio::sync::{self, oneshot};
 // Third-party crates
@@ -24,9 +25,10 @@ use crate::{
     MessageDirection, SessionError, Transmitter,
     common::SessionMessage,
     completion_handle::CompletionHandle,
-    controller_sender::ControllerSender,
+    controller_sender::{ControllerSender, PING_INTERVAL},
     session_builder::{ForController, SessionBuilder},
     session_config::SessionConfig,
+    session_routes::Route,
     session_settings::SessionSettings,
     traits::{MessageHandler, ProcessingState},
 };
@@ -135,12 +137,10 @@ impl SessionController {
     {
         // Start with an infinite timeout (will be updated on graceful shutdown)
         let mut shutdown_deadline = std::pin::pin!(tokio::time::sleep(Duration::MAX));
-        // Pin the cancellation token
-        // let mut cancellation_token = std::pin::pin!(cancellation_token.cancelled());
 
         // Init the inner components
         if let Err(e) = inner.init().await {
-            tracing::error!(error=%e, "Error during initialization of session");
+            tracing::error!(error = %e.chain(), "error during initialization of session");
         }
 
         loop {
@@ -154,7 +154,7 @@ impl SessionController {
                     debug!("consuming pending messages before entering draining state");
                     while let Ok(msg) = rx.try_recv() {
                         if let Err(e) = inner.on_message(msg).await {
-                            tracing::error!(error=%e, "Error processing message during draining. Close immediately.");
+                            tracing::error!(error = %e.chain(), "error processing message during draining - close immediately.");
                             break;
                         }
                     }
@@ -163,7 +163,7 @@ impl SessionController {
                     if let Err(e) = inner.on_message(SessionMessage::StartDrain {
                         grace_period: shutdown_timeout
                     }).await {
-                        tracing::error!(error=%e, "Error during start drain");
+                        tracing::error!(error = %e.chain(),  "error during start drain");
                         break;
                     }
 
@@ -184,13 +184,13 @@ impl SessionController {
                             if draining && matches!(session_message, SessionMessage::OnMessage { direction: MessageDirection::South, .. }) {
                                 tracing::debug!("session is draining, rejecting new messages from application");
                                 if let SessionMessage::OnMessage { ack_tx: Some(ack_tx), .. } = session_message {
-                                    let _ = ack_tx.send(Err(SessionError::Processing("Session is draining, cannot accept new messages".to_string())));
+                                    let _ = ack_tx.send(Err(SessionError::SessionDrainingDrop));
                                 }
                                 continue;
                             }
 
                             if let Err(e) = inner.on_message(session_message).await {
-                                tracing::error!(
+                                debug!(
                                     error=%e,
                                     "Error processing message{}",
                                     if draining { " during graceful shutdown" } else { "" }
@@ -225,7 +225,7 @@ impl SessionController {
 
         // Perform final shutdown
         if let Err(e) = inner.on_shutdown().await {
-            tracing::error!(error=%e, "Error during shutdown of session");
+            tracing::error!(error = %e.chain(), "error during shutdown of session");
         }
     }
 
@@ -271,12 +271,7 @@ impl SessionController {
                 ack_tx,
             })
             .await
-            .map_err(|e| {
-                SessionError::Processing(format!(
-                    "Failed to send message to session controller: {}",
-                    e
-                ))
-            })
+            .map_err(|_e| SessionError::SessionControllerSendFailed)
     }
 
     /// Send a message to the controller for processing
@@ -305,7 +300,7 @@ impl SessionController {
         self.handle
             .lock()
             .take()
-            .ok_or(SessionError::Generic("Session already closed".to_string()))
+            .ok_or(SessionError::SessionAlreadyClosed)
     }
 
     pub async fn publish_message(
@@ -373,8 +368,7 @@ impl SessionController {
             .session_id(self.id())
             .message_id(rand::random::<u32>()) // this will be changed by the session itself
             .application_payload(&ct, blob)
-            .build_publish()
-            .map_err(|e| SessionError::Processing(e.to_string()))?;
+            .build_publish()?;
         if let Some(map) = metadata
             && !map.is_empty()
         {
@@ -390,7 +384,8 @@ impl SessionController {
         let payload = CommandPayload::builder()
             .discovery_request(None)
             .as_content();
-        Message::builder()
+
+        let msg = Message::builder()
             .source(self.source().clone())
             .destination(destination.clone())
             .identity("")
@@ -399,8 +394,9 @@ impl SessionController {
             .session_id(self.id())
             .message_id(rand::random::<u32>())
             .payload(payload)
-            .build_publish()
-            .map_err(|e| SessionError::Processing(e.to_string()))
+            .build_publish()?;
+
+        Ok(msg)
     }
 
     pub(crate) async fn invite_participant_internal(
@@ -416,18 +412,14 @@ impl SessionController {
         destination: &Name,
     ) -> Result<CompletionHandle, SessionError> {
         match self.session_type() {
-            ProtoSessionType::PointToPoint => Err(SessionError::Processing(
-                "cannot invite participant to point-to-point session".into(),
-            )),
+            ProtoSessionType::PointToPoint => Err(SessionError::CannotInviteToP2P),
             ProtoSessionType::Multicast => {
                 if !self.is_initiator() {
-                    return Err(SessionError::Processing(
-                        "cannot invite participant to this session session".into(),
-                    ));
+                    return Err(SessionError::NotInitiator);
                 }
                 self.invite_participant_internal(destination).await
             }
-            _ => Err(SessionError::Processing("unexpected session type".into())),
+            _ => Err(SessionError::SessionTypeUnknown(self.session_type())),
         }
     }
 
@@ -436,14 +428,10 @@ impl SessionController {
         destination: &Name,
     ) -> Result<CompletionHandle, SessionError> {
         match self.session_type() {
-            ProtoSessionType::PointToPoint => Err(SessionError::Processing(
-                "cannot remove participant to point-to-point session".into(),
-            )),
+            ProtoSessionType::PointToPoint => Err(SessionError::CannotRemoveFromP2P),
             ProtoSessionType::Multicast => {
                 if !self.is_initiator() {
-                    return Err(SessionError::Processing(
-                        "cannot remove participant from this session session".into(),
-                    ));
+                    return Err(SessionError::NotInitiator);
                 }
                 let msg = Message::builder()
                     .source(self.source().clone())
@@ -454,11 +442,10 @@ impl SessionController {
                     .session_id(self.id())
                     .message_id(rand::random::<u32>())
                     .payload(CommandPayload::builder().leave_request(None).as_content())
-                    .build_publish()
-                    .map_err(|e| SessionError::Processing(e.to_string()))?;
+                    .build_publish()?;
                 self.publish_message(msg).await
             }
-            _ => Err(SessionError::Processing("unexpected session type".into())),
+            _ => Err(SessionError::SessionTypeUnknown(self.session_type())),
         }
     }
 }
@@ -495,15 +482,16 @@ pub fn handle_channel_discovery_message(
 
     debug!("Received discovery request, reply to the msg source");
 
-    Message::builder()
+    let msg = Message::builder()
         .with_slim_header(slim_header)
         .session_type(session_type)
         .session_message_type(ProtoSessionMessageType::DiscoveryReply)
         .session_id(session_id)
         .message_id(msg_id)
         .payload(CommandPayload::builder().discovery_reply().as_content())
-        .build_publish()
-        .map_err(|e| SessionError::Processing(e.to_string()))
+        .build_publish()?;
+
+    Ok(msg)
 }
 
 pub(crate) struct SessionControllerCommon<P, V>
@@ -527,10 +515,14 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     pub(crate) fn new(settings: SessionSettings<P, V>) -> Self {
-        // create the controller sender
+        // Create the controller sender.
         let controller_sender = ControllerSender::new(
             settings.config.get_timer_settings(),
             settings.source.clone(),
+            settings.config.session_type,
+            settings.id,
+            Some(PING_INTERVAL),
+            settings.config.initiator,
             // send messages to slim/app
             settings.tx.clone(),
             // send signal to the controller
@@ -549,31 +541,102 @@ where
         self.settings.tx.send_to_slim(Ok(message)).await
     }
 
+    /// Send error message to the application
+    pub(crate) async fn send_to_app(&self, error: SessionError) -> Result<(), SessionError> {
+        self.settings.tx.send_to_app(Err(error)).await
+    }
+
     /// Send control message without creating ack channel (for internal use by moderator)
     pub(crate) async fn send_with_timer(&mut self, message: Message) -> Result<(), SessionError> {
         self.sender.on_message(&message).await
     }
 
-    pub(crate) async fn set_route(&self, name: &Name, conn: u64) -> Result<(), SessionError> {
-        let route = Message::builder()
-            .source(self.settings.source.clone())
-            .destination(name.clone())
-            .flags(SlimHeaderFlags::default().with_recv_from(conn))
-            .build_subscribe()
-            .unwrap();
+    pub(crate) async fn add_route(&self, name: &Name, conn: u64) -> Result<(), SessionError> {
+        let session_route = Route {
+            name: name.clone(),
+            conn_id: conn,
+            route: true,
+        };
+        if !self.settings.routes_cache.has_route(&session_route) {
+            let route = Message::builder()
+                .source(self.settings.source.clone())
+                .destination(name.clone())
+                .flags(SlimHeaderFlags::default().with_recv_from(conn))
+                .build_subscribe()
+                .unwrap();
 
-        self.send_to_slim(route).await
+            self.send_to_slim(route).await?;
+        }
+        self.settings.routes_cache.add_route(session_route);
+        Ok(())
     }
 
     pub(crate) async fn delete_route(&self, name: &Name, conn: u64) -> Result<(), SessionError> {
-        let route = Message::builder()
-            .source(self.settings.source.clone())
-            .destination(name.clone())
-            .flags(SlimHeaderFlags::default().with_recv_from(conn))
-            .build_unsubscribe()
-            .unwrap();
+        let session_route = Route {
+            name: name.clone(),
+            conn_id: conn,
+            route: true,
+        };
+        self.settings.routes_cache.remove_route(&session_route);
+        if !self.settings.routes_cache.has_route(&session_route) {
+            let route = Message::builder()
+                .source(self.settings.source.clone())
+                .destination(name.clone())
+                .flags(SlimHeaderFlags::default().with_recv_from(conn))
+                .build_unsubscribe()
+                .unwrap();
 
-        self.send_to_slim(route).await
+            self.send_to_slim(route).await?;
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn add_subscription(
+        &self,
+        name: &Name,
+        conn: u64,
+    ) -> Result<(), SessionError> {
+        let session_route = Route {
+            name: name.clone(),
+            conn_id: conn,
+            route: false,
+        };
+        if !self.settings.routes_cache.has_route(&session_route) {
+            let subscription = Message::builder()
+                .source(self.settings.source.clone())
+                .destination(name.clone())
+                .flags(SlimHeaderFlags::default().with_forward_to(conn))
+                .build_subscribe()
+                .unwrap();
+
+            self.send_to_slim(subscription).await?;
+        }
+        self.settings.routes_cache.add_route(session_route);
+        Ok(())
+    }
+
+    pub(crate) async fn delete_subscription(
+        &self,
+        name: &Name,
+        conn: u64,
+    ) -> Result<(), SessionError> {
+        let session_route = Route {
+            name: name.clone(),
+            conn_id: conn,
+            route: false,
+        };
+        self.settings.routes_cache.remove_route(&session_route);
+        if !self.settings.routes_cache.has_route(&session_route) {
+            let subscription = Message::builder()
+                .source(self.settings.source.clone())
+                .destination(name.clone())
+                .flags(SlimHeaderFlags::default().with_forward_to(conn))
+                .build_unsubscribe()
+                .unwrap();
+
+            self.send_to_slim(subscription).await?;
+        }
+        Ok(())
     }
 
     pub(crate) fn create_control_message(
@@ -598,9 +661,9 @@ where
             builder = builder.fanout(256);
         }
 
-        builder
-            .build_publish()
-            .map_err(|e| SessionError::Processing(e.to_string()))
+        let ret = builder.build_publish()?;
+
+        Ok(ret)
     }
 
     /// Send control message without creating ack channel (for internal use by moderator)
@@ -632,6 +695,7 @@ mod tests {
     // session is transitioning, indicating that graceful draining has begun.
     // Removed broken test_internal_draining_via_leave_request (incompatible mock trait implementation)
 
+    use crate::session_routes::SessionRoutes;
     use crate::transmitter::SessionTransmitter;
     use slim_auth::shared_secret::SharedSecret;
 
@@ -746,11 +810,12 @@ mod tests {
                 .with_source(self.source.clone())
                 .with_destination(self.destination.clone())
                 .with_config(config)
-                .with_identity_provider(SharedSecret::new("test", SHARED_SECRET))
-                .with_identity_verifier(SharedSecret::new("test", SHARED_SECRET))
+                .with_identity_provider(SharedSecret::new("test", SHARED_SECRET).unwrap())
+                .with_identity_verifier(SharedSecret::new("test", SHARED_SECRET).unwrap())
                 .with_storage_path(storage_path)
                 .with_tx(tx)
                 .with_tx_to_session_layer(tx_session_layer)
+                .with_routes_cache(SessionRoutes::default())
                 .ready()
                 .expect("failed to validate builder")
                 .build()
@@ -888,12 +953,7 @@ mod tests {
         let participant = Name::from_strings(["org", "ns", "new_participant"]);
 
         let result = controller.invite_participant(&participant).await;
-        assert!(result.is_err());
-        if let Err(SessionError::Processing(msg)) = result {
-            assert!(msg.contains("cannot invite participant"));
-        } else {
-            panic!("Expected SessionError::Processing");
-        }
+        assert!(result.is_err_and(|e| matches!(e, SessionError::NotInitiator)));
     }
 
     #[tokio::test]
@@ -905,12 +965,7 @@ mod tests {
         let participant = Name::from_strings(["org", "ns", "participant"]);
 
         let result = controller.invite_participant(&participant).await;
-        assert!(result.is_err());
-        if let Err(SessionError::Processing(msg)) = result {
-            assert!(msg.contains("cannot invite participant to point-to-point"));
-        } else {
-            panic!("Expected SessionError::Processing");
-        }
+        assert!(result.is_err_and(|e| matches!(e, SessionError::CannotInviteToP2P)));
     }
 
     #[tokio::test]
@@ -939,12 +994,7 @@ mod tests {
         let participant = Name::from_strings(["org", "ns", "participant"]);
 
         let result = controller.remove_participant(&participant).await;
-        assert!(result.is_err());
-        if let Err(SessionError::Processing(msg)) = result {
-            assert!(msg.contains("cannot remove participant"));
-        } else {
-            panic!("Expected SessionError::Processing");
-        }
+        assert!(result.is_err_and(|e| matches!(e, SessionError::NotInitiator)));
     }
 
     #[tokio::test]
@@ -956,12 +1006,7 @@ mod tests {
         let participant = Name::from_strings(["org", "ns", "participant"]);
 
         let result = controller.remove_participant(&participant).await;
-        assert!(result.is_err());
-        if let Err(SessionError::Processing(msg)) = result {
-            assert!(msg.contains("cannot remove participant to point-to-point"));
-        } else {
-            panic!("Expected SessionError::Processing");
-        }
+        assert!(result.is_err_and(|e| matches!(e, SessionError::CannotRemoveFromP2P)));
     }
 
     #[test]
@@ -1056,10 +1101,10 @@ mod tests {
         let result = controller.close();
         assert!(result.is_err());
         match result {
-            Err(SessionError::Generic(msg)) => {
-                assert_eq!(msg, "Session already closed");
+            Err(SessionError::SessionAlreadyClosed) => {
+                // expected
             }
-            _ => panic!("Expected SessionError::Generic with 'Session already closed' message"),
+            _ => panic!("Expected SessionError::SessionAlreadyClosed"),
         }
     }
 
@@ -1163,10 +1208,11 @@ mod tests {
             .with_source(moderator_name.clone())
             .with_destination(participant_name.clone())
             .with_config(moderator_config)
-            .with_identity_provider(SharedSecret::new("moderator", SHARED_SECRET))
-            .with_identity_verifier(SharedSecret::new("moderator", SHARED_SECRET))
+            .with_identity_provider(SharedSecret::new("moderator", SHARED_SECRET).unwrap())
+            .with_identity_verifier(SharedSecret::new("moderator", SHARED_SECRET).unwrap())
             .with_storage_path(storage_path_moderator.clone())
             .with_tx(tx_moderator.clone())
+            .with_routes_cache(SessionRoutes::default())
             .with_tx_to_session_layer(tx_session_layer_moderator)
             .ready()
             .expect("failed to validate builder")
@@ -1196,10 +1242,11 @@ mod tests {
             .with_source(participant_name_id.clone())
             .with_destination(moderator_name.clone())
             .with_config(participant_config)
-            .with_identity_provider(SharedSecret::new("participant", SHARED_SECRET))
-            .with_identity_verifier(SharedSecret::new("participant", SHARED_SECRET))
+            .with_identity_provider(SharedSecret::new("participant", SHARED_SECRET).unwrap())
+            .with_identity_verifier(SharedSecret::new("participant", SHARED_SECRET).unwrap())
             .with_storage_path(storage_path_participant.clone())
             .with_tx(tx_participant.clone())
+            .with_routes_cache(SessionRoutes::default())
             .with_tx_to_session_layer(tx_session_layer_participant)
             .ready()
             .expect("failed to validate builder")
@@ -1685,9 +1732,10 @@ mod tests {
             tx: SessionTransmitter::new(tx_slim, tx_app),
             tx_session: tx_session.clone(),
             tx_to_session_layer: tx_session_layer,
-            identity_provider: SharedSecret::new("src", SHARED_SECRET),
-            identity_verifier: SharedSecret::new("src", SHARED_SECRET),
+            identity_provider: SharedSecret::new("src", SHARED_SECRET).unwrap(),
+            identity_verifier: SharedSecret::new("src", SHARED_SECRET).unwrap(),
             storage_path: std::path::PathBuf::from("/tmp/internal_draining_test"),
+            routes_cache: SessionRoutes::default(),
             graceful_shutdown_timeout: Some(Duration::from_secs(10)),
         };
 
@@ -1853,9 +1901,10 @@ mod tests {
             tx: SessionTransmitter::new(tx_slim, tx_app),
             tx_session,
             tx_to_session_layer: tx_session_layer,
-            identity_provider: SharedSecret::new("test", SHARED_SECRET),
-            identity_verifier: SharedSecret::new("test", SHARED_SECRET),
+            identity_provider: SharedSecret::new("test", SHARED_SECRET).unwrap(),
+            identity_verifier: SharedSecret::new("test", SHARED_SECRET).unwrap(),
             storage_path: std::path::PathBuf::from("/tmp/test_draining"),
+            routes_cache: SessionRoutes::default(),
             graceful_shutdown_timeout,
         }
     }

@@ -3,6 +3,7 @@
 
 use anyhow::{Context, Result};
 use clap::Parser;
+use display_error_chain::ErrorChainExt;
 use prost::Message;
 use tracing::{error, info};
 
@@ -25,10 +26,10 @@ fn spawn_session_receiver(
             if let Some(m) = message_clone {
                 if let Some(s) = session.upgrade() {
                         if let Err(e) = s.publish(s.dst(), m.encode_to_vec(), None, None).await {
-                            error!("Failed to publish message to session: {:?}", e);
+                            error!(error = %e.chain(), "failed to publish message to session");
                         }
                 } else {
-                    error!("Failed to upgrade session weak reference");
+                    error!("failed to upgrade session weak reference");
                 }
             }
 
@@ -42,22 +43,22 @@ fn spawn_session_receiver(
                             }
                             Some(Ok(msg)) => {
                                 info!("CLIENT: received something from rx.recv()");
-                                info!("CLIENT: message details: {:?}", msg);
+                                info!(?msg, "CLIENT: message details");
 
                                 let publisher = msg.get_slim_header().get_source();
                                 let msg_id = msg.get_id();
-                                info!("CLIENT: message from {:?}, id: {}", publisher, msg_id);
+                                info!(from = %publisher, %msg_id, "CLIENT: message");
 
                                 if let Some(c) = msg.get_payload() {
                                     let blob = &c.as_application_payload().unwrap().blob;
-                                    info!("CLIENT: message has payload of {} bytes", blob.len());
+                                    info!(payload_length = %blob.len());
 
                                     match String::from_utf8(blob.to_vec()) {
                                         Ok(text) => {
-                                            info!("received message: {}", text);
+                                            info!(message = %text);
                                         },
                                         Err(e) => {
-                                            info!("received encrypted/binary message: {} bytes, error: {}", blob.len(), e);
+                                            info!(msg_len = %blob.len(), error = %e.chain(), "received encrypted/binary message");
                                         }
                                     }
                                 } else {
@@ -65,7 +66,7 @@ fn spawn_session_receiver(
                                 }
                             },
                             Some(Err(e)) => {
-                                error!("error receiving session message: {:?}", e);
+                                error!(error = %e.chain(), "error receiving session message");
                                 continue;
                             }
                         };
@@ -118,8 +119,10 @@ async fn main() -> Result<()> {
     let (app, mut app_rx) = svc
         .create_app(
             &local_name,
-            SharedSecret::new(&local_name.to_string(), secret),
-            SharedSecret::new(&local_name.to_string(), secret),
+            SharedSecret::new(&local_name.to_string(), secret)
+                .expect("Failed to create SharedSecret"),
+            SharedSecret::new(&local_name.to_string(), secret)
+                .expect("Failed to create SharedSecret"),
         )
         .with_context(|| format!("Failed to create app for name {}", local_name))?;
 
@@ -162,7 +165,7 @@ async fn main() -> Result<()> {
                     Some(res) => match res {
                         Ok(n) => n,
                         Err(e) => {
-                            error!("error receiving app notification: {:?}", e);
+                            error!(error = %e.chain(), "error receiving app notification");
                             continue;
                         }
                     }

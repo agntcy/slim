@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	slim "github.com/agntcy/slim/bindings/generated/slim_service"
+	slim "github.com/agntcy/slim/bindings/generated/slim_bindings"
 	"github.com/agntcy/slim/bindings/go/examples/common"
 )
 
@@ -82,7 +82,7 @@ func runModerator(app *slim.BindingsAdapter, connID uint64, remote string, invit
 
 	// Create multicast session
 	config := slim.SessionConfig{
-		SessionType: slim.SessionTypeMulticast,
+		SessionType: slim.SessionTypeGroup,
 		EnableMls:   enableMLS,
 		MaxRetries:  &[]uint32{5}[0],    // 5 retries
 		IntervalMs:  &[]uint64{5000}[0], // 5 second timeout
@@ -149,7 +149,7 @@ func runParticipant(app *slim.BindingsAdapter, instance uint64) {
 	runMessageLoops(app, session, channelName, instance)
 }
 
-func runMessageLoops(app *slim.BindingsAdapter, session *slim.FfiSessionContext, channelName slim.Name, instance uint64) {
+func runMessageLoops(app *slim.BindingsAdapter, session *slim.BindingsSessionContext, channelName slim.Name, instance uint64) {
 	var wg sync.WaitGroup
 	stopChan := make(chan struct{})
 
@@ -176,7 +176,7 @@ func runMessageLoops(app *slim.BindingsAdapter, session *slim.FfiSessionContext,
 	wg.Wait()
 }
 
-func receiveLoop(session *slim.FfiSessionContext, sourceName slim.Name, instance uint64, stopChan chan struct{}) {
+func receiveLoop(session *slim.BindingsSessionContext, sourceName slim.Name, instance uint64, stopChan chan struct{}) {
 	for {
 		select {
 		case <-stopChan:
@@ -211,7 +211,7 @@ func receiveLoop(session *slim.FfiSessionContext, sourceName slim.Name, instance
 	}
 }
 
-func keyboardLoop(session *slim.FfiSessionContext, sourceName, channelName slim.Name, instance uint64, stopChan chan struct{}) {
+func keyboardLoop(session *slim.BindingsSessionContext, sourceName, channelName slim.Name, instance uint64, stopChan chan struct{}) {
 	reader := bufio.NewReader(os.Stdin)
 
 	fmt.Printf("\n%s[%d]%s Welcome to the group %v!\n", colorCyan, instance, colorReset, channelName.Components)

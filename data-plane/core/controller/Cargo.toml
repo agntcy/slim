@@ -14,6 +14,7 @@ agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-signal = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
+display-error-chain = { workspace = true }
 drain = { workspace = true }
 h2 = { workspace = true }
 parking_lot = { workspace = true }
@@ -23,7 +24,6 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-tokio-retry = { workspace = true }
 tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 tonic = { workspace = true }
