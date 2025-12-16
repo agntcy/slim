@@ -3,10 +3,13 @@
 
 use http::StatusCode;
 use jsonwebtoken_aws_lc::jwk::KeyAlgorithm;
+
+#[cfg(not(target_family = "windows"))]
 use spiffe::{
     JwtSvidError, SpiffeIdError, TrustDomain, error::GrpcClientError,
     workload_api::x509_source::X509SourceError,
 };
+
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -104,44 +107,61 @@ pub enum AuthError {
     OidcDiscoveryMissingJwksUri,
     #[error("cached JWKS expired for issuer: {issuer}")]
     JwksCacheExpired { issuer: String },
-    #[error("serde error while encoding audience: {source}")]
-    SpiffeCustomClaimsSerialize { source: serde_json::Error },
 
     // SPIFFE / SPIRE integration
+    #[cfg(not(target_family = "windows"))]
+    #[error("serde error while encoding audience: {source}")]
+    SpiffeCustomClaimsSerialize { source: serde_json::Error },
+    #[cfg(not(target_family = "windows"))]
     #[error("spiffe error")]
     SpiffeError(#[from] SpiffeIdError),
+    #[cfg(not(target_family = "windows"))]
     #[error("spiffe grpc error")]
     SpiffeGrpcError(#[from] GrpcClientError),
+    #[cfg(not(target_family = "windows"))]
     #[error("spiffe workload api unavailable")]
     SpiffeWorkloadApiUnavailable,
+    #[cfg(not(target_family = "windows"))]
     #[error("spiffe x509 dource error")]
     SpiffeX509SourceError(#[from] X509SourceError),
+    #[cfg(not(target_family = "windows"))]
     #[error("jwt source not initialized")]
     SpiffeJwtSourceNotInitialized,
+    #[cfg(not(target_family = "windows"))]
     #[error("missing jwt svid")]
     SpiffeJwtSvidMissing,
+    #[cfg(not(target_family = "windows"))]
     #[error("missing jwt bundle")]
     SpiffeJwtBundleMissing,
+    #[cfg(not(target_family = "windows"))]
     #[error("invalid JWT svid")]
     SpiffeInvalidJwtSvid(#[from] JwtSvidError),
+    #[cfg(not(target_family = "windows"))]
     #[error("failed to fetch x509 SVID")]
     SpiffeX509SvidMissing,
+    #[cfg(not(target_family = "windows"))]
     #[error("x509 source not initialized")]
     SpiffeX509SourceNotInitialized,
+    #[cfg(not(target_family = "windows"))]
     #[error("x509 trust bundle not available: {0}")]
     SpiffeX509BundleMissing(TrustDomain),
+    #[cfg(not(target_family = "windows"))]
     #[error("error fetching x509 SVID: {source}")]
     SpiffeX509SvidFetch {
         source: Box<dyn std::error::Error + Send + Sync + 'static>,
     },
+    #[cfg(not(target_family = "windows"))]
     #[error("error fetching x509 trust bundle: {source}")]
     SpiffeX509BundleFetch {
         source: Box<dyn std::error::Error + Send + Sync + 'static>,
     },
+    #[cfg(not(target_family = "windows"))]
     #[error("spire x509 empty certificate chain")]
     SpiffeX509EmptyCertChain,
+    #[cfg(not(target_family = "windows"))]
     #[error("jwt source closed")]
     SpiffeCustomAudiencesJwtSourceClosed,
+    #[cfg(not(target_family = "windows"))]
     #[error("error fetching jwt svid with custom audiences")]
     SpiffeCustomAudiencesError,
 
