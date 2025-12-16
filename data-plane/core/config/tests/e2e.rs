@@ -918,7 +918,7 @@ mod tests {
 
         // Cleanup (propagate error if cleanup itself fails)
         if let Err(e) = env.cleanup().await {
-            tracing::error!(error = %e.chain(), "Failed to cleanup SPIRE test environment");
+            tracing::error!(error = %e, "Failed to cleanup SPIRE test environment");
             return Err(e);
         }
 

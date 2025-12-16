@@ -10,6 +10,7 @@
 
 #![cfg(target_os = "linux")]
 
+use display_error_chain::ErrorChainExt;
 use slim_auth::errors::AuthError;
 use slim_auth::metadata::MetadataMap;
 use slim_auth::spire::SpireIdentityManager;
@@ -254,7 +255,7 @@ async fn test_spiffe_provider_initialization() {
                 }
             }
             Err(e) => {
-                tracing::error!(error = %e.chain(), "JWT token with claims fetch failed}");
+                tracing::error!(error = %e.chain(), "JWT token with claims fetch failed");
                 should_panic = true;
                 break 'test_block;
             }
