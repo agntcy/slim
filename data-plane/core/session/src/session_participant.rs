@@ -114,6 +114,18 @@ where
                         .await
                 }
             }
+            SessionMessage::MessageError { error, message_ctx } => {
+                if message_ctx.get_session_message_type().is_command_message() {
+                    self.common
+                        .sender
+                        .on_failure(message_ctx.message_id, message_ctx.get_session_message_type());
+                    Ok(())
+                } else {
+                    self.inner
+                        .on_message(SessionMessage::MessageError { error, message_ctx })
+                        .await
+                }
+            }
             SessionMessage::TimerTimeout {
                 message_id,
                 message_type,
@@ -145,8 +157,7 @@ where
                 if message_type.is_command_message() {
                     self.common
                         .sender
-                        .on_timer_failure(message_id, message_type)
-                        .await;
+                        .on_failure(message_id, message_type);
                     Ok(())
                 } else {
                     self.inner

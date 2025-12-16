@@ -505,7 +505,7 @@ impl ControllerSender {
         }
     }
 
-    pub async fn on_timer_failure(&mut self, id: u32, msg_type: ProtoSessionMessageType) {
+    pub fn on_failure(&mut self, id: u32, msg_type: ProtoSessionMessageType) {
         if msg_type == ProtoSessionMessageType::Ping {
             // the only timer that can fail is the one related to the ping retransmissions
             let should_handle = if let Some(ping_state) = &self.ping_state {
@@ -531,6 +531,7 @@ impl ControllerSender {
         if let Some(gt) = self.pending_replies.get_mut(&id) {
             gt.timer.stop();
         }
+
         self.pending_replies.remove(&id);
     }
 

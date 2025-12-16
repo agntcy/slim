@@ -153,6 +153,28 @@ where
                         .await
                 }
             }
+            SessionMessage::MessageError { error } => {
+                let message_type = match &error {
+                    SessionError::SlimSendFailure { ctx, .. } => {
+                        ctx.session_context.map(|c| c.get_session_message_type())
+                    }
+                    _ => {
+                        tracing::warn!("Received MessageError without session context");
+                        None
+                    }
+                };
+
+                if message_ctx.get_session_message_type().is_command_message() {
+                    self.handle_failure(
+                        error,
+                    )
+                    .await
+                } else {
+                    self.inner
+                        .on_message(SessionMessage::MessageError { error, message_ctx })
+                        .await
+                }
+            }
             SessionMessage::TimerTimeout {
                 message_id,
                 message_type,
@@ -182,21 +204,7 @@ where
                 timeouts,
             } => {
                 if message_type.is_command_message() {
-                    self.common
-                        .sender
-                        .on_timer_failure(message_id, message_type)
-                        .await;
-
-                    // the task should always exist a this point
-                    if let Some(task) = self.current_task.as_mut()
-                        && let Some(ack_tx) = task.ack_tx_take()
-                    {
-                        let _ = ack_tx.send(Err(task.failure_message()));
-                    }
-
-                    // 2. delete current task and pick a new one
-                    self.current_task = None;
-                    self.pop_task().await
+                    self.handle_failure("timeout sending control message", message_id, message_type).await
                 } else {
                     self.inner
                         .on_message(SessionMessage::TimerFailure {
@@ -303,6 +311,25 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
     I: MessageHandler + Send + Sync + 'static,
 {
+    /// Helper method to handle failures, either from a timer or message error
+    async fn handle_failure(
+        &mut self,
+        error: SessionError,
+    ) -> Result<(), SessionError> {
+        self.common.sender.on_failure(message_id, message_type);
+
+        // the task should always exist a this point
+        if let Some(task) = self.current_task.as_mut()
+            && let Some(ack_tx) = task.ack_tx_take()
+        {
+            let _ = ack_tx.send(Err(task.failure_message(error_message)));
+        }
+
+        // 2. delete current task and pick a new one
+        self.current_task = None;
+        self.pop_task().await
+    }
+
     /// Helper method to handle errors after task creation
     /// Extracts ack_tx from current_task and sends the error
     fn handle_task_error(&mut self, error: SessionError) -> SessionError {

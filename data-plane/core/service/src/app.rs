@@ -8,6 +8,7 @@ use std::sync::Arc;
 // Third-party crates
 use display_error_chain::ErrorChainExt;
 use parking_lot::RwLock as SyncRwLock;
+use slim_datapath::errors::ErrorPayload;
 use tokio::sync::mpsc;
 use tracing::{debug, error};
 
@@ -333,14 +334,18 @@ where
                                         }
                                     }
                                     Err(e) => {
-                                        // Log the error but do nothing with it
+                                        // Log the error
                                         error!(error = %e.chain(), "received error from SLIM");
 
-                                        // if internal error, forward it to application
-                                        let tx_app = session_layer.tx_app();
-                                        if let Err(send_err) = tx_app.send(Err(SessionError::SlimReception(e))).await {
-                                            // Channel closed, likely during shutdown - log but don't panic
-                                            debug!(error = %send_err.chain(), "failed to send error to application (channel closed)");
+                                        let p = ErrorPayload::from_json_str(e.message());
+                                        if let Some(payload) = p {
+                                            debug!(session_id = %ctx.session_id, message_id = %ctx.message_id, "error associated with session");
+
+                                            let err = SessionError::SlimSendFailure{
+                                                ctx: Box::new(payload),
+                                            };
+
+                                            let _ = session_layer.handle_error_from_slim(err).await;
                                         }
                                     }
                                 }
@@ -415,7 +420,7 @@ mod tests {
             .await
             .unwrap();
 
-        // Session is created but completion shouhld hangs (times out)
+        // Session is created but completion should hangs (times out)
         let timeout_result =
             tokio::time::timeout(std::time::Duration::from_millis(100), completion_handle).await;
         assert!(

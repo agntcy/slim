@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use slim_datapath::errors::{ErrorPayload, MessageContext};
 use slim_datapath::messages::Name;
 // Third-party crates
 use thiserror::Error;
@@ -97,6 +98,8 @@ pub enum SessionError {
     ApplicationMessageSendFailed,
     #[error("error sending data message to slim")]
     SlimMessageSendFailed,
+    #[error("send failure reported from slim: {ctx:?}")]
+    SlimSendFailure { ctx: Box<ErrorPayload> },
 
     // Session lifecycle and state (continued)
     #[error("session is draining - drop message")]
@@ -109,6 +112,8 @@ pub enum SessionError {
     MessageSendRetryFailed { id: u32 },
     #[error("message receive retries exhausted for id={id}")]
     MessageReceiveRetryFailed { id: u32 },
+    #[error("error from SLIM dataplane: {0}")]
+    SlimForwardError(String),
 
     // Message construction and extraction contexts
     #[error("missing payload: {context}")]
@@ -137,13 +142,13 @@ pub enum SessionError {
     #[error("unexpected timer id: {0}")]
     ModeratorTaskUnexpectedTimerId(u32),
     #[error("failed to add participant to session")]
-    ModeratorTaskAddFailed,
+    ModeratorTaskAddFailed { source: SessionError },
     #[error("failed to remove participant from session")]
-    ModeratorTaskRemoveFailed,
+    ModeratorTaskRemoveFailed { source: SessionError },
     #[error("failed to update session")]
-    ModeratorTaskUpdateFailed,
+    ModeratorTaskUpdateFailed { source: SessionError },
     #[error("failed to close session")]
-    ModeratorTaskCloseFailed,
+    ModeratorTaskCloseFailed { source: SessionError },
 }
 
 impl SessionError {

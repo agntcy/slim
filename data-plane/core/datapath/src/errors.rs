@@ -1,6 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::api::ProtoSessionMessageType;
+use crate::api::proto::dataplane::v1::Message;
 use crate::messages::{Name, utils::MessageError};
 use slim_config::grpc::errors::ConfigError;
 use thiserror::Error;
@@ -37,10 +39,18 @@ pub enum DataPathError {
     ConnectionIdNotFound(u64),
 
     // Processing
+    #[error("malformed message")]
+    MalformedMessage(#[from] MessageError),
     #[error("message processing error: {0}")]
     ProcessingError(MessageError),
     #[error("error adding connection to connection table")]
     ConnectionTableAddError,
+    #[error("message processing error: {source}")]
+    MessageWithContext {
+        #[source]
+        source: Box<DataPathError>,
+        msg: Box<Message>,
+    },
 
     // Configuration error
     #[error("configuration error")]
@@ -53,4 +63,56 @@ pub enum DataPathError {
     ShuttingDownError,
     #[error("timeout during shutdown")]
     ShutdownTimeoutError,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MessageContext {
+    pub message_id: u32,
+    pub session_id: u32,
+    pub session_message_type: i32,
+}
+
+impl MessageContext {
+    pub fn from_msg(msg: &Message) -> Option<Self> {
+        msg.try_get_session_header().map(|header| Self {
+            message_id: header.get_message_id(),
+            session_id: header.get_session_id(),
+            session_message_type: header.session_message_type().into(),
+        })
+    }
+
+    pub fn get_session_message_type(&self) -> ProtoSessionMessageType {
+        self.session_message_type
+            .try_into()
+            .unwrap_or(ProtoSessionMessageType::Unspecified)
+    }
+}
+
+/// A unified error payload that includes an error message and optional session context.
+/// This type is used to serialize/deserialize errors sent over gRPC with consistent JSON structure.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ErrorPayload {
+    pub error: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_context: Option<MessageContext>,
+}
+
+impl ErrorPayload {
+    /// Create a new error payload
+    pub fn new(error: String, session_context: Option<MessageContext>) -> Self {
+        Self {
+            error,
+            session_context,
+        }
+    }
+
+    /// Convert to JSON string for transmission
+    pub fn to_json_string(&self) -> String {
+        serde_json::to_string(self).expect("ErrorPayload should be serializable")
+    }
+
+    /// Parse from JSON string
+    pub fn from_json_str(s: &str) -> Option<Self> {
+        serde_json::from_str(s).ok()
+    }
 }

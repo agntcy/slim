@@ -30,7 +30,7 @@ use crate::api::proto::dataplane::v1::Message;
 use crate::api::proto::dataplane::v1::data_plane_service_client::DataPlaneServiceClient;
 use crate::api::proto::dataplane::v1::data_plane_service_server::DataPlaneService;
 use crate::connection::{Channel, Connection, Type as ConnectionType};
-use crate::errors::DataPathError;
+use crate::errors::{DataPathError, MessageContext};
 use crate::forwarder::Forwarder;
 use crate::messages::Name;
 use crate::messages::utils::SlimHeaderFlags;
@@ -382,14 +382,22 @@ impl MessageProcessor {
                 ///////////////////////////////////////////////////////////////////
 
                 match conn.channel() {
-                    Channel::Server(s) => s
-                        .send(Ok(msg))
-                        .await
-                        .map_err(|_e| DataPathError::ConnectionNotFound(out_conn)),
-                    Channel::Client(s) => s
-                        .send(msg)
-                        .await
-                        .map_err(|_e| DataPathError::ConnectionNotFound(out_conn)),
+                    Channel::Server(s) => {
+                        s.send(Ok(msg))
+                            .await
+                            .map_err(|e| DataPathError::MessageWithContext {
+                                source: Box::new(DataPathError::ConnectionNotFound(out_conn)),
+                                msg: Box::new(e.0.unwrap_or_default()),
+                            })
+                    }
+                    Channel::Client(s) => {
+                        s.send(msg)
+                            .await
+                            .map_err(|e| DataPathError::MessageWithContext {
+                                source: Box::new(DataPathError::ConnectionNotFound(out_conn)),
+                                msg: Box::new(e.0),
+                            })
+                    }
                 }
             }
             None => Err(DataPathError::ConnectionNotFound(out_conn)),
@@ -431,7 +439,10 @@ impl MessageProcessor {
                 self.send_msg(msg, out_vec[i]).await?;
                 Ok(())
             }
-            Err(e) => Err(e),
+            Err(e) => Err(DataPathError::MessageWithContext {
+                source: Box::new(e),
+                msg: Box::new(msg),
+            }),
         }
     }
 
@@ -459,10 +470,8 @@ impl MessageProcessor {
         // a publish message
         let fanout = msg.get_fanout();
 
-        // if we get valid type also the name is valid so we can safely unwrap
-        return self
-            .match_and_forward_msg(msg, dst, in_connection, fanout)
-            .await;
+        self.match_and_forward_msg(msg, dst, in_connection, fanout)
+            .await
     }
 
     // Use a single function to process subscription and unsubscription packets.
@@ -499,10 +508,17 @@ impl MessageProcessor {
 
         // get input connection. As connection is deleted only after the processing,
         // it is safe to assume that at this point the connection must exist.
-        let connection = self
-            .forwarder()
-            .get_connection(conn)
-            .ok_or(DataPathError::ConnectionNotFound(conn))?;
+        let maybe_connection = self.forwarder().get_connection(conn);
+
+        // Required to make the borrow checker happy
+        let connection = if let Some(c) = maybe_connection {
+            c
+        } else {
+            return Err(DataPathError::MessageWithContext {
+                source: Box::new(DataPathError::ConnectionNotFound(conn)),
+                msg: Box::new(msg),
+            });
+        };
 
         debug!(
             %conn,
@@ -573,7 +589,12 @@ impl MessageProcessor {
                 message_type = "none"
             );
 
-            return Err(DataPathError::InvalidMessage(err));
+            let ret_err = DataPathError::MessageWithContext {
+                source: Box::new(err.into()),
+                msg: Box::new(msg),
+            };
+
+            return Err(ret_err);
         }
 
         // add incoming connection to the SLIM header
@@ -629,11 +650,20 @@ impl MessageProcessor {
             Some(conn) => {
                 debug!("try to notify the error to the local application");
                 if let Channel::Server(tx) = conn.channel() {
+                    // If the error contains the message, try to extract some session information
+                    let session_ctx = match &err {
+                        DataPathError::MessageWithContext { msg, .. } => {
+                            MessageContext::from_msg(msg)
+                        }
+                        _ => None,
+                    };
+
+                    // Make error message with optional session context using shared type
+                    let payload = crate::errors::ErrorPayload::new(err.to_string(), session_ctx);
+                    let error_message = payload.to_json_string();
+
                     // create Status error
-                    let status = Status::new(
-                        tonic::Code::Internal,
-                        format!("error processing message: {:?}", err),
-                    );
+                    let status = Status::new(tonic::Code::Internal, error_message);
 
                     if tx.send(Err(status)).await.is_err() {
                         debug!(error = %err.chain(), "unable to notify the error to the local app");
@@ -648,6 +678,8 @@ impl MessageProcessor {
             }
         }
     }
+
+
 
     async fn reconnect(
         &self,

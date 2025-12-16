@@ -406,7 +406,7 @@ impl SessionSender {
             if let Some((_gt, Some(msg))) = self.pending_acks.get_mut(&id) {
                 return self.tx.send_to_slim(Ok(msg.clone())).await;
             } else {
-                return self.on_timer_failure(id).await;
+                return self.on_timer_failure(id);
             }
         }
 
@@ -431,14 +431,13 @@ impl SessionSender {
                 %id,
                 "message not in the buffer anymore, delete the associated timer",
             );
-            return self.on_timer_failure(id).await;
+            return self.on_timer_failure(id);
         }
 
         Ok(())
     }
 
-    pub async fn on_timer_failure(&mut self, id: u32) -> Result<(), SessionError> {
-        debug!(%id, "timer failure, clear state");
+    pub fn on_failure(&mut self, id: u32, error: SessionError) -> Result<(), SessionError> {
         // remove all the state related to this timer
         if let Some((gt, _)) = self.pending_acks.get_mut(&id) {
             for n in &gt.missing_timers {
@@ -453,13 +452,24 @@ impl SessionSender {
 
         // Signal failure to the ack notifier if present
         if let Some(tx) = self.ack_notifiers.remove(&id) {
-            let _ = tx.send(Err(SessionError::send_retry_failed(id)));
+            let _ = tx.send(Err(error));
         }
 
-        // notify the application that the message was not delivered correctly
-        self.tx
-            .send_to_app(Err(SessionError::send_retry_failed(id)))
-            .await
+        Ok(())
+    }
+
+    pub fn on_timer_failure(&mut self, id: u32) -> Result<(), SessionError> {
+        debug!(%id, "timer failure, clear state");
+        self.on_failure(id, SessionError::MessageSendRetryFailed { id })
+    }
+
+    pub fn on_slim_failure(
+        &mut self,
+        id: u32,
+        message: impl Into<String>,
+    ) -> Result<(), SessionError> {
+        debug!(%id, "slim reported failure, clear state");
+        self.on_failure(id, SessionError::SlimForwardError(message.into()))
     }
 
     pub async fn add_endpoint(&mut self, endpoint: &Name) -> Result<(), SessionError> {

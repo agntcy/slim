@@ -17,6 +17,7 @@ use slim_datapath::{
         CommandPayload, Content, ProtoMessage as Message, ProtoSessionMessageType,
         ProtoSessionType, SlimHeader,
     },
+    errors::MessageContext,
     messages::{Name, utils::SlimHeaderFlags},
 };
 
@@ -292,6 +293,17 @@ impl SessionController {
     pub async fn on_message_from_slim(&self, message: Message) -> Result<(), SessionError> {
         self.on_message(message, MessageDirection::North, None)
             .await
+    }
+
+    /// Send an error message to the controller for processing
+    pub async fn on_error_message_from_slim(
+        &self,
+        error: SessionError,
+    ) -> Result<(), SessionError> {
+        self.tx_controller
+            .send(SessionMessage::MessageError { error })
+            .await
+            .map_err(|_e| SessionError::SessionControllerSendFailed)
     }
 
     pub fn close(&self) -> Result<tokio::task::JoinHandle<()>, SessionError> {
