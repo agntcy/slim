@@ -168,7 +168,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // start clients
-    let tot_clients = apps;
+    let mut tot_clients = apps;
+    if !multiple_remotes {
+        // if create a single replica of each client
+        tot_clients = 1;
+    }
     let mut clients = vec![];
     let client_1_name = Name::from_strings(["org", "ns", "client-1"]);
     let client_2_name = Name::from_strings(["org", "ns", "client-2"]);
@@ -216,9 +220,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("an error occurred while adding a route");
     }
 
+    // wait for the creation of all the clients
+    tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
+
     let mut sessions = vec![];
     if multiple_remotes {
-        // connect to two different clients using the disocvery process
+        // connect to two different clients using the discovery process
         // in the session layer
         for name in clients.iter().take(2) {
             let (session_ctx, completion_handle) = app
@@ -234,7 +241,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // connect to the same client using multiple sessions
         for _ in 0..2 {
             let (session_ctx, completion_handle) = app
-                .create_session(conf.clone(), client_1_name.clone().with_id(0), None)
+                .create_session(conf.clone(), client_1_name.clone(), None)
                 .await
                 .expect("error creating session");
 
