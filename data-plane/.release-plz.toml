@@ -26,11 +26,6 @@ release = true
 changelog_update = true
 
 [[package]]
-name = "agntcy-slim-nop-component"
-publish = false
-changelog_update = false
-
-[[package]]
 name = "agntcy-slim-service"
 publish = true
 release = true
