@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
+use std::vec;
 
 use display_error_chain::ErrorChainExt;
 use slim_auth::metadata::MetadataValue;
@@ -65,8 +66,6 @@ pub struct ControlPlaneSettings {
     pub clients: Vec<ClientConfig>,
     /// Message processor instance
     pub message_processor: Arc<MessageProcessor>,
-    /// Pub/sub server configurations
-    pub pubsub_servers: Vec<ServerConfig>,
     /// Optional authentication provider
     pub auth_provider: Option<AuthProvider>,
     /// Optional authentication verifier
@@ -101,9 +100,6 @@ struct ControllerServiceInternal {
 
     /// drain watch channel
     drain_watch: parking_lot::RwLock<Option<drain::Watch>>,
-
-    /// array of connection details
-    connection_details: Vec<ConnectionDetails>,
 
     /// authentication provider for adding authentication to outgoing messages to clients
     auth_provider: Option<AuthProvider>,
@@ -206,12 +202,6 @@ impl ControlPlane {
             .register_local_connection(true)
             .unwrap();
 
-        let connection_details = config
-            .pubsub_servers
-            .iter()
-            .map(from_server_config)
-            .collect();
-
         let (signal, watch) = drain::channel();
 
         ControlPlane {
@@ -227,7 +217,6 @@ impl ControlPlane {
                     tx_channels: parking_lot::RwLock::new(HashMap::new()),
                     cancellation_tokens: parking_lot::RwLock::new(HashMap::new()),
                     drain_watch: parking_lot::RwLock::new(Some(watch)),
-                    connection_details,
                     auth_provider: config.auth_provider,
                     _auth_verifier: config.auth_verifier,
                     pending_notifications: Arc::new(parking_lot::Mutex::new(Vec::new())),
@@ -1357,7 +1346,7 @@ impl ControllerService {
                 payload: Some(Payload::RegisterNodeRequest(v1::RegisterNodeRequest {
                     node_id: this.inner.id.to_string(),
                     group_name: this.inner.group_name.clone(),
-                    connection_details: this.inner.connection_details.clone(),
+                    connection_details: vec![],
                 })),
             };
 
@@ -1567,7 +1556,6 @@ mod tests {
             servers: vec![server_config.clone()],
             clients: vec![],
             message_processor: Arc::new(message_processor_server),
-            pubsub_servers: vec![server_config.clone()],
             auth_provider: Some(AuthProvider::SharedSecret(
                 SharedSecret::new("server", TEST_VALID_SECRET).unwrap(),
             )),
@@ -1582,7 +1570,6 @@ mod tests {
             servers: vec![],
             clients: vec![client_config.clone()],
             message_processor: Arc::new(message_processor_client),
-            pubsub_servers: vec![],
             auth_provider: Some(AuthProvider::SharedSecret(
                 SharedSecret::new("client", TEST_VALID_SECRET).unwrap(),
             )),

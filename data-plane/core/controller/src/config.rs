@@ -66,6 +66,10 @@ impl Config {
         Self::default()
     }
 
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+
     /// Create a new Config instance with the given servers
     pub fn with_servers(self, servers: Vec<ServerConfig>) -> Self {
         Self { servers, ..self }
@@ -144,7 +148,6 @@ impl Config {
         id: ID,
         group_name: Option<String>,
         message_processor: Arc<MessageProcessor>,
-        servers: &[ServerConfig],
     ) -> ControlPlane {
         let auth_provider = self.get_token_provider_auth();
         let auth_verifier = self.get_token_verifier_auth();
@@ -155,7 +158,6 @@ impl Config {
             servers: self.servers.clone(),
             clients: self.clients.clone(),
             message_processor,
-            pubsub_servers: servers.to_vec(),
             auth_provider,
             auth_verifier,
         })
@@ -441,7 +443,7 @@ mod tests {
         let message_processor = Arc::new(MessageProcessor::new());
         let servers = vec![server_config];
 
-        let _control_plane = config.into_service(id, group_name, message_processor, &servers);
+        let _control_plane = config.into_service(id, group_name, message_processor);
     }
 
     #[test]
