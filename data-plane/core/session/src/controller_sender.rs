@@ -6,6 +6,7 @@ use std::{
     time::Duration,
 };
 
+use display_error_chain::ErrorChainExt;
 use slim_datapath::{
     api::{CommandPayload, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType},
     messages::Name,
@@ -157,9 +158,7 @@ impl ControllerSender {
 
     pub async fn on_message(&mut self, message: &Message) -> Result<(), SessionError> {
         if self.draining_state == ControllerSenderDrainStatus::Completed {
-            return Err(SessionError::Processing(
-                "sender closed, drop message".to_string(),
-            ));
+            return Err(SessionError::SessionDrainingDrop);
         }
 
         match message.get_session_message_type() {
@@ -168,10 +167,8 @@ impl ControllerSender {
             | slim_datapath::api::ProtoSessionMessageType::LeaveRequest
             | slim_datapath::api::ProtoSessionMessageType::GroupWelcome => {
                 if self.draining_state == ControllerSenderDrainStatus::Initiated {
-                    // draining period is started, do no accept any new message
-                    return Err(SessionError::Processing(
-                        "draining period started, do not accept new messages".to_string(),
-                    ));
+                    // draining period started; reject new messages
+                    return Err(SessionError::SessionDrainingDrop);
                 }
                 let mut missing_replies = HashSet::new();
                 let mut name = message.get_dst();
@@ -194,8 +191,8 @@ impl ControllerSender {
                     {
                         // update the group name used to send ping messages
                         debug!(
-                            "update group name {} for point to point session on welcome message",
-                            message.get_dst()
+                            destinatio = %message.get_dst(),
+                            "update group name for point to point session on welcome message",
                         );
                         self.group_name = Some(message.get_dst());
                     }
@@ -229,7 +226,10 @@ impl ControllerSender {
 
                 if self.group_name.is_none() {
                     // update the group name used to send ping messages
-                    debug!("update group name {} of add message", message.get_dst());
+                    debug!(
+                        destination = %message.get_dst(),
+                        "update group name of add message"
+                    );
                     self.group_name = Some(message.get_dst());
                 }
 
@@ -247,18 +247,14 @@ impl ControllerSender {
                     .collect::<HashSet<_>>();
 
                 // remove the endpoint also from the group list
-                let payload = message.extract_group_remove().map_err(|e| {
-                    SessionError::Processing(format!(
-                        "failed to extract group remove payload: {}",
-                        e
-                    ))
-                })?;
+                let payload = message.extract_group_remove()?;
 
-                let to_remove = Name::from(payload.removed_participant.as_ref().ok_or(
-                    SessionError::Processing(
-                        "missing removed participant in GroupRemove message".to_string(),
-                    ),
-                )?);
+                let to_remove = Name::from(
+                    payload
+                        .removed_participant
+                        .as_ref()
+                        .ok_or(SessionError::MissingRemovedParticipantInGroupRemove)?,
+                );
 
                 self.group_list.remove(&to_remove);
 
@@ -292,8 +288,8 @@ impl ControllerSender {
         let id = message.get_id();
 
         debug!(
-            "create a new timer for message {}, waiting response from {:?}",
-            id, missing_replies
+            %id, ?missing_replies,
+            "create a new timer for message, waiting responses",
         );
         let pending = PendingReply {
             missing_replies,
@@ -306,23 +302,20 @@ impl ControllerSender {
         };
 
         self.pending_replies.insert(id, pending);
-        self.tx
-            .send_to_slim(Ok(message.clone()))
-            .await
-            .map_err(|e| SessionError::SlimTransmission(e.to_string()))
+        self.tx.send_to_slim(Ok(message.clone())).await
     }
 
     fn on_reply_message(&mut self, message: &Message) {
         let id = message.get_id();
         debug!(
-            "receive reply for message {} from {}",
-            id,
-            message.get_source()
+            %id,
+            source = %message.get_source(),
+            "receive reply for message",
         );
 
         let mut delete = false;
         if let Some(pending) = self.pending_replies.get_mut(&id) {
-            debug!("try to remove {} from pending acks", id);
+            debug!(%id, "try to remove from pending acks");
             let mut name = message.get_source();
             if message.get_session_message_type()
                 == slim_datapath::api::ProtoSessionMessageType::DiscoveryReply
@@ -343,14 +336,14 @@ impl ControllerSender {
     }
 
     fn on_ping_message(&mut self, message: &Message) {
-        debug!("received ping reply {}", message.get_id());
+        debug!(id = %message.get_id(), "received ping reply");
         if let Some(ping_state) = &mut self.ping_state
             && let Some(ping) = &mut ping_state.ping
             && ping.timer.get_id() == message.get_id()
         {
             ping.missing_replies.remove(&message.get_source());
             if ping.missing_replies.is_empty() {
-                debug!("stop ping retransmissions for id {}", message.get_id());
+                debug!(id = message.get_id(), "stop ping retransmissions");
                 ping.timer.stop()
             }
         } else {
@@ -367,7 +360,7 @@ impl ControllerSender {
         id: u32,
         msg_type: ProtoSessionMessageType,
     ) -> Result<(), SessionError> {
-        debug!("timeout for message {}", id);
+        debug!(%id, "timeout for message");
 
         // check if the timeout is related to a ping
         if self.ping_state.is_some() && msg_type == ProtoSessionMessageType::Ping {
@@ -376,17 +369,10 @@ impl ControllerSender {
 
         // the timer is not related to a ping, resent the message if possible
         if let Some(pending) = self.pending_replies.get(&id) {
-            return self
-                .tx
-                .send_to_slim(Ok(pending.message.clone()))
-                .await
-                .map_err(|e| SessionError::SlimTransmission(e.to_string()));
+            return self.tx.send_to_slim(Ok(pending.message.clone())).await;
         };
 
-        Err(SessionError::SlimTransmission(format!(
-            "timer {} does not exists",
-            id
-        )))
+        Err(SessionError::TimerNotFound(id))
     }
 
     async fn handle_ping_timeout(&mut self, id: u32) -> Result<(), SessionError> {
@@ -395,9 +381,7 @@ impl ControllerSender {
             .ping_state
             .as_ref()
             .map(|ps| ps.ping_timer.get_id() == id)
-            .ok_or(SessionError::Processing(
-                "ping state not initialized".to_string(),
-            ))?;
+            .ok_or(SessionError::PingStateNotInitialized)?;
 
         if should_handle_ping_interval {
             debug!("ping interval timeout, check current group state");
@@ -428,11 +412,9 @@ impl ControllerSender {
                     builder = builder.fanout(256);
                 }
 
-                let ping = builder
-                    .build_publish()
-                    .map_err(|e| SessionError::Processing(e.to_string()))?;
+                let ping = builder.build_publish()?;
 
-                debug!("send a new ping with id {}", ping_id);
+                debug!(id = %ping_id, "send a new ping");
 
                 // set the ping missing replies state
                 let missing_replies = self
@@ -443,10 +425,7 @@ impl ControllerSender {
                     .collect::<HashSet<_>>();
 
                 // Send the ping message to slim
-                self.tx
-                    .send_to_slim(Ok(ping.clone()))
-                    .await
-                    .map_err(|e| SessionError::SlimTransmission(e.to_string()))?;
+                self.tx.send_to_slim(Ok(ping.clone())).await?;
 
                 if let Some(ping_state) = self.ping_state.as_mut() {
                     ping_state.ping = Some(PendingReply {
@@ -473,13 +452,9 @@ impl ControllerSender {
                 .map(|p| p.message.clone());
 
             if let Some(ping_message) = message_to_send {
-                debug!("ping message {} timeout, send it again", id);
+                debug!(%id, "ping message timeout, send it again");
                 // simply resend the message
-                return self
-                    .tx
-                    .send_to_slim(Ok(ping_message))
-                    .await
-                    .map_err(|e| SessionError::SlimTransmission(e.to_string()));
+                return self.tx.send_to_slim(Ok(ping_message)).await;
             }
         }
 
@@ -507,20 +482,20 @@ impl ControllerSender {
         } else {
             // update missing_pings
             for p in &ping.missing_replies {
-                debug!("missing ping reply from {}", p);
+                debug!(from = %p, "missing ping reply from");
                 *ping_state.missing_pings.entry(p.clone()).or_insert(0) += 1;
             }
 
             // check for disconnected participants and notify, then remove them
             ping_state.missing_pings.retain(|k, v| {
                 if *v >= MAX_PING_FAILURE {
-                    debug!("participant {} got disconnected", k);
+                    debug!(participant = %k, "participant got disconnected");
                     self.group_list.remove(k);
                     if let Err(e) = self
                         .tx_session
                         .try_send(SessionMessage::ParticipantDisconnected { name: k.clone() })
                     {
-                        tracing::error!("failed to send participant disconnected message: {}", e);
+                        tracing::error!(error = %e.chain(), "failed to send participant disconnected message");
                     }
                     false // remove from missing_pings
                 } else {
@@ -545,7 +520,7 @@ impl ControllerSender {
 
             if should_handle {
                 // reset the pending ping state and wait for the next one to be sent
-                debug!("ping message {} timer failure, update ping state", id);
+                debug!(%id, "ping message timer failure, update ping state");
                 self.handle_ping_state();
             } else {
                 debug!("got message failure for unknown ping, ignore it");

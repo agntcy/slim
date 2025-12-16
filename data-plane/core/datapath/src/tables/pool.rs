@@ -86,9 +86,9 @@ impl<T> Pool<T> {
             self.capacity *= 2;
 
             trace!(
-                "Resized pools to capacity: {} - {}",
-                self.pool.capacity(),
-                self.bitmap.capacity()
+                pool_capacity = self.pool.capacity(),
+                bitmap_capacity = self.bitmap.capacity(),
+                "pool resized",
             );
 
             debug_assert!(self.len < self.capacity);

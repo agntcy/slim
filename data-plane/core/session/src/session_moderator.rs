@@ -8,6 +8,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use display_error_chain::ErrorChainExt;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
@@ -185,21 +186,12 @@ where
                         .sender
                         .on_timer_failure(message_id, message_type)
                         .await;
-                    // the current task failed:
-                    // 1. create the right error message and notify via ack_tx if present
-                    let message = match &self.common.settings.config.session_type {
-                        ProtoSessionType::PointToPoint => "session handshake failed",
-                        ProtoSessionType::Multicast => "failed to add a participant to the group",
-                        _ => panic!("session type not specified"),
-                    };
 
                     // the task should always exist a this point
                     if let Some(task) = self.current_task.as_mut()
                         && let Some(ack_tx) = task.ack_tx_take()
                     {
-                        let _ = ack_tx.send(Err(SessionError::ModeratorTask(
-                            task.failure_message(message).to_string(),
-                        )));
+                        let _ = ack_tx.send(Err(task.failure_message()));
                     }
 
                     // 2. delete current task and pick a new one
@@ -238,8 +230,8 @@ where
             }
             SessionMessage::ParticipantDisconnected { name: participant } => {
                 debug!(
-                    "Participant {} is not anymore connected to the current session",
-                    participant
+                    %participant,
+                    "Participant not anymore connected to the current session",
                 );
 
                 // create a leave request message for the participant that
@@ -256,9 +248,8 @@ where
                 // process the leave request message
                 self.on_disconnection_detected(msg, None).await
             }
-            _ => Err(SessionError::Processing(format!(
-                "Unexpected message type {:?}",
-                message
+            _ => Err(SessionError::SessionMessageInternalUnexpected(Box::new(
+                message,
             ))),
         }
     }
@@ -323,7 +314,7 @@ where
                 ModeratorTask::CloseOrDisconnect(t) => t.ack_tx,
             };
             if let Some(tx) = ack_tx {
-                let _ = tx.send(Err(SessionError::Processing(error.to_string())));
+                let _ = tx.send(Err(SessionError::cleanup_failed(&error)));
             }
         }
 
@@ -459,11 +450,11 @@ where
                 // local one, call the delete all anyway
                 if let Some(n) = message
                     .get_payload()
-                    .ok_or_else(|| SessionError::Processing("Missing payload".to_string()))?
-                    .as_command_payload()
-                    .map_err(SessionError::from)?
-                    .as_leave_request_payload()
-                    .map_err(SessionError::from)?
+                    .ok_or_else(|| SessionError::MissingPayload {
+                        context: "control_message",
+                    })?
+                    .as_command_payload()?
+                    .as_leave_request_payload()?
                     .destination
                     .as_ref()
                     && Name::from(n) == self.common.settings.source
@@ -482,14 +473,12 @@ where
             | ProtoSessionMessageType::GroupRemove
             | ProtoSessionMessageType::GroupWelcome
             | ProtoSessionMessageType::GroupClose
-            | ProtoSessionMessageType::GroupNack => Err(SessionError::Processing(format!(
-                "Unexpected control message type {:?}",
-                message.get_session_message_type()
-            ))),
-            _ => Err(SessionError::Processing(format!(
-                "Unexpected message type {:?}",
-                message.get_session_message_type()
-            ))),
+            | ProtoSessionMessageType::GroupNack => Err(
+                SessionError::SessionMessageTypeUnexpected(message.get_session_message_type()),
+            ),
+            _ => Err(SessionError::SessionMessageTypeUnknown(
+                message.get_session_message_type(),
+            )),
         }
     }
 
@@ -518,10 +507,7 @@ where
         // check if there is a destination name in the payload. If yes recreate the message
         // with the right destination and send it out
         let payload = msg.extract_discovery_request().map_err(|e| {
-            let err = SessionError::Processing(format!(
-                "failed to extract discovery request payload: {}",
-                e
-            ));
+            let err = SessionError::extract_error("discovery_request", e);
             self.handle_task_error(err)
         })?;
 
@@ -562,9 +548,9 @@ where
             .map_err(|e| self.handle_task_error(e))?;
 
         debug!(
-            "send discovery request to {} with id {}",
-            discovery.get_dst(),
-            discovery.get_id()
+            dst = %discovery.get_dst(),
+            id = discovery.get_id(),
+            "send discovery request",
         );
         self.common
             .send_with_timer(discovery)
@@ -574,9 +560,9 @@ where
 
     async fn on_discovery_reply(&mut self, msg: Message) -> Result<(), SessionError> {
         debug!(
-            "discovery reply coming from {} with id {}",
-            msg.get_source(),
-            msg.get_id()
+            source = %msg.get_source(),
+            id = msg.get_id(),
+            "discovery reply",
         );
         // update sender status to stop timers
         self.common.sender.on_message(&msg).await?;
@@ -626,9 +612,9 @@ where
             .as_content();
 
         debug!(
-            "send join request to {} with id {}",
-            msg.get_slim_header().get_source(),
-            msg_id
+            dst = %msg.get_slim_header().get_source(),
+            id = msg_id,
+            "send join request",
         );
         self.common
             .send_control_message(
@@ -648,9 +634,9 @@ where
 
     async fn on_join_reply(&mut self, msg: Message) -> Result<(), SessionError> {
         debug!(
-            "join reply coming from {} with id {}",
-            msg.get_source(),
-            msg.get_id()
+            source = %msg.get_source(),
+            id = msg.get_id(),
+            "join reply",
         );
         // stop the timer for the join request
         self.common.sender.on_message(&msg).await?;
@@ -670,7 +656,7 @@ where
             .insert(new_participant_name, new_participant_id);
 
         // notify the local session that a new participant was added to the group
-        debug!("add endpoint to the session {}", msg.get_source());
+        debug!(session_name = %msg.get_source(), "add endpoint");
         self.add_endpoint(&msg.get_source()).await?;
 
         // get mls data if MLS is enabled
@@ -713,7 +699,7 @@ where
                 .group_add(msg.get_source().clone(), participants_vec.clone(), commit)
                 .as_content();
             let add_msg_id = rand::random::<u32>();
-            debug!("send add update to channel with id {}", add_msg_id);
+            debug!(id = %add_msg_id, "send add update to channel");
             self.common
                 .send_control_message(
                     &self.common.settings.destination.clone(),
@@ -745,9 +731,9 @@ where
             .group_welcome(participants_vec, welcome)
             .as_content();
         debug!(
-            "send welcome message to {} with id {}",
-            msg.get_slim_header().get_source(),
-            welcome_msg_id
+            dst = %msg.get_slim_header().get_source(),
+            id = %welcome_msg_id,
+            "send welcome message",
         );
         self.common
             .send_control_message(
@@ -777,7 +763,7 @@ where
     ) -> Result<(), SessionError> {
         if self.current_task.is_some() {
             // if busy postpone the task and add it to the todo list with its ack_tx
-            debug!("Moderator is busy. Add  leave request task to the list and process it later");
+            debug!("Moderator is busy. Add leave request task to the list and process it later");
             self.tasks_todo.push_back((msg, ack_tx));
             return Ok(());
         }
@@ -791,10 +777,7 @@ where
         let payload_destination = msg
             .extract_leave_request()
             .map_err(|e| {
-                let err = SessionError::Processing(format!(
-                    "failed to extract leave request payload: {}",
-                    e
-                ));
+                let err = SessionError::extract_error("leave_request", e);
                 self.handle_task_error(err)
             })?
             .destination
@@ -810,7 +793,7 @@ where
         let id = match self.group_list.get(&dst_without_id) {
             Some(id) => *id,
             None => {
-                let err = SessionError::RemoveParticipant("participant not found".to_string());
+                let err = SessionError::ParticipantNotFound(dst_without_id);
                 return Err(self.handle_task_error(err));
             }
         };
@@ -833,8 +816,8 @@ where
 
         // Remove the participant from the group list and compute MLS payload
         debug!(
-            "remove endpoint from the session {}",
-            leave_message.get_dst()
+            session_name = %leave_message.get_dst(),
+            "remove endpoint from the session",
         );
 
         let (participants_vec, mls_payload) = self
@@ -878,13 +861,11 @@ where
         msg: Message,
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
     ) -> Result<(), SessionError> {
-        debug!("disconnection detected for participant {}", msg.get_dst());
+        debug!(
+           participant = %msg.get_dst(), "disconnection detected for participant");
 
         // Send error notification to the application
-        let error = SessionError::ParticipantDisconnected(format!(
-            "Participant {} disconnected unexpectedly",
-            msg.get_dst()
-        ));
+        let error = SessionError::ParticipantDisconnected(msg.get_dst());
         self.common.send_to_app(error).await?;
 
         // if the session if P2P or no one is left on the session close it
@@ -925,8 +906,8 @@ where
 
         // Remove the participant from the group list and compute MLS payload
         debug!(
-            "remove disconnected endpoint {} from the session",
-            disconnected
+            endpoint = %disconnected,
+            "remove disconnected endpoint from the session",
         );
 
         let (participants_vec, mls_payload) = self
@@ -979,9 +960,9 @@ where
 
     async fn on_leave_reply(&mut self, msg: Message) -> Result<(), SessionError> {
         debug!(
-            "received leave reply from {} with id {}",
-            msg.get_source(),
-            msg.get_id()
+            from = %msg.get_source(),
+            id = %msg.get_id(),
+            "received leave reply",
         );
         let msg_id = msg.get_id();
 
@@ -1001,9 +982,9 @@ where
 
     async fn on_group_ack(&mut self, msg: Message) -> Result<(), SessionError> {
         debug!(
-            "got group ack from {} with id {}",
-            msg.get_source(),
-            msg.get_id()
+            from = %msg.get_source(),
+            id = %msg.get_id(),
+            "received group ack",
         );
         // notify the sender
         self.common.sender.on_message(&msg).await?;
@@ -1012,8 +993,8 @@ where
         let msg_id = msg.get_id();
         if !self.common.sender.is_still_pending(msg_id) {
             debug!(
-                "process group ack for message {}. try to close task",
-                msg_id
+                id = %msg_id,
+                "process group ack. try to close task",
             );
             // we received all the messages related to this timer
             // check if we are done and move on
@@ -1045,8 +1026,8 @@ where
             self.task_done().await?;
         } else {
             debug!(
-                "timer for message {} is still pending, do not close the task",
-                msg_id
+                id = %msg_id,
+                "timer for message still pending, do not close the task",
             );
         }
 
@@ -1157,8 +1138,8 @@ where
             }))
             .await;
 
-        if res.is_err() {
-            tracing::error!("an error occurred while signaling session close");
+        if let Err(e) = res {
+            tracing::error!(error = %e.chain(), "an error occurred while signaling session close");
         }
     }
 }

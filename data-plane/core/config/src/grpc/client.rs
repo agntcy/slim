@@ -5,6 +5,7 @@ use duration_string::DurationString;
 use rustls_pki_types::ServerName;
 use tokio_retry::RetryIf;
 
+use display_error_chain::ErrorChainExt;
 use std::time::Duration;
 use std::{collections::HashMap, str::FromStr};
 use tower::ServiceExt;
@@ -33,7 +34,7 @@ use crate::auth::static_jwt::Config as BearerAuthenticationConfig;
 use crate::backoff::Strategy;
 use crate::backoff::exponential::Config as ExponentialBackoff;
 use crate::backoff::fixedinterval::Config as FixedIntervalBackoff;
-use crate::component::configuration::{Configuration, ConfigurationError};
+use crate::component::configuration::Configuration;
 use crate::grpc::proxy::ProxyConfig;
 use crate::tls::{client::TlsClientConfig as TLSSetting, common::RustlsConfigLoader};
 
@@ -79,16 +80,14 @@ macro_rules! create_connector {
                         https_connector(s, &tls, $server_name.map(|s| s.to_string()))
                     })
                     .service($base_connector);
-                $builder
-                    .connect_with_connector(connector)
-                    .await
-                    .map_err(|e| ConfigError::from(e))
+                let ret = $builder.connect_with_connector(connector).await?;
+                Ok(ret)
             }
             (None, true) => Ok($builder.connect_with_connector_lazy($base_connector)),
-            (None, false) => $builder
-                .connect_with_connector($base_connector)
-                .await
-                .map_err(|e| ConfigError::from(e)),
+            (None, false) => {
+                let ret = $builder.connect_with_connector($base_connector).await?;
+                Ok(ret)
+            }
         }
     };
 }
@@ -96,9 +95,7 @@ macro_rules! create_connector {
 /// Macro to create authenticated service layers for auth types that don't need initialization
 macro_rules! create_auth_service_no_init {
     ($self:expr, $auth_config:expr, $header_map:expr, $channel:expr) => {{
-        let auth_layer = $auth_config
-            .get_client_layer()
-            .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;
+        let auth_layer = $auth_config.get_client_layer()?;
 
         $self.warn_insecure_auth();
 
@@ -113,14 +110,10 @@ macro_rules! create_auth_service_no_init {
 /// Macro to create authenticated service layers for auth types that need initialization
 macro_rules! create_auth_service_with_init {
     ($self:expr, $auth_config:expr, $header_map:expr, $channel:expr) => {{
-        let mut auth_layer = $auth_config
-            .get_client_layer()
-            .map_err(|e| ConfigError::AuthConfigError(e.to_string()))?;
+        let mut auth_layer = $auth_config.get_client_layer()?;
 
         // Initialize the auth layer
-        auth_layer.initialize().await.map_err(|e| {
-            ConfigError::AuthConfigError(format!("Failed to initialize auth layer: {}", e))
-        })?;
+        auth_layer.initialize().await?;
 
         $self.warn_insecure_auth();
 
@@ -380,9 +373,13 @@ impl std::fmt::Display for ClientConfig {
 }
 
 impl Configuration for ClientConfig {
-    fn validate(&self) -> Result<(), ConfigurationError> {
+    type Error = ConfigError;
+
+    fn validate(&self) -> Result<(), Self::Error> {
         // Validate the client configuration
-        self.tls_setting.validate()
+        self.tls_setting.validate()?;
+
+        Ok(())
     }
 }
 
@@ -579,7 +576,7 @@ impl ClientConfig {
                     let http_connector = http_connector.clone();
                     let tls_config = tls_config.clone();
                     async move {
-                        tracing::debug!("Attempting to create gRPC channel to {}", uri);
+                        tracing::debug!(%uri, "Attempting to create gRPC channel");
                         self.create_channel_with_connector(uri, builder, http_connector, tls_config)
                             .await
                     }
@@ -587,12 +584,12 @@ impl ClientConfig {
                 |e: &ConfigError| {
                     // If the error is not related to transport, do not retry
                     match e {
-                        ConfigError::TonicTransportError { error: e } => {
-                            tracing::warn!("Transport error encountered: {:?}. Retrying...", e);
+                        ConfigError::TransportError(e) => {
+                            tracing::warn!(error = %e.chain(), "Transport error encountered. Retrying...");
                             true
                         }
                         _ => {
-                            tracing::error!("Non-retryable error encountered: {}", e);
+                            tracing::error!(error = %e.chain(), "non-retryable error encountered");
                             false
                         }
                     }
@@ -615,7 +612,7 @@ impl ClientConfig {
 
     /// Parses the endpoint string into a URI
     fn parse_endpoint_uri(&self) -> Result<Uri, ConfigError> {
-        Uri::from_str(&self.endpoint).map_err(|e| ConfigError::UriParseError(e.to_string()))
+        Ok(Uri::from_str(&self.endpoint)?)
     }
 
     /// Creates and configures the HTTP connector
@@ -660,15 +657,13 @@ impl ClientConfig {
 
         // set origin settings
         if let Some(origin) = &self.origin {
-            let origin_uri = Uri::from_str(origin.as_str())
-                .map_err(|e| ConfigError::UriParseError(e.to_string()))?;
+            let origin_uri = Uri::from_str(origin.as_str())?;
             builder = builder.origin(origin_uri);
         }
 
         // set rate limit settings
         if let Some(rate_limit) = &self.rate_limit {
-            let (limit, duration) = parse_rate_limit(rate_limit)
-                .map_err(|e| ConfigError::RateLimitParseError(e.to_string()))?;
+            let (limit, duration) = parse_rate_limit(rate_limit)?;
             builder = builder.rate_limit(limit, duration);
         }
 
@@ -682,22 +677,15 @@ impl ClientConfig {
 
     /// Parses headers from the configuration
     fn parse_headers(&self) -> Result<HeaderMap, ConfigError> {
-        Self::parse_header_map(&self.headers, "header")
+        Self::parse_header_map(&self.headers)
     }
 
     /// Generic helper to parse a HashMap<String, String> into HeaderMap
-    fn parse_header_map(
-        headers: &HashMap<String, String>,
-        context: &str,
-    ) -> Result<HeaderMap, ConfigError> {
+    fn parse_header_map(headers: &HashMap<String, String>) -> Result<HeaderMap, ConfigError> {
         let mut header_map = HeaderMap::new();
         for (key, value) in headers {
-            let header_name = HeaderName::from_str(key).map_err(|_| {
-                ConfigError::HeaderParseError(format!("Invalid {} name: {}", context, key))
-            })?;
-            let header_value = HeaderValue::from_str(value).map_err(|_| {
-                ConfigError::HeaderParseError(format!("Invalid {} value: {}", context, value))
-            })?;
+            let header_name = HeaderName::from_str(key)?;
+            let header_value = HeaderValue::from_str(value)?;
             header_map.insert(header_name, header_value);
         }
         Ok(header_map)
@@ -709,9 +697,7 @@ impl ClientConfig {
         password: &str,
     ) -> Result<HeaderValue, ConfigError> {
         let auth_value = BASE64_STANDARD.encode(format!("{}:{}", username, password));
-        HeaderValue::from_str(&format!("Basic {}", auth_value)).map_err(|_| {
-            ConfigError::HeaderParseError("Invalid proxy auth credentials".to_string())
-        })
+        Ok(HeaderValue::from_str(&format!("Basic {}", auth_value))?)
     }
 
     /// Helper to apply authentication and headers to a tunnel
@@ -742,10 +728,8 @@ impl ClientConfig {
 
     /// Loads TLS configuration
     async fn load_tls_config(&self) -> Result<Option<rustls::ClientConfig>, ConfigError> {
-        self.tls_setting
-            .load_rustls_config()
-            .await
-            .map_err(|e| ConfigError::TLSSettingError(e.to_string()))
+        let tls = self.tls_setting.load_rustls_config().await?;
+        Ok(tls)
     }
 
     /// Creates the channel with the appropriate connector (proxy or direct)
@@ -787,19 +771,11 @@ impl ClientConfig {
     ) -> Result<ConnectionType, ConfigError> {
         let proxy_uri = intercept.uri();
 
-        tracing::info!("Creating proxy tunnel to {}", proxy_uri);
+        tracing::info!(%proxy_uri, "Creating proxy tunnel");
 
         // Check if the proxy URL uses HTTPS
         if proxy_uri.scheme_str() == Some("https") {
-            let proxy_tls_config = self
-                .proxy
-                .tls_setting
-                .load_rustls_config()
-                .await
-                .map_err(|e| {
-                    ConfigError::TLSSettingError(format!("Failed to load proxy TLS config: {}", e))
-                })?
-                .unwrap();
+            let proxy_tls_config = self.proxy.tls_setting.load_rustls_config().await?.unwrap();
 
             // Create HTTPS connector for the proxy itself
             let https_connector = hyper_rustls::HttpsConnectorBuilder::new()
@@ -865,7 +841,7 @@ impl ClientConfig {
         &self,
         headers: &HashMap<String, String>,
     ) -> Result<HeaderMap, ConfigError> {
-        Self::parse_header_map(headers, "proxy header")
+        Self::parse_header_map(headers)
     }
 
     /// Applies authentication and headers to the channel
@@ -923,7 +899,6 @@ mod metadata_tests {
 
         let cfg = ClientConfig::with_endpoint("http://localhost:1234").with_metadata(md.clone());
         let s = serde_json::to_string(&cfg).expect("serialize");
-        println!("{}", s);
         let deser: ClientConfig = serde_json::from_str(&s).expect("deserialize");
         assert_eq!(deser.metadata, Some(md));
     }
@@ -937,23 +912,14 @@ mod metadata_tests {
 fn parse_rate_limit(rate_limit: &str) -> Result<(u64, Duration), ConfigError> {
     let parts: Vec<&str> = rate_limit.split('/').collect();
 
-    // Check the parts has two elements
     if parts.len() != 2 {
-        return Err(
-            ConfigError::RateLimitParseError(
-                "rate limit should be in the format of <limit>/<duration>, with duration expressed in seconds".to_string(),
-            ),
-        );
+        // Invalid format: expected <limit>/<duration>
+        return Err(ConfigError::Unknown);
     }
 
-    let limit = parts[0]
-        .parse::<u64>()
-        .map_err(|e| ConfigError::RateLimitParseError(e.to_string()))?;
-    let duration = Duration::from_secs(
-        parts[1]
-            .parse::<u64>()
-            .map_err(|e| ConfigError::RateLimitParseError(e.to_string()))?,
-    );
+    let limit = parts[0].parse::<u64>()?;
+    let duration = Duration::from_secs(parts[1].parse::<u64>()?);
+
     Ok((limit, duration))
 }
 
@@ -962,7 +928,6 @@ mod test {
     #[allow(unused_imports)]
     use super::*;
     use crate::tls::common::CaSource;
-    use tracing::debug;
     use tracing_test::traced_test;
 
     #[test]
@@ -1036,7 +1001,7 @@ mod test {
             tls.insecure = false;
             tls
         };
-        debug!("{}/testdata/{}", test_path, "ca.crt");
+
         channel = client.to_channel_lazy().await;
         assert!(channel.is_ok());
 

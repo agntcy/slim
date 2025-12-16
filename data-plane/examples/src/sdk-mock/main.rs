@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 
 use clap::Parser;
+use display_error_chain::ErrorChainExt;
 use tracing::info;
 
 use slim::config;
@@ -39,19 +40,19 @@ fn spawn_session_receiver(
                                     let payload = msg.get_payload();
                                     match std::str::from_utf8(&payload.as_application_payload().unwrap().blob) {
                                         Ok(text) => {
-                                            info!("received message: {}", text);
+                                            info!(msg = %text, "received message");
                                         }
                                         Err(_) => {
                                             info!(
-                                                "received encrypted message: {} bytes",
-                                                payload.as_application_payload().unwrap().blob.len()
+                                                msg_len = %payload.as_application_payload().unwrap().blob.len(),
+                                                "received encrypted message",
                                             );
                                         }
                                     }
 
                                     // Queue reply message instead of sending immediately
                                     let reply = format!("hello from the {}", local_name);
-                                    info!("Queueing reply message: {}", reply);
+                                    info!(reply = %reply, "Queueing reply message");
                                     reply_queue.push_back(reply);
                                 }
                                 _ => {
@@ -59,7 +60,7 @@ fn spawn_session_receiver(
                                 }
                             },
                             Some(Err(e)) => {
-                                info!("received message error: {:?}", e);
+                                info!(error = %e.chain(), "received message error");
                                 break;
                             }
                             None => {
@@ -72,14 +73,14 @@ fn spawn_session_receiver(
                     // Periodic timer - send queued messages
                     _ = interval.tick() => {
                         if let Some(reply) = reply_queue.pop_front() {
-                            info!("Sending periodic reply: {}", reply);
+                            info!(%reply, "Sending periodic reply");
 
                             if let Some(session_arc) = weak.upgrade() {
                                 let reply_bytes = reply.into_bytes();
                                 if let Err(e) = session_arc
                                     .publish(&route, reply_bytes, None, None).await
                                 {
-                                    info!("error sending periodic reply: {}", e);
+                                    info!(error = %e.chain(), "error sending periodic reply");
                                 }
                             } else {
                                 info!("session already dropped; cannot send reply");
@@ -150,7 +151,7 @@ async fn main() {
 
     // Set a route for the remote app
     let remote_app_name = Name::from_strings(["org", "default", remote_name]);
-    info!("allowing messages to remote app: {:?}", remote_app_name);
+    info!(remote_app = %remote_app_name, "allowing messages to remote app");
     app.set_route(&remote_app_name, conn_id).await.unwrap();
 
     // wait for the connection to be established
@@ -186,7 +187,7 @@ async fn main() {
         // Await session initialization
         init_ack.await.expect("error initializing p2p session");
 
-        info!("Sending message to {}", remote_app_name);
+        info!(destination = %remote_app_name, "Sending message");
 
         // publish message using session context
         session

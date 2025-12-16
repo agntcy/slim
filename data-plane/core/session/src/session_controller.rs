@@ -4,6 +4,7 @@
 // Standard library imports
 use std::{collections::HashMap, time::Duration};
 
+use display_error_chain::ErrorChainExt;
 use parking_lot::Mutex;
 use tokio::sync::{self, oneshot};
 // Third-party crates
@@ -136,12 +137,10 @@ impl SessionController {
     {
         // Start with an infinite timeout (will be updated on graceful shutdown)
         let mut shutdown_deadline = std::pin::pin!(tokio::time::sleep(Duration::MAX));
-        // Pin the cancellation token
-        // let mut cancellation_token = std::pin::pin!(cancellation_token.cancelled());
 
         // Init the inner components
         if let Err(e) = inner.init().await {
-            tracing::error!(error=%e, "Error during initialization of session");
+            tracing::error!(error = %e.chain(), "error during initialization of session");
         }
 
         loop {
@@ -155,7 +154,7 @@ impl SessionController {
                     debug!("consuming pending messages before entering draining state");
                     while let Ok(msg) = rx.try_recv() {
                         if let Err(e) = inner.on_message(msg).await {
-                            tracing::error!(error=%e, "Error processing message during draining. Close immediately.");
+                            tracing::error!(error = %e.chain(), "error processing message during draining - close immediately.");
                             break;
                         }
                     }
@@ -164,7 +163,7 @@ impl SessionController {
                     if let Err(e) = inner.on_message(SessionMessage::StartDrain {
                         grace_period: shutdown_timeout
                     }).await {
-                        tracing::error!(error=%e, "Error during start drain");
+                        tracing::error!(error = %e.chain(),  "error during start drain");
                         break;
                     }
 
@@ -185,7 +184,7 @@ impl SessionController {
                             if draining && matches!(session_message, SessionMessage::OnMessage { direction: MessageDirection::South, .. }) {
                                 tracing::debug!("session is draining, rejecting new messages from application");
                                 if let SessionMessage::OnMessage { ack_tx: Some(ack_tx), .. } = session_message {
-                                    let _ = ack_tx.send(Err(SessionError::Processing("Session is draining, cannot accept new messages".to_string())));
+                                    let _ = ack_tx.send(Err(SessionError::SessionDrainingDrop));
                                 }
                                 continue;
                             }
@@ -226,7 +225,7 @@ impl SessionController {
 
         // Perform final shutdown
         if let Err(e) = inner.on_shutdown().await {
-            tracing::error!(error=%e, "Error during shutdown of session");
+            tracing::error!(error = %e.chain(), "error during shutdown of session");
         }
     }
 
@@ -272,12 +271,7 @@ impl SessionController {
                 ack_tx,
             })
             .await
-            .map_err(|e| {
-                SessionError::Processing(format!(
-                    "Failed to send message to session controller: {}",
-                    e
-                ))
-            })
+            .map_err(|_e| SessionError::SessionControllerSendFailed)
     }
 
     /// Send a message to the controller for processing
@@ -306,7 +300,7 @@ impl SessionController {
         self.handle
             .lock()
             .take()
-            .ok_or(SessionError::Generic("Session already closed".to_string()))
+            .ok_or(SessionError::SessionAlreadyClosed)
     }
 
     pub async fn publish_message(
@@ -374,8 +368,7 @@ impl SessionController {
             .session_id(self.id())
             .message_id(rand::random::<u32>()) // this will be changed by the session itself
             .application_payload(&ct, blob)
-            .build_publish()
-            .map_err(|e| SessionError::Processing(e.to_string()))?;
+            .build_publish()?;
         if let Some(map) = metadata
             && !map.is_empty()
         {
@@ -391,7 +384,8 @@ impl SessionController {
         let payload = CommandPayload::builder()
             .discovery_request(None)
             .as_content();
-        Message::builder()
+
+        let msg = Message::builder()
             .source(self.source().clone())
             .destination(destination.clone())
             .identity("")
@@ -400,8 +394,9 @@ impl SessionController {
             .session_id(self.id())
             .message_id(rand::random::<u32>())
             .payload(payload)
-            .build_publish()
-            .map_err(|e| SessionError::Processing(e.to_string()))
+            .build_publish()?;
+
+        Ok(msg)
     }
 
     pub(crate) async fn invite_participant_internal(
@@ -417,18 +412,14 @@ impl SessionController {
         destination: &Name,
     ) -> Result<CompletionHandle, SessionError> {
         match self.session_type() {
-            ProtoSessionType::PointToPoint => Err(SessionError::Processing(
-                "cannot invite participant to point-to-point session".into(),
-            )),
+            ProtoSessionType::PointToPoint => Err(SessionError::CannotInviteToP2P),
             ProtoSessionType::Multicast => {
                 if !self.is_initiator() {
-                    return Err(SessionError::Processing(
-                        "cannot invite participant to this session session".into(),
-                    ));
+                    return Err(SessionError::NotInitiator);
                 }
                 self.invite_participant_internal(destination).await
             }
-            _ => Err(SessionError::Processing("unexpected session type".into())),
+            _ => Err(SessionError::SessionTypeUnknown(self.session_type())),
         }
     }
 
@@ -437,14 +428,10 @@ impl SessionController {
         destination: &Name,
     ) -> Result<CompletionHandle, SessionError> {
         match self.session_type() {
-            ProtoSessionType::PointToPoint => Err(SessionError::Processing(
-                "cannot remove participant to point-to-point session".into(),
-            )),
+            ProtoSessionType::PointToPoint => Err(SessionError::CannotRemoveFromP2P),
             ProtoSessionType::Multicast => {
                 if !self.is_initiator() {
-                    return Err(SessionError::Processing(
-                        "cannot remove participant from this session session".into(),
-                    ));
+                    return Err(SessionError::NotInitiator);
                 }
                 let msg = Message::builder()
                     .source(self.source().clone())
@@ -455,11 +442,10 @@ impl SessionController {
                     .session_id(self.id())
                     .message_id(rand::random::<u32>())
                     .payload(CommandPayload::builder().leave_request(None).as_content())
-                    .build_publish()
-                    .map_err(|e| SessionError::Processing(e.to_string()))?;
+                    .build_publish()?;
                 self.publish_message(msg).await
             }
-            _ => Err(SessionError::Processing("unexpected session type".into())),
+            _ => Err(SessionError::SessionTypeUnknown(self.session_type())),
         }
     }
 }
@@ -496,15 +482,16 @@ pub fn handle_channel_discovery_message(
 
     debug!("Received discovery request, reply to the msg source");
 
-    Message::builder()
+    let msg = Message::builder()
         .with_slim_header(slim_header)
         .session_type(session_type)
         .session_message_type(ProtoSessionMessageType::DiscoveryReply)
         .session_id(session_id)
         .message_id(msg_id)
         .payload(CommandPayload::builder().discovery_reply().as_content())
-        .build_publish()
-        .map_err(|e| SessionError::Processing(e.to_string()))
+        .build_publish()?;
+
+    Ok(msg)
 }
 
 pub(crate) struct SessionControllerCommon<P, V>
@@ -681,9 +668,9 @@ where
             builder = builder.fanout(256);
         }
 
-        builder
-            .build_publish()
-            .map_err(|e| SessionError::Processing(e.to_string()))
+        let ret = builder.build_publish()?;
+
+        Ok(ret)
     }
 
     /// Send control message without creating ack channel (for internal use by moderator)
@@ -973,12 +960,7 @@ mod tests {
         let participant = Name::from_strings(["org", "ns", "new_participant"]);
 
         let result = controller.invite_participant(&participant).await;
-        assert!(result.is_err());
-        if let Err(SessionError::Processing(msg)) = result {
-            assert!(msg.contains("cannot invite participant"));
-        } else {
-            panic!("Expected SessionError::Processing");
-        }
+        assert!(result.is_err_and(|e| matches!(e, SessionError::NotInitiator)));
     }
 
     #[tokio::test]
@@ -990,12 +972,7 @@ mod tests {
         let participant = Name::from_strings(["org", "ns", "participant"]);
 
         let result = controller.invite_participant(&participant).await;
-        assert!(result.is_err());
-        if let Err(SessionError::Processing(msg)) = result {
-            assert!(msg.contains("cannot invite participant to point-to-point"));
-        } else {
-            panic!("Expected SessionError::Processing");
-        }
+        assert!(result.is_err_and(|e| matches!(e, SessionError::CannotInviteToP2P)));
     }
 
     #[tokio::test]
@@ -1024,12 +1001,7 @@ mod tests {
         let participant = Name::from_strings(["org", "ns", "participant"]);
 
         let result = controller.remove_participant(&participant).await;
-        assert!(result.is_err());
-        if let Err(SessionError::Processing(msg)) = result {
-            assert!(msg.contains("cannot remove participant"));
-        } else {
-            panic!("Expected SessionError::Processing");
-        }
+        assert!(result.is_err_and(|e| matches!(e, SessionError::NotInitiator)));
     }
 
     #[tokio::test]
@@ -1041,12 +1013,7 @@ mod tests {
         let participant = Name::from_strings(["org", "ns", "participant"]);
 
         let result = controller.remove_participant(&participant).await;
-        assert!(result.is_err());
-        if let Err(SessionError::Processing(msg)) = result {
-            assert!(msg.contains("cannot remove participant to point-to-point"));
-        } else {
-            panic!("Expected SessionError::Processing");
-        }
+        assert!(result.is_err_and(|e| matches!(e, SessionError::CannotRemoveFromP2P)));
     }
 
     #[test]
@@ -1141,10 +1108,10 @@ mod tests {
         let result = controller.close();
         assert!(result.is_err());
         match result {
-            Err(SessionError::Generic(msg)) => {
-                assert_eq!(msg, "Session already closed");
+            Err(SessionError::SessionAlreadyClosed) => {
+                // expected
             }
-            _ => panic!("Expected SessionError::Generic with 'Session already closed' message"),
+            _ => panic!("Expected SessionError::SessionAlreadyClosed"),
         }
     }
 

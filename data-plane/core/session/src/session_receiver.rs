@@ -120,9 +120,7 @@ impl SessionReceiver {
 
     pub async fn on_message(&mut self, mut message: Message) -> Result<(), SessionError> {
         if self.draining_state == ReceiverDrainStatus::Completed {
-            return Err(SessionError::Processing(
-                "receiver closed, drop message".to_string(),
-            ));
+            return Err(SessionError::SessionDrainingDrop);
         }
 
         match message.get_session_message_type() {
@@ -130,9 +128,7 @@ impl SessionReceiver {
                 debug!("received message");
                 if self.draining_state == ReceiverDrainStatus::Initiated {
                     // draining period is started, do no accept any new message
-                    return Err(SessionError::Processing(
-                        "drain started do no accept new messages".to_string(),
-                    ));
+                    return Err(SessionError::SessionDrainingDrop);
                 }
                 if self.session_type == ProtoSessionType::PointToPoint {
                     // if the session is point to point publish_to falls back
@@ -160,9 +156,9 @@ impl SessionReceiver {
     pub async fn on_publish_message(&mut self, message: Message) -> Result<(), SessionError> {
         if self.timer_factory.is_none() || message.contains_metadata(PUBLISH_TO) {
             debug!(
-                "received message {} from {}, send it to the app without reordering",
-                message.get_id(),
-                message.get_source()
+                id = %message.get_id(),
+                source = %message.get_source(),
+                "received message, send it to the app without reordering",
             );
             return self.tx.send_to_app(Ok(message)).await;
         }
@@ -192,8 +188,7 @@ impl SessionReceiver {
             message.get_session_header().session_id,
             message.get_id(),
             publish_meta,
-        )
-        .map_err(|e| SessionError::Processing(e.to_string()))?;
+        )?;
 
         self.tx.send_to_slim(Ok(ack)).await
     }
@@ -204,7 +199,9 @@ impl SessionReceiver {
         let id = message.get_id();
         let in_conn = message.get_incoming_conn();
 
-        debug!("received RTX reply for message {} from {}", id, source);
+        debug!(
+            %id, %source,
+            "received RTX reply");
 
         // remote the timer
         let key = PendingRtxKey {
@@ -221,9 +218,12 @@ impl SessionReceiver {
             return self.on_publish_message(message).await;
         }
 
-        let buffer = self.buffer.get_mut(&source).ok_or_else(|| {
-            SessionError::Processing("missing receiver buffer for incoming rtx reply".to_string())
-        })?;
+        let buffer = self
+            .buffer
+            .get_mut(&source)
+            .ok_or_else(|| SessionError::MissingPayload {
+                context: "receiver_buffer_rtx_reply",
+            })?;
         let recv_vec = buffer.on_lost_message(id);
         self.handle_recv_and_rtx_vectors(source, in_conn, recv_vec, vec![])
             .await
@@ -240,26 +240,30 @@ impl SessionReceiver {
             match recv {
                 Some(r) => {
                     debug!(
-                        "received message {} from {}, send it to the app",
-                        r.get_id(),
-                        r.get_source()
+                        id = %r.get_id(),
+                        source = %r.get_source(),
+                        "received message, send it to the app",
                     );
                     self.tx.send_to_app(Ok(r)).await?;
                 }
                 None => {
                     debug!(
-                        "lost message from {} on session {}",
-                        source, self.session_id
+                        session_id = %self.session_id,
+                        source = %source,
+                        "lost message"
                     );
                     self.tx
-                        .send_to_app(Err(SessionError::MessageLost(self.session_id.to_string())))
+                        .send_to_app(Err(SessionError::MessageLost(self.session_id)))
                         .await?;
                 }
             }
         }
 
         for rtx_id in rtx_vec {
-            debug!("send rtx for message id {} to {}", rtx_id, source);
+            debug!(
+                id = %rtx_id,
+                source = %source,
+                "send rtx");
 
             let rtx = new_message_from_session_fields(
                 &self.local_name,
@@ -271,11 +275,11 @@ impl SessionReceiver {
                 self.session_id,
                 rtx_id,
                 None,
-            )
-            .map_err(|e| SessionError::Processing(e.to_string()))?;
+            )?;
 
             // for each RTX start a timer
-            debug!("create rtx timer for message {} form {}", rtx_id, source);
+            debug!(id = %rtx_id,
+            source = %source,"create rtx timer");
 
             let timer = self.timer_factory.as_ref().unwrap().create_and_start_timer(
                 rtx_id,
@@ -294,7 +298,8 @@ impl SessionReceiver {
             self.pending_rtxs.insert(key, val);
 
             // send message
-            debug!("send rtx request for message {} to {}", rtx_id, source);
+            debug!(id = %rtx_id,
+            source = %source, "send rtx request for message");
             self.tx.send_to_slim(Ok(rtx)).await?;
         }
 
@@ -302,42 +307,45 @@ impl SessionReceiver {
     }
 
     pub async fn on_timer_timeout(&mut self, id: u32, name: Name) -> Result<(), SessionError> {
-        debug!("timeout for message {} from {}", id, name);
+        debug!(%id, %name, "timeout for message");
         let key = PendingRtxKey { name, id };
-        let pending = self.pending_rtxs.get(&key).ok_or_else(|| {
-            SessionError::Processing("missing pending rtx associated to timer".to_string())
-        })?;
+        let pending = self
+            .pending_rtxs
+            .get(&key)
+            .ok_or_else(|| SessionError::MissingPayload {
+                context: "pending_rtx_timer",
+            })?;
 
-        debug!("send rtx {} request again", id);
+        debug!(%id, "send rtx request again");
         self.tx.send_to_slim(Ok(pending.message.clone())).await
     }
 
     pub async fn on_timer_failure(&mut self, id: u32, name: Name) -> Result<(), SessionError> {
         debug!(
-            "timer failure for message {} from {}, clear state",
-            id, name
+            %id, %name,
+            "timer failure for message, clear state",
         );
         let key = PendingRtxKey { name, id };
-        let mut pending = self.pending_rtxs.remove(&key).ok_or_else(|| {
-            SessionError::Processing("missing pending rtx associated to timer".to_string())
-        })?;
+        let mut pending =
+            self.pending_rtxs
+                .remove(&key)
+                .ok_or_else(|| SessionError::MissingPayload {
+                    context: "pending_rtx_timer",
+                })?;
 
         // stop the timer and remove the name if no pending rtx left
         pending.timer.stop();
 
         // notify the application that the message was not delivered correctly
         self.tx
-            .send_to_app(Err(SessionError::Processing(format!(
-                "error receiving message {}. stop retrying",
-                id
-            ))))
+            .send_to_app(Err(SessionError::receive_retry_failed(id)))
             .await
     }
 
     pub fn remove_endpoint(&mut self, endpoint: &Name) {
         // remove the buffer related to an endpoint so that if it is added again
         // the messages will not be dropped as duplicated
-        tracing::debug!("remove endpoint on the receiver {}", endpoint);
+        tracing::debug!(%endpoint, "remove endpoint on the receiver");
         self.buffer.remove(endpoint);
     }
 
@@ -700,11 +708,11 @@ mod tests {
 
         // Check that we received an error as expected
         match app_error {
-            Err(SessionError::Processing(msg)) => {
-                assert!(msg.contains("error receiving message 2. stop retrying"),);
+            Err(SessionError::MessageReceiveRetryFailed { id }) => {
+                assert_eq!(id, 2, "Expected retry failure for message id 2");
             }
             _ => panic!(
-                "Expected SessionError::Processing with max retries, got: {:?}",
+                "Expected SessionError::MessageReceiveRetryFailed with id 2, got: {:?}",
                 app_error
             ),
         }
@@ -1015,7 +1023,7 @@ mod tests {
         // Check that we received an error (None represents a lost message)
         match app_error {
             Err(SessionError::MessageLost(session_id)) => {
-                assert_eq!(session_id, "10");
+                assert_eq!(session_id, 10);
             }
             _ => panic!("Expected SessionError::MessageLost, got: {:?}", app_error),
         }

@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use slim_datapath::api::{ProtoMessage, ProtoPublishType};
 use slim_datapath::messages::Name as SlimName;
 
-use slim_service::errors::ServiceError;
+use slim_session::SessionError;
 
 // Import the FFI Name type for use in MessageContext fields
 use crate::adapter::Name;
@@ -66,11 +66,9 @@ impl MessageContext {
     /// * `payload_type` defaults to "msg" if unset
     /// * `metadata` is copied from the underlying protocol envelope
     /// * The returned `Vec<u8>` is the raw application payload
-    pub fn from_proto_message(msg: ProtoMessage) -> Result<(Self, Vec<u8>), ServiceError> {
+    pub fn from_proto_message(msg: ProtoMessage) -> Result<(Self, Vec<u8>), SessionError> {
         let Some(ProtoPublishType(publish)) = msg.message_type.as_ref() else {
-            return Err(ServiceError::ReceiveError(
-                "unsupported message type".to_string(),
-            ));
+            return Err(SessionError::MessageTypeUnexpected(Box::new(msg)));
         };
 
         // Convert SlimName to FFI Name
@@ -298,14 +296,7 @@ mod tests {
         };
 
         let result = MessageContext::from_proto_message(proto_msg);
-        assert!(result.is_err());
-
-        match result.unwrap_err() {
-            ServiceError::ReceiveError(msg) => {
-                assert_eq!(msg, "unsupported message type");
-            }
-            _ => panic!("Expected ReceiveError"),
-        }
+        assert!(result.is_err_and(|e| matches!(e, SessionError::MessageTypeUnexpected(_))));
     }
 
     #[tokio::test]

@@ -130,13 +130,9 @@ impl SessionSender {
     ) -> Result<(), SessionError> {
         if self.draining_state == SenderDrainStatus::Completed {
             if let Some(tx) = ack_tx {
-                let _ = tx.send(Err(SessionError::Processing(
-                    "sender closed, drop message".to_string(),
-                )));
+                let _ = tx.send(Err(SessionError::SessionDrainingDrop));
             }
-            return Err(SessionError::Processing(
-                "sender closed, drop message".to_string(),
-            ));
+            return Err(SessionError::SessionDrainingDrop);
         }
 
         match message.get_session_message_type() {
@@ -144,13 +140,9 @@ impl SessionSender {
                 debug!("received message");
                 if self.draining_state == SenderDrainStatus::Initiated {
                     if let Some(tx) = ack_tx {
-                        let _ = tx.send(Err(SessionError::Processing(
-                            "drain started do no accept new messages".to_string(),
-                        )));
+                        let _ = tx.send(Err(SessionError::SessionDrainingDrop));
                     }
-                    return Err(SessionError::Processing(
-                        "drain started do no accept new messages".to_string(),
-                    ));
+                    return Err(SessionError::SessionDrainingDrop);
                 }
                 if self.session_type == ProtoSessionType::PointToPoint {
                     // if the session is point to point publish_to falls back
@@ -202,12 +194,10 @@ impl SessionSender {
         // in the endpoint list we drop the messages
         if is_publish_to && !self.endpoints_list.contains(&message.get_dst()) {
             debug!(
-                "cannot forward the message to the select destination {}",
-                message.get_dst()
+                dst = %message.get_dst(),
+                "cannot forward the message to the select destination",
             );
-            return Err(SessionError::UnknownDestination(
-                message.get_dst().to_string(),
-            ));
+            return Err(SessionError::UnknownDestination(message.get_dst()));
         }
 
         let (message_id, fanout) = self.id_and_fanout(is_publish_to);
@@ -271,7 +261,7 @@ impl SessionSender {
     async fn set_timer_and_send(&mut self, message: Message) -> Result<(), SessionError> {
         let message_id = message.get_id();
         let is_publish_to = message.metadata.contains_key(PUBLISH_TO);
-        debug!("send new message with id {}", message_id);
+        debug!(%message_id, "send new message");
 
         if self.timer_factory.is_some() {
             debug!("reliable sender, set all timers");
@@ -303,7 +293,7 @@ impl SessionSender {
             };
 
             for n in &endpoints_to_track {
-                debug!("add timer for message {} for remote {}", message_id, n);
+                debug!(%message_id, remote = %n, "add timer for message");
                 if let Some(acks) = self.pending_acks_per_endpoint.get_mut(n) {
                     acks.insert(message_id);
                 } else {
@@ -316,23 +306,20 @@ impl SessionSender {
 
         debug!("send message");
         // send the message
-        self.tx
-            .send_to_slim(Ok(message))
-            .await
-            .map_err(|e| SessionError::SlimTransmission(e.to_string()))
+        self.tx.send_to_slim(Ok(message)).await
     }
 
     fn on_ack_message(&mut self, message: &Message) {
         let source = message.get_source();
         let message_id = message.get_id();
-        debug!("received ack message for id {} from {}", message_id, source);
+        debug!(%message_id, %source, "received ack message");
 
         let mut delete = false;
         // remove the source from the pending acks
         // notice that the state for this ack id may not exist if all the endpoints
         // associated to it where removed before getting the acks
         if let Some((gt, _m)) = self.pending_acks.get_mut(&message_id) {
-            debug!("try to remove {} from pending acks", source);
+            debug!(%source, "try to remove from pending acks");
             gt.missing_timers.remove(&source);
             if gt.missing_timers.is_empty() {
                 debug!("all acks received, remove timer");
@@ -351,8 +338,8 @@ impl SessionSender {
         // also here the endpoint may not exists anymore
         if let Some(set) = self.pending_acks_per_endpoint.get_mut(&source) {
             debug!(
-                "remove message id {} from pending acks for {}",
-                message_id, source
+                %message_id, %source,
+                "remove message from pending acks for"
             );
             // here we do not remove the name even if the set is empty
             // remove it only if endpoint is deleted
@@ -362,8 +349,8 @@ impl SessionSender {
         // all acks received for this timer, remove it
         if delete {
             debug!(
-                "all acks received for message id {}, remove timer",
-                message_id
+                id = %message_id,
+                "all acks received, remove timer",
             );
             self.pending_acks.remove(&message_id);
         }
@@ -375,8 +362,9 @@ impl SessionSender {
         let incoming_conn = message.get_incoming_conn();
 
         debug!(
-            "received rtx request for message {} from remote {}",
-            message_id, source
+            id = %message_id,
+            %source,
+            "received rtx request",
         );
 
         // try to get the required message from the buffer
@@ -390,10 +378,7 @@ impl SessionSender {
                 .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxReply);
 
             // send the message
-            self.tx
-                .send_to_slim(Ok(msg))
-                .await
-                .map_err(|e| SessionError::SlimTransmission(e.to_string()))
+            self.tx.send_to_slim(Ok(msg)).await
         } else {
             debug!("the message does not exists anymore, send and error");
             let msg = new_message_from_session_fields(
@@ -406,28 +391,20 @@ impl SessionSender {
                 self.session_id,
                 message_id,
                 None,
-            )
-            .map_err(|e| SessionError::Processing(e.to_string()))?;
+            )?;
 
             // send the message
-            self.tx
-                .send_to_slim(Ok(msg))
-                .await
-                .map_err(|e| SessionError::SlimTransmission(e.to_string()))
+            self.tx.send_to_slim(Ok(msg)).await
         }
     }
 
     pub async fn on_timer_timeout(&mut self, id: u32) -> Result<(), SessionError> {
-        debug!("timeout for message {}", id);
+        debug!(%id, "message timeout");
 
         if id > MAX_PUBLISH_ID {
             // this must be a message sent with publish_to, so get the message from the pending acks map
             if let Some((_gt, Some(msg))) = self.pending_acks.get_mut(&id) {
-                return self
-                    .tx
-                    .send_to_slim(Ok(msg.clone()))
-                    .await
-                    .map_err(|e| SessionError::SlimTransmission(e.to_string()));
+                return self.tx.send_to_slim(Ok(msg.clone())).await;
             } else {
                 return self.on_timer_failure(id).await;
             }
@@ -440,22 +417,19 @@ impl SessionSender {
             // send the message to those destinations
             if let Some((gt, _)) = self.pending_acks.get(&id) {
                 for n in &gt.missing_timers {
-                    debug!("resend message {} to {}", id, n);
+                    debug!(%id, dst = %n, "resend message");
                     let mut m = message.clone();
                     m.get_slim_header_mut().set_destination(n);
 
                     // send the message
-                    self.tx
-                        .send_to_slim(Ok(m))
-                        .await
-                        .map_err(|e| SessionError::SlimTransmission(e.to_string()))?;
+                    self.tx.send_to_slim(Ok(m)).await?;
                 }
             }
         } else {
             // the message is not in the buffer anymore so we can simply remove the timer
             debug!(
-                "the message {} is not in the buffer anymore, delete the associated timer",
-                id
+                %id,
+                "message not in the buffer anymore, delete the associated timer",
             );
             return self.on_timer_failure(id).await;
         }
@@ -464,7 +438,7 @@ impl SessionSender {
     }
 
     pub async fn on_timer_failure(&mut self, id: u32) -> Result<(), SessionError> {
-        debug!("timer failure for message id {}, clear state", id);
+        debug!(%id, "timer failure, clear state");
         // remove all the state related to this timer
         if let Some((gt, _)) = self.pending_acks.get_mut(&id) {
             for n in &gt.missing_timers {
@@ -479,30 +453,24 @@ impl SessionSender {
 
         // Signal failure to the ack notifier if present
         if let Some(tx) = self.ack_notifiers.remove(&id) {
-            let _ = tx.send(Err(SessionError::Processing(format!(
-                "error send message {}. stop retrying",
-                id
-            ))));
+            let _ = tx.send(Err(SessionError::send_retry_failed(id)));
         }
 
         // notify the application that the message was not delivered correctly
         self.tx
-            .send_to_app(Err(SessionError::Processing(format!(
-                "error send message {}. stop retrying",
-                id
-            ))))
+            .send_to_app(Err(SessionError::send_retry_failed(id)))
             .await
     }
 
     pub async fn add_endpoint(&mut self, endpoint: &Name) -> Result<(), SessionError> {
-        debug!(
-            "add endpoint {}, current list size {}",
-            endpoint,
-            self.endpoints_list.len()
-        );
         // add endpoint to the list
         self.endpoints_list.insert(endpoint.clone());
-        debug!("new list size {}", self.endpoints_list.len());
+
+        debug!(
+            %endpoint,
+            list_len = %self.endpoints_list.len(),
+            "add endpoint",
+        );
 
         // check if we need to flush the producer buffer
         if self.to_flush && self.endpoints_list.len() == 1 {
@@ -518,9 +486,9 @@ impl SessionSender {
 
     pub fn remove_endpoint(&mut self, endpoint: &Name) {
         debug!(
-            "remove endpoint {}, current list size {}",
-            endpoint,
-            self.endpoints_list.len()
+            %endpoint,
+            list_len = %self.endpoints_list.len(),
+            "remove endpoint",
         );
         // remove endpoint from the list and remove all the ack state
         // notice that no ack state may be associated to the endpoint
@@ -530,8 +498,8 @@ impl SessionSender {
                 let mut delete = false;
                 if let Some((gt, _)) = self.pending_acks.get_mut(id) {
                     debug!(
-                        "try to remove timer {} for removed endpoint {}",
-                        id, endpoint
+                        %id, %endpoint,
+                        "try to remove timer",
                     );
                     gt.missing_timers.remove(endpoint);
                     // if no endpoint is left we remove the timer
@@ -541,7 +509,7 @@ impl SessionSender {
                     }
                 }
                 if delete {
-                    debug!("no pending acks left, remove timer {}", id);
+                    debug!(%id, "no pending acks left, remove timer",);
                     self.pending_acks.remove(id);
                 }
             }
@@ -550,7 +518,7 @@ impl SessionSender {
         debug!("remove endpoint name from everywhere");
         self.pending_acks_per_endpoint.remove(endpoint);
         self.endpoints_list.remove(endpoint);
-        debug!("new list size {}", self.endpoints_list.len());
+        debug!(list_size = %self.endpoints_list.len(), "new list size");
     }
 
     pub fn start_drain(&mut self) {
@@ -580,7 +548,7 @@ impl SessionSender {
 
         // Notify all pending ack notifiers that the sender is closed
         for (_, tx) in self.ack_notifiers.drain() {
-            let _ = tx.send(Err(SessionError::Processing("sender closed".to_string())));
+            let _ = tx.send(Err(SessionError::SessionClosed));
         }
 
         self.draining_state = SenderDrainStatus::Completed;
@@ -813,15 +781,11 @@ mod tests {
 
         // Check that we received an error as expected
         match res {
-            Err(SessionError::Processing(msg)) => {
-                assert!(
-                    msg.contains("error send message 1. stop retrying"),
-                    "Expected timer failure error message, got: {}",
-                    msg
-                );
+            Err(SessionError::MessageSendRetryFailed { id }) => {
+                assert_eq!(id, 1, "Expected retry failure for message id 1");
             }
             _ => panic!(
-                "Expected SessionError::Processing with timer failure message, got: {:?}",
+                "Expected SessionError::MessageSendRetryFailed, got: {:?}",
                 res
             ),
         }
@@ -1790,13 +1754,10 @@ mod tests {
         // Send the message - should fail
         let result = sender.on_message(message, None).await;
 
-        assert!(result.is_err());
-        match result {
-            Err(SessionError::UnknownDestination(msg)) => {
-                assert!(msg.contains("unknown"));
-            }
-            _ => panic!("Expected UnknownDestination error, got: {:?}", result),
-        }
+        assert!(
+            result.is_err_and(|e| { matches!(e, SessionError::UnknownDestination(_)) }),
+            "Expected UnknownDestination error",
+        );
     }
 
     #[tokio::test]

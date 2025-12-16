@@ -14,7 +14,7 @@ pub(crate) struct State {
     timer_id: u32,
 }
 
-pub trait TaskUpdate {
+pub(crate) trait TaskUpdate {
     fn discovery_start(&mut self, timer_id: u32) -> Result<(), SessionError>;
     fn discovery_complete(&mut self, timer_id: u32) -> Result<(), SessionError>;
     fn join_start(&mut self, timer_id: u32) -> Result<(), SessionError>;
@@ -30,7 +30,7 @@ pub trait TaskUpdate {
 }
 
 fn unsupported_phase() -> SessionError {
-    SessionError::ModeratorTask("this phase is not supported in this task".to_string())
+    SessionError::ModeratorTaskUnsupportedPhase
 }
 
 #[derive(Debug)]
@@ -57,12 +57,12 @@ impl ModeratorTask {
         }
     }
 
-    pub(crate) fn failure_message<'a>(&self, add_msg: &'a str) -> &'a str {
+    pub(crate) fn failure_message(&self) -> SessionError {
         match self {
-            ModeratorTask::Add(_) => add_msg,
-            ModeratorTask::Remove(_) => "failed to remove a participant from the group",
-            ModeratorTask::Update(_) => "failed to update state of the participant",
-            ModeratorTask::CloseOrDisconnect(_) => "failed to notify participants",
+            ModeratorTask::Add(_) => SessionError::ModeratorTaskAddFailed,
+            ModeratorTask::Remove(_) => SessionError::ModeratorTaskRemoveFailed,
+            ModeratorTask::Update(_) => SessionError::ModeratorTaskUpdateFailed,
+            ModeratorTask::CloseOrDisconnect(_) => SessionError::ModeratorTaskCloseFailed,
         }
     }
 }
@@ -177,8 +177,8 @@ impl AddParticipant {
 impl TaskUpdate for AddParticipant {
     fn discovery_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
         debug!(
-            "start discovery on AddParticipan task, timer id {}",
-            timer_id
+            %timer_id,
+            "start discovery on AddParticipan task",
         );
         self.discovery.received = false;
         self.discovery.timer_id = timer_id;
@@ -189,19 +189,17 @@ impl TaskUpdate for AddParticipant {
         if self.discovery.timer_id == timer_id {
             self.discovery.received = true;
             debug!(
-                "discovery completed on AddParticipan task, timer id {}",
-                timer_id
+                %timer_id,
+                "discovery completed on AddParticipan task"
             );
             Ok(())
         } else {
-            Err(SessionError::ModeratorTask(
-                "unexpected timer id".to_string(),
-            ))
+            Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id))
         }
     }
 
     fn join_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        debug!("start join on AddParticipan task, timer id {}", timer_id);
+        debug!(%timer_id, "start join on AddParticipan task");
         self.join.received = false;
         self.join.timer_id = timer_id;
         Ok(())
@@ -211,8 +209,8 @@ impl TaskUpdate for AddParticipant {
         if self.join.timer_id == timer_id {
             self.join.received = true;
             debug!(
-                "join completed on AddParticipan task, timer id {}",
-                timer_id
+                %timer_id,
+                "join completed on AddParticipan task"
             );
 
             // Signal success to the ack notifier if present (invite operation complete)
@@ -222,9 +220,7 @@ impl TaskUpdate for AddParticipant {
 
             Ok(())
         } else {
-            Err(SessionError::ModeratorTask(
-                "unexpected timer id".to_string(),
-            ))
+            Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id))
         }
     }
 
@@ -237,14 +233,14 @@ impl TaskUpdate for AddParticipant {
     }
 
     fn welcome_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        debug!("start welcome on AddParticipan task, timer id {}", timer_id);
+        debug!(%timer_id, "start welcome on AddParticipan task");
         self.welcome.received = false;
         self.welcome.timer_id = timer_id;
         Ok(())
     }
 
     fn commit_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        debug!("start commit on AddParticipan task, timer id {}", timer_id);
+        debug!(%timer_id, "start commit on AddParticipan task");
         self.commit.received = false;
         self.commit.timer_id = timer_id;
         Ok(())
@@ -258,21 +254,19 @@ impl TaskUpdate for AddParticipant {
         if self.welcome.timer_id == timer_id {
             self.welcome.received = true;
             debug!(
-                "welcome completed on AddParticipan task, timer id {}",
-                timer_id
+                %timer_id,
+                "welcome completed on AddParticipan task",
             );
             Ok(())
         } else if self.commit.timer_id == timer_id {
             self.commit.received = true;
             debug!(
-                "commit completed on AddParticipan task, timer id {}",
-                timer_id
+                %timer_id,
+                "commit completed on AddParticipan task",
             );
             Ok(())
         } else {
-            Err(SessionError::ModeratorTask(
-                "unexpected timer id".to_string(),
-            ))
+            Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id))
         }
     }
 
@@ -321,8 +315,8 @@ impl TaskUpdate for RemoveParticipant {
 
     fn leave_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
         debug!(
-            "start leave on RemoveParticipant task, timer id {}",
-            timer_id
+            %timer_id,
+            "start leave on RemoveParticipant task",
         );
         self.leave.received = false;
         self.leave.timer_id = timer_id;
@@ -333,8 +327,8 @@ impl TaskUpdate for RemoveParticipant {
         if self.leave.timer_id == timer_id {
             self.leave.received = true;
             debug!(
-                "leave completed on RemoveParticipant task, timer id {}",
-                timer_id
+                %timer_id,
+                "leave completed on RemoveParticipant task",
             );
 
             // Signal success to the ack notifier if present (remove operation complete)
@@ -344,9 +338,7 @@ impl TaskUpdate for RemoveParticipant {
 
             Ok(())
         } else {
-            Err(SessionError::ModeratorTask(
-                "unexpected timer id".to_string(),
-            ))
+            Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id))
         }
     }
 
@@ -356,8 +348,8 @@ impl TaskUpdate for RemoveParticipant {
 
     fn commit_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
         debug!(
-            "start commit on RemoveParticipanMls task, timer id {}",
-            timer_id
+            %timer_id,
+            "start commit on RemoveParticipanMls task",
         );
         self.commit.received = false;
         self.commit.timer_id = timer_id;
@@ -372,14 +364,12 @@ impl TaskUpdate for RemoveParticipant {
         if self.commit.timer_id == timer_id {
             self.commit.received = true;
             debug!(
-                "commit completed on RemoveParticipanMls task, timer id {}",
-                timer_id
+                %timer_id,
+                "commit completed on RemoveParticipanMls task",
             );
             Ok(())
         } else {
-            Err(SessionError::ModeratorTask(
-                "unexpected timer id".to_string(),
-            ))
+            Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id))
         }
     }
 
@@ -434,7 +424,7 @@ impl TaskUpdate for NotifyParticipants {
     }
 
     fn commit_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        debug!("start notify participants task, timer id {}", timer_id);
+        debug!(%timer_id, "start notify participants task");
         self.notify.received = false;
         self.notify.timer_id = timer_id;
         Ok(())
@@ -448,8 +438,8 @@ impl TaskUpdate for NotifyParticipants {
         if self.notify.timer_id == timer_id {
             self.notify.received = true;
             debug!(
-                "notify participants completed on NotifyParticipants task, timer id {}",
-                timer_id
+                %timer_id,
+                "notify participants completed on NotifyParticipants task",
             );
 
             // Signal success to the ack notifier if present (notify operation complete)
@@ -459,9 +449,7 @@ impl TaskUpdate for NotifyParticipants {
 
             Ok(())
         } else {
-            Err(SessionError::ModeratorTask(
-                "unexpected timer id".to_string(),
-            ))
+            Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id))
         }
     }
 
@@ -509,8 +497,8 @@ impl TaskUpdate for UpdateParticipant {
 
     fn commit_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
         debug!(
-            "start commit on UpdateParticipanMls task, timer id {}",
-            timer_id
+            %timer_id,
+            "start commit on UpdateParticipanMls task",
         );
         self.commit.received = false;
         self.commit.timer_id = timer_id;
@@ -518,9 +506,8 @@ impl TaskUpdate for UpdateParticipant {
     }
 
     fn proposal_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        debug!(
-            "start proposal on UpdateParticipanMls task, timer id {}",
-            timer_id
+        debug!(%timer_id,
+            "start proposal on UpdateParticipanMls task",
         );
         self.proposal.received = false;
         self.proposal.timer_id = timer_id;
@@ -531,21 +518,19 @@ impl TaskUpdate for UpdateParticipant {
         if self.proposal.timer_id == timer_id {
             self.proposal.received = true;
             debug!(
-                "proposal completed on UpdateParticipanMls task, timer id {}",
-                timer_id
+                %timer_id,
+                "proposal completed on UpdateParticipanMls task",
             );
             Ok(())
         } else if self.commit.timer_id == timer_id {
             self.commit.received = true;
             debug!(
-                "commit completed on UpdateParticipanMls task, timer id {}",
-                timer_id
+                %timer_id,
+                "commit completed on UpdateParticipanMls task",
             );
             Ok(())
         } else {
-            Err(SessionError::ModeratorTask(
-                "unexpected timer id".to_string(),
-            ))
+            Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id))
         }
     }
 
@@ -556,115 +541,203 @@ impl TaskUpdate for UpdateParticipant {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use tracing_test::traced_test;
 
-    use super::*;
+    #[derive(Debug)]
+    enum StepExpectation {
+        Ok,
+        UnexpectedTimerId(u32),
+        UnsupportedPhase,
+    }
 
-    #[test]
-    #[traced_test]
-    fn test_add_participant() {
-        let mut task = ModeratorTask::Add(AddParticipant::default());
-        assert!(!task.task_complete());
+    struct Step {
+        name: &'static str,
+        action: Box<dyn Fn(&mut ModeratorTask) -> Result<(), SessionError>>,
+        expectation: StepExpectation,
+        expect_complete: bool,
+    }
 
-        let timer_id = 10;
-        task.discovery_start(timer_id)
-            .expect("error on discovery start");
-        assert!(!task.task_complete());
+    impl Step {
+        fn ok<F: 'static + Fn(&mut ModeratorTask) -> Result<(), SessionError>>(
+            name: &'static str,
+            f: F,
+            expect_complete: bool,
+        ) -> Self {
+            Step {
+                name,
+                action: Box::new(f),
+                expectation: StepExpectation::Ok,
+                expect_complete,
+            }
+        }
+        fn unexpected_timer<F: 'static + Fn(&mut ModeratorTask) -> Result<(), SessionError>>(
+            name: &'static str,
+            f: F,
+            id: u32,
+            expect_complete: bool,
+        ) -> Self {
+            Step {
+                name,
+                action: Box::new(f),
+                expectation: StepExpectation::UnexpectedTimerId(id),
+                expect_complete,
+            }
+        }
+        fn unsupported<F: 'static + Fn(&mut ModeratorTask) -> Result<(), SessionError>>(
+            name: &'static str,
+            f: F,
+            expect_complete: bool,
+        ) -> Self {
+            Step {
+                name,
+                action: Box::new(f),
+                expectation: StepExpectation::UnsupportedPhase,
+                expect_complete,
+            }
+        }
+    }
 
-        let mut res = task.discovery_complete(timer_id + 1);
-        assert_eq!(
-            res,
-            Err(SessionError::ModeratorTask(
-                "unexpected timer id".to_string(),
-            ))
-        );
-
-        res = task.leave_start(timer_id);
-        assert_eq!(res, Err(unsupported_phase()));
-
-        task.discovery_complete(timer_id)
-            .expect("error on discovery complete");
-        assert!(!task.task_complete());
-
-        task.join_start(timer_id + 1).expect("error on join start");
-        assert!(!task.task_complete());
-
-        task.join_complete(timer_id + 1)
-            .expect("error on join complete");
-        assert!(!task.task_complete());
-
-        task.welcome_start(timer_id + 2)
-            .expect("error on welcome start");
-        assert!(!task.task_complete());
-
-        task.commit_start(timer_id + 3)
-            .expect("error on commit start");
-        assert!(!task.task_complete());
-
-        task.update_phase_completed(timer_id + 2)
-            .expect("error mls complete (welcome)");
-        assert!(!task.task_complete());
-
-        task.update_phase_completed(timer_id + 3)
-            .expect("error mls complete (commit)");
-        assert!(task.task_complete());
+    fn run_scenario(mut task: ModeratorTask, steps: Vec<Step>) {
+        assert!(!task.task_complete(), "task should start incomplete");
+        for (i, step) in steps.into_iter().enumerate() {
+            let res = (step.action)(&mut task);
+            match step.expectation {
+                StepExpectation::Ok => {
+                    if let Err(e) = res {
+                        panic!("step {} ({}) expected Ok, got Err {:?}", i, step.name, e);
+                    }
+                }
+                StepExpectation::UnexpectedTimerId(expected_id) => match res {
+                    Err(SessionError::ModeratorTaskUnexpectedTimerId(actual_id)) => {
+                        assert_eq!(
+                            actual_id, expected_id,
+                            "step {} ({}) unexpected timer id mismatch",
+                            i, step.name
+                        );
+                    }
+                    other => panic!(
+                        "step {} ({}) expected ModeratorTaskUnexpectedTimerId({}), got {:?}",
+                        i, step.name, expected_id, other
+                    ),
+                },
+                StepExpectation::UnsupportedPhase => match res {
+                    Err(SessionError::ModeratorTaskUnsupportedPhase) => {}
+                    other => {
+                        panic!(
+                            "step {} ({}) expected ModeratorTaskUnsupportedPhase, got {:?}",
+                            i, step.name, other
+                        );
+                    }
+                },
+            }
+            assert_eq!(
+                task.task_complete(),
+                step.expect_complete,
+                "step {} ({}) completion mismatch",
+                i,
+                step.name
+            );
+        }
     }
 
     #[test]
     #[traced_test]
-    fn test_remove_participant() {
-        let mut task = ModeratorTask::Remove(RemoveParticipant::default());
-        assert!(!task.task_complete());
-
-        let timer_id = 10;
-        task.commit_start(timer_id).expect("error on commit start");
-        assert!(!task.task_complete());
-
-        task.update_phase_completed(timer_id)
-            .expect("error on commit completed");
-        assert!(!task.task_complete());
-
-        task.leave_start(timer_id + 1)
-            .expect("error on leave start");
-        assert!(!task.task_complete());
-
-        let mut res = task.leave_complete(timer_id + 2);
-        assert_eq!(
-            res,
-            Err(SessionError::ModeratorTask(
-                "unexpected timer id".to_string(),
-            ))
+    fn test_add_participant_scenario() {
+        let base = 10;
+        run_scenario(
+            ModeratorTask::Add(AddParticipant::default()),
+            vec![
+                Step::ok("discovery_start", move |t| t.discovery_start(base), false),
+                Step::unexpected_timer(
+                    "discovery_complete_wrong",
+                    move |t| t.discovery_complete(base + 1),
+                    base + 1,
+                    false,
+                ),
+                Step::unsupported(
+                    "leave_start_unsupported",
+                    move |t| t.leave_start(base),
+                    false,
+                ),
+                Step::ok(
+                    "discovery_complete_ok",
+                    move |t| t.discovery_complete(base),
+                    false,
+                ),
+                Step::ok("join_start", move |t| t.join_start(base + 1), false),
+                Step::ok("join_complete", move |t| t.join_complete(base + 1), false),
+                Step::ok("welcome_start", move |t| t.welcome_start(base + 2), false),
+                Step::ok("commit_start", move |t| t.commit_start(base + 3), false),
+                Step::ok(
+                    "welcome_phase_completed",
+                    move |t| t.update_phase_completed(base + 2),
+                    false,
+                ),
+                Step::ok(
+                    "commit_phase_completed",
+                    move |t| t.update_phase_completed(base + 3),
+                    true,
+                ),
+            ],
         );
-
-        res = task.discovery_start(timer_id);
-        assert_eq!(res, Err(unsupported_phase()));
-
-        task.leave_complete(timer_id + 1)
-            .expect("error on leave complete");
-        assert!(task.task_complete());
     }
 
     #[test]
     #[traced_test]
-    fn test_update_participant_mls() {
-        let mut task = ModeratorTask::Update(UpdateParticipant::default());
-        assert!(!task.task_complete());
+    fn test_remove_participant_scenario() {
+        let base = 10;
+        run_scenario(
+            ModeratorTask::Remove(RemoveParticipant::default()),
+            vec![
+                Step::ok("commit_start", move |t| t.commit_start(base), false),
+                Step::ok(
+                    "commit_completed",
+                    move |t| t.update_phase_completed(base),
+                    false,
+                ),
+                Step::ok("leave_start", move |t| t.leave_start(base + 1), false),
+                Step::unexpected_timer(
+                    "leave_complete_wrong",
+                    move |t| t.leave_complete(base + 2),
+                    base + 2,
+                    false,
+                ),
+                Step::unsupported(
+                    "discovery_start_unsupported",
+                    move |t| t.discovery_start(base),
+                    false,
+                ),
+                Step::ok(
+                    "leave_complete_ok",
+                    move |t| t.leave_complete(base + 1),
+                    true,
+                ),
+            ],
+        );
+    }
 
-        let timer_id = 10;
-        task.commit_start(timer_id).expect("error on commit start");
-        assert!(!task.task_complete());
-
-        task.update_phase_completed(timer_id)
-            .expect("error on commit completed");
-        assert!(!task.task_complete());
-
-        task.proposal_start(timer_id)
-            .expect("error on proposal completed");
-        assert!(!task.task_complete());
-
-        task.update_phase_completed(timer_id)
-            .expect("error on proposal completed");
-        assert!(task.task_complete());
+    #[test]
+    #[traced_test]
+    fn test_update_participant_mls_scenario() {
+        let base = 10;
+        run_scenario(
+            ModeratorTask::Update(UpdateParticipant::default()),
+            vec![
+                Step::ok("commit_start", move |t| t.commit_start(base), false),
+                Step::ok(
+                    "commit_completed",
+                    move |t| t.update_phase_completed(base),
+                    false,
+                ),
+                Step::ok("proposal_start", move |t| t.proposal_start(base), false),
+                Step::ok(
+                    "proposal_completed",
+                    move |t| t.update_phase_completed(base),
+                    true,
+                ),
+            ],
+        );
     }
 
     #[test]
@@ -678,15 +751,10 @@ mod tests {
         assert!(!task.task_complete());
 
         let mut res = task.update_phase_completed(timer_id + 1);
-        assert_eq!(
-            res,
-            Err(SessionError::ModeratorTask(
-                "unexpected timer id".to_string(),
-            ))
-        );
+        assert!(res.is_err_and(|e| matches!(e, SessionError::ModeratorTaskUnexpectedTimerId(_))));
 
         res = task.discovery_start(timer_id);
-        assert_eq!(res, Err(unsupported_phase()));
+        assert!(res.is_err_and(|e| matches!(e, SessionError::ModeratorTaskUnsupportedPhase)));
 
         task.update_phase_completed(timer_id)
             .expect("error on notify completed");

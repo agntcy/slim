@@ -12,8 +12,11 @@ mod file;
 
 #[derive(Error, Debug)]
 pub enum ProviderError {
+    // Lookup / resolution
     #[error("not found")]
     NotFound,
+
+    // Unknown / catch-all
     #[error("unknown error")]
     Unknown,
 }
@@ -108,7 +111,7 @@ mod tests {
 
         let testdata_path: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata");
 
-        debug!("testdata_path: {}", testdata_path);
+        debug!(%testdata_path);
 
         // set an env variable to test
         std::env::set_var("HOME", "/home/user");
