@@ -109,6 +109,8 @@ pub enum AuthError {
     JwksCacheExpired { issuer: String },
 
     // SPIFFE / SPIRE integration
+    #[error("spire integration is not supported on Windows")]
+    SpireUnsupportedOnWindows,
     #[cfg(not(target_family = "windows"))]
     #[error("serde error while encoding audience: {source}")]
     SpiffeCustomClaimsSerialize { source: serde_json::Error },
