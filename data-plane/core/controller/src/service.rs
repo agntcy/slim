@@ -45,13 +45,8 @@ use slim_datapath::tables::SubscriptionTable;
 type TxChannel = mpsc::Sender<Result<ControlMessage, Status>>;
 type TxChannels = HashMap<String, TxChannel>;
 
-/// The name used as the source for controller-originated messages.
-pub static CONTROLLER_SOURCE_NAME: std::sync::LazyLock<slim_datapath::messages::Name> =
-    std::sync::LazyLock::new(|| {
-        slim_datapath::messages::Name::from_strings(["controller", "controller", "controller"])
-            .with_id(0)
-    });
-
+// Controller component
+const CONTROLLER_COMPONENT: &str = "controller";
 /// Maximum number of queued subscription notifications
 const MAX_QUEUED_NOTIFICATIONS: usize = 1000; // Prevent unbounded growth
 
@@ -83,6 +78,9 @@ pub struct ControlPlaneSettings {
 struct ControllerServiceInternal {
     /// ID of this SLIM instance
     id: ID,
+
+    /// controller name
+    controller_name: slim_datapath::messages::Name,
 
     /// optional group name
     group_name: Option<String>,
@@ -219,13 +217,20 @@ impl ControlPlane {
             .collect();
 
         let (signal, watch) = drain::channel();
-
+        let controller_name = Name::from_strings([
+            CONTROLLER_COMPONENT,
+            CONTROLLER_COMPONENT,
+            CONTROLLER_COMPONENT,
+        ])
+        .with_id(rand::random::<u64>());
+        debug!("create controller with name: {}", controller_name);
         ControlPlane {
             servers: config.servers,
             clients: config.clients,
             controller: ControllerService {
                 inner: Arc::new(ControllerServiceInternal {
                     id: config.id,
+                    controller_name,
                     group_name: config.group_name,
                     message_processor: config.message_processor,
                     connections: Arc::new(parking_lot::RwLock::new(HashMap::new())),
@@ -333,20 +338,16 @@ impl ControlPlane {
 
         let clients = self.clients.clone();
         let controller = self.controller.clone();
-        debug!(
-            "LISTEN: controller Arc pointer: {:p}",
-            Arc::as_ptr(&controller.inner)
-        );
 
         // Send subscription to data-plane to receive messages for the controller source name
+        let controller_name = self.controller.inner.controller_name.clone();
         let subscribe_msg = DataPlaneMessage::builder()
-            .source(CONTROLLER_SOURCE_NAME.clone())
-            .destination(CONTROLLER_SOURCE_NAME.clone())
-            .identity(CONTROLLER_SOURCE_NAME.to_string())
+            .source(controller_name.clone())
+            .destination(controller_name.clone())
+            .identity(controller_name.to_string())
             .build_subscribe()
             .unwrap();
 
-        // Send the subscribe message to the data plane
         controller
             .inner
             .tx_slim
@@ -360,16 +361,9 @@ impl ControlPlane {
         // Get a drain watch clone
         let watch = self.controller.drain_watch()?;
 
+        debug!("Starting data plane listener: {}", controller_name);
         tokio::spawn(async move {
             let mut drain_fut = std::pin::pin!(watch.signaled());
-            debug!(
-                "SPAWN: controller Arc pointer: {:p}",
-                Arc::as_ptr(&controller.inner)
-            );
-            debug!(
-                "SPAWN: message_id_map Arc pointer: {:p}",
-                Arc::as_ptr(&controller.inner.message_id_map)
-            );
             loop {
                 tokio::select! {
                     next = rx.recv() => {
@@ -386,35 +380,8 @@ impl ControlPlane {
                                                 controller.handle_unsubscribe_message(msg.get_dst(), &clients).await;
                                             }
                                             Publish(_) => {
-                                                debug!("Send publish to control plane for message: {:?}", msg);
-                                                match msg.get_session_message_type() {
-                                                    ProtoSessionMessageType::GroupAck => {
-                                                        debug!("Send groupack to control plane for message): {:?}", msg);
-                                                        debug!("Processing GroupAck for message ID: {:?}", controller.inner.message_id_map.read());
-
-                                                        let original_message_id = controller.inner.message_id_map.write().remove(&msg.get_id());
-                                                        match original_message_id {
-                                                            Some(id) => {
-                                                                debug!("Received GroupAck for message ID: {}", id);
-                                                                let ack = Ack {
-                                                                    original_message_id: id,
-                                                                    success: true,
-                                                                    messages: vec![msg.get_id().to_string()],
-                                                                };
-
-                                                                let reply = ControlMessage {
-                                                                    message_id: uuid::Uuid::new_v4().to_string(),
-                                                                    payload: Some(Payload::Ack(ack)),
-                                                                };
-
-                                                                controller.send_or_queue_notification(reply, &clients).await;
-                                                            }
-                                                            None => {
-                                                                debug!("Received GroupAck for unknown message ID: {}", msg.get_id());
-                                                            }
-                                                        }
-                                                    }
-                                                    _ => {}
+                                                if msg.get_session_message_type() == ProtoSessionMessageType::GroupAck {
+                                                    controller.handle_group_ack_message(msg.get_id(), &clients).await;
                                                 }
                                             }
                                         }
@@ -716,14 +683,6 @@ impl ControllerService {
         msg: ControlMessage,
         tx: &mpsc::Sender<Result<ControlMessage, Status>>,
     ) -> Result<(), ControllerError> {
-        debug!(
-            "HANDLE: controller Arc pointer: {:p}",
-            Arc::as_ptr(&self.inner)
-        );
-        debug!(
-            "HANDLE: message_id_map Arc pointer: {:p}",
-            Arc::as_ptr(&self.inner.message_id_map)
-        );
         match msg.payload {
             Some(ref payload) => {
                 match payload {
@@ -1063,8 +1022,9 @@ impl ControllerService {
                             } else {
                                 let channel_name = get_name_from_string(&req.channel_name)?;
                                 let new_msg_id = rand::random::<u32>();
+                                let controller_name = self.inner.controller_name.clone();
                                 let creation_msg = new_channel_message(
-                                    &CONTROLLER_SOURCE_NAME,
+                                    &controller_name,
                                     &moderator_name,
                                     &channel_name,
                                     new_msg_id,
@@ -1076,23 +1036,10 @@ impl ControllerService {
                                     error!(error = %e.chain(), "failed to send channel creation");
                                     success = false;
                                 } else {
-                                    debug!("channel creation message sent successfully");
-                                    debug!(
-                                        "storing mapping of msg id {} to {}",
-                                        new_msg_id, msg.message_id
-                                    );
-                                    debug!(
-                                        "current message id map: {:?}",
-                                        self.inner.message_id_map.read()
-                                    );
                                     self.inner
                                         .message_id_map
                                         .write()
                                         .insert(new_msg_id, msg.message_id.clone());
-                                    debug!(
-                                        "updated message id map: {:?}",
-                                        self.inner.message_id_map.read()
-                                    );
                                 }
                             }
                         } else {
@@ -1130,8 +1077,9 @@ impl ControllerService {
                             } else {
                                 let channel_name = get_name_from_string(&req.channel_name)?;
                                 let new_msg_id = rand::random::<u32>();
+                                let controller_name = self.inner.controller_name.clone();
                                 let delete_msg = delete_channel_message(
-                                    &CONTROLLER_SOURCE_NAME,
+                                    &controller_name,
                                     &moderator_name,
                                     &channel_name,
                                     new_msg_id,
@@ -1189,8 +1137,9 @@ impl ControllerService {
                                 let channel_name = get_name_from_string(&req.channel_name)?;
                                 let participant_name = get_name_from_string(&req.participant_name)?;
                                 let new_msg_id = rand::random::<u32>();
+                                let controller_name = self.inner.controller_name.clone();
                                 let invite_msg = invite_participant_message(
-                                    &CONTROLLER_SOURCE_NAME,
+                                    &controller_name,
                                     &moderator_name,
                                     &participant_name,
                                     &channel_name,
@@ -1245,8 +1194,9 @@ impl ControllerService {
                                 let channel_name = get_name_from_string(&req.channel_name)?;
                                 let participant_name = get_name_from_string(&req.participant_name)?;
                                 let new_msg_id = rand::random::<u32>();
+                                let controller_name = self.inner.controller_name.clone();
                                 let remove_msg = remove_participant_message(
-                                    &CONTROLLER_SOURCE_NAME,
+                                    &controller_name,
                                     &moderator_name,
                                     &participant_name,
                                     &channel_name,
@@ -1327,7 +1277,7 @@ impl ControllerService {
             })),
         };
 
-        return self.send_or_queue_notification(ctrl, &clients).await;
+        return self.send_or_queue_notification(ctrl, clients).await;
     }
 
     async fn handle_unsubscribe_message(&self, dst: Name, clients: &[ClientConfig]) {
@@ -1354,7 +1304,31 @@ impl ControllerService {
             })),
         };
 
-        return self.send_or_queue_notification(ctrl, &clients).await;
+        return self.send_or_queue_notification(ctrl, clients).await;
+    }
+
+    async fn handle_group_ack_message(&self, msg_id: u32, clients: &[ClientConfig]) {
+        let original_message_id = self.inner.message_id_map.write().remove(&msg_id);
+        match original_message_id {
+            Some(id) => {
+                debug!("Received GroupAck for message ID: {}", id);
+                let ack = Ack {
+                    original_message_id: id,
+                    success: true,
+                    messages: vec![msg_id.to_string()],
+                };
+
+                let reply = ControlMessage {
+                    message_id: uuid::Uuid::new_v4().to_string(),
+                    payload: Some(Payload::Ack(ack)),
+                };
+
+                self.send_or_queue_notification(reply, clients).await;
+            }
+            None => {
+                debug!("Received GroupAck for unknown message ID: {}", msg_id);
+            }
+        }
     }
 
     /// Send a control message to SLIM.
