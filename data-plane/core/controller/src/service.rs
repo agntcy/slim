@@ -8,6 +8,7 @@ use std::time::Duration;
 use std::vec;
 
 use display_error_chain::ErrorChainExt;
+use slim_auth::metadata::MetadataValue;
 use slim_config::component::id::ID;
 use slim_config::grpc::server::ServerConfig;
 use tokio::sync::mpsc;
@@ -20,7 +21,7 @@ use tracing::{debug, error, info};
 use crate::api::proto::api::v1::control_message::Payload;
 use crate::api::proto::api::v1::controller_service_server::ControllerServiceServer;
 use crate::api::proto::api::v1::{
-    self, ConnectionListResponse, ConnectionType, SubscriptionListResponse,
+    self, ConnectionDetails, ConnectionListResponse, ConnectionType, SubscriptionListResponse,
 };
 use crate::api::proto::api::v1::{
     Ack, ConnectionEntry, ControlMessage, SubscriptionEntry,
@@ -69,6 +70,9 @@ pub struct ControlPlaneSettings {
     pub auth_provider: Option<AuthProvider>,
     /// Optional authentication verifier
     pub auth_verifier: Option<AuthVerifier>,
+    /// array of connection details used by to control
+    /// plane to store the connection settings (e.g., TLS settings).
+    pub connection_details: Vec<ConnectionDetails>,
 }
 
 /// Inner structure for the controller service
@@ -108,6 +112,9 @@ struct ControllerServiceInternal {
 
     /// queue for pending subscription notifications when connections are down
     pending_notifications: Arc<parking_lot::Mutex<Vec<ControlMessage>>>,
+
+    /// connection details used by control plane to store connection settings
+    connection_details: Vec<ConnectionDetails>,
 }
 
 #[derive(Clone)]
@@ -146,7 +153,7 @@ impl Drop for ControlPlane {
     }
 }
 
-/*fn from_server_config(server_config: &ServerConfig) -> ConnectionDetails {
+pub(crate) fn from_server_config(server_config: &ServerConfig) -> ConnectionDetails {
     let group_name = server_config
         .metadata
         .as_ref()
@@ -178,7 +185,7 @@ impl Drop for ControlPlane {
         local_endpoint,
         external_endpoint,
     }
-}*/
+}
 
 /// ControlPlane implements the service trait for the controller service.
 impl ControlPlane {
@@ -219,6 +226,7 @@ impl ControlPlane {
                     auth_provider: config.auth_provider,
                     _auth_verifier: config.auth_verifier,
                     pending_notifications: Arc::new(parking_lot::Mutex::new(Vec::new())),
+                    connection_details: config.connection_details,
                 }),
             },
             drain_signal: parking_lot::RwLock::new(Some(signal)),
@@ -1345,7 +1353,7 @@ impl ControllerService {
                 payload: Some(Payload::RegisterNodeRequest(v1::RegisterNodeRequest {
                     node_id: this.inner.id.to_string(),
                     group_name: this.inner.group_name.clone(),
-                    connection_details: vec![],
+                    connection_details: this.inner.connection_details.clone(),
                 })),
             };
 
@@ -1561,6 +1569,7 @@ mod tests {
             auth_verifier: Some(AuthVerifier::SharedSecret(
                 SharedSecret::new("server", TEST_VALID_SECRET).unwrap(),
             )),
+            connection_details: vec![from_server_config(&server_config)],
         });
 
         let control_plane_client = ControlPlane::new(ControlPlaneSettings {
@@ -1575,6 +1584,7 @@ mod tests {
             auth_verifier: Some(AuthVerifier::SharedSecret(
                 SharedSecret::new("client", TEST_VALID_SECRET).unwrap(),
             )),
+            connection_details: vec![],
         });
 
         (control_plane_server, control_plane_client, client_config)

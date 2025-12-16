@@ -15,7 +15,7 @@ use slim_config::grpc::server::ServerConfig;
 use slim_datapath::message_processing::MessageProcessor;
 
 use crate::errors::ControllerError;
-use crate::service::{ControlPlane, ControlPlaneSettings};
+use crate::service::{ControlPlane, ControlPlaneSettings, from_server_config};
 
 #[derive(Default, Debug, Clone, Deserialize, PartialEq, serde::Serialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
@@ -148,9 +148,16 @@ impl Config {
         id: ID,
         group_name: Option<String>,
         message_processor: Arc<MessageProcessor>,
+        // list of server configurations for the dataplane services
+        // use to extract the information about the connection types that
+        // is required to connect to the node (e.g., TLS settings). This info
+        // are used by the control plane.
+        dataplane_servers: &[ServerConfig],
     ) -> ControlPlane {
         let auth_provider = self.get_token_provider_auth();
         let auth_verifier = self.get_token_verifier_auth();
+
+        let connection_details = dataplane_servers.iter().map(from_server_config).collect();
 
         ControlPlane::new(ControlPlaneSettings {
             id,
@@ -160,6 +167,7 @@ impl Config {
             message_processor,
             auth_provider,
             auth_verifier,
+            connection_details,
         })
     }
 }
@@ -442,7 +450,8 @@ mod tests {
         let group_name = Some("test-group".to_string());
         let message_processor = Arc::new(MessageProcessor::new());
 
-        let _control_plane = config.into_service(id, group_name, message_processor);
+        let _control_plane =
+            config.into_service(id, group_name, message_processor, &[server_config]);
     }
 
     #[test]

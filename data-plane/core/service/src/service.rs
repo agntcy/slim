@@ -232,6 +232,7 @@ impl Service {
             self.id.clone(),
             self.config.group_name.clone(),
             self.message_processor.clone(),
+            self.config.dataplane_servers(),
         );
 
         // run controller service
