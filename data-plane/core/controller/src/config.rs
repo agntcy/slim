@@ -463,7 +463,6 @@ mod tests {
                 data: "test-secret".to_string(),
             };
             let json = serde_json::to_string(&auth).unwrap();
-            println!("Serialized JSON: {}", json);
             assert!(json.contains("shared_secret"));
             assert!(json.contains("test-secret"));
         }

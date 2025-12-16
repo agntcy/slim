@@ -959,7 +959,6 @@ mod tests {
         let result = ctx
             .publish_to_async(message_ctx, b"reply".to_vec(), None, None)
             .await;
-        println!("Result: {:?}", result);
         assert!(result.is_err_and(|e| {
             if let crate::adapter::SlimError::SessionError { message } = e {
                 message.contains("closed")
@@ -1070,7 +1069,6 @@ mod tests {
         let (ctx, _tx) = make_context();
 
         let result = ctx.get_message_async(Some(10)).await;
-        println!("Result: {:?}", result);
         assert!(result.is_err_and(|e| {
             if let crate::adapter::SlimError::SessionError { message } = e {
                 message.contains("receive timeout")
@@ -1086,7 +1084,6 @@ mod tests {
         drop(tx);
 
         let result = ctx.get_message_async(Some(100)).await;
-        println!("Result: {:?}", result);
         assert!(result.is_err_and(|e| matches!(e, crate::adapter::SlimError::SessionError { .. })));
     }
 

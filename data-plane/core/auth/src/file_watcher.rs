@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use display_error_chain::ErrorChainExt;
 use notify::event::ModifyKind;
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::Path;
@@ -65,7 +66,7 @@ impl FileWatcher {
                                             }
                                         }
                                     }
-                                    Err(e) => println!("watch error: {:?}", e),
+                                    Err(e) => tracing::error!(error = %e.chain(), "watch error"),
                                 }
                             }
                             None => {

@@ -899,7 +899,6 @@ mod metadata_tests {
 
         let cfg = ClientConfig::with_endpoint("http://localhost:1234").with_metadata(md.clone());
         let s = serde_json::to_string(&cfg).expect("serialize");
-        println!("{}", s);
         let deser: ClientConfig = serde_json::from_str(&s).expect("deserialize");
         assert_eq!(deser.metadata, Some(md));
     }
