@@ -601,7 +601,7 @@ impl TryFrom<PyIdentityVerifier> for IdentityVerifier {
                 }
                 #[cfg(target_family = "windows")]
                 {
-                    let _ = (socket_path, target_spiffe_id);
+                    let _ = (socket_path, target_spiffe_id, jwt_audiences);
                     Err(AuthError::SpireUnsupportedOnWindows)
                 }
             }
