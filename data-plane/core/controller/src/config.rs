@@ -441,7 +441,6 @@ mod tests {
         let id = ID::new_with_name(Kind::new("slim").unwrap(), "test-instance").unwrap();
         let group_name = Some("test-group".to_string());
         let message_processor = Arc::new(MessageProcessor::new());
-        let servers = vec![server_config];
 
         let _control_plane = config.into_service(id, group_name, message_processor);
     }

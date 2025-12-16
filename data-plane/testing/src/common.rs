@@ -25,11 +25,13 @@ pub async fn run_slim_node() -> Result<(), String> {
         GrpcServerConfig::with_endpoint(&format!("0.0.0.0:{}", DEFAULT_DATAPLANE_PORT))
             .with_tls_settings(TlsServerConfig::default().with_insecure(true));
 
-    let controller_config = 
-    GrpcServerConfig::with_endpoint(&format!("0.0.0.0:{}", 46358))
-            .with_tls_settings(TlsServerConfig::default().with_insecure(true));
+    //let controller_config =
+    //GrpcServerConfig::with_endpoint(&format!("0.0.0.0:{}", 46358))
+    //        .with_tls_settings(TlsServerConfig::default().with_insecure(true));
 
-    let service_config = ServiceConfiguration::new().with_server(vec![dataplane_server_config]);
+    let service_config =
+        ServiceConfiguration::new().with_dataplane_server(vec![dataplane_server_config]);
+    //    .with_controlplane_server(vec![controller_config]);
 
     println!("!!!!!!!-----------------server config {:?}", service_config);
 
@@ -86,7 +88,7 @@ pub async fn create_and_subscribe_app(
         .map_err(|_| format!("Failed to run service for {}", name))?;
 
     let conn_id = svc
-        .get_connection_id(&svc.config().clients()[0].endpoint)
+        .get_connection_id(&svc.config().dataplane_clients()[0].endpoint)
         .ok_or(format!("Failed to get connection id for {}", name))?;
 
     app.subscribe(name, Some(conn_id))

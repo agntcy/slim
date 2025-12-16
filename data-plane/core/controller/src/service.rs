@@ -8,7 +8,6 @@ use std::time::Duration;
 use std::vec;
 
 use display_error_chain::ErrorChainExt;
-use slim_auth::metadata::MetadataValue;
 use slim_config::component::id::ID;
 use slim_config::grpc::server::ServerConfig;
 use tokio::sync::mpsc;
@@ -24,7 +23,7 @@ use crate::api::proto::api::v1::{
     self, ConnectionListResponse, ConnectionType, SubscriptionListResponse,
 };
 use crate::api::proto::api::v1::{
-    Ack, ConnectionDetails, ConnectionEntry, ControlMessage, SubscriptionEntry,
+    Ack, ConnectionEntry, ControlMessage, SubscriptionEntry,
     controller_service_client::ControllerServiceClient,
     controller_service_server::ControllerService as GrpcControllerService,
 };
@@ -147,7 +146,7 @@ impl Drop for ControlPlane {
     }
 }
 
-fn from_server_config(server_config: &ServerConfig) -> ConnectionDetails {
+/*fn from_server_config(server_config: &ServerConfig) -> ConnectionDetails {
     let group_name = server_config
         .metadata
         .as_ref()
@@ -179,7 +178,7 @@ fn from_server_config(server_config: &ServerConfig) -> ConnectionDetails {
         local_endpoint,
         external_endpoint,
     }
-}
+}*/
 
 /// ControlPlane implements the service trait for the controller service.
 impl ControlPlane {

@@ -60,22 +60,40 @@ impl ServiceConfiguration {
         ServiceConfiguration::default()
     }
 
-    pub fn with_server(mut self, server: Vec<ServerConfig>) -> Self {
+    pub fn with_dataplane_server(mut self, server: Vec<ServerConfig>) -> Self {
         self.dataplane.servers = server;
         self
     }
 
-    pub fn with_client(mut self, clients: Vec<ClientConfig>) -> Self {
+    pub fn with_dataplane_client(mut self, clients: Vec<ClientConfig>) -> Self {
         self.dataplane.clients = clients;
         self
     }
 
-    pub fn servers(&self) -> &[ServerConfig] {
+    pub fn dataplane_servers(&self) -> &[ServerConfig] {
         self.dataplane.servers.as_ref()
     }
 
-    pub fn clients(&self) -> &[ClientConfig] {
+    pub fn dataplane_clients(&self) -> &[ClientConfig] {
         &self.dataplane.clients
+    }
+
+    pub fn with_controlplane_server(mut self, server: Vec<ServerConfig>) -> Self {
+        self.controller.servers = server;
+        self
+    }
+
+    pub fn with_controlplane_client(mut self, clients: Vec<ClientConfig>) -> Self {
+        self.controller.clients = clients;
+        self
+    }
+
+    pub fn controlplane_servers(&self) -> &[ServerConfig] {
+        self.controller.servers.as_ref()
+    }
+
+    pub fn controlplane_clients(&self) -> &[ClientConfig] {
+        &self.controller.clients
     }
 
     pub fn build_server(&self, id: ID) -> Result<Service, ServiceError> {
@@ -127,8 +145,8 @@ impl std::fmt::Debug for Service {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Service")
             .field("id", &self.id)
-            .field("servers", &self.config.servers())
-            .field("clients", &self.config.clients())
+            .field("dataplane_servers", &self.config.dataplane_servers())
+            .field("dataplane_clients", &self.config.dataplane_clients())
             .field("group_name", &self.config.group_name)
             .field("controller", &self.config.controller)
             .finish()
@@ -187,17 +205,18 @@ impl Service {
     pub async fn run(&mut self) -> Result<(), ServiceError> {
         // Check that at least one client or server is configured
 
-        if self.config.servers().is_empty() && self.config.clients().is_empty() {
+        if self.config.dataplane_servers().is_empty() && self.config.dataplane_clients().is_empty()
+        {
             return Err(ServiceError::NoServerOrClientConfigured);
         }
 
         // Run servers
-        for server in self.config.servers().iter() {
+        for server in self.config.dataplane_servers().iter() {
             self.run_server(server).await?;
         }
 
         // Run clients
-        for client in self.config.clients() {
+        for client in self.config.dataplane_clients() {
             _ = self.connect(client).await?;
         }
 
@@ -463,8 +482,8 @@ mod tests {
     #[tokio::test]
     async fn test_service_configuration() {
         let config = ServiceConfiguration::new();
-        assert_eq!(config.servers(), &[]);
-        assert_eq!(config.clients(), &[]);
+        assert_eq!(config.dataplane_servers(), &[]);
+        assert_eq!(config.dataplane_clients(), &[]);
     }
 
     #[tokio::test]
@@ -473,7 +492,7 @@ mod tests {
         let tls_config = TlsServerConfig::new().with_insecure(true);
         let server_config =
             ServerConfig::with_endpoint("0.0.0.0:12345").with_tls_settings(tls_config);
-        let config = ServiceConfiguration::new().with_server([server_config].to_vec());
+        let config = ServiceConfiguration::new().with_dataplane_server([server_config].to_vec());
         let mut service = config
             .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test").unwrap())
             .unwrap();
@@ -502,7 +521,7 @@ mod tests {
         let tls_config = TlsServerConfig::new().with_insecure(true);
         let server_config =
             ServerConfig::with_endpoint("0.0.0.0:12346").with_tls_settings(tls_config);
-        let config = ServiceConfiguration::new().with_server([server_config].to_vec());
+        let config = ServiceConfiguration::new().with_dataplane_server([server_config].to_vec());
         let mut service = config
             .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test-disconnect").unwrap())
             .unwrap();
@@ -565,7 +584,7 @@ mod tests {
         let tls_config = TlsServerConfig::new().with_insecure(true);
         let server_config =
             ServerConfig::with_endpoint("0.0.0.0:12345").with_tls_settings(tls_config);
-        let config = ServiceConfiguration::new().with_server([server_config].to_vec());
+        let config = ServiceConfiguration::new().with_dataplane_server([server_config].to_vec());
         let service = config
             .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test").unwrap())
             .unwrap();
@@ -684,7 +703,7 @@ mod tests {
         let tls_config = TlsServerConfig::new().with_insecure(true);
         let server_config =
             ServerConfig::with_endpoint("0.0.0.0:12345").with_tls_settings(tls_config);
-        let config = ServiceConfiguration::new().with_server([server_config].to_vec());
+        let config = ServiceConfiguration::new().with_dataplane_server([server_config].to_vec());
         let service = config
             .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test").unwrap())
             .unwrap();
