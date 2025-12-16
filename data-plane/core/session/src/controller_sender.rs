@@ -431,7 +431,7 @@ impl ControllerSender {
                         .tx_session
                         .try_send(SessionMessage::ParticipantDisconnected { name: None })
                     {
-                        debug!(error = %e, "failed to send participant disconnected message");
+                        debug!(error = %e.chain(), "failed to send participant disconnected message");
                     }
                 }
             }
@@ -560,7 +560,7 @@ impl ControllerSender {
                                 name: Some(k.clone()),
                             })
                     {
-                        tracing::error!(error = %e.chain(), "failed to send participant disconnected message");
+                        debug!(error = %e.chain(), "failed to send participant disconnected message");
                     }
                     false // remove from missing_pings
                 } else {
