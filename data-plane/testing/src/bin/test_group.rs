@@ -38,9 +38,7 @@ async fn run_participant_task(name: Name) -> Result<(), ServiceError> {
     println!("Participant {} task starting...", name);
 
     let svc = build_client_service(DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID);
-    let (_app, mut rx, _conn_id, _svc) = create_and_subscribe_app(svc, &name)
-        .await
-        .map_err(ServiceError::ConnectionError)?;
+    let (_app, mut rx, _conn_id, _svc) = create_and_subscribe_app(svc, &name).await?;
 
     let moderator = Name::from_strings(["org", "ns", "moderator"]).with_id(1);
     let channel_name = Name::from_strings(["channel", "channel", "channel"]);

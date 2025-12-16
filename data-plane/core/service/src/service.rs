@@ -222,12 +222,12 @@ impl Service {
 
         // Controller service
         if self.config.controller.is_default() {
-            info!("no controller configuration provided, skipping controller startup");
+            debug!("no controller configuration provided, skipping controller startup");
             return Ok(());
         }
 
         // run the controller
-        tracing::warn!("starting controller service");
+        debug!("starting controller service");
         let mut controller = self.config.controller.into_service(
             self.id.clone(),
             self.config.group_name.clone(),

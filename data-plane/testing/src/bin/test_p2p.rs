@@ -83,9 +83,7 @@ async fn run_client_task(name: Name) -> Result<(), ServiceError> {
 
     let svc = build_client_service(DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID);
 
-    let (_app, mut rx, conn_id, _svc) = create_and_subscribe_app(svc, &name)
-        .await
-        .map_err(ServiceError::ConnectionError)?;
+    let (_app, mut rx, conn_id, _svc) = create_and_subscribe_app(svc, &name).await?;
 
     let name_clone = name.clone();
     loop {
