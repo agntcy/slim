@@ -222,7 +222,7 @@ impl Service {
 
         // Controller service
         if self.config.controller.is_default() {
-            debug!("no controller configuration provided, skipping controller startup");
+            info!("no controller configuration provided, skipping controller startup");
             return Ok(());
         }
 
@@ -489,6 +489,81 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
+    async fn test_service_skips_controller_when_config_is_default() {
+        // Create a service with only dataplane server config, no controller config
+        let tls_config = TlsServerConfig::new().with_insecure(true);
+        let server_config =
+            ServerConfig::with_endpoint("0.0.0.0:12347").with_tls_settings(tls_config);
+        let config = ServiceConfiguration::new().with_dataplane_server([server_config].to_vec());
+        let mut service = config
+            .build_server(
+                ID::new_with_name(Kind::new(KIND).unwrap(), "test-no-controller").unwrap(),
+            )
+            .unwrap();
+
+        // Run the service - should start dataplane but skip controller
+        service.run().await.expect("failed to run service");
+
+        // Wait a bit for logs to be generated
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Verify controller was skipped
+        assert!(logs_contain(
+            "no controller configuration provided, skipping controller startup"
+        ));
+        // Verify dataplane still started
+        assert!(logs_contain("dataplane server started"));
+
+        // Graceful shutdown
+        service
+            .shutdown()
+            .await
+            .expect("failed to shutdown service");
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_service_starts_controller_when_config_is_provided() {
+        // Create a service with both dataplane and controller configurations
+        let tls_config = TlsServerConfig::new().with_insecure(true);
+        let dataplane_server_config =
+            ServerConfig::with_endpoint("0.0.0.0:12348").with_tls_settings(tls_config.clone());
+        let controller_server_config =
+            ServerConfig::with_endpoint("0.0.0.0:12349").with_tls_settings(tls_config);
+
+        let config = ServiceConfiguration::new()
+            .with_dataplane_server(vec![dataplane_server_config])
+            .with_controlplane_server(vec![controller_server_config]);
+
+        let mut service = config
+            .build_server(
+                ID::new_with_name(Kind::new(KIND).unwrap(), "test-with-controller").unwrap(),
+            )
+            .unwrap();
+
+        // Run the service - should start both dataplane and controller
+        service.run().await.expect("failed to run service");
+
+        // Wait a bit for logs to be generated
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Verify controller was started (not skipped)
+        assert!(!logs_contain(
+            "no controller configuration provided, skipping controller startup"
+        ));
+        assert!(logs_contain("starting controller service"));
+        // Verify dataplane also started
+        assert!(logs_contain("dataplane server started"));
+
+        // Graceful shutdown
+        service
+            .shutdown()
+            .await
+            .expect("failed to shutdown service");
+    }
+
+    #[tokio::test]
+    #[traced_test]
     async fn test_service_build_server() {
         let tls_config = TlsServerConfig::new().with_insecure(true);
         let server_config =
@@ -504,7 +579,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // assert that the service is running
-        assert!(logs_contain("starting server main loop"));
+        assert!(logs_contain("dataplane server started"));
 
         // graceful shutdown
         service
@@ -512,7 +587,7 @@ mod tests {
             .await
             .expect("failed to shutdown service");
 
-        assert!(logs_contain("shutting down server"));
+        assert!(logs_contain("shutting down service"));
     }
 
     #[tokio::test]

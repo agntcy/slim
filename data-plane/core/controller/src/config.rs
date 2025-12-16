@@ -148,10 +148,9 @@ impl Config {
         id: ID,
         group_name: Option<String>,
         message_processor: Arc<MessageProcessor>,
-        // list of server configurations for the dataplane services
-        // use to extract the information about the connection types that
-        // is required to connect to the node (e.g., TLS settings). This info
-        // are used by the control plane.
+        // List of server configurations for the dataplane services.
+        // Used to extract connection type information required to connect to the node
+        // (e.g., TLS settings). This information is used by the control plane.
         dataplane_servers: &[ServerConfig],
     ) -> ControlPlane {
         let auth_provider = self.get_token_provider_auth();
