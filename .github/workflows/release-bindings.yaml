@@ -76,11 +76,39 @@ jobs:
       - name: Build library
         run: |
           task bindings:build:all TARGET=${{ matrix.platform.target }} PROFILE=release
+      - name: Rename artifacts
+        run: |
+          ls -lh ../../target/${{ matrix.platform.target }}/release/
+          
+          # Split target and use in filename
+          TARGET="${{ matrix.platform.target }}"
+          ARCH=$(echo "$TARGET" | cut -d'-' -f1)
+          OS=$(echo "$TARGET" | cut -d'-' -f3)
+          ABI=$(echo "$TARGET" | cut -d'-' -f4)
+          
+          echo "Architecture: $ARCH"
+          echo "OS: $OS"
+          echo "ABI: $ABI"
+
+          # Build the library name with arch_os_abi if ABI is present, otherwise arch_os
+          if [ -n "$ABI" ] && [ "$ABI" != "" ]; then
+            LIB_NAME="libslim_bindings_${ARCH}_${OS}_${ABI}"
+          else
+            LIB_NAME="libslim_bindings_${ARCH}_${OS}"
+          fi
+
+          for file in ../../target/${{ matrix.platform.target }}/release/libslim_bindings*; do
+            extension="${file##*.}"
+            mv "$file" "../../target/${{ matrix.platform.target }}/release/${LIB_NAME}.${extension}"
+          done
+
+          echo "📁 Renamed files:"
+          ls -lh ./target/${{ matrix.platform.target }}/release/libslim_bindings*
       - name: Upload libs
         uses: actions/upload-artifact@v4
         with:
           name: bindings-${{ matrix.platform.target }}
-          path: ./data-plane/target/${{ matrix.platform.target }}/release/libslim_bindings.*
+          path: ./data-plane/target/${{ matrix.platform.target }}/release/libslim_bindings*
 
   # ==========================================================================
   # Job 2: Generate and publish Go bindings
@@ -121,7 +149,6 @@ jobs:
           find ./artifacts -type f -ls
 
       - name: Generate Go bindings
-        working-directory: ./data-plane/bindings/go
         run: |
           task generate LIB_PATH=./artifacts/lib${{ env.LIBRARY_NAME }}_x86_64_musl.a
 
@@ -150,7 +177,7 @@ jobs:
           rm -rf ./${{ env.LIBRARY_NAME }}
 
           # Copy the generated package
-          cp -r ../generated-go-bindings/${{ env.LIBRARY_NAME }} ./
+          cp -r ../generated/${{ env.LIBRARY_NAME }} ./
 
           # Show what will be committed
           echo "📋 Files to be committed:"
