@@ -85,9 +85,6 @@ tasks:
       - echo "🦀 Building Rust bindings library..."
       - rustup target add {{.TARGET}}
       - |
-        # Export Zig path for cargo-zigbuild
-        export PATH="{{.ZIG_DIR}}:$PATH"
-
         ARGS=()
 
         # Depending on the target, we can either use cargo-zigbuild or regular cargo build
@@ -108,5 +105,5 @@ tasks:
         ARGS+=({{.RELEASE}})
 
         echo cargo ${ARGS[*]}
-        cargo "${ARGS[@]}"
+        PATH="{{.ZIG_DIR}}:$PATH" cargo "${ARGS[@]}"
       - echo "🦀 Rust bindings library built successfully."
