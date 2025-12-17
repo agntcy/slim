@@ -27,20 +27,23 @@ jobs:
   # Job 1: Build native libraries for all platforms
   # ==========================================================================
   build-libraries:
-    name: Build Libraries
+    name: Build ${{ matrix.target }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            lib_prefix: lib
             lib_ext: so
           - os: macos-latest
             target: x86_64-apple-darwin
+            lib_prefix: lib
             lib_ext: dylib
           - os: macos-latest
             target: aarch64-apple-darwin
+            lib_prefix: lib
             lib_ext: dylib
-          # TODO: Add other platforms as needed
 
     runs-on: ${{ matrix.os }}
 
@@ -48,28 +51,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # TODO: Implement actual build steps
-      # - name: Setup Rust
-      #   uses: ./.github/actions/setup-rust
-      #   with:
-      #     workspace: ./data-plane
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          workspace: ./data-plane
 
-      # - name: Add Rust target
-      #   run: rustup target add ${{ matrix.target }}
+      - name: Add Rust target
+        run: rustup target add ${{ matrix.target }}
 
-      # - name: Build library
-      #   working-directory: ./data-plane
-      #   run: cargo build --release --target ${{ matrix.target }} -p agntcy-slim-bindings
+      - name: Build library
+        working-directory: ./data-plane
+        run: cargo build --release --target ${{ matrix.target }} -p agntcy-slim-bindings
 
-      # - name: Upload artifact
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: lib-${{ matrix.target }}
-      #     path: ./data-plane/target/${{ matrix.target }}/release/lib${{ env.LIBRARY_NAME }}.${{ matrix.lib_ext }}
-      #     retention-days: 1
-
-      - name: Placeholder
-        run: echo "TODO - Build for ${{ matrix.target }}"
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: ./data-plane/target/${{ matrix.target }}/release/${{ matrix.lib_prefix }}${{ env.LIBRARY_NAME }}.${{ matrix.lib_ext }}
+          retention-days: 7
+          if-no-files-found: error
 
   # ==========================================================================
   # Job 2: Generate and publish Go bindings
