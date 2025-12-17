@@ -125,8 +125,6 @@ tasks:
         if [[ "{{.TARGET}}" == "" || "{{.TARGET}}" == "$(rustc -vV | sed -n 's|host: ||p')" ]]; then
           ARGS+=(
             "build"
-            "--target"
-            "{{.TARGET}}"
           )
         else
           ARGS+=(
