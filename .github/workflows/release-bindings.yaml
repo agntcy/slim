@@ -88,35 +88,29 @@ jobs:
         with:
           go-version: '1.22'
 
-      - name: Setup Rust
-        uses: ./.github/actions/setup-rust
-        with:
-          workspace: ./data-plane
-
       # Download all library artifacts
-      # TODO: Uncomment when build-libraries job is implemented
-      # - name: Download Linux x86_64 library
-      #   uses: actions/download-artifact@v4
-      #   with:
-      #     name: lib-x86_64-unknown-linux-gnu
-      #     path: ./artifacts/linux-x86_64
+      - name: Download Linux x86_64 library
+        uses: actions/download-artifact@v4
+        with:
+          name: x86_64-unknown-linux-gnu
+          path: ./artifacts/linux-x86_64
 
-      # - name: Download macOS x86_64 library
-      #   uses: actions/download-artifact@v4
-      #   with:
-      #     name: lib-x86_64-apple-darwin
-      #     path: ./artifacts/darwin-x86_64
+      - name: Download macOS x86_64 library
+        uses: actions/download-artifact@v4
+        with:
+          name: x86_64-apple-darwin
+          path: ./artifacts/darwin-x86_64
 
-      # - name: Download macOS arm64 library
-      #   uses: actions/download-artifact@v4
-      #   with:
-      #     name: lib-aarch64-apple-darwin
-      #     path: ./artifacts/darwin-arm64
+      - name: Download macOS arm64 library
+        uses: actions/download-artifact@v4
+        with:
+          name: aarch64-apple-darwin
+          path: ./artifacts/darwin-arm64
 
-      # For now, build the library locally for generating bindings
-      - name: Build library for binding generation
-        working-directory: ./data-plane
-        run: cargo build --release -p agntcy-slim-bindings
+      - name: List downloaded artifacts
+        run: |
+          echo "📦 Downloaded artifacts:"
+          find ./artifacts -type f -ls
 
       - name: Install uniffi-bindgen-go
         run: |
@@ -126,44 +120,37 @@ jobs:
         run: |
           mkdir -p ./generated-go-bindings
 
-          # Generate Go bindings from the library
+          # Generate Go bindings from the Linux library
+          # (uniffi-bindgen-go reads metadata from the .so file)
           uniffi-bindgen-go \
-            --library ./data-plane/target/release/lib${{ env.LIBRARY_NAME }}.so \
+            --library ./artifacts/linux-x86_64/lib${{ env.LIBRARY_NAME }}.so \
             --out-dir ./generated-go-bindings
 
-          echo "Generated files:"
+          echo "📁 Generated files:"
           find ./generated-go-bindings -type f
 
       - name: Prepare Go module
-        working-directory: ./generated-go-bindings
+        working-directory: ./generated-go-bindings/${{ env.LIBRARY_NAME }}
         run: |
           # Initialize Go module for the bindings package
-          cd ${{ env.LIBRARY_NAME }}
           go mod init github.com/${{ env.GO_BINDINGS_REPO }}/${{ env.LIBRARY_NAME }}
           go mod tidy || true
 
-          # Create a top-level go.mod for the repo
-          cd ..
-          cat > go.mod << 'EOF'
-          module github.com/${{ env.GO_BINDINGS_REPO }}
-
-          go 1.22
-          EOF
-
-      - name: Copy native libraries
+      - name: Organize native libraries
         run: |
-          # Create lib directories for each platform
-          mkdir -p ./generated-go-bindings/lib/linux-x86_64
-          mkdir -p ./generated-go-bindings/lib/darwin-x86_64
-          mkdir -p ./generated-go-bindings/lib/darwin-arm64
+          # Create platform-specific lib directories inside the Go package
+          LIBDIR="./generated-go-bindings/${{ env.LIBRARY_NAME }}/lib"
+          mkdir -p "$LIBDIR/linux-x86_64"
+          mkdir -p "$LIBDIR/darwin-x86_64"
+          mkdir -p "$LIBDIR/darwin-arm64"
 
-          # TODO: Copy from artifacts when build job is implemented
-          # cp ./artifacts/linux-x86_64/lib${{ env.LIBRARY_NAME }}.so ./generated-go-bindings/lib/linux-x86_64/
-          # cp ./artifacts/darwin-x86_64/lib${{ env.LIBRARY_NAME }}.dylib ./generated-go-bindings/lib/darwin-x86_64/
-          # cp ./artifacts/darwin-arm64/lib${{ env.LIBRARY_NAME }}.dylib ./generated-go-bindings/lib/darwin-arm64/
+          # Copy libraries from artifacts
+          cp ./artifacts/linux-x86_64/lib${{ env.LIBRARY_NAME }}.so "$LIBDIR/linux-x86_64/"
+          cp ./artifacts/darwin-x86_64/lib${{ env.LIBRARY_NAME }}.dylib "$LIBDIR/darwin-x86_64/"
+          cp ./artifacts/darwin-arm64/lib${{ env.LIBRARY_NAME }}.dylib "$LIBDIR/darwin-arm64/"
 
-          # For now, copy the locally built library
-          cp ./data-plane/target/release/lib${{ env.LIBRARY_NAME }}.so ./generated-go-bindings/lib/linux-x86_64/
+          echo "📦 Organized library structure:"
+          find "$LIBDIR" -type f -ls
 
       - name: Clone target repository
         run: |
@@ -172,14 +159,15 @@ jobs:
       - name: Update target repository
         working-directory: ./target-repo
         run: |
-          # Remove old generated files (keep .git and any non-generated files)
-          find . -maxdepth 1 -not -name '.git' -not -name '.' -exec rm -rf {} +
+          # Preserve .git directory and any manual files like LICENSE, README
+          # Remove only the generated package directory
+          rm -rf ./${{ env.LIBRARY_NAME }}
 
-          # Copy new generated files
-          cp -r ../generated-go-bindings/* .
+          # Copy the generated package
+          cp -r ../generated-go-bindings/${{ env.LIBRARY_NAME }} ./
 
           # Show what will be committed
-          echo "Files to be committed:"
+          echo "📋 Files to be committed:"
           git status
 
       - name: Commit and push
@@ -193,13 +181,18 @@ jobs:
 
           # Check if there are changes to commit
           if git diff --cached --quiet; then
-            echo "No changes to commit"
+            echo "✅ No changes to commit - bindings are up-to-date"
             exit 0
           fi
 
           git commit -m "Release ${{ inputs.version }}
 
-          Generated from https://github.com/${{ github.repository }}/commit/${{ github.sha }}"
+          Generated from https://github.com/${{ github.repository }}/commit/${{ github.sha }}
+
+          Platforms:
+          - linux/amd64 (x86_64-unknown-linux-gnu)
+          - darwin/amd64 (x86_64-apple-darwin)
+          - darwin/arm64 (aarch64-apple-darwin)"
 
           git tag -a "${{ inputs.version }}" -m "Release ${{ inputs.version }}"
 
@@ -213,8 +206,11 @@ jobs:
         working-directory: ./target-repo
         run: |
           echo "🔍 DRY RUN - Would commit the following changes:"
+          echo ""
           git status
           echo ""
-          echo "Generated files:"
-          find . -type f -not -path './.git/*' | head -50
-
+          echo "📁 Generated files:"
+          find ./${{ env.LIBRARY_NAME }} -type f | head -50
+          echo ""
+          echo "📦 Native libraries:"
+          find ./${{ env.LIBRARY_NAME }}/lib -type f -ls 2>/dev/null || echo "No lib directory"
