@@ -89,6 +89,10 @@ jobs:
     name: Release Go Bindings
     runs-on: ubuntu-latest
     needs: build-libraries
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./scripts
 
     steps:
       - name: Checkout source repo
@@ -109,7 +113,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           merge-multiple: true
-          path: ./artifacts/
+          path: ./data-plane/bindings/go/artifacts/
 
       - name: List downloaded artifacts
         run: |
@@ -119,10 +123,10 @@ jobs:
       - name: Generate Go bindings
         working-directory: ./data-plane/bindings/go
         run: |
-          task generate LIB_PATH=../artifacts/linux-x86_64/lib${{ env.LIBRARY_NAME }}.a
+          task generate LIB_PATH=./artifacts/lib${{ env.LIBRARY_NAME }}_x86_64_musl.a
 
           echo "📁 Generated files:"
-          find ../generated-go-bindings -type f
+          find ./generated -type f
 
       - name: Make sure generation did not modify source files
         run: |
@@ -133,22 +137,6 @@ jobs:
           else
             echo "✅ Generated Go bindings are up-to-date with committed files."
           fi
-
-      - name: Copy libraies
-        run: |
-          # Create platform-specific lib directories inside the Go package
-          LIBDIR="./generated-go-bindings/${{ env.LIBRARY_NAME }}/lib"
-          mkdir -p "$LIBDIR/linux-x86_64"
-          # mkdir -p "$LIBDIR/darwin-x86_64"  # TODO: re-enable
-          mkdir -p "$LIBDIR/darwin-arm64"
-
-          # Copy libraries from artifacts
-          cp ./artifacts/linux-x86_64/lib${{ env.LIBRARY_NAME }}.so "$LIBDIR/linux-x86_64/"
-          # cp ./artifacts/darwin-x86_64/lib${{ env.LIBRARY_NAME }}.dylib "$LIBDIR/darwin-x86_64/"  # TODO: re-enable
-          cp ./artifacts/darwin-arm64/lib${{ env.LIBRARY_NAME }}.dylib "$LIBDIR/darwin-arm64/"
-
-          echo "📦 Organized library structure:"
-          find "$LIBDIR" -type f -ls
 
       - name: Clone target repository
         run: |

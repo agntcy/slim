@@ -78,9 +78,9 @@ tasks:
     desc: Copy shared library to generated directory
     internal: true
     cmds:
-      - echo "📦 Copying static library..."
-      - cp "{{.LIB_PATH}} "generated/{{.LIB_NAME}}/" 2>/dev/null || true
-      - echo "✅ Library copied to generated/{{.LIB_NAME}}/"
+      - echo "📦 Copying static libraries..."
+      - find $(dirname {{.LIB_PATH}}) -type f -name "*{{.LIB_NAME}}*.a" -exec cp {} "generated/{{.LIB_NAME}}/" \;
+      - echo "✅ Libraries copied to generated/{{.LIB_NAME}}/"
     silent: true
 
   generate:
