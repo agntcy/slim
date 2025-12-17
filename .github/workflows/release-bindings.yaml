@@ -103,7 +103,7 @@ jobs:
           done
 
           echo "📁 Renamed files:"
-          ls -lh ./target/${{ matrix.platform.target }}/release/libslim_bindings*
+          ls -lh ../../target/${{ matrix.platform.target }}/release/libslim_bindings*
       - name: Upload libs
         uses: actions/upload-artifact@v4
         with:
