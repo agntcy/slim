@@ -141,5 +141,5 @@ tasks:
         )
 
         echo cargo ${ARGS[*]}
-        cargo "${ARGS[@]}"
+        PATH="{{.ZIG_DIR}}:$PATH" cargo "${ARGS[@]}"
       - echo "🦀 Rust bindings library built successfully."
