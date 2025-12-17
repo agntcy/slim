@@ -1,0 +1,108 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+version: '3'
+
+vars:
+  # The Rust UniFFI bindings crate - in bindings/adapter (sibling to bindings/go)
+  BINDINGS_DIR: ../adapter
+  SERVICE_TARGET: ../data-plane/target/release/
+  LIB_NAME: slim_bindings
+  # Get absolute path for CGO flags
+  ROOT_DIR:
+    sh: pwd
+  LIB_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.dylib"
+  LIB_DIR: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}"
+  CGO_LDFLAGS: "-L{{.LIB_DIR}} -l{{.LIB_NAME}}"
+  DYLD_PATH: "{{.LIB_DIR}}:{{.ENV.DYLD_LIBRARY_PATH}}"
+  LD_PATH: "{{.LIB_DIR}}:{{.ENV.LD_LIBRARY_PATH}}"
+  # OpenTelemetry Collector Builder settings
+  OCB_VERSION: 0.142.0
+  GOOS:
+    sh: go env GOOS
+  GOARCH:
+    sh: go env GOARCH
+  OCB_BINARY: ocb_{{.OCB_VERSION}}_{{.GOOS}}_{{.GOARCH}}
+  OCB_URL: https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/cmd%2Fbuilder%2Fv{{.OCB_VERSION}}/{{.OCB_BINARY}}
+  COLLECTOR_OUTPUT: ./slim-otelcol
+  # Docker settings
+  DOCKER_IMAGE: slim-otelcol
+  DOCKER_TAG: latest
+  DOCKER_PLATFORM: linux/amd64,linux/arm64
+
+tasks:
+  default:
+    cmds:
+      - task -l
+
+  # OpenTelemetry Collector Builder
+  download-ocb:
+    desc: Download OpenTelemetry Collector Builder for current architecture
+    cmds:
+      - echo "Downloading OCB {{.OCB_VERSION}} for {{.GOOS}}/{{.GOARCH}}..."
+      - curl -L -o ocb "{{.OCB_URL}}"
+      - chmod +x ocb
+      - echo "OCB downloaded successfully"
+    status:
+      - test -f ocb
+
+  build-collector:
+    desc: Build the SLIM OpenTelemetry Collector
+    deps:
+      - download-ocb
+    cmds:
+      - echo "Generating collector sources..."
+      - ./ocb --config builder-config.yaml --skip-compilation
+      - echo "Compiling with CGO enabled..."
+      - cd {{.COLLECTOR_OUTPUT}} && CGO_ENABLED=1 go build -trimpath -o slim-otelcol -ldflags="-s -w"
+      - echo "Collector built successfully at {{.COLLECTOR_OUTPUT}}/slim-otelcol"
+
+  clean-collector:
+    desc: Clean the generated collector directory
+    cmds:
+      - rm -rf {{.COLLECTOR_OUTPUT}}
+      - echo "Collector build directory cleaned"
+
+  # Docker tasks
+  docker-build:
+    desc: Build Docker image for the SLIM OpenTelemetry Collector
+    cmds:
+      - echo "Preparing bindings for Docker build..."
+      - mkdir -p data-plane/bindings/go
+      - cp -r ../data-plane/bindings/go/generated data-plane/bindings/go/
+      - echo "Building Docker image {{.DOCKER_IMAGE}}:{{.DOCKER_TAG}}..."
+      - docker build -t {{.DOCKER_IMAGE}}:{{.DOCKER_TAG}} .
+      - echo "Cleaning up temporary bindings..."
+      - rm -rf data-plane
+      - echo "Docker image built successfully"
+
+  docker-build-multiarch:
+    desc: Build multi-architecture Docker image (requires buildx)
+    cmds:
+      - echo "Preparing bindings for Docker build..."
+      - mkdir -p data-plane/bindings/go
+      - cp -r ../data-plane/bindings/go/generated data-plane/bindings/go/
+      - echo "Building multi-arch Docker image for {{.DOCKER_PLATFORM}}..."
+      - docker buildx build --platform {{.DOCKER_PLATFORM}} -t {{.DOCKER_IMAGE}}:{{.DOCKER_TAG}} --load .
+      - echo "Cleaning up temporary bindings..."
+      - rm -rf data-plane
+      - echo "Multi-arch Docker image built successfully"
+
+  docker-run:
+    desc: Run the SLIM collector in Docker
+    cmds:
+      - echo "Starting SLIM OpenTelemetry Collector container..."
+      - docker run --rm -p 4317:4317 -p 4318:4318 -v {{.ROOT_DIR}}/collector-config.yaml:/etc/otel/config.yaml {{.DOCKER_IMAGE}}:{{.DOCKER_TAG}}
+
+  # Examples
+  testapp:
+    desc: Run the test app
+    dir: testapp
+    env:
+      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
+      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
+      LD_LIBRARY_PATH: "{{.LD_PATH}}"
+    cmds:
+      - echo "Running test app..."
+      - go run .
+    silent: true
