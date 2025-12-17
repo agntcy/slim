@@ -16,7 +16,7 @@ vars:
     sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
   DETECTED_OS:
     sh: |
-        if [[ "{{OS}}" == "linux-gnu"* ]]; then
+        if [[ "{{OS}}" == "linux"* ]]; then
           echo "linux"
         elif [[ "{{OS}}" == "darwin"* ]]; then
           echo "macos"
