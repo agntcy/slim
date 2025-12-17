@@ -73,13 +73,15 @@ tasks:
     cmds:
       - mkdir -p "{{.TOOLS_DIR}}"
       - curl -L "{{.DOWNLOAD_BASE}}" -o "{{.TOOLS_DIR}}/zig.{{.EXTENSION}}"
+      - curl -L "{{.DOWNLOAD_BASE}}" -o "{{.TOOLS_DIR}}/zig.{{.EXTENSION}}"
       - |
         if [[ "{{.EXTENSION}}" == "zip" ]]; then
           unzip -q "{{.TOOLS_DIR}}/zig.{{.EXTENSION}}" -d "{{.TOOLS_DIR}}"
+          unzip -q "{{.TOOLS_DIR}}/zig.{{.EXTENSION}}" -d "{{.TOOLS_DIR}}"
         else
           tar -xf "{{.TOOLS_DIR}}/zig.{{.EXTENSION}}" -C "{{.TOOLS_DIR}}"
+          tar -xf "{{.TOOLS_DIR}}/zig.{{.EXTENSION}}" -C "{{.TOOLS_DIR}}"
         fi
-      - mv "{{.TOOLS_DIR}}/zig-{{.DETECTED_ARCH}}-{{.DETECTED_OS}}-{{.ZIG_VERSION}}" "{{.ZIG_DIR}}"
       - rm "{{.TOOLS_DIR}}/zig.{{.EXTENSION}}"
       - echo "Zig installed to {{.ZIG_DIR}}"
       - task: bindings:install-dlltool-wrapper
