@@ -13,33 +13,36 @@ includes:
 
 vars:
   # The Rust UniFFI bindings crate - in bindings/adapter (sibling to bindings/go)
-  BINDINGS_DIR: "{{.TASKFILE_DIR}}/../adapter"
-  PROFILE: '{{.PROFILE | default "release"}}'
-  CURRENT_TARGET:
-    sh: 'rustc -vV | sed -n "s|host: ||p"'
-  TARGET: "{{.TARGET | default .CURRENT_TARGET}}"
-  SERVICE_TARGET: "{{.TASKFILE_DIR}}/../../target/{{.TARGET}}/{{.PROFILE}}"
+  BINDINGS_DIR: "{{.TASKFILE_DIR}}../adapter"
+  SERVICE_TARGET: "{{.TASKFILE_DIR}}/../../target/release"
   LIB_NAME: slim_bindings
-  _DEFAULT_LIB_PATH:
-    sh: |
-      # Detect OS to determine library extension
-      OS=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')
-      case "$OS" in
-        mingw*|msys*|cygwin*)
-          # Windows uses .lib without lib prefix
-          echo "{{.SERVICE_TARGET}}/{{.LIB_NAME}}.lib"
-          ;;
-        *)
-          # Unix/Linux/macOS use .a with lib prefix
-          echo "{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.a"
-          ;;
-      esac
+  _DEFAULT_LIB_PATH: "{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.a"
   LIB_PATH: "{{.LIB_PATH | default ._DEFAULT_LIB_PATH}}"
 
 tasks:
   default:
     cmds:
       - task -l
+
+  rust-build:
+    desc: Build the Rust library with UniFFI (release mode)
+    dir: "{{.BINDINGS_DIR}}"
+    cmds:
+      - echo "🦀 Building Rust bindings library with UniFFI (release mode)..."
+      - cargo build --release
+    silent: true
+
+  ensure-lib:
+    desc: Ensure the UniFFI library is built
+    cmds:
+      - |
+        if [ ! -f "{{.LIB_PATH}}" ]; then
+          echo "⚠️  UniFFI library not found, building now..."
+          task rust-build
+        else
+          echo "✅ Found UniFFI library: {{.LIB_PATH}}"
+        fi
+    silent: true
 
   patch-cgo-directives:
     desc: Patch generated Go bindings with proper cgo directives
@@ -49,17 +52,16 @@ tasks:
       - |
         GO_FILE="generated/{{.LIB_NAME}}/{{.LIB_NAME}}.go"
         if [ -f "$GO_FILE" ]; then
-          # Create the new cgo preamble with static LDFLAGS placeholders
+          # Create the new cgo preamble
           cat > /tmp/cgo_preamble.txt << 'EOF'
         package slim_bindings
 
         /*
         #cgo CFLAGS: -I${SRCDIR}
-        #cgo linux,amd64 LDFLAGS: -L${SRCDIR}/../../../../../../.cache/slim-bindings -L${SRCDIR} -lslim_bindings_x86_64_linux_gnu -lm
-        #cgo linux,arm64 LDFLAGS: -L${SRCDIR}/../../../../../../.cache/slim-bindings -L${SRCDIR} -lslim_bindings_aarch64_linux_gnu -lm
-        #cgo darwin,amd64 LDFLAGS: -L${SRCDIR}/../../../../../../.cache/slim-bindings -L${SRCDIR} -lslim_bindings_x86_64_darwin -Wl,-undefined,dynamic_lookup
-        #cgo darwin,arm64 LDFLAGS: -L${SRCDIR}/../../../../../../.cache/slim-bindings -L${SRCDIR} -lslim_bindings_aarch64_darwin -Wl,-undefined,dynamic_lookup
-        #cgo windows,amd64 LDFLAGS: -L${SRCDIR}/../../../../../../AppData/Local/slim-bindings -L${SRCDIR} -lslim_bindings_x86_64_windows_gnu -lws2_32 -lbcrypt -ladvapi32 -luserenv -lntdll -lgcc_eh -lgcc -lkernel32 -lole32
+        #cgo linux,amd64 LDFLAGS: ${SRCDIR}/libslim_bindings.a -lm
+        #cgo linux,arm64 LDFLAGS: ${SRCDIR}/libslim_bindings.a -lm
+        #cgo darwin,amd64 LDFLAGS: ${SRCDIR}/libslim_bindings.a -Wl,-undefined,dynamic_lookup
+        #cgo darwin,arm64 LDFLAGS: ${SRCDIR}/libslim_bindings.a -Wl,-undefined,dynamic_lookup
         #include <slim_bindings.h>
         */
         import "C"
@@ -80,41 +82,13 @@ tasks:
         fi
     silent: true
 
-  patch-header:
-    desc: Patch slim_bindings.h with Windows dllexport directives
+  copy-library:
+    desc: Copy shared library to generated directory
     internal: true
     cmds:
-      - echo "🔧 Patching slim_bindings.h..."
-      - |
-        HEADER_FILE="generated/{{.LIB_NAME}}/{{.LIB_NAME}}.h"
-        if [ -f "$HEADER_FILE" ]; then
-          # Check if patch is already applied
-          if grep -q "#ifdef _WIN32" "$HEADER_FILE" && grep -q "__declspec(dllexport) void slim_bindings_uniffiFutureContinuationCallback" "$HEADER_FILE"; then
-            echo "✅ Header already patched"
-          else
-            # Apply the patch: wrap the two function declarations with Windows conditional
-            # First, create a temporary file with the patched content
-            awk '
-              /^void slim_bindings_uniffiFutureContinuationCallback\(uint64_t, int8_t\);$/ {
-                print "#ifdef _WIN32"
-                print "__declspec(dllexport) void slim_bindings_uniffiFutureContinuationCallback(uint64_t, int8_t);"
-                print "__declspec(dllexport) void slim_bindings_uniffiFreeGorutine(uint64_t);"
-                print "#else"
-                print "void slim_bindings_uniffiFutureContinuationCallback(uint64_t, int8_t);"
-                getline
-                print "void slim_bindings_uniffiFreeGorutine(uint64_t);"
-                print "#endif"
-                next
-              }
-              { print }
-            ' "$HEADER_FILE" > "$HEADER_FILE.tmp"
-            mv "$HEADER_FILE.tmp" "$HEADER_FILE"
-            echo "✅ Patched $HEADER_FILE with Windows dllexport directives"
-          fi
-        else
-          echo "⚠️  Header file not found: $HEADER_FILE"
-          exit 1
-        fi
+      - echo "📦 Copying static library..."
+      - cp "{{.LIB_PATH}} "generated/{{.LIB_NAME}}/" 2>/dev/null || true
+      - echo "✅ Library copied to generated/{{.LIB_NAME}}/"
     silent: true
 
   generate:
@@ -129,11 +103,11 @@ tasks:
       - |
         uniffi-bindgen-go \
           --library '{{.LIB_PATH}}' \
+          --library '{{.LIB_PATH}}' \
           --out-dir generated
       - cd generated && go mod init github.com/agntcy/slim/bindings/generated 2>/dev/null || true
-      - task: copy-library
-      - task: patch-header
       - task: patch-cgo-directives
+      - task: copy-library
       - echo "✅ Bindings generated in generated/"
     silent: true
 
@@ -210,10 +184,7 @@ tasks:
 
   test:
     desc: Run all tests
-    deps:
-     - task: adapter:bindings:build:all
-       vars:
-         PROFILE: release
+    deps: [ensure-lib]
     cmds:
       - echo "🧪 Running all tests..."
       - go test -v ./...
@@ -222,10 +193,7 @@ tasks:
 
   test-coverage:
     desc: Run tests with coverage report
-    deps:
-     - task: adapter:bindings:build:all
-       vars:
-         PROFILE: release
+    deps: [ensure-lib]
     cmds:
       - echo "📊 Running tests with coverage..."
       - go test -v -coverprofile=coverage.out ./...

@@ -125,6 +125,8 @@ tasks:
         if [[ "{{.TARGET}}" == "" || "{{.TARGET}}" == "$(rustc -vV | sed -n 's|host: ||p')" ]]; then
           ARGS+=(
             "build"
+            "--target"
+            "{{.TARGET}}"
           )
         else
           ARGS+=(
@@ -139,5 +141,5 @@ tasks:
         )
 
         echo cargo ${ARGS[*]}
-        PATH="{{.CARGO_ZIGBUILD_CACHE_DIR}}:{{.ZIG_DIR}}:$PATH" cargo "${ARGS[@]}"
+        cargo "${ARGS[@]}"
       - echo "🦀 Rust bindings library built successfully."
