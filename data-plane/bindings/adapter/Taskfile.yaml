@@ -65,6 +65,7 @@ tasks:
         else
           tar -xf "{{.TOOLS_DIR}}/zig.{{.EXTENSION}}" -C "{{.TOOLS_DIR}}"
         fi
+      - mv "{{.TOOLS_DIR}}/zig-{{.DETECTED_ARCH}}-{{.DETECTED_OS}}-{{.ZIG_VERSION}}" "{{.ZIG_DIR}}"
       - rm "{{.TOOLS_DIR}}/zig.{{.EXTENSION}}"
       - echo "Zig installed to {{.ZIG_DIR}}"
 
