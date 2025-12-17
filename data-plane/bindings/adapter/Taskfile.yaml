@@ -58,15 +58,14 @@ tasks:
       - test -f "{{.TOOLS_DIR}}/zig/zig"
     cmds:
       - mkdir -p "{{.TOOLS_DIR}}"
-      - curl -L "{{.DOWNLOAD_BASE}}" -o "/tmp/zig.{{.EXTENSION}}"
+      - curl -L "{{.DOWNLOAD_BASE}}" -o "{{.TOOLS_DIR}}/zig.{{.EXTENSION}}"
       - |
         if [[ "{{.EXTENSION}}" == "zip" ]]; then
-          unzip -q "/tmp/zig.{{.EXTENSION}}" -d "/tmp/"
+          unzip -q "{{.TOOLS_DIR}}/zig.{{.EXTENSION}}" -d "{{.TOOLS_DIR}}"
         else
-          tar -xf "/tmp/zig.{{.EXTENSION}}" -C "/tmp/"
+          tar -xf "{{.TOOLS_DIR}}/zig.{{.EXTENSION}}" -C "{{.TOOLS_DIR}}"
         fi
-      - mv "/tmp/zig-{{.DETECTED_ARCH}}-{{.DETECTED_OS}}-{{.ZIG_VERSION}}" "{{.TOOLS_DIR}}/zig"
-      - rm "/tmp/zig.{{.EXTENSION}}"
+      - rm "{{.TOOLS_DIR}}/zig.{{.EXTENSION}}"
       - echo "Zig installed to {{.ZIG_DIR}}"
 
   bindings:install-cargo-components:
