@@ -134,17 +134,18 @@ jobs:
             --config net.git-fetch-with-cli=true
 
       - name: Generate Go bindings
+        working-directory: ./data-plane
         run: |
-          mkdir -p ./generated-go-bindings
+          mkdir -p ../generated-go-bindings
 
           # Generate Go bindings from the Linux library
-          # (uniffi-bindgen-go reads metadata from the .so file)
+          # (uniffi-bindgen-go reads metadata from the .so file and needs Cargo.toml)
           uniffi-bindgen-go \
-            --library ./artifacts/linux-x86_64/lib${{ env.LIBRARY_NAME }}.so \
-            --out-dir ./generated-go-bindings
+            --library ../artifacts/linux-x86_64/lib${{ env.LIBRARY_NAME }}.so \
+            --out-dir ../generated-go-bindings
 
           echo "📁 Generated files:"
-          find ./generated-go-bindings -type f
+          find ../generated-go-bindings -type f
 
       - name: Prepare Go module
         working-directory: ./generated-go-bindings/${{ env.LIBRARY_NAME }}
