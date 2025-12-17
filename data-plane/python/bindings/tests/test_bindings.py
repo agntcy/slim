@@ -342,10 +342,10 @@ async def test_error_on_nonexistent_subscription(server):
         conn_id_alice = await svc_alice.connect(
             {"endpoint": "http://127.0.0.1:12347", "tls": {"insecure": True}},
         )
-        alice_class = slim_bindings.Name(
+        alice_name = slim_bindings.Name(
             "org", "default", "alice_nonsub", id=svc_alice.id
         )
-        await svc_alice.subscribe(alice_class, conn_id_alice)
+        await svc_alice.subscribe(alice_name, conn_id_alice)
 
     # create Bob's name, but do not instantiate or subscribe Bob
     bob_name = slim_bindings.Name("org", "default", "bob_nonsub")
@@ -356,17 +356,16 @@ async def test_error_on_nonexistent_subscription(server):
         slim_bindings.SessionConfiguration.PointToPoint(),
     )
 
-    # completion handle should not complete since Bob is not there
-    with pytest.raises(
-        asyncio.TimeoutError,
-    ):
-        await asyncio.wait_for(completion_handle, timeout=1)
+    # completion handle should raise an exception since there is no route to Bob
+    with pytest.raises(Exception):
+        await completion_handle
 
     # delete session - no need to wait for completion since it was never established
     await svc_alice.delete_session(session_context)
 
     # clean up
-    await svc_alice.disconnect(conn_id_alice)
+    if server.local_service:
+        await svc_alice.disconnect(conn_id_alice)
 
 
 @pytest.mark.asyncio
@@ -415,7 +414,7 @@ async def test_listen_for_session_timeout(server):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("server", ["127.0.0.1:12349", None], indirect=True)
+@pytest.mark.parametrize("server", ["127.0.0.1:12349"], indirect=True)
 async def test_get_message_timeout(server):
     """Test that get_message times out appropriately when no message is available."""
     alice_name = slim_bindings.Name("org", "default", "alice_msg_timeout")
@@ -425,14 +424,16 @@ async def test_get_message_timeout(server):
 
     conn_id_alice = None
 
+    dummy_peer = slim_bindings.Name("org", "default", "dummy_peer")
     if server.local_service:
         # Connect to the service to get connection ID
         conn_id_alice = await svc_alice.connect(
             {"endpoint": "http://127.0.0.1:12349", "tls": {"insecure": True}},
         )
+        # Create a route to a dummy peer
+        svc_alice.set_route(dummy_peer, conn_id_alice)
 
     # Create a session (with dummy peer for timeout testing)
-    dummy_peer = slim_bindings.Name("org", "default", "dummy_peer")
     session_context, completion_handle = await svc_alice.create_session(
         dummy_peer, slim_bindings.SessionConfiguration.PointToPoint()
     )

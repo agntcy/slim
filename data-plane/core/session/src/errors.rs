@@ -42,6 +42,8 @@ pub enum SessionError {
     MessageTypeUnexpected(Box<ProtoMessage>),
     #[error("session message type unexpected: {0:?}")]
     SessionMessageTypeUnexpected(ProtoSessionMessageType),
+    #[error("unexpected error")]
+    UnexpectedError { source: Box<SessionError> },
 
     // Lookup and missing entities
     #[error("session not found: {0}")]
@@ -98,7 +100,7 @@ pub enum SessionError {
     ApplicationMessageSendFailed,
     #[error("error sending data message to slim")]
     SlimMessageSendFailed,
-    #[error("send failure reported from slim: {ctx:?}")]
+    #[error("send failure reported from slim: {ctx}")]
     SlimSendFailure { ctx: Box<ErrorPayload> },
 
     // Session lifecycle and state (continued)
@@ -112,8 +114,6 @@ pub enum SessionError {
     MessageSendRetryFailed { id: u32 },
     #[error("message receive retries exhausted for id={id}")]
     MessageReceiveRetryFailed { id: u32 },
-    #[error("error from SLIM dataplane: {0}")]
-    SlimForwardError(String),
 
     // Message construction and extraction contexts
     #[error("missing payload: {context}")]
@@ -142,13 +142,13 @@ pub enum SessionError {
     #[error("unexpected timer id: {0}")]
     ModeratorTaskUnexpectedTimerId(u32),
     #[error("failed to add participant to session")]
-    ModeratorTaskAddFailed { source: SessionError },
+    ModeratorTaskAddFailed { source: Box<SessionError> },
     #[error("failed to remove participant from session")]
-    ModeratorTaskRemoveFailed { source: SessionError },
+    ModeratorTaskRemoveFailed { source: Box<SessionError> },
     #[error("failed to update session")]
-    ModeratorTaskUpdateFailed { source: SessionError },
+    ModeratorTaskUpdateFailed { source: Box<SessionError> },
     #[error("failed to close session")]
-    ModeratorTaskCloseFailed { source: SessionError },
+    ModeratorTaskCloseFailed { source: Box<SessionError> },
 }
 
 impl SessionError {
@@ -175,5 +175,21 @@ impl SessionError {
 
     pub fn receive_retry_failed(id: u32) -> Self {
         SessionError::MessageReceiveRetryFailed { id }
+    }
+
+    /// Extract session context from SlimSendFailure error
+    /// Returns None if the error is not a SlimSendFailure or if it lacks session context
+    pub fn session_context(&self) -> Option<&MessageContext> {
+        match self {
+            SessionError::SlimSendFailure { ctx } => ctx.session_context.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// Check if this error is for a command message
+    pub fn is_command_message_error(&self) -> bool {
+        self.session_context()
+            .map(|ctx| ctx.get_session_message_type().is_command_message())
+            .unwrap_or(false)
     }
 }

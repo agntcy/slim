@@ -17,7 +17,6 @@ use slim_datapath::{
         CommandPayload, Content, ProtoMessage as Message, ProtoSessionMessageType,
         ProtoSessionType, SlimHeader,
     },
-    errors::MessageContext,
     messages::{Name, utils::SlimHeaderFlags},
 };
 

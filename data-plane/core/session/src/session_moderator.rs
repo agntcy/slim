@@ -153,28 +153,7 @@ where
                         .await
                 }
             }
-            SessionMessage::MessageError { error } => {
-                let message_type = match &error {
-                    SessionError::SlimSendFailure { ctx, .. } => {
-                        ctx.session_context.map(|c| c.get_session_message_type())
-                    }
-                    _ => {
-                        tracing::warn!("Received MessageError without session context");
-                        None
-                    }
-                };
-
-                if message_ctx.get_session_message_type().is_command_message() {
-                    self.handle_failure(
-                        error,
-                    )
-                    .await
-                } else {
-                    self.inner
-                        .on_message(SessionMessage::MessageError { error, message_ctx })
-                        .await
-                }
-            }
+            SessionMessage::MessageError { error } => self.handle_message_error(error).await,
             SessionMessage::TimerTimeout {
                 message_id,
                 message_type,
@@ -204,7 +183,12 @@ where
                 timeouts,
             } => {
                 if message_type.is_command_message() {
-                    self.handle_failure("timeout sending control message", message_id, message_type).await
+                    self.handle_failure(
+                        message_id,
+                        message_type,
+                        SessionError::MessageSendRetryFailed { id: message_id },
+                    )
+                    .await
                 } else {
                     self.inner
                         .on_message(SessionMessage::TimerFailure {
@@ -311,21 +295,50 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
     I: MessageHandler + Send + Sync + 'static,
 {
+    /// Helper method to handle MessageError
+    /// Extracts context from the error and routes to appropriate handler
+    async fn handle_message_error(&mut self, error: SessionError) -> Result<(), SessionError> {
+        let Some(session_ctx) = error.session_context() else {
+            tracing::warn!("Received MessageError without session context");
+            return self
+                .inner
+                .on_message(SessionMessage::MessageError { error })
+                .await;
+        };
+
+        if error.is_command_message_error() {
+            // Handle command message failure
+            self.handle_failure(
+                session_ctx.message_id,
+                session_ctx.get_session_message_type(),
+                error,
+            )
+            .await
+        } else {
+            // Pass non-command errors to inner handler
+            self.inner
+                .on_message(SessionMessage::MessageError { error })
+                .await
+        }
+    }
+
     /// Helper method to handle failures, either from a timer or message error
     async fn handle_failure(
         &mut self,
+        message_id: u32,
+        message_type: ProtoSessionMessageType,
         error: SessionError,
     ) -> Result<(), SessionError> {
         self.common.sender.on_failure(message_id, message_type);
 
-        // the task should always exist a this point
+        // the task should always exist at this point
         if let Some(task) = self.current_task.as_mut()
             && let Some(ack_tx) = task.ack_tx_take()
         {
-            let _ = ack_tx.send(Err(task.failure_message(error_message)));
+            let _ = ack_tx.send(Err(task.failure_message(error)));
         }
 
-        // 2. delete current task and pick a new one
+        // delete current task and pick a new one
         self.current_task = None;
         self.pop_task().await
     }

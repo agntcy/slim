@@ -97,6 +97,22 @@ pub struct ErrorPayload {
     pub session_context: Option<MessageContext>,
 }
 
+impl std::fmt::Display for ErrorPayload {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ErrorPayload: {}", self.error)?;
+        match &self.session_context {
+            Some(ctx) => write!(
+                f,
+                " (session_id={}, message_id={}, session_message_type={:?})",
+                ctx.session_id,
+                ctx.message_id,
+                ctx.get_session_message_type()
+            ),
+            None => Ok(()),
+        }
+    }
+}
+
 impl ErrorPayload {
     /// Create a new error payload
     pub fn new(error: String, session_context: Option<MessageContext>) -> Self {

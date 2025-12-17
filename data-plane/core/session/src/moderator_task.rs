@@ -6,7 +6,7 @@ use tokio::sync::oneshot;
 use tracing::debug;
 
 // Local crate
-use crate::{errors::SessionError, session::Session};
+use crate::errors::SessionError;
 
 #[derive(Debug, Default)]
 pub(crate) struct State {
@@ -59,12 +59,18 @@ impl ModeratorTask {
 
     pub(crate) fn failure_message(&self, err: SessionError) -> SessionError {
         match self {
-            ModeratorTask::Add(_) => SessionError::ModeratorTaskAddFailed { source: err },
-            ModeratorTask::Remove(_) => SessionError::ModeratorTaskRemoveFailed { source: err },
-            ModeratorTask::Update(_) => SessionError::ModeratorTaskUpdateFailed { source: err },
-            ModeratorTask::CloseOrDisconnect(_) => {
-                SessionError::ModeratorTaskCloseFailed { source: err }
-            }
+            ModeratorTask::Add(_) => SessionError::ModeratorTaskAddFailed {
+                source: Box::new(err),
+            },
+            ModeratorTask::Remove(_) => SessionError::ModeratorTaskRemoveFailed {
+                source: Box::new(err),
+            },
+            ModeratorTask::Update(_) => SessionError::ModeratorTaskUpdateFailed {
+                source: Box::new(err),
+            },
+            ModeratorTask::CloseOrDisconnect(_) => SessionError::ModeratorTaskCloseFailed {
+                source: Box::new(err),
+            },
         }
     }
 }

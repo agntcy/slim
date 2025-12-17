@@ -114,18 +114,7 @@ where
                         .await
                 }
             }
-            SessionMessage::MessageError { error, message_ctx } => {
-                if message_ctx.get_session_message_type().is_command_message() {
-                    self.common
-                        .sender
-                        .on_failure(message_ctx.message_id, message_ctx.get_session_message_type());
-                    Ok(())
-                } else {
-                    self.inner
-                        .on_message(SessionMessage::MessageError { error, message_ctx })
-                        .await
-                }
-            }
+            SessionMessage::MessageError { error } => self.handle_message_error(error).await,
             SessionMessage::TimerTimeout {
                 message_id,
                 message_type,
@@ -155,9 +144,7 @@ where
                 timeouts,
             } => {
                 if message_type.is_command_message() {
-                    self.common
-                        .sender
-                        .on_failure(message_id, message_type);
+                    self.common.sender.on_failure(message_id, message_type);
                     Ok(())
                 } else {
                     self.inner
@@ -222,6 +209,32 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
     I: MessageHandler + Send + Sync + 'static,
 {
+    /// Helper method to handle MessageError
+    /// Extracts context from the error and routes to appropriate handler
+    async fn handle_message_error(&mut self, error: SessionError) -> Result<(), SessionError> {
+        let Some(session_ctx) = error.session_context() else {
+            tracing::warn!("Received MessageError without session context");
+            return self
+                .inner
+                .on_message(SessionMessage::MessageError { error })
+                .await;
+        };
+
+        if error.is_command_message_error() {
+            // Handle command message failure
+            self.common.sender.on_failure(
+                session_ctx.message_id,
+                session_ctx.get_session_message_type(),
+            );
+            Ok(())
+        } else {
+            // Pass non-command errors to inner handler
+            self.inner
+                .on_message(SessionMessage::MessageError { error })
+                .await
+        }
+    }
+
     async fn process_control_message(&mut self, message: Message) -> Result<(), SessionError> {
         match message.get_session_message_type() {
             ProtoSessionMessageType::JoinRequest => self.on_join_request(message).await,

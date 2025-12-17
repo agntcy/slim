@@ -463,13 +463,15 @@ impl SessionSender {
         self.on_failure(id, SessionError::MessageSendRetryFailed { id })
     }
 
-    pub fn on_slim_failure(
-        &mut self,
-        id: u32,
-        message: impl Into<String>,
-    ) -> Result<(), SessionError> {
-        debug!(%id, "slim reported failure, clear state");
-        self.on_failure(id, SessionError::SlimForwardError(message.into()))
+    pub fn on_slim_failure(&mut self, error: SessionError) -> Result<(), SessionError> {
+        let Some(session_ctx) = error.session_context() else {
+            return Err(SessionError::UnexpectedError {
+                source: Box::new(error),
+            });
+        };
+        let message_id = session_ctx.message_id;
+        debug!(%message_id, "slim reported failure, clear state");
+        self.on_failure(message_id, error)
     }
 
     pub async fn add_endpoint(&mut self, endpoint: &Name) -> Result<(), SessionError> {
@@ -773,7 +775,6 @@ mod tests {
             crate::common::SessionMessage::TimerFailure { message_id, .. } => {
                 sender
                     .on_timer_failure(message_id)
-                    .await
                     .expect("error handling timer failure");
             }
             _ => panic!("Expected TimerFailure signal, got: {:?}", signal),
@@ -783,22 +784,13 @@ mod tests {
         let res = timeout(Duration::from_millis(100), rx_slim.recv()).await;
         assert!(res.is_err(), "Expected timeout but got: {:?}", res);
 
-        // an error should arrive to the application
-        let res = timeout(Duration::from_millis(800), rx_app.recv())
-            .await
-            .expect("timeout waiting for message")
-            .expect("channel closed");
-
-        // Check that we received an error as expected
-        match res {
-            Err(SessionError::MessageSendRetryFailed { id }) => {
-                assert_eq!(id, 1, "Expected retry failure for message id 1");
-            }
-            _ => panic!(
-                "Expected SessionError::MessageSendRetryFailed, got: {:?}",
-                res
-            ),
-        }
+        // no error should arrive to the application channel - errors are sent to ack_notifiers
+        let res = timeout(Duration::from_millis(100), rx_app.recv()).await;
+        assert!(
+            res.is_err(),
+            "Expected timeout (no app message) but got: {:?}",
+            res
+        );
     }
 
     #[tokio::test]

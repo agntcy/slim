@@ -8,7 +8,6 @@ use tonic::Status;
 
 use slim_datapath::{
     api::{ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType},
-    errors::MessageContext,
     messages::{Name, utils::MessageError},
 };
 

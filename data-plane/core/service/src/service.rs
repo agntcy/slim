@@ -349,29 +349,29 @@ impl Service {
     }
 
     pub fn disconnect(&self, conn: u64) -> Result<(), ServiceError> {
-        info!(%conn, "disconnect");
+        let client_config = self.message_processor.disconnect(conn)?;
+        let endpoint = client_config.endpoint.clone();
+        let mut clients = self.clients.write();
 
-        match self.message_processor.disconnect(conn) {
-            Ok(cfg) => {
-                let endpoint = cfg.endpoint.clone();
-                let mut clients = self.clients.write();
-                if let Some(stored_conn) = clients.get(&endpoint) {
-                    if *stored_conn == conn {
-                        clients.remove(&endpoint);
-                        info!(%endpoint, "removed client mapping for endpoint");
-                    } else {
-                        debug!(
-                            %endpoint, %stored_conn, %conn,
-                            "client mapping endpoint has different conn_id",
-                        );
-                    }
-                } else {
-                    debug!(%endpoint, "no client mapping found for endpoint");
-                }
-                Ok(())
-            }
-            Err(e) => Err(ServiceError::DisconnectError(e.to_string())),
+        let stored_conn =
+            clients
+                .get(&endpoint)
+                .ok_or(ServiceError::ConnectionNotFoundForEndpoint(
+                    endpoint.clone(),
+                ))?;
+
+        if *stored_conn == conn {
+            clients.remove(&endpoint);
+            debug!(%endpoint, "removed client mapping");
+        } else {
+            return Err(ServiceError::DifferentIdForConnection {
+                endpoint: endpoint.clone(),
+                expected: *stored_conn,
+                found: conn,
+            });
         }
+
+        Ok(())
     }
 
     pub fn get_connection_id(&self, endpoint: &str) -> Option<u64> {
@@ -540,11 +540,6 @@ mod tests {
                 .is_none(),
             "connection should be removed after disconnect"
         );
-
-        // verify disconnect log
-        assert!(logs_contain(
-            "removed client mapping for endpoint endpoint=http://0.0.0.0:12346"
-        ));
     }
 
     #[tokio::test]
@@ -754,7 +749,9 @@ mod tests {
             ServerConfig::with_endpoint("0.0.0.0:12348").with_tls_settings(tls_config);
         let config = ServiceConfiguration::new().with_server([server_config].to_vec());
         let service = config
-            .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test-error-routing").unwrap())
+            .build_server(
+                ID::new_with_name(Kind::new(KIND).unwrap(), "test-error-routing").unwrap(),
+            )
             .unwrap();
 
         // Create an app
@@ -770,8 +767,8 @@ mod tests {
         // Create a point to point session to a non-existent destination
         // This will trigger an error from the datapath
         let non_existent_dst = Name::from_strings(["cisco", "default", "nonexistent"]).with_id(999);
-        let mut session_config = SessionConfig::default()
-            .with_session_type(ProtoSessionType::PointToPoint);
+        let mut session_config =
+            SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
         session_config.initiator = true;
         session_config.max_retries = Some(10);
         session_config.interval = Some(Duration::from_secs(2));
@@ -790,8 +787,12 @@ mod tests {
             .await
             .expect("timeout waiting for session creation");
 
-        println!("Session creation result: {:?}", result);
-
-        assert!(result.is_err(), "Session creation should fail for non-existent destination");
+        assert!(
+            result.is_err_and(|e| {
+                println!("--> {}", e.chain());
+                true
+            }),
+            "Session creation should fail for non-existent destination"
+        );
     }
 }

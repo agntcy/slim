@@ -335,12 +335,10 @@ where
                                     }
                                     Err(e) => {
                                         // Log the error
-                                        error!(error = %e.chain(), "received error from SLIM");
+                                        debug!(error = %e.chain(), "received error from SLIM");
 
                                         let p = ErrorPayload::from_json_str(e.message());
                                         if let Some(payload) = p {
-                                            debug!(session_id = %ctx.session_id, message_id = %ctx.message_id, "error associated with session");
-
                                             let err = SessionError::SlimSendFailure{
                                                 ctx: Box::new(payload),
                                             };

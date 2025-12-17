@@ -679,8 +679,6 @@ impl MessageProcessor {
         }
     }
 
-
-
     async fn reconnect(
         &self,
         client_conf: ClientConfig,
@@ -773,7 +771,7 @@ impl MessageProcessor {
                                         }
 
                                         if let Err(e) = self_clone.handle_new_message(conn_index, is_local, msg).await {
-                                            error!(%conn_index, error = %e.chain(), "error processing incoming message");
+                                            debug!(%conn_index, error = %e.chain(), "error processing incoming message");
                                             // If the message is coming from a local app, notify it
                                             if is_local {
                                                 // try to forward error to the local app
