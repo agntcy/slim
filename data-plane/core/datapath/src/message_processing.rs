@@ -385,7 +385,7 @@ impl MessageProcessor {
                     Channel::Server(s) => {
                         s.send(Ok(msg))
                             .await
-                            .map_err(|e| DataPathError::MessageWithContext {
+                            .map_err(|e| DataPathError::MessageProcessingError {
                                 source: Box::new(DataPathError::ConnectionNotFound(out_conn)),
                                 msg: Box::new(e.0.unwrap_or_default()),
                             })
@@ -393,7 +393,7 @@ impl MessageProcessor {
                     Channel::Client(s) => {
                         s.send(msg)
                             .await
-                            .map_err(|e| DataPathError::MessageWithContext {
+                            .map_err(|e| DataPathError::MessageProcessingError {
                                 source: Box::new(DataPathError::ConnectionNotFound(out_conn)),
                                 msg: Box::new(e.0),
                             })
@@ -439,7 +439,7 @@ impl MessageProcessor {
                 self.send_msg(msg, out_vec[i]).await?;
                 Ok(())
             }
-            Err(e) => Err(DataPathError::MessageWithContext {
+            Err(e) => Err(DataPathError::MessageProcessingError {
                 source: Box::new(e),
                 msg: Box::new(msg),
             }),
@@ -514,7 +514,7 @@ impl MessageProcessor {
         let connection = if let Some(c) = maybe_connection {
             c
         } else {
-            return Err(DataPathError::MessageWithContext {
+            return Err(DataPathError::MessageProcessingError {
                 source: Box::new(DataPathError::ConnectionNotFound(conn)),
                 msg: Box::new(msg),
             });
@@ -589,7 +589,7 @@ impl MessageProcessor {
                 message_type = "none"
             );
 
-            let ret_err = DataPathError::MessageWithContext {
+            let ret_err = DataPathError::MessageProcessingError {
                 source: Box::new(err.into()),
                 msg: Box::new(msg),
             };
@@ -645,6 +645,7 @@ impl MessageProcessor {
     }
 
     async fn send_error_to_local_app(&self, conn_index: u64, err: DataPathError) {
+        info!(%conn_index, "sending error to local application");
         let connection = self.forwarder().get_connection(conn_index);
         match connection {
             Some(conn) => {
@@ -652,7 +653,7 @@ impl MessageProcessor {
                 if let Channel::Server(tx) = conn.channel() {
                     // If the error contains the message, try to extract some session information
                     let session_ctx = match &err {
-                        DataPathError::MessageWithContext { msg, .. } => {
+                        DataPathError::MessageProcessingError { msg, .. } => {
                             MessageContext::from_msg(msg)
                         }
                         _ => None,

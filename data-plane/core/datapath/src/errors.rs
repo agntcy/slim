@@ -46,7 +46,7 @@ pub enum DataPathError {
     #[error("error adding connection to connection table")]
     ConnectionTableAddError,
     #[error("message processing error: {source}")]
-    MessageWithContext {
+    MessageProcessingError {
         #[source]
         source: Box<DataPathError>,
         msg: Box<Message>,
