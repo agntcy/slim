@@ -85,7 +85,9 @@ tasks:
 
   generate:
     desc: Generate Go bindings from compiled library
-    deps: [ensure-lib]
+    deps:
+      - ensure-lib
+      - install-uniffi-bindgen-go
     cmds:
       - echo "🔧 Generating Go bindings from compiled library..."
       - |
