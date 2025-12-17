@@ -34,16 +34,48 @@ const (
 	defaultIntervalMs = 1000
 )
 
+type SignalSessions struct {
+	mutex    sync.RWMutex
+	sessions map[uint32]*slim.BindingsSessionContext
+}
+
+func (s *SignalSessions) AddSession(session *slim.BindingsSessionContext) error {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	if s.sessions == nil {
+		s.sessions = make(map[uint32]*slim.BindingsSessionContext)
+	}
+	id, err := session.SessionId()
+	if err != nil {
+		return fmt.Errorf("session id is not set")
+	}
+	s.sessions[id] = session
+	return nil
+}
+
+func (s *SignalSessions) RemoveSession(id uint32) error {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	if s.sessions == nil {
+		return fmt.Errorf("sessions map is nil")
+	}
+	if _, exists := s.sessions[id]; !exists {
+		return fmt.Errorf("session with id %d not found", id)
+	}
+	delete(s.sessions, id)
+	return nil
+}
+
 // sharedStructure holds the info that are init
 // once and shared on the different slimExporter
 // one for each metric type
 type sharedStructure struct {
-	app            *slim.BindingsAdapter
-	channelName    *slim.Name
-	connID         uint64
-	metricsChannel *slim.BindingsSessionContext
-	tracesChannel  *slim.BindingsSessionContext
-	logsChannel    *slim.BindingsSessionContext
+	app             *slim.BindingsAdapter
+	channelName     *slim.Name
+	connID          uint64
+	metricsSessions *SignalSessions
+	tracesSessions  *SignalSessions
+	logsSessions    *SignalSessions
 }
 
 func (s *sharedStructure) getChannel(signalType SignalType) *slim.BindingsSessionContext {
