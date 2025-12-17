@@ -18,16 +18,13 @@ on:
         required: false
         type: string
         default: 'v0.0.0-dev'
-      dry_run:
-        description: 'Dry run (do not push to external repos)'
-        required: false
-        type: boolean
-        default: false
 
 env:
   LIBRARY_NAME: slim_bindings
   GO_BINDINGS_REPO: agntcy/slim-bindings-go
   UNIFFI_BINDGEN_GO_VERSION: v0.4.0+v0.28.3
+  # Computed values with defaults for pull_request events
+  RELEASE_VERSION: ${{ inputs.version || 'v0.0.0-pr' }}
 
 jobs:
   # ==========================================================================
@@ -189,7 +186,6 @@ jobs:
           git status
 
       - name: Commit and push
-        if: ${{ !inputs.dry_run }}
         working-directory: ./target-repo
         run: |
           git config user.name "github-actions[bot]"
@@ -203,7 +199,7 @@ jobs:
             exit 0
           fi
 
-          git commit -m "Release ${{ inputs.version }}
+          git commit -m "Release ${{ env.RELEASE_VERSION }}
 
           Generated from https://github.com/${{ github.repository }}/commit/${{ github.sha }}
 
@@ -211,23 +207,9 @@ jobs:
           - linux/amd64 (x86_64-unknown-linux-gnu)
           - darwin/arm64 (aarch64-apple-darwin)"
 
-          git tag -a "${{ inputs.version }}" -m "Release ${{ inputs.version }}"
+          git tag -a "${{ env.RELEASE_VERSION }}" -m "Release ${{ env.RELEASE_VERSION }}"
 
           git push origin main
-          git push origin "${{ inputs.version }}"
+          git push origin "${{ env.RELEASE_VERSION }}"
 
           echo "✅ Successfully pushed Go bindings to https://github.com/${{ env.GO_BINDINGS_REPO }}"
-
-      - name: Dry run summary
-        if: ${{ inputs.dry_run }}
-        working-directory: ./target-repo
-        run: |
-          echo "🔍 DRY RUN - Would commit the following changes:"
-          echo ""
-          git status
-          echo ""
-          echo "📁 Generated files:"
-          find ./${{ env.LIBRARY_NAME }} -type f | head -50
-          echo ""
-          echo "📦 Native libraries:"
-          find ./${{ env.LIBRARY_NAME }}/lib -type f -ls 2>/dev/null || echo "No lib directory"
