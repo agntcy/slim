@@ -91,18 +91,18 @@ tasks:
         if [[ "{{.TARGET}}" == "" || "{{.TARGET}}" == "$(rustc -vV | sed -n 's|host: ||p')" ]]; then
           ARGS+=(
             "build"
-            "--target"
-            "{{.TARGET}}"
           )
         else
           ARGS+=(
             "zigbuild"
-            "--target"
-            "{{.TARGET}}"
           )
         fi
 
-        ARGS+=({{.RELEASE}})
+        ARGS+=(
+          "--target"
+          "{{.TARGET}}"
+          {{.RELEASE}}
+        )
 
         echo cargo ${ARGS[*]}
         PATH="{{.ZIG_DIR}}:$PATH" cargo "${ARGS[@]}"
