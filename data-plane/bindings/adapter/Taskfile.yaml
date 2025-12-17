@@ -84,6 +84,7 @@ tasks:
     silent: true
     cmds:
       - echo "🦀 Building Rust bindings library..."
+      - rustup target add {{.TARGET}}
       - |
         # Export Zig path for cargo-zigbuild
         export PATH="{{.ZIG_DIR}}:$PATH"
