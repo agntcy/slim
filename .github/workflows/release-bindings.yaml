@@ -154,7 +154,7 @@ jobs:
 
       - name: Clone target repository
         run: |
-          git clone https://x-access-token:${{ secrets.GO_BINDINGS_PUSH_TOKEN }}@github.com/${{ env.GO_BINDINGS_REPO }}.git ./target-repo
+          git clone https://x-access-token:${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}@github.com/${{ env.GO_BINDINGS_REPO }}.git ./target-repo
 
       - name: Update target repository
         working-directory: ./target-repo
