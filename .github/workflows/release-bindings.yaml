@@ -149,7 +149,7 @@ jobs:
 
       - name: Generate Go bindings
         run: |
-          task generate LIB_PATH=./artifacts/lib${{ env.LIBRARY_NAME }}_x86_64_musl.a
+          task generate LIB_PATH=./artifacts/lib${{ env.LIBRARY_NAME }}_x86_64_linux_musl.a
 
           echo "📁 Generated files:"
           find ./generated -type f
