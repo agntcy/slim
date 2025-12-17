@@ -43,10 +43,11 @@ jobs:
             target: x86_64-unknown-linux-gnu
             lib_prefix: lib
             lib_ext: so
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            lib_prefix: lib
-            lib_ext: dylib
+          # TODO: re-enable x86_64-apple-darwin
+          # - os: macos-latest
+          #   target: x86_64-apple-darwin
+          #   lib_prefix: lib
+          #   lib_ext: dylib
           - os: macos-latest
             target: aarch64-apple-darwin
             lib_prefix: lib
@@ -102,11 +103,12 @@ jobs:
           name: x86_64-unknown-linux-gnu
           path: ./artifacts/linux-x86_64
 
-      - name: Download macOS x86_64 library
-        uses: actions/download-artifact@v4
-        with:
-          name: x86_64-apple-darwin
-          path: ./artifacts/darwin-x86_64
+      # TODO: re-enable x86_64-apple-darwin
+      # - name: Download macOS x86_64 library
+      #   uses: actions/download-artifact@v4
+      #   with:
+      #     name: x86_64-apple-darwin
+      #     path: ./artifacts/darwin-x86_64
 
       - name: Download macOS arm64 library
         uses: actions/download-artifact@v4
@@ -148,12 +150,12 @@ jobs:
           # Create platform-specific lib directories inside the Go package
           LIBDIR="./generated-go-bindings/${{ env.LIBRARY_NAME }}/lib"
           mkdir -p "$LIBDIR/linux-x86_64"
-          mkdir -p "$LIBDIR/darwin-x86_64"
+          # mkdir -p "$LIBDIR/darwin-x86_64"  # TODO: re-enable
           mkdir -p "$LIBDIR/darwin-arm64"
 
           # Copy libraries from artifacts
           cp ./artifacts/linux-x86_64/lib${{ env.LIBRARY_NAME }}.so "$LIBDIR/linux-x86_64/"
-          cp ./artifacts/darwin-x86_64/lib${{ env.LIBRARY_NAME }}.dylib "$LIBDIR/darwin-x86_64/"
+          # cp ./artifacts/darwin-x86_64/lib${{ env.LIBRARY_NAME }}.dylib "$LIBDIR/darwin-x86_64/"  # TODO: re-enable
           cp ./artifacts/darwin-arm64/lib${{ env.LIBRARY_NAME }}.dylib "$LIBDIR/darwin-arm64/"
 
           echo "📦 Organized library structure:"
@@ -198,7 +200,6 @@ jobs:
 
           Platforms:
           - linux/amd64 (x86_64-unknown-linux-gnu)
-          - darwin/amd64 (x86_64-apple-darwin)
           - darwin/arm64 (aarch64-apple-darwin)"
 
           git tag -a "${{ inputs.version }}" -m "Release ${{ inputs.version }}"
