@@ -5,6 +5,11 @@
 name: Release Bindings
 
 on:
+  pull_request:
+    paths:
+      - 'data-plane/**'
+      - '.github/workflows/release-bindings.yaml'
+
   workflow_dispatch:
     inputs:
       version:
