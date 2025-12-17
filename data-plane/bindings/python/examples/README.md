@@ -16,15 +16,17 @@ All examples use the async methods from `slim_uniffi_bindings` to demonstrate as
 1. **Parent package must be built first:**
    ```bash
    cd ..  # Go to parent directory (data-plane/bindings/python)
-   task python:bindings:packaging
+   uv run maturin develop
+   # OR
+   task build
    ```
 
 2. **Install the examples package:**
    ```bash
    cd examples
-   uv pip install -e .
+   uv sync
    ```
-   This installs the package in development mode and makes the entry points (`slim-p2p`, `slim-group`, `slim-server`) available.
+   This installs the package in development mode and makes the entry points available.
 
 3. **SLIM server must be running** (for P2P and group examples):
    ```bash
@@ -40,13 +42,13 @@ All examples use the async methods from `slim_uniffi_bindings` to demonstrate as
 
 First time setup:
 ```bash
-# Build parent package
+# Build parent package with Maturin
 cd /Users/smagyari/dev/genai/slim/data-plane/bindings/python
-task python:bindings:packaging
+uv run maturin develop
 
 # Install examples package
 cd examples
-uv pip install -e .
+uv sync
 ```
 
 ### Run Server

@@ -10,8 +10,8 @@ generated from Rust using UniFFI.
 
 __version__ = "0.7.0"
 
-# Re-export all generated bindings
-from .generated.slim_bindings import *  # noqa: F403, F401
+# Re-export all generated bindings from Maturin-generated UniFFI module
+from ._slim_bindings.slim_bindings import *  # noqa: F403, F401
 
 __all__ = ["__version__"]
 

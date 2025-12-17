@@ -13,7 +13,7 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
-    UV_PYTHON=python3.14 \
+    UV_PYTHON=python3.13 \
     UV_PROJECT_ENVIRONMENT=/app
 
 # Install dependencies required for building rust and Python bindings
@@ -25,6 +25,7 @@ DEBIAN_FRONTEND=noninteractive \
         git \
         ca-certificates \
         gcc \
+        clang \
         libc-dev
 
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -34,6 +35,7 @@ apt-get install -y task
 
 # Install rust toolchain
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
 EOF
 
 # Copy code into builder
@@ -59,12 +61,16 @@ export CC_x86_64_unknown_linux_gnu=cc
 export AR_x86_64_unknown_linux_gnu=ar
 export STRIP_x86_64_unknown_linux_gnu=strip
 
+export CC_aarch64_unknown_linux_gnu=clang
+export AR_aarch64_unknown_linux_gnu=ar
+export STRIP_aarch64_unknown_linux_gnu=strip
+
 TARGET=${RUSTARCH}-unknown-linux-gnu
 task python:bindings:packaging TARGET=${TARGET} PROFILE=release INTERPRETERS="3.14"
-uv build --package slim-uniffi-examples
+uv build --package slim-bindings-examples
 EOF
 
-FROM python:3.14-bookworm AS slim-uniffi-examples
+FROM python:3.14-bookworm AS slim-bindings-examples
 
 ARG TARGETARCH
 
@@ -72,4 +78,4 @@ ARG TARGETARCH
 COPY --from=builder --chown=app:app /src/data-plane/bindings/python/dist /dists
 RUN python -m pip install /dists/*.whl
 
-ENTRYPOINT ["slim-uniffi-examples"]
+ENTRYPOINT ["slim-bindings-examples"]

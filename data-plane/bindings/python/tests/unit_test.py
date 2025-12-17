@@ -7,9 +7,9 @@
 import pytest
 
 try:
-    import slim_uniffi_bindings.generated.slim_bindings as slim
+    import slim_uniffi_bindings._slim_bindings.slim_bindings as slim
 except ImportError:
-    pytest.skip("SLIM bindings not generated. Run 'task build' first.", allow_module_level=True)
+    pytest.skip("SLIM bindings not built. Run 'task build' first.", allow_module_level=True)
 
 def test_version():
     """Test getting SLIM version."""

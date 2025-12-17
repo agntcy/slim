@@ -15,8 +15,8 @@ exactly what each step does, line by line.
 
 import click  # CLI option parsing & command composition library.
 
-# Import slim_uniffi_bindings
-import slim_uniffi_bindings.generated.slim_bindings as slim
+# Import slim_uniffi_bindings (Maturin-generated UniFFI module)
+import slim_uniffi_bindings._slim_bindings.slim_bindings as slim
 
 
 class color:

@@ -5,25 +5,18 @@
 ```bash
 cd data-plane/bindings/python
 
-# 1. Build Rust library
-task rust-build
-
-# 2. Install uniffi-bindgen
-uv tool install uniffi-bindgen==0.28.3
-
-# 3. Generate bindings
-task generate
-
-# 4. Install dependencies (optional)
+# Install and build with Maturin
 uv sync
+uv run maturin develop
+
+# Or use task
+task build
 ```
 
 ## Basic Usage
 
 ```python
-import sys
-sys.path.insert(0, 'generated')
-import slim_bindings as slim
+import slim_uniffi_bindings as slim
 
 # Initialize
 slim.initialize_crypto_provider()
@@ -63,15 +56,11 @@ app.disconnect(conn_id)
 ## Task Commands
 
 ```bash
-task                              # Show help
-task rust-build                   # Build Rust library
-task generate                     # Generate Python bindings
-task test                         # Run tests
-task example                      # Run simple example
-task example:p2p:alice            # Run P2P receiver
-task example:p2p:bob              # Run P2P sender
-task example:group:moderator      # Run group moderator
-task example:group:participant:alice  # Run group participant
+task                                     # Show help
+task build                               # Build with Maturin
+task test                                # Run tests
+task python:bindings:packaging           # Build wheels for distribution
+task clean                               # Clean build artifacts
 ```
 
 ## API Quick Reference
@@ -124,30 +113,28 @@ is_initiator = session.is_initiator()
 
 ```
 data-plane/bindings/python/
-├── README.md                # Main documentation
-├── QUICK_REFERENCE.md       # This file
-├── Taskfile.yaml            # Build automation
-├── pyproject.toml           # Python project config
-├── requirements-test.txt    # Test dependencies
-├── .gitignore               # Git ignore rules
-├── generated/               # Auto-generated bindings (gitignored)
+├── README.md                    # Main documentation
+├── QUICK_REFERENCE.md           # This file
+├── PACKAGING_GUIDE.md           # Packaging documentation
+├── Taskfile.yaml                # Build automation
+├── pyproject.toml               # Python project config (Maturin)
+├── .gitignore                   # Git ignore rules
+├── slim_uniffi_bindings/        # Python package
+│   ├── __init__.py              # Package entry point
+│   └── py.typed                 # Type hints marker
 ├── examples/
 │   ├── README.md
-│   ├── common/
-│   │   ├── __init__.py
-│   │   └── common.py        # Shared utilities
-│   ├── simple/
-│   │   ├── README.md
-│   │   └── main.py
-│   ├── point_to_point/
-│   │   ├── README.md
-│   │   └── main.py
-│   └── group/
-│       ├── README.md
-│       └── main.py
+│   ├── pyproject.toml
+│   └── src/
+│       └── slim_bindings_examples/
+│           ├── __init__.py
+│           ├── common.py        # Shared utilities
+│           ├── slim.py          # Simple example
+│           ├── point_to_point.py
+│           └── group.py
 └── tests/
-    ├── unit_test.py         # Unit tests
-    └── integration_test.py  # Integration tests
+    ├── unit_test.py             # Unit tests
+    └── integration_test.py      # Integration tests
 ```
 
 ## Common Patterns
@@ -189,29 +176,50 @@ completion.wait()  # Blocks until delivered
 
 ```bash
 # Unit tests
-uv run pytest tests/unit_test.py -v
+task test:unit
 
 # Integration tests (requires running server)
-SLIM_INTEGRATION_TEST=1 uv run pytest tests/integration_test.py -v -s
+task test:integration
+
+# All tests
+task test
+
+# With coverage
+task python:bindings:test:coverage
+```
+
+## Building Wheels
+
+```bash
+# Build wheels for all Python versions
+task python:bindings:packaging
+
+# Build for specific target
+task python:bindings:packaging TARGET=aarch64-apple-darwin
+
+# Build in debug mode
+task python:bindings:packaging PROFILE=debug
+
+# Direct Maturin command
+uv run maturin build --release -i 3.10 3.11 3.12 3.13
 ```
 
 ## Troubleshooting
 
 | Issue | Solution |
 |-------|----------|
-| ImportError | Run `task generate` |
-| Connection refused | Start server: `cd ../go && task example:server` |
-| Library not found | Use `task` commands (handle library path automatically) |
-| Timeout | Check server is running and names match |
-| uniffi-bindgen not found | Install with: `uv tool install uniffi-bindgen==0.28.3` |
+| ImportError | Run `task build` or `uv run maturin develop` |
+| Connection refused | Start server in another terminal |
+| Build errors | Run `task clean` then `task build` |
+| Missing dependencies | Run `uv sync` |
 
 ## Examples Summary
 
-| Example | Purpose | Terminals |
-|---------|---------|-----------|
-| simple | Basic API demo | 1 |
-| point_to_point | P2P messaging | 2 (Alice + Bob) |
-| group | Multicast messaging | 3 (Alice + Bob + Moderator) |
+| Example | Purpose | Command |
+|---------|---------|---------|
+| simple | Basic API demo | `cd examples && task simple` |
+| point_to_point | P2P messaging | `cd examples && task p2p:alice` (Terminal 1)<br>`cd examples && task p2p:bob` (Terminal 2) |
+| group | Multicast messaging | `cd examples && task group:participant:alice` (Terminal 1)<br>`cd examples && task group:participant:bob` (Terminal 2)<br>`cd examples && task group:moderator` (Terminal 3) |
 
 ## Configuration Examples
 
@@ -265,9 +273,31 @@ config = {
 }
 ```
 
+## Development Workflow
+
+### Quick iteration
+```bash
+# Make changes to Rust code
+# Rebuild and test
+uv run maturin develop && uv run pytest tests/unit_test.py -v
+```
+
+### Release build
+```bash
+# Build with optimizations
+uv run maturin develop --release
+```
+
+### Clean rebuild
+```bash
+task clean
+task build
+```
+
 ## See Also
 
 - [Full README](README.md)
-- [Go Bindings](../go/README.md)
+- [Packaging Guide](PACKAGING_GUIDE.md)
 - [Example Documentation](examples/README.md)
+- [Maturin Documentation](https://www.maturin.rs/)
 

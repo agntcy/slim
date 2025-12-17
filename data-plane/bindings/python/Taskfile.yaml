@@ -13,325 +13,135 @@ verbose: false
 env:
   SHARED_SECRET: "demo-secret-key-for-examples012345"
 
-vars:
-  # The Rust UniFFI bindings crate - in bindings/adapter (sibling to bindings/python)
-  BINDINGS_DIR: ../adapter
-  SERVICE_TARGET: ../../target/release
-  LIB_NAME: slim_bindings
-  # Platform-specific library extension
-  LIB_EXT:
-    sh: |
-      OS=$(uname -s)
-      if [[ "$OS" == "Darwin" ]]; then
-        echo "dylib"
-      elif [[ "$OS" == "Linux" ]]; then
-        echo "so"
-      elif [[ "$OS" == "MINGW"* ]] || [[ "$OS" == "MSYS"* ]]; then
-        echo "dll"
-      else
-        echo "so"
-      fi
-  # Get absolute path for library loading
-  ROOT_DIR:
-    sh: pwd
-  LIB_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.{{.LIB_EXT}}"
-  LIB_DIR: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}"
-  DYLD_PATH: "{{.LIB_DIR}}:{{.ENV.DYLD_LIBRARY_PATH}}"
-  LD_PATH: "{{.LIB_DIR}}:{{.ENV.LD_LIBRARY_PATH}}"
+includes:
+  rust:
+    taskfile: ../../../tasks/rust.yaml
+    internal: true
 
 tasks:
   default:
     cmds:
       - task -l
 
-  rust-build:
-    desc: Build the Rust library with UniFFI (release mode)
-    dir: "{{.BINDINGS_DIR}}"
+  python:bindings:build:
+    desc: "Build the Python bindings using Maturin"
+    vars:
+      PROFILE: '{{.PROFILE | default "debug"}}'
+      RELEASE:
+        sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
     cmds:
-      - echo "🦀 Building Rust bindings library with UniFFI (release mode)..."
-      - cargo build --release
+      - task: rust:toolchain:run-command
+        vars:
+          COMMAND: |
+            uv run maturin develop --uv {{.RELEASE}}
 
-  ensure-lib:
-    desc: Ensure the UniFFI library is built
+  python:bindings:test:
+    desc: "Test the Python bindings"
+    deps:
+      - python:bindings:build
     cmds:
-      - |
-        # Detect platform-specific library extension using uname
-        OS=$(uname -s)
-        if [[ "$OS" == "Darwin" ]]; then
-          LIB_EXT="dylib"
-        elif [[ "$OS" == "Linux" ]]; then
-          LIB_EXT="so"
-        elif [[ "$OS" == "MINGW"* ]] || [[ "$OS" == "MSYS"* ]]; then
-          LIB_EXT="dll"
-        else
-          LIB_EXT="so"
-        fi
-        
-        LIB_PATH="{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.${LIB_EXT}"
-        
-        if [ ! -f "$LIB_PATH" ]; then
-          echo "⚠️  UniFFI library not found, building now..."
-          task rust-build
-        else
-          echo "✅ Found UniFFI library: $LIB_PATH"
-        fi
+      - uv run pytest -s {{.TESTS}}
+    vars:
+      TARGET: '{{.TESTS | default ""}}'
 
-  generate:
-    desc: Generate Python bindings from compiled library
-    deps: [ensure-lib]
-    cmds:
-      - echo "🔧 Generating Python bindings from compiled library..."
-      - |
-        # Detect platform-specific library extension using uname
-        OS=$(uname -s)
-        if [[ "$OS" == "Darwin" ]]; then
-          LIB_EXT="dylib"
-        elif [[ "$OS" == "Linux" ]]; then
-          LIB_EXT="so"
-        elif [[ "$OS" == "MINGW"* ]] || [[ "$OS" == "MSYS"* ]]; then
-          LIB_EXT="dll"
-        else
-          LIB_EXT="so"
-        fi
-        
-        uniffi-bindgen generate \
-          --library "{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.${LIB_EXT}" \
-          --language python \
-          --out-dir slim_uniffi_bindings/generated
-      - echo "📋 Copying native library to package directory..."
-      - |
-        # Detect platform-specific library extension using uname
-        OS=$(uname -s)
-        if [[ "$OS" == "Darwin" ]]; then
-          LIB_EXT="dylib"
-        elif [[ "$OS" == "Linux" ]]; then
-          LIB_EXT="so"
-        elif [[ "$OS" == "MINGW"* ]] || [[ "$OS" == "MSYS"* ]]; then
-          LIB_EXT="dll"
-        else
-          LIB_EXT="so"
-        fi
-        
-        SRC_LIB="{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.${LIB_EXT}"
-        DEST_LIB="slim_uniffi_bindings/generated/lib{{.LIB_NAME}}.${LIB_EXT}"
-        
-        if [[ ! -f "$SRC_LIB" ]]; then
-          echo "❌ Error: Native library not found at $SRC_LIB"
-          exit 1
-        fi
-        
-        cp "$SRC_LIB" "$DEST_LIB"
-        echo "✅ Copied native library to slim_uniffi_bindings/generated/"
-      - echo "✅ Bindings generated in slim_uniffi_bindings/generated/"
-
-  build:
-    desc: Build Python package (generate bindings + install package)
-    deps: [generate]
-    cmds:
-      - echo "📦 Installing package in editable mode..."
-      - uv pip install -e .
-      - echo "✅ Package installed"
-
-  install:
-    desc: Install package in editable mode
-    deps: [generate]
-    cmds:
-      - echo "📦 Installing package..."
-      - uv pip install -e .
-      - echo "✅ Package installed"
-
-  package:
-    desc: Create distributable wheel package
-    deps: [generate]
-    cmds:
-      - echo "📦 Building distribution package..."
-      - uv build
-      - echo "✅ Package created in dist/"
-
-  install-uniffi-bindgen:
-    desc: Install uniffi-bindgen for Python
-    cmds:
-      - uv tool install uniffi-bindgen==0.28.3
-
-  test:
-    desc: Run all tests
-    deps: [build]
-    cmds:
-      - echo "🧪 Running all tests..."
-      - uv run pytest tests/ -v
-      - echo "✅ All Python tests passed"
-
-  test:unit:
-    desc: Run unit tests only
-    deps: [build]
-    cmds:
-      - echo "🧪 Running unit tests..."
-      - uv run pytest tests/unit_test.py -v
-      - echo "✅ Unit tests passed"
-
-  test:integration:
+  python:bindings:test:integration:
     desc: Run integration tests only  
-    deps: [build]
+    deps: [python:bindings:build]
     cmds:
-      - echo "🧪 Running integration tests..."
-      - echo "Note Integration tests require a running SLIM server"
+      - echo "Running integration tests...\n"
       - SLIM_INTEGRATION_TEST=1 uv run pytest tests/integration_test.py -v -s
-      - echo "✅ Integration tests passed"
+      - echo "✅ Integration tests passed"      
+
+  python:bindings:test:coverage:
+    desc: "Test the Python bindings with coverage"
+    deps:
+      - python:bindings:build
+    cmds:
+      - uv run pytest --cov=slim_uniffi_bindings --cov-report=lcov:coverage.lcov --cov-report=html --cov-report=term -s {{.TESTS}}
+    vars:
+      TARGET: '{{.TESTS | default ""}}'
+
+  python:bindings:packaging:
+    desc: "Generate Python wheels for multiple Python versions (3.10, 3.11, 3.12, 3.13) using Maturin"
+    vars:
+      PROFILE: '{{.PROFILE | default "release"}}'
+      RELEASE:
+        sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
+      _TARGET:
+        sh: 'rustc -vV | grep "host: " | cut -d" " -f2'
+      TARGET: '{{.TARGET | default ._TARGET}}'
+      ARCH:
+        sh: 'echo {{.TARGET}} | cut -d"-" -f1'
+      OS:
+        sh: 'echo {{.TARGET}} | cut -d"-" -f3'
+      C_LIB:
+        sh: 'echo {{.TARGET}} | cut -d"-" -f4 || echo ""'
+      INTERPRETERS: '{{.INTERPRETERS | default "3.10 3.11 3.12 3.13"}}'
+    cmds:
+      - uv python install {{.INTERPRETERS}}
+      - task: rust:toolchain:run-command
+        vars:
+          COMMAND: |
+            rustup target add {{.TARGET}}
+
+            UV_ARGS=(
+              --no-default-groups
+              --group building
+            )
+
+            MATURIN_ARGS=(
+              {{.RELEASE}}
+              --out dist
+              --target {{.TARGET}}
+              --frozen
+              -i {{.INTERPRETERS}}
+            )
+
+            if [[ "{{.C_LIB}}" = "gnu" ]]; then
+              MATURIN_ARGS+=(
+                --compatibility manylinux_2_28
+                --zig
+              )
+            elif [[ "{{.C_LIB}}" = "musl" ]]; then
+              MATURIN_ARGS+=(
+                --compatibility musllinux_1_2
+                --zig
+              )
+            fi
+            
+            # Workaround for windows
+            if [[ "{{.OS}}" = "windows" ]]; then
+              uv sync ${UV_ARGS[@]}
+              uv run ${UV_ARGS[@]} maturin develop --uv {{.RELEASE}}
+              
+              # This file is a leftover from the previous build, delete it otherwise
+              # maturin will try to add it to the wheel, and it will fail
+              rm -f slim_uniffi_bindings/*.pyd
+            fi
+
+            echo "Running maturin with the following args: ${MATURIN_ARGS[@]}"
+
+            uv run                            \
+              ${UV_ARGS[@]}                   \
+              maturin build                   \
+              ${MATURIN_ARGS[@]}
 
   clean:
     desc: Clean build artifacts
     cmds:
       - echo "🧹 Cleaning build artifacts..."
-      - cd {{.BINDINGS_DIR}} && cargo clean
-      - rm -rf slim_uniffi_bindings/generated/
       - rm -rf dist/
       - rm -rf build/
       - rm -rf *.egg-info/
       - rm -rf .pytest_cache/
       - rm -rf __pycache__/
       - rm -rf slim_uniffi_bindings/__pycache__/
+      - rm -rf slim_uniffi_bindings/*.so
+      - rm -rf slim_uniffi_bindings/*.dylib
+      - rm -rf slim_uniffi_bindings/*.dll
+      - rm -rf slim_uniffi_bindings/*.pyd
       - rm -rf examples/__pycache__/
       - rm -rf examples/*/__pycache__/
       - rm -rf tests/__pycache__/
       - echo "✅ Clean complete"
-
-  python:bindings:packaging:
-    desc: "Generate Python wheels for multiple Python versions (3.10, 3.11, 3.12, 3.13) with bundled native library"
-    vars:
-      PROFILE: '{{.PROFILE | default "release"}}'
-      RELEASE:
-        sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
-      TARGET: '{{.TARGET | default ""}}'
-      TARGET_FLAG:
-        sh: '[[ "{{.TARGET}}" != "" ]] && echo "--target {{.TARGET}}" || echo ""'
-    cmds:
-      - echo "📦 Starting multi-version packaging process..."
-      
-      # Step 1: Install all Python versions
-      - echo "🐍 Installing Python versions..."
-      - for:
-          matrix:
-            PYTHON: ["3.10", "3.11", "3.12", "3.13"]
-        cmd: |
-          echo "  - Installing Python {{.ITEM.PYTHON}}..."
-          uv python install {{.ITEM.PYTHON}}
-      
-      # Step 2: Build the Rust UniFFI library in release mode
-      - echo "🦀 Building Rust UniFFI library ({{.PROFILE}} mode)..."
-      - cd {{.BINDINGS_DIR}} && cargo build {{.RELEASE}} {{.TARGET_FLAG}}
-      
-      # Step 3: Generate Python bindings from the compiled library
-      - echo "🔧 Generating Python bindings..."
-      - |
-        OS=$(uname -s)
-        if [[ "$OS" == "Darwin" ]]; then
-          LIB_EXT="dylib"
-        elif [[ "$OS" == "Linux" ]]; then
-          LIB_EXT="so"
-        elif [[ "$OS" == "MINGW"* ]] || [[ "$OS" == "MSYS"* ]]; then
-          LIB_EXT="dll"
-        else
-          LIB_EXT="so"
-        fi
-        
-        TARGET_PATH="{{.SERVICE_TARGET}}"
-        if [[ "{{.TARGET}}" != "" ]]; then
-          TARGET_PATH="../../target/{{.TARGET}}/{{.PROFILE}}"
-        fi
-        
-        uniffi-bindgen generate \
-          --library "${TARGET_PATH}/lib{{.LIB_NAME}}.${LIB_EXT}" \
-          --language python \
-          --out-dir slim_uniffi_bindings/generated
-      
-      # Step 4: Copy native library to the package directory
-      - echo "📋 Copying native library to package..."
-      - |
-        OS=$(uname -s)
-        if [[ "$OS" == "Darwin" ]]; then
-          LIB_EXT="dylib"
-        elif [[ "$OS" == "Linux" ]]; then
-          LIB_EXT="so"
-        elif [[ "$OS" == "MINGW"* ]] || [[ "$OS" == "MSYS"* ]]; then
-          LIB_EXT="dll"
-        else
-          LIB_EXT="so"
-        fi
-        
-        TARGET_PATH="{{.SERVICE_TARGET}}"
-        if [[ "{{.TARGET}}" != "" ]]; then
-          TARGET_PATH="../../target/{{.TARGET}}/{{.PROFILE}}"
-        fi
-        
-        SRC_LIB="${TARGET_PATH}/lib{{.LIB_NAME}}.${LIB_EXT}"
-        DEST_LIB="slim_uniffi_bindings/generated/lib{{.LIB_NAME}}.${LIB_EXT}"
-        
-        if [[ ! -f "$SRC_LIB" ]]; then
-          echo "❌ Error: Native library not found at $SRC_LIB"
-          exit 1
-        fi
-        
-        cp "$SRC_LIB" "$DEST_LIB"
-        echo "✅ Copied $SRC_LIB to $DEST_LIB"
-      
-      # Step 5: Update pyproject.toml to include native library in wheel
-      - echo "📝 Ensuring pyproject.toml includes native library..."
-      - |
-        if ! grep -q "include.*generated/lib.*\\.dylib" pyproject.toml && \
-           ! grep -q "include.*generated/lib.*\\.so" pyproject.toml; then
-          echo "⚠️  Note: Make sure your pyproject.toml includes the native library in the wheel."
-          echo "   Add to [tool.hatch.build.targets.wheel]:"
-          echo "   include = [\"slim_uniffi_bindings/generated/lib*.dylib\", \"slim_uniffi_bindings/generated/lib*.so\", \"slim_uniffi_bindings/generated/lib*.dll\"]"
-        fi
-      
-      # Step 6: Build wheels for each Python version
-      - echo "🎡 Building wheels for Python versions 3.10, 3.11, 3.12, 3.13..."
-      - rm -rf dist/*.whl
-      - for:
-          matrix:
-            PYTHON: ["3.10", "3.11", "3.12", "3.13"]
-        cmd: |
-          echo "  📦 Building wheel for Python {{.ITEM.PYTHON}}..."
-          uv build --python {{.ITEM.PYTHON}} --wheel
-      
-      # Step 7: Create a copy of the native library next to the wheels
-      - echo "📋 Creating standalone native library copy..."
-      - |
-        OS=$(uname -s)
-        if [[ "$OS" == "Darwin" ]]; then
-          LIB_EXT="dylib"
-        elif [[ "$OS" == "Linux" ]]; then
-          LIB_EXT="so"
-        elif [[ "$OS" == "MINGW"* ]] || [[ "$OS" == "MSYS"* ]]; then
-          LIB_EXT="dll"
-        else
-          LIB_EXT="so"
-        fi
-        
-        TARGET_PATH="{{.SERVICE_TARGET}}"
-        if [[ "{{.TARGET}}" != "" ]]; then
-          TARGET_PATH="../../target/{{.TARGET}}/{{.PROFILE}}"
-        fi
-        
-        cp "${TARGET_PATH}/lib{{.LIB_NAME}}.${LIB_EXT}" "dist/lib{{.LIB_NAME}}.${LIB_EXT}"
-        echo "✅ Copied native library to dist/ directory"
-      
-      # Step 8: Display results
-      - echo ""
-      - echo "✅ Packaging complete! Generated wheels:"
-      - ls -lh dist/*.whl
-      - echo ""
-      - echo "📦 Native library also available at:"
-      - |
-        OS=$(uname -s)
-        if [[ "$OS" == "Darwin" ]]; then
-          LIB_EXT="dylib"
-        elif [[ "$OS" == "Linux" ]]; then
-          LIB_EXT="so"
-        elif [[ "$OS" == "MINGW"* ]] || [[ "$OS" == "MSYS"* ]]; then
-          LIB_EXT="dll"
-        else
-          LIB_EXT="so"
-        fi
-        ls -lh "dist/lib{{.LIB_NAME}}.${LIB_EXT}"
 

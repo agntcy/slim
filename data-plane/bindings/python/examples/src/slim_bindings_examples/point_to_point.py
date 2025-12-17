@@ -30,7 +30,7 @@ import asyncio
 
 import click
 
-import slim_uniffi_bindings.generated.slim_bindings as slim
+import slim_uniffi_bindings._slim_bindings.slim_bindings as slim
 
 from .common import (
     common_options,

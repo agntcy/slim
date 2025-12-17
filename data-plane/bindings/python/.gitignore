@@ -1,4 +1,5 @@
-# Generated bindings
+# Generated bindings (Maturin creates this during development)
+slim_uniffi_bindings/_slim_bindings/
 slim_uniffi_bindings/generated/
 generated/
 

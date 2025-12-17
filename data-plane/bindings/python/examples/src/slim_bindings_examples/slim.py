@@ -22,7 +22,7 @@ import argparse
 import asyncio
 from signal import SIGINT
 
-import slim_uniffi_bindings.generated.slim_bindings as slim
+import slim_uniffi_bindings._slim_bindings.slim_bindings as slim
 
 from .common import create_server_config, create_tls_config
 

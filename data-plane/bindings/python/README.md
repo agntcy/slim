@@ -19,7 +19,7 @@ These Python bindings are generated from the Rust `adapter` crate using [UniFFI]
 
 ## Architecture
 
-The Python bindings mirror the Go bindings approach:
+The Python bindings are built using Maturin, which automatically generates Python bindings from the Rust UniFFI adapter:
 
 ```
 data-plane/bindings/
@@ -32,10 +32,10 @@ data-plane/bindings/
 │   └── Cargo.toml
 ├── go/               # Go-specific bindings and examples
 └── python/           # Python-specific bindings and examples (this directory)
-    ├── generated/    # Auto-generated Python bindings
-    ├── examples/     # Example applications
-    ├── tests/        # Unit and integration tests
-    └── Taskfile.yaml # Build and development tasks
+    ├── slim_uniffi_bindings/  # Python package
+    ├── examples/              # Example applications
+    ├── tests/                 # Unit and integration tests
+    └── Taskfile.yaml          # Build and development tasks
 ```
 
 ## Prerequisites
@@ -43,62 +43,53 @@ data-plane/bindings/
 - **Rust toolchain** (1.70+)
 - **Python** (3.10+)
 - **uv** (Python package manager): https://docs.astral.sh/uv/
-- **uniffi-bindgen** (0.28.3) - Install with: `uv tool install uniffi-bindgen==0.28.3`
 - **Task** (optional, for convenient build commands)
 
 ## Installation
 
-### 1. Build the Rust Library
+### Development Build
 
 ```bash
 cd data-plane/bindings/python
-task rust-build
-```
-
-This builds the UniFFI library in release mode at `../../target/release/libslim_bindings.dylib` (macOS) or `.so` (Linux).
-
-### 2. Install uniffi-bindgen
-
-```bash
-uv tool install uniffi-bindgen==0.28.3
-```
-
-### 3. Generate Python Bindings
-
-```bash
-task generate
-```
-
-This generates Python bindings in the `generated/` directory.
-
-### 4. Install Dependencies (Optional)
-
-```bash
 uv sync
+uv run maturin develop
 ```
 
-This installs test dependencies from pyproject.toml.
+This will:
+1. Install all dependencies
+2. Compile the Rust UniFFI adapter
+3. Generate Python bindings using Maturin
+4. Install the package in development mode
+
+### Alternative: Using Task
+
+```bash
+task build
+```
 
 ## Creating Distribution Packages
 
 ### Build Wheels for Multiple Python Versions
 
-To create distributable wheel packages for Python 3.10, 3.11, 3.12, and 3.13 with the bundled native library:
+To create distributable wheel packages for Python 3.10, 3.11, 3.12, and 3.13:
 
 ```bash
 task python:bindings:packaging
 ```
 
-This task performs the following steps:
+Or directly with Maturin:
 
-1. **Install Python versions**: Downloads and installs Python 3.10, 3.11, 3.12, and 3.13 using `uv`
-2. **Build Rust library**: Compiles the UniFFI adapter library in release mode
-3. **Generate bindings**: Creates Python bindings from the compiled library
-4. **Bundle native library**: Copies the native library (`.dylib`/`.so`/`.dll`) into the package
-5. **Build wheels**: Creates wheel packages for each Python version
-6. **Output artifacts**: Places all wheels and the standalone library in the `dist/` directory
+```bash
+uv run maturin build --release -i 3.10 3.11 3.12 3.13
+```
 
-The resulting wheels will include the native library, making them self-contained and ready for distribution.
+Maturin automatically:
+1. Compiles the Rust UniFFI adapter library
+2. Generates Python bindings from UniFFI scaffolding
+3. Bundles the native library into platform-specific wheels
+4. Creates wheels for each specified Python version
+
+The resulting wheels are self-contained and ready for distribution.
 
 #### Custom Build Options
 
@@ -121,21 +112,20 @@ After running the packaging task, you'll find:
 
 ```
 dist/
-├── slim_uniffi_bindings-0.7.0-py3-none-any.whl  # Python 3.10 wheel
-├── slim_uniffi_bindings-0.7.0-py3-none-any.whl  # Python 3.11 wheel
-├── slim_uniffi_bindings-0.7.0-py3-none-any.whl  # Python 3.12 wheel
-├── slim_uniffi_bindings-0.7.0-py3-none-any.whl  # Python 3.13 wheel
-└── libslim_bindings.dylib                          # Native library (macOS)
-    or libslim_bindings.so                          # Native library (Linux)
-    or libslim_bindings.dll                         # Native library (Windows)
+├── slim_uniffi_bindings-0.7.0-cp310-*.whl  # Python 3.10 wheel
+├── slim_uniffi_bindings-0.7.0-cp311-*.whl  # Python 3.11 wheel
+├── slim_uniffi_bindings-0.7.0-cp312-*.whl  # Python 3.12 wheel
+└── slim_uniffi_bindings-0.7.0-cp313-*.whl  # Python 3.13 wheel
 ```
+
+Note: The native library is automatically bundled inside each wheel.
 
 #### Installing from Wheel
 
 Users can install the wheel package directly:
 
 ```bash
-pip install slim_uniffi_bindings-0.7.0-py3-none-any.whl
+pip install slim_uniffi_bindings-0.7.0-cp310-*.whl
 ```
 
 The native library is automatically included in the wheel and will be loaded at runtime.
@@ -167,9 +157,7 @@ task p2p:bob      # Terminal 2
 ### Simple Example
 
 ```python
-import sys
-sys.path.insert(0, 'generated')
-import slim_bindings as slim
+import slim_uniffi_bindings as slim
 
 # Initialize crypto provider
 slim.initialize_crypto_provider()
@@ -383,19 +371,20 @@ SLIM_INTEGRATION_TEST=1 python -m pytest tests/integration_test.py -v -s
 ### Available Tasks
 
 ```bash
-task                    # Show help
-task rust-build         # Build Rust library
-task generate           # Generate Python bindings
-task test               # Run tests
-task clean              # Clean build artifacts
+task                           # Show help
+task build                     # Build package with Maturin
+task test                      # Run tests
+task python:bindings:packaging # Build wheels for multiple Python versions
+task clean                     # Clean build artifacts
 ```
 
 ### Project Structure
 
-- `generated/` - Auto-generated Python bindings (gitignored)
+- `slim_uniffi_bindings/` - Python package (bindings generated by Maturin)
 - `examples/` - Example applications
 - `tests/` - Unit and integration tests
 - `Taskfile.yaml` - Build automation
+- `pyproject.toml` - Package configuration (Maturin build system)
 
 ## Comparison with Go Bindings
 
@@ -435,22 +424,13 @@ Both Python and Go bindings use the same UniFFI adapter, ensuring API consistenc
 
 ## Troubleshooting
 
-### ImportError: Cannot find slim_bindings
+### ImportError: Cannot find slim_uniffi_bindings
 
-Make sure you've generated the bindings:
+Make sure you've built the package:
 ```bash
-task generate
-```
-
-And added the generated directory to your Python path:
-```python
-import sys
-sys.path.insert(0, 'generated')
-```
-
-Or run via `uv`:
-```bash
-uv run --directory examples/simple python main.py
+task build
+# or
+uv run maturin develop
 ```
 
 ### Connection Refused
@@ -460,16 +440,13 @@ Ensure the SLIM server is running:
 cd ../go && task example:server
 ```
 
-### Library Not Found
+### Build Errors
 
-Make sure the Rust library is built and the library path is set:
+If you encounter build errors, try cleaning and rebuilding:
 ```bash
-task rust-build
-export DYLD_LIBRARY_PATH=$(pwd)/../../target/release:$DYLD_LIBRARY_PATH  # macOS
-export LD_LIBRARY_PATH=$(pwd)/../../target/release:$LD_LIBRARY_PATH      # Linux
+task clean
+uv run maturin develop
 ```
-
-The `task` commands handle this automatically.
 
 ## Contributing
 
