@@ -76,11 +76,11 @@ jobs:
       - name: Build library
         run: |
           task bindings:build:all TARGET=${{ matrix.platform.target }} PROFILE=release
-      # - name: Upload libs
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: wheels-${{ matrix.platform.os }}-${{ matrix.platform.target }}
-      #     path: ./data-plane/python/bindings/dist
+      - name: Upload libs
+        uses: actions/upload-artifact@v4
+        with:
+          name: bindings-${{ matrix.platform.target }}
+          path: ./data-plane/target/${{ matrix.platform.target }}/release/libslim_bindings.*
 
   # ==========================================================================
   # Job 2: Generate and publish Go bindings
@@ -105,59 +105,36 @@ jobs:
           workspace: ./data-plane
 
       # Download all library artifacts
-      - name: Download Linux x86_64 library
+      - name: Download libraries
         uses: actions/download-artifact@v4
         with:
-          name: x86_64-unknown-linux-gnu
-          path: ./artifacts/linux-x86_64
-
-      # TODO: re-enable x86_64-apple-darwin
-      # - name: Download macOS x86_64 library
-      #   uses: actions/download-artifact@v4
-      #   with:
-      #     name: x86_64-apple-darwin
-      #     path: ./artifacts/darwin-x86_64
-
-      - name: Download macOS arm64 library
-        uses: actions/download-artifact@v4
-        with:
-          name: aarch64-apple-darwin
-          path: ./artifacts/darwin-arm64
+          merge-multiple: true
+          path: ./artifacts/
 
       - name: List downloaded artifacts
         run: |
           echo "📦 Downloaded artifacts:"
           find ./artifacts -type f -ls
 
-      - name: Install uniffi-bindgen-go
-        run: |
-          cargo install uniffi-bindgen-go \
-            --git https://github.com/NordSecurity/uniffi-bindgen-go.git \
-            --tag ${{ env.UNIFFI_BINDGEN_GO_VERSION }} \
-            --config net.git-fetch-with-cli=true
-
       - name: Generate Go bindings
-        working-directory: ./data-plane
+        working-directory: ./data-plane/bindings/go
         run: |
-          mkdir -p ../generated-go-bindings
-
-          # Generate Go bindings from the Linux library
-          # (uniffi-bindgen-go reads metadata from the .so file and needs Cargo.toml)
-          uniffi-bindgen-go \
-            --library ../artifacts/linux-x86_64/lib${{ env.LIBRARY_NAME }}.so \
-            --out-dir ../generated-go-bindings
+          task generate LIB_PATH=../artifacts/linux-x86_64/lib${{ env.LIBRARY_NAME }}.a
 
           echo "📁 Generated files:"
           find ../generated-go-bindings -type f
 
-      - name: Prepare Go module
-        working-directory: ./generated-go-bindings/${{ env.LIBRARY_NAME }}
+      - name: Make sure generation did not modify source files
         run: |
-          # Initialize Go module for the bindings package
-          go mod init github.com/${{ env.GO_BINDINGS_REPO }}/${{ env.LIBRARY_NAME }}
-          go mod tidy || true
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "❌ Generated Go bindings differ from committed files. Please commit the updated bindings."
+            git --no-pager diff
+            exit 1
+          else
+            echo "✅ Generated Go bindings are up-to-date with committed files."
+          fi
 
-      - name: Organize native libraries
+      - name: Copy libraies
         run: |
           # Create platform-specific lib directories inside the Go package
           LIBDIR="./generated-go-bindings/${{ env.LIBRARY_NAME }}/lib"

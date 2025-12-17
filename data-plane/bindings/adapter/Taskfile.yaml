@@ -94,6 +94,8 @@ tasks:
         if [[ "{{.TARGET}}" == "" || "{{.TARGET}}" == "$(rustc -vV | sed -n 's|host: ||p')" ]]; then
           ARGS+=(
             "build"
+            "--target"
+            "{{.TARGET}}"
           )
         else
           ARGS+=(
@@ -107,3 +109,4 @@ tasks:
 
         echo cargo ${ARGS[*]}
         cargo "${ARGS[@]}"
+      - echo "🦀 Rust bindings library built successfully."
