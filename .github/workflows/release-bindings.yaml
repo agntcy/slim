@@ -75,7 +75,7 @@ jobs:
           workspace: ./data-plane
       - name: Build library
         run: |
-          task python:bindings:packaging TARGET=${{ matrix.platform.target }} PROFILE=release
+          task bindings:build:all TARGET=${{ matrix.platform.target }} PROFILE=release
       # - name: Upload libs
       #   uses: actions/upload-artifact@v4
       #   with:
