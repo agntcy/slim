@@ -70,7 +70,7 @@ pub struct ControlPlaneSettings {
     pub auth_provider: Option<AuthProvider>,
     /// Optional authentication verifier
     pub auth_verifier: Option<AuthVerifier>,
-    /// array of connection details used by to control
+    /// array of connection details used by the control
     /// plane to store the connection settings (e.g., TLS settings).
     pub connection_details: Vec<ConnectionDetails>,
 }
