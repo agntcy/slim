@@ -1,0 +1,109 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+version: '3'
+
+includes:
+  rust:
+    taskfile: ../../../tasks/rust.yaml
+    internal: true
+
+vars:
+  TOOLS_DIR: "{{.TASKFILE_DIR}}/.tools"
+  ZIG_DIR: "{{.TOOLS_DIR}}/zig"
+  PROFILE: '{{.PROFILE | default "debug"}}'
+  RELEASE:
+    sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
+  DETECTED_OS:
+    sh: |
+        if [[ "{{OS}}" == "linux-gnu"* ]]; then
+          echo "linux"
+        elif [[ "{{OS}}" == "darwin"* ]]; then
+          echo "macos"
+        elif [[ "{{OS}}" == "win32" ]]; then
+          echo "windows"
+        else
+          echo "unknown"
+        fi
+  DETECTED_ARCH:
+    sh: |
+        if [[ "{{ARCH}}" == "amd64" ]]; then
+          echo "x86_64"
+        elif [[ "{{ARCH}}" == "arm64" ]]; then
+          echo "aarch64"
+        else
+          echo "unknown"
+        fi
+  EXTENSION:
+    sh: |
+        if [[ "{{.DETECTED_OS}}" == "windows" ]]; then
+          echo "zip"
+        else
+          echo "tar.xz"
+        fi
+  ZIG_VERSION: '{{.ZIG_VERSION | default "0.14.1"}}'
+  DOWNLOAD_BASE: "https://ziglang.org/download/{{.ZIG_VERSION}}/zig-{{.DETECTED_ARCH}}-{{.DETECTED_OS}}-{{.ZIG_VERSION}}.{{.EXTENSION}}"
+
+env:
+  PATH: "{{.ZIG_DIR}}:{{.PATH}}"
+
+tasks:
+  default:
+    cmds:
+      - task -l
+
+  bindings:install-zig:
+    desc: Install Zig locally for all platforms via direct download
+    status:
+      - test -f "{{.TOOLS_DIR}}/zig/zig"
+    cmds:
+      - mkdir -p "{{.TOOLS_DIR}}"
+      - curl -L "{{.DOWNLOAD_BASE}}" -o "/tmp/zig.{{.EXTENSION}}"
+      - |
+        if [[ "{{.EXTENSION}}" == "zip" ]]; then
+          unzip -q "/tmp/zig.{{.EXTENSION}}" -d "/tmp/"
+        else
+          tar -xf "/tmp/zig.{{.EXTENSION}}" -C "/tmp/"
+        fi
+      - mv "/tmp/zig-{{.DETECTED_ARCH}}-{{.DETECTED_OS}}-{{.ZIG_VERSION}}" "{{.TOOLS_DIR}}/zig"
+      - rm "/tmp/zig.{{.EXTENSION}}"
+      - echo "Zig installed to {{.ZIG_DIR}}"
+
+  bindings:install-cargo-components:
+    desc: Install required cargo components
+    cmds:
+      - echo "🦀 Installing required cargo components..."
+      - cargo install cargo-zigbuild
+
+  bindings:build:all:
+    desc: Build the Rust library with UniFFI (release mode)
+    deps:
+      - bindings:install-zig
+      - bindings:install-cargo-components
+    dir: "{{.BINDINGS_DIR}}"
+    silent: true
+    cmds:
+      - echo "🦀 Building Rust bindings library..."
+      - |
+        # Export Zig path for cargo-zigbuild
+        export PATH="{{.ZIG_DIR}}:$PATH"
+
+        ARGS=()
+
+        # Depending on the target, we can either use cargo-zigbuild or regular cargo build
+        if [[ "{{.TARGET}}" == "" || "{{.TARGET}}" == "$(rustc -vV | sed -n 's|host: ||p')" ]]; then
+          ARGS+=(
+            "build"
+          )
+        else
+          ARGS+=(
+            "zigbuild"
+            "--target"
+            "{{.TARGET}}"
+          )
+        fi
+
+        ARGS+=({{.RELEASE}})
+
+        echo cargo ${ARGS[*]}
+        cargo "${ARGS[@]}"
