@@ -94,9 +94,7 @@ tasks:
   generate:
     desc: Generate Go bindings from compiled library
     deps:
-      - task: adapter:bindings:build:all
-        vars:
-          PROFILE: release
+      - ensure-lib
       - install-uniffi-bindgen-go
     cmds:
       - echo "🔧 Generating Go bindings from compiled library..."
