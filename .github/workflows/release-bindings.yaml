@@ -120,8 +120,7 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: ./scripts
-
+        working-directory: ./data-plane/bindings/go
     steps:
       - name: Checkout source repo
         uses: actions/checkout@v4
