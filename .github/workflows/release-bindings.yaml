@@ -184,12 +184,18 @@ jobs:
         run: |
           pushd ./target-repo
           
-          # Preserve .git directory and manual files like LICENSE, README, go.mod, go.sum
+          # Preserve .git directory and manual files like LICENSE, README
           # Remove only the generated files (*.go, *.h, *.a)
           rm -f ./*.go ./*.h ./*.a
           
           # Copy all generated files to root (not as a subdirectory)
           cp ../generated/${{ env.LIBRARY_NAME }}/* ./
+          
+          # Create go.mod if it doesn't exist
+          if [ ! -f go.mod ]; then
+            echo "📦 Creating go.mod for target repository..."
+            go mod init github.com/${{ env.GO_BINDINGS_REPO }}
+          fi
 
           # Show what will be committed
           echo "📋 Files to be committed:"
