@@ -184,12 +184,12 @@ jobs:
         run: |
           pushd ./target-repo
           
-          # Preserve .git directory and any manual files like LICENSE, README
-          # Remove only the generated package directory
-          rm -rf ./${{ env.LIBRARY_NAME }}
-
-          # Copy the generated package
-          cp -r ../generated/${{ env.LIBRARY_NAME }} ./
+          # Preserve .git directory and manual files like LICENSE, README, go.mod, go.sum
+          # Remove only the generated files (*.go, *.h, *.a)
+          rm -f ./*.go ./*.h ./*.a
+          
+          # Copy all generated files to root (not as a subdirectory)
+          cp ../generated/${{ env.LIBRARY_NAME }}/* ./
 
           # Show what will be committed
           echo "📋 Files to be committed:"
