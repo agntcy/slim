@@ -92,23 +92,34 @@ jobs:
 
           # Build the library name with arch_os_abi if ABI is present, otherwise arch_os
           if [ -n "$ABI" ] && [ "$ABI" != "" ]; then
-            LIB_NAME="libslim_bindings_${ARCH}_${OS}_${ABI}"
+            LIB_NAME="slim_bindings_${ARCH}_${OS}_${ABI}"
           else
-            LIB_NAME="libslim_bindings_${ARCH}_${OS}"
+            LIB_NAME="slim_bindings_${ARCH}_${OS}"
           fi
 
-          for file in ../../target/${{ matrix.platform.target }}/release/libslim_bindings*; do
-            extension="${file##*.}"
-            mv "$file" "../../target/${{ matrix.platform.target }}/release/${LIB_NAME}.${extension}"
+          # Handle both libslim_bindings* (Unix) and slim_bindings* (Windows)
+          for file in ../../target/${{ matrix.platform.target }}/release/libslim_bindings* ../../target/${{ matrix.platform.target }}/release/slim_bindings.*; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              extension="${filename##*.}"
+              
+              if [[ "$filename" == libslim_bindings.* ]]; then
+                # Unix-like: keep 'lib' prefix
+                mv "$file" "../../target/${{ matrix.platform.target }}/release/lib${LIB_NAME}.${extension}"
+              else
+                # Windows: no 'lib' prefix
+                mv "$file" "../../target/${{ matrix.platform.target }}/release/${LIB_NAME}.${extension}"
+              fi
+            fi
           done
 
           echo "📁 Renamed files:"
-          ls -lh ../../target/${{ matrix.platform.target }}/release/libslim_bindings*
+          ls -lh ../../target/${{ matrix.platform.target }}/release/*slim_bindings*
       - name: Upload libs
         uses: actions/upload-artifact@v4
         with:
           name: bindings-${{ matrix.platform.target }}
-          path: ./data-plane/target/${{ matrix.platform.target }}/release/libslim_bindings*
+          path: ./data-plane/target/${{ matrix.platform.target }}/release/*slim_bindings*
 
   # ==========================================================================
   # Job 2: Generate and publish Go bindings
@@ -158,6 +169,7 @@ jobs:
         run: |
           if [[ -n "$(git status --porcelain)" ]]; then
             echo "❌ Generated Go bindings differ from committed files. Please commit the updated bindings."
+            git status
             git --no-pager diff
             exit 1
           else
