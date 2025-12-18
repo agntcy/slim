@@ -1,6 +1,13 @@
 package slim_bindings
 
-// #include <slim_bindings.h>
+/*
+#cgo CFLAGS: -I${SRCDIR}
+#cgo linux,amd64 LDFLAGS: ${SRCDIR}/libslim_bindings.a -lm
+#cgo linux,arm64 LDFLAGS: ${SRCDIR}/libslim_bindings.a -lm
+#cgo darwin,amd64 LDFLAGS: ${SRCDIR}/libslim_bindings.a -Wl,-undefined,dynamic_lookup
+#cgo darwin,arm64 LDFLAGS: ${SRCDIR}/libslim_bindings.a -Wl,-undefined,dynamic_lookup
+#include <slim_bindings.h>
+*/
 import "C"
 
 import (
@@ -3204,7 +3211,7 @@ func (err SlimError) Unwrap() error {
 }
 
 // Err* are used for checking error type with `errors.Is`
-var ErrSlimErrorConfigError = fmt.Errorf("SlimErrorConfigError")
+var ErrSlimErrorServiceError = fmt.Errorf("SlimErrorServiceError")
 var ErrSlimErrorSessionError = fmt.Errorf("SlimErrorSessionError")
 var ErrSlimErrorReceiveError = fmt.Errorf("SlimErrorReceiveError")
 var ErrSlimErrorSendError = fmt.Errorf("SlimErrorSendError")
@@ -3214,23 +3221,23 @@ var ErrSlimErrorInvalidArgument = fmt.Errorf("SlimErrorInvalidArgument")
 var ErrSlimErrorInternalError = fmt.Errorf("SlimErrorInternalError")
 
 // Variant structs
-type SlimErrorConfigError struct {
+type SlimErrorServiceError struct {
 	Message string
 }
 
-func NewSlimErrorConfigError(
+func NewSlimErrorServiceError(
 	message string,
 ) *SlimError {
-	return &SlimError{err: &SlimErrorConfigError{
+	return &SlimError{err: &SlimErrorServiceError{
 		Message: message}}
 }
 
-func (e SlimErrorConfigError) destroy() {
+func (e SlimErrorServiceError) destroy() {
 	FfiDestroyerString{}.Destroy(e.Message)
 }
 
-func (err SlimErrorConfigError) Error() string {
-	return fmt.Sprint("ConfigError",
+func (err SlimErrorServiceError) Error() string {
+	return fmt.Sprint("ServiceError",
 		": ",
 
 		"Message=",
@@ -3238,8 +3245,8 @@ func (err SlimErrorConfigError) Error() string {
 	)
 }
 
-func (self SlimErrorConfigError) Is(target error) bool {
-	return target == ErrSlimErrorConfigError
+func (self SlimErrorServiceError) Is(target error) bool {
+	return target == ErrSlimErrorServiceError
 }
 
 type SlimErrorSessionError struct {
@@ -3445,7 +3452,7 @@ func (c FfiConverterSlimError) Read(reader io.Reader) *SlimError {
 
 	switch errorID {
 	case 1:
-		return &SlimError{&SlimErrorConfigError{
+		return &SlimError{&SlimErrorServiceError{
 			Message: FfiConverterStringINSTANCE.Read(reader),
 		}}
 	case 2:
@@ -3481,7 +3488,7 @@ func (c FfiConverterSlimError) Read(reader io.Reader) *SlimError {
 
 func (c FfiConverterSlimError) Write(writer io.Writer, value *SlimError) {
 	switch variantValue := value.err.(type) {
-	case *SlimErrorConfigError:
+	case *SlimErrorServiceError:
 		writeInt32(writer, 1)
 		FfiConverterStringINSTANCE.Write(writer, variantValue.Message)
 	case *SlimErrorSessionError:
@@ -3514,7 +3521,7 @@ type FfiDestroyerSlimError struct{}
 
 func (_ FfiDestroyerSlimError) Destroy(value *SlimError) {
 	switch variantValue := value.err.(type) {
-	case SlimErrorConfigError:
+	case SlimErrorServiceError:
 		variantValue.destroy()
 	case SlimErrorSessionError:
 		variantValue.destroy()

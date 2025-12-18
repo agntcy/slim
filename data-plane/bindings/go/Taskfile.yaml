@@ -11,7 +11,7 @@ vars:
   # Get absolute path for CGO flags
   ROOT_DIR:
     sh: pwd
-  LIB_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.dylib"
+  LIB_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.a"
   LIB_DIR: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}"
   CGO_LDFLAGS: "-L{{.LIB_DIR}} -l{{.LIB_NAME}}"
   DYLD_PATH: "{{.LIB_DIR}}:{{.ENV.DYLD_LIBRARY_PATH}}"
@@ -49,10 +49,59 @@ tasks:
       - echo "🔧 Generating Go bindings from compiled library..."
       - |
         uniffi-bindgen-go \
-          --library '{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.dylib' \
+          --library '{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.a' \
           --out-dir generated
       - cd generated && go mod init github.com/agntcy/slim/bindings/generated 2>/dev/null || true
+      - task: patch-cgo-directives
+      - task: copy-library
       - echo "✅ Bindings generated in generated/"
+    silent: true
+
+  patch-cgo-directives:
+    desc: Patch generated Go bindings with proper cgo directives
+    internal: true
+    cmds:
+      - echo "🔧 Patching cgo directives..."
+      - |
+        GO_FILE="generated/{{.LIB_NAME}}/{{.LIB_NAME}}.go"
+        if [ -f "$GO_FILE" ]; then
+          # Create the new cgo preamble
+          cat > /tmp/cgo_preamble.txt << 'EOF'
+        package slim_bindings
+
+        /*
+        #cgo CFLAGS: -I${SRCDIR}
+        #cgo linux,amd64 LDFLAGS: ${SRCDIR}/libslim_bindings.a -lm
+        #cgo linux,arm64 LDFLAGS: ${SRCDIR}/libslim_bindings.a -lm
+        #cgo darwin,amd64 LDFLAGS: ${SRCDIR}/libslim_bindings.a -Wl,-undefined,dynamic_lookup
+        #cgo darwin,arm64 LDFLAGS: ${SRCDIR}/libslim_bindings.a -Wl,-undefined,dynamic_lookup
+        #include <slim_bindings.h>
+        */
+        import "C"
+        EOF
+
+          # Extract the rest of the file after 'import "C"'
+          sed -n '/^import "C"/,$p' "$GO_FILE" | tail -n +2 > /tmp/go_rest.txt
+
+          # Combine the new preamble with the rest of the file
+          cat /tmp/cgo_preamble.txt /tmp/go_rest.txt > "$GO_FILE"
+
+          # Cleanup
+          rm -f /tmp/cgo_preamble.txt /tmp/go_rest.txt
+          echo "✅ Patched $GO_FILE with cgo directives"
+        else
+          echo "⚠️  Go file not found: $GO_FILE"
+          exit 1
+        fi
+    silent: true
+
+  copy-library:
+    desc: Copy shared library to generated directory
+    internal: true
+    cmds:
+      - echo "📦 Copying shared library..."
+      - cp "{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.a" "generated/{{.LIB_NAME}}/" 2>/dev/null || true
+      - echo "✅ Library copied to generated/{{.LIB_NAME}}/"
     silent: true
 
   install-uniffi-bindgen-go:

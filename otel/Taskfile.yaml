@@ -11,7 +11,7 @@ vars:
   # Get absolute path for CGO flags
   ROOT_DIR:
     sh: pwd
-  LIB_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.dylib"
+  LIB_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.a"
   LIB_DIR: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}"
   CGO_LDFLAGS: "-L{{.LIB_DIR}} -l{{.LIB_NAME}}"
   DYLD_PATH: "{{.LIB_DIR}}:{{.ENV.DYLD_LIBRARY_PATH}}"
