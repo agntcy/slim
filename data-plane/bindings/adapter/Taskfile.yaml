@@ -104,7 +104,14 @@ tasks:
           "{{.TARGET}}"
           {{.RELEASE}}
         )
+      
 
         echo cargo ${ARGS[*]}
-        PATH="{{.ZIG_DIR}}:$PATH" cargo "${ARGS[@]}"
+        CARGO_PROFILE_RELEASE_OPT_LEVEL="z" \
+        CARGO_PROFILE_RELEASE_LTO="thin" \
+        CARGO_PROFILE_RELEASE_PANIC="abort" \
+        CARGO_PROFILE_RELEASE_CODEGEN_UNITS="1" \
+        CARGO_PROFILE_RELEASE_STRIP="debuginfo" \
+        PATH="{{.ZIG_DIR}}:$PATH" \
+        cargo "${ARGS[@]}"
       - echo "🦀 Rust bindings library built successfully."
