@@ -213,13 +213,13 @@ impl ControllerSender {
                     // add the new participant to the list
                     self.group_list.insert(message.get_dst());
 
-                    if self.group_name.is_none()
-                        && self.session_type == ProtoSessionType::PointToPoint
-                    {
+                    if self.group_name.is_none() {
                         // update the group name used to send ping messages
+                        // in P2P sessions the group name is equal to the remote name
+                        // in group session the name is the actual group
                         debug!(
                             destinatio = %message.get_dst(),
-                            "update group name for point to point session on welcome message",
+                            "update group name on welcome message",
                         );
                         self.group_name = Some(message.get_dst());
                     }
@@ -268,15 +268,6 @@ impl ControllerSender {
                     .filter(|name| *name != &self.local_name)
                     .cloned()
                     .collect::<HashSet<_>>();
-
-                if self.group_name.is_none() {
-                    // update the group name used to send ping messages
-                    debug!(
-                        destination = %message.get_dst(),
-                        "update group name of add message"
-                    );
-                    self.group_name = Some(message.get_dst());
-                }
 
                 self.on_send_message(message, missing_replies).await?;
             }
