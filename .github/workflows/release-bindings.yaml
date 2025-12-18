@@ -181,8 +181,9 @@ jobs:
           git clone https://x-access-token:${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}@github.com/${{ env.GO_BINDINGS_REPO }}.git ./target-repo
 
       - name: Update target repository
-        working-directory: ./target-repo
         run: |
+          pushd ./target-repo
+          
           # Preserve .git directory and any manual files like LICENSE, README
           # Remove only the generated package directory
           rm -rf ./${{ env.LIBRARY_NAME }}
@@ -193,10 +194,13 @@ jobs:
           # Show what will be committed
           echo "📋 Files to be committed:"
           git status
+          
+          popd
 
       - name: Commit and push
-        working-directory: ./target-repo
         run: |
+          pushd ./target-repo
+          
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
@@ -222,3 +226,5 @@ jobs:
           git push origin "${{ env.RELEASE_VERSION }}"
 
           echo "✅ Successfully pushed Go bindings to https://github.com/${{ env.GO_BINDINGS_REPO }}"
+          
+          popd
