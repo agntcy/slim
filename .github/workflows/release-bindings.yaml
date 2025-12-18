@@ -175,7 +175,7 @@ jobs:
             if [ -f "$lib" ]; then
               BEFORE=$(stat -c%s "$lib" 2>/dev/null || stat -f%z "$lib")
               # Strip debug symbols (works on Linux libs, may fail on cross-compiled - that's ok)
-              strip --strip-debug "$lib" 2>/dev/null || true
+              strip "$lib" 2>/dev/null || true
               AFTER=$(stat -c%s "$lib" 2>/dev/null || stat -f%z "$lib")
               echo "  $(basename $lib): $(numfmt --to=iec $BEFORE) -> $(numfmt --to=iec $AFTER)"
             fi
