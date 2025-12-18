@@ -168,7 +168,7 @@ jobs:
       - name: Copy and strip platform libraries
         run: |
           echo "📦 Copying all platform-specific libraries..."
-          cp ./artifacts/*${{ env.LIBRARY_NAME }}*.a ./generated/${{ env.LIBRARY_NAME }}/
+          cp ./artifacts/*${{ env.LIBRARY_NAME }}* ./generated/${{ env.LIBRARY_NAME }}/
           
           echo "📦 Stripping debug symbols to reduce size..."
           for lib in ./generated/${{ env.LIBRARY_NAME }}/*${{ env.LIBRARY_NAME }}*.a; do
