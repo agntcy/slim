@@ -333,6 +333,7 @@ tasks:
       - which rust-ar
     cmds:
       - echo "📦 Installing rust-ar..."
+      - rustup component add llvm-tools --toolchain stable
       - cargo install cargo-binutils
     silent: true
 
