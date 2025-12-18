@@ -38,9 +38,7 @@ tasks:
       - task: data-plane:build
       - task: data-plane:toolchain:strip
         vars:
-          TARGET: "{{.TARGET}}"
-          PROFILE: "{{.PROFILE}}"
-          BIN_NAME: "slim"
+          TARGET_BIN: "target/{{.TARGET}}/{{.PROFILE}}/slim"
 
   data-plane:run:server:
     desc: "Run the server"

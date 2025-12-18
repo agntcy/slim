@@ -99,6 +99,4 @@ tasks:
       - task: mcp-proxy:build
       - task: mcp-proxy:toolchain:strip
         vars:
-          TARGET: "{{.TARGET}}"
-          PROFILE: "{{.PROFILE}}"
-          BIN_NAME: "slim-mcp-proxy"
+          TARGET_BIN: "target/{{.TARGET}}/{{.PROFILE}}/slim-mcp-proxy"
