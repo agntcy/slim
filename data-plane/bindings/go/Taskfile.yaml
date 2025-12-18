@@ -71,17 +71,7 @@ tasks:
             echo "#cgo linux,amd64 LDFLAGS: -Wl,--start-group$LIBS -Wl,--end-group -lm" >> /tmp/cgo_preamble.txt
           fi
           
-          # linux amd64 musl (x86_64)
-          LIBS=""
-          for lib in generated/{{.LIB_NAME}}/libslim_bindings_x86_64_linux_musl*.a; do
-            if [ -f "$lib" ]; then
-              LIBS="$LIBS \${SRCDIR}/$(basename $lib)"
-            fi
-          done
-          if [ -n "$LIBS" ]; then
-            echo "#cgo linux,amd64 LDFLAGS: -Wl,--start-group$LIBS -Wl,--end-group -lm" >> /tmp/cgo_preamble.txt
-          fi
-          
+
           # linux arm64 gnu (aarch64)
           LIBS=""
           for lib in generated/{{.LIB_NAME}}/libslim_bindings_aarch64_linux_gnu*.a; do
@@ -93,17 +83,7 @@ tasks:
             echo "#cgo linux,arm64 LDFLAGS: -Wl,--start-group$LIBS -Wl,--end-group -lm" >> /tmp/cgo_preamble.txt
           fi
           
-          # linux arm64 musl (aarch64)
-          LIBS=""
-          for lib in generated/{{.LIB_NAME}}/libslim_bindings_aarch64_linux_musl*.a; do
-            if [ -f "$lib" ]; then
-              LIBS="$LIBS \${SRCDIR}/$(basename $lib)"
-            fi
-          done
-          if [ -n "$LIBS" ]; then
-            echo "#cgo linux,arm64 LDFLAGS: -Wl,--start-group$LIBS -Wl,--end-group -lm" >> /tmp/cgo_preamble.txt
-          fi
-          
+
           # darwin amd64 (x86_64)
           LIBS=""
           for lib in generated/{{.LIB_NAME}}/libslim_bindings_x86_64_darwin*.a; do
@@ -318,9 +298,6 @@ tasks:
         fi
       - echo "✅ Libraries in generated/{{.LIB_NAME}}/:"
       - ls -lah "generated/{{.LIB_NAME}}/"*{{.LIB_NAME}}*.a 2>/dev/null || echo "  (no .a files found)"
-      - echo ""
-      - echo "📋 Generated cgo directives:"
-      - grep "^#cgo" "generated/{{.LIB_NAME}}/{{.LIB_NAME}}.go" || echo "  (no cgo directives found)"
     silent: true
 
   generate:

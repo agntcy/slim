@@ -2,7 +2,8 @@ package slim_bindings
 
 /*
 #cgo CFLAGS: -I${SRCDIR}
-#cgo linux,amd64 LDFLAGS: -Wl,--start-group ${SRCDIR}/libslim_bindings_x86_64_linux_gnu_part0.a ${SRCDIR}/libslim_bindings_x86_64_linux_gnu_part1.a ${SRCDIR}/libslim_bindings_x86_64_linux_gnu_part2.a -Wl,--end-group -lm
+#cgo linux,amd64 LDFLAGS: -Wl,--start-group ${SRCDIR}/libslim_bindings_x86_64_linux_gnu_part0.a ${SRCDIR}/libslim_bindings_x86_64_linux_gnu_part1.a ${SRCDIR}/libslim_bindings_x86_64_linux_gnu_part2.a ${SRCDIR}/libslim_bindings_x86_64_linux_gnu_part3.a -Wl,--end-group -lm
+#cgo linux,arm64 LDFLAGS: -Wl,--start-group ${SRCDIR}/libslim_bindings_aarch64_linux_gnu_part0.a ${SRCDIR}/libslim_bindings_aarch64_linux_gnu_part1.a ${SRCDIR}/libslim_bindings_aarch64_linux_gnu_part2.a ${SRCDIR}/libslim_bindings_aarch64_linux_gnu_part3.a -Wl,--end-group -lm
 #include <slim_bindings.h>
 */
 import "C"
