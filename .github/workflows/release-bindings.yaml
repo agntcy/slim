@@ -76,9 +76,9 @@ jobs:
       - name: Build library
         run: |
           task bindings:build:all TARGET=${{ matrix.platform.target }} PROFILE=release
-      - name: Rename artifacts
+      - name: Strip and rename artifacts
         run: |
-          ls -lh ../../target/${{ matrix.platform.target }}/release/
+          ls -lah ../../target/${{ matrix.platform.target }}/release/
           
           # Split target and use in filename
           TARGET="${{ matrix.platform.target }}"
@@ -99,7 +99,7 @@ jobs:
 
           # Handle both libslim_bindings* (Unix) and slim_bindings* (Windows)
           for file in ../../target/${{ matrix.platform.target }}/release/libslim_bindings* ../../target/${{ matrix.platform.target }}/release/slim_bindings.*; do
-            if [ -f "$file" ]; then
+            if [ -f "$file" ]; then        
               filename=$(basename "$file")
               extension="${filename##*.}"
               
@@ -114,7 +114,7 @@ jobs:
           done
 
           echo "📁 Renamed files:"
-          ls -lh ../../target/${{ matrix.platform.target }}/release/*slim_bindings*
+          ls -lah ../../target/${{ matrix.platform.target }}/release/*slim_bindings*
       - name: Upload libs
         uses: actions/upload-artifact@v4
         with:
@@ -164,25 +164,6 @@ jobs:
 
           echo "📁 Generated files:"
           find ./generated -type f
-
-      - name: Copy and strip platform libraries
-        run: |
-          echo "📦 Copying all platform-specific libraries..."
-          cp ./artifacts/*${{ env.LIBRARY_NAME }}* ./generated/${{ env.LIBRARY_NAME }}/
-          
-          echo "📦 Stripping debug symbols to reduce size..."
-          for lib in ./generated/${{ env.LIBRARY_NAME }}/*${{ env.LIBRARY_NAME }}*.a; do
-            if [ -f "$lib" ]; then
-              BEFORE=$(stat -c%s "$lib" 2>/dev/null || stat -f%z "$lib")
-              # Strip debug symbols (works on Linux libs, may fail on cross-compiled - that's ok)
-              strip "$lib" 2>/dev/null || true
-              AFTER=$(stat -c%s "$lib" 2>/dev/null || stat -f%z "$lib")
-              echo "  $(basename $lib): $(numfmt --to=iec $BEFORE) -> $(numfmt --to=iec $AFTER)"
-            fi
-          done
-          
-          echo "✅ Libraries in generated folder:"
-          ls -lh ./generated/${{ env.LIBRARY_NAME }}/*${{ env.LIBRARY_NAME }}*
 
       - name: Make sure generation did not modify source files
         run: |
