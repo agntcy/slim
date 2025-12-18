@@ -31,11 +31,8 @@ func NewFactory() exporter.Factory {
 // createDefaultConfig creates the default configuration for the exporter
 func createDefaultConfig() component.Config {
 	return &Config{
-		SlimEndpoint:     "http://127.0.0.1:46357",
-		LocalName:        "agntcy/otel/exporter",
-		ChannelName:      "agntcy/otel/telemetry",
-		MlsEnabled:       false,
-		ParticipantsList: []string{},
+		SlimEndpoint: "http://127.0.0.1:46357",
+		LocalName:    "agntcy/otel/exporter",
 	}
 }
 
@@ -63,7 +60,6 @@ func createTracesExporter(
 		exp.pushTraces,
 		exporterhelper.WithStart(exp.start),
 		exporterhelper.WithShutdown(exp.shutdown),
-		exporterhelper.WithCapabilities(exp.Capabilities()),
 	)
 }
 
@@ -91,7 +87,6 @@ func createMetricsExporter(
 		exp.pushMetrics,
 		exporterhelper.WithStart(exp.start),
 		exporterhelper.WithShutdown(exp.shutdown),
-		exporterhelper.WithCapabilities(exp.Capabilities()),
 	)
 }
 
@@ -119,6 +114,5 @@ func createLogsExporter(
 		exp.pushLogs,
 		exporterhelper.WithStart(exp.start),
 		exporterhelper.WithShutdown(exp.shutdown),
-		exporterhelper.WithCapabilities(exp.Capabilities()),
 	)
 }

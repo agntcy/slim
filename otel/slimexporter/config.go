@@ -7,23 +7,33 @@ type Config struct {
 	// Slim endpoint where to connect
 	SlimEndpoint string `mapstructure:"endpoint"`
 
-	// Local name in the for org/ns/service
-	// dafual = agntcy/otel/exporter
+	// Local name in the form org/ns/service
+	// default = agntcy/otel/exporter
 	LocalName string `mapstructure:"local-name"`
-
-	// Channel name in the form org/ns/service
-	// the signal type is appended as a suffix to the name
-	// default agntcy/otel/telemetry-*
-	ChannelName string `mapstructure:"channel-name"`
 
 	// Shared Secret
 	SharedSecret string `mapstructure:"shared-secret"`
 
-	// Flag to enable or disable MLS
-	MlsEnabled bool `mapstructure:"mls-enabled"`
+	// List of sessions/channels to create
+	Sessions []SessionConfig `mapstructure:"sessions"`
+}
 
-	// List of participants to invite
-	ParticipantsList []string `mapstructure:"participants-list"`
+// SessionConfig defines configuration for a single session/channel
+type SessionConfig struct {
+	// Channel name in the form org/ns/service
+	// this is the base name, actual channels will be
+	// channel-name-traces, channel-name-metrics, channel-name-logs
+	ChannelName string `mapstructure:"channel-name"`
+
+	// Signals to export on this channels (traces, metrics, logs)
+	// signals will be added to the channel name as suffix
+	Signals []string `mapstructure:"signals"`
+
+	// List of participants to invite to the channels
+	Participants []string `mapstructure:"participants"`
+
+	// Flag to enable or disable MLS for these sessions
+	MlsEnabled bool `mapstructure:"mls-enabled"`
 }
 
 // Validate checks if the exporter configuration is valid
@@ -41,8 +51,23 @@ func (cfg *Config) Validate() error {
 		cfg.LocalName = defaultCfg.LocalName
 	}
 
-	if cfg.ChannelName == "" {
-		cfg.ChannelName = defaultCfg.ChannelName
+	// Validate each session (the list can be empty)
+	for i, session := range cfg.Sessions {
+		if session.ChannelName == "" {
+			return errors.New("channel-name is required for session " + string(i))
+		}
+		if len(session.Signals) == 0 {
+			return errors.New("at least one signal must be specified for session " + session.ChannelName)
+		}
+		// Validate signal types
+		for _, signal := range session.Signals {
+			if signal != "traces" && signal != "metrics" && signal != "logs" {
+				return errors.New("invalid signal type: " + signal + " (must be traces, metrics, or logs)")
+			}
+		}
+		if len(session.Participants) == 0 {
+			return errors.New("at least one participant must be specified for session " + session.ChannelName)
+		}
 	}
 
 	return nil

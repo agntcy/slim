@@ -18,19 +18,31 @@ exporters:
     endpoint: "http://127.0.0.1:46357"
     # exporter local name
     local-name: "agntcy/otel/exporter"
-    # channel name used if the exporter runs as moderator
-    # three channels are created: agntcy/otel/telemetry-metrics,
-    # agntcy/otel/telemetry-traces and agntcy/otel/telemetry-logs
-    channel-name: "agntcy/otel/telemetry"
-    # add participants list if the exporter runs as moderator
-    # and needs to invite other participants in the group
-    participants-list: []
-    #  - "agntcy/otel/receiver-app"
-    # enables/disables MLS
-    mls-enabled: false
     # shared secret used for MLS and identity provider
-    shared-secret: "a-very-log-shared-secret-0123456789-abcdefg"
-    
+    shared-secret: "a-very-long-shared-secret-0123456789-abcdefg"
+    # sessions configuration
+    sessions: 
+        # name of the SLIM channel to create for the session
+        # the name will be suffixed with the signal types
+      - channel-name: "agntcy/otel/telemetry-1"
+        # signals types to export on this channel
+        signals: 
+          - traces
+          - metrics
+          - logs
+        # participants to invite to this channel
+        participants:
+          - "agntcy/otel/receiver-app-1"
+        # flag to enable or disable MLS for this session
+        mls-enabled: false
+      - channel-name: "agntcy/otel/telemetry-2"
+        signals: 
+          - metrics
+        participants:
+          - "agntcy/otel/receiver-app-2"
+          - "agntcy/otel/receiver-app-3"
+        mls-enabled: false      
+  
   # Standard OTLP exporter
   otlp:
     endpoint: localhost:4317
