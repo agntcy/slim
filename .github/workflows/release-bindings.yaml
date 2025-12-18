@@ -165,13 +165,24 @@ jobs:
           echo "📁 Generated files:"
           find ./generated -type f
 
-      - name: Copy all platform libraries to generated folder
+      - name: Copy and strip platform libraries
         run: |
           echo "📦 Copying all platform-specific libraries..."
           cp ./artifacts/*${{ env.LIBRARY_NAME }}*.a ./generated/${{ env.LIBRARY_NAME }}/
           
+          echo "📦 Stripping debug symbols to reduce size..."
+          for lib in ./generated/${{ env.LIBRARY_NAME }}/*${{ env.LIBRARY_NAME }}*.a; do
+            if [ -f "$lib" ]; then
+              BEFORE=$(stat -c%s "$lib" 2>/dev/null || stat -f%z "$lib")
+              # Strip debug symbols (works on Linux libs, may fail on cross-compiled - that's ok)
+              strip --strip-debug "$lib" 2>/dev/null || true
+              AFTER=$(stat -c%s "$lib" 2>/dev/null || stat -f%z "$lib")
+              echo "  $(basename $lib): $(numfmt --to=iec $BEFORE) -> $(numfmt --to=iec $AFTER)"
+            fi
+          done
+          
           echo "✅ Libraries in generated folder:"
-          ls -la ./generated/${{ env.LIBRARY_NAME }}/*${{ env.LIBRARY_NAME }}*
+          ls -lh ./generated/${{ env.LIBRARY_NAME }}/*${{ env.LIBRARY_NAME }}*
 
       - name: Make sure generation did not modify source files
         run: |
