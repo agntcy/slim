@@ -326,7 +326,7 @@ tasks:
       - echo "📦 Installing uniffi-bindgen-go..."
       - cargo install uniffi-bindgen-go --git https://github.com/NordSecurity/uniffi-bindgen-go.git --tag v0.4.0+v0.28.3 --config net.git-fetch-with-cli=true
     silent: true
-    
+
   install-rust-ar:
     desc: Install rust-ar (cargo-ar)
     status:
