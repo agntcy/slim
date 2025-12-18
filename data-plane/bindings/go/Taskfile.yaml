@@ -305,6 +305,7 @@ tasks:
     deps:
       - ensure-lib
       - install-uniffi-bindgen-go
+      - install-rust-ar
     cmds:
       - echo "🔧 Generating Go bindings from compiled library..."
       - |
@@ -324,6 +325,15 @@ tasks:
     cmds:
       - echo "📦 Installing uniffi-bindgen-go..."
       - cargo install uniffi-bindgen-go --git https://github.com/NordSecurity/uniffi-bindgen-go.git --tag v0.4.0+v0.28.3 --config net.git-fetch-with-cli=true
+    silent: true
+    
+  install-rust-ar:
+    desc: Install rust-ar (cargo-ar)
+    status:
+      - which rust-ar
+    cmds:
+      - echo "📦 Installing rust-ar..."
+      - cargo install cargo-binutils
     silent: true
 
   test:
