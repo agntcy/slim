@@ -17,14 +17,6 @@ import (
 	"go.uber.org/zap"
 )
 
-type SignalType string
-
-const (
-	SignalTraces  SignalType = "traces"
-	SignalMetrics SignalType = "metrics"
-	SignalLogs    SignalType = "logs"
-)
-
 const (
 	inviteDelayMs     = 1000
 	sessionTimeoutMs  = 1000
@@ -98,13 +90,13 @@ type ExporterSessions struct {
 }
 
 // AddSessionForSignal adds a session to the appropriate signal type's session list
-func (e *ExporterSessions) AddSessionForSignal(signalType SignalType, session *slim.BindingsSessionContext) error {
+func (e *ExporterSessions) AddSessionForSignal(signalType common.SignalType, session *slim.BindingsSessionContext) error {
 	switch signalType {
-	case SignalMetrics:
+	case common.SignalMetrics:
 		return e.metricsSessions.AddSession(session)
-	case SignalTraces:
+	case common.SignalTraces:
 		return e.tracesSessions.AddSession(session)
-	case SignalLogs:
+	case common.SignalLogs:
 		return e.logsSessions.AddSession(session)
 	default:
 		return fmt.Errorf("unknown signal type: %s", signalType)
@@ -112,13 +104,13 @@ func (e *ExporterSessions) AddSessionForSignal(signalType SignalType, session *s
 }
 
 // RemoveSessionForSignal removes a session from the appropriate signal type's session list
-func (e *ExporterSessions) RemoveSessionForSignal(signalType SignalType, id uint32) error {
+func (e *ExporterSessions) RemoveSessionForSignal(signalType common.SignalType, id uint32) error {
 	switch signalType {
-	case SignalMetrics:
+	case common.SignalMetrics:
 		return e.metricsSessions.RemoveSession(id)
-	case SignalTraces:
+	case common.SignalTraces:
 		return e.tracesSessions.RemoveSession(id)
-	case SignalLogs:
+	case common.SignalLogs:
 		return e.logsSessions.RemoveSession(id)
 	default:
 		return fmt.Errorf("unknown signal type: %s", signalType)
@@ -126,14 +118,14 @@ func (e *ExporterSessions) RemoveSessionForSignal(signalType SignalType, id uint
 }
 
 // RemoveAllSessionsForSignal removes all sessions for a specific signal type
-func (e *ExporterSessions) RemoveAllSessionsForSignal(signalType SignalType) {
+func (e *ExporterSessions) RemoveAllSessionsForSignal(signalType common.SignalType) {
 	var sessions *SignalSessions
 	switch signalType {
-	case SignalMetrics:
+	case common.SignalMetrics:
 		sessions = e.metricsSessions
-	case SignalTraces:
+	case common.SignalTraces:
 		sessions = e.tracesSessions
-	case SignalLogs:
+	case common.SignalLogs:
 		sessions = e.logsSessions
 	default:
 		return
@@ -158,7 +150,7 @@ var (
 type slimExporter struct {
 	config     *Config
 	logger     *zap.Logger
-	signalType SignalType
+	signalType common.SignalType
 	sessions   *ExporterSessions
 }
 
@@ -265,15 +257,9 @@ func listenForAllSessions(ctx context.Context, app *slim.BindingsAdapter, logger
 			channelComponent := sessionName.Components[2]
 
 			// Determine signal type from suffix and assign to appropriate exporter
-			var assignedSignal SignalType
-			if strings.HasSuffix(channelComponent, string(SignalMetrics)) {
-				assignedSignal = SignalMetrics
-			} else if strings.HasSuffix(channelComponent, string(SignalTraces)) {
-				assignedSignal = SignalTraces
-			} else if strings.HasSuffix(channelComponent, string(SignalLogs)) {
-				assignedSignal = SignalLogs
-			} else {
-				logger.Error("Received session with unrecognized suffix", zap.String("session_name", channelComponent))
+			assignedSignal, err := common.ExtractSignalType(channelComponent)
+			if err != nil {
+				logger.Error("Received session with unrecognized suffix", zap.String("session_name", channelComponent), zap.Error(err))
 				continue
 			}
 
@@ -292,7 +278,7 @@ func listenForAllSessions(ctx context.Context, app *slim.BindingsAdapter, logger
 }
 
 // newSlimExporter creates a new instance of the slim exporter
-func newSlimExporter(cfg *Config, logger *zap.Logger, signalType SignalType) (*slimExporter, error) {
+func newSlimExporter(cfg *Config, logger *zap.Logger, signalType common.SignalType) (*slimExporter, error) {
 
 	app, connID, err := getOrCreateApp(cfg.LocalName, cfg.SlimEndpoint, cfg.SharedSecret)
 	if err != nil {
@@ -413,18 +399,18 @@ func (e *slimExporter) publishData(data []byte, signalName string, count int) er
 
 	var closedSessions []uint32
 	var err error
-	var signalType SignalType
+	var signalType common.SignalType
 
 	switch signalName {
 	case "traces":
 		closedSessions, err = state.tracesSessions.PublishToAll(data, e.logger, signalName)
-		signalType = SignalTraces
+		signalType = common.SignalTraces
 	case "metrics":
 		closedSessions, err = state.metricsSessions.PublishToAll(data, e.logger, signalName)
-		signalType = SignalMetrics
+		signalType = common.SignalMetrics
 	case "logs":
 		closedSessions, err = state.logsSessions.PublishToAll(data, e.logger, signalName)
-		signalType = SignalLogs
+		signalType = common.SignalLogs
 	default:
 		e.logger.Error("Unknown signal type: " + signalName)
 		return fmt.Errorf("unknown signal type: %s", signalName)

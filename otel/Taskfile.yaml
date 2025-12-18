@@ -36,7 +36,7 @@ tasks:
       - task -l
 
   # OpenTelemetry Collector Builder
-  download-ocb:
+  collector:download-ocb:
     desc: Download OpenTelemetry Collector Builder for current architecture
     cmds:
       - echo "Downloading OCB {{.OCB_VERSION}} for {{.GOOS}}/{{.GOARCH}}..."
@@ -46,10 +46,10 @@ tasks:
     status:
       - test -f ocb
 
-  build-collector:
+  collector:build:
     desc: Build the SLIM OpenTelemetry Collector
-    deps:
-      - download-ocb
+    env:
+      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
     cmds:
       - echo "Generating collector sources..."
       - ./ocb --config builder-config.yaml --skip-compilation
@@ -57,14 +57,24 @@ tasks:
       - cd {{.COLLECTOR_OUTPUT}} && CGO_ENABLED=1 go build -trimpath -o slim-otelcol -ldflags="-s -w"
       - echo "Collector built successfully at {{.COLLECTOR_OUTPUT}}/slim-otelcol"
 
-  clean-collector:
+  collector:clean:
     desc: Clean the generated collector directory
     cmds:
       - rm -rf {{.COLLECTOR_OUTPUT}}
       - echo "Collector build directory cleaned"
 
+  collector:run:
+    desc: Run the SLIM OpenTelemetry Collector
+    env:
+      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
+      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
+      LD_LIBRARY_PATH: "{{.LD_PATH}}"
+    cmds:
+      - echo "Running SLIM OpenTelemetry Collector..."
+      - "{{.COLLECTOR_OUTPUT}}/slim-otelcol --config {{.ROOT_DIR}}/collector-config.yaml"
+
   # Docker tasks
-  docker-build:
+  docker:build:
     desc: Build Docker image for the SLIM OpenTelemetry Collector
     cmds:
       - echo "Preparing bindings for Docker build..."
@@ -76,7 +86,7 @@ tasks:
       - rm -rf data-plane
       - echo "Docker image built successfully"
 
-  docker-build-multiarch:
+  docker:build-multiarch:
     desc: Build multi-architecture Docker image (requires buildx)
     cmds:
       - echo "Preparing bindings for Docker build..."
@@ -88,14 +98,14 @@ tasks:
       - rm -rf data-plane
       - echo "Multi-arch Docker image built successfully"
 
-  docker-run:
+  docker:run:
     desc: Run the SLIM collector in Docker
     cmds:
       - echo "Starting SLIM OpenTelemetry Collector container..."
       - docker run --rm -p 4317:4317 -p 4318:4318 -v {{.ROOT_DIR}}/collector-config.yaml:/etc/otel/config.yaml {{.DOCKER_IMAGE}}:{{.DOCKER_TAG}}
 
   # Examples
-  testapp:
+  testapp:participant:
     desc: Run the test app
     dir: testapp
     env:
@@ -103,6 +113,23 @@ tasks:
       DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
       LD_LIBRARY_PATH: "{{.LD_PATH}}"
     cmds:
-      - echo "Running test app..."
-      - go run .
+      - echo "Running test app in participant mode..."
+      - go run . --app-name "agntcy/otel/receiver-app" \
+          --server "http://localhost:46357" \
+          --secret "a-very-long-shared-secret-0123456789-abcdefg"
+    silent: true
+
+  testapp:initiator:
+    desc: Run the test app
+    dir: testapp
+    env:
+      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
+      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
+      LD_LIBRARY_PATH: "{{.LD_PATH}}"
+    cmds:
+      - echo "Running test app in initiator mode..."
+      - go run . --app-name "agntcy/otel/receiver-app" \
+          --server "http://localhost:46357" \
+          --secret "a-very-long-shared-secret-0123456789-abcdefg" \
+          --exporter-name "agntcy/otel/exporter"
     silent: true

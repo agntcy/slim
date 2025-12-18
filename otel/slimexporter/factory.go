@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	common "github.com/agntcy/slim/otel"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
@@ -48,7 +49,7 @@ func createTracesExporter(
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
-	exp, err := newSlimExporter(exporterConfig, set.Logger, SignalTraces)
+	exp, err := newSlimExporter(exporterConfig, set.Logger, common.SignalTraces)
 	if err != nil {
 		return nil, fmt.Errorf("error creating the exporter: %w", err)
 	}
@@ -75,7 +76,7 @@ func createMetricsExporter(
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
-	exp, err := newSlimExporter(exporterConfig, set.Logger, SignalMetrics)
+	exp, err := newSlimExporter(exporterConfig, set.Logger, common.SignalMetrics)
 	if err != nil {
 		return nil, fmt.Errorf("error creating the exporter: %w", err)
 	}
@@ -102,7 +103,7 @@ func createLogsExporter(
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
-	exp, err := newSlimExporter(exporterConfig, set.Logger, SignalLogs)
+	exp, err := newSlimExporter(exporterConfig, set.Logger, common.SignalLogs)
 	if err != nil {
 		return nil, fmt.Errorf("error creating the exporter: %w", err)
 	}
