@@ -342,12 +342,16 @@ tasks:
   toolchain:strip:
     desc: "Strip the binary"
     internal: true
+    vars:
+      # These must be explicitly defined to override the global vars with passed values
+      STRIP_TARGET: '{{.TARGET}}'
+      STRIP_PROFILE: '{{.PROFILE}}'
+      STRIP_BIN_NAME: '{{.BIN_NAME | default ""}}'
+      TARGET_BIN: '{{if .TARGET_BIN}}{{.TARGET_BIN}}{{else}}target/{{.STRIP_TARGET}}/{{.STRIP_PROFILE}}/{{.STRIP_BIN_NAME}}{{end}}'
     cmds:
       - "{{.OBJCOPY}} --only-keep-debug {{.TARGET_BIN}} {{.TARGET_BIN}}.dbg"
       - "{{.OBJCOPY}} --strip-unneeded {{.TARGET_BIN}}"
       - "{{.OBJCOPY}} --add-gnu-debuglink={{.TARGET_BIN}} {{.TARGET_BIN}}.dbg"
-    vars:
-      TARGET_BIN: '{{.TARGET_BIN | default ""}}'
 
   toolchain:run:
     desc: "Run a binary"
