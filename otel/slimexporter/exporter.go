@@ -144,6 +144,7 @@ var (
 	mutex               sync.Mutex
 	state               *ExporterSessions
 	listenerStartedOnce sync.Once
+	shutdownChan        chan struct{}
 )
 
 // slimExporter implements the exporter for traces, metrics, and logs
@@ -177,6 +178,7 @@ func getOrCreateApp(localID string, serverAddr string, secret string) (*slim.Bin
 		tracesSessions:  &SignalSessions{},
 		logsSessions:    &SignalSessions{},
 	}
+	shutdownChan = make(chan struct{})
 
 	return app, connID, nil
 }
@@ -229,6 +231,10 @@ func listenForAllSessions(ctx context.Context, app *slim.BindingsAdapter, logger
 		select {
 		case <-ctx.Done():
 			logger.Info("Shutting down listener...")
+			return
+
+		case <-shutdownChan:
+			logger.Info("All sessions closed, shutting down listener...")
 			return
 
 		default:
@@ -346,6 +352,10 @@ func (e *slimExporter) shutdown(ctx context.Context) error {
 
 		if allMetricsClosed && allTracesClosed && allLogsClosed {
 			e.logger.Info("All sessions closed, destroying application")
+			// Signal the listener to shut down
+			if shutdownChan != nil {
+				close(shutdownChan)
+			}
 			// this is safe as only one exporter can reach this point
 			e.sessions.app.Destroy()
 			state = nil
