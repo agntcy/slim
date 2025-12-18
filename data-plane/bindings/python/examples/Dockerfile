@@ -13,7 +13,7 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
-    UV_PYTHON=python3.13 \
+    UV_PYTHON=python3.14 \
     UV_PROJECT_ENVIRONMENT=/app
 
 # Install dependencies required for building rust and Python bindings
@@ -78,4 +78,4 @@ ARG TARGETARCH
 COPY --from=builder --chown=app:app /src/data-plane/bindings/python/dist /dists
 RUN python -m pip install /dists/*.whl
 
-ENTRYPOINT ["slim-bindings-examples"]
+ENTRYPOINT ["examples"]
