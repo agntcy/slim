@@ -165,6 +165,14 @@ jobs:
           echo "📁 Generated files:"
           find ./generated -type f
 
+      - name: Copy all platform libraries to generated folder
+        run: |
+          echo "📦 Copying all platform-specific libraries..."
+          cp ./artifacts/*${{ env.LIBRARY_NAME }}*.a ./generated/${{ env.LIBRARY_NAME }}/
+          
+          echo "✅ Libraries in generated folder:"
+          ls -la ./generated/${{ env.LIBRARY_NAME }}/*${{ env.LIBRARY_NAME }}*
+
       - name: Make sure generation did not modify source files
         run: |
           if [[ -n "$(git status --porcelain)" ]]; then
