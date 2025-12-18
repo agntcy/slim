@@ -133,3 +133,4 @@ control-plane/control-plane/db/controlplane.db
 **/*.dll
 **/*.lib
 **/*.a
+artifacts
