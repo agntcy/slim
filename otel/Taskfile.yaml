@@ -73,6 +73,16 @@ tasks:
       - echo "Running SLIM OpenTelemetry Collector..."
       - "{{.COLLECTOR_OUTPUT}}/slim-otelcol --config {{.ROOT_DIR}}/collector-config.yaml"
 
+  collector:test:
+    desc: Run tests for the SLIM exporter
+    dir: slimexporter
+    env:
+      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
+      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
+      LD_LIBRARY_PATH: "{{.LD_PATH}}"
+    cmds:
+      - echo "Running slimexporter tests..."
+      - go test -v
   # Docker tasks
   docker:build:
     desc: Build Docker image for the SLIM OpenTelemetry Collector

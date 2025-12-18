@@ -1,6 +1,9 @@
 package slimexporter
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // Config defines configuration for the Slim exporter
 type Config struct {
@@ -54,7 +57,7 @@ func (cfg *Config) Validate() error {
 	// Validate each session (the list can be empty)
 	for i, session := range cfg.Sessions {
 		if session.ChannelName == "" {
-			return errors.New("channel-name is required for session " + string(i))
+			return fmt.Errorf("channel-name is required for session %d", i)
 		}
 		if len(session.Signals) == 0 {
 			return errors.New("at least one signal must be specified for session " + session.ChannelName)

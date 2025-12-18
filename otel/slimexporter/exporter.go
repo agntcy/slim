@@ -285,30 +285,9 @@ func listenForAllSessions(ctx context.Context, app *slim.BindingsAdapter, logger
 
 // newSlimExporter creates a new instance of the slim exporter
 func newSlimExporter(cfg *Config, logger *zap.Logger, signalType common.SignalType) (*slimExporter, error) {
-
-	app, connID, err := getOrCreateApp(cfg.LocalName, cfg.SlimEndpoint, cfg.SharedSecret)
+	_, _, err := getOrCreateApp(cfg.LocalName, cfg.SlimEndpoint, cfg.SharedSecret)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create/connect app: %w", err)
-	}
-
-	for _, sessionCfg := range cfg.Sessions {
-		for _, singal := range sessionCfg.Signals {
-			if singal == string(signalType) {
-				session, err := createSessionAndInvite(app, connID, sessionCfg, sessionCfg.ChannelName, singal)
-				if err != nil {
-					return nil, fmt.Errorf("failed to create and invite session for channel %s and signal %s: %w", sessionCfg.ChannelName, singal, err)
-				}
-				logger.Info("Session created and participants invited",
-					zap.String("channel", sessionCfg.ChannelName),
-					zap.String("signal", singal))
-
-				// Store session in exporter sessions
-				err = state.AddSessionForSignal(signalType, session)
-				if err != nil {
-					return nil, fmt.Errorf("failed to add %s session: %w", signalType, err)
-				}
-			}
-		}
 	}
 
 	slim := &slimExporter{
@@ -327,6 +306,29 @@ func (e *slimExporter) start(ctx context.Context, host component.Host) error {
 		zap.String("endpoint", e.config.SlimEndpoint),
 		zap.String("local-name", e.config.LocalName),
 		zap.String("signal", string(e.signalType)))
+
+	// create sessions for each configured channel related to this signal type
+	app := e.sessions.app
+	connID := e.sessions.connID
+	for _, sessionCfg := range e.config.Sessions {
+		for _, signal := range sessionCfg.Signals {
+			if signal == string(e.signalType) {
+				session, err := createSessionAndInvite(app, connID, sessionCfg, sessionCfg.ChannelName, signal)
+				if err != nil {
+					return fmt.Errorf("failed to create and invite session for channel %s and signal %s: %w", sessionCfg.ChannelName, signal, err)
+				}
+				e.logger.Info("Session created and participants invited",
+					zap.String("channel", sessionCfg.ChannelName),
+					zap.String("signal", signal))
+
+				// Store session in exporter sessions
+				err = state.AddSessionForSignal(e.signalType, session)
+				if err != nil {
+					return fmt.Errorf("failed to add %s session: %w", signal, err)
+				}
+			}
+		}
+	}
 
 	// if the session reception loop is not started yet, start it
 	listenerStartedOnce.Do(func() {
