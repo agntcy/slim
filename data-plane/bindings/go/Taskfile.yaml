@@ -79,8 +79,47 @@ tasks:
     internal: true
     cmds:
       - echo "📦 Copying static libraries..."
-      - find $(dirname {{.LIB_PATH}}) -type f -name "*{{.LIB_NAME}}*.a" -exec cp {} "generated/{{.LIB_NAME}}/" \;
-      - echo "✅ Libraries copied to generated/{{.LIB_NAME}}/"
+      - |
+        LIB_DIR=$(dirname "{{.LIB_PATH}}")
+        DEST_DIR="generated/{{.LIB_NAME}}"
+        
+        # Check if libraries already have platform-specific names (from CI build)
+        PLATFORM_LIBS=$(find "$LIB_DIR" -type f -name "lib{{.LIB_NAME}}_*.a" 2>/dev/null | head -1)
+        
+        if [ -n "$PLATFORM_LIBS" ]; then
+          # CI build: libraries already have platform-specific names
+          echo "📦 Found platform-specific libraries, copying as-is..."
+          find "$LIB_DIR" -type f -name "*{{.LIB_NAME}}*.a" -exec cp {} "$DEST_DIR/" \;
+        else
+          # Local build: need to detect platform and rename
+          echo "📦 Local build detected, renaming library for current platform..."
+          
+          # Detect architecture
+          ARCH=$(uname -m)
+          case "$ARCH" in
+            x86_64|amd64) ARCH="x86_64" ;;
+            arm64|aarch64) ARCH="aarch64" ;;
+          esac
+          
+          # Detect OS
+          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+          case "$OS" in
+            darwin) OS="darwin" ;;
+            linux) OS="linux_gnu" ;;  # Assume GNU for local builds
+          esac
+          
+          LIB_NAME="lib{{.LIB_NAME}}_${ARCH}_${OS}.a"
+          
+          if [ -f "{{.LIB_PATH}}" ]; then
+            cp "{{.LIB_PATH}}" "$DEST_DIR/$LIB_NAME"
+            echo "✅ Copied {{.LIB_PATH}} -> $DEST_DIR/$LIB_NAME"
+          else
+            echo "⚠️  Library not found: {{.LIB_PATH}}"
+            exit 1
+          fi
+        fi
+      - echo "✅ Libraries in generated/{{.LIB_NAME}}/:"
+      - ls -la "generated/{{.LIB_NAME}}/"*{{.LIB_NAME}}*.a 2>/dev/null || echo "  (no .a files found)"
     silent: true
 
   generate:
@@ -102,8 +141,12 @@ tasks:
 
   install-uniffi-bindgen-go:
     desc: Install uniffi-bindgen-go
+    status:
+      - which uniffi-bindgen-go
     cmds:
+      - echo "📦 Installing uniffi-bindgen-go..."
       - cargo install uniffi-bindgen-go --git https://github.com/NordSecurity/uniffi-bindgen-go.git --tag v0.4.0+v0.28.3 --config net.git-fetch-with-cli=true
+    silent: true
 
   test:
     desc: Run all tests
