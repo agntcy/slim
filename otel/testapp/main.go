@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -25,7 +26,7 @@ func main() {
 	appNameStr := flag.String("app-name", "agntcy/otel/receiver-app", "Application name in the form org/ns/service")
 	serverAddr := flag.String("server", "http://localhost:46357", "SLIM server address")
 	sharedSecret := flag.String("secret", "a-very-long-shared-secret-0123456789-abcdefg", "Shared secret for authentication")
-	exporterNameStr := flag.String("exporter-name", "agntcy/otel/exporter", "Optional: exporter application name to invite to sessions")
+	exporterNameStr := flag.String("exporter-name", "", "Optional: exporter application name to invite to sessions")
 	mlsEnabled := flag.Bool("mls-enabled", false, "Whether to use MLS")
 	flag.Parse()
 
@@ -76,6 +77,8 @@ func initiateSessions(ctx context.Context, app *slim.BindingsAdapter, exporterNa
 	if err != nil {
 		log.Fatalf("Invalid application name: %v", err)
 	}
+
+	fmt.Printf("Create session and invite %s\n", exporterNameStr)
 
 	maxRetries := uint32(10)
 	intervalMs := uint64(1000)
@@ -160,7 +163,7 @@ func waitForSessionsAndMessages(app *slim.BindingsAdapter, ctx context.Context) 
 				continue
 			}
 
-			fmt.Printf("\nNew session established. Telemetry Type %s\n", telemetryType)
+			fmt.Printf("\nNew session established. Telemetry Type %s\n", signalType)
 			// Handle the session in a goroutine
 			go handleSession(ctx, app, session, signalType)
 		}
@@ -169,6 +172,10 @@ func waitForSessionsAndMessages(app *slim.BindingsAdapter, ctx context.Context) 
 
 // handleSession processes messages from a single session
 func handleSession(ctx context.Context, app *slim.BindingsAdapter, session *slim.BindingsSessionContext, signalType common.SignalType) {
+	// Lock this goroutine to an OS thread to prevent FFI calls from blocking other goroutines
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	sessionNum, err := session.SessionId()
 	if err != nil {
 		log.Printf("error getting session ID: %v", err)
@@ -190,88 +197,89 @@ func handleSession(ctx context.Context, app *slim.BindingsAdapter, session *slim
 			fmt.Printf("[Session %d, %s] Shutting down after %d messages\n", sessionNum, signalType, messageCount)
 			return
 		default:
-		}
 
-		// Wait for message with timeout
-		timeout := uint32(1000) // 1 sec
-		msg, err := session.GetMessage(&timeout)
-		if err != nil {
-			// Timeout is normal, just continue
-			continue
-		}
-
-		messageCount++
-
-		// Parse and print OTLP data based on signal type
-		switch signalType {
-		case common.SignalTraces:
-			unmarshaler := ptrace.ProtoUnmarshaler{}
-			traces, err := unmarshaler.UnmarshalTraces(msg.Payload)
+			// Wait for message with timeout
+			timeout := uint32(1000) // 1 sec
+			msg, err := session.GetMessage(&timeout)
 			if err != nil {
-				log.Printf("[Session %d, traces] Error unmarshaling traces: %v", sessionNum, err)
+				// Timeout is normal, just continue
 				continue
 			}
-			fmt.Printf("[Session %d, traces] Message %d: received %d spans\n", sessionNum, messageCount, traces.SpanCount())
 
-			// Print trace details
-			for i := 0; i < traces.ResourceSpans().Len(); i++ {
-				rs := traces.ResourceSpans().At(i)
-				for j := 0; j < rs.ScopeSpans().Len(); j++ {
-					ss := rs.ScopeSpans().At(j)
-					for k := 0; k < ss.Spans().Len(); k++ {
-						span := ss.Spans().At(k)
-						fmt.Printf("  Span: %s (TraceID: %s, SpanID: %s)\n",
-							span.Name(), span.TraceID(), span.SpanID())
+			messageCount++
+			fmt.Printf("[Session %d, %s] Received message %d (size: %d bytes)\n", sessionNum, signalType, messageCount, len(msg.Payload))
+
+			// Parse and print OTLP data based on signal type
+			switch signalType {
+			case common.SignalTraces:
+				unmarshaler := ptrace.ProtoUnmarshaler{}
+				traces, err := unmarshaler.UnmarshalTraces(msg.Payload)
+				if err != nil {
+					log.Printf("[Session %d, traces] Error unmarshaling traces: %v", sessionNum, err)
+					continue
+				}
+				fmt.Printf("[Session %d, traces] Message %d: received %d spans\n", sessionNum, messageCount, traces.SpanCount())
+
+				// Print trace details
+				for i := 0; i < traces.ResourceSpans().Len(); i++ {
+					rs := traces.ResourceSpans().At(i)
+					for j := 0; j < rs.ScopeSpans().Len(); j++ {
+						ss := rs.ScopeSpans().At(j)
+						for k := 0; k < ss.Spans().Len(); k++ {
+							span := ss.Spans().At(k)
+							fmt.Printf("  Span: %s (TraceID: %s, SpanID: %s)\n",
+								span.Name(), span.TraceID(), span.SpanID())
+						}
 					}
 				}
-			}
 
-		case common.SignalMetrics:
-			unmarshaler := pmetric.ProtoUnmarshaler{}
-			metrics, err := unmarshaler.UnmarshalMetrics(msg.Payload)
-			if err != nil {
-				log.Printf("[Session %d, metrics] Error unmarshaling metrics: %v", sessionNum, err)
-				continue
-			}
-			fmt.Printf("[Session %d, metrics] Message %d: received %d data points\n", sessionNum, messageCount, metrics.DataPointCount())
+			case common.SignalMetrics:
+				unmarshaler := pmetric.ProtoUnmarshaler{}
+				metrics, err := unmarshaler.UnmarshalMetrics(msg.Payload)
+				if err != nil {
+					log.Printf("[Session %d, metrics] Error unmarshaling metrics: %v", sessionNum, err)
+					continue
+				}
+				fmt.Printf("[Session %d, metrics] Message %d: received %d data points\n", sessionNum, messageCount, metrics.DataPointCount())
 
-			// Print metric details
-			for i := 0; i < metrics.ResourceMetrics().Len(); i++ {
-				rm := metrics.ResourceMetrics().At(i)
-				for j := 0; j < rm.ScopeMetrics().Len(); j++ {
-					sm := rm.ScopeMetrics().At(j)
-					for k := 0; k < sm.Metrics().Len(); k++ {
-						metric := sm.Metrics().At(k)
-						fmt.Printf("  Metric: %s (Type: %s)\n", metric.Name(), metric.Type())
+				// Print metric details
+				for i := 0; i < metrics.ResourceMetrics().Len(); i++ {
+					rm := metrics.ResourceMetrics().At(i)
+					for j := 0; j < rm.ScopeMetrics().Len(); j++ {
+						sm := rm.ScopeMetrics().At(j)
+						for k := 0; k < sm.Metrics().Len(); k++ {
+							metric := sm.Metrics().At(k)
+							fmt.Printf("  Metric: %s (Type: %s)\n", metric.Name(), metric.Type())
+						}
 					}
 				}
-			}
 
-		case common.SignalLogs:
-			unmarshaler := plog.ProtoUnmarshaler{}
-			logs, err := unmarshaler.UnmarshalLogs(msg.Payload)
-			if err != nil {
-				log.Printf("[Session %d, logs] Error unmarshaling logs: %v", sessionNum, err)
-				continue
-			}
-			fmt.Printf("[Session %d, logs] Message %d: received %d log records\n", sessionNum, messageCount, logs.LogRecordCount())
+			case common.SignalLogs:
+				unmarshaler := plog.ProtoUnmarshaler{}
+				logs, err := unmarshaler.UnmarshalLogs(msg.Payload)
+				if err != nil {
+					log.Printf("[Session %d, logs] Error unmarshaling logs: %v", sessionNum, err)
+					continue
+				}
+				fmt.Printf("[Session %d, logs] Message %d: received %d log records\n", sessionNum, messageCount, logs.LogRecordCount())
 
-			// Print log details
-			for i := 0; i < logs.ResourceLogs().Len(); i++ {
-				rl := logs.ResourceLogs().At(i)
-				for j := 0; j < rl.ScopeLogs().Len(); j++ {
-					sl := rl.ScopeLogs().At(j)
-					for k := 0; k < sl.LogRecords().Len(); k++ {
-						log := sl.LogRecords().At(k)
-						fmt.Printf("  Log: %s (Severity: %s)\n", log.Body().AsString(), log.SeverityText())
+				// Print log details
+				for i := 0; i < logs.ResourceLogs().Len(); i++ {
+					rl := logs.ResourceLogs().At(i)
+					for j := 0; j < rl.ScopeLogs().Len(); j++ {
+						sl := rl.ScopeLogs().At(j)
+						for k := 0; k < sl.LogRecords().Len(); k++ {
+							log := sl.LogRecords().At(k)
+							fmt.Printf("  Log: %s (Severity: %s)\n", log.Body().AsString(), log.SeverityText())
+						}
 					}
 				}
+
+			default:
+				log.Printf("[Session %d] Unknown signal type: %s", sessionNum, signalType)
 			}
 
-		default:
-			log.Printf("[Session %d] Unknown signal type: %s", sessionNum, signalType)
+			fmt.Println()
 		}
-
-		fmt.Println()
 	}
 }

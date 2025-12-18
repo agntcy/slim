@@ -27,21 +27,20 @@ exporters:
       - channel-name: "agntcy/otel/telemetry-1"
         # signals types to export on this channel
         signals: 
-          - traces
           - metrics
           - logs
         # participants to invite to this channel
         participants:
-          - "agntcy/otel/receiver-app-1"
+          - "agntcy/otel/receiver-app"
         # flag to enable or disable MLS for this session
         mls-enabled: false
-      - channel-name: "agntcy/otel/telemetry-2"
-        signals: 
-          - metrics
-        participants:
-          - "agntcy/otel/receiver-app-2"
-          - "agntcy/otel/receiver-app-3"
-        mls-enabled: false      
+      #- channel-name: "agntcy/otel/telemetry-2"
+      #  signals: 
+      #    - metrics
+      #  participants:
+      #    - "agntcy/otel/receiver-app-2"
+      #    - "agntcy/otel/receiver-app-3"
+      #  mls-enabled: false      
   
   # Standard OTLP exporter
   otlp:
