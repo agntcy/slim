@@ -168,13 +168,26 @@ func DownloadLibrary() error {
 			continue
 		}
 
+		// Validate and sanitize the file name to prevent Zip Slip attacks
+		// Use only the base name to prevent directory traversal
+		baseName := filepath.Base(name)
+		if baseName == "." || baseName == ".." || baseName == "" {
+			continue // Skip invalid entries
+		}
+
+		outPath := filepath.Join(cacheDir, baseName)
+
+		// Verify the resulting path is within the cache directory (defense in depth)
+		if !strings.HasPrefix(filepath.Clean(outPath), filepath.Clean(cacheDir)) {
+			return fmt.Errorf("invalid zip entry path (directory traversal attempt): %s", name)
+		}
+
 		// Extract file
 		rc, err := file.Open()
 		if err != nil {
 			return fmt.Errorf("failed to open zip entry %s: %w", name, err)
 		}
 
-		outPath := filepath.Join(cacheDir, filepath.Base(name))
 		outFile, err := os.Create(outPath)
 		if err != nil {
 			rc.Close()
@@ -192,7 +205,7 @@ func DownloadLibrary() error {
 
 		info, _ := os.Stat(outPath)
 		sizeMB := float64(info.Size()) / 1024 / 1024
-		fmt.Printf("   Extracted: %s (%.1f MB)\n", filepath.Base(outPath), sizeMB)
+		fmt.Printf("   Extracted: %s (%.1f MB)\n", baseName, sizeMB)
 		extractedFiles++
 	}
 
