@@ -52,91 +52,16 @@ tasks:
       - |
         GO_FILE="generated/{{.LIB_NAME}}/{{.LIB_NAME}}.go"
         if [ -f "$GO_FILE" ]; then
-          # Build LDFLAGS dynamically based on available library files
-          DEST_DIR="generated/{{.LIB_NAME}}"
-          
-          # Create the new cgo preamble with dynamic library lists
+          # Create the new cgo preamble with static LDFLAGS placeholders
           cat > /tmp/cgo_preamble.txt << 'EOF'
         package slim_bindings
 
         /*
         #cgo CFLAGS: -I${SRCDIR}
-        EOF
-          
-          # Add LDFLAGS for each platform dynamically
-          echo "🔍 Scanning for libraries in generated/{{.LIB_NAME}}/"
-          
-          # linux amd64 gnu (x86_64)
-          LIBS=""
-          for lib in generated/{{.LIB_NAME}}/libslim_bindings_x86_64_linux_gnu*.a; do
-            if [ -f "$lib" ]; then
-              echo "   Found: $(basename $lib)"
-              LIBS="$LIBS \${SRCDIR}/$(basename $lib)"
-            fi
-          done
-          if [ -n "$LIBS" ]; then
-            echo "   Adding linux,amd64 (gnu) LDFLAGS with $(echo $LIBS | wc -w) libraries"
-            echo "#cgo linux,amd64 LDFLAGS: -Wl,--start-group$LIBS -Wl,--end-group -lm" >> /tmp/cgo_preamble.txt
-          fi
-          
-
-          # linux arm64 gnu (aarch64)
-          LIBS=""
-          for lib in generated/{{.LIB_NAME}}/libslim_bindings_aarch64_linux_gnu*.a; do
-            if [ -f "$lib" ]; then
-              LIBS="$LIBS \${SRCDIR}/$(basename $lib)"
-            fi
-          done
-          if [ -n "$LIBS" ]; then
-            echo "#cgo linux,arm64 LDFLAGS: -Wl,--start-group$LIBS -Wl,--end-group -lm" >> /tmp/cgo_preamble.txt
-          fi
-          
-
-          # darwin amd64 (x86_64)
-          LIBS=""
-          for lib in generated/{{.LIB_NAME}}/libslim_bindings_x86_64_darwin*.a; do
-            if [ -f "$lib" ]; then
-              LIBS="$LIBS \${SRCDIR}/$(basename $lib)"
-            fi
-          done
-          if [ -n "$LIBS" ]; then
-            echo "#cgo darwin,amd64 LDFLAGS:$LIBS$LIBS -Wl,-undefined,dynamic_lookup" >> /tmp/cgo_preamble.txt
-          fi
-          
-          # darwin arm64 (aarch64)
-          LIBS=""
-          for lib in generated/{{.LIB_NAME}}/libslim_bindings_aarch64_darwin*.a; do
-            if [ -f "$lib" ]; then
-              LIBS="$LIBS \${SRCDIR}/$(basename $lib)"
-            fi
-          done
-          if [ -n "$LIBS" ]; then
-            echo "#cgo darwin,arm64 LDFLAGS:$LIBS$LIBS -Wl,-undefined,dynamic_lookup" >> /tmp/cgo_preamble.txt
-          fi
-          
-          # windows amd64 (x86_64)
-          LIBS=""
-          for lib in generated/{{.LIB_NAME}}/libslim_bindings_x86_64_windows*.a; do
-            if [ -f "$lib" ]; then
-              LIBS="$LIBS \${SRCDIR}/$(basename $lib)"
-            fi
-          done
-          if [ -n "$LIBS" ]; then
-            echo "#cgo windows,amd64 LDFLAGS:$LIBS$LIBS" >> /tmp/cgo_preamble.txt
-          fi
-          
-          # windows arm64 (aarch64)
-          LIBS=""
-          for lib in generated/{{.LIB_NAME}}/libslim_bindings_aarch64_windows*.a; do
-            if [ -f "$lib" ]; then
-              LIBS="$LIBS \${SRCDIR}/$(basename $lib)"
-            fi
-          done
-          if [ -n "$LIBS" ]; then
-            echo "#cgo windows,arm64 LDFLAGS:$LIBS$LIBS" >> /tmp/cgo_preamble.txt
-          fi
-          
-          cat >> /tmp/cgo_preamble.txt << 'EOF'
+        #cgo linux,amd64 LDFLAGS: ${SRCDIR}/libslim_bindings.a -lm
+        #cgo linux,arm64 LDFLAGS: ${SRCDIR}/libslim_bindings.a -lm
+        #cgo darwin,amd64 LDFLAGS: ${SRCDIR}/libslim_bindings.a -Wl,-undefined,dynamic_lookup
+        #cgo darwin,arm64 LDFLAGS: ${SRCDIR}/libslim_bindings.a -Wl,-undefined,dynamic_lookup
         #include <slim_bindings.h>
         */
         import "C"
@@ -150,162 +75,11 @@ tasks:
 
           # Cleanup
           rm -f /tmp/cgo_preamble.txt /tmp/go_rest.txt
-          echo "✅ Patched $GO_FILE with dynamic cgo directives"
+          echo "✅ Patched $GO_FILE wits cgo directives"
         else
           echo "⚠️  Go file not found: $GO_FILE"
           exit 1
         fi
-    silent: true
-
-  copy-library:
-    desc: Copy shared library to generated directory
-    internal: true
-    cmds:
-      - echo "📦 Copying static libraries..."
-      - |
-        LIB_DIR=$(dirname "{{.LIB_PATH}}")
-        DEST_DIR="generated/{{.LIB_NAME}}"
-        MAX_SIZE=$((100 * 1024 * 1024))  # 100 MB in bytes
-        
-        # Function to split a .a archive into smaller .a archives using rust-ar
-        split_archive() {
-          local src_file="$1"
-          local base_name="$2"
-          
-          local file_size=$(stat -f%z "$src_file" 2>/dev/null || stat -c%s "$src_file" 2>/dev/null)
-          echo "⚠️  Library is ${file_size} bytes (>100MB), splitting archive..."
-          
-          # Convert to absolute path before changing directory
-          local abs_src_file=$(cd "$(dirname "$src_file")" && pwd)/$(basename "$src_file")
-          local abs_dest_dir=$(cd "$DEST_DIR" && pwd)
-          
-          # Save original directory
-          local orig_dir=$(pwd)
-          
-          # Create temp directory for extraction
-          local temp_dir=$(mktemp -d)
-          
-          cd "$temp_dir"
-          
-          # Extract all objects from the archive using rust-ar
-          rust-ar x "$abs_src_file"
-          
-          # Get list of object files and their sizes
-          local objects=(*.o)
-          local total_objects=${#objects[@]}
-          
-          echo "   Extracted $total_objects object files from archive"
-          
-          # Target size per archive (50MB)
-          local target_size=$((50 * 1024 * 1024))
-          
-          # Split objects into archives based on cumulative size
-          local part_num=0
-          local current_size=0
-          local current_objects=()
-          
-          for obj in "${objects[@]}"; do
-            local obj_size=$(stat -f%z "$obj" 2>/dev/null || stat -c%s "$obj" 2>/dev/null)
-            
-            # If adding this object would exceed target, create archive (unless it's the first object)
-            if [ ${#current_objects[@]} -gt 0 ] && [ $((current_size + obj_size)) -gt $target_size ]; then
-              part_name="${base_name}_part${part_num}.a"
-              rust-ar rcs "$abs_dest_dir/$part_name" "${current_objects[@]}"
-              local part_size=$(stat -f%z "$abs_dest_dir/$part_name" 2>/dev/null || stat -c%s "$abs_dest_dir/$part_name" 2>/dev/null)
-              echo "   Created $part_name with ${#current_objects[@]} objects (~$((part_size / 1024 / 1024))MB)"
-              
-              current_objects=()
-              current_size=0
-              part_num=$((part_num + 1))
-            fi
-            
-            current_objects+=("$obj")
-            current_size=$((current_size + obj_size))
-          done
-          
-          # Create final archive with remaining objects
-          if [ ${#current_objects[@]} -gt 0 ]; then
-            part_name="${base_name}_part${part_num}.a"
-            rust-ar rcs "$abs_dest_dir/$part_name" "${current_objects[@]}"
-            local part_size=$(stat -f%z "$abs_dest_dir/$part_name" 2>/dev/null || stat -c%s "$abs_dest_dir/$part_name" 2>/dev/null)
-            echo "   Created $part_name with ${#current_objects[@]} objects (~$((part_size / 1024 / 1024))MB)"
-          fi
-          
-          # Verify all objects were included
-          local total_in_parts=0
-          for ((i=0; i<=part_num; i++)); do
-            if [ -f "$abs_dest_dir/${base_name}_part${i}.a" ]; then
-              local count=$(rust-ar t "$abs_dest_dir/${base_name}_part${i}.a" 2>/dev/null | wc -l)
-              total_in_parts=$((total_in_parts + count))
-            fi
-          done
-          
-          if [ $total_in_parts -ne $total_objects ]; then
-            echo "   ⚠️  WARNING: Object count mismatch! Original: $total_objects, In parts: $total_in_parts"
-          else
-            echo "   ✅ Verified: All $total_objects objects included in split archives"
-          fi
-          
-          # Return to original directory before cleanup
-          cd "$orig_dir"
-          rm -rf "$temp_dir"
-        }
-        
-        # Function to process a library file (copy or split if too large)
-        process_library() {
-          local src_file="$1"
-          local dest_file="$2"
-          local file_size=$(stat -f%z "$src_file" 2>/dev/null || stat -c%s "$src_file" 2>/dev/null)
-          
-          if [ "$file_size" -gt "$MAX_SIZE" ]; then
-            local base_name=$(basename "$dest_file" .a)
-            split_archive "$src_file" "$base_name"
-          else
-            echo "   Copying $(basename $dest_file) ($((file_size / 1024 / 1024))MB)"
-            cp "$src_file" "$dest_file"
-          fi
-        }
-        
-        # Check if libraries already have platform-specific names (from CI build)
-        PLATFORM_LIBS=$(find "$LIB_DIR" -type f -name "lib{{.LIB_NAME}}_*.a" 2>/dev/null | head -1)
-        
-        if [ -n "$PLATFORM_LIBS" ]; then
-          # CI build: libraries already have platform-specific names
-          echo "📦 Found platform-specific libraries, processing..."
-          find "$LIB_DIR" -type f -name "lib{{.LIB_NAME}}_*.a" | while read -r lib_file; do
-            dest_name=$(basename "$lib_file")
-            process_library "$lib_file" "$DEST_DIR/$dest_name"
-          done
-        else
-          # Local build: need to detect platform and rename
-          echo "📦 Local build detected, renaming library for current platform..."
-          
-          # Detect architecture
-          ARCH=$(uname -m)
-          case "$ARCH" in
-            x86_64|amd64) ARCH="x86_64" ;;
-            arm64|aarch64) ARCH="aarch64" ;;
-          esac
-          
-          # Detect OS
-          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-          case "$OS" in
-            darwin) OS="darwin" ;;
-            linux) OS="linux_gnu" ;;  # Assume GNU for local builds
-          esac
-          
-          LIB_NAME="lib{{.LIB_NAME}}_${ARCH}_${OS}"
-          
-          if [ -f "{{.LIB_PATH}}" ]; then
-            process_library "{{.LIB_PATH}}" "$DEST_DIR/${LIB_NAME}.a"
-            echo "✅ Processed {{.LIB_PATH}} -> $DEST_DIR/$LIB_NAME"
-          else
-            echo "⚠️  Library not found: {{.LIB_PATH}}"
-            exit 1
-          fi
-        fi
-      - echo "✅ Libraries in generated/{{.LIB_NAME}}/:"
-      - ls -lah "generated/{{.LIB_NAME}}/"*{{.LIB_NAME}}*.a 2>/dev/null || echo "  (no .a files found)"
     silent: true
 
   generate:
@@ -313,7 +87,6 @@ tasks:
     deps:
       - ensure-lib
       - install-uniffi-bindgen-go
-      - install-rust-ar
     cmds:
       - echo "🔧 Generating Go bindings from compiled library..."
       - |
@@ -339,14 +112,59 @@ tasks:
       - cargo install uniffi-bindgen-go --git https://github.com/NordSecurity/uniffi-bindgen-go.git --tag v0.4.0+v0.28.3 --config net.git-fetch-with-cli=true
     silent: true
 
-  install-rust-ar:
-    desc: Install rust-ar (cargo-ar)
-    status:
-      - which rust-ar
+  copy-library:
+    desc: Copy shared library to generated directory
+    internal: true
     cmds:
-      - echo "📦 Installing rust-ar..."
-      - rustup component add llvm-tools --toolchain stable
-      - cargo install cargo-binutils
+      - echo "📦 Copying static libraries..."
+      - |
+        LIB_DIR=$(dirname "{{.LIB_PATH}}")
+        DEST_DIR="generated/{{.LIB_NAME}}"
+
+        # Check if libraries already have platform-specific names (from CI build)
+        PLATFORM_LIBS=$(find "$LIB_DIR" -type f -name "lib{{.LIB_NAME}}_*.a" 2>/dev/null | head -1)
+
+        if [ -n "$PLATFORM_LIBS" ]; then
+          # CI build: libraries already have platform-specific names
+          echo "📦 Found platform-specific libraries, copying..."
+          find "$LIB_DIR" -type f -name "lib{{.LIB_NAME}}_*.a" | while read -r lib_file; do
+            dest_name=$(basename "$lib_file")
+            file_size=$(stat -f%z "$lib_file" 2>/dev/null || stat -c%s "$lib_file" 2>/dev/null)
+            echo "   Copying $dest_name ($((file_size / 1024 / 1024))MB)"
+            cp "$lib_file" "$DEST_DIR/$dest_name"
+          done
+        else
+          # Local build: need to detect platform and rename
+          echo "📦 Local build detected, renaming library for current platform..."
+
+          # Detect architecture
+          ARCH=$(uname -m)
+          case "$ARCH" in
+            x86_64|amd64) ARCH="x86_64" ;;
+            arm64|aarch64) ARCH="aarch64" ;;
+          esac
+
+          # Detect OS
+          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+          case "$OS" in
+            darwin) OS="darwin" ;;
+            linux) OS="linux_gnu" ;;  # Assume GNU for local builds
+          esac
+
+          LIB_NAME="lib{{.LIB_NAME}}_${ARCH}_${OS}"
+
+          if [ -f "{{.LIB_PATH}}" ]; then
+            file_size=$(stat -f%z "{{.LIB_PATH}}" 2>/dev/null || stat -c%s "{{.LIB_PATH}}" 2>/dev/null)
+            echo "   Copying ${LIB_NAME}.a ($((file_size / 1024 / 1024))MB)"
+            cp "{{.LIB_PATH}}" "$DEST_DIR/${LIB_NAME}.a"
+            echo "✅ Copied {{.LIB_PATH}} -> $DEST_DIR/$LIB_NAME"
+          else
+            echo "⚠️  Library not found: {{.LIB_PATH}}"
+            exit 1
+          fi
+        fi
+      - echo "✅ Libraries in generated/{{.LIB_NAME}}/:"
+      - ls -lah "generated/{{.LIB_NAME}}/"*{{.LIB_NAME}}*.a 2>/dev/null || echo "  (no .a files found)"
     silent: true
 
   test:
