@@ -845,15 +845,9 @@ mod tests {
         info!("starting test_error_routing_with_session_context");
 
         // Create the service
-        let tls_config = TlsServerConfig::new().with_insecure(true);
-        let server_config =
-            ServerConfig::with_endpoint("0.0.0.0:12348").with_tls_settings(tls_config);
-        let config = ServiceConfiguration::new().with_server([server_config].to_vec());
-        let service = config
-            .build_server(
-                ID::new_with_name(Kind::new(KIND).unwrap(), "test-error-routing").unwrap(),
-            )
-            .unwrap();
+        let service = Service::new(
+            ID::new_with_name(Kind::new(KIND).unwrap(), "test-error-routing").unwrap(),
+        );
 
         // Create an app
         let app_name = Name::from_strings(["cisco", "default", "testapp"]).with_id(0);
