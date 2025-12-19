@@ -5,10 +5,10 @@
 name: Release Bindings
 
 on:
-  # pull_request:
-  #   paths:
-  #     - 'data-plane/**'
-  #     - '.github/workflows/release-bindings.yaml'
+  pull_request:
+    paths:
+      - 'data-plane/**'
+      - '.github/workflows/release-bindings.yaml'
 
   push:
     tags:
