@@ -88,6 +88,15 @@ impl Session {
                 self.on_application_message(message, direction, ack_tx)
                     .await
             }
+            SessionMessage::MessageError { error } => {
+                // Received error from lower layer. Cancel any pending timers for this message and send error up
+                debug!(
+                    name = %self.local_name,
+                    "received message error: {:?}", error,
+                );
+
+                self.sender.on_slim_failure(error)
+            }
             SessionMessage::TimerTimeout {
                 message_id,
                 message_type,
@@ -181,7 +190,7 @@ impl Session {
         name: Option<Name>,
     ) -> Result<(), SessionError> {
         match message_type {
-            ProtoSessionMessageType::Msg => self.sender.on_timer_failure(id).await,
+            ProtoSessionMessageType::Msg => self.sender.on_timer_failure(id),
             ProtoSessionMessageType::RtxRequest => {
                 self.receiver.on_timer_failure(id, name.unwrap()).await
             }

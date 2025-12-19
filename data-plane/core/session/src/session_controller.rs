@@ -294,6 +294,17 @@ impl SessionController {
             .await
     }
 
+    /// Send an error message to the controller for processing
+    pub async fn on_error_message_from_slim(
+        &self,
+        error: SessionError,
+    ) -> Result<(), SessionError> {
+        self.tx_controller
+            .send(SessionMessage::MessageError { error })
+            .await
+            .map_err(|_e| SessionError::SessionControllerSendFailed)
+    }
+
     pub fn close(&self) -> Result<tokio::task::JoinHandle<()>, SessionError> {
         self.cancellation_token.cancel();
 

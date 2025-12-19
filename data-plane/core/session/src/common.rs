@@ -87,6 +87,8 @@ pub enum SessionMessage {
         /// Optional channel to signal when message processing is complete
         ack_tx: Option<tokio::sync::oneshot::Sender<Result<(), SessionError>>>,
     },
+    /// Error occurred during message processing
+    MessageError { error: SessionError },
     /// timeout signal for a message (ack,rtx or control messages)
     /// that needs to be send again
     TimerTimeout {
