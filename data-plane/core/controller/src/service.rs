@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
+use std::vec;
 
 use display_error_chain::ErrorChainExt;
 use slim_auth::metadata::MetadataValue;
@@ -20,10 +21,10 @@ use tracing::{debug, error, info};
 use crate::api::proto::api::v1::control_message::Payload;
 use crate::api::proto::api::v1::controller_service_server::ControllerServiceServer;
 use crate::api::proto::api::v1::{
-    self, ConnectionListResponse, ConnectionType, SubscriptionListResponse,
+    self, ConnectionDetails, ConnectionListResponse, ConnectionType, SubscriptionListResponse,
 };
 use crate::api::proto::api::v1::{
-    Ack, ConnectionDetails, ConnectionEntry, ControlMessage, SubscriptionEntry,
+    Ack, ConnectionEntry, ControlMessage, SubscriptionEntry,
     controller_service_client::ControllerServiceClient,
     controller_service_server::ControllerService as GrpcControllerService,
 };
@@ -65,12 +66,13 @@ pub struct ControlPlaneSettings {
     pub clients: Vec<ClientConfig>,
     /// Message processor instance
     pub message_processor: Arc<MessageProcessor>,
-    /// Pub/sub server configurations
-    pub pubsub_servers: Vec<ServerConfig>,
     /// Optional authentication provider
     pub auth_provider: Option<AuthProvider>,
     /// Optional authentication verifier
     pub auth_verifier: Option<AuthVerifier>,
+    /// array of connection details used by the control
+    /// plane to store the connection settings (e.g., TLS settings).
+    pub connection_details: Vec<ConnectionDetails>,
 }
 
 /// Inner structure for the controller service
@@ -102,9 +104,6 @@ struct ControllerServiceInternal {
     /// drain watch channel
     drain_watch: parking_lot::RwLock<Option<drain::Watch>>,
 
-    /// array of connection details
-    connection_details: Vec<ConnectionDetails>,
-
     /// authentication provider for adding authentication to outgoing messages to clients
     auth_provider: Option<AuthProvider>,
 
@@ -113,6 +112,9 @@ struct ControllerServiceInternal {
 
     /// queue for pending subscription notifications when connections are down
     pending_notifications: Arc<parking_lot::Mutex<Vec<ControlMessage>>>,
+
+    /// connection details used by control plane to store connection settings
+    connection_details: Vec<ConnectionDetails>,
 }
 
 #[derive(Clone)]
@@ -151,7 +153,7 @@ impl Drop for ControlPlane {
     }
 }
 
-fn from_server_config(server_config: &ServerConfig) -> ConnectionDetails {
+pub(crate) fn from_server_config(server_config: &ServerConfig) -> ConnectionDetails {
     let group_name = server_config
         .metadata
         .as_ref()
@@ -206,12 +208,6 @@ impl ControlPlane {
             .register_local_connection(true)
             .unwrap();
 
-        let connection_details = config
-            .pubsub_servers
-            .iter()
-            .map(from_server_config)
-            .collect();
-
         let (signal, watch) = drain::channel();
 
         ControlPlane {
@@ -227,10 +223,10 @@ impl ControlPlane {
                     tx_channels: parking_lot::RwLock::new(HashMap::new()),
                     cancellation_tokens: parking_lot::RwLock::new(HashMap::new()),
                     drain_watch: parking_lot::RwLock::new(Some(watch)),
-                    connection_details,
                     auth_provider: config.auth_provider,
                     _auth_verifier: config.auth_verifier,
                     pending_notifications: Arc::new(parking_lot::Mutex::new(Vec::new())),
+                    connection_details: config.connection_details,
                 }),
             },
             drain_signal: parking_lot::RwLock::new(Some(signal)),
@@ -1567,13 +1563,13 @@ mod tests {
             servers: vec![server_config.clone()],
             clients: vec![],
             message_processor: Arc::new(message_processor_server),
-            pubsub_servers: vec![server_config.clone()],
             auth_provider: Some(AuthProvider::SharedSecret(
                 SharedSecret::new("server", TEST_VALID_SECRET).unwrap(),
             )),
             auth_verifier: Some(AuthVerifier::SharedSecret(
                 SharedSecret::new("server", TEST_VALID_SECRET).unwrap(),
             )),
+            connection_details: vec![from_server_config(&server_config)],
         });
 
         let control_plane_client = ControlPlane::new(ControlPlaneSettings {
@@ -1582,13 +1578,13 @@ mod tests {
             servers: vec![],
             clients: vec![client_config.clone()],
             message_processor: Arc::new(message_processor_client),
-            pubsub_servers: vec![],
             auth_provider: Some(AuthProvider::SharedSecret(
                 SharedSecret::new("client", TEST_VALID_SECRET).unwrap(),
             )),
             auth_verifier: Some(AuthVerifier::SharedSecret(
                 SharedSecret::new("client", TEST_VALID_SECRET).unwrap(),
             )),
+            connection_details: vec![],
         });
 
         (control_plane_server, control_plane_client, client_config)

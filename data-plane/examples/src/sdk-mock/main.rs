@@ -143,7 +143,7 @@ async fn main() {
 
     // get the connection id
     let conn_id = svc
-        .get_connection_id(&svc.config().clients()[0].endpoint)
+        .get_connection_id(&svc.config().dataplane_clients()[0].endpoint)
         .unwrap();
 
     let local_app_name = Name::from_strings(["org", "default", local_name]).with_id(id);

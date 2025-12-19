@@ -236,7 +236,7 @@ impl Proxy {
 
         // get the connection id
         let conn_id = service
-            .get_connection_id(&service.config().clients()[0].endpoint)
+            .get_connection_id(&service.config().dataplane_clients()[0].endpoint)
             .unwrap();
 
         // subscribe for local name
