@@ -206,7 +206,7 @@ async def test_slim_wrapper(server):
 
     # wait for message
     received_msg = await session_context.get_message_async(None)
-    msg_ctx = received_msg.context
+    _unused_msg_ctx = received_msg.context
     msg_rcv = received_msg.payload
 
     # check if the message is correct
