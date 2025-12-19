@@ -22,8 +22,13 @@ use crate::{
     transmitter::SessionTransmitter,
 };
 
+/// Ping interval.
+pub const PING_INTERVAL: Duration = Duration::from_secs(10);
 /// Maximum number of consecutive ping failures before a participant is considered disconnected.
-pub const MAX_PING_FAILURE: u32 = 3;
+const MAX_PING_FAILURE: u32 = 3;
+/// Synthetic moderator name used by participants to track ping reception
+static MODERATOR_NAME: std::sync::LazyLock<Name> =
+    std::sync::LazyLock::new(|| Name::from_strings(["agntcy", "ns", "moderator"]));
 
 /// used a result in OnMessage function
 #[derive(PartialEq, Clone, Debug)]
@@ -49,16 +54,26 @@ struct PendingReply {
 struct PingState {
     /// Current pending ping
     /// Maybe empty if none is connected to the channel
+    /// Used only if this endpoint is sending ping messages
     ping: Option<PendingReply>,
+
+    /// This indicates if at least one ping message was received
+    /// during the last ping timer. It is used only by participants
+    /// and set to true on the ping reception
+    received_ping: bool,
 
     /// Ping timer factor set to create ping related timers
     #[allow(dead_code)]
     ping_timer_factory: TimerFactory,
 
     /// List of potential disconnected endpoint
+    /// Initiation/Moderator mode:
     /// If an endpoint does not reply to latest N pings it is considered
     /// disconnected and the session controller is notified.
     /// The map keeps track of the name and the number of missing ping replies
+    /// Participant mode:
+    /// The map keeps track only of the moderator and checks for how many
+    /// interval the moderator was silent
     missing_pings: HashMap<Name, u32>,
 
     /// The ping timer
@@ -93,6 +108,9 @@ pub struct ControllerSender {
     /// by default is None, start only if a duration is set
     ping_state: Option<PingState>,
 
+    /// set to true if the participant is an initiator
+    initiator: bool,
+
     /// group list
     /// list of participants to the group
     group_list: HashSet<Name>,
@@ -115,6 +133,7 @@ impl ControllerSender {
         session_type: ProtoSessionType,
         session_id: u32,
         ping_interval: Option<Duration>,
+        initiator: bool,
         tx: SessionTransmitter,
         tx_signals: Sender<SessionMessage>,
     ) -> Self {
@@ -133,6 +152,7 @@ impl ControllerSender {
             );
             Some(PingState {
                 ping: None,
+                received_ping: false,
                 ping_timer_factory,
                 missing_pings: HashMap::new(),
                 ping_timer,
@@ -149,6 +169,7 @@ impl ControllerSender {
             session_id,
             pending_replies: HashMap::new(),
             ping_state,
+            initiator,
             group_list: list,
             tx,
             tx_session: tx_signals,
@@ -170,6 +191,8 @@ impl ControllerSender {
                     // draining period started; reject new messages
                     return Err(SessionError::SessionDrainingDrop);
                 }
+
+                // create the set of missing replies
                 let mut missing_replies = HashSet::new();
                 let mut name = message.get_dst();
                 if message.get_session_message_type()
@@ -180,25 +203,47 @@ impl ControllerSender {
                     // this affects only the ack registration and not the forwarding behaviour.
                     name.reset_id();
                 }
+                missing_replies.insert(name);
+
+                // update the group list on welcome messages
+                // on p2p session also update the group name if not set
                 if message.get_session_message_type()
                     == slim_datapath::api::ProtoSessionMessageType::GroupWelcome
                 {
                     // add the new participant to the list
                     self.group_list.insert(message.get_dst());
 
-                    if self.group_name.is_none()
-                        && self.session_type == ProtoSessionType::PointToPoint
-                    {
+                    if self.group_name.is_none() {
                         // update the group name used to send ping messages
+                        // in P2P sessions the group name is equal to the remote name
+                        // in group session the name is the actual group
                         debug!(
                             destinatio = %message.get_dst(),
-                            "update group name for point to point session on welcome message",
+                            "update group name on welcome message",
                         );
                         self.group_name = Some(message.get_dst());
                     }
                 }
 
-                missing_replies.insert(name);
+                // if the message is a leave request remove the participant from
+                // the group list. Also remove any missing ping state if present
+                // to avoid signaling disconnection.
+                if message.get_session_message_type()
+                    == slim_datapath::api::ProtoSessionMessageType::LeaveRequest
+                {
+                    debug!(
+                        participant = %message.get_dst(),
+                        "removing participant from group on leave request"
+                    );
+                    self.group_list.remove(&message.get_dst());
+
+                    // remove also the missing_pings state if present
+                    if let Some(ps) = self.ping_state.as_mut() {
+                        ps.missing_pings.remove(&message.get_dst());
+                    }
+                }
+
+                // send the message and setup the required timers
                 self.on_send_message(message, missing_replies).await?;
             }
             slim_datapath::api::ProtoSessionMessageType::DiscoveryReply
@@ -223,15 +268,6 @@ impl ControllerSender {
                     .filter(|name| *name != &self.local_name)
                     .cloned()
                     .collect::<HashSet<_>>();
-
-                if self.group_name.is_none() {
-                    // update the group name used to send ping messages
-                    debug!(
-                        destination = %message.get_dst(),
-                        "update group name of add message"
-                    );
-                    self.group_name = Some(message.get_dst());
-                }
 
                 self.on_send_message(message, missing_replies).await?;
             }
@@ -336,19 +372,29 @@ impl ControllerSender {
     }
 
     fn on_ping_message(&mut self, message: &Message) {
-        debug!(id = %message.get_id(), "received ping reply");
-        if let Some(ping_state) = &mut self.ping_state
-            && let Some(ping) = &mut ping_state.ping
-            && ping.timer.get_id() == message.get_id()
-        {
-            ping.missing_replies.remove(&message.get_source());
-            if ping.missing_replies.is_empty() {
-                debug!(id = message.get_id(), "stop ping retransmissions");
-                ping.timer.stop()
+        debug!(id = %message.get_id(), "received ping message");
+        if self.initiator {
+            // if this is an initiator update the missing acks
+            if let Some(ping_state) = &mut self.ping_state
+                && let Some(ping) = &mut ping_state.ping
+                && ping.timer.get_id() == message.get_id()
+            {
+                ping.missing_replies.remove(&message.get_source());
+                if ping.missing_replies.is_empty() {
+                    debug!("stop ping retransmissions for id {}", message.get_id());
+                    ping.timer.stop()
+                }
+                return;
             }
         } else {
-            debug!("received a ping but the state is not set, ignore the message");
+            // if this is a participant mark the reception of the message
+            if let Some(ping_state) = &mut self.ping_state {
+                ping_state.received_ping = true;
+                return;
+            }
         }
+
+        debug!(id = %message.get_id(), "received a ping but the state is not set, ignore the message");
     }
 
     pub fn is_still_pending(&self, message_id: u32) -> bool {
@@ -360,7 +406,7 @@ impl ControllerSender {
         id: u32,
         msg_type: ProtoSessionMessageType,
     ) -> Result<(), SessionError> {
-        debug!(%id, "timeout for message");
+        debug!(%id, ?msg_type, "timeout for message");
 
         // check if the timeout is related to a ping
         if self.ping_state.is_some() && msg_type == ProtoSessionMessageType::Ping {
@@ -376,6 +422,38 @@ impl ControllerSender {
     }
 
     async fn handle_ping_timeout(&mut self, id: u32) -> Result<(), SessionError> {
+        // If this is a participant check if a message was received
+        // during the last ping time
+        if !self.initiator
+            && let Some(ping_state) = &mut self.ping_state
+        {
+            if ping_state.received_ping {
+                // reset the state
+                debug!(%id, "received at least on ping message, reset the state");
+                ping_state.received_ping = false;
+                ping_state.missing_pings.clear();
+            } else {
+                // update the missing ping map and detect moderator disconnection
+                debug!(%id, "missing ping message from moderator");
+                let val = ping_state
+                    .missing_pings
+                    .entry(MODERATOR_NAME.clone())
+                    .or_insert(0);
+                *val += 1;
+                if *val >= MAX_PING_FAILURE {
+                    debug!("moderator got disconnected");
+                    if let Err(e) = self
+                        .tx_session
+                        .try_send(SessionMessage::ParticipantDisconnected { name: None })
+                    {
+                        debug!(error = %e.chain(), "failed to send participant disconnected message");
+                    }
+                }
+            }
+            return Ok(());
+        }
+
+        // This is a initiator
         // Check if we need to handle ping timeout
         let should_handle_ping_interval = self
             .ping_state
@@ -483,7 +561,11 @@ impl ControllerSender {
             // update missing_pings
             for p in &ping.missing_replies {
                 debug!(from = %p, "missing ping reply from");
-                *ping_state.missing_pings.entry(p.clone()).or_insert(0) += 1;
+                // add the non reply participant to the missing pings map
+                // only if it is still connected to the group
+                if self.group_list.contains(p) {
+                    *ping_state.missing_pings.entry(p.clone()).or_insert(0) += 1;
+                }
             }
 
             // check for disconnected participants and notify, then remove them
@@ -491,11 +573,13 @@ impl ControllerSender {
                 if *v >= MAX_PING_FAILURE {
                     debug!(participant = %k, "participant got disconnected");
                     self.group_list.remove(k);
-                    if let Err(e) = self
-                        .tx_session
-                        .try_send(SessionMessage::ParticipantDisconnected { name: k.clone() })
+                    if let Err(e) =
+                        self.tx_session
+                            .try_send(SessionMessage::ParticipantDisconnected {
+                                name: Some(k.clone()),
+                            })
                     {
-                        tracing::error!(error = %e.chain(), "failed to send participant disconnected message");
+                        debug!(error = %e.chain(), "failed to send participant disconnected message");
                     }
                     false // remove from missing_pings
                 } else {
@@ -546,6 +630,16 @@ impl ControllerSender {
         // set only initiated to true because we may need send request leave
         debug!("controller sender drain initiated");
         self.draining_state = ControllerSenderDrainStatus::Initiated;
+    }
+
+    pub fn remove_participant(&mut self, name: &Name) {
+        // this is used only by the moderator when a participant closes its
+        // session remotely. This remove is needed so that the moderator
+        // will not expect acks from the participant that is leaving the
+        // group during the group update phase
+        if self.initiator {
+            self.group_list.remove(name);
+        }
     }
 
     pub fn drain_completed(&self) -> bool {
@@ -600,6 +694,7 @@ mod tests {
             ProtoSessionType::Multicast,
             session_id,
             None,
+            false,
             tx,
             tx_signal,
         );
@@ -718,6 +813,7 @@ mod tests {
             ProtoSessionType::Multicast,
             session_id,
             None,
+            false,
             tx,
             tx_signal,
         );
@@ -841,6 +937,7 @@ mod tests {
             ProtoSessionType::Multicast,
             session_id,
             None,
+            false,
             tx,
             tx_signal,
         );
@@ -958,6 +1055,7 @@ mod tests {
             ProtoSessionType::Multicast,
             session_id,
             None,
+            false,
             tx,
             tx_signal,
         );
@@ -1075,6 +1173,7 @@ mod tests {
             ProtoSessionType::Multicast,
             session_id,
             None,
+            false,
             tx,
             tx_signal,
         );
@@ -1225,6 +1324,7 @@ mod tests {
             ProtoSessionType::Multicast,
             session_id,
             None,
+            false,
             tx,
             tx_signal,
         );
@@ -1433,6 +1533,7 @@ mod tests {
             ProtoSessionType::Multicast,
             session_id,
             Some(ping_interval),
+            true,
             tx,
             tx_signal,
         );
@@ -1796,5 +1897,437 @@ mod tests {
             !sender.group_list.contains(&participant),
             "Participant should be removed from group_list after disconnection"
         );
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_participant_detects_moderator_disconnection() {
+        // Test participant-side moderator disconnection detection:
+        // - Participant receives pings from moderator initially
+        // - Moderator stops sending pings (simulating crash/network failure)
+        // - After 3 ping intervals without receiving pings, participant detects disconnection
+        // - ParticipantDisconnected message is sent with name: None
+
+        let settings = TimerSettings::constant(Duration::from_millis(400)).with_max_retries(3);
+        let ping_interval = Duration::from_millis(1000);
+
+        let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(100);
+        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+        let participant_name = Name::from_strings(["org", "ns", "participant"]);
+        let moderator_name = Name::from_strings(["org", "ns", "moderator"]);
+        let session_id = 1;
+
+        // Create participant (initiator=false)
+        let mut sender = ControllerSender::new(
+            settings,
+            participant_name.clone(),
+            ProtoSessionType::Multicast,
+            session_id,
+            Some(ping_interval),
+            false, // participant, not initiator
+            tx,
+            tx_signal,
+        );
+
+        // === PING INTERVAL 1: Moderator sends ping, participant receives it ===
+
+        // Wait for first ping interval timeout
+        let timeout_msg = timeout(Duration::from_millis(1100), rx_signal.recv())
+            .await
+            .expect("timeout waiting for first ping interval")
+            .expect("channel closed");
+
+        let first_ping_id = match timeout_msg {
+            SessionMessage::TimerTimeout {
+                message_id,
+                message_type,
+                ..
+            } => {
+                assert_eq!(message_type, ProtoSessionMessageType::Ping);
+                message_id
+            }
+            _ => panic!("Expected TimerTimeout for ping interval"),
+        };
+
+        // Simulate receiving a ping from moderator
+        let ping_from_moderator = Message::builder()
+            .source(moderator_name.clone())
+            .destination(participant_name.clone())
+            .identity("")
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::Ping)
+            .session_id(session_id)
+            .message_id(rand::random::<u32>())
+            .payload(CommandPayload::builder().ping().as_content())
+            .build_publish()
+            .unwrap();
+
+        sender.on_ping_message(&ping_from_moderator);
+
+        // Process the timeout - should reset state since ping was received
+        sender
+            .on_timer_timeout(first_ping_id, ProtoSessionMessageType::Ping)
+            .await
+            .expect("error handling first ping timeout");
+
+        // Verify state was reset (no disconnection detected)
+        if let Some(ping_state) = &sender.ping_state {
+            assert_eq!(
+                ping_state.missing_pings.len(),
+                0,
+                "Missing pings should be cleared after receiving ping"
+            );
+        }
+
+        // === PING INTERVAL 2: No ping received, counter increments to 1 ===
+
+        let timeout_msg = timeout(Duration::from_millis(1100), rx_signal.recv())
+            .await
+            .expect("timeout waiting for second ping interval")
+            .expect("channel closed");
+
+        let second_ping_id = match timeout_msg {
+            SessionMessage::TimerTimeout {
+                message_id,
+                message_type,
+                ..
+            } => {
+                assert_eq!(message_type, ProtoSessionMessageType::Ping);
+                message_id
+            }
+            _ => panic!("Expected TimerTimeout for ping interval"),
+        };
+
+        // Don't send a ping this time (moderator is down)
+        sender
+            .on_timer_timeout(second_ping_id, ProtoSessionMessageType::Ping)
+            .await
+            .expect("error handling second ping timeout");
+
+        // Verify counter incremented to 1
+        if let Some(ping_state) = &sender.ping_state {
+            assert_eq!(
+                ping_state.missing_pings.get(&MODERATOR_NAME).copied(),
+                Some(1),
+                "Missing ping counter should be 1"
+            );
+        }
+
+        // === PING INTERVAL 3: No ping received, counter increments to 2 ===
+
+        let timeout_msg = timeout(Duration::from_millis(1100), rx_signal.recv())
+            .await
+            .expect("timeout waiting for third ping interval")
+            .expect("channel closed");
+
+        let third_ping_id = match timeout_msg {
+            SessionMessage::TimerTimeout {
+                message_id,
+                message_type,
+                ..
+            } => {
+                assert_eq!(message_type, ProtoSessionMessageType::Ping);
+                message_id
+            }
+            _ => panic!("Expected TimerTimeout for ping interval"),
+        };
+
+        sender
+            .on_timer_timeout(third_ping_id, ProtoSessionMessageType::Ping)
+            .await
+            .expect("error handling third ping timeout");
+
+        // Verify counter incremented to 2
+        if let Some(ping_state) = &sender.ping_state {
+            assert_eq!(
+                ping_state.missing_pings.get(&MODERATOR_NAME).copied(),
+                Some(2),
+                "Missing ping counter should be 2"
+            );
+        }
+
+        // === PING INTERVAL 4: No ping received, counter reaches 3, disconnection detected ===
+
+        let timeout_msg = timeout(Duration::from_millis(1100), rx_signal.recv())
+            .await
+            .expect("timeout waiting for fourth ping interval")
+            .expect("channel closed");
+
+        let fourth_ping_id = match timeout_msg {
+            SessionMessage::TimerTimeout {
+                message_id,
+                message_type,
+                ..
+            } => {
+                assert_eq!(message_type, ProtoSessionMessageType::Ping);
+                message_id
+            }
+            _ => panic!("Expected TimerTimeout for ping interval"),
+        };
+
+        sender
+            .on_timer_timeout(fourth_ping_id, ProtoSessionMessageType::Ping)
+            .await
+            .expect("error handling fourth ping timeout");
+
+        // Verify ParticipantDisconnected message was sent with name: None (indicating moderator)
+        // Note: The message is sent via try_send, so it should already be in the channel
+        let disconnect_msg = rx_signal.try_recv();
+
+        match disconnect_msg {
+            Ok(SessionMessage::ParticipantDisconnected { name }) => {
+                assert_eq!(
+                    name, None,
+                    "ParticipantDisconnected should have name: None for moderator disconnection"
+                );
+            }
+            Ok(other) => panic!("Expected ParticipantDisconnected message, got {:?}", other),
+            Err(e) => panic!(
+                "Expected ParticipantDisconnected message, channel error: {:?}",
+                e
+            ),
+        }
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_ping_with_two_participants_one_removed_before_reply() {
+        // Test that removing a participant before ping reply clears their missing ping state:
+        // - Start with moderator + 2 participants
+        // - Send a ping to both participants
+        // - Remove one participant before ping reply is received
+        // - Verify removed participant is not tracked in missing_pings
+        // - Receive reply from remaining participant
+        // - Verify ping state is properly cleared
+
+        // Use very high duration to avoid retransmission timeouts during test
+        let settings = TimerSettings::constant(Duration::from_secs(1000)).with_max_retries(3);
+        let ping_interval = Duration::from_millis(1000);
+
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(100);
+        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+        let moderator = Name::from_strings(["org", "ns", "moderator"]);
+        let participant1 = Name::from_strings(["org", "ns", "participant1"]);
+        let participant2 = Name::from_strings(["org", "ns", "participant2"]);
+        let group_name = Name::from_strings(["org", "ns", "group"]);
+        let session_id = 1;
+
+        // Create moderator (initiator=true) with 2 participants
+        let mut sender = ControllerSender::new(
+            settings,
+            moderator.clone(),
+            ProtoSessionType::Multicast,
+            session_id,
+            Some(ping_interval),
+            true, // initiator (moderator)
+            tx,
+            tx_signal,
+        );
+
+        // Set up group with 2 participants
+        sender.group_name = Some(group_name.clone());
+        sender.group_list.insert(moderator.clone());
+        sender.group_list.insert(participant1.clone());
+        sender.group_list.insert(participant2.clone());
+
+        // === PING INTERVAL 1: Send ping to both participants ===
+
+        // Wait for first ping interval timeout
+        let timeout_msg = timeout(Duration::from_millis(1100), rx_signal.recv())
+            .await
+            .expect("timeout waiting for first ping interval")
+            .expect("channel closed");
+
+        let first_ping_id = match timeout_msg {
+            SessionMessage::TimerTimeout {
+                message_id,
+                message_type,
+                ..
+            } => {
+                assert_eq!(message_type, ProtoSessionMessageType::Ping);
+                message_id
+            }
+            _ => panic!("Expected TimerTimeout for ping interval"),
+        };
+
+        // Trigger ping send
+        sender
+            .on_timer_timeout(first_ping_id, ProtoSessionMessageType::Ping)
+            .await
+            .expect("error sending first ping");
+
+        // Verify ping was sent
+        let ping_msg = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for ping")
+            .expect("channel closed")
+            .expect("error message");
+
+        assert_eq!(
+            ping_msg.get_session_message_type(),
+            ProtoSessionMessageType::Ping
+        );
+
+        let ping_message_id = ping_msg.get_id();
+
+        // Verify both participants are in missing_replies
+        if let Some(ping_state) = &sender.ping_state {
+            if let Some(ping) = &ping_state.ping {
+                assert_eq!(
+                    ping.missing_replies.len(),
+                    2,
+                    "Should be waiting for replies from both participants"
+                );
+                assert!(
+                    ping.missing_replies.contains(&participant1),
+                    "Participant1 should be in missing_replies"
+                );
+                assert!(
+                    ping.missing_replies.contains(&participant2),
+                    "Participant2 should be in missing_replies"
+                );
+            } else {
+                panic!("Ping should be set");
+            }
+        } else {
+            panic!("Ping state should be initialized");
+        }
+
+        // === Remove participant1 before ping reply is received ===
+        sender.remove_participant(&participant1);
+
+        // Verify participant1 was removed from group_list
+        assert!(
+            !sender.group_list.contains(&participant1),
+            "Participant1 should be removed from group_list"
+        );
+        assert!(
+            sender.group_list.contains(&participant2),
+            "Participant2 should still be in group_list"
+        );
+
+        // === Receive ping reply from participant2 (the remaining participant) ===
+        let ping_reply = Message::builder()
+            .source(participant2.clone())
+            .destination(moderator.clone())
+            .identity("")
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::Ping)
+            .session_id(session_id)
+            .message_id(ping_message_id)
+            .payload(CommandPayload::builder().ping().as_content())
+            .build_publish()
+            .unwrap();
+
+        sender.on_ping_message(&ping_reply);
+
+        // Verify participant2 was removed from missing_replies after receiving the ping
+        // but participant1 is still there
+        if let Some(ping_state) = &sender.ping_state {
+            if let Some(ping) = &ping_state.ping {
+                assert_eq!(
+                    ping.missing_replies.len(),
+                    1,
+                    "Should still be waiting for reply from participant1"
+                );
+                assert!(
+                    ping.missing_replies.contains(&participant1),
+                    "Participant1 should still be in missing_replies since they haven't replied"
+                );
+                assert!(
+                    !ping.missing_replies.contains(&participant2),
+                    "Participant2 should be removed from missing_replies after replying"
+                );
+            } else {
+                panic!("Ping should still be set");
+            }
+        } else {
+            panic!("Ping state should be initialized");
+        }
+
+        // === Wait for next ping interval to trigger handle_ping_state ===
+        let timeout_msg = timeout(Duration::from_millis(1100), rx_signal.recv())
+            .await
+            .expect("timeout waiting for second ping interval")
+            .expect("channel closed");
+
+        let second_ping_id = match timeout_msg {
+            SessionMessage::TimerTimeout {
+                message_id,
+                message_type,
+                ..
+            } => {
+                assert_eq!(message_type, ProtoSessionMessageType::Ping);
+                message_id
+            }
+            _ => panic!("Expected TimerTimeout for ping interval"),
+        };
+
+        // Trigger the second ping interval
+        sender
+            .on_timer_timeout(second_ping_id, ProtoSessionMessageType::Ping)
+            .await
+            .expect("error handling second ping interval");
+
+        // Verify participant1 is NOT in missing_pings (because they were removed from group_list)
+        // Only participants still in group_list should be tracked in missing_pings
+        if let Some(ping_state) = &sender.ping_state {
+            assert_eq!(
+                ping_state.missing_pings.get(&participant1),
+                None,
+                "Removed participant1 should NOT be in missing_pings"
+            );
+            assert_eq!(
+                ping_state.missing_pings.len(),
+                0,
+                "No participants should be in missing_pings since participant2 replied and participant1 was removed"
+            );
+        } else {
+            panic!("Ping state should be initialized");
+        }
+
+        // Verify a new ping was sent to the remaining participant
+        let second_ping = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for second ping")
+            .expect("channel closed")
+            .expect("error message");
+
+        assert_eq!(
+            second_ping.get_session_message_type(),
+            ProtoSessionMessageType::Ping,
+            "Second ping should be sent"
+        );
+
+        // Verify the new ping only expects reply from participant2
+        if let Some(ping_state) = &sender.ping_state {
+            if let Some(ping) = &ping_state.ping {
+                assert_eq!(
+                    ping.missing_replies.len(),
+                    1,
+                    "Should only be waiting for reply from participant2"
+                );
+                assert!(
+                    ping.missing_replies.contains(&participant2),
+                    "Participant2 should be in missing_replies"
+                );
+                assert!(
+                    !ping.missing_replies.contains(&participant1),
+                    "Participant1 should NOT be in missing_replies"
+                );
+            } else {
+                panic!("Ping should be set");
+            }
+        } else {
+            panic!("Ping state should be initialized");
+        }
     }
 }

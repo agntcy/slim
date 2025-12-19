@@ -130,7 +130,7 @@ async fn main() -> Result<()> {
     svc.run().await.context("Service run failed")?;
 
     // Connection id of first configured client
-    let clients = svc.config().clients();
+    let clients = svc.config().dataplane_clients();
     if clients.is_empty() {
         anyhow::bail!("No clients configured in service");
     }

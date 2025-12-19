@@ -7,7 +7,10 @@ use async_trait::async_trait;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{CommandPayload, ProtoMessage as Message, ProtoSessionMessageType, ProtoSessionType},
-    messages::Name,
+    messages::{
+        Name,
+        utils::{LEAVING_SESSION, TRUE_VAL},
+    },
 };
 
 use slim_mls::mls::Mls;
@@ -41,6 +44,9 @@ where
     /// common session state
     common: SessionControllerCommon<P, V>,
 
+    /// connection id from where the remote messages are received
+    conn_id: Option<u64>,
+
     subscribed: bool,
 
     /// inner layer
@@ -61,6 +67,7 @@ where
             group_list: HashSet::new(),
             mls_state: None,
             common,
+            conn_id: None,
             subscribed: false,
             inner,
         }
@@ -103,6 +110,11 @@ where
                 ack_tx,
             } => {
                 if message.get_session_message_type().is_command_message() {
+                    debug!(
+                        message = ?message.get_session_message_type(),
+                        source = %message.get_source(),
+                        "received message",
+                    );
                     self.process_control_message(message).await
                 } else {
                     self.inner
@@ -161,6 +173,27 @@ where
                 grace_period: duration,
             } => {
                 debug!("received drain signal");
+                // create a leave request message for the participant that
+                // got disconnected and add the metadata to the message
+                let p = CommandPayload::builder().leave_request(None).as_content();
+                if let Some(moderator) = &self.moderator_name {
+                    let mut msg = self.common.create_control_message(
+                        moderator,
+                        ProtoSessionMessageType::LeaveRequest,
+                        rand::random::<u32>(),
+                        p,
+                        false,
+                    )?;
+                    debug!("start drain and notify the moderator");
+                    msg.insert_metadata(LEAVING_SESSION.to_string(), TRUE_VAL.to_string());
+
+                    // remove the route and the subscription for the group
+                    // to avoid to get broadcast messages from the moderator
+                    self.disconnect_from_group().await?;
+
+                    self.common.sender.on_message(&msg).await?;
+                }
+
                 // propagate draining state
                 self.common.processing_state = ProcessingState::Draining;
                 self.inner
@@ -169,6 +202,21 @@ where
                     })
                     .await?;
                 self.common.sender.start_drain();
+
+                Ok(())
+            }
+            SessionMessage::ParticipantDisconnected { name: _ } => {
+                debug!("The moderator is not anymore connected to the current session, close it",);
+
+                // start drain
+                self.common.processing_state = ProcessingState::Draining;
+                self.inner
+                    .on_message(SessionMessage::StartDrain {
+                        grace_period: Duration::from_secs(1), // not used
+                    })
+                    .await?;
+                self.common.sender.start_drain();
+
                 Ok(())
             }
             _ => Err(SessionError::SessionMessageInternalUnexpected(Box::new(
@@ -247,13 +295,21 @@ where
                 self.on_leave_request(message).await
             }
             ProtoSessionMessageType::Ping => self.on_ping(message).await,
+            ProtoSessionMessageType::LeaveReply => {
+                // this message is received when the moderator ack the
+                // reception of the leave request sent on Drain start
+                // if the participant in not on drain state drop the message
+                if self.common.processing_state == ProcessingState::Draining {
+                    self.common.sender.on_message(&message).await?;
+                }
+                Ok(())
+            }
             ProtoSessionMessageType::GroupProposal
             | ProtoSessionMessageType::GroupAck
             | ProtoSessionMessageType::GroupNack => todo!(),
             ProtoSessionMessageType::DiscoveryRequest
             | ProtoSessionMessageType::DiscoveryReply
-            | ProtoSessionMessageType::JoinReply
-            | ProtoSessionMessageType::LeaveReply => {
+            | ProtoSessionMessageType::JoinReply => {
                 debug!(
                     control_message_type = ?message.get_session_message_type(),
                     "Unexpected control message type",
@@ -451,7 +507,8 @@ where
 
         self.common.send_to_slim(reply).await?;
 
-        self.leave(&msg).await?;
+        self.disconnect_from_group().await?;
+        self.disconnect_from_moderator().await?;
 
         self.common
             .settings
@@ -465,7 +522,10 @@ where
 
     async fn on_ping(&mut self, mut msg: Message) -> Result<(), SessionError> {
         debug!("received ping message, reply");
-        // just need to reply to the ping
+        // send ping to the local sender to register the reception
+        self.common.sender.on_message(&msg).await?;
+
+        // reply to the ping
         let header = msg.get_slim_header_mut();
         let src = header.get_source();
         header.set_source(&self.common.settings.source);
@@ -480,6 +540,8 @@ where
 
         self.subscribed = true;
 
+        self.conn_id = Some(msg.get_incoming_conn());
+
         if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
             return Ok(());
         }
@@ -492,24 +554,30 @@ where
             .await
     }
 
-    async fn leave(&self, msg: &Message) -> Result<(), SessionError> {
-        self.common
-            .delete_route(&self.common.settings.destination, msg.get_incoming_conn())
-            .await?;
-
+    async fn disconnect_from_group(&self) -> Result<(), SessionError> {
         if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
             return Ok(());
         }
 
-        self.common
-            .delete_route(
-                self.moderator_name.as_ref().unwrap(),
-                msg.get_incoming_conn(),
-            )
-            .await?;
-        self.common
-            .delete_subscription(&self.common.settings.destination, msg.get_incoming_conn())
-            .await
+        if let Some(conn_id) = self.conn_id {
+            self.common
+                .delete_route(&self.common.settings.destination, conn_id)
+                .await?;
+            self.common
+                .delete_subscription(&self.common.settings.destination, conn_id)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn disconnect_from_moderator(&self) -> Result<(), SessionError> {
+        if let Some(conn_id) = self.conn_id {
+            self.common
+                .delete_route(self.moderator_name.as_ref().unwrap(), conn_id)
+                .await?;
+        }
+        Ok(())
     }
 }
 
@@ -1131,39 +1199,26 @@ mod tests {
             setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
         participant.subscribed = true;
+        participant.conn_id = Some(12345); // Set conn_id so disconnect_from_group sends messages
 
         let moderator = make_name(&["moderator", "app", "v1"]).with_id(300);
         participant.moderator_name = Some(moderator.clone());
 
-        let leave_msg = Message::builder()
-            .source(moderator.clone())
-            .destination(participant.common.settings.source.clone())
-            .identity("")
-            .forward_to(0)
-            .incoming_conn(12345)
-            .session_type(ProtoSessionType::Multicast)
-            .session_message_type(ProtoSessionMessageType::LeaveRequest)
-            .session_id(1)
-            .message_id(500)
-            .payload(CommandPayload::builder().leave_request(None).as_content())
-            .build_publish()
-            .unwrap();
-
         // Manually call leave to test unsubscribe
-        let result = participant.leave(&leave_msg).await;
+        let result = participant.disconnect_from_group().await;
+        assert!(result.is_ok());
+        let result = participant.disconnect_from_moderator().await;
         assert!(result.is_ok());
 
-        // Should have sent unsubscribe message (after the route deletion messages)
-        // Skip route deletion messages to find unsubscribe
-        let mut found_unsubscribe = false;
-        for _ in 0..5 {
-            if let Ok(Ok(_msg)) = rx_slim.try_recv() {
-                // Check if this is an unsubscribe message
-                // In the actual implementation, unsubscribe would be indicated by message type
-                found_unsubscribe = true;
-                break;
-            }
+        // disconnect_from_group sends: delete_route + unsubscribe
+        // disconnect_from_moderator sends: delete_route
+        let mut message_count = 0;
+        while let Ok(Ok(_msg)) = rx_slim.try_recv() {
+            message_count += 1;
         }
-        assert!(found_unsubscribe);
+        assert!(
+            message_count > 0,
+            "Should have sent unsubscribe and route deletion messages"
+        );
     }
 }

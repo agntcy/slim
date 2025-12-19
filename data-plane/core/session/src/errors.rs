@@ -133,6 +133,8 @@ pub enum SessionError {
     InvalidJoinRequestPayload,
     #[error("participant disconnected: {0}")]
     ParticipantDisconnected(Name),
+    #[error("missing participant name on disconnection event")]
+    MissingParticipantNameOnDisconnection,
 
     // Moderator task orchestration
     #[error("no pending requests for the given key: {0}")]

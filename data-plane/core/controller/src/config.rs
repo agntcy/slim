@@ -15,7 +15,7 @@ use slim_config::grpc::server::ServerConfig;
 use slim_datapath::message_processing::MessageProcessor;
 
 use crate::errors::ControllerError;
-use crate::service::{ControlPlane, ControlPlaneSettings};
+use crate::service::{ControlPlane, ControlPlaneSettings, from_server_config};
 
 #[derive(Default, Debug, Clone, Deserialize, PartialEq, serde::Serialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
@@ -64,6 +64,10 @@ impl Config {
     /// Create a new Config instance with default values
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
     }
 
     /// Create a new Config instance with the given servers
@@ -144,10 +148,15 @@ impl Config {
         id: ID,
         group_name: Option<String>,
         message_processor: Arc<MessageProcessor>,
-        servers: &[ServerConfig],
+        // List of server configurations for the dataplane services.
+        // Used to extract connection type information required to connect to the node
+        // (e.g., TLS settings). This information is used by the control plane.
+        dataplane_servers: &[ServerConfig],
     ) -> ControlPlane {
         let auth_provider = self.get_token_provider_auth();
         let auth_verifier = self.get_token_verifier_auth();
+
+        let connection_details = dataplane_servers.iter().map(from_server_config).collect();
 
         ControlPlane::new(ControlPlaneSettings {
             id,
@@ -155,9 +164,9 @@ impl Config {
             servers: self.servers.clone(),
             clients: self.clients.clone(),
             message_processor,
-            pubsub_servers: servers.to_vec(),
             auth_provider,
             auth_verifier,
+            connection_details,
         })
     }
 }
@@ -439,9 +448,9 @@ mod tests {
         let id = ID::new_with_name(Kind::new("slim").unwrap(), "test-instance").unwrap();
         let group_name = Some("test-group".to_string());
         let message_processor = Arc::new(MessageProcessor::new());
-        let servers = vec![server_config];
 
-        let _control_plane = config.into_service(id, group_name, message_processor, &servers);
+        let _control_plane =
+            config.into_service(id, group_name, message_processor, &[server_config]);
     }
 
     #[test]
