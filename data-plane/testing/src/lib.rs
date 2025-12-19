@@ -21,7 +21,7 @@ pub fn build_client_service(port: u16, service_id: &str) -> Service {
     let endpoint = format!("http://localhost:{}", port);
     let client_cfg = GrpcClientConfig::with_endpoint(&endpoint)
         .with_tls_setting(TlsClientConfig::default().with_insecure(true));
-    let service_cfg = ServiceConfiguration::new().with_client(vec![client_cfg]);
+    let service_cfg = ServiceConfiguration::new().with_dataplane_client(vec![client_cfg]);
     let svc_id = ID::new_with_str(service_id).expect("invalid service id");
 
     service_cfg

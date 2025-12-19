@@ -6,7 +6,7 @@ shopt: [globstar]
 
 env:
   CONFIG_CLIENT: ../config/base/client-config.yaml
-  CONFIG_SERVER: ./config/base/server-config.yaml
+  CONFIG_SERVER: ../config/base/server-config.yaml
 
 includes:
   testing:
@@ -26,7 +26,7 @@ tasks:
       - task: testing:toolchain:run
         vars:
           BIN: "slim"
-          ARGS: ""
+          ARGS: "--package agntcy-slim"
           BIN_ARGS: "--config $CONFIG_SERVER"
 
   channel-example:moderator:mls:
