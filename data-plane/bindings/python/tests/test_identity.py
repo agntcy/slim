@@ -201,8 +201,8 @@ async def test_identity_verification(server, audience):
             # check if the message is correct
             assert message == bytes(res_msg)
 
-            # Wait for task to finish
-            await t
+            # Wait for task to finish (and surface any exceptions)
+            _ = await t
     finally:
         # delete sessions (auto-waits for completion)
         if audience == test_audience:
