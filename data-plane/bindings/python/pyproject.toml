@@ -48,7 +48,7 @@ module-name = "slim_uniffi_bindings._slim_bindings"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-python_files = ["*_test.py"]
+python_files = ["test_*.py"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
 markers = [
