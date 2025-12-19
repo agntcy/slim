@@ -12,7 +12,7 @@ establish sessions, publish messages, or perform connection logic.
 import asyncio
 
 import pytest_asyncio
-from common import create_svc, create_name, create_server_config
+from common import create_slim, create_name, create_server_config
 
 import slim_uniffi_bindings._slim_bindings.slim_bindings as slim_bindings
 
@@ -50,7 +50,7 @@ async def server(request):
     local_service = endpoint is not None
 
     name = create_name("agntcy", "default", "server")
-    svc_server = create_svc(name, local_service=local_service)
+    svc_server = create_slim(name, local_service=local_service)
 
     # Initialize crypto provider (replaces init_tracing in new API)
     slim_bindings.initialize_crypto_provider()

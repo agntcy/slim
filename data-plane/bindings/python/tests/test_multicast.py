@@ -27,7 +27,7 @@ import datetime
 import uuid
 
 import pytest
-from common import create_slim, create_name
+from common import create_slim, create_name, create_client_config
 
 import slim_uniffi_bindings._slim_bindings.slim_bindings as slim_bindings
 

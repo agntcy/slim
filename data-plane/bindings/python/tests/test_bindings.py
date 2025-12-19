@@ -20,7 +20,7 @@ import asyncio
 import datetime
 
 import pytest
-from common import create_slim, create_svc, create_name, create_client_config, create_server_config
+from common import create_slim, create_name, create_client_config, create_server_config
 
 import slim_uniffi_bindings._slim_bindings.slim_bindings as slim_bindings
 
@@ -41,8 +41,8 @@ async def test_end_to_end(server):
     bob_name = create_name("org", "default", "bob_e2e")
 
     # create 2 clients, Alice and Bob
-    svc_alice = create_svc(alice_name, local_service=server.local_service)
-    svc_bob = create_svc(bob_name, local_service=server.local_service)
+    svc_alice = create_slim(alice_name, local_service=server.local_service)
+    svc_bob = create_slim(bob_name, local_service=server.local_service)
 
     conn_id = None
     # connect to the service
@@ -145,11 +145,11 @@ async def test_slim_wrapper(server):
     #create new slim object
     slim1 = create_slim(name1, local_service=server.local_service)
 
-    conn_id = None
+    conn_id_slim1 = None
+    conn_id_slim2 = None
     if server.local_service:
-        # Connect to the service and subscribe for the local name
-        # Both apps will share this connection since they use the global service
-        conn_id = await slim1.connect_async(
+        # Connect slim1 to the service and subscribe for the local name
+        conn_id_slim1 = await slim1.connect_async(
             create_client_config("http://127.0.0.1:12345")
         )
 
@@ -157,12 +157,16 @@ async def test_slim_wrapper(server):
     slim2 = create_slim(name2, local_service=server.local_service)
 
     if server.local_service:
-        # slim2 uses the same connection as slim1 (global service)
-        # Just wait for routes to propagate
+        # Connect slim2 to the service and subscribe for the local name
+        conn_id_slim2 = await slim2.connect_async(
+            create_client_config("http://127.0.0.1:12345")
+        )
+
+        # Wait for subscriptions to propagate
         await asyncio.sleep(1)
 
-        # set route - both apps share the connection
-        await slim2.set_route_async(name1, conn_id)
+        # set route from slim2 to slim1
+        await slim2.set_route_async(name1, conn_id_slim2)
 
     # create session (auto-waits for establishment)
     session_context = await slim2.create_session_async(
@@ -239,23 +243,22 @@ async def test_auto_reconnect_after_server_restart(server):
     alice_name = create_name("org", "default", "alice_res")
     bob_name = create_name("org", "default", "bob_res")
 
-    svc_alice = create_svc(alice_name, local_service=server.local_service)
-    svc_bob = create_svc(bob_name, local_service=server.local_service)
+    svc_alice = create_slim(alice_name, local_service=server.local_service)
+    svc_bob = create_slim(bob_name, local_service=server.local_service)
 
-    conn_id = None
+    conn_id_alice = None
+    conn_id_bob = None
     if server.local_service:
-        # connect clients and subscribe for messages (shared connection)
-        conn_id = await svc_alice.connect_async(
+        # Connect alice and bob clients (each gets their own connection and auto-subscribes)
+        conn_id_alice = await svc_alice.connect_async(
+            create_client_config("http://127.0.0.1:12346")
+        )
+        conn_id_bob = await svc_bob.connect_async(
             create_client_config("http://127.0.0.1:12346")
         )
 
-        alice_name = create_name("org", "default", "alice_res", id=svc_alice.id())
-        bob_name = create_name("org", "default", "bob_res", id=svc_bob.id())
-        await svc_alice.subscribe_async(alice_name, conn_id)
-        await svc_bob.subscribe_async(bob_name, conn_id)
-
         # set routing from Alice to Bob
-        await svc_alice.set_route_async(bob_name, conn_id)
+        await svc_alice.set_route_async(svc_bob.name(), conn_id_alice)
 
         # Wait for routes to propagate
         await asyncio.sleep(1)
@@ -270,7 +273,7 @@ async def test_auto_reconnect_after_server_restart(server):
             initiator=True,
             metadata={},
         ),
-        bob_name,
+        svc_bob.name(),
     )
 
     # send baseline message Alice -> Bob; Bob should first receive a new session then the message
@@ -307,9 +310,11 @@ async def test_auto_reconnect_after_server_restart(server):
     await svc_alice.delete_session_async(session_context)
 
     # clean up
-    # Disconnect (only needed if we have a connection)
-    if conn_id is not None:
-        await svc_alice.disconnect_async(conn_id)
+    # Disconnect (only needed if we have connections)
+    if conn_id_alice is not None:
+        await svc_alice.disconnect_async(conn_id_alice)
+    if conn_id_bob is not None:
+        await svc_bob.disconnect_async(conn_id_bob)
 
 
 @pytest.mark.asyncio
@@ -322,7 +327,7 @@ async def test_error_on_nonexistent_subscription(server):
     """
     name = create_name("org", "default", "alice_nonsub")
 
-    svc_alice = create_svc(name, local_service=server.local_service)
+    svc_alice = create_slim(name, local_service=server.local_service)
 
     conn_id_alice = None
     if server.local_service:
@@ -366,7 +371,7 @@ async def test_listen_for_session_timeout(server):
     """Test that listen_for_session times out appropriately when no session is available."""
     alice_name = create_name("org", "default", "alice_timeout")
 
-    svc_alice = create_svc(alice_name, local_service=server.local_service)
+    svc_alice = create_slim(alice_name, local_service=server.local_service)
 
     conn_id_alice = None
     if server.local_service:
@@ -412,7 +417,7 @@ async def test_get_message_timeout(server):
     alice_name = create_name("org", "default", "alice_msg_timeout")
 
     # Create service
-    svc_alice = create_svc(alice_name, local_service=server.local_service)
+    svc_alice = create_slim(alice_name, local_service=server.local_service)
 
     conn_id_alice = None
 

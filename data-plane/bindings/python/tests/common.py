@@ -67,7 +67,7 @@ def create_server_config(endpoint: str, insecure: bool = True) -> slim_bindings.
     )
 
 
-def create_svc(
+def create_slim(
     name: slim_bindings.Name,
     secret: str = "testing-secret-123456789012345abc",
     local_service: bool = True,
@@ -82,27 +82,8 @@ def create_svc(
     Returns:
         BindingsAdapter: The app instance usable with session creation and message operations.
     """
-    # The new API only exposes create_app_with_secret() which handles auth internally
-    # We cannot use local_service parameter with this function, so we ignore it for now
-    return slim_bindings.create_app_with_secret(name, secret)
+    if local_service:
+        return slim_bindings.create_app_secret_local_svc(name, secret)
+    else:
+        return slim_bindings.create_app_with_secret(name, secret)
 
-
-def create_slim(
-    name: slim_bindings.Name,
-    secret: str = "testing-secret-123456789012345abc",
-    local_service: bool = True,
-):
-    """Create and return a BindingsAdapter (app) instance for tests using SharedSecret auth.
-
-    This is an alias for create_svc() to maintain compatibility with tests that use
-    the old "Slim" naming. Both return the same BindingsAdapter type.
-
-    Args:
-        name: Fully qualified Name for the local application/service.
-        secret: Shared secret used for symmetric identity provider/verifier.
-        local_service: Whether to use a local service instance (ignored in new API).
-
-    Returns:
-        BindingsAdapter: App instance with access to session and message operations.
-    """
-    return create_svc(name, secret, local_service)

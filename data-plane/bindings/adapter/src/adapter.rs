@@ -309,13 +309,23 @@ pub fn create_app_with_secret(
     shared_secret: String,
 ) -> Result<Arc<BindingsAdapter>, SlimError> {
     let runtime = get_runtime();
-    runtime.block_on(async { create_app_with_secret_async(app_name, shared_secret).await })
+    runtime.block_on(async { create_app_with_secret_async(app_name, shared_secret, false).await })
+}
+
+#[uniffi::export]
+pub fn create_app_secret_local_svc(
+    app_name: Name,
+    shared_secret: String,
+) -> Result<Arc<BindingsAdapter>, SlimError> {
+    let runtime = get_runtime();
+    runtime.block_on(async { create_app_with_secret_async(app_name, shared_secret, true).await })
 }
 
 /// Create an app with the given name and shared secret (async version)
 async fn create_app_with_secret_async(
     app_name: Name,
     shared_secret: String,
+    use_local_service: bool,
 ) -> Result<Arc<BindingsAdapter>, SlimError> {
     let slim_name: SlimName = app_name.into();
     let shared_secret_impl = SharedSecret::new(&slim_name.components_strings()[1], &shared_secret)?;
@@ -330,7 +340,7 @@ async fn create_app_with_secret_async(
     // Initialize the identity verifier
     verifier.initialize().await?;
 
-    let adapter = BindingsAdapter::new(slim_name, provider, verifier, false)?;
+    let adapter = BindingsAdapter::new(slim_name, provider, verifier, use_local_service)?;
 
     Ok(Arc::new(adapter))
 }
