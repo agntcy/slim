@@ -260,11 +260,17 @@ jobs:
           pushd ./target-repo
 
           # Preserve .git directory and manual files like LICENSE, README
-          # Remove only the generated files (*.go, *.h, *.a)
+          # Remove only the generated files (*.go, *.h, *.a) and cmd directory
           rm -f ./*.go ./*.h ./*.a
+          rm -rf ./cmd
 
-          # Copy all generated files to root (not as a subdirectory), excluding .a files
+          # Copy generated Go bindings (excluding .a files)
           cp ../generated/${{ env.LIBRARY_NAME }}/*.{go,h} ./
+
+          # Copy download infrastructure from release-files
+          cp ../release-files/download.go ./
+          mkdir -p ./cmd/slim-bindings-setup
+          cp ../release-files/cmd/slim-bindings-setup/main.go ./cmd/slim-bindings-setup/
 
           # Create go.mod if it doesn't exist
           if [ ! -f go.mod ]; then
