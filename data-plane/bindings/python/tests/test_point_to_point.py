@@ -184,4 +184,4 @@ async def test_sticky_session(server, mls_enabled):
     await sender.delete_session_async(sender_session)
 
     # Await only the winning receiver task (others were cancelled)
-    await tasks[winner_id]
+    winner_result = await tasks[winner_id]
