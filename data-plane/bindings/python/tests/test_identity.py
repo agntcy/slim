@@ -196,7 +196,6 @@ async def test_identity_verification(server, audience):
             # As audience matches, we expect a successful request/reply
             await session_info.publish_async(pub_msg, None, None)
             received_msg = await session_info.get_message_async(None)
-            _ctx2 = received_msg.context
             message = received_msg.payload
 
             # check if the message is correct
