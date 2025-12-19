@@ -5,10 +5,14 @@
 name: Release Bindings
 
 on:
-  pull_request:
-    paths:
-      - 'data-plane/**'
-      - '.github/workflows/release-bindings.yaml'
+  # pull_request:
+  #   paths:
+  #     - 'data-plane/**'
+  #     - '.github/workflows/release-bindings.yaml'
+
+  push:
+    tags:
+      - 'slim-test-bindings-*'
 
   workflow_dispatch:
     inputs:
@@ -79,13 +83,13 @@ jobs:
       - name: Strip and rename artifacts
         run: |
           ls -lah ../../target/${{ matrix.platform.target }}/release/
-          
+
           # Split target and use in filename
           TARGET="${{ matrix.platform.target }}"
           ARCH=$(echo "$TARGET" | cut -d'-' -f1)
           OS=$(echo "$TARGET" | cut -d'-' -f3)
           ABI=$(echo "$TARGET" | cut -d'-' -f4)
-          
+
           echo "Architecture: $ARCH"
           echo "OS: $OS"
           echo "ABI: $ABI"
@@ -99,10 +103,10 @@ jobs:
 
           # Handle both libslim_bindings* (Unix) and slim_bindings* (Windows)
           for file in ../../target/${{ matrix.platform.target }}/release/libslim_bindings* ../../target/${{ matrix.platform.target }}/release/slim_bindings.*; do
-            if [ -f "$file" ]; then        
+            if [ -f "$file" ]; then
               filename=$(basename "$file")
               extension="${filename##*.}"
-              
+
               if [[ "$filename" == libslim_bindings.* ]]; then
                 # Unix-like: keep 'lib' prefix
                 mv "$file" "../../target/${{ matrix.platform.target }}/release/lib${LIB_NAME}.${extension}"
@@ -121,8 +125,79 @@ jobs:
           name: bindings-${{ matrix.platform.target }}
           path: ./data-plane/target/${{ matrix.platform.target }}/release/*slim_bindings*
 
+
+
   # ==========================================================================
-  # Job 2: Generate and publish Go bindings
+  # Job 2: Create GitHub release with library artifacts (for test tags)
+  # ==========================================================================
+  release-libraries:
+    name: Release Libraries
+    runs-on: ubuntu-latest
+    needs: build-libraries
+    if: startsWith(github.ref, 'refs/tags/slim-test-bindings-')
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Download all library artifacts from build-libraries job
+      - name: Download all library artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts/
+          pattern: bindings-*
+
+      - name: List downloaded artifacts
+        run: |
+          echo "📦 Downloaded artifacts:"
+          find ./artifacts -type f -ls
+
+      - name: Prepare release artifacts
+        run: |
+          mkdir -p ./release-artifacts
+
+          # The download-artifact action already organizes files by artifact name
+          # Each platform's libraries are in ./artifacts/bindings-<target>/
+          # We'll zip each platform's libraries separately
+
+          for platform_dir in ./artifacts/bindings-*/; do
+            if [ -d "$platform_dir" ]; then
+              platform_name=$(basename "$platform_dir" | sed 's/^bindings-//')
+              echo "📦 Zipping libraries for platform: $platform_name"
+
+              cd "$platform_dir"
+              zip -r "../../release-artifacts/slim-bindings-${platform_name}.zip" *
+              cd - > /dev/null
+
+              echo "✅ Created slim-bindings-${platform_name}.zip"
+            fi
+          done
+
+          echo "📋 Release artifacts:"
+          ls -lah ./release-artifacts/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Test Bindings ${{ github.ref_name }}"
+          body: |
+            Test release of SLIM native bindings libraries.
+
+            **Platforms included:**
+            - Linux x86_64 (GNU and musl)
+            - Linux aarch64 (GNU and musl)
+            - macOS x86_64 (Intel)
+            - macOS aarch64 (Apple Silicon)
+            - Windows x86_64
+
+            Built from commit: ${{ github.sha }}
+          files: ./release-artifacts/*.zip
+          draft: false
+          prerelease: true
+
+  # ==========================================================================
+  # Job 3: Generate and publish Go bindings
   # ==========================================================================
   release-go-bindings:
     name: Release Go Bindings
@@ -183,14 +258,14 @@ jobs:
       - name: Update target repository
         run: |
           pushd ./target-repo
-          
+
           # Preserve .git directory and manual files like LICENSE, README
           # Remove only the generated files (*.go, *.h, *.a)
           rm -f ./*.go ./*.h ./*.a
-          
-          # Copy all generated files to root (not as a subdirectory)
-          cp ../generated/${{ env.LIBRARY_NAME }}/* ./
-          
+
+          # Copy all generated files to root (not as a subdirectory), excluding .a files
+          cp ../generated/${{ env.LIBRARY_NAME }}/*.{go,h} ./
+
           # Create go.mod if it doesn't exist
           if [ ! -f go.mod ]; then
             echo "📦 Creating go.mod for target repository..."
@@ -200,13 +275,13 @@ jobs:
           # Show what will be committed
           echo "📋 Files to be committed:"
           git status
-          
+
           popd
 
       - name: Commit and push
         run: |
           pushd ./target-repo
-          
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
@@ -229,7 +304,7 @@ jobs:
           - linux/arm64-musl (aarch64-unknown-linux-musl)
           - darwin/arm64 (aarch64-apple-darwin)
           - darwin/amd64 (x86_64-apple-darwin)
-          - windows/amd64 (x86_64-pc-windows-msvc)" 
+          - windows/amd64 (x86_64-pc-windows-msvc)"
 
           # TODO: uncomment this before merge
           # git tag -a "${{ env.RELEASE_VERSION }}" -m "Release ${{ env.RELEASE_VERSION }}"
@@ -238,5 +313,5 @@ jobs:
           git push origin "${{ env.RELEASE_VERSION }}"
 
           echo "✅ Successfully pushed Go bindings to https://github.com/${{ env.GO_BINDINGS_REPO }}"
-          
+
           popd
