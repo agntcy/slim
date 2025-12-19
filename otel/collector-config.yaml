@@ -21,6 +21,8 @@ exporters:
     # shared secret used for MLS and identity provider
     shared-secret: "a-very-long-shared-secret-0123456789-abcdefg"
     # sessions configuration
+    # if no session is defiend the exporter will listen for invitation
+    # to join channels sent from other participants
     sessions: 
         # name of the SLIM channel to create for the session
         # the name will be suffixed with the signal types
@@ -29,18 +31,18 @@ exporters:
         signals: 
           - metrics
           - logs
-        # participants to invite to this channel
+        # list of participants to invite to this channel
         participants:
           - "agntcy/otel/receiver-app"
         # flag to enable or disable MLS for this session
         mls-enabled: false
-      #- channel-name: "agntcy/otel/telemetry-2"
-      #  signals: 
-      #    - metrics
-      #  participants:
-      #    - "agntcy/otel/receiver-app-2"
-      #    - "agntcy/otel/receiver-app-3"
-      #  mls-enabled: false      
+      - channel-name: "agntcy/otel/telemetry-2"
+        signals: 
+          - metrics
+        participants:
+          - "agntcy/otel/receiver-app-2"
+          - "agntcy/otel/receiver-app-3"
+        mls-enabled: false      
   
   # Standard OTLP exporter
   otlp:
