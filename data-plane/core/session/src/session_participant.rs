@@ -175,7 +175,6 @@ where
                 grace_period: duration,
             } => {
                 debug!("received drain signal");
-                println!("!!!!!!START DRAIN",);
                 // create a leave request message for the participant that
                 // got disconnected and add the metadata to the message
                 let p = CommandPayload::builder().leave_request(None).as_content();
@@ -210,7 +209,6 @@ where
             }
             SessionMessage::ParticipantDisconnected { name: _ } => {
                 debug!("The moderator is not anymore connected to the current session, close it",);
-                println!("!!!!!!The moderator is not anymore connected to the current session, close it",);
                 // start drain
                 self.common.processing_state = ProcessingState::Draining;
                 self.inner

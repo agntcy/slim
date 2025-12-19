@@ -65,7 +65,7 @@ func (s *SignalSessions) PublishToAll(data []byte, logger *zap.Logger, signalNam
 	var closedSessions []uint32
 	for id, session := range s.sessions {
 		if err := session.Publish(data, nil, nil); err != nil {
-			if strings.Contains(err.Error(), "session closed") {
+			if strings.Contains(err.Error(), "Session already closed or dropped") {
 				logger.Info("Session closed, marking for removal", zap.Uint32("session_id", id))
 				closedSessions = append(closedSessions, id)
 				continue

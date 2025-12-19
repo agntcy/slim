@@ -124,9 +124,11 @@ tasks:
       LD_LIBRARY_PATH: "{{.LD_PATH}}"
     cmds:
       - echo "Running test app in participant mode..."
-      - go run . --app-name "agntcy/otel/receiver-app" \
-          --server "http://localhost:46357" \
-          --secret "a-very-long-shared-secret-0123456789-abcdefg"
+      - >
+        go run .
+        --app-name "agntcy/otel/receiver-app"
+        --server "http://localhost:46357"
+        --secret "a-very-long-shared-secret-0123456789-abcdefg"
     silent: true
 
   testapp:initiator:
@@ -138,8 +140,11 @@ tasks:
       LD_LIBRARY_PATH: "{{.LD_PATH}}"
     cmds:
       - echo "Running test app in initiator mode..."
-      - go run . --app-name "agntcy/otel/receiver-app" \
-          --server "http://localhost:46357" \
-          --secret "a-very-long-shared-secret-0123456789-abcdefg" \
-          --exporter-name "agntcy/otel/exporter"
+      - >
+        go run .
+        --app-name "agntcy/otel/receiver-app"
+        --server "http://localhost:46357"
+        --secret "a-very-long-shared-secret-0123456789-abcdefg"
+        --exporter-name "agntcy/otel/exporter"
+        --channel-name "agntcy/otel/initiator-channel"
     silent: true

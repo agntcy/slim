@@ -161,8 +161,6 @@ impl ControllerSender {
             None
         };
 
-        println!("IS PING STATE SOME? {} {:?}", ping_state.is_some(), ping_interval);
-
         ControllerSender {
             timer_factory: TimerFactory::new(timer_settings, tx_signals.clone()),
             local_name,
@@ -213,7 +211,6 @@ impl ControllerSender {
                     == slim_datapath::api::ProtoSessionMessageType::GroupWelcome
                 {
                     // add the new participant to the list
-                    println!("WELCOME MESSAGE RECEIVED, ADDING TO GROUP LIST {:?}", message.get_dst());
                     self.group_list.insert(message.get_dst());
 
                     if self.group_name.is_none() {
@@ -376,7 +373,6 @@ impl ControllerSender {
 
     fn on_ping_message(&mut self, message: &Message) {
         debug!(id = %message.get_id(), "received ping message");
-        println!("RECEIVED PING MESSAGE ID {}", message.get_id());
         if self.initiator {
             // if this is an initiator update the missing acks
             if let Some(ping_state) = &mut self.ping_state
@@ -434,13 +430,11 @@ impl ControllerSender {
             if ping_state.received_ping {
                 // reset the state
                 debug!(%id, "received at least on ping message, reset the state");
-                println!("RECEIVED AT LEAST ONE PING MESSAGE, RESET THE STATE");
                 ping_state.received_ping = false;
                 ping_state.missing_pings.clear();
             } else {
                 // update the missing ping map and detect moderator disconnection
                 debug!(%id, "missing ping message from moderator");
-                println!("MISSING PING MESSAGE FROM MODERATOR");
                 let val = ping_state
                     .missing_pings
                     .entry(MODERATOR_NAME.clone())
@@ -479,7 +473,6 @@ impl ControllerSender {
             if self.group_list.len() > 1
                 && let Some(group_name) = &self.group_name
             {
-                println!("SENDING NEW PING MESSAGE TO GROUP {:?}", group_name);
                 // someone is connected to the channel, send the ping
                 // create the message
                 let ping_id = rand::random::<u32>();
@@ -526,8 +519,6 @@ impl ControllerSender {
                         ),
                     });
                 }
-            } else {
-                println!("NO NEED TO SEND PING MESSAGE, NO PARTICIPANTS CONNECTED {:?}, GROUP NAME {:?}", self.group_list, self.group_name);
             }
         } else {
             // most likely the timeout is related to the ping message itself so

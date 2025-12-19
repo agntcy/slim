@@ -79,7 +79,6 @@ where
     I: MessageHandler + Send + Sync + 'static,
 {
     pub(crate) fn new(inner: I, settings: SessionSettings<P, V>) -> Self {
-        println!("!!!! NEW MODEERATOR CREATED");
         let common = SessionControllerCommon::new(settings);
 
         SessionModerator {
