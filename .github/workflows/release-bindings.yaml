@@ -316,7 +316,7 @@ jobs:
           # git tag -a "${{ env.RELEASE_VERSION }}" -m "Release ${{ env.RELEASE_VERSION }}"
 
           git push origin main
-          git push origin "${{ env.RELEASE_VERSION }}"
+          # git push origin "${{ env.RELEASE_VERSION }}"
 
           echo "✅ Successfully pushed Go bindings to https://github.com/${{ env.GO_BINDINGS_REPO }}"
 
