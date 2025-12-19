@@ -2,10 +2,10 @@ package slim_bindings
 
 /*
 #cgo CFLAGS: -I${SRCDIR}
-#cgo linux,amd64 LDFLAGS: ${SRCDIR}/../../../../../../.cache/slim-bindings/libslim_bindings.a -lm
-#cgo linux,arm64 LDFLAGS: ${SRCDIR}/../../../../../../.cache/slim-bindings/libslim_bindings.a -lm
-#cgo darwin,amd64 LDFLAGS: ${SRCDIR}/../../../../../../.cache/slim-bindings/libslim_bindings.a -Wl,-undefined,dynamic_lookup
-#cgo darwin,arm64 LDFLAGS: ${SRCDIR}/../../../../../../.cache/slim-bindings/libslim_bindings.a -Wl,-undefined,dynamic_lookup
+#cgo linux,amd64 LDFLAGS: -L${SRCDIR}/../../../../../../.cache/slim-bindings -lslim_bindings_x86_64_linux_gnu -lm
+#cgo linux,arm64 LDFLAGS: -L${SRCDIR}/../../../../../../.cache/slim-bindings -lslim_bindings_aarch64_linux_gnu -lm
+#cgo darwin,amd64 LDFLAGS: -L${SRCDIR}/../../../../../../.cache/slim-bindings -lslim_bindings_x86_64_darwin -Wl,-undefined,dynamic_lookup
+#cgo darwin,arm64 LDFLAGS: -L${SRCDIR}/../../../../../../.cache/slim-bindings -lslim_bindings_aarch64_darwin -Wl,-undefined,dynamic_lookup
 #include <slim_bindings.h>
 */
 import "C"

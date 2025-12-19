@@ -50,10 +50,10 @@ tasks:
 
         /*
         #cgo CFLAGS: -I${SRCDIR}
-        #cgo linux,amd64 LDFLAGS: ${SRCDIR}/../../../../../../.cache/slim-bindings/libslim_bindings.a -lm
-        #cgo linux,arm64 LDFLAGS: ${SRCDIR}/../../../../../../.cache/slim-bindings/libslim_bindings.a -lm
-        #cgo darwin,amd64 LDFLAGS: ${SRCDIR}/../../../../../../.cache/slim-bindings/libslim_bindings.a -Wl,-undefined,dynamic_lookup
-        #cgo darwin,arm64 LDFLAGS: ${SRCDIR}/../../../../../../.cache/slim-bindings/libslim_bindings.a -Wl,-undefined,dynamic_lookup
+        #cgo linux,amd64 LDFLAGS: -L${SRCDIR}/../../../../../../.cache/slim-bindings -lslim_bindings_x86_64_linux_gnu -lm
+        #cgo linux,arm64 LDFLAGS: -L${SRCDIR}/../../../../../../.cache/slim-bindings -lslim_bindings_aarch64_linux_gnu -lm
+        #cgo darwin,amd64 LDFLAGS: -L${SRCDIR}/../../../../../../.cache/slim-bindings -lslim_bindings_x86_64_darwin -Wl,-undefined,dynamic_lookup
+        #cgo darwin,arm64 LDFLAGS: -L${SRCDIR}/../../../../../../.cache/slim-bindings -lslim_bindings_aarch64_darwin -Wl,-undefined,dynamic_lookup
         #include <slim_bindings.h>
         */
         import "C"
@@ -191,6 +191,8 @@ tasks:
     cmds:
       - echo "🚀 Running simple example..."
       - go run .
+    env:
+      CGO_LDFLAGS: "-L {{.TASKFILE_DIR}}/generated/slim_bindings"
     silent: true
 
   example:server:
@@ -200,6 +202,8 @@ tasks:
     cmds:
       - echo "🚀 Starting SLIM server..."
       - go run . {{.CLI_ARGS}}
+    env:
+      CGO_LDFLAGS: "-L {{.TASKFILE_DIR}}/generated/slim_bindings"
     silent: true
 
   example:p2p:alice:
@@ -209,6 +213,8 @@ tasks:
     cmds:
       - echo "👩 Starting Alice (receiver)..."
       - go run . --local="org/alice/app" --server="http://localhost:46357" {{.CLI_ARGS}}
+    env:
+      CGO_LDFLAGS: "-L {{.TASKFILE_DIR}}/generated/slim_bindings"
     silent: true
 
   example:p2p:bob:
@@ -218,6 +224,8 @@ tasks:
     cmds:
       - echo "👨 Starting Bob (sender)..."
       - go run . --local="org/bob/app" --remote="org/alice/app" --message="Hello SLIM" --iterations=5 --server="http://localhost:46357" {{.CLI_ARGS}}
+    env:
+      CGO_LDFLAGS: "-L {{.TASKFILE_DIR}}/generated/slim_bindings"
     silent: true
 
   example:group:moderator:
@@ -227,6 +235,8 @@ tasks:
     cmds:
       - echo "👑 Starting group moderator..."
       - go run . --local="org/moderator/app" --remote="org/default/chat-room" --invites="org/alice/app,org/bob/app" --server="http://localhost:46357" {{.CLI_ARGS}}
+    env:
+      CGO_LDFLAGS: "-L {{.TASKFILE_DIR}}/generated/slim_bindings"
     silent: true
 
   example:group:participant:alice:
@@ -236,6 +246,8 @@ tasks:
     cmds:
       - echo "👤 Starting group participant..."
       - go run . --local="org/alice/app" --server="http://localhost:46357" {{.CLI_ARGS}}
+    env:
+      CGO_LDFLAGS: "-L {{.TASKFILE_DIR}}/generated/slim_bindings"
     silent: true
 
   example:group:participant:bob:
@@ -245,4 +257,6 @@ tasks:
     cmds:
       - echo "👤 Starting group participant..."
       - go run . --local="org/bob/app" --server="http://localhost:46357" {{.CLI_ARGS}}
+    env:
+      CGO_LDFLAGS: "-L {{.TASKFILE_DIR}}/generated/slim_bindings"
     silent: true
