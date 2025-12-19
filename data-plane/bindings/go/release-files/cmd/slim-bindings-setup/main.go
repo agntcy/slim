@@ -11,10 +11,14 @@ package main
 
 import (
 	"archive/zip"
+	"archive/zip"
 	"fmt"
 	"io"
 	"net/http"
+	"io"
+	"net/http"
 	"os"
+	"path/filepath"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
@@ -23,7 +27,7 @@ import (
 
 const (
 	// GitHub release URL pattern - downloads from agntcy/slim releases
-	releaseURLTemplate = "https://github.com/agntcy/slim/releases/download/slim-bindings-libs-%s/slim-bindings-%s.zip"
+	releaseURLTemplate = "https://github.com/agntcy/slim/releases/download/%s/slim-bindings-%s.zip"
 	// Cache directory name
 	cacheDirName = "slim-bindings"
 )
@@ -37,10 +41,10 @@ func Version() string {
 	return info.Main.Version
 }
 
-// GetTarget returns the target triple for the current OS/arch.
-func GetTarget() string {
-	goos := runtime.GOOS
+// GetRustTarget returns the Rust target triple for the current OS/arch.
+func GetRustTarget() string {
 	arch := runtime.GOARCH
+	goos := runtime.GOOS
 
 	switch goos {
 	case "darwin":
@@ -54,7 +58,7 @@ func GetTarget() string {
 		}
 		return "x86_64-unknown-linux-gnu"
 	case "windows":
-		return "x86_64-pc-windows-gnu"
+		return "x86_64-pc-windows-msvc"
 	}
 
 	return fmt.Sprintf("%s-unknown-%s", arch, goos)
@@ -80,15 +84,6 @@ func GetCacheDir() (string, error) {
 	return filepath.Join(cacheHome, cacheDirName), nil
 }
 
-// TargetToLibraryName converts a Rust target triple to the library name format.
-// Example: "aarch64-unknown-linux-gnu" -> "libslim_bindings_aarch64_linux_gnu.a"
-func TargetToLibraryName(target string) string {
-	// Replace hyphens with underscores and remove "unknown-" prefix
-	name := strings.ReplaceAll(target, "-unknown-", "_")
-	name = strings.ReplaceAll(name, "-", "_")
-	return fmt.Sprintf("libslim_bindings_%s.a", name)
-}
-
 // LibraryPath returns the path to the native library for the current platform.
 func LibraryPath() (string, error) {
 	cacheDir, err := GetCacheDir()
@@ -96,8 +91,11 @@ func LibraryPath() (string, error) {
 		return "", err
 	}
 
-	target := GetTarget()
-	libName := TargetToLibraryName(target)
+	libName := "libslim_bindings.a"
+	if runtime.GOOS == "windows" {
+		libName = "slim_bindings.lib"
+	}
+
 	libPath := filepath.Join(cacheDir, libName)
 
 	if _, err := os.Stat(libPath); err != nil {
@@ -110,7 +108,7 @@ func LibraryPath() (string, error) {
 	return libPath, nil
 }
 
-// IsLibraryInstalled checks if the library is installed for the current platform.
+// IsLibraryInstalled checks if the library is installed.
 func IsLibraryInstalled() bool {
 	_, err := LibraryPath()
 	return err == nil
@@ -118,8 +116,9 @@ func IsLibraryInstalled() bool {
 
 // DownloadLibrary downloads the library for the current platform.
 func DownloadLibrary() error {
-	target := GetTarget()
-	version := Version()
+	rustTarget := GetRustTarget()
+	// version := Version()
+	version := "slim-test-bindings-v0.7.2"
 
 	cacheDir, err := GetCacheDir()
 	if err != nil {
@@ -131,10 +130,10 @@ func DownloadLibrary() error {
 		return fmt.Errorf("failed to create directory %s: %w", cacheDir, err)
 	}
 
-	url := fmt.Sprintf(releaseURLTemplate, version, target)
+	url := fmt.Sprintf(releaseURLTemplate, version, rustTarget)
 	fmt.Printf("📦 Downloading SLIM bindings library...\n")
 	fmt.Printf("   Version:  %s\n", version)
-	fmt.Printf("   Platform: %s\n", target)
+	fmt.Printf("   Platform: %s\n", rustTarget)
 	fmt.Printf("   URL:      %s\n", url)
 
 	resp, err := http.Get(url)
@@ -144,7 +143,7 @@ func DownloadLibrary() error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return fmt.Errorf("library not found for platform %s at version %s", target, version)
+		return fmt.Errorf("library not found for platform %s at version %s", rustTarget, version)
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -175,7 +174,7 @@ func DownloadLibrary() error {
 	for _, file := range zipReader.File {
 		// Only extract library files
 		name := file.Name
-		isLibrary := strings.HasSuffix(name, ".a") && !strings.HasSuffix(name, ".dll.a")
+		isLibrary := strings.HasSuffix(name, ".a") || strings.HasSuffix(name, ".lib")
 		if !isLibrary {
 			continue
 		}
@@ -235,10 +234,13 @@ func main() {
 	fmt.Println("╚═══════════════════════════════════════════════════════════╝")
 	fmt.Println()
 	fmt.Printf("Version:  %s\n", Version())
+	fmt.Printf("Version:  %s\n", Version())
 	fmt.Printf("Platform: %s/%s\n", runtime.GOOS, runtime.GOARCH)
 	fmt.Printf("Target:   %s\n", GetTarget())
 	fmt.Println()
 
+	if IsLibraryInstalled() {
+		libPath, _ := LibraryPath()
 	if IsLibraryInstalled() {
 		libPath, _ := LibraryPath()
 		fmt.Println("✅ Library already installed!")
@@ -246,6 +248,7 @@ func main() {
 		return
 	}
 
+	if err := DownloadLibrary(); err != nil {
 	if err := DownloadLibrary(); err != nil {
 		fmt.Fprintf(os.Stderr, "\n❌ Error: %v\n", err)
 		os.Exit(1)
