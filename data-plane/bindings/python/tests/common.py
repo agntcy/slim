@@ -4,28 +4,32 @@
 import slim_uniffi_bindings._slim_bindings.slim_bindings as slim_bindings
 
 
-def create_name(org: str, namespace: str, app: str, id: int = None) -> slim_bindings.Name:
+def create_name(
+    org: str, namespace: str, app: str, id: int = None
+) -> slim_bindings.Name:
     """Create a Name with the new API structure.
-    
+
     Args:
         org: Organization component
-        namespace: Namespace component  
+        namespace: Namespace component
         app: Application component
         id: Optional numeric ID
-        
+
     Returns:
         slim_bindings.Name: Name object with components list
     """
     return slim_bindings.Name(components=[org, namespace, app], id=id)
 
 
-def create_client_config(endpoint: str, insecure: bool = True) -> slim_bindings.ClientConfig:
+def create_client_config(
+    endpoint: str, insecure: bool = True
+) -> slim_bindings.ClientConfig:
     """Create a ClientConfig for connecting to a SLIM server.
-    
+
     Args:
         endpoint: Server endpoint (e.g., "http://127.0.0.1:12345")
         insecure: Whether to use insecure TLS (default: True for tests)
-        
+
     Returns:
         slim_bindings.ClientConfig: Client configuration object
     """
@@ -39,17 +43,19 @@ def create_client_config(endpoint: str, insecure: bool = True) -> slim_bindings.
             ca_file=None,
             tls_version=None,
             include_system_ca_certs_pool=None,
-        )
+        ),
     )
 
 
-def create_server_config(endpoint: str, insecure: bool = True) -> slim_bindings.ServerConfig:
+def create_server_config(
+    endpoint: str, insecure: bool = True
+) -> slim_bindings.ServerConfig:
     """Create a ServerConfig for running a SLIM server.
-    
+
     Args:
         endpoint: Server bind address (e.g., "127.0.0.1:12345")
         insecure: Whether to use insecure TLS (default: True for tests)
-        
+
     Returns:
         slim_bindings.ServerConfig: Server configuration object
     """
@@ -63,7 +69,7 @@ def create_server_config(endpoint: str, insecure: bool = True) -> slim_bindings.
             ca_file=None,
             tls_version=None,
             include_system_ca_certs_pool=None,
-        )
+        ),
     )
 
 
@@ -86,4 +92,3 @@ def create_slim(
         return slim_bindings.create_app_secret_local_svc(name, secret)
     else:
         return slim_bindings.create_app_with_secret(name, secret)
-

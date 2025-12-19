@@ -23,6 +23,13 @@ tasks:
     cmds:
       - task -l
 
+  python:bindings:lint:
+    desc: "Lint the Python bindings"
+    cmds:
+      - uv run ruff check
+      - uv run ruff format --check
+      - uv run mypy --ignore-missing-imports --explicit-package-bases .      
+
   python:bindings:build:
     desc: "Build the Python bindings using Maturin"
     vars:
@@ -126,7 +133,7 @@ tasks:
               maturin build                   \
               ${MATURIN_ARGS[@]}
 
-  clean:
+  python:bindings:clean:
     desc: Clean build artifacts
     cmds:
       - echo "🧹 Cleaning build artifacts..."

@@ -22,7 +22,6 @@ Validated invariants:
 """
 
 import asyncio
-import datetime
 
 import pytest
 from common import create_slim, create_name, create_client_config
@@ -101,7 +100,7 @@ async def test_sticky_session(server, mls_enabled):
 
         # Note: destination() and source() return Name objects in new API
         # The semantics may differ from old src/dst properties
-        
+
         while True:
             try:
                 received_msg = await session.get_message_async(None)
@@ -120,15 +119,16 @@ async def test_sticky_session(server, mls_enabled):
                 if receiver_counts[i] == n_messages:
                     # send back application acknowledgment
                     await session.publish_async(
-                        f"All messages received: {i}".encode(),
-                        None,
-                        None
+                        f"All messages received: {i}".encode(), None, None
                     )
 
     tasks = []
     for i in range(10):
         t = asyncio.create_task(run_receiver(i))
         tasks.append(t)
+
+    # Give receivers a moment to start listening (especially important for global service mode)
+    await asyncio.sleep(0.5)
 
     # create a new session (auto-waits for establishment)
     session_config = slim_bindings.SessionConfig(

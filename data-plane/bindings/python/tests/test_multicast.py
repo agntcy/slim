@@ -23,7 +23,6 @@ What is validated implicitly:
 """
 
 import asyncio
-import datetime
 import uuid
 
 import pytest
@@ -160,17 +159,18 @@ async def test_group(server, mls_enabled):  # noqa: C901
 
                         # make sure the received session is group
                         assert (
-                            recv_session.session_type() == slim_bindings.SessionType.GROUP
+                            recv_session.session_type()
+                            == slim_bindings.SessionType.GROUP
                         )
 
                         # Note: The new API structure for session properties may differ
                         # destination() and source() return Name objects, not direct comparison
-                        
+
                         first_message = False
 
                 # receive message from session
                 received_msg = await recv_session.get_message_async(None)
-                msg_ctx = received_msg.context
+                _ = received_msg.context
                 msg_rcv = received_msg.payload
 
                 # increase the count
@@ -195,9 +195,7 @@ async def test_group(server, mls_enabled):  # noqa: C901
                     next_participant_name = f"participant-{next_participant}"
                     print(f"{part_name} -> Calling out {next_participant_name}...")
                     await recv_session.publish_async(
-                        f"{message} - {next_participant_name}".encode(),
-                        None,
-                        None
+                        f"{message} - {next_participant_name}".encode(), None, None
                     )
                     print(f"{part_name} -> Published! Local count: {local_count}")
                 else:

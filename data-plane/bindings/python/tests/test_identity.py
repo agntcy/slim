@@ -68,7 +68,9 @@ def create_slim(
     return slim_bindings.Slim(name, provider, verifier, local_service=False)
 
 
-@pytest.mark.skip(reason="JWT providers not exposed in new uniffi API - requires create_app_with_jwt() function")
+@pytest.mark.skip(
+    reason="JWT providers not exposed in new uniffi API - requires create_app_with_jwt() function"
+)
 @pytest.mark.asyncio
 @pytest.mark.parametrize("server", [None], indirect=True)
 @pytest.mark.parametrize("audience", [test_audience, ["wrong.audience"]])
@@ -92,8 +94,12 @@ async def test_identity_verification(server, audience):
         - Payload integrity on both directions when audience matches.
         - Proper exception/timeout on audience mismatch.
     """
-    sender_name = slim_bindings.Name(components=["org", "default", "id_sender"], id=None)
-    receiver_name = slim_bindings.Name(components=["org", "default", "id_receiver"], id=None)
+    sender_name = slim_bindings.Name(
+        components=["org", "default", "id_sender"], id=None
+    )
+    receiver_name = slim_bindings.Name(
+        components=["org", "default", "id_receiver"], id=None
+    )
 
     # Keys used for signing JWTs of sender
     private_key_sender = f"{keys_folder}/ec256.pem"  # Sender's signing key (ES256)
@@ -143,13 +149,15 @@ async def test_identity_verification(server, audience):
     )
     # Create session (auto-waits for establishment)
     if audience == test_audience:
-        session_info = await slim_sender.create_session_async(session_config, receiver_name)
+        session_info = await slim_sender.create_session_async(
+            session_config, receiver_name
+        )
     else:
         # session establishment should timeout due to invalid audience
         with pytest.raises(asyncio.TimeoutError):
             await asyncio.wait_for(
                 slim_sender.create_session_async(session_config, receiver_name),
-                timeout=3.0
+                timeout=3.0,
             )
 
     # messages
@@ -214,7 +222,10 @@ def test_invalid_shared_secret_too_short():
         slim_bindings.create_app_with_secret(name, short_secret)
 
     # Verify the error message mentions the secret being too short
-    assert "short" in str(exc_info.value).lower() or "invalid" in str(exc_info.value).lower()
+    assert (
+        "short" in str(exc_info.value).lower()
+        or "invalid" in str(exc_info.value).lower()
+    )
 
 
 def test_invalid_shared_secret_empty():
@@ -229,5 +240,7 @@ def test_invalid_shared_secret_empty():
         slim_bindings.create_app_with_secret(name, empty_secret)
 
     # Verify the error message is appropriate
-    assert "short" in str(exc_info.value).lower() or "invalid" in str(exc_info.value).lower()
-
+    assert (
+        "short" in str(exc_info.value).lower()
+        or "invalid" in str(exc_info.value).lower()
+    )

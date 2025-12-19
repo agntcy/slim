@@ -35,7 +35,6 @@ import asyncio
 from prompt_toolkit.shortcuts import PromptSession, print_formatted_text
 from prompt_toolkit.styles import Style
 
-import slim_uniffi_bindings._slim_bindings.slim_bindings as slim
 
 from .common import (
     common_options,
@@ -228,7 +227,11 @@ async def run_client(
     tasks.append(
         asyncio.create_task(
             receive_loop(
-                local_app, conn_id, created_session, session_ready, shared_session_container
+                local_app,
+                conn_id,
+                created_session,
+                session_ready,
+                shared_session_container,
             )
         )
     )

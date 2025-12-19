@@ -57,7 +57,7 @@ async def server(request):
 
     # Only start server if endpoint is provided
     if endpoint is not None:
-        # run slim server in background  
+        # run slim server in background
         server_config = create_server_config(endpoint, insecure=True)
         await svc_server.run_server_async(server_config)
 
@@ -66,7 +66,7 @@ async def server(request):
 
     # return the server fixture wrapper
     yield ServerFixture(svc_server, endpoint)
-    
+
     # Teardown: stop server if it was started
     if endpoint is not None:
         try:
@@ -74,4 +74,3 @@ async def server(request):
         except Exception as e:
             # Ignore errors during cleanup
             print(f"Warning: error stopping server {endpoint}: {e}")
-

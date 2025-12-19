@@ -14,4 +14,3 @@ __version__ = "0.7.0"
 from ._slim_bindings.slim_bindings import *  # noqa: F403, F401
 
 __all__ = ["__version__"]
-

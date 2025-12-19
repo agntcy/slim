@@ -23,8 +23,6 @@ Pass criteria:
   exactly once and match on the receiver side.
 """
 
-import asyncio
-
 import pytest
 from common import create_slim, create_name
 
@@ -34,7 +32,9 @@ from slim_uniffi_bindings._slim_bindings.slim_bindings import (
 )
 
 
-@pytest.mark.skip(reason="Session metadata getter not available in new uniffi API - feature not yet implemented")
+@pytest.mark.skip(
+    reason="Session metadata getter not available in new uniffi API - feature not yet implemented"
+)
 @pytest.mark.asyncio
 @pytest.mark.parametrize("server", [None], indirect=True)
 async def test_session_metadata_merge_roundtrip(server):

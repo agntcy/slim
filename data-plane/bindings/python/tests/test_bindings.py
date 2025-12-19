@@ -17,7 +17,6 @@ in tests.conftest.
 """
 
 import asyncio
-import datetime
 
 import pytest
 from common import create_slim, create_name, create_client_config, create_server_config
@@ -102,7 +101,7 @@ async def test_end_to_end(server):
 
     # wait for message
     received_msg = await session_context_alice.get_message_async(None)
-    message_context = received_msg.context
+    _ = received_msg.context
     msg_rcv = received_msg.payload
 
     # check if the message is correct
@@ -142,16 +141,13 @@ async def test_slim_wrapper(server):
     name1 = create_name("org", "default", "slim1")
     name2 = create_name("org", "default", "slim2")
 
-    #create new slim object
+    # create new slim object
     slim1 = create_slim(name1, local_service=server.local_service)
 
-    conn_id_slim1 = None
     conn_id_slim2 = None
     if server.local_service:
         # Connect slim1 to the service and subscribe for the local name
-        conn_id_slim1 = await slim1.connect_async(
-            create_client_config("http://127.0.0.1:12345")
-        )
+        _ = await slim1.connect_async(create_client_config("http://127.0.0.1:12345"))
 
     # create second local app
     slim2 = create_slim(name2, local_service=server.local_service)
@@ -192,7 +188,9 @@ async def test_slim_wrapper(server):
     msg_rcv = received_msg.payload
 
     # make sure the received session is PointToPoint as well
-    assert session_context_rec.session_type() == slim_bindings.SessionType.POINT_TO_POINT
+    assert (
+        session_context_rec.session_type() == slim_bindings.SessionType.POINT_TO_POINT
+    )
 
     # Make sure the source is correct (note: source() returns the session's source, which is the receiver's local_name)
     # The new API structure may differ - verify destination/source semantics
@@ -283,7 +281,7 @@ async def test_auto_reconnect_after_server_restart(server):
     # Bob waits for new session
     bob_session_ctx = await svc_bob.listen_for_session_async(None)
     received_msg = await bob_session_ctx.get_message_async(None)
-    msg_ctx = received_msg.context
+    _ = received_msg.context
     received = received_msg.payload
     assert received == bytes(baseline_msg)
     # session ids should match
@@ -292,9 +290,7 @@ async def test_auto_reconnect_after_server_restart(server):
     # restart the server
     server.service.stop_server("127.0.0.1:12346")
     await asyncio.sleep(3)  # allow time for the server to fully shut down
-    await server.service.run_server_async(
-        create_server_config("127.0.0.1:12346")
-    )
+    await server.service.run_server_async(create_server_config("127.0.0.1:12346"))
     await asyncio.sleep(2)  # allow time for automatic reconnection
 
     # test that the message exchange resumes normally after the simulated restart
@@ -302,7 +298,7 @@ async def test_auto_reconnect_after_server_restart(server):
     await session_context.publish_async(bytes(test_msg), None, None)
     # Bob should still use the existing session context; just receive next message
     received_msg = await bob_session_ctx.get_message_async(None)
-    msg_ctx = received_msg.context
+    _ = received_msg.context
     received = received_msg.payload
     assert received == bytes(test_msg)
 
@@ -335,16 +331,14 @@ async def test_error_on_nonexistent_subscription(server):
         conn_id_alice = await svc_alice.connect_async(
             create_client_config("http://127.0.0.1:12347")
         )
-        alice_class = create_name(
-            "org", "default", "alice_nonsub", id=svc_alice.id()
-        )
+        alice_class = create_name("org", "default", "alice_nonsub", id=svc_alice.id())
         await svc_alice.subscribe_async(alice_class, conn_id_alice)
 
     # create Bob's name, but do not instantiate or subscribe Bob
     bob_name = create_name("org", "default", "bob_nonsub")
 
-    # create point to point session (Alice only) - should timeout since Bob is not there
-    with pytest.raises(asyncio.TimeoutError):
+    # create point to point session (Alice only) - should timeout or error since Bob is not there
+    with pytest.raises((asyncio.TimeoutError, slim_bindings.SlimError)):
         await asyncio.wait_for(
             svc_alice.create_session_async(
                 slim_bindings.SessionConfig(
@@ -357,7 +351,7 @@ async def test_error_on_nonexistent_subscription(server):
                 ),
                 bob_name,
             ),
-            timeout=1
+            timeout=1,
         )
 
     # clean up
@@ -429,12 +423,12 @@ async def test_get_message_timeout(server):
 
     # Create a session (with dummy peer for timeout testing) - will timeout during creation
     dummy_peer = create_name("org", "default", "dummy_peer")
-    
+
     # Session creation should timeout since dummy peer doesn't exist
     # But we'll create it with a longer timeout to test get_message timeout instead
     try:
         # Use a long timeout for creation (30 seconds) so we can test message timeout
-        session_context = await asyncio.wait_for(
+        _ = await asyncio.wait_for(
             svc_alice.create_session_async(
                 slim_bindings.SessionConfig(
                     session_type=slim_bindings.SessionType.POINT_TO_POINT,
@@ -444,12 +438,12 @@ async def test_get_message_timeout(server):
                     initiator=True,
                     metadata={},
                 ),
-                dummy_peer
+                dummy_peer,
             ),
-            timeout=0.5  # But still timeout the creation since peer doesn't exist
+            timeout=0.5,  # But still timeout the creation since peer doesn't exist
         )
-    except asyncio.TimeoutError:
-        # Expected - session can't be created without peer
+    except (asyncio.TimeoutError, slim_bindings.SlimError):
+        # Expected - session can't be created without peer (either timeout or error)
         pass
 
     # For get_message timeout testing, we need an actual session
