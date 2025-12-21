@@ -6,9 +6,20 @@ use rustls_pki_types::ServerName;
 use tokio_retry::RetryIf;
 
 use display_error_chain::ErrorChainExt;
+#[cfg(target_family = "unix")]
+use hyper_util::rt::TokioIo;
+use std::error::Error as StdErrorTrait;
+#[cfg(target_family = "unix")]
+use std::path::PathBuf;
+#[cfg(target_family = "unix")]
+use std::sync::Arc;
 use std::time::Duration;
 use std::{collections::HashMap, str::FromStr};
+#[cfg(target_family = "unix")]
+use tokio::net::UnixStream;
 use tower::ServiceExt;
+#[cfg(target_family = "unix")]
+use tower::service_fn;
 
 use base64::prelude::*;
 use http::header::{HeaderMap, HeaderName, HeaderValue};
@@ -546,56 +557,21 @@ impl ClientConfig {
         // Validate endpoint
         self.validate_endpoint()?;
 
-        // Parse endpoint URI
-        let uri = self.parse_endpoint_uri()?;
-
-        // Create and configure HTTP connector
-        let http_connector = self.create_http_connector()?;
-
-        // Create channel builder with all settings
-        let builder = self.create_channel_builder(uri.clone())?;
-
         // Parse headers
         let header_map = self.parse_headers()?;
 
-        // Load TLS configuration
-        let tls_config = self.load_tls_config().await?;
-
         // Create the channel with or without retry based on lazy flag
-        let channel = if lazy {
-            let connection = self.create_connection(uri, http_connector).await?;
-            self.create_channel_from_connection(builder, connection, tls_config, true)
-                .await?
+        #[cfg(target_family = "unix")]
+        let is_unix = self.endpoint.starts_with("unix://");
+
+        #[cfg(not(target_family = "unix"))]
+        let is_unix = false;
+
+        let channel = if is_unix {
+            self.connect_unix_channel(lazy).await?
         } else {
-            let backoff_strategy = self.backoff.get_strategy();
-            RetryIf::spawn(
-                backoff_strategy,
-                || {
-                    let uri = uri.clone();
-                    let builder = builder.clone();
-                    let http_connector = http_connector.clone();
-                    let tls_config = tls_config.clone();
-                    async move {
-                        tracing::debug!(%uri, "Attempting to create gRPC channel");
-                        self.create_channel_with_connector(uri, builder, http_connector, tls_config)
-                            .await
-                    }
-                },
-                |e: &ConfigError| {
-                    // If the error is not related to transport, do not retry
-                    match e {
-                        ConfigError::TransportError(e) => {
-                            tracing::warn!(error = %e.chain(), "Transport error encountered. Retrying...");
-                            true
-                        }
-                        _ => {
-                            tracing::error!(error = %e.chain(), "non-retryable error encountered");
-                            false
-                        }
-                    }
-                },
-            )
-            .await?
+            let uri = self.parse_endpoint_uri()?;
+            self.connect_tcp_channel(uri, lazy).await?
         };
 
         // Apply authentication and headers
@@ -610,8 +586,14 @@ impl ClientConfig {
         Ok(())
     }
 
-    /// Parses the endpoint string into a URI
+    /// Parses the endpoint string into a URI for TCP/HTTP endpoints.
+    /// Unix domain socket endpoints are handled separately and should not reach here.
     fn parse_endpoint_uri(&self) -> Result<Uri, ConfigError> {
+        #[cfg(not(target_family = "unix"))]
+        if self.endpoint.starts_with("unix://") {
+            return Err(ConfigError::UnixSocketUnsupported);
+        }
+
         Ok(Uri::from_str(&self.endpoint)?)
     }
 
@@ -672,6 +654,10 @@ impl ClientConfig {
             builder = builder.timeout(self.request_timeout.into());
         }
 
+        if self.connect_timeout.as_secs() > 0 {
+            builder = builder.connect_timeout(self.connect_timeout.into());
+        }
+
         Ok(builder)
     }
 
@@ -689,6 +675,52 @@ impl ClientConfig {
             header_map.insert(header_name, header_value);
         }
         Ok(header_map)
+    }
+
+    #[cfg(target_family = "unix")]
+    fn parse_unix_socket_path(endpoint: &str) -> Result<PathBuf, ConfigError> {
+        let Some(path) = endpoint.strip_prefix("unix://") else {
+            return Err(ConfigError::UnixSocketMissingPath);
+        };
+
+        let without_query = path.split_once('?').map(|(p, _)| p).unwrap_or(path);
+        let path_part = without_query
+            .split_once('#')
+            .map(|(p, _)| p)
+            .unwrap_or(without_query);
+
+        let normalized = if path_part.is_empty() {
+            String::new()
+        } else if path_part.starts_with('/') {
+            path_part.to_string()
+        } else {
+            format!("/{}", path_part)
+        };
+
+        if normalized.is_empty() || normalized == "/" {
+            return Err(ConfigError::UnixSocketMissingPath);
+        }
+
+        Ok(PathBuf::from(normalized))
+    }
+
+    #[cfg(target_family = "unix")]
+    fn unix_placeholder_uri() -> Uri {
+        Uri::from_static("http://[::]:50051")
+    }
+
+    fn map_transport_error(err: tonic::transport::Error) -> ConfigError {
+        #[cfg(target_family = "unix")]
+        {
+            if let Some(source) = StdErrorTrait::source(&err) {
+                if let Some(io_err) = source.downcast_ref::<std::io::Error>() {
+                    let cloned = std::io::Error::new(io_err.kind(), io_err.to_string());
+                    return ConfigError::UnixSocketConnect(cloned);
+                }
+            }
+        }
+
+        ConfigError::from(err)
     }
 
     /// Helper to create basic auth header for proxy authentication
@@ -730,6 +762,111 @@ impl ClientConfig {
     async fn load_tls_config(&self) -> Result<Option<rustls::ClientConfig>, ConfigError> {
         let tls = self.tls_setting.load_rustls_config().await?;
         Ok(tls)
+    }
+
+    #[cfg(target_family = "unix")]
+    async fn connect_unix_channel(&self, lazy: bool) -> Result<Channel, ConfigError> {
+        if !self.tls_setting.insecure {
+            // TLS handshakes are unnecessary over local UDS and currently unsupported
+            return Err(ConfigError::UnixSocketTlsUnsupported);
+        }
+
+        let socket_path = Arc::new(Self::parse_unix_socket_path(&self.endpoint)?);
+        let builder = self.create_channel_builder(Self::unix_placeholder_uri())?;
+
+        let make_connector = || {
+            let path = socket_path.clone();
+            service_fn(move |_uri: Uri| {
+                let path = path.clone();
+                async move { UnixStream::connect(path.as_path()).await.map(TokioIo::new) }
+            })
+        };
+
+        if lazy {
+            Ok(builder.connect_with_connector_lazy(make_connector()))
+        } else {
+            let backoff_strategy = self.backoff.get_strategy();
+            RetryIf::spawn(
+                backoff_strategy,
+                || {
+                    let builder = builder.clone();
+                    let connector = make_connector();
+                    let path = socket_path.clone();
+                    async move {
+                        tracing::debug!(
+                            socket_path = %path.display(),
+                            "Attempting to create gRPC channel over Unix domain socket"
+                        );
+                        builder
+                            .connect_with_connector(connector)
+                            .await
+                            .map_err(Self::map_transport_error)
+                    }
+                },
+                |e: &ConfigError| match e {
+                    ConfigError::TransportError(err) => {
+                        tracing::warn!(error = %err.chain(), "Transport error encountered. Retrying...");
+                        true
+                    }
+                    #[cfg(target_family = "unix")]
+                    ConfigError::UnixSocketConnect(err) => {
+                        tracing::warn!(error = %err, "Unix socket connect error encountered. Retrying...");
+                        true
+                    }
+                    _ => {
+                        tracing::error!(error = %e.chain(), "non-retryable error encountered");
+                        false
+                    }
+                },
+            )
+            .await
+        }
+    }
+
+    #[cfg(not(target_family = "unix"))]
+    async fn connect_unix_channel(&self, _lazy: bool) -> Result<Channel, ConfigError> {
+        Err(ConfigError::UnixSocketUnsupported)
+    }
+
+    async fn connect_tcp_channel(&self, uri: Uri, lazy: bool) -> Result<Channel, ConfigError> {
+        let http_connector = self.create_http_connector()?;
+        let builder = self.create_channel_builder(uri.clone())?;
+        let tls_config = self.load_tls_config().await?;
+
+        if lazy {
+            let connection = self.create_connection(uri, http_connector).await?;
+            self.create_channel_from_connection(builder, connection, tls_config, true)
+                .await
+        } else {
+            let backoff_strategy = self.backoff.get_strategy();
+            RetryIf::spawn(
+                backoff_strategy,
+                || {
+                    let uri = uri.clone();
+                    let builder = builder.clone();
+                    let http_connector = http_connector.clone();
+                    let tls_config = tls_config.clone();
+                    async move {
+                        tracing::debug!(%uri, "Attempting to create gRPC channel");
+                        self.create_channel_with_connector(uri, builder, http_connector, tls_config)
+                            .await
+                    }
+                },
+                |e: &ConfigError| {
+                    match e {
+                        ConfigError::TransportError(err) => {
+                            tracing::warn!(error = %err.chain(), "Transport error encountered. Retrying...");
+                            true
+                        }
+                        _ => {
+                            tracing::error!(error = %e.chain(), "non-retryable error encountered");
+                            false
+                        }
+                    }
+                },
+            )
+            .await
+        }
     }
 
     /// Creates the channel with the appropriate connector (proxy or direct)

@@ -47,6 +47,7 @@ tower-layer = { workspace = true }
 tower-service = { workspace = true }
 tracing = { workspace = true }
 tracing-test = { workspace = true }
+tokio-stream = { workspace = true }
 
 [build-dependencies]
 protoc-bin-vendored = { workspace = true }
@@ -57,3 +58,4 @@ agntcy-slim-testing = { workspace = true }
 rand = { workspace = true }
 serde_json = { workspace = true }
 tracing-test = { workspace = true }
+
