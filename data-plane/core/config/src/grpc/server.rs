@@ -3,23 +3,23 @@
 
 use std::convert::Infallible;
 use std::future::Future;
+#[cfg(target_family = "unix")]
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::{net::SocketAddr, str::FromStr, time::Duration};
-#[cfg(target_family = "unix")]
-use std::path::PathBuf;
 
 use display_error_chain::ErrorChainExt;
 use duration_string::DurationString;
 use futures::FutureExt;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tokio_util::sync::CancellationToken;
-use tonic::transport::server::TcpIncoming;
 #[cfg(target_family = "unix")]
 use tokio::net::UnixListener;
 #[cfg(target_family = "unix")]
 use tokio_stream::wrappers::UnixListenerStream;
+use tokio_util::sync::CancellationToken;
+use tonic::transport::server::TcpIncoming;
 use tracing::debug;
 
 use super::errors::ConfigError;

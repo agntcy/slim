@@ -712,11 +712,11 @@ impl ClientConfig {
     fn map_transport_error(err: tonic::transport::Error) -> ConfigError {
         #[cfg(target_family = "unix")]
         {
-            if let Some(source) = StdErrorTrait::source(&err) {
-                if let Some(io_err) = source.downcast_ref::<std::io::Error>() {
-                    let cloned = std::io::Error::new(io_err.kind(), io_err.to_string());
-                    return ConfigError::UnixSocketConnect(cloned);
-                }
+            if let Some(source) = StdErrorTrait::source(&err)
+                && let Some(io_err) = source.downcast_ref::<std::io::Error>()
+            {
+                let cloned = std::io::Error::new(io_err.kind(), io_err.to_string());
+                return ConfigError::UnixSocketConnect(cloned);
             }
         }
 

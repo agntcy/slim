@@ -5,8 +5,8 @@ use tonic::{Request, Response, Status, metadata::KeyAndValueRef};
 use tracing::info;
 
 use slim_config::grpc::client::ClientConfig;
-use slim_config::testutils::helloworld::{HelloReply, HelloRequest};
 use slim_config::testutils::helloworld::greeter_server::Greeter;
+use slim_config::testutils::helloworld::{HelloReply, HelloRequest};
 
 #[derive(Default)]
 pub struct TestGreeter {
@@ -211,7 +211,11 @@ mod tests {
         });
 
         // Bound the RPC so the test never hangs indefinitely
-        timeout(std::time::Duration::from_secs(10), client.say_hello(request)).await??;
+        timeout(
+            std::time::Duration::from_secs(10),
+            client.say_hello(request),
+        )
+        .await??;
 
         // Stop the server task and clean up the socket
         server_handle.abort();
@@ -360,15 +364,13 @@ mod tests {
                 .as_nanos()
         ));
 
-        let client_config = ClientConfig::with_endpoint(&format!(
-            "unix://{}",
-            socket_path.display()
-        ))
-        .with_headers(HashMap::from([(
-            "x-custom-header".to_string(),
-            "custom-value".to_string(),
-        )]))
-        .with_tls_setting(TlsClientConfig::new().with_insecure(true));
+        let client_config =
+            ClientConfig::with_endpoint(&format!("unix://{}", socket_path.display()))
+                .with_headers(HashMap::from([(
+                    "x-custom-header".to_string(),
+                    "custom-value".to_string(),
+                )]))
+                .with_tls_setting(TlsClientConfig::new().with_insecure(true));
 
         setup_unix_client_and_server(client_config, &socket_path).await
     }
@@ -377,8 +379,8 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     #[traced_test]
-    async fn test_unix_socket_server_config_grpc_configuration(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_unix_socket_server_config_grpc_configuration()
+    -> Result<(), Box<dyn std::error::Error>> {
         let socket_path = std::env::temp_dir().join(format!(
             "slim-config-grpc-server-{}.sock",
             std::time::SystemTime::now()
