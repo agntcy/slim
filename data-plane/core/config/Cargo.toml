@@ -37,6 +37,7 @@ serde_yaml = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-retry = { workspace = true }
+tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 tonic = { workspace = true }
 tonic-prost = { workspace = true }
@@ -47,7 +48,6 @@ tower-layer = { workspace = true }
 tower-service = { workspace = true }
 tracing = { workspace = true }
 tracing-test = { workspace = true }
-tokio-stream = { workspace = true }
 
 [build-dependencies]
 protoc-bin-vendored = { workspace = true }
