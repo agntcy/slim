@@ -5,8 +5,8 @@ use tonic::{Request, Response, Status, metadata::KeyAndValueRef};
 use tracing::info;
 
 use slim_config::grpc::client::ClientConfig;
-use slim_config::testutils::helloworld::greeter_server::Greeter;
 use slim_config::testutils::helloworld::{HelloReply, HelloRequest};
+use slim_config::testutils::helloworld::greeter_server::Greeter;
 
 #[derive(Default)]
 pub struct TestGreeter {
@@ -98,6 +98,16 @@ mod tests {
     use slim_config::testutils::helloworld::greeter_client::GreeterClient;
     use slim_config::testutils::helloworld::greeter_server::GreeterServer;
     use slim_testing::utils::setup_test_jwt_resolver;
+    #[cfg(unix)]
+    use tokio::net::UnixListener;
+    #[cfg(unix)]
+    use tokio::task::yield_now;
+    #[cfg(unix)]
+    use tokio::time::timeout;
+    #[cfg(unix)]
+    use tokio_stream::wrappers::UnixListenerStream;
+    #[cfg(unix)]
+    use tonic::transport::Server;
 
     static TEST_DATA_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata");
 
@@ -163,6 +173,57 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(unix)]
+    async fn setup_unix_client_and_server(
+        client_config: ClientConfig,
+        socket_path: &std::path::Path,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        provider::initialize_crypto_provider();
+
+        // Ensure the socket path is free before binding
+        let _ = std::fs::remove_file(socket_path);
+
+        let listener = UnixListener::bind(socket_path)?;
+        let incoming = UnixListenerStream::new(listener);
+
+        // Start a minimal tonic gRPC server over the Unix domain socket
+        let server_client_config = client_config.clone();
+        let server_handle = tokio::spawn(async move {
+            let greeter = TestGreeter::new(server_client_config);
+            if let Err(e) = Server::builder()
+                .add_service(GreeterServer::new(greeter))
+                .serve_with_incoming(incoming)
+                .await
+            {
+                tracing::error!(error = %e, "unix server error");
+            }
+        });
+
+        // Give the server a brief moment to start accepting connections
+        yield_now().await;
+
+        // Use the config-driven client to connect over the Unix socket
+        let channel = client_config.to_channel().await?;
+        let mut client = GreeterClient::new(channel);
+
+        let request = tonic::Request::new(HelloRequest {
+            name: "slim".into(),
+        });
+
+        // Bound the RPC so the test never hangs indefinitely
+        timeout(std::time::Duration::from_secs(10), client.say_hello(request)).await??;
+
+        // Stop the server task and clean up the socket
+        server_handle.abort();
+        let _ = server_handle.await;
+
+        if socket_path.exists() {
+            let _ = std::fs::remove_file(socket_path);
+        }
+
+        Ok(())
+    }
+
     #[tokio::test]
     #[traced_test]
     async fn test_grpc_configuration() -> Result<(), Box<dyn std::error::Error>> {
@@ -172,7 +233,8 @@ mod tests {
                 "x-custom-header".to_string(),
                 "custom-value".to_string(),
             )]))
-            .with_tls_setting(TlsClientConfig::new().with_insecure(true));
+            .with_tls_setting(TlsClientConfig::new().with_insecure(true))
+            .with_connect_timeout(Duration::from_secs(5));
 
         // create server config
         let server_config = ServerConfig::with_endpoint("[::1]:50051")
@@ -285,6 +347,64 @@ mod tests {
 
         // run grpc server and client
         test_grpc_auth(client_config, server_config, wrong_client_config, 50054).await
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    #[traced_test]
+    async fn test_unix_socket_grpc_configuration() -> Result<(), Box<dyn std::error::Error>> {
+        let socket_path = std::env::temp_dir().join(format!(
+            "slim-config-grpc-{}.sock",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_nanos()
+        ));
+
+        let client_config = ClientConfig::with_endpoint(&format!(
+            "unix://{}",
+            socket_path.display()
+        ))
+        .with_headers(HashMap::from([(
+            "x-custom-header".to_string(),
+            "custom-value".to_string(),
+        )]))
+        .with_tls_setting(TlsClientConfig::new().with_insecure(true));
+
+        setup_unix_client_and_server(client_config, &socket_path).await
+    }
+
+    // Verify that ServerConfig can also be used with a unix:// endpoint.
+    #[cfg(unix)]
+    #[tokio::test]
+    #[traced_test]
+    async fn test_unix_socket_server_config_grpc_configuration(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let socket_path = std::env::temp_dir().join(format!(
+            "slim-config-grpc-server-{}.sock",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_nanos()
+        ));
+
+        let endpoint = format!("unix://{}", socket_path.display());
+
+        let client_config = ClientConfig::with_endpoint(&endpoint)
+            .with_headers(HashMap::from([(
+                "x-custom-header".to_string(),
+                "custom-value".to_string(),
+            )]))
+            .with_tls_setting(TlsClientConfig::new().with_insecure(true));
+
+        let server_config = ServerConfig::with_endpoint(&endpoint)
+            .with_tls_settings(TlsServerConfig::new().with_insecure(true));
+
+        let res = setup_client_and_server(client_config, server_config).await;
+
+        if socket_path.exists() {
+            let _ = std::fs::remove_file(socket_path);
+        }
+
+        res
     }
 
     #[tokio::test]

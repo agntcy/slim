@@ -6,6 +6,8 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::{net::SocketAddr, str::FromStr, time::Duration};
+#[cfg(target_family = "unix")]
+use std::path::PathBuf;
 
 use display_error_chain::ErrorChainExt;
 use duration_string::DurationString;
@@ -14,6 +16,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 use tonic::transport::server::TcpIncoming;
+#[cfg(target_family = "unix")]
+use tokio::net::UnixListener;
+#[cfg(target_family = "unix")]
+use tokio_stream::wrappers::UnixListenerStream;
 use tracing::debug;
 
 use super::errors::ConfigError;
@@ -296,6 +302,127 @@ impl ServerConfig {
         Self { auth, ..self }
     }
 
+    #[cfg(target_family = "unix")]
+    fn parse_unix_socket_path(endpoint: &str) -> Result<PathBuf, ConfigError> {
+        let Some(path) = endpoint.strip_prefix("unix://") else {
+            return Err(ConfigError::UnixSocketMissingPath);
+        };
+
+        let without_query = path.split_once('?').map(|(p, _)| p).unwrap_or(path);
+        let path_part = without_query
+            .split_once('#')
+            .map(|(p, _)| p)
+            .unwrap_or(without_query);
+
+        let normalized = if path_part.is_empty() {
+            String::new()
+        } else if path_part.starts_with('/') {
+            path_part.to_string()
+        } else {
+            format!("/{}", path_part)
+        };
+
+        if normalized.is_empty() || normalized == "/" {
+            return Err(ConfigError::UnixSocketMissingPath);
+        }
+
+        Ok(PathBuf::from(normalized))
+    }
+
+    #[cfg(target_family = "unix")]
+    async fn to_unix_server_future<S>(&self, svc: &[S]) -> Result<ServerFuture, ConfigError>
+    where
+        S: tower_service::Service<
+                http::Request<tonic::body::Body>,
+                Response = http::Response<tonic::body::Body>,
+                Error = Infallible,
+            >
+            + tonic::server::NamedService
+            + Clone
+            + Send
+            + 'static
+            + Sync,
+        S::Future: Send + 'static,
+    {
+        if !self.tls_setting.insecure {
+            // For local Unix domain sockets we currently require insecure=true
+            return Err(ConfigError::UnixSocketTlsUnsupported);
+        }
+
+        let socket_path = Self::parse_unix_socket_path(self.endpoint.as_str())?;
+
+        // Best-effort cleanup of any stale socket file
+        let _ = std::fs::remove_file(&socket_path);
+
+        let listener = UnixListener::bind(&socket_path)?;
+        let incoming = UnixListenerStream::new(listener);
+
+        let builder: tonic::transport::Server =
+            tonic::transport::Server::builder().accept_http1(false);
+
+        let builder = match self.max_concurrent_streams {
+            Some(max_concurrent_streams) => {
+                builder.concurrency_limit_per_connection(max_concurrent_streams as usize)
+            }
+            None => builder,
+        };
+
+        let builder = match self.max_frame_size {
+            Some(max_frame_size) => builder.max_frame_size(max_frame_size * 1024 * 1024),
+            None => builder,
+        };
+
+        let builder = match self.max_header_list_size {
+            Some(max_header_list_size) => builder.http2_max_header_list_size(max_header_list_size),
+            None => builder,
+        };
+
+        let builder = builder.http2_keepalive_interval(Some(self.keepalive.time.into()));
+        let builder = builder.http2_keepalive_timeout(Some(self.keepalive.timeout.into()));
+
+        let mut builder = builder.max_connection_age(self.keepalive.max_connection_age.into());
+
+        match &self.auth {
+            AuthenticationConfig::Basic(basic) => {
+                let auth_layer = basic.get_server_layer()?;
+
+                let mut builder = builder.layer(auth_layer);
+
+                let mut router = builder.add_service(svc[0].clone());
+                for s in svc.iter().skip(1) {
+                    router = builder.add_service(s.clone());
+                }
+
+                Ok(router.serve_with_incoming(incoming).boxed())
+            }
+            AuthenticationConfig::Jwt(jwt) => {
+                // Build the authentication layer and perform its async initialization
+                let mut auth_layer = <JwtAuthenticationConfig as ServerAuthenticator<
+                    http::Response<tonic::body::Body>,
+                >>::get_server_layer(jwt)?;
+
+                auth_layer.initialize().await?;
+
+                let mut builder = builder.layer(auth_layer);
+
+                let mut router = builder.add_service(svc[0].clone());
+                for s in svc.iter().skip(1) {
+                    router = builder.add_service(s.clone());
+                }
+
+                Ok(router.serve_with_incoming(incoming).boxed())
+            }
+            AuthenticationConfig::None => {
+                let mut router = builder.add_service(svc[0].clone());
+                for s in svc.iter().skip(1) {
+                    router = builder.add_service(s.clone());
+                }
+
+                Ok(router.serve_with_incoming(incoming).boxed())
+            }
+        }
+    }
+
     pub async fn to_server_future<S>(&self, svc: &[S]) -> Result<ServerFuture, ConfigError>
     where
         S: tower_service::Service<
@@ -316,6 +443,16 @@ impl ServerConfig {
 
         if self.endpoint.is_empty() {
             return Err(ConfigError::MissingEndpoint);
+        }
+
+        #[cfg(target_family = "unix")]
+        if self.endpoint.starts_with("unix://") {
+            return self.to_unix_server_future(svc).await;
+        }
+
+        #[cfg(not(target_family = "unix"))]
+        if self.endpoint.starts_with("unix://") {
+            return Err(ConfigError::UnixSocketUnsupported);
         }
 
         let addr = SocketAddr::from_str(self.endpoint.as_str())?;
