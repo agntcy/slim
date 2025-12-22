@@ -55,7 +55,7 @@ tasks:
   bindings:install-zig:
     desc: Install Zig locally for all platforms via direct download
     status:
-      - test -f "{{.TOOLS_DIR}}/zig/zig"
+      - test -f "{{.TOOLS_DIR}}/zig/zig" || test -f "{{.TOOLS_DIR}}/zig/zig.exe"
     cmds:
       - mkdir -p "{{.TOOLS_DIR}}"
       - curl -L "{{.DOWNLOAD_BASE}}" -o "{{.TOOLS_DIR}}/zig.{{.EXTENSION}}"
@@ -76,11 +76,11 @@ tasks:
       - cargo install cargo-zigbuild
 
   bindings:build:all:
-    desc: Build the Rust library with UniFFI (release mode)
+    desc: Build the Rust library with UniFFI
+    dir: "{{.TASKFILE_DIR}}"
     deps:
       - bindings:install-zig
       - bindings:install-cargo-components
-    dir: "{{.BINDINGS_DIR}}"
     silent: true
     cmds:
       - echo "🦀 Building Rust bindings library..."
@@ -104,14 +104,7 @@ tasks:
           "{{.TARGET}}"
           {{.RELEASE}}
         )
-      
 
         echo cargo ${ARGS[*]}
-        CARGO_PROFILE_RELEASE_OPT_LEVEL="z" \
-        CARGO_PROFILE_RELEASE_LTO="thin" \
-        CARGO_PROFILE_RELEASE_PANIC="abort" \
-        CARGO_PROFILE_RELEASE_CODEGEN_UNITS="1" \
-        CARGO_PROFILE_RELEASE_STRIP="debuginfo" \
-        PATH="{{.ZIG_DIR}}:$PATH" \
-        cargo "${ARGS[@]}"
+        PATH="{{.ZIG_DIR}}:$PATH" cargo "${ARGS[@]}"
       - echo "🦀 Rust bindings library built successfully."
