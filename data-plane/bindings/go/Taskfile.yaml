@@ -5,7 +5,7 @@ version: '3'
 
 includes:
   adapter:
-    taskfile: "../adapter/Taskfile.yaml"
+    taskfile: "{{.TASKFILE_DIR}}/../adapter/Taskfile.yaml"
     internal: true
   rust:
     taskfile: ../../../tasks/rust.yaml
@@ -13,36 +13,33 @@ includes:
 
 vars:
   # The Rust UniFFI bindings crate - in bindings/adapter (sibling to bindings/go)
-  BINDINGS_DIR: "{{.TASKFILE_DIR}}../adapter"
-  SERVICE_TARGET: "{{.TASKFILE_DIR}}/../../target/release"
+  BINDINGS_DIR: "{{.TASKFILE_DIR}}/../adapter"
+  PROFILE: '{{.PROFILE | default "release"}}'
+  CURRENT_TARGET:
+    sh: 'rustc -vV | sed -n "s|host: ||p"'
+  TARGET: "{{.TARGET | default .CURRENT_TARGET}}"
+  SERVICE_TARGET: "{{.TASKFILE_DIR}}/../../target/{{.TARGET}}/{{.PROFILE}}"
   LIB_NAME: slim_bindings
-  _DEFAULT_LIB_PATH: "{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.a"
+  _DEFAULT_LIB_PATH:
+    sh: |
+      # Detect OS to determine library extension
+      OS=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')
+      case "$OS" in
+        mingw*|msys*|cygwin*)
+          # Windows uses .lib without lib prefix
+          echo "{{.SERVICE_TARGET}}/{{.LIB_NAME}}.lib"
+          ;;
+        *)
+          # Unix/Linux/macOS use .a with lib prefix
+          echo "{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.a"
+          ;;
+      esac
   LIB_PATH: "{{.LIB_PATH | default ._DEFAULT_LIB_PATH}}"
 
 tasks:
   default:
     cmds:
       - task -l
-
-  rust-build:
-    desc: Build the Rust library with UniFFI (release mode)
-    dir: "{{.BINDINGS_DIR}}"
-    cmds:
-      - echo "🦀 Building Rust bindings library with UniFFI (release mode)..."
-      - cargo build --release
-    silent: true
-
-  ensure-lib:
-    desc: Ensure the UniFFI library is built
-    cmds:
-      - |
-        if [ ! -f "{{.LIB_PATH}}" ]; then
-          echo "⚠️  UniFFI library not found, building now..."
-          task rust-build
-        else
-          echo "✅ Found UniFFI library: {{.LIB_PATH}}"
-        fi
-    silent: true
 
   patch-cgo-directives:
     desc: Patch generated Go bindings with proper cgo directives
@@ -85,7 +82,9 @@ tasks:
   generate:
     desc: Generate Go bindings from compiled library
     deps:
-      - ensure-lib
+      - task: adapter:bindings:build:all
+        vars:
+          PROFILE: release
       - install-uniffi-bindgen-go
     cmds:
       - echo "🔧 Generating Go bindings from compiled library..."
@@ -122,12 +121,12 @@ tasks:
         DEST_DIR="generated/{{.LIB_NAME}}"
 
         # Check if libraries already have platform-specific names (from CI build)
-        PLATFORM_LIBS=$(find "$LIB_DIR" -type f -name "lib{{.LIB_NAME}}_*.a" 2>/dev/null | head -1)
+        PLATFORM_LIBS=$(find "$LIB_DIR" -type f \( -name "lib{{.LIB_NAME}}_*.a" -o -name "{{.LIB_NAME}}_*.lib" \) 2>/dev/null | head -1)
 
         if [ -n "$PLATFORM_LIBS" ]; then
           # CI build: libraries already have platform-specific names
           echo "📦 Found platform-specific libraries, copying..."
-          find "$LIB_DIR" -type f -name "lib{{.LIB_NAME}}_*.a" | while read -r lib_file; do
+          find "$LIB_DIR" -type f \( -name "lib{{.LIB_NAME}}_*.a" -o -name "{{.LIB_NAME}}_*.lib" \) | while read -r lib_file; do
             dest_name=$(basename "$lib_file")
             file_size=$(stat -f%z "$lib_file" 2>/dev/null || stat -c%s "$lib_file" 2>/dev/null)
             echo "   Copying $dest_name ($((file_size / 1024 / 1024))MB)"
@@ -146,17 +145,24 @@ tasks:
 
           # Detect OS
           OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+          LIB_EXT="a"
+          LIB_PREFIX="lib"
           case "$OS" in
             darwin) OS="darwin" ;;
             linux) OS="linux_gnu" ;;  # Assume GNU for local builds
+            mingw*|msys*|cygwin*)
+              OS="windows"
+              LIB_EXT="lib"
+              LIB_PREFIX=""
+              ;;
           esac
 
-          LIB_NAME="lib{{.LIB_NAME}}_${ARCH}_${OS}"
+          LIB_NAME="${LIB_PREFIX}{{.LIB_NAME}}_${ARCH}_${OS}"
 
           if [ -f "{{.LIB_PATH}}" ]; then
             file_size=$(stat -f%z "{{.LIB_PATH}}" 2>/dev/null || stat -c%s "{{.LIB_PATH}}" 2>/dev/null)
-            echo "   Copying ${LIB_NAME}.a ($((file_size / 1024 / 1024))MB)"
-            cp "{{.LIB_PATH}}" "$DEST_DIR/${LIB_NAME}.a"
+            echo "   Copying ${LIB_NAME}.${LIB_EXT} ($((file_size / 1024 / 1024))MB)"
+            cp "{{.LIB_PATH}}" "$DEST_DIR/${LIB_NAME}.${LIB_EXT}"
             echo "✅ Copied {{.LIB_PATH}} -> $DEST_DIR/$LIB_NAME"
           else
             echo "⚠️  Library not found: {{.LIB_PATH}}"
@@ -164,12 +170,15 @@ tasks:
           fi
         fi
       - echo "✅ Libraries in generated/{{.LIB_NAME}}/:"
-      - ls -lah "generated/{{.LIB_NAME}}/"*{{.LIB_NAME}}*.a 2>/dev/null || echo "  (no .a files found)"
+      - ls -lah "generated/{{.LIB_NAME}}/"*{{.LIB_NAME}}*.a "generated/{{.LIB_NAME}}/"*{{.LIB_NAME}}*.lib 2>/dev/null || echo "  (no library files found)"
     silent: true
 
   test:
     desc: Run all tests
-    deps: [ensure-lib]
+    deps:
+     - task: adapter:bindings:build:all
+       vars:
+         PROFILE: release
     cmds:
       - echo "🧪 Running all tests..."
       - go test -v ./...
@@ -178,7 +187,10 @@ tasks:
 
   test-coverage:
     desc: Run tests with coverage report
-    deps: [ensure-lib]
+    deps:
+     - task: adapter:bindings:build:all
+       vars:
+         PROFILE: release
     cmds:
       - echo "📊 Running tests with coverage..."
       - go test -v -coverprofile=coverage.out ./...
@@ -202,6 +214,10 @@ tasks:
       - task: adapter:bindings:build:all
         vars:
           PROFILE: release
+    deps:
+      - task: adapter:bindings:build:all
+        vars:
+          PROFILE: release
     dir: examples/simple
     cmds:
       - echo "🚀 Running simple example..."
@@ -210,6 +226,10 @@ tasks:
 
   example:server:
     desc: Run the SLIM server
+    deps:
+      - task: adapter:bindings:build:all
+        vars:
+          PROFILE: release
     deps:
       - task: adapter:bindings:build:all
         vars:
@@ -226,6 +246,10 @@ tasks:
       - task: adapter:bindings:build:all
         vars:
           PROFILE: release
+    deps:
+      - task: adapter:bindings:build:all
+        vars:
+          PROFILE: release
     dir: examples/point_to_point
     cmds:
       - echo "👩 Starting Alice (receiver)..."
@@ -234,6 +258,10 @@ tasks:
 
   example:p2p:bob:
     desc: Run Bob (sender) for point-to-point example
+    deps:
+      - task: adapter:bindings:build:all
+        vars:
+          PROFILE: release
     deps:
       - task: adapter:bindings:build:all
         vars:
@@ -250,6 +278,10 @@ tasks:
       - task: adapter:bindings:build:all
         vars:
           PROFILE: release
+    deps:
+      - task: adapter:bindings:build:all
+        vars:
+          PROFILE: release
     dir: examples/group
     cmds:
       - echo "👑 Starting group moderator..."
@@ -262,6 +294,10 @@ tasks:
       - task: adapter:bindings:build:all
         vars:
           PROFILE: release
+    deps:
+      - task: adapter:bindings:build:all
+        vars:
+          PROFILE: release
     dir: examples/group
     cmds:
       - echo "👤 Starting group participant..."
@@ -270,6 +306,10 @@ tasks:
 
   example:group:participant:bob:
     desc: Run group participant (waits for invitation)
+    deps:
+      - task: adapter:bindings:build:all
+        vars:
+          PROFILE: release
     deps:
       - task: adapter:bindings:build:all
         vars:
