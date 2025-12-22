@@ -111,6 +111,13 @@ jobs:
       - name: Show packages
         run: |
           ls -la ./dist
+      - name: Verify install from built artifacts
+        run: |
+          python -m venv /tmp/package-install
+          source /tmp/package-install/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install --no-cache-dir ./dist/*.whl
+          python -m pip check
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
