@@ -72,21 +72,47 @@ tasks:
     dir: "{{.TMP_FOLDER}}"
     cmds:
       - |
-        A="{{ARCH}}"
-        O="{{OS}}"
-        [[ "{{ARCH}}" == "amd64" ]] && A="x86_64"
-        [[ "{{ARCH}}" == "arm64" ]] && A="aarch_64"
-        [[ "{{OS}}" == "darwin" ]] && O="osx"
-        curl -L {{.PROTOC_URL}}/v{{.PROTOC_VERSION}}/protoc-{{.PROTOC_VERSION}}-$O-$A.zip -o protoc.zip
+        # Detect OS and architecture for cross-platform compatibility
+        OS_NAME="$(uname -s | tr '[:upper:]' '[:lower:]')"
+        ARCH_NAME="$(uname -m)"
+
+        # Map to protoc release naming conventions
+        case "$OS_NAME" in
+          darwin) O="osx" ;;
+          linux) O="linux" ;;
+          mingw*|msys*|cygwin*) O="win64" ;;
+          *) O="linux" ;;
+        esac
+
+        case "$ARCH_NAME" in
+          x86_64|amd64) A="x86_64" ;;
+          aarch64|arm64) A="aarch_64" ;;
+          *) A="x86_64" ;;
+        esac
+
+        # Windows uses different naming (win64 instead of win64-x86_64)
+        if [[ "$O" == "win64" ]]; then
+          PROTOC_FILE="protoc-{{.PROTOC_VERSION}}-win64.zip"
+        else
+          PROTOC_FILE="protoc-{{.PROTOC_VERSION}}-$O-$A.zip"
+        fi
+
+        echo "Downloading protoc: $PROTOC_FILE"
+        curl -L {{.PROTOC_URL}}/v{{.PROTOC_VERSION}}/$PROTOC_FILE -o protoc.zip
         unzip -o protoc.zip
-        mv bin/protoc {{.TOOLS_INSTALL_DIR}}
+
+        # Handle Windows .exe extension
+        if [[ "$O" == "win64" ]]; then
+          mv bin/protoc.exe {{.TOOLS_INSTALL_DIR}}/protoc.exe
+        else
+          mv bin/protoc {{.TOOLS_INSTALL_DIR}}/protoc
+        fi
         mv include {{.TOOLS_INSTALL_DIR}}
         rm -f protoc.zip
     status:
       - |
-        for tool in {{.ADDITIONAL_TOOLS}}; do
-          test -f {{.TOOLS_INSTALL_DIR}}/${tool}
-        done
+        # Check for protoc or protoc.exe
+        test -f {{.TOOLS_INSTALL_DIR}}/protoc || test -f {{.TOOLS_INSTALL_DIR}}/protoc.exe
 
   # Download packages
   tools:go-tools:
@@ -101,12 +127,14 @@ tasks:
             unset GOOS
             unset GOARCH
             bin_name="$(basename ${tool})"
+            # On Windows, Go automatically adds .exe extension
             cd {{.TOOLS_MODULE_DIR}} && go build -o {{.TOOLS_INSTALL_DIR}}/${bin_name} -trimpath ${tool}
     status:
       - |
         for tool in {{.TOOLS_PACKAGES}}; do
           bin_name="$(basename ${tool})"
-          test -f {{.TOOLS_INSTALL_DIR}}/${bin_name}
+          # Check for both with and without .exe extension (Windows compatibility)
+          test -f {{.TOOLS_INSTALL_DIR}}/${bin_name} || test -f {{.TOOLS_INSTALL_DIR}}/${bin_name}.exe
         done
 
   tools:
