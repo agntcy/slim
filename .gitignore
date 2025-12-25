@@ -128,3 +128,6 @@ control-plane/common/controller/schema.json
 control-plane/control-plane/db/controlplane.db
 CLAUDE.md
 .claude/settings.local.json
+*.exe
+*.dll
+nul

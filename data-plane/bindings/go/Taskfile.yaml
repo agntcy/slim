@@ -16,6 +16,9 @@ vars:
   CGO_LDFLAGS: "-L{{.LIB_DIR}} -l{{.LIB_NAME}}"
   DYLD_PATH: "{{.LIB_DIR}}:{{.ENV.DYLD_LIBRARY_PATH}}"
   LD_PATH: "{{.LIB_DIR}}:{{.ENV.LD_LIBRARY_PATH}}"
+  # Windows PATH extension for DLL loading and MinGW compiler
+  MINGW_BIN: "{{.ENV.LOCALAPPDATA}}/Microsoft/WinGet/Packages/BrechtSanders.WinLibs.POSIX.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe/mingw64/bin"
+  WIN_PATH: "{{.MINGW_BIN}}:{{.LIB_DIR}}:{{.ENV.PATH}}"
 
 tasks:
   default:
@@ -34,11 +37,16 @@ tasks:
     desc: Ensure the UniFFI library is built
     cmds:
       - |
-        if [ ! -f "{{.LIB_PATH}}" ]; then
+        # Check for library (platform-specific)
+        if [ -f "{{.LIB_DIR}}/{{.LIB_NAME}}.dll" ]; then
+          echo "✅ Found UniFFI library: {{.LIB_DIR}}/{{.LIB_NAME}}.dll"
+        elif [ -f "{{.LIB_DIR}}/lib{{.LIB_NAME}}.dylib" ]; then
+          echo "✅ Found UniFFI library: {{.LIB_DIR}}/lib{{.LIB_NAME}}.dylib"
+        elif [ -f "{{.LIB_DIR}}/lib{{.LIB_NAME}}.so" ]; then
+          echo "✅ Found UniFFI library: {{.LIB_DIR}}/lib{{.LIB_NAME}}.so"
+        else
           echo "⚠️  UniFFI library not found, building now..."
           task rust-build
-        else
-          echo "✅ Found UniFFI library: {{.LIB_PATH}}"
         fi
     silent: true
 
@@ -186,4 +194,41 @@ tasks:
     cmds:
       - echo "👤 Starting group participant..."
       - go run . --local="org/bob/app" --server="http://localhost:46357" {{.CLI_ARGS}}
+    silent: true
+
+  # Chat example tasks
+  example:chat:create:
+    desc: Create a chat room (moderator mode)
+    deps: [ensure-lib]
+    dir: examples/chat
+    env:
+      CGO_ENABLED: "1"
+      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
+      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
+      LD_LIBRARY_PATH: "{{.LD_PATH}}"
+      PATH: "{{.WIN_PATH}}"
+    cmds:
+      - echo "💬 Creating chat room..."
+      # Copy DLL for Windows runtime (only if not exists, to avoid locking issues)
+      - test -f "{{.LIB_NAME}}.dll" || cp "{{.LIB_DIR}}/{{.LIB_NAME}}.dll" . 2>/dev/null || true
+      - go build -o chat{{exeExt}} .
+      - ./chat{{exeExt}} --room="{{.ROOM | default "general"}}" --user="{{.USER | default "moderator"}}" --create {{.CLI_ARGS}}
+    silent: true
+
+  example:chat:join:
+    desc: Join an existing chat room
+    deps: [ensure-lib]
+    dir: examples/chat
+    env:
+      CGO_ENABLED: "1"
+      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
+      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
+      LD_LIBRARY_PATH: "{{.LD_PATH}}"
+      PATH: "{{.WIN_PATH}}"
+    cmds:
+      - echo "💬 Joining chat room..."
+      # Copy DLL for Windows runtime (only if not exists, to avoid locking issues)
+      - test -f "{{.LIB_NAME}}.dll" || cp "{{.LIB_DIR}}/{{.LIB_NAME}}.dll" . 2>/dev/null || true
+      - go build -o chat{{exeExt}} .
+      - ./chat{{exeExt}} --room="{{.ROOM | default "general"}}" --user="{{.USER}}" {{.CLI_ARGS}}
     silent: true
