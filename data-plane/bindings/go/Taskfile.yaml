@@ -232,3 +232,39 @@ tasks:
       - go build -o chat{{exeExt}} .
       - ./chat{{exeExt}} --room="{{.ROOM | default "general"}}" --user="{{.USER}}" {{.CLI_ARGS}}
     silent: true
+
+  example:sessionmgr:
+    desc: Run the SLIM session manager web UI
+    deps: [ensure-lib]
+    dir: examples/sessionmgr
+    env:
+      CGO_ENABLED: "1"
+      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
+      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
+      LD_LIBRARY_PATH: "{{.LD_PATH}}"
+      PATH: "{{.WIN_PATH}}"
+    cmds:
+      - echo "🖥️  Starting SLIM Session Manager..."
+      # Copy DLL for Windows runtime (only if not exists, to avoid locking issues)
+      - test -f "{{.LIB_NAME}}.dll" || cp "{{.LIB_DIR}}/{{.LIB_NAME}}.dll" . 2>/dev/null || true
+      - go build -o sessionmgr{{exeExt}} .
+      - ./sessionmgr{{exeExt}} --port={{.PORT | default "8081"}} --local="{{.LOCAL | default "org/sessionmgr/app"}}" {{.CLI_ARGS}}
+    silent: true
+
+  example:sessionclient:
+    desc: Run the SLIM session client web UI (joins sessions)
+    deps: [ensure-lib]
+    dir: examples/sessionclient
+    env:
+      CGO_ENABLED: "1"
+      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
+      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
+      LD_LIBRARY_PATH: "{{.LD_PATH}}"
+      PATH: "{{.WIN_PATH}}"
+    cmds:
+      - echo "👤 Starting SLIM Session Client..."
+      # Copy DLL for Windows runtime (only if not exists, to avoid locking issues)
+      - test -f "{{.LIB_NAME}}.dll" || cp "{{.LIB_DIR}}/{{.LIB_NAME}}.dll" . 2>/dev/null || true
+      - go build -o sessionclient{{exeExt}} .
+      - ./sessionclient{{exeExt}} --port={{.PORT | default "8082"}} --local="{{.LOCAL | default "org/client/app"}}" --timeout={{.TIMEOUT | default "60"}} {{.CLI_ARGS}}
+    silent: true
