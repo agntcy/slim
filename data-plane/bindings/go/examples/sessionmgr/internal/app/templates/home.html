@@ -1,0 +1,92 @@
+{{define "home"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SLIM Session Manager</title>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script src="https://unpkg.com/htmx-ext-sse@2.2.2/sse.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; }
+        .container { max-width: 900px; margin: 0 auto; padding: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #333; }
+        h1 { color: #00d4ff; }
+        .user-info { display: flex; align-items: center; gap: 15px; }
+        .user-info span { color: #00d4ff; }
+        .user-info a { color: #888; text-decoration: none; font-size: 14px; }
+        .user-info a:hover { color: #fff; }
+        .local-id { color: #666; font-size: 12px; }
+        h2 { color: #888; font-size: 14px; text-transform: uppercase; margin: 20px 0 10px; }
+        .card { background: #16213e; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+        input[type="text"], select { padding: 12px; border: 1px solid #333; border-radius: 4px; background: #0f0f23; color: #fff; font-size: 16px; }
+        input[type="text"]:focus, select:focus { outline: none; border-color: #00d4ff; }
+        button { background: #00d4ff; color: #000; border: none; padding: 12px 24px; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: bold; }
+        button:hover { background: #00b8e6; }
+        button.danger { background: #e74c3c; color: #fff; }
+        button.danger:hover { background: #c0392b; }
+        .form-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        .form-row input[type="text"] { flex: 1; min-width: 200px; }
+        .form-row select { min-width: 120px; }
+        label { display: flex; align-items: center; gap: 8px; color: #888; font-size: 14px; }
+        label input[type="checkbox"] { width: 18px; height: 18px; }
+        .session-list { display: grid; gap: 15px; }
+        .session-card { display: flex; justify-content: space-between; align-items: center; padding: 15px; background: #0f0f23; border-radius: 4px; border-left: 4px solid #00d4ff; }
+        .session-card.group { border-left-color: #9b59b6; }
+        .session-card.closed { opacity: 0.6; border-left-color: #666; }
+        .session-info { flex: 1; }
+        .session-id { font-weight: bold; color: #00d4ff; font-family: monospace; }
+        .session-meta { color: #888; font-size: 14px; margin-top: 5px; }
+        .session-meta span { margin-right: 15px; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 12px; text-transform: uppercase; }
+        .badge.p2p { background: #00d4ff; color: #000; }
+        .badge.group { background: #9b59b6; color: #fff; }
+        .badge.active { background: #2ecc71; color: #000; }
+        .badge.closed { background: #666; color: #fff; }
+        .session-actions { display: flex; gap: 10px; }
+        .session-actions a, .session-actions button { padding: 8px 16px; font-size: 14px; text-decoration: none; border-radius: 4px; }
+        .session-actions a { background: #4CAF50; color: #fff; }
+        .session-actions a:hover { background: #45a049; }
+        .empty { color: #666; text-align: center; padding: 40px; }
+    </style>
+</head>
+<body hx-ext="sse" sse-connect="/events">
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1>SLIM Session Manager</h1>
+                <div class="local-id">Local ID: {{.LocalID}}</div>
+            </div>
+            <div class="user-info">
+                <span>{{.Username}}</span>
+                <a href="/logout">Logout</a>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Create New Session</h2>
+            <form action="/sessions" method="POST" class="form-row">
+                <select name="type">
+                    <option value="p2p">Point-to-Point</option>
+                    <option value="group">Group</option>
+                </select>
+                <input type="text" name="destination" placeholder="Destination (org/namespace/app)..." required pattern="[^/]+/[^/]+/[^/]+">
+                <label>
+                    <input type="checkbox" name="enable_mls">
+                    Enable MLS
+                </label>
+                <button type="submit">Create Session</button>
+            </form>
+        </div>
+
+        <div class="card">
+            <h2>Active Sessions</h2>
+            <div id="session-list" hx-get="/sessions" hx-trigger="sse:session_created, sse:session_deleted, sse:session_updated, every 10s">
+                {{template "session_list" .Sessions}}
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+{{end}}

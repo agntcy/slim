@@ -1,0 +1,27 @@
+{{define "sessions_list"}}
+{{if .}}
+<div class="session-list">
+    {{range .}}
+    <div class="session-card {{.Status}}" id="session-{{.ID}}">
+        <div class="session-info">
+            <div>
+                <span class="badge {{.Type}}">{{.Type}}</span>
+                <span class="badge {{.Status}}">{{.Status}}</span>
+            </div>
+            <div class="session-id">{{.ID}}</div>
+            <div class="session-meta">
+                <span>{{.Destination}}</span>
+                <span>Messages: {{.MessageCount}}</span>
+            </div>
+        </div>
+        <div class="session-actions">
+            <a href="/session/{{.ID}}" class="btn-open">Open</a>
+            <button class="btn-leave" hx-post="/session/{{.ID}}/leave" hx-confirm="Leave this session?">Leave</button>
+        </div>
+    </div>
+    {{end}}
+</div>
+{{else}}
+<p class="empty">No joined sessions. Accept an invitation to join!</p>
+{{end}}
+{{end}}

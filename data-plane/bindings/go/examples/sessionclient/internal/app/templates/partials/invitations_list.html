@@ -1,0 +1,32 @@
+{{define "invitations_list"}}
+{{if .}}
+<div class="invite-list">
+    {{range .}}
+    <div class="invite-card" id="invite-{{.ID}}">
+        <div class="invite-info">
+            <div>
+                <span class="badge {{.Type}}">{{.Type}}</span>
+                <span class="time-remaining">{{.TimeRemaining}}s remaining</span>
+            </div>
+            <div class="invite-type">{{.ID}}</div>
+            <div class="invite-meta">
+                {{if .From}}<span>From: {{.From}}</span>{{end}}
+                <span>To: {{.Destination}}</span>
+            </div>
+        </div>
+        <div class="invite-actions">
+            <button class="btn-accept" hx-post="/invitation/{{.ID}}/accept" hx-target="#invitations" hx-swap="innerHTML">Accept</button>
+            <button class="btn-decline" hx-post="/invitation/{{.ID}}/decline" hx-target="#invitations" hx-swap="innerHTML">Decline</button>
+        </div>
+    </div>
+    {{end}}
+</div>
+{{else}}
+<div class="empty">
+    <div class="waiting">
+        <div class="waiting-dot"></div>
+        Waiting for session invitations...
+    </div>
+</div>
+{{end}}
+{{end}}
