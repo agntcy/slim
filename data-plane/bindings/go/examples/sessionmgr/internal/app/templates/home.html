@@ -67,17 +67,28 @@
         <div class="card">
             <h2>Create New Session</h2>
             <form action="/sessions" method="POST" class="form-row">
-                <select name="type">
+                <select name="type" id="session-type" onchange="updatePlaceholder()">
                     <option value="p2p">Point-to-Point</option>
                     <option value="group">Group</option>
                 </select>
-                <input type="text" name="destination" placeholder="Destination (org/namespace/app)..." required pattern="[^/]+/[^/]+/[^/]+">
+                <input type="text" name="destination" id="destination-input" placeholder="Peer address (org/namespace/app)..." required pattern="[^/]+/[^/]+/[^/]+">
                 <label>
                     <input type="checkbox" name="enable_mls">
                     Enable MLS
                 </label>
                 <button type="submit">Create Session</button>
             </form>
+            <script>
+                function updatePlaceholder() {
+                    var type = document.getElementById('session-type').value;
+                    var input = document.getElementById('destination-input');
+                    if (type === 'group') {
+                        input.placeholder = 'Group name (org/namespace/chatroom)...';
+                    } else {
+                        input.placeholder = 'Peer address (org/namespace/app)...';
+                    }
+                }
+            </script>
         </div>
 
         <div class="card">

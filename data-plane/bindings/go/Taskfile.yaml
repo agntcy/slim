@@ -56,9 +56,18 @@ tasks:
     cmds:
       - echo "🔧 Generating Go bindings from compiled library..."
       - |
-        uniffi-bindgen-go \
-          --library '{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.dylib' \
-          --out-dir generated
+        # Platform-specific library path
+        if [ -f "{{.SERVICE_TARGET}}/{{.LIB_NAME}}.dll" ]; then
+          LIB_FILE="{{.SERVICE_TARGET}}/{{.LIB_NAME}}.dll"
+        elif [ -f "{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.dylib" ]; then
+          LIB_FILE="{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.dylib"
+        elif [ -f "{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.so" ]; then
+          LIB_FILE="{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.so"
+        else
+          echo "❌ Library not found"
+          exit 1
+        fi
+        uniffi-bindgen-go --library "$LIB_FILE" --out-dir generated
       - cd generated && go mod init github.com/agntcy/slim/bindings/generated 2>/dev/null || true
       - echo "✅ Bindings generated in generated/"
     silent: true

@@ -135,6 +135,10 @@ func (m *Manager) CreateSession(ctx context.Context, sessionType, destination st
 	var sessionID uint32
 
 	if m.app != nil {
+		// For group sessions, the destination is the group/channel name
+		// Participants should be invited separately via InviteParticipant
+		// For P2P sessions, the destination is the peer address
+
 		// Set route for destination
 		if err := m.app.SetRoute(destName, m.connID); err != nil {
 			return nil, fmt.Errorf("failed to set route: %w", err)

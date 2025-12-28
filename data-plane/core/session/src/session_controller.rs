@@ -526,6 +526,15 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     pub(crate) fn new(settings: SessionSettings<P, V>) -> Self {
+        // For multicast sessions, set the group_name to the session destination (the group/channel)
+        // so that pings are sent to the group name and all participants receive them.
+        // For point-to-point sessions, leave it as None (will be learned from welcome message).
+        let group_name = if settings.config.session_type == ProtoSessionType::Multicast {
+            Some(settings.destination.clone())
+        } else {
+            None
+        };
+
         // Create the controller sender.
         let controller_sender = ControllerSender::new(
             settings.config.get_timer_settings(),
@@ -538,6 +547,8 @@ where
             settings.tx.clone(),
             // send signal to the controller
             settings.tx_session.clone(),
+            // group name for ping routing (multicast only)
+            group_name,
         );
 
         SessionControllerCommon {

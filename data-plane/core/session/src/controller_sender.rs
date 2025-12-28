@@ -136,6 +136,7 @@ impl ControllerSender {
         initiator: bool,
         tx: SessionTransmitter,
         tx_signals: Sender<SessionMessage>,
+        group_name: Option<Name>,
     ) -> Self {
         let mut list = HashSet::new();
         list.insert(local_name.clone());
@@ -164,7 +165,7 @@ impl ControllerSender {
         ControllerSender {
             timer_factory: TimerFactory::new(timer_settings, tx_signals.clone()),
             local_name,
-            group_name: None,
+            group_name,
             session_type,
             session_id,
             pending_replies: HashMap::new(),
@@ -214,12 +215,12 @@ impl ControllerSender {
                     self.group_list.insert(message.get_dst());
 
                     if self.group_name.is_none() {
-                        // update the group name used to send ping messages
-                        // in P2P sessions the group name is equal to the remote name
-                        // in group session the name is the actual group
+                        // Update the group name used to send ping messages.
+                        // For P2P sessions the group name is learned from the welcome message.
+                        // For group sessions the name is already set at construction time.
                         debug!(
-                            destinatio = %message.get_dst(),
-                            "update group name on welcome message",
+                            dst = %message.get_dst(),
+                            "setting group_name from GroupWelcome (P2P session)"
                         );
                         self.group_name = Some(message.get_dst());
                     }
@@ -492,8 +493,6 @@ impl ControllerSender {
 
                 let ping = builder.build_publish()?;
 
-                debug!(id = %ping_id, "send a new ping");
-
                 // set the ping missing replies state
                 let missing_replies = self
                     .group_list
@@ -697,6 +696,7 @@ mod tests {
             false,
             tx,
             tx_signal,
+            None, // group_name
         );
 
         // Create a discovery request message
@@ -816,6 +816,7 @@ mod tests {
             false,
             tx,
             tx_signal,
+            None, // group_name
         );
 
         // Create a join request message
@@ -940,6 +941,7 @@ mod tests {
             false,
             tx,
             tx_signal,
+            None, // group_name
         );
 
         // Create a leave request message
@@ -1058,6 +1060,7 @@ mod tests {
             false,
             tx,
             tx_signal,
+            None, // group_name
         );
 
         // Create a group welcome message
@@ -1176,6 +1179,7 @@ mod tests {
             false,
             tx,
             tx_signal,
+            None, // group_name
         );
 
         // First add participant2 to establish a group with 2 members (source + participant2)
@@ -1327,6 +1331,7 @@ mod tests {
             false,
             tx,
             tx_signal,
+            None, // group_name
         );
 
         // First add participant2 to establish a group with 2 members (source + participant2)
@@ -1536,6 +1541,7 @@ mod tests {
             true,
             tx,
             tx_signal,
+            None, // group_name - set below
         );
 
         // Add participant to the group and set group name
@@ -1931,6 +1937,7 @@ mod tests {
             false, // participant, not initiator
             tx,
             tx_signal,
+            None, // group_name - learned from welcome message
         );
 
         // === PING INTERVAL 1: Moderator sends ping, participant receives it ===
@@ -2130,10 +2137,10 @@ mod tests {
             true, // initiator (moderator)
             tx,
             tx_signal,
+            Some(group_name.clone()), // group_name for ping routing
         );
 
         // Set up group with 2 participants
-        sender.group_name = Some(group_name.clone());
         sender.group_list.insert(moderator.clone());
         sender.group_list.insert(participant1.clone());
         sender.group_list.insert(participant2.clone());
