@@ -180,7 +180,7 @@ async fn main() {
 
     // get the connection id
     let conn_id = svc
-        .get_connection_id(&svc.config().clients()[0].endpoint)
+        .get_connection_id(&svc.config().dataplane_clients()[0].endpoint)
         .unwrap();
     info!(remote_connection_id = %conn_id);
 

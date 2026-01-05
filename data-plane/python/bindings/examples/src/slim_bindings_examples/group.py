@@ -98,7 +98,7 @@ async def receive_loop(
             # Non-cancellation error; log it.
             print_formatted_text(f"-> Error receiving message: {e}")
             # Break if session is closed, otherwise continue listening
-            if "session channel closed" in str(e).lower():
+            if "session closed" in str(e).lower():
                 break
             continue
 

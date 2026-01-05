@@ -44,6 +44,12 @@ pub enum ServiceError {
     ServerNotFound(String),
     #[error("connection not found: {0}")]
     ConnectionNotFoundForEndpoint(String),
+    #[error("different id found for connection {endpoint}: expected {expected}, found {found}")]
+    DifferentIdForConnection {
+        endpoint: String,
+        expected: u64,
+        found: u64,
+    },
 
     // Routing / subscription operations
     #[error("error sending subscription: {0}")]

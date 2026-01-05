@@ -158,6 +158,7 @@ where
                         .await
                 }
             }
+            SessionMessage::MessageError { error } => self.handle_message_error(error).await,
             SessionMessage::TimerTimeout {
                 message_id,
                 message_type,
@@ -187,21 +188,12 @@ where
                 timeouts,
             } => {
                 if message_type.is_command_message() {
-                    self.common
-                        .sender
-                        .on_timer_failure(message_id, message_type)
-                        .await;
-
-                    // the task should always exist a this point
-                    if let Some(task) = self.current_task.as_mut()
-                        && let Some(ack_tx) = task.ack_tx_take()
-                    {
-                        let _ = ack_tx.send(Err(task.failure_message()));
-                    }
-
-                    // 2. delete current task and pick a new one
-                    self.current_task = None;
-                    self.pop_task().await
+                    self.handle_failure(
+                        message_id,
+                        message_type,
+                        SessionError::MessageSendRetryFailed { id: message_id },
+                    )
+                    .await
                 } else {
                     self.inner
                         .on_message(SessionMessage::TimerFailure {
@@ -312,6 +304,54 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
     I: MessageHandler + Send + Sync + 'static,
 {
+    /// Helper method to handle MessageError
+    /// Extracts context from the error and routes to appropriate handler
+    async fn handle_message_error(&mut self, error: SessionError) -> Result<(), SessionError> {
+        let Some(session_ctx) = error.session_context() else {
+            tracing::warn!("Received MessageError without session context");
+            return self
+                .inner
+                .on_message(SessionMessage::MessageError { error })
+                .await;
+        };
+
+        if error.is_command_message_error() {
+            // Handle command message failure
+            self.handle_failure(
+                session_ctx.message_id,
+                session_ctx.get_session_message_type(),
+                error,
+            )
+            .await
+        } else {
+            // Pass non-command errors to inner handler
+            self.inner
+                .on_message(SessionMessage::MessageError { error })
+                .await
+        }
+    }
+
+    /// Helper method to handle failures, either from a timer or message error
+    async fn handle_failure(
+        &mut self,
+        message_id: u32,
+        message_type: ProtoSessionMessageType,
+        error: SessionError,
+    ) -> Result<(), SessionError> {
+        self.common.sender.on_failure(message_id, message_type);
+
+        // the task should always exist at this point
+        if let Some(task) = self.current_task.as_mut()
+            && let Some(ack_tx) = task.ack_tx_take()
+        {
+            let _ = ack_tx.send(Err(task.failure_message(error)));
+        }
+
+        // delete current task and pick a new one
+        self.current_task = None;
+        self.pop_task().await
+    }
+
     /// Helper method to handle errors after task creation
     /// Extracts ack_tx from current_task and sends the error
     fn handle_task_error(&mut self, error: SessionError) -> SessionError {
