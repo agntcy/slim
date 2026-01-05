@@ -90,6 +90,8 @@ pub struct ControllerSender {
     local_name: Name,
 
     /// group name is set on the first join request message
+    /// in p2p session is equal to the remote name of the join request
+    /// while in multicast session is specified in the payload
     group_name: Option<Name>,
 
     /// session type
@@ -826,6 +828,7 @@ mod tests {
 
         let source = Name::from_strings(["org", "ns", "source"]);
         let remote = Name::from_strings(["org", "ns", "remote"]);
+        let channel = Name::from_strings(["org", "ns", "channel"]);
         let session_id = 1;
 
         let mut sender = ControllerSender::new(
@@ -841,10 +844,10 @@ mod tests {
 
         // Create a join request message
         let payload = CommandPayload::builder().join_request(
-            false, // enable_mls
-            None,  // max_retries
-            None,  // timer_duration
-            None,  // channel
+            false,                 // enable_mls
+            None,                  // max_retries
+            None,                  // timer_duration
+            Some(channel.clone()), // channel
         );
 
         let request = Message::builder()
@@ -1940,6 +1943,7 @@ mod tests {
 
         let participant_name = Name::from_strings(["org", "ns", "participant"]);
         let moderator_name = Name::from_strings(["org", "ns", "moderator"]);
+        let channel_name = Name::from_strings(["org", "ns", "channel"]);
         let session_id = 1;
 
         // Create participant (initiator=false)
@@ -1977,7 +1981,7 @@ mod tests {
         // Simulate receiving a ping from moderator
         let ping_from_moderator = Message::builder()
             .source(moderator_name.clone())
-            .destination(participant_name.clone())
+            .destination(channel_name.clone())
             .identity("")
             .session_type(ProtoSessionType::Multicast)
             .session_message_type(ProtoSessionMessageType::Ping)
@@ -2350,5 +2354,278 @@ mod tests {
         } else {
             panic!("Ping state should be initialized");
         }
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_ping_destination_p2p_session() {
+        // Test that ping messages in P2P sessions use the remote participant name as destination
+        // The group_name should be set to the remote participant's name from the JoinRequest
+
+        let settings = TimerSettings::constant(Duration::from_millis(400)).with_max_retries(3);
+        let ping_interval = Duration::from_millis(1000);
+
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(100);
+        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+        let source = Name::from_strings(["org", "ns", "source"]);
+        let remote = Name::from_strings(["org", "ns", "remote"]);
+        let session_id = 1;
+
+        // Create P2P session with ping enabled
+        let mut sender = ControllerSender::new(
+            settings,
+            source.clone(),
+            ProtoSessionType::PointToPoint,
+            session_id,
+            Some(ping_interval),
+            true, // initiator
+            tx,
+            tx_signal,
+        );
+
+        // Simulate sending a join request to establish group_name
+        let payload = CommandPayload::builder().join_request(
+            false, // enable_mls
+            None,  // max_retries
+            None,  // timer_duration
+            None,  // channel (None for P2P)
+        );
+
+        let join_request = Message::builder()
+            .source(source.clone())
+            .destination(remote.clone())
+            .identity("")
+            .session_type(ProtoSessionType::PointToPoint)
+            .session_message_type(ProtoSessionMessageType::JoinRequest)
+            .session_id(session_id)
+            .message_id(1)
+            .payload(payload.as_content())
+            .build_publish()
+            .unwrap();
+
+        sender
+            .on_message(&join_request)
+            .await
+            .expect("error sending join request");
+
+        // Consume the join request message
+        let join_msg = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for join request")
+            .expect("channel closed")
+            .expect("error message");
+
+        // Verify group_name was set to the remote participant's name
+        assert_eq!(
+            sender.group_name,
+            Some(remote.clone()),
+            "Group name should be set to remote participant name in P2P session"
+        );
+
+        // Send join reply to clear pending state
+        let reply_payload = CommandPayload::builder().join_reply(None);
+        let join_reply = Message::builder()
+            .source(remote.clone())
+            .destination(source.clone())
+            .identity("")
+            .session_type(ProtoSessionType::PointToPoint)
+            .session_message_type(ProtoSessionMessageType::JoinReply)
+            .session_id(session_id)
+            .message_id(join_msg.get_id())
+            .payload(reply_payload.as_content())
+            .build_publish()
+            .unwrap();
+
+        sender
+            .on_message(&join_reply)
+            .await
+            .expect("error sending join reply");
+
+        // Add remote to group list (normally done on welcome)
+        sender.group_list.insert(remote.clone());
+
+        // Wait for the first ping interval timeout
+        let timeout_msg = timeout(Duration::from_millis(1100), rx_signal.recv())
+            .await
+            .expect("timeout waiting for first ping interval")
+            .expect("channel closed");
+
+        let ping_id = match timeout_msg {
+            SessionMessage::TimerTimeout {
+                message_id,
+                message_type,
+                ..
+            } => {
+                assert_eq!(message_type, ProtoSessionMessageType::Ping);
+                message_id
+            }
+            _ => panic!("Expected TimerTimeout for ping interval"),
+        };
+
+        // Trigger the ping send
+        sender
+            .on_timer_timeout(ping_id, ProtoSessionMessageType::Ping)
+            .await
+            .expect("error sending ping");
+
+        // Verify ping was sent with correct destination
+        let ping = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for ping")
+            .expect("channel closed")
+            .expect("error message");
+
+        assert_eq!(
+            ping.get_session_message_type(),
+            ProtoSessionMessageType::Ping,
+            "Message should be a ping"
+        );
+        assert_eq!(
+            ping.get_dst(),
+            remote,
+            "Ping destination should be the remote participant name in P2P session"
+        );
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_ping_destination_multicast_session() {
+        // Test that ping messages in multicast sessions use the channel/group name as destination
+        // The group_name should be set to the channel name from the JoinRequest payload
+
+        let settings = TimerSettings::constant(Duration::from_millis(400)).with_max_retries(3);
+        let ping_interval = Duration::from_millis(1000);
+
+        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(100);
+        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
+
+        let tx = SessionTransmitter::new(tx_slim, tx_app);
+
+        let source = Name::from_strings(["org", "ns", "source"]);
+        let channel_name = Name::from_strings(["org", "ns", "channel"]);
+        let participant = Name::from_strings(["org", "ns", "participant"]);
+        let session_id = 1;
+
+        // Create multicast session with ping enabled
+        let mut sender = ControllerSender::new(
+            settings,
+            source.clone(),
+            ProtoSessionType::Multicast,
+            session_id,
+            Some(ping_interval),
+            true, // initiator
+            tx,
+            tx_signal,
+        );
+
+        // Simulate sending a join request with channel name in payload
+        let payload = CommandPayload::builder().join_request(
+            false,                      // enable_mls
+            None,                       // max_retries
+            None,                       // timer_duration
+            Some(channel_name.clone()), // channel name
+        );
+
+        let join_request = Message::builder()
+            .source(source.clone())
+            .destination(participant.clone())
+            .identity("")
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::JoinRequest)
+            .session_id(session_id)
+            .message_id(1)
+            .fanout(256)
+            .payload(payload.as_content())
+            .build_publish()
+            .unwrap();
+
+        sender
+            .on_message(&join_request)
+            .await
+            .expect("error sending join request");
+
+        // Consume the join request message
+        let join_msg = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for join request")
+            .expect("channel closed")
+            .expect("error message");
+
+        // Verify group_name was set to the channel name from payload
+        assert_eq!(
+            sender.group_name,
+            Some(channel_name.clone()),
+            "Group name should be set to channel name from JoinRequest payload in multicast session"
+        );
+
+        // Send join reply to clear pending state
+        let reply_payload = CommandPayload::builder().join_reply(None);
+        let join_reply = Message::builder()
+            .source(participant.clone())
+            .destination(source.clone())
+            .identity("")
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::JoinReply)
+            .session_id(session_id)
+            .message_id(join_msg.get_id())
+            .fanout(256)
+            .payload(reply_payload.as_content())
+            .build_publish()
+            .unwrap();
+
+        sender
+            .on_message(&join_reply)
+            .await
+            .expect("error sending join reply");
+
+        // Add participant to group list (normally done on welcome)
+        sender.group_list.insert(participant.clone());
+
+        // Wait for the first ping interval timeout
+        let timeout_msg = timeout(Duration::from_millis(1100), rx_signal.recv())
+            .await
+            .expect("timeout waiting for first ping interval")
+            .expect("channel closed");
+
+        let ping_id = match timeout_msg {
+            SessionMessage::TimerTimeout {
+                message_id,
+                message_type,
+                ..
+            } => {
+                assert_eq!(message_type, ProtoSessionMessageType::Ping);
+                message_id
+            }
+            _ => panic!("Expected TimerTimeout for ping interval"),
+        };
+
+        // Trigger the ping send
+        sender
+            .on_timer_timeout(ping_id, ProtoSessionMessageType::Ping)
+            .await
+            .expect("error sending ping");
+
+        // Verify ping was sent with correct destination
+        let ping = timeout(Duration::from_millis(100), rx_slim.recv())
+            .await
+            .expect("timeout waiting for ping")
+            .expect("channel closed")
+            .expect("error message");
+
+        assert_eq!(
+            ping.get_session_message_type(),
+            ProtoSessionMessageType::Ping,
+            "Message should be a ping"
+        );
+        assert_eq!(
+            ping.get_dst(),
+            channel_name,
+            "Ping destination should be the channel/group name in multicast session"
+        );
     }
 }
