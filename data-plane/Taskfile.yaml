@@ -16,7 +16,7 @@ includes:
       GLOBAL_ARGS: "--workspace"
 
 vars:
-  CARGO_COMPONENTS: "cargo-sort cargo-audit cargo-llvm-cov cargo-machete@0.7.0 cargo-deny@0.17.0 typos-cli"
+  CARGO_COMPONENTS: "cargo-sort cargo-audit cargo-llvm-cov cargo-machete cargo-deny typos-cli"
 
 tasks:
   data-plane:python:lint:
