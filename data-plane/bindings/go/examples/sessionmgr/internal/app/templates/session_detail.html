@@ -1,0 +1,133 @@
+{{define "session_detail"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Session {{.Session.ID}} - SLIM Session Manager</title>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script src="https://unpkg.com/htmx-ext-sse@2.2.2/sse.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; display: flex; flex-direction: column; }
+        .header { background: #16213e; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; }
+        .header h1 { font-size: 18px; color: #00d4ff; }
+        .header-left { display: flex; align-items: center; gap: 20px; }
+        .header a { color: #888; text-decoration: none; }
+        .header a:hover { color: #fff; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 12px; text-transform: uppercase; margin-left: 10px; }
+        .badge.p2p { background: #00d4ff; color: #000; }
+        .badge.group { background: #9b59b6; color: #fff; }
+        .badge.active { background: #2ecc71; color: #000; }
+        .main { display: flex; flex: 1; overflow: hidden; }
+        .sidebar { width: 280px; background: #16213e; border-right: 1px solid #333; padding: 15px; overflow-y: auto; }
+        .sidebar h3 { color: #888; font-size: 12px; text-transform: uppercase; margin-bottom: 10px; }
+        .info-item { margin-bottom: 15px; }
+        .info-label { color: #666; font-size: 12px; }
+        .info-value { color: #fff; font-family: monospace; word-break: break-all; }
+        .participant-list { list-style: none; }
+        .participant-item { display: flex; justify-content: space-between; align-items: center; padding: 8px; background: #0f0f23; border-radius: 4px; margin-bottom: 5px; font-size: 14px; }
+        .participant-item button { padding: 4px 8px; font-size: 12px; background: #e74c3c; color: #fff; border: none; border-radius: 3px; cursor: pointer; }
+        .invite-form { margin-top: 15px; }
+        .invite-form input { width: 100%; padding: 8px; border: 1px solid #333; border-radius: 4px; background: #0f0f23; color: #fff; font-size: 14px; margin-bottom: 8px; }
+        .invite-form button { width: 100%; padding: 8px; background: #9b59b6; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+        .chat-area { flex: 1; display: flex; flex-direction: column; }
+        .messages { flex: 1; overflow-y: auto; padding: 20px; }
+        .message { padding: 8px 0; border-bottom: 1px solid #222; }
+        .message .time { color: #666; }
+        .message .sender { color: #00d4ff; font-weight: bold; }
+        .message.sent .sender { color: #2ecc71; }
+        .input-area { background: #16213e; padding: 15px 20px; border-top: 1px solid #333; }
+        .input-row { display: flex; gap: 10px; }
+        input[type="text"] { flex: 1; padding: 12px; border: 1px solid #333; border-radius: 4px; background: #0f0f23; color: #fff; font-size: 16px; }
+        input[type="text"]:focus { outline: none; border-color: #00d4ff; }
+        button { background: #00d4ff; color: #000; border: none; padding: 12px 24px; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: bold; }
+        button:hover { background: #00b8e6; }
+        .empty-messages { color: #666; text-align: center; padding: 40px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-left">
+            <a href="/">&larr; Back</a>
+            <h1>Session: {{.Session.ID}}</h1>
+            <span class="badge {{.Session.Type}}">{{.Session.Type}}</span>
+            <span class="badge {{.Session.Status}}">{{.Session.Status}}</span>
+        </div>
+        <button class="danger" style="background:#e74c3c;color:#fff" hx-post="/session/{{.Session.ID}}/delete" hx-confirm="Delete this session?" onclick="if(event.target.closest('[hx-post]').getAttribute('hx-confirm') && !confirm('Delete this session?')) return false; window.location='/'">Delete</button>
+    </div>
+
+    <div class="main">
+        <div class="sidebar">
+            <h3>Session Info</h3>
+            <div class="info-item">
+                <div class="info-label">Session ID</div>
+                <div class="info-value">{{.Session.SessionID}}</div>
+            </div>
+            <div class="info-item">
+                <div class="info-label">Destination</div>
+                <div class="info-value">{{.Session.Destination}}</div>
+            </div>
+            <div class="info-item">
+                <div class="info-label">Created</div>
+                <div class="info-value">{{formatDate .Session.CreatedAt}}</div>
+            </div>
+            <div class="info-item">
+                <div class="info-label">Messages</div>
+                <div class="info-value">{{.Session.MessageCount}}</div>
+            </div>
+            {{if .Session.EnableMLS}}
+            <div class="info-item">
+                <div class="info-label">Encryption</div>
+                <div class="info-value">MLS Enabled</div>
+            </div>
+            {{end}}
+
+            {{if eq .Session.Type "group"}}
+            <h3 style="margin-top:20px">Participants ({{len .Session.Participants}})</h3>
+            <div id="participants">
+                {{template "participants" .Session}}
+            </div>
+
+            {{if .Session.IsInitiator}}
+            <div class="invite-form">
+                <form hx-post="/session/{{.Session.ID}}/invite" hx-target="#participants" hx-swap="innerHTML" hx-on::after-request="this.reset()">
+                    <input type="text" name="participant" list="known-clients" placeholder="org/namespace/app" required pattern="[^/]+/[^/]+/[^/]+">
+                    <datalist id="known-clients">
+                        {{range .Clients}}
+                        <option value="{{.Name}}">{{.Name}}</option>
+                        {{end}}
+                    </datalist>
+                    <button type="submit">Invite Participant</button>
+                </form>
+            </div>
+            {{end}}
+            {{end}}
+        </div>
+
+        <div class="chat-area">
+            <div class="messages" id="messages" hx-ext="sse" sse-connect="/session/{{.Session.ID}}/events" sse-swap="message" hx-swap="beforeend">
+            </div>
+
+            <div class="input-area">
+                <form hx-post="/session/{{.Session.ID}}/send" hx-swap="none" hx-on::after-request="this.reset()">
+                    <div class="input-row">
+                        <input type="text" name="message" placeholder="Type a message..." autocomplete="off" autofocus>
+                        <button type="submit">Send</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Auto-scroll to bottom on new messages
+        const messages = document.getElementById('messages');
+        const observer = new MutationObserver(() => {
+            messages.scrollTop = messages.scrollHeight;
+        });
+        observer.observe(messages, { childList: true });
+    </script>
+</body>
+</html>
+{{end}}

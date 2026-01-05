@@ -1,0 +1,29 @@
+{{define "session_list"}}
+{{if .}}
+<div class="session-list">
+    {{range .}}
+    <div class="session-card {{.Type}} {{.Status}}" id="session-{{.ID}}">
+        <div class="session-info">
+            <div>
+                <span class="badge {{.Type}}">{{.Type}}</span>
+                <span class="badge {{.Status}}">{{.Status}}</span>
+                {{if .EnableMLS}}<span class="badge" style="background:#f39c12;color:#000">MLS</span>{{end}}
+            </div>
+            <div class="session-id">{{.ID}}</div>
+            <div class="session-meta">
+                <span>To: {{.Destination}}</span>
+                {{if eq .Type "group"}}<span>Participants: {{len .Participants}}</span>{{end}}
+                <span>Messages: {{.MessageCount}}</span>
+            </div>
+        </div>
+        <div class="session-actions">
+            <a href="/session/{{.ID}}">Open</a>
+            <button class="danger" hx-post="/session/{{.ID}}/delete" hx-target="#session-{{.ID}}" hx-swap="outerHTML" hx-confirm="Delete this session?">Delete</button>
+        </div>
+    </div>
+    {{end}}
+</div>
+{{else}}
+<p class="empty">No active sessions. Create one above!</p>
+{{end}}
+{{end}}

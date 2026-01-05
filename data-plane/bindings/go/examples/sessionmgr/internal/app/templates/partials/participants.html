@@ -1,0 +1,19 @@
+{{define "participants"}}
+{{if .Participants}}
+<ul class="participant-list">
+    {{range .Participants}}
+    <li class="participant-item">
+        <span>{{.}}</span>
+        {{if $.IsInitiator}}
+        <form hx-post="/session/{{$.ID}}/remove" hx-target="#participants" hx-swap="innerHTML" style="display:inline">
+            <input type="hidden" name="participant" value="{{.}}">
+            <button type="submit">Remove</button>
+        </form>
+        {{end}}
+    </li>
+    {{end}}
+</ul>
+{{else}}
+<p style="color:#666;font-size:14px">No participants yet</p>
+{{end}}
+{{end}}

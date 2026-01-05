@@ -1,0 +1,11 @@
+{{define "messages"}}
+{{range .}}
+<div class="message {{.Direction}}">
+    <span class="time">[{{formatTime .Timestamp}}]</span>
+    <span class="sender">{{.Sender}}:</span>
+    {{.Text}}
+</div>
+{{else}}
+<p class="empty-messages">No messages yet. Start the conversation!</p>
+{{end}}
+{{end}}

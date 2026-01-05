@@ -1,0 +1,83 @@
+{{define "home"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SLIM Session Client</title>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script src="https://unpkg.com/htmx-ext-sse@2.2.2/sse.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; }
+        .container { max-width: 900px; margin: 0 auto; padding: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #333; }
+        h1 { color: #2ecc71; }
+        .user-info { display: flex; align-items: center; gap: 15px; }
+        .user-info span { color: #2ecc71; }
+        .user-info a { color: #888; text-decoration: none; font-size: 14px; }
+        .user-info a:hover { color: #fff; }
+        .local-id { color: #666; font-size: 12px; }
+        h2 { color: #888; font-size: 14px; text-transform: uppercase; margin: 20px 0 10px; display: flex; align-items: center; gap: 10px; }
+        .count { background: #333; padding: 2px 8px; border-radius: 10px; font-size: 12px; }
+        .card { background: #16213e; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+        .invite-list, .session-list { display: grid; gap: 15px; }
+        .invite-card { display: flex; justify-content: space-between; align-items: center; padding: 15px; background: #0f0f23; border-radius: 4px; border-left: 4px solid #f39c12; }
+        .session-card { display: flex; justify-content: space-between; align-items: center; padding: 15px; background: #0f0f23; border-radius: 4px; border-left: 4px solid #2ecc71; }
+        .session-card.closed { opacity: 0.6; border-left-color: #666; }
+        .invite-info, .session-info { flex: 1; }
+        .invite-type, .session-id { font-weight: bold; color: #2ecc71; font-family: monospace; }
+        .invite-meta, .session-meta { color: #888; font-size: 14px; margin-top: 5px; }
+        .invite-meta span, .session-meta span { margin-right: 15px; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 12px; text-transform: uppercase; }
+        .badge.p2p { background: #00d4ff; color: #000; }
+        .badge.group { background: #9b59b6; color: #fff; }
+        .badge.active { background: #2ecc71; color: #000; }
+        .badge.closed { background: #666; color: #fff; }
+        .time-remaining { color: #f39c12; font-weight: bold; }
+        .invite-actions, .session-actions { display: flex; gap: 10px; }
+        .invite-actions button, .session-actions a, .session-actions button { padding: 8px 16px; font-size: 14px; text-decoration: none; border-radius: 4px; border: none; cursor: pointer; }
+        .btn-accept { background: #2ecc71; color: #000; font-weight: bold; }
+        .btn-accept:hover { background: #27ae60; }
+        .btn-decline { background: #e74c3c; color: #fff; }
+        .btn-decline:hover { background: #c0392b; }
+        .btn-open { background: #3498db; color: #fff; }
+        .btn-open:hover { background: #2980b9; }
+        .btn-leave { background: #e74c3c; color: #fff; }
+        .btn-leave:hover { background: #c0392b; }
+        .empty { color: #666; text-align: center; padding: 40px; }
+        .waiting { display: flex; align-items: center; gap: 10px; color: #888; }
+        .waiting-dot { width: 8px; height: 8px; background: #2ecc71; border-radius: 50%; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
+    </style>
+</head>
+<body hx-ext="sse" sse-connect="/events">
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1>SLIM Session Client</h1>
+                <div class="local-id">Local ID: {{.LocalID}}</div>
+            </div>
+            <div class="user-info">
+                <span>{{.Username}}</span>
+                <a href="/logout">Logout</a>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Pending Invitations <span class="count" id="invite-count">{{len .Invitations}}</span></h2>
+            <div id="invitations" hx-get="/invitations" hx-trigger="sse:invitation_received, sse:invitation_expired">
+                {{template "invitations_list" .Invitations}}
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Joined Sessions <span class="count" id="session-count">{{len .Sessions}}</span></h2>
+            <div id="sessions" hx-get="/sessions" hx-trigger="sse:session_joined, sse:session_left, sse:session_closed">
+                {{template "sessions_list" .Sessions}}
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+{{end}}

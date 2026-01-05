@@ -21,11 +21,8 @@ vars:
 
   MAIN_MODULE: github.com/agntcy/slim
 
-  MODULES:
-    sh: |
-      find {{.REPO_ROOT}}/control-plane -type f -name "go.mod" ! -path "./third-party/*" -exec dirname {} \; | \
-        sort | \
-        tr '\n' ' '
+  # Explicit module paths for cross-platform compatibility (Windows + Unix)
+  MODULES: "{{.REPO_ROOT}}/control-plane/common {{.REPO_ROOT}}/control-plane/control-plane {{.REPO_ROOT}}/control-plane/slimctl {{.REPO_ROOT}}/control-plane/token-service"
 
 env:
   GOTOOLCHAIN: "go1.25.0+auto"
@@ -135,13 +132,39 @@ tasks:
     deps:
       - tools
     cmds:
-      - >
-        {{.REPO_ROOT}}/.tools/protoc --proto_path=../proto \
+      - |
+        # Find binaries (with or without .exe extension for Windows compatibility)
+        PROTOC="{{.REPO_ROOT}}/.tools/protoc"
+        PROTOC_GEN_GO="{{.REPO_ROOT}}/.tools/protoc-gen-go"
+        PROTOC_GEN_GO_GRPC="{{.REPO_ROOT}}/.tools/protoc-gen-go-grpc"
+
+        [[ -f "${PROTOC}.exe" ]] && PROTOC="${PROTOC}.exe"
+        [[ -f "${PROTOC_GEN_GO}.exe" ]] && PROTOC_GEN_GO="${PROTOC_GEN_GO}.exe"
+        [[ -f "${PROTOC_GEN_GO_GRPC}.exe" ]] && PROTOC_GEN_GO_GRPC="${PROTOC_GEN_GO_GRPC}.exe"
+
+        # On Windows, Git symlinks are stored as text files containing the target path.
+        # Check if the controller.proto symlink is broken (small file with path content).
+        CONTROLLER_PROTO="../proto/controller/v1/controller.proto"
+
+        if [[ -f "$CONTROLLER_PROTO" && $(wc -c < "$CONTROLLER_PROTO") -lt 200 ]]; then
+          echo "Resolving symlink for controller.proto (Windows compatibility)"
+          # Temporarily copy the actual proto file over the broken symlink
+          cp "{{.REPO_ROOT}}/data-plane/core/controller/proto/v1/controller.proto" "$CONTROLLER_PROTO"
+          RESTORE_SYMLINK=1
+        fi
+
+        $PROTOC \
+          --proto_path=../proto \
+          --plugin=protoc-gen-go=$PROTOC_GEN_GO \
+          --plugin=protoc-gen-go-grpc=$PROTOC_GEN_GO_GRPC \
           --go_out=paths=source_relative:./common/proto \
           --go-grpc_out=paths=source_relative:./common/proto \
-          --plugin={{.REPO_ROOT}}/.tools/protoc-gen-go \
-          --plugin={{.REPO_ROOT}}/.tools/protoc-gen-go-grpc \
           controller/v1/controller.proto controlplane/v1/controlplane.proto
+
+        # Restore the symlink file if we modified it
+        if [[ "${RESTORE_SYMLINK:-}" == "1" ]]; then
+          git checkout "$CONTROLLER_PROTO" 2>/dev/null || true
+        fi
 
   control-plane:slimctl:build:
     desc: Build slimctl
