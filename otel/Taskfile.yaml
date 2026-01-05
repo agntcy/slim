@@ -43,6 +43,8 @@ tasks:
       - echo "Generating collector sources..."
       - ./ocb --config builder-config.yaml --skip-compilation
       - echo "Compiling with CGO enabled..."
+      - go get github.com/agntcy/slim-bindings-go@main
+      - go run github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup@main
       - cd {{.COLLECTOR_OUTPUT}} && CGO_ENABLED=1 go build -trimpath -o slim-otelcol -ldflags="-s -w"
       - echo "Collector built successfully at {{.COLLECTOR_OUTPUT}}/slim-otelcol"
 
@@ -84,7 +86,7 @@ tasks:
         {{.DOCKER_IMAGE}}:{{.DOCKER_TAG}}
 
   # Examples
-  testapp:participant:
+  test:app:participant:
     desc: Run the test app
     dir: testapp
     cmds:
@@ -94,9 +96,8 @@ tasks:
         --app-name "agntcy/otel/receiver-app"
         --server "http://localhost:46357"
         --secret "a-very-long-shared-secret-0123456789-abcdefg"
-    silent: true
 
-  testapp:initiator:
+  test:app:initiator:
     desc: Run the test app
     dir: testapp
     cmds:
@@ -108,4 +109,9 @@ tasks:
         --secret "a-very-long-shared-secret-0123456789-abcdefg"
         --exporter-name "agntcy/otel/exporter"
         --channel-name "agntcy/otel/initiator-channel"
-    silent: true
+
+  test:slim:run:
+    desc: Run a SLIM node for testing
+    dir: ../data-plane
+    cmds:
+      - cargo run --bin slim -- --config ./config/base/server-config.yaml
