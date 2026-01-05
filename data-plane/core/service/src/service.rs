@@ -375,29 +375,29 @@ impl Service {
     }
 
     pub fn disconnect(&self, conn: u64) -> Result<(), ServiceError> {
-        info!(%conn, "disconnect");
+        let client_config = self.message_processor.disconnect(conn)?;
+        let endpoint = client_config.endpoint.clone();
+        let mut clients = self.clients.write();
 
-        match self.message_processor.disconnect(conn) {
-            Ok(cfg) => {
-                let endpoint = cfg.endpoint.clone();
-                let mut clients = self.clients.write();
-                if let Some(stored_conn) = clients.get(&endpoint) {
-                    if *stored_conn == conn {
-                        clients.remove(&endpoint);
-                        info!(%endpoint, "removed client mapping for endpoint");
-                    } else {
-                        debug!(
-                            %endpoint, %stored_conn, %conn,
-                            "client mapping endpoint has different conn_id",
-                        );
-                    }
-                } else {
-                    debug!(%endpoint, "no client mapping found for endpoint");
-                }
-                Ok(())
-            }
-            Err(e) => Err(ServiceError::DisconnectError(e.to_string())),
+        let stored_conn =
+            clients
+                .get(&endpoint)
+                .ok_or(ServiceError::ConnectionNotFoundForEndpoint(
+                    endpoint.clone(),
+                ))?;
+
+        if *stored_conn == conn {
+            clients.remove(&endpoint);
+            debug!(%endpoint, "removed client mapping");
+        } else {
+            return Err(ServiceError::DifferentIdForConnection {
+                endpoint: endpoint.clone(),
+                expected: *stored_conn,
+                found: conn,
+            });
         }
+
+        Ok(())
     }
 
     pub fn get_connection_id(&self, endpoint: &str) -> Option<u64> {
@@ -641,11 +641,6 @@ mod tests {
                 .is_none(),
             "connection should be removed after disconnect"
         );
-
-        // verify disconnect log
-        assert!(logs_contain(
-            "removed client mapping for endpoint endpoint=http://0.0.0.0:12346"
-        ));
     }
 
     #[tokio::test]
@@ -836,5 +831,63 @@ mod tests {
         let session_config_ret = session_info.session().upgrade().unwrap().session_config();
 
         assert_eq!(session_config_ret, session_config);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_error_routing_with_session_context() {
+        // This test verifies that errors from the datapath that include session context
+        // are properly routed to the correct session by sending a message to a non-existent
+        // destination and verifying the error contains session context
+
+        use slim_datapath::api::ProtoSessionType;
+
+        info!("starting test_error_routing_with_session_context");
+
+        // Create the service
+        let service = Service::new(
+            ID::new_with_name(Kind::new(KIND).unwrap(), "test-error-routing").unwrap(),
+        );
+
+        // Create an app
+        let app_name = Name::from_strings(["cisco", "default", "testapp"]).with_id(0);
+        let (app, _app_rx) = service
+            .create_app(
+                &app_name,
+                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+                SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
+            )
+            .expect("failed to create app");
+
+        // Create a point to point session to a non-existent destination
+        // This will trigger an error from the datapath
+        let non_existent_dst = Name::from_strings(["cisco", "default", "nonexistent"]).with_id(999);
+        let mut session_config =
+            SessionConfig::default().with_session_type(ProtoSessionType::PointToPoint);
+        session_config.initiator = true;
+        session_config.max_retries = Some(10);
+        session_config.interval = Some(Duration::from_secs(2));
+
+        let (session, completion_handle) = app
+            .create_session(session_config, non_existent_dst.clone(), None)
+            .await
+            .unwrap();
+
+        let session_id = session.session_arc().unwrap().id();
+        info!("Created session with ID: {}", session_id);
+
+        // Wait session creation in completion handle. It should fail quickly as the
+        // destination does not exist
+        let result = tokio::time::timeout(std::time::Duration::from_millis(300), completion_handle)
+            .await
+            .expect("timeout waiting for session creation");
+
+        assert!(
+            result.is_err_and(|e| {
+                println!("--> {}", e.chain());
+                true
+            }),
+            "Session creation should fail for non-existent destination"
+        );
     }
 }

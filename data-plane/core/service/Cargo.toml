@@ -30,4 +30,4 @@ tracing = { workspace = true }
 [dev-dependencies]
 agntcy-slim-testing = { workspace = true }
 tokio-test = { workspace = true }
-tracing-test = { workspace = true }
+tracing-test = { workspace = true, features = ["no-env-filter"] }

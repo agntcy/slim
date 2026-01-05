@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use slim_datapath::errors::{ErrorPayload, MessageContext};
 use slim_datapath::messages::Name;
 // Third-party crates
 use thiserror::Error;
@@ -27,6 +28,8 @@ pub enum SessionError {
     MessageError(#[from] MessageError),
     #[error("missing removed participant in GroupRemove message")]
     MissingRemovedParticipantInGroupRemove,
+    #[error("missing group name in JoinRequest message")]
+    MissingGroupNameInJoinRequest,
     #[error("ping state not initialized")]
     PingStateNotInitialized,
     #[error("missing channel name for group session")]
@@ -41,6 +44,8 @@ pub enum SessionError {
     MessageTypeUnexpected(Box<ProtoMessage>),
     #[error("session message type unexpected: {0:?}")]
     SessionMessageTypeUnexpected(ProtoSessionMessageType),
+    #[error("unexpected error")]
+    UnexpectedError { source: Box<SessionError> },
 
     // Lookup and missing entities
     #[error("session not found: {0}")]
@@ -97,6 +102,8 @@ pub enum SessionError {
     ApplicationMessageSendFailed,
     #[error("error sending data message to slim")]
     SlimMessageSendFailed,
+    #[error("send failure reported from slim: {ctx}")]
+    SlimSendFailure { ctx: Box<ErrorPayload> },
 
     // Session lifecycle and state (continued)
     #[error("session is draining - drop message")]
@@ -139,13 +146,13 @@ pub enum SessionError {
     #[error("unexpected timer id: {0}")]
     ModeratorTaskUnexpectedTimerId(u32),
     #[error("failed to add participant to session")]
-    ModeratorTaskAddFailed,
+    ModeratorTaskAddFailed { source: Box<SessionError> },
     #[error("failed to remove participant from session")]
-    ModeratorTaskRemoveFailed,
+    ModeratorTaskRemoveFailed { source: Box<SessionError> },
     #[error("failed to update session")]
-    ModeratorTaskUpdateFailed,
+    ModeratorTaskUpdateFailed { source: Box<SessionError> },
     #[error("failed to close session")]
-    ModeratorTaskCloseFailed,
+    ModeratorTaskCloseFailed { source: Box<SessionError> },
 }
 
 impl SessionError {
@@ -172,5 +179,21 @@ impl SessionError {
 
     pub fn receive_retry_failed(id: u32) -> Self {
         SessionError::MessageReceiveRetryFailed { id }
+    }
+
+    /// Extract session context from SlimSendFailure error
+    /// Returns None if the error is not a SlimSendFailure or if it lacks session context
+    pub fn session_context(&self) -> Option<&MessageContext> {
+        match self {
+            SessionError::SlimSendFailure { ctx } => ctx.session_context.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// Check if this error is for a command message
+    pub fn is_command_message_error(&self) -> bool {
+        self.session_context()
+            .map(|ctx| ctx.get_session_message_type().is_command_message())
+            .unwrap_or(false)
     }
 }

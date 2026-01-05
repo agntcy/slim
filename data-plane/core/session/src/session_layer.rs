@@ -9,6 +9,7 @@ use display_error_chain::ErrorChainExt;
 // Third-party crates
 use parking_lot::RwLock as SyncRwLock;
 use rand::Rng;
+
 use slim_datapath::messages::utils::IS_MODERATOR;
 use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, warn};
@@ -402,6 +403,39 @@ where
                 session_message_type,
             )),
         }
+    }
+
+    /// Handle an error coming from SLIM. Forward it to the corresponding session.
+    pub async fn handle_error_from_slim(&self, error: SessionError) -> Result<(), SessionError> {
+        // Extract context and session ID from the error
+        let Some(session_ctx) = error.session_context() else {
+            debug!(
+                error = %error.chain(),
+                "received error without session context in handle_error_from_slim",
+            );
+            return Ok(());
+        };
+
+        let session_id = session_ctx.session_id;
+        let session_controller = self.pool.read().get(&session_id).cloned();
+
+        if let Some(controller) = session_controller {
+            debug!(
+                error = %error.chain(),
+                session_id = %session_id,
+                "received error from SLIM for session id",
+            );
+
+            // pass the error to the session
+            return controller.on_error_message_from_slim(error).await;
+        }
+
+        debug!(
+            error = %error.chain(),
+            "received error from SLIM for unknown session id",
+        );
+
+        Ok(())
     }
 
     /// Handle a message from the message processor, and pass it to the
