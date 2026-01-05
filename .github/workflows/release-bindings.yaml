@@ -108,14 +108,26 @@ jobs:
           for file in ../../target/${{ matrix.platform.target }}/release/libslim_bindings* ../../target/${{ matrix.platform.target }}/release/slim_bindings.*; do
             if [ -f "$file" ]; then
               filename=$(basename "$file")
-              extension="${filename##*.}"
-
-              if [[ "$filename" == libslim_bindings.* ]]; then
-                # Unix-like: keep 'lib' prefix
-                mv "$file" "../../target/${{ matrix.platform.target }}/release/lib${LIB_NAME}.${extension}"
+              
+              # Extract extension(s) - handle multi-part extensions like .dll.a
+              if [[ "$filename" == *.*.* ]]; then
+                # Multi-part extension (e.g., libslim_bindings.dll.a -> dll.a)
+                extension="${filename#*.}"
+                extension="${extension#*.}"
               else
+                # Single extension
+                extension="${filename##*.}"
+              fi
+
+              # Determine if it's a Windows file based on the actual file extension
+              # Windows files: .dll, .dll.a, .lib, .pdb, .exe
+              # Unix files: .so, .dylib, .a (without .dll prefix), .rlib, .d
+              if [[ "$extension" == "dll" ]] || [[ "$extension" == "dll.a" ]] || [[ "$extension" == "lib" ]] || [[ "$extension" == "pdb" ]] || [[ "$extension" == "exe" ]]; then
                 # Windows: no 'lib' prefix
                 mv "$file" "../../target/${{ matrix.platform.target }}/release/${LIB_NAME}.${extension}"
+              else
+                # Unix-like: keep 'lib' prefix
+                mv "$file" "../../target/${{ matrix.platform.target }}/release/lib${LIB_NAME}.${extension}"
               fi
             fi
           done
@@ -192,7 +204,7 @@ jobs:
             - Linux aarch64 (GNU and musl)
             - macOS x86_64 (Intel)
             - macOS aarch64 (Apple Silicon)
-            - Windows x86_64
+            - Windows x86_64 (GNU and MSVC)
 
             Built from commit: ${{ github.sha }}
           files: ./release-artifacts/*.zip
