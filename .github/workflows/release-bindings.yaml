@@ -323,3 +323,106 @@ jobs:
           echo "✅ Successfully pushed Go bindings to https://github.com/${{ env.GO_BINDINGS_REPO }}"
 
           popd
+
+  # ==========================================================================
+  # Job 4: Test the published Go bindings work as expected
+  # ==========================================================================
+  test-go-bindings:
+    name: Test Go Bindings (${{ matrix.platform.target }})
+    runs-on: ${{ matrix.platform.runner }}
+    needs: release-go-bindings
+    if: github.event_name != 'pull_request'  # Skip on PRs since bindings aren't actually published
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          # Test on native runners for each platform we build for
+          - runner: ubuntu-24.04
+            os: linux
+            target: x86_64-unknown-linux-gnu
+          - runner: windows-latest
+            os: windows
+            target: x86_64-pc-windows-msvc
+          - runner: macos-15-intel
+            os: macos
+            target: x86_64-apple-darwin
+          - runner: macos-15
+            os: macos
+            target: aarch64-apple-darwin
+          # Note: We build for aarch64-linux and musl variants via cross-compilation,
+          # but GitHub Actions doesn't provide free ARM64 Linux runners for testing.
+          # The setup tool will automatically select the correct binary for the platform.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Wait for GitHub to update (package propagation)
+        run: |
+          echo "⏳ Waiting 30 seconds for GitHub package index to update..."
+          sleep 30
+
+      - name: Test bindings installation and usage
+        run: |
+          # Create a temporary test directory
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            TEST_DIR=$(mktemp -d -p "$RUNNER_TEMP")
+          else
+            TEST_DIR=$(mktemp -d)
+          fi
+          cd "$TEST_DIR"
+          echo "📂 Testing in: $TEST_DIR"
+          echo "🖥️  Platform: ${{ matrix.platform.target }}"
+          echo "🏃 Runner: ${{ matrix.platform.runner }}"
+
+          # Initialize a test Go module
+          go mod init test
+          echo "✅ Created test module"
+
+          # Fetch the bindings from GitHub (use main branch for now)
+          go get github.com/${{ env.GO_BINDINGS_REPO }}@main
+          echo "✅ Fetched bindings package"
+
+          # Run the setup tool to download native libraries
+          go run github.com/${{ env.GO_BINDINGS_REPO }}/cmd/slim-bindings-setup@main
+          echo "✅ Downloaded native libraries"
+
+          # Create a test program
+          cat << 'EOF' > main.go
+          package main
+
+          import (
+          	"fmt"
+
+          	slim "github.com/${{ env.GO_BINDINGS_REPO }}"
+          )
+
+          func main() {
+          	fmt.Println("🚀 SLIM Go Bindings Test")
+          	fmt.Println("========================")
+
+          	// Initialize crypto provider (required before any operations)
+          	slim.InitializeCryptoProvider()
+          	fmt.Println("✅ Crypto initialized successfully")
+
+          	fmt.Println("✅ Test passed!")
+          }
+          EOF
+
+          echo "✅ Created test program"
+
+          # Run the test program
+          go run main.go
+
+          echo ""
+          echo "🎉 All tests passed on ${{ matrix.platform.target }}!"
+
+      - name: Test result summary
+        if: success()
+        run: |
+          echo "✅ Go bindings verification completed successfully on ${{ matrix.platform.target }}"
+          echo "The published bindings can be safely tagged for release."
