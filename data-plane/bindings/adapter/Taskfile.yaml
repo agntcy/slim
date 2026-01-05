@@ -43,9 +43,23 @@ vars:
         fi
   ZIG_VERSION: '{{.ZIG_VERSION | default "0.14.1"}}'
   DOWNLOAD_BASE: "https://ziglang.org/download/{{.ZIG_VERSION}}/zig-{{.DETECTED_ARCH}}-{{.DETECTED_OS}}-{{.ZIG_VERSION}}.{{.EXTENSION}}"
+  # cargo-zigbuild automatically creates wrapper scripts (like x86_64-w64-mingw32-dlltool)
+  # in its cache directory. We need to add this directory to PATH so these wrappers can be found.
+  CARGO_ZIGBUILD_CACHE_DIR:
+    sh: |
+        # Detect cargo-zigbuild version dynamically
+        VERSION=$(cargo install --list 2>/dev/null | grep "^cargo-zigbuild" | awk '{print $2}' | sed 's/[v:]//g')
+        if [[ -z "$VERSION" ]]; then
+          # cargo-zigbuild not installed yet, return empty - will be set after installation
+          echo ""
+        elif [[ "{{OS}}" == "darwin" ]]; then
+          echo "$HOME/Library/Caches/cargo-zigbuild/$VERSION"
+        else
+          echo "$HOME/.cache/cargo-zigbuild/$VERSION"
+        fi
 
 env:
-  PATH: "{{.ZIG_DIR}}:{{.PATH}}"
+  PATH: "{{.CARGO_ZIGBUILD_CACHE_DIR}}:{{.ZIG_DIR}}:{{.PATH}}"
 
 tasks:
   default:
@@ -68,23 +82,6 @@ tasks:
       - mv "{{.TOOLS_DIR}}/zig-{{.DETECTED_ARCH}}-{{.DETECTED_OS}}-{{.ZIG_VERSION}}" "{{.ZIG_DIR}}"
       - rm "{{.TOOLS_DIR}}/zig.{{.EXTENSION}}"
       - echo "Zig installed to {{.ZIG_DIR}}"
-      - task: bindings:install-dlltool-wrapper
-
-  bindings:install-dlltool-wrapper:
-    desc: Create dlltool wrapper script for MinGW cross-compilation
-    internal: true
-    status:
-      - test -f "{{.ZIG_DIR}}/x86_64-w64-mingw32-dlltool"
-    cmds:
-      - |
-        cat > "{{.ZIG_DIR}}/x86_64-w64-mingw32-dlltool" << 'EOF'
-        #!/usr/bin/env sh
-        # Wrapper script to use Zig's dlltool instead of MinGW's dlltool
-        SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-        exec "$SCRIPT_DIR/zig" dlltool "$@"
-        EOF
-      - chmod +x "{{.ZIG_DIR}}/x86_64-w64-mingw32-dlltool"
-      - echo "Created dlltool wrapper at {{.ZIG_DIR}}/x86_64-w64-mingw32-dlltool"
 
   bindings:install-cargo-components:
     desc: Install required cargo components
@@ -123,5 +120,5 @@ tasks:
         )
 
         echo cargo ${ARGS[*]}
-        PATH="{{.ZIG_DIR}}:$PATH" cargo "${ARGS[@]}"
+        PATH="{{.CARGO_ZIGBUILD_CACHE_DIR}}:{{.ZIG_DIR}}:$PATH" cargo "${ARGS[@]}"
       - echo "🦀 Rust bindings library built successfully."
