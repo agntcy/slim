@@ -89,10 +89,7 @@ pub struct ControllerSender {
     /// local name to be removed in the missing replies set
     local_name: Name,
 
-    /// group name. We learn this on welcome/group add so that
-    /// if the session is a point to point session we know
-    /// also the id of the remote instance that is unknown
-    /// on session creation
+    /// group name is set on the first join request message
     group_name: Option<Name>,
 
     /// session type
@@ -177,6 +174,65 @@ impl ControllerSender {
         }
     }
 
+    // helper function to update local state based on the message type received
+    fn update_local_state(&mut self, message: &Message) -> Result<(), SessionError> {
+        match message.get_session_message_type() {
+            slim_datapath::api::ProtoSessionMessageType::GroupWelcome => {
+                // update the group list on welcome messages
+                // adding the new participant to the list
+                debug!(
+                    participant = %message.get_dst(),
+                    "adding participant to group on welcome message"
+                );
+                self.group_list.insert(message.get_dst());
+            }
+            slim_datapath::api::ProtoSessionMessageType::LeaveRequest => {
+                // update the group list on leave requests
+                // removing the participant from the list
+                debug!(
+                    participant = %message.get_dst(),
+                    "removing participant from group on leave request"
+                );
+                self.group_list.remove(&message.get_dst());
+
+                // remove also the missing_pings state if present
+                if let Some(ps) = self.ping_state.as_mut() {
+                    ps.missing_pings.remove(&message.get_dst());
+                }
+            }
+            slim_datapath::api::ProtoSessionMessageType::JoinRequest => {
+                // setup the group name if not set yet
+                if self.group_name.is_none() {
+                    if self.session_type == ProtoSessionType::PointToPoint {
+                        // in p2p session the group name is equal to the remote name
+                        // in the join request message
+                        debug!(
+                            destination = %message.get_dst(),
+                            "update group name on join request message for p2p session",
+                        );
+                        self.group_name = Some(message.get_dst());
+                    } else {
+                        // in multicast session the group name is specified in the
+                        // payload of the message
+                        let name = message
+                            .extract_join_request()?
+                            .channel
+                            .as_ref()
+                            .ok_or(SessionError::MissingGroupNameInJoinRequest)?;
+                        let group_name = Name::from(name);
+                        debug!(
+                            destination = %group_name,
+                            "update group name on join request message for multicast session",
+                        );
+                        self.group_name = Some(group_name);
+                    }
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
     pub async fn on_message(&mut self, message: &Message) -> Result<(), SessionError> {
         if self.draining_state == ControllerSenderDrainStatus::Completed {
             return Err(SessionError::SessionDrainingDrop);
@@ -205,43 +261,8 @@ impl ControllerSender {
                 }
                 missing_replies.insert(name);
 
-                // update the group list on welcome messages
-                // on p2p session also update the group name if not set
-                if message.get_session_message_type()
-                    == slim_datapath::api::ProtoSessionMessageType::GroupWelcome
-                {
-                    // add the new participant to the list
-                    self.group_list.insert(message.get_dst());
-
-                    if self.group_name.is_none() {
-                        // update the group name used to send ping messages
-                        // in P2P sessions the group name is equal to the remote name
-                        // in group session the name is the actual group
-                        debug!(
-                            destinatio = %message.get_dst(),
-                            "update group name on welcome message",
-                        );
-                        self.group_name = Some(message.get_dst());
-                    }
-                }
-
-                // if the message is a leave request remove the participant from
-                // the group list. Also remove any missing ping state if present
-                // to avoid signaling disconnection.
-                if message.get_session_message_type()
-                    == slim_datapath::api::ProtoSessionMessageType::LeaveRequest
-                {
-                    debug!(
-                        participant = %message.get_dst(),
-                        "removing participant from group on leave request"
-                    );
-                    self.group_list.remove(&message.get_dst());
-
-                    // remove also the missing_pings state if present
-                    if let Some(ps) = self.ping_state.as_mut() {
-                        ps.missing_pings.remove(&message.get_dst());
-                    }
-                }
+                // update local state
+                self.update_local_state(message)?;
 
                 // send the message and setup the required timers
                 self.on_send_message(message, missing_replies).await?;
