@@ -11,6 +11,7 @@ package main
 
 import (
 	"archive/zip"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -37,10 +38,15 @@ func Version() string {
 	return info.Main.Version
 }
 
-// GetRustTarget returns the Rust target triple for the current OS/arch.
-func GetRustTarget() string {
-	arch := runtime.GOARCH
-	goos := runtime.GOOS
+// GetTarget returns the target triple for the given OS/arch.
+// If goos or arch are empty, it uses the current runtime values.
+func GetTarget(goos, arch string) string {
+	if goos == "" {
+		goos = runtime.GOOS
+	}
+	if arch == "" {
+		arch = runtime.GOARCH
+	}
 
 	switch goos {
 	case "darwin":
@@ -54,7 +60,7 @@ func GetRustTarget() string {
 		}
 		return "x86_64-unknown-linux-gnu"
 	case "windows":
-		return "x86_64-pc-windows-msvc"
+		return "x86_64-pc-windows-gnu"
 	}
 
 	return fmt.Sprintf("%s-unknown-%s", arch, goos)
@@ -80,18 +86,23 @@ func GetCacheDir() (string, error) {
 	return filepath.Join(cacheHome, cacheDirName), nil
 }
 
-// LibraryPath returns the path to the native library for the current platform.
-func LibraryPath() (string, error) {
+// TargetToLibraryName converts a Rust target triple to the library name format.
+// Example: "aarch64-unknown-linux-gnu" -> "libslim_bindings_aarch64_linux_gnu.a"
+func TargetToLibraryName(target string) string {
+	// Replace hyphens with underscores and remove "unknown-" prefix
+	name := strings.ReplaceAll(target, "-unknown-", "_")
+	name = strings.ReplaceAll(name, "-", "_")
+	return fmt.Sprintf("libslim_bindings_%s.a", name)
+}
+
+// LibraryPath returns the path to the native library for the specified target.
+func LibraryPath(target string) (string, error) {
 	cacheDir, err := GetCacheDir()
 	if err != nil {
 		return "", err
 	}
 
-	libName := "libslim_bindings.a"
-	if runtime.GOOS == "windows" {
-		libName = "slim_bindings.lib"
-	}
-
+	libName := TargetToLibraryName(target)
 	libPath := filepath.Join(cacheDir, libName)
 
 	if _, err := os.Stat(libPath); err != nil {
@@ -104,15 +115,14 @@ func LibraryPath() (string, error) {
 	return libPath, nil
 }
 
-// IsLibraryInstalled checks if the library is installed.
-func IsLibraryInstalled() bool {
-	_, err := LibraryPath()
+// IsLibraryInstalled checks if the library is installed for the specified target.
+func IsLibraryInstalled(target string) bool {
+	_, err := LibraryPath(target)
 	return err == nil
 }
 
-// DownloadLibrary downloads the library for the current platform.
-func DownloadLibrary() error {
-	rustTarget := GetRustTarget()
+// DownloadLibrary downloads the library for the specified platform.
+func DownloadLibrary(target string) error {
 	// version := Version()
 	version := "slim-test-bindings-v0.7.2"
 
@@ -126,10 +136,10 @@ func DownloadLibrary() error {
 		return fmt.Errorf("failed to create directory %s: %w", cacheDir, err)
 	}
 
-	url := fmt.Sprintf(releaseURLTemplate, version, rustTarget)
+	url := fmt.Sprintf(releaseURLTemplate, version, target)
 	fmt.Printf("📦 Downloading SLIM bindings library...\n")
 	fmt.Printf("   Version:  %s\n", version)
-	fmt.Printf("   Platform: %s\n", rustTarget)
+	fmt.Printf("   Platform: %s\n", target)
 	fmt.Printf("   URL:      %s\n", url)
 
 	resp, err := http.Get(url)
@@ -139,7 +149,7 @@ func DownloadLibrary() error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return fmt.Errorf("library not found for platform %s at version %s", rustTarget, version)
+		return fmt.Errorf("library not found for platform %s at version %s", target, version)
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -170,7 +180,7 @@ func DownloadLibrary() error {
 	for _, file := range zipReader.File {
 		// Only extract library files
 		name := file.Name
-		isLibrary := strings.HasSuffix(name, ".a") || strings.HasSuffix(name, ".lib")
+		isLibrary := strings.HasSuffix(name, ".a") && !strings.HasSuffix(name, ".dll.a")
 		if !isLibrary {
 			continue
 		}
@@ -225,22 +235,35 @@ func DownloadLibrary() error {
 }
 
 func main() {
+	// Parse command-line flags
+	targetFlag := flag.String("target", "", "Rust target triple (e.g., x86_64-unknown-linux-gnu). If not provided, uses current OS/arch.")
+	flag.Parse()
+
+	// Determine the target
+	var target string
+	if *targetFlag != "" {
+		target = *targetFlag
+	} else {
+		target = GetTarget("", "")
+	}
+
 	fmt.Println("╔═══════════════════════════════════════════════════════════╗")
 	fmt.Println("║              SLIM Bindings Setup                          ║")
 	fmt.Println("╚═══════════════════════════════════════════════════════════╝")
 	fmt.Println()
 	fmt.Printf("Version:  %s\n", Version())
 	fmt.Printf("Platform: %s/%s\n", runtime.GOOS, runtime.GOARCH)
+	fmt.Printf("Target:   %s\n", target)
 	fmt.Println()
 
-	if IsLibraryInstalled() {
-		libPath, _ := LibraryPath()
+	if IsLibraryInstalled(target) {
+		libPath, _ := LibraryPath(target)
 		fmt.Println("✅ Library already installed!")
 		fmt.Printf("   Location: %s\n", libPath)
 		return
 	}
 
-	if err := DownloadLibrary(); err != nil {
+	if err := DownloadLibrary(target); err != nil {
 		fmt.Fprintf(os.Stderr, "\n❌ Error: %v\n", err)
 		os.Exit(1)
 	}
