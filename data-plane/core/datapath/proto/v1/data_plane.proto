@@ -179,7 +179,7 @@ message LeaveRequestPayload {
 // Leave Reply
 message LeaveReplyPayload {}
 
-// MLS payaload to add to the group
+// MLS payload to add to the group
 // messages when mls is active
 message MlsPayload {
   // the commit id for add/rm participants
