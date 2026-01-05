@@ -5,7 +5,7 @@ version: '3'
 
 includes:
   adapter:
-    taskfile: "{{.TASKFILE_DIR}}/../adapter/Taskfile.yaml"
+    taskfile: "../adapter/Taskfile.yaml"
     internal: true
   rust:
     taskfile: ../../../tasks/rust.yaml
