@@ -611,7 +611,7 @@ fn delete_channel_message(
 ) -> Result<DataPlaneMessage, ControllerError> {
     let session_id = generate_session_id(moderator, channel_name);
 
-    let payaload = Some(CommandPayload::builder().leave_request(None).as_content());
+    let payload = Some(CommandPayload::builder().leave_request(None).as_content());
 
     let mut msg = create_channel_message(
         controller,
@@ -619,7 +619,7 @@ fn delete_channel_message(
         ProtoSessionMessageType::LeaveRequest,
         session_id,
         rand::random::<u32>(),
-        payaload,
+        payload,
         auth_provider,
     )?;
 
