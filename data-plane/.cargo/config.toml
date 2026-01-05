@@ -11,9 +11,9 @@ linker="aarch64-linux-gnu-gcc"
 linker="x86_64-linux-gnu-gcc"
 
 [env]
-CC_x86_64_pc_windows_gnu = "zig cc"
+# CFLAGS suppresses macro redefinition warnings that occur when system headers
+# are mixed with Zig's headers (common with Windows cross-compilation).
 CFLAGS_x86_64_pc_windows_gnu = "-Wno-macro-redefined"
-DLLTOOL_x86_64_pc_windows_gnu = "zig dlltool"
 
 CC_x86_64_unknown_linux_gnu = "clang-19"
 AR_x86_64_unknown_linux_gnu = "llvm-ar-19"
