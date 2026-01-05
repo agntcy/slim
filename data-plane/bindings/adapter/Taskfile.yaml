@@ -68,6 +68,23 @@ tasks:
       - mv "{{.TOOLS_DIR}}/zig-{{.DETECTED_ARCH}}-{{.DETECTED_OS}}-{{.ZIG_VERSION}}" "{{.ZIG_DIR}}"
       - rm "{{.TOOLS_DIR}}/zig.{{.EXTENSION}}"
       - echo "Zig installed to {{.ZIG_DIR}}"
+      - task: bindings:install-dlltool-wrapper
+
+  bindings:install-dlltool-wrapper:
+    desc: Create dlltool wrapper script for MinGW cross-compilation
+    internal: true
+    status:
+      - test -f "{{.ZIG_DIR}}/x86_64-w64-mingw32-dlltool"
+    cmds:
+      - |
+        cat > "{{.ZIG_DIR}}/x86_64-w64-mingw32-dlltool" << 'EOF'
+        #!/usr/bin/env sh
+        # Wrapper script to use Zig's dlltool instead of MinGW's dlltool
+        SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+        exec "$SCRIPT_DIR/zig" dlltool "$@"
+        EOF
+      - chmod +x "{{.ZIG_DIR}}/x86_64-w64-mingw32-dlltool"
+      - echo "Created dlltool wrapper at {{.ZIG_DIR}}/x86_64-w64-mingw32-dlltool"
 
   bindings:install-cargo-components:
     desc: Install required cargo components
