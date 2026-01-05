@@ -134,13 +134,7 @@ This allows for fine-grained control over which participants receive which types
 
 ### Security
 
-The SLIM exporter supports end-to-end encryption through MLS (Message Layer Security - RFC 9420) when `mls-enabled` is set to `true` for a session. All connections to the SLIM node are authenticated using the shared secret.
-
-## Recommendations
-
-- Use this exporter with the `batch` processor for higher throughput and better performance.
-- Consider enabling MLS encryption (`mls-enabled: true`) for sensitive telemetry data transmitted over untrusted networks.
-- Use meaningful channel names following the `org/namespace/service` pattern to organize your telemetry data distribution.
+The SLIM exporter supports end-to-end encryption through MLS (Message Layer Security - RFC 9420) when `mls-enabled` is set to `true` for a session.
 
 ## Additional Information
 

@@ -1,3 +1,5 @@
+github.com/agntcy/slim-bindings-go v0.0.0-20251219171645-87816e74fa93 h1:I2xpXdJosWPTrdUVY6fDuq4PGGYdI7TmCy6XacDRH+s=
+github.com/agntcy/slim-bindings-go v0.0.0-20251219171645-87816e74fa93/go.mod h1:r0Z+2p9apjWPNPCS60TEWSVwU5Md5EApsjT/WI9Kwaw=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=

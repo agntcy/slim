@@ -32,30 +32,14 @@ COPY go.mod ./
 COPY common.go .
 COPY slimexporter/ ./slimexporter/
 
-# Copy pre-built Rust bindings (copied locally by build task)
-# These must be built separately for Linux before running docker build
-COPY data-plane/bindings/go/generated/ ./data-plane/bindings/go/generated/
-
-# Verify the library file exists
-RUN ls -la ./data-plane/bindings/go/generated/slim_bindings/ && \
-    echo "Checking for library files..." && \
-    find ./data-plane/bindings/go/generated/slim_bindings/ -name "*.so" -o -name "*.dylib"
-
-# Adjust replace paths in builder-config for Docker context
-# Note: paths are relative to the generated slim-otelcol/ directory
-RUN sed -e 's|=> \.\./\.\./data-plane|=> ../data-plane|g' \
-        -e 's|=> \.\.$|=> ..|g' \
-        builder-config.yaml > builder-config-docker.yaml && \
-    cat builder-config-docker.yaml
-
 # Generate collector sources
-RUN ./ocb --config builder-config-docker.yaml --skip-compilation
+RUN ./ocb --config builder-config.yaml --skip-compilation
 
 # Build the collector with CGO enabled
 WORKDIR /build/slim-otelcol
-ENV CGO_LDFLAGS="-L/build/data-plane/bindings/go/generated/slim_bindings -lslim_bindings"
-ENV CGO_CFLAGS="-I/build/data-plane/bindings/go/generated/slim_bindings"
-RUN CGO_ENABLED=1 go build -trimpath -o slim-otelcol -ldflags="-s -w"
+RUN go mod download && \
+    go run github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup@main && \
+    CGO_ENABLED=1 CGO_LDFLAGS="-L/root/.cache/slim-bindings" go build -trimpath -o slim-otelcol -ldflags="-s -w"
 
 # Runtime stage
 FROM debian:bookworm-slim
@@ -70,15 +54,6 @@ WORKDIR /app
 
 # Copy the collector binary
 COPY --from=builder /build/slim-otelcol/slim-otelcol .
-
-# Copy the native library
-COPY --from=builder /build/data-plane/bindings/go/generated/slim_bindings/libslim_bindings.* /usr/local/lib/
-
-# Set library path
-ENV LD_LIBRARY_PATH=/usr/local/lib
-
-# Copy default config
-COPY collector-config.yaml /etc/otel/config.yaml
 
 # Expose standard OTLP ports
 EXPOSE 4317 4318

@@ -36,14 +36,6 @@ exporters:
           - "agntcy/otel/receiver-app"
         # flag to enable or disable MLS for this session
         mls-enabled: false
-      - channel-name: "agntcy/otel/telemetry-2"
-        signals: 
-          - metrics
-        participants:
-          - "agntcy/otel/receiver-app-2"
-          - "agntcy/otel/receiver-app-3"
-        mls-enabled: false      
-  
   # Standard OTLP exporter
   otlp:
     endpoint: localhost:4317

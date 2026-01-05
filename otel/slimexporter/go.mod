@@ -2,12 +2,10 @@ module github.com/agntcy/slim/otel/slimexporter
 
 go 1.25.5
 
-replace github.com/agntcy/slim/bindings/generated => ../../data-plane/bindings/go/generated/
-
 replace github.com/agntcy/slim/otel => ../
 
 require (
-	github.com/agntcy/slim/bindings/generated v0.0.0
+	github.com/agntcy/slim-bindings-go v0.0.0-20251219171645-87816e74fa93
 	github.com/agntcy/slim/otel v0.0.0
 	go.opentelemetry.io/collector/component v1.48.0
 	go.opentelemetry.io/collector/exporter v1.48.0

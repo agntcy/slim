@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	slim "github.com/agntcy/slim/bindings/generated/slim_bindings"
+	slim "github.com/agntcy/slim-bindings-go"
 	common "github.com/agntcy/slim/otel"
 
 	"go.opentelemetry.io/collector/pdata/plog"

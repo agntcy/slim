@@ -4,18 +4,8 @@
 version: '3'
 
 vars:
-  # The Rust UniFFI bindings crate - in bindings/adapter (sibling to bindings/go)
-  BINDINGS_DIR: ../adapter
-  SERVICE_TARGET: ../data-plane/target/release/
-  LIB_NAME: slim_bindings
-  # Get absolute path for CGO flags
   ROOT_DIR:
     sh: pwd
-  LIB_PATH: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.a"
-  LIB_DIR: "{{.ROOT_DIR}}/{{.SERVICE_TARGET}}"
-  CGO_LDFLAGS: "-L{{.LIB_DIR}} -l{{.LIB_NAME}}"
-  DYLD_PATH: "{{.LIB_DIR}}:{{.ENV.DYLD_LIBRARY_PATH}}"
-  LD_PATH: "{{.LIB_DIR}}:{{.ENV.LD_LIBRARY_PATH}}"
   # OpenTelemetry Collector Builder settings
   OCB_VERSION: 0.142.0
   GOOS:
@@ -28,7 +18,6 @@ vars:
   # Docker settings
   DOCKER_IMAGE: slim-otelcol
   DOCKER_TAG: latest
-  DOCKER_PLATFORM: linux/amd64,linux/arm64
 
 tasks:
   default:
@@ -48,8 +37,8 @@ tasks:
 
   collector:build:
     desc: Build the SLIM OpenTelemetry Collector
-    env:
-      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
+    deps:
+      - collector:download-ocb
     cmds:
       - echo "Generating collector sources..."
       - ./ocb --config builder-config.yaml --skip-compilation
@@ -65,10 +54,6 @@ tasks:
 
   collector:run:
     desc: Run the SLIM OpenTelemetry Collector
-    env:
-      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
-      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
-      LD_LIBRARY_PATH: "{{.LD_PATH}}"
     cmds:
       - echo "Running SLIM OpenTelemetry Collector..."
       - "{{.COLLECTOR_OUTPUT}}/slim-otelcol --config {{.ROOT_DIR}}/collector-config.yaml"
@@ -76,52 +61,32 @@ tasks:
   collector:test:
     desc: Run tests for the SLIM exporter
     dir: slimexporter
-    env:
-      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
-      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
-      LD_LIBRARY_PATH: "{{.LD_PATH}}"
     cmds:
       - echo "Running slimexporter tests..."
       - go test -v
+
   # Docker tasks
   docker:build:
     desc: Build Docker image for the SLIM OpenTelemetry Collector
     cmds:
-      - echo "Preparing bindings for Docker build..."
-      - mkdir -p data-plane/bindings/go
-      - cp -r ../data-plane/bindings/go/generated data-plane/bindings/go/
       - echo "Building Docker image {{.DOCKER_IMAGE}}:{{.DOCKER_TAG}}..."
       - docker build -t {{.DOCKER_IMAGE}}:{{.DOCKER_TAG}} .
       - echo "Cleaning up temporary bindings..."
-      - rm -rf data-plane
       - echo "Docker image built successfully"
-
-  docker:build-multiarch:
-    desc: Build multi-architecture Docker image (requires buildx)
-    cmds:
-      - echo "Preparing bindings for Docker build..."
-      - mkdir -p data-plane/bindings/go
-      - cp -r ../data-plane/bindings/go/generated data-plane/bindings/go/
-      - echo "Building multi-arch Docker image for {{.DOCKER_PLATFORM}}..."
-      - docker buildx build --platform {{.DOCKER_PLATFORM}} -t {{.DOCKER_IMAGE}}:{{.DOCKER_TAG}} --load .
-      - echo "Cleaning up temporary bindings..."
-      - rm -rf data-plane
-      - echo "Multi-arch Docker image built successfully"
 
   docker:run:
     desc: Run the SLIM collector in Docker
     cmds:
       - echo "Starting SLIM OpenTelemetry Collector container..."
-      - docker run --rm -p 4317:4317 -p 4318:4318 -v {{.ROOT_DIR}}/collector-config.yaml:/etc/otel/config.yaml {{.DOCKER_IMAGE}}:{{.DOCKER_TAG}}
+      - >
+        docker run --rm -p 4317:4317 -p 4318:4318
+        -v {{.ROOT_DIR}}/collector-config.yaml:/etc/otel/config.yaml:ro
+        {{.DOCKER_IMAGE}}:{{.DOCKER_TAG}}
 
   # Examples
   testapp:participant:
     desc: Run the test app
     dir: testapp
-    env:
-      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
-      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
-      LD_LIBRARY_PATH: "{{.LD_PATH}}"
     cmds:
       - echo "Running test app in participant mode..."
       - >
@@ -134,10 +99,6 @@ tasks:
   testapp:initiator:
     desc: Run the test app
     dir: testapp
-    env:
-      CGO_LDFLAGS: "{{.CGO_LDFLAGS}}"
-      DYLD_LIBRARY_PATH: "{{.DYLD_PATH}}"
-      LD_LIBRARY_PATH: "{{.LD_PATH}}"
     cmds:
       - echo "Running test app in initiator mode..."
       - >
