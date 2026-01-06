@@ -24,7 +24,7 @@ import (
 
 const (
 	// GitHub release URL pattern - downloads from agntcy/slim releases
-	releaseURLTemplate = "https://github.com/agntcy/slim/releases/download/slim-bindings-%s/slim-bindings-%s.zip"
+	releaseURLTemplate = "https://github.com/agntcy/slim/releases/download/slim-bindings-libs-%s/slim-bindings-%s.zip"
 	// Cache directory name
 	cacheDirName = "slim-bindings"
 )

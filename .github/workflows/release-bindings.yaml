@@ -12,7 +12,7 @@ on:
 
   push:
     tags:
-      - 'slim-bindings-*'
+      - 'slim-bindings-libs-*'
 
 env:
   LIBRARY_NAME: slim_bindings
@@ -124,7 +124,7 @@ jobs:
     name: Release Libraries
     runs-on: ubuntu-latest
     needs: build-libraries
-    if: startsWith(github.ref, 'refs/tags/slim-bindings-')
+    if: startsWith(github.ref, 'refs/tags/slim-bindings-libs-')
     permissions:
       contents: write
     steps:
@@ -192,7 +192,7 @@ jobs:
     name: Release Go Bindings
     runs-on: ubuntu-latest
     needs: release-libraries
-    if: startsWith(github.ref, 'refs/tags/slim-bindings-')
+    if: startsWith(github.ref, 'refs/tags/slim-bindings-libs-')
     defaults:
       run:
         shell: bash
@@ -277,9 +277,9 @@ jobs:
         run: |
           pushd ./target-repo
 
-          # Extract version from tag name (remove 'slim-bindings-' prefix)
+          # Extract version from tag name (remove 'slim-bindings-libs-' prefix)
           VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#slim-bindings-}"
+          VERSION="${VERSION#slim-bindings-libs-}"
           echo "📦 Extracted version: $VERSION"
 
           git config user.name "github-actions[bot]"
