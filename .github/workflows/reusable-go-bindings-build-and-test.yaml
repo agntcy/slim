@@ -64,26 +64,10 @@ jobs:
 
       - name: Build Rust UniFFI library
         working-directory: ${{ inputs.go-bindings-dir }}
-        run: task rust-build
-
-      - name: Install uniffi-bindgen-go
-        working-directory: ${{ inputs.go-bindings-dir }}
-        run: task install-uniffi-bindgen-go
-
-      - name: Generate Go bindings
-        working-directory: ${{ inputs.go-bindings-dir }}
-        run: |
-          uniffi-bindgen-go \
-            --library ${{ github.workspace }}/${{ inputs.library-output-dir }}/lib${{ inputs.library-name }}.so \
-            --out-dir generated
-          cd generated && go mod init github.com/agntcy/slim/bindings/generated 2>/dev/null || true
+        run: task generate
 
       - name: Run Go bindings tests
         working-directory: ${{ inputs.go-bindings-dir }}
-        env:
-          CGO_LDFLAGS: "-L${{ github.workspace }}/${{ inputs.library-output-dir }} -l${{ inputs.library-name }}"
-          LD_LIBRARY_PATH: "${{ github.workspace }}/${{ inputs.library-output-dir }}"
         run: |
           echo "Running Go bindings tests..."
-          go test -v ./...
-
+          task test
