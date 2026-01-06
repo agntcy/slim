@@ -24,7 +24,7 @@ import (
 
 const (
 	// GitHub release URL pattern - downloads from agntcy/slim releases
-	releaseURLTemplate = "https://github.com/agntcy/slim/releases/download/%s/slim-bindings-%s.zip"
+	releaseURLTemplate = "https://github.com/agntcy/slim/releases/download/slim-bindings-libs-%s/slim-bindings-%s.zip"
 	// Cache directory name
 	cacheDirName = "slim-bindings"
 )
@@ -123,8 +123,7 @@ func IsLibraryInstalled(target string) bool {
 
 // DownloadLibrary downloads the library for the specified platform.
 func DownloadLibrary(target string) error {
-	// version := Version()
-	version := "slim-test-bindings-v0.7.2"
+	version := Version()
 
 	cacheDir, err := GetCacheDir()
 	if err != nil {
