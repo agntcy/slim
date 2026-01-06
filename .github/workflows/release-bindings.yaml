@@ -170,7 +170,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "Slim libs ${{ github.ref_name }}"
+          name: "${{ github.ref_name }}"
           body: |
             Release of SLIM native bindings libraries.
 
@@ -306,7 +306,6 @@ jobs:
           - darwin/amd64 (x86_64-apple-darwin)
           - windows/amd64 (x86_64-pc-windows-msvc)"
 
-          # TODO: uncomment this before merge
           git tag -a "$VERSION" -m "Release $VERSION"
 
           git push origin main
