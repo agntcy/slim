@@ -6,6 +6,7 @@ package slim_bindings
 #cgo linux,arm64 LDFLAGS: -L${SRCDIR}/../../../../../../.cache/slim-bindings -L${SRCDIR} -lslim_bindings_aarch64_linux_gnu -lm
 #cgo darwin,amd64 LDFLAGS: -L${SRCDIR}/../../../../../../.cache/slim-bindings -L${SRCDIR} -lslim_bindings_x86_64_darwin -Wl,-undefined,dynamic_lookup
 #cgo darwin,arm64 LDFLAGS: -L${SRCDIR}/../../../../../../.cache/slim-bindings -L${SRCDIR} -lslim_bindings_aarch64_darwin -Wl,-undefined,dynamic_lookup
+#cgo windows,amd64 LDFLAGS: -L${SRCDIR}/../../../../../../AppData/Local/slim-bindings -L${SRCDIR} -lslim_bindings_x86_64_windows_gnu -lws2_32 -lbcrypt -ladvapi32 -luserenv -lntdll -lgcc_eh -lgcc -lkernel32 -lole32
 #include <slim_bindings.h>
 */
 import "C"
