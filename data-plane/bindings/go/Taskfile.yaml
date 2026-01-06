@@ -73,9 +73,46 @@ tasks:
 
           # Cleanup
           rm -f /tmp/cgo_preamble.txt /tmp/go_rest.txt
-          echo "✅ Patched $GO_FILE wits cgo directives"
+          echo "✅ Patched $GO_FILE with cgo directives"
         else
           echo "⚠️  Go file not found: $GO_FILE"
+          exit 1
+        fi
+    silent: true
+
+  patch-header:
+    desc: Patch slim_bindings.h with Windows dllexport directives
+    internal: true
+    cmds:
+      - echo "🔧 Patching slim_bindings.h..."
+      - |
+        HEADER_FILE="generated/{{.LIB_NAME}}/{{.LIB_NAME}}.h"
+        if [ -f "$HEADER_FILE" ]; then
+          # Check if patch is already applied
+          if grep -q "#ifdef _WIN32" "$HEADER_FILE" && grep -q "__declspec(dllexport) void slim_bindings_uniffiFutureContinuationCallback" "$HEADER_FILE"; then
+            echo "✅ Header already patched"
+          else
+            # Apply the patch: wrap the two function declarations with Windows conditional
+            # First, create a temporary file with the patched content
+            awk '
+              /^void slim_bindings_uniffiFutureContinuationCallback\(uint64_t, int8_t\);$/ {
+                print "#ifdef _WIN32"
+                print "__declspec(dllexport) void slim_bindings_uniffiFutureContinuationCallback(uint64_t, int8_t);"
+                print "__declspec(dllexport) void slim_bindings_uniffiFreeGorutine(uint64_t);"
+                print "#else"
+                print "void slim_bindings_uniffiFutureContinuationCallback(uint64_t, int8_t);"
+                getline
+                print "void slim_bindings_uniffiFreeGorutine(uint64_t);"
+                print "#endif"
+                next
+              }
+              { print }
+            ' "$HEADER_FILE" > "$HEADER_FILE.tmp"
+            mv "$HEADER_FILE.tmp" "$HEADER_FILE"
+            echo "✅ Patched $HEADER_FILE with Windows dllexport directives"
+          fi
+        else
+          echo "⚠️  Header file not found: $HEADER_FILE"
           exit 1
         fi
     silent: true
@@ -95,6 +132,7 @@ tasks:
           --out-dir generated
       - cd generated && go mod init github.com/agntcy/slim/bindings/generated 2>/dev/null || true
       - task: copy-library
+      - task: patch-header
       - task: patch-cgo-directives
       - echo "✅ Bindings generated in generated/"
     silent: true
