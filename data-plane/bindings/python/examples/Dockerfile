@@ -26,7 +26,8 @@ DEBIAN_FRONTEND=noninteractive \
         ca-certificates \
         gcc \
         clang \
-        libc-dev
+        libc-dev \
+        patchelf
 
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
@@ -35,6 +36,10 @@ apt-get install -y task
 
 # Install rust toolchain
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
+# Install Python and uniffi-bindgen
+uv python install 3.14
+uv tool install uniffi-bindgen
 
 EOF
 
@@ -61,9 +66,12 @@ export CC_x86_64_unknown_linux_gnu=cc
 export AR_x86_64_unknown_linux_gnu=ar
 export STRIP_x86_64_unknown_linux_gnu=strip
 
-export CC_aarch64_unknown_linux_gnu=clang
+export CC_aarch64_unknown_linux_gnu=gcc
 export AR_aarch64_unknown_linux_gnu=ar
 export STRIP_aarch64_unknown_linux_gnu=strip
+
+# Ensure uniffi-bindgen is in PATH
+export PATH="/root/.local/bin:${PATH}"
 
 TARGET=${RUSTARCH}-unknown-linux-gnu
 task python:bindings:packaging TARGET=${TARGET} PROFILE=release INTERPRETERS="3.14"
