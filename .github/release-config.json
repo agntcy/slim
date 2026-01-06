@@ -8,6 +8,7 @@
   "bump-minor-pre-major": true,
   "packages": {
     "data-plane/python/bindings": {
+      "component": "slim-bindings-python",
       "package-name": "slim-bindings",
       "release-type": "python"
     },

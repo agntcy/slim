@@ -1,6 +1,6 @@
 module github.com/agntcy/slim/cmd/server
 
-go 1.25.4
+go 1.25.5
 
 replace github.com/agntcy/slim/bindings/generated => ../../generated
 

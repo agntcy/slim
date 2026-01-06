@@ -1271,5 +1271,10 @@ uint32_t ffi_slim_bindings_uniffi_contract_version(void
 #endif
 
 
+#ifdef _WIN32
+__declspec(dllexport) void slim_bindings_uniffiFutureContinuationCallback(uint64_t, int8_t);
+__declspec(dllexport) void slim_bindings_uniffiFreeGorutine(uint64_t);
+#else
 void slim_bindings_uniffiFutureContinuationCallback(uint64_t, int8_t);
 void slim_bindings_uniffiFreeGorutine(uint64_t);
+#endif
