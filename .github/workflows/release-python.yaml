@@ -7,7 +7,7 @@ name: ci-release-python
 on:
   push:
     tags:
-      - 'slim-bindings-v*'
+      - 'slim-bindings-python-v*'
       - 'slim-mcp-v*'
       - 'slimrpc-v*'
       - 'slima2a-v*'
@@ -20,7 +20,7 @@ jobs:
   build-bindings-wheels:
     name: Data plane - Python wheels
     uses: ./.github/workflows/reusable-python-build-wheels.yaml
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/slim-bindings-')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/slim-bindings-python-')
 
   build-mcp-wheels:
     name: Build slim mcp

@@ -11,6 +11,10 @@ linker="aarch64-linux-gnu-gcc"
 linker="x86_64-linux-gnu-gcc"
 
 [env]
+# CFLAGS suppresses macro redefinition warnings that occur when system headers
+# are mixed with Zig's headers (common with Windows cross-compilation).
+CFLAGS_x86_64_pc_windows_gnu = "-Wno-macro-redefined"
+
 CC_x86_64_unknown_linux_gnu = "clang-19"
 AR_x86_64_unknown_linux_gnu = "llvm-ar-19"
 STRIP_x86_64_unknown_linux_gnu = "llvm-strip-19"

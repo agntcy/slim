@@ -1,0 +1,141 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+version: '3'
+
+includes:
+  rust:
+    taskfile: ../../../tasks/rust.yaml
+    internal: true
+
+vars:
+  TOOLS_DIR: "{{.TASKFILE_DIR}}/.tools"
+  ZIG_DIR: "{{.TOOLS_DIR}}/zig"
+  PROFILE: '{{.PROFILE | default "debug"}}'
+  RELEASE:
+    sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
+  DETECTED_OS:
+    sh: |
+        if [[ "{{OS}}" == "linux" ]]; then
+          echo "linux"
+        elif [[ "{{OS}}" == "darwin" ]]; then
+          echo "macos"
+        elif [[ "{{OS}}" == "windows" ]]; then
+          echo "windows"
+        else
+          echo "unknown"
+        fi
+  DETECTED_ARCH:
+    sh: |
+        if [[ "{{ARCH}}" == "amd64" ]]; then
+          echo "x86_64"
+        elif [[ "{{ARCH}}" == "arm64" ]]; then
+          echo "aarch64"
+        else
+          echo "unknown"
+        fi
+  EXTENSION:
+    sh: |
+        if [[ "{{.DETECTED_OS}}" == "windows" ]]; then
+          echo "zip"
+        else
+          echo "tar.xz"
+        fi
+  ZIG_VERSION: '{{.ZIG_VERSION | default "0.14.1"}}'
+  DOWNLOAD_BASE: "https://ziglang.org/download/{{.ZIG_VERSION}}/zig-{{.DETECTED_ARCH}}-{{.DETECTED_OS}}-{{.ZIG_VERSION}}.{{.EXTENSION}}"
+  # cargo-zigbuild automatically creates wrapper scripts (like x86_64-w64-mingw32-dlltool)
+  # in its cache directory. We need to add this directory to PATH so these wrappers can be found.
+  CARGO_ZIGBUILD_CACHE_DIR:
+    sh: |
+        # Detect cargo-zigbuild version dynamically
+        VERSION=$(cargo install --list 2>/dev/null | grep "^cargo-zigbuild" | awk '{print $2}' | sed 's/[v:]//g')
+        if [[ -z "$VERSION" ]]; then
+          # cargo-zigbuild not installed yet, return empty - will be set after installation
+          echo ""
+        elif [[ "{{OS}}" == "darwin" ]]; then
+          echo "$HOME/Library/Caches/cargo-zigbuild/$VERSION"
+        else
+          echo "$HOME/.cache/cargo-zigbuild/$VERSION"
+        fi
+
+env:
+  PATH: "{{.CARGO_ZIGBUILD_CACHE_DIR}}:{{.ZIG_DIR}}:{{.PATH}}"
+
+tasks:
+  default:
+    cmds:
+      - task -l
+
+  bindings:install-zig:
+    desc: Install Zig locally for all platforms via direct download
+    status:
+      - test -f "{{.TOOLS_DIR}}/zig/zig" || test -f "{{.TOOLS_DIR}}/zig/zig.exe"
+    cmds:
+      - mkdir -p "{{.TOOLS_DIR}}"
+      - curl -L "{{.DOWNLOAD_BASE}}" -o "{{.TOOLS_DIR}}/zig.{{.EXTENSION}}"
+      - |
+        if [[ "{{.EXTENSION}}" == "zip" ]]; then
+          unzip -q "{{.TOOLS_DIR}}/zig.{{.EXTENSION}}" -d "{{.TOOLS_DIR}}"
+        else
+          tar -xf "{{.TOOLS_DIR}}/zig.{{.EXTENSION}}" -C "{{.TOOLS_DIR}}"
+        fi
+      - mv "{{.TOOLS_DIR}}/zig-{{.DETECTED_ARCH}}-{{.DETECTED_OS}}-{{.ZIG_VERSION}}" "{{.ZIG_DIR}}"
+      - rm "{{.TOOLS_DIR}}/zig.{{.EXTENSION}}"
+      - echo "Zig installed to {{.ZIG_DIR}}"
+      - task: bindings:install-dlltool-wrapper
+
+  bindings:install-dlltool-wrapper:
+    desc: Create dlltool wrapper script for MinGW cross-compilation
+    internal: true
+    status:
+      - test -f "{{.ZIG_DIR}}/{{.DETECTED_ARCH}}-w64-mingw32-dlltool"
+    cmds:
+      - |
+        cat > "{{.ZIG_DIR}}/{{.DETECTED_ARCH}}-w64-mingw32-dlltool" << 'EOF'
+        #!/usr/bin/env sh
+        # Wrapper script to use Zig's dlltool instead of MinGW's dlltool
+        SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+        exec "$SCRIPT_DIR/zig" dlltool "$@"
+        EOF
+      - chmod +x "{{.ZIG_DIR}}/{{.DETECTED_ARCH}}-w64-mingw32-dlltool"
+      - echo "Created dlltool wrapper at {{.ZIG_DIR}}/{{.DETECTED_ARCH}}-w64-mingw32-dlltool"
+
+  bindings:install-cargo-components:
+    desc: Install required cargo components
+    cmds:
+      - echo "🦀 Installing required cargo components..."
+      - cargo install cargo-zigbuild
+
+  bindings:build:all:
+    desc: Build the Rust library with UniFFI
+    dir: "{{.TASKFILE_DIR}}"
+    deps:
+      - bindings:install-zig
+      - bindings:install-cargo-components
+    silent: true
+    cmds:
+      - echo "🦀 Building Rust bindings library..."
+      - rustup target add {{.TARGET}}
+      - |
+        ARGS=()
+
+        # Depending on the target, we can either use cargo-zigbuild or regular cargo build
+        if [[ "{{.TARGET}}" == "" || "{{.TARGET}}" == "$(rustc -vV | sed -n 's|host: ||p')" ]]; then
+          ARGS+=(
+            "build"
+          )
+        else
+          ARGS+=(
+            "zigbuild"
+          )
+        fi
+
+        ARGS+=(
+          "--target"
+          "{{.TARGET}}"
+          {{.RELEASE}}
+        )
+
+        echo cargo ${ARGS[*]}
+        PATH="{{.CARGO_ZIGBUILD_CACHE_DIR}}:{{.ZIG_DIR}}:$PATH" cargo "${ARGS[@]}"
+      - echo "🦀 Rust bindings library built successfully."
