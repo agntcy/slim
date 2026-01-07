@@ -120,7 +120,7 @@ struct ControllerServiceInternal {
     pending_notifications: Arc<parking_lot::Mutex<Vec<ControlMessage>>>,
 
     /// map of generated u32 keys to original string message IDs and their associated timers
-    message_id_map: Arc<parking_lot::RwLock<HashMap<u32, (String, Timer)>>>,
+    message_id_map: Arc<parking_lot::RwLock<HashMap<u32, (String, Option<Timer>)>>>,
 
     /// timer factory for controller messages
     /// used to create timers for messages that require timeouts
@@ -1052,10 +1052,14 @@ impl ControllerService {
                                 } else {
                                     // create timer for the message
                                     debug!("create timer for message id: {} with type {:?}", new_msg_id, ProtoSessionMessageType::JoinRequest);
-                                    let timer = self.inner.timer_factory.read().as_ref().unwrap().create_and_start_timer(
-                                        new_msg_id,
-                                        ProtoSessionMessageType::JoinRequest,
-                                        None);
+                                    let timer = if let Some(factory) = self.inner.timer_factory.read().as_ref() {
+                                        Some(factory.create_and_start_timer(
+                                            new_msg_id,
+                                            ProtoSessionMessageType::JoinRequest,
+                                            None))
+                                    } else {
+                                        None
+                                    };
                                     self.inner
                                         .message_id_map
                                         .write()
@@ -1113,10 +1117,14 @@ impl ControllerService {
                                 } else {
                                     // create timer for the message
                                     debug!("create timer for message id: {} with type {:?}", new_msg_id, ProtoSessionMessageType::LeaveRequest);
-                                    let timer = self.inner.timer_factory.read().as_ref().unwrap().create_and_start_timer(
-                                        new_msg_id,
-                                        ProtoSessionMessageType::LeaveRequest,
-                                        None);
+                                    let timer = if let Some(factory) = self.inner.timer_factory.read().as_ref() {
+                                        Some(factory.create_and_start_timer(
+                                            new_msg_id,
+                                            ProtoSessionMessageType::LeaveRequest,
+                                            None))
+                                    } else {
+                                        None
+                                    };
                                     self.inner
                                         .message_id_map
                                         .write()
@@ -1181,10 +1189,14 @@ impl ControllerService {
                                 } else {
                                     // create timer for the message
                                     debug!("create timer for message id: {} with type {:?}", new_msg_id, ProtoSessionMessageType::DiscoveryRequest);
-                                    let timer = self.inner.timer_factory.read().as_ref().unwrap().create_and_start_timer(
-                                        new_msg_id,
-                                        ProtoSessionMessageType::DiscoveryRequest,
-                                        None);
+                                    let timer = if let Some(factory) = self.inner.timer_factory.read().as_ref() {
+                                        Some(factory.create_and_start_timer(
+                                            new_msg_id,
+                                            ProtoSessionMessageType::DiscoveryRequest,
+                                            None))
+                                    } else {
+                                        None
+                                    };
                                     self.inner
                                         .message_id_map
                                         .write()
@@ -1242,10 +1254,14 @@ impl ControllerService {
                                 } else {
                                     // create timer for the message
                                     debug!("create timer for remove message with id: {}", new_msg_id);
-                                    let timer = self.inner.timer_factory.read().as_ref().unwrap().create_and_start_timer(
-                                        new_msg_id,
-                                        ProtoSessionMessageType::LeaveRequest,
-                                        None);
+                                    let timer = if let Some(factory) = self.inner.timer_factory.read().as_ref() {
+                                        Some(factory.create_and_start_timer(
+                                            new_msg_id,
+                                            ProtoSessionMessageType::LeaveRequest,
+                                            None))
+                                    } else {
+                                        None
+                                    };
                                     self.inner
                                         .message_id_map
                                         .write()
@@ -1349,10 +1365,12 @@ impl ControllerService {
     async fn send_ack_message(&self, msg_id: u32, success: bool, clients: &[ClientConfig]) {
         let original_message_id = self.inner.message_id_map.write().remove(&msg_id);
         match original_message_id {
-            Some(mut entry) => {
+            Some(entry) => {
                 debug!("Received GroupAck for message ID: {}", entry.0);
                 // stop timer and send ack
-                entry.1.stop();
+                if let Some(mut timer) = entry.1 {
+                    timer.stop();
+                }
                 
                 let ack = Ack {
                     original_message_id: entry.0,
@@ -1479,7 +1497,7 @@ impl ControllerService {
         &self,
         config: Option<ClientConfig>,
         mut stream: impl Stream<Item = Result<ControlMessage, Status>> + Unpin + Send + 'static,
-        mut timer_rx: mpsc::Receiver<SessionMessage>,
+        mut timer_rx: Option<mpsc::Receiver<SessionMessage>>,
         tx: mpsc::Sender<Result<ControlMessage, Status>>,
         cancellation_token: CancellationToken,
     ) -> Result<JoinHandle<()>, ControllerError> {
@@ -1546,7 +1564,12 @@ impl ControllerService {
                             }
                         }
                     }
-                    Some(session_msg) = timer_rx.recv() => {
+                    Some(session_msg) = async {
+                        match &mut timer_rx {
+                            Some(rx) => rx.recv().await,
+                            None => std::future::pending().await,
+                        }
+                    } => {
                         match session_msg {
                             SessionMessage::TimerFailure { message_id, message_type: _, name: _, timeouts: _} => {
                                 tracing::info!("got a failure for message id: {}", message_id);
@@ -1624,7 +1647,7 @@ impl ControllerService {
         self.process_control_message_stream(
             Some(config),
             stream.into_inner(),
-            timer_rx,
+            Some(timer_rx),
             tx.clone(),
             cancellation_token.clone(),
         )?;
@@ -1674,13 +1697,8 @@ impl GrpcControllerService for ControllerService {
 
         let cancellation_token = CancellationToken::new();
 
-        let timer_settings =
-            TimerSettings::new(Duration::from_millis(2000), None, Some(0), TimerType::Constant);
-        let (timer_tx, timer_rx) = mpsc::channel::<SessionMessage>(128);
-        let timer_factory = TimerFactory::new(timer_settings, timer_tx.clone());
-        self.inner.timer_factory.write().replace(timer_factory);
-
-        self.process_control_message_stream(None, stream, timer_rx, tx.clone(), cancellation_token.clone())
+        // Server-side connections don't initiate operations requiring acks, so no timer channel needed
+        self.process_control_message_stream(None, stream, None, tx.clone(), cancellation_token.clone())
             .map_err(|e| {
                 error!(error = %e.chain(), "error processing control message stream");
                 Status::unavailable("failed to process control message stream")
