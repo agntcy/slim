@@ -15,8 +15,6 @@
 use slim_auth::errors::AuthError;
 use slim_auth::traits::Verifier;
 use std::sync::Arc;
-use std::sync::OnceLock;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::{RwLock, mpsc};
 
 use display_error_chain::ErrorChainExt;
@@ -36,6 +34,7 @@ use slim_session::session_controller::SessionController;
 use slim_session::{Notification, SessionError as SlimSessionError};
 
 use crate::name::Name;
+use crate::runtime;
 use crate::service_ref::{ServiceRef, get_or_init_global_service};
 
 // Re-export uniffi for proc macros
@@ -44,61 +43,6 @@ use uniffi;
 // ============================================================================
 // UniFFI Type Definitions
 // ============================================================================
-
-/// Global Tokio runtime for async operations
-static GLOBAL_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-
-/// Get or initialize the global Tokio runtime
-///
-/// Configured for FFI workloads with:
-/// - Worker threads: 2x CPU cores (to handle blocking operations better)
-/// - Max blocking threads: 512 (allows high concurrency from FFI calls)
-/// - Named threads for easier debugging
-///
-/// Returns a static reference since the runtime lives for the entire program lifetime.
-/// This is exposed publicly for use by language bindings (e.g., Python) that need
-/// to create `BindingsSessionContext` instances with a runtime.
-pub fn get_runtime() -> &'static tokio::runtime::Runtime {
-    GLOBAL_RUNTIME.get_or_init(|| {
-        // Calculate optimal worker thread count
-        // Use 2x CPU cores for workloads with blocking operations from FFI
-        let num_workers = std::env::var("SLIM_TOKIO_WORKERS")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or_else(|| {
-                let cpus = num_cpus::get();
-                (cpus * 2).max(4) // At least 4 workers, preferably 2x CPUs
-            });
-
-        // Allow configurable max blocking threads (default: 512)
-        let max_blocking = std::env::var("SLIM_MAX_BLOCKING_THREADS")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(512);
-
-        tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(num_workers)
-            .max_blocking_threads(max_blocking)
-            .thread_name_fn(|| {
-                static ATOMIC_ID: AtomicUsize = AtomicUsize::new(0);
-                let id = ATOMIC_ID.fetch_add(1, Ordering::SeqCst);
-                format!("slim-rt-{}", id)
-            })
-            .enable_all()
-            .build()
-            .expect("Failed to create Tokio runtime")
-    })
-}
-
-/// Initialize the crypto provider
-///
-/// This must be called before any TLS operations. It's safe to call multiple times.
-#[uniffi::export]
-pub fn initialize_crypto_provider() {
-    slim_config::tls::provider::initialize_crypto_provider();
-    // Also initialize the global runtime
-    let _ = get_runtime();
-}
 
 /// Build information for the SLIM bindings
 #[derive(Debug, Clone, uniffi::Record)]
@@ -274,8 +218,8 @@ pub fn create_app_with_secret(
     app_name: Arc<Name>,
     shared_secret: String,
 ) -> Result<Arc<BindingsAdapter>, SlimError> {
-    let runtime = get_runtime();
-    runtime.block_on(async { create_app_with_secret_async(app_name, shared_secret).await })
+    runtime::get_runtime()
+        .block_on(async { create_app_with_secret_async(app_name, shared_secret).await })
 }
 
 /// Create an app with the given name and shared secret (async version)
@@ -317,9 +261,6 @@ pub struct BindingsAdapter {
 
     /// Service reference for lifecycle management
     service_ref: ServiceRef,
-
-    /// Tokio runtime for blocking async operations (static lifetime)
-    runtime: &'static tokio::runtime::Runtime,
 }
 
 impl BindingsAdapter {
@@ -368,13 +309,10 @@ impl BindingsAdapter {
         // Create the app
         let (app, rx) = service.create_app(&app_name, identity_provider, identity_verifier)?;
 
-        let runtime = get_runtime();
-
         Ok(Self {
             app: Arc::new(app),
             notification_rx: Arc::new(RwLock::new(rx)),
             service_ref,
-            runtime,
         })
     }
 }
@@ -397,7 +335,7 @@ impl BindingsAdapter {
         config: SessionConfig,
         destination: Arc<Name>,
     ) -> Result<Arc<crate::BindingsSessionContext>, SlimError> {
-        self.runtime
+        runtime::get_runtime()
             .block_on(async { self.create_session_async(config, destination).await })
     }
 
@@ -425,10 +363,7 @@ impl BindingsAdapter {
         completion.await?;
 
         // Create BindingsSessionContext with the runtime
-        Ok(Arc::new(crate::BindingsSessionContext::new(
-            session_ctx,
-            self.runtime,
-        )))
+        Ok(Arc::new(crate::BindingsSessionContext::new(session_ctx)))
     }
 
     /// Delete a session (blocking version for FFI)
@@ -436,8 +371,7 @@ impl BindingsAdapter {
         &self,
         session: Arc<crate::BindingsSessionContext>,
     ) -> Result<(), SlimError> {
-        self.runtime
-            .block_on(async { self.delete_session_async(session).await })
+        runtime::get_runtime().block_on(async { self.delete_session_async(session).await })
     }
 
     /// Delete a session (async version)
@@ -462,8 +396,7 @@ impl BindingsAdapter {
 
     /// Subscribe to a name (blocking version for FFI)
     pub fn subscribe(&self, name: Arc<Name>, connection_id: Option<u64>) -> Result<(), SlimError> {
-        self.runtime
-            .block_on(async { self.subscribe_async(name, connection_id).await })
+        runtime::get_runtime().block_on(async { self.subscribe_async(name, connection_id).await })
     }
 
     /// Subscribe to a name (async version)
@@ -483,8 +416,7 @@ impl BindingsAdapter {
         name: Arc<Name>,
         connection_id: Option<u64>,
     ) -> Result<(), SlimError> {
-        self.runtime
-            .block_on(async { self.unsubscribe_async(name, connection_id).await })
+        runtime::get_runtime().block_on(async { self.unsubscribe_async(name, connection_id).await })
     }
 
     /// Unsubscribe from a name (async version)
@@ -500,8 +432,7 @@ impl BindingsAdapter {
 
     /// Set a route to a name for a specific connection (blocking version for FFI)
     pub fn set_route(&self, name: Arc<Name>, connection_id: u64) -> Result<(), SlimError> {
-        self.runtime
-            .block_on(async { self.set_route_async(name, connection_id).await })
+        runtime::get_runtime().block_on(async { self.set_route_async(name, connection_id).await })
     }
 
     /// Set a route to a name for a specific connection (async version)
@@ -517,7 +448,7 @@ impl BindingsAdapter {
 
     /// Remove a route (blocking version for FFI)
     pub fn remove_route(&self, name: Arc<Name>, connection_id: u64) -> Result<(), SlimError> {
-        self.runtime
+        runtime::get_runtime()
             .block_on(async { self.remove_route_async(name, connection_id).await })
     }
 
@@ -537,8 +468,7 @@ impl BindingsAdapter {
         &self,
         timeout: Option<std::time::Duration>,
     ) -> Result<Arc<crate::BindingsSessionContext>, SlimError> {
-        self.runtime
-            .block_on(async { self.listen_for_session_async(timeout).await })
+        runtime::get_runtime().block_on(async { self.listen_for_session_async(timeout).await })
     }
 
     /// Listen for incoming sessions (async version)
@@ -569,10 +499,9 @@ impl BindingsAdapter {
         }
 
         match notification_opt.unwrap() {
-            Ok(Notification::NewSession(ctx)) => Ok(Arc::new(crate::BindingsSessionContext::new(
-                ctx,
-                self.runtime,
-            ))),
+            Ok(Notification::NewSession(ctx)) => {
+                Ok(Arc::new(crate::BindingsSessionContext::new(ctx)))
+            }
             Ok(Notification::NewMessage(_)) => Err(SlimError::ReceiveError {
                 message: "received unexpected message notification while listening for session"
                     .to_string(),
@@ -592,8 +521,7 @@ impl BindingsAdapter {
     /// * `Ok(())` - Server started successfully
     /// * `Err(SlimError)` - If server startup fails
     pub fn run_server(&self, config: ServerConfig) -> Result<(), SlimError> {
-        self.runtime
-            .block_on(async { self.run_server_async(config).await })
+        runtime::get_runtime().block_on(async { self.run_server_async(config).await })
     }
 
     /// Run a SLIM server (async version)
@@ -655,8 +583,7 @@ impl BindingsAdapter {
     /// * `Ok(connection_id)` - Connected successfully, returns the connection ID
     /// * `Err(SlimError)` - If connection fails
     pub fn connect(&self, config: ClientConfig) -> Result<u64, SlimError> {
-        self.runtime
-            .block_on(async { self.connect_async(config).await })
+        runtime::get_runtime().block_on(async { self.connect_async(config).await })
     }
 
     /// Connect to a SLIM server (async version)
@@ -721,8 +648,7 @@ impl BindingsAdapter {
     /// * `Ok(())` - Disconnected successfully
     /// * `Err(SlimError)` - If disconnection fails
     pub fn disconnect(&self, connection_id: u64) -> Result<(), SlimError> {
-        self.runtime
-            .block_on(async { self.disconnect_async(connection_id).await })
+        runtime::get_runtime().block_on(async { self.disconnect_async(connection_id).await })
     }
 
     /// Disconnect from a SLIM server (async version)
@@ -762,7 +688,6 @@ pub struct FfiCompletionHandle {
             Option<tokio::sync::oneshot::Receiver<Result<(), slim_session::SessionError>>>,
         >,
     >,
-    runtime: &'static tokio::runtime::Runtime,
 }
 
 impl std::fmt::Debug for FfiCompletionHandle {
@@ -776,21 +701,17 @@ impl std::fmt::Debug for FfiCompletionHandle {
 
 impl FfiCompletionHandle {
     /// Create a new FFI completion handle from a Rust CompletionHandle
-    pub fn new(
-        handle: slim_session::CompletionHandle,
-        runtime: &'static tokio::runtime::Runtime,
-    ) -> Self {
+    pub fn new(handle: slim_session::CompletionHandle) -> Self {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         // Spawn a task to await the completion and send the result
-        runtime.spawn(async move {
+        runtime::get_runtime().spawn(async move {
             let result = handle.await;
             let _ = tx.send(result);
         });
 
         Self {
             receiver: Arc::new(parking_lot::Mutex::new(Some(rx))),
-            runtime,
         }
     }
 }
@@ -810,7 +731,7 @@ impl FfiCompletionHandle {
     /// * `Ok(())` - Operation completed successfully
     /// * `Err(SlimError)` - Operation failed or handle already consumed
     pub fn wait(&self) -> Result<(), SlimError> {
-        self.runtime.block_on(self.wait_async())
+        runtime::get_runtime().block_on(self.wait_async())
     }
 
     /// Wait for the operation to complete with a timeout (blocking version)
@@ -830,7 +751,7 @@ impl FfiCompletionHandle {
     /// * `Err(SlimError::Timeout)` - If the operation timed out
     /// * `Err(SlimError)` - Operation failed or handle already consumed
     pub fn wait_for(&self, timeout: std::time::Duration) -> Result<(), SlimError> {
-        self.runtime.block_on(self.wait_for_async(timeout))
+        runtime::get_runtime().block_on(self.wait_for_async(timeout))
     }
 
     /// Wait for the operation to complete indefinitely (async version)
@@ -1032,12 +953,10 @@ mod tests {
     /// Test FfiCompletionHandle basic functionality
     #[tokio::test]
     async fn test_completion_handle_success() {
-        let runtime = get_runtime();
-
         // Create a successful completion
         let (tx, rx) = tokio::sync::oneshot::channel();
         let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
-        let ffi_handle = FfiCompletionHandle::new(completion, runtime);
+        let ffi_handle = FfiCompletionHandle::new(completion);
 
         // Send success
         tx.send(Ok(())).unwrap();
@@ -1050,12 +969,10 @@ mod tests {
     /// Test FfiCompletionHandle failure propagation
     #[tokio::test]
     async fn test_completion_handle_failure() {
-        let runtime = get_runtime();
-
         // Create a failed completion
         let (tx, rx) = tokio::sync::oneshot::channel();
         let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
-        let ffi_handle = FfiCompletionHandle::new(completion, runtime);
+        let ffi_handle = FfiCompletionHandle::new(completion);
 
         // Send error
         tx.send(Err(slim_session::SessionError::SlimMessageSendFailed))
@@ -1069,11 +986,9 @@ mod tests {
     /// Test FfiCompletionHandle can only be consumed once
     #[tokio::test]
     async fn test_completion_handle_single_consumption() {
-        let runtime = get_runtime();
-
         let (tx, rx) = tokio::sync::oneshot::channel();
         let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
-        let ffi_handle = Arc::new(FfiCompletionHandle::new(completion, runtime));
+        let ffi_handle = Arc::new(FfiCompletionHandle::new(completion));
 
         tx.send(Ok(())).unwrap();
 
@@ -1096,11 +1011,9 @@ mod tests {
     /// Test FfiCompletionHandle async version
     #[tokio::test]
     async fn test_completion_handle_async() {
-        let runtime = get_runtime();
-
         let (tx, rx) = tokio::sync::oneshot::channel();
         let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
-        let ffi_handle = FfiCompletionHandle::new(completion, runtime);
+        let ffi_handle = FfiCompletionHandle::new(completion);
 
         // Send success in a separate task
         tokio::spawn(async move {
@@ -1116,11 +1029,9 @@ mod tests {
     /// Test FfiCompletionHandle with dropped sender
     #[tokio::test]
     async fn test_completion_handle_sender_dropped() {
-        let runtime = get_runtime();
-
         let (_tx, rx) = tokio::sync::oneshot::channel();
         let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
-        let ffi_handle = FfiCompletionHandle::new(completion, runtime);
+        let ffi_handle = FfiCompletionHandle::new(completion);
 
         // Drop the sender explicitly
         drop(_tx);
@@ -1162,7 +1073,6 @@ mod tests {
     async fn test_completion_handle_concurrent() {
         use std::sync::atomic::{AtomicU32, Ordering};
 
-        let runtime = get_runtime();
         let success_count = Arc::new(AtomicU32::new(0));
         let mut handles = vec![];
 
@@ -1170,7 +1080,7 @@ mod tests {
         for _ in 0..10 {
             let (tx, rx) = tokio::sync::oneshot::channel();
             let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
-            let ffi_handle = Arc::new(FfiCompletionHandle::new(completion, runtime));
+            let ffi_handle = Arc::new(FfiCompletionHandle::new(completion));
 
             let count = Arc::clone(&success_count);
             let handle = tokio::spawn(async move {
@@ -1198,15 +1108,13 @@ mod tests {
     /// Test FfiCompletionHandle with timeout
     #[tokio::test]
     async fn test_completion_handle_with_timeout() {
-        let runtime = get_runtime();
-
         // Create a completion that will never complete (sender not sent)
         // NOTE: We must hold onto `tx` so the channel stays open.
         // If we use `_tx`, it gets dropped immediately and the receiver
         // returns RecvError instead of timing out.
         let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), SlimSessionError>>();
         let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
-        let ffi_handle = FfiCompletionHandle::new(completion, runtime);
+        let ffi_handle = FfiCompletionHandle::new(completion);
 
         // Wait with a short timeout - should timeout
         let result = ffi_handle
@@ -1230,11 +1138,9 @@ mod tests {
     /// Test FfiCompletionHandle with timeout that completes in time
     #[tokio::test]
     async fn test_completion_handle_timeout_success() {
-        let runtime = get_runtime();
-
         let (tx, rx) = tokio::sync::oneshot::channel();
         let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
-        let ffi_handle = FfiCompletionHandle::new(completion, runtime);
+        let ffi_handle = FfiCompletionHandle::new(completion);
 
         // Send success immediately
         tx.send(Ok(())).unwrap();
@@ -1353,52 +1259,6 @@ mod tests {
                     println!("Expected error without network: {:?}", e);
                 }
             }
-        }
-    }
-
-    /// Test runtime configuration
-    #[test]
-    fn test_runtime_configuration() {
-        let runtime = get_runtime();
-
-        // Verify runtime was created (not null)
-        // Runtime is static, so just verify we can access it
-        let _handle = runtime.handle();
-
-        // Runtime should be accessible multiple times (returns same instance)
-        let runtime2 = get_runtime();
-        assert!(std::ptr::eq(runtime, runtime2));
-    }
-
-    /// Test environment variable configuration
-    #[test]
-    #[allow(clippy::disallowed_methods)]
-    fn test_env_var_configuration() {
-        // Set environment variables
-        unsafe {
-            std::env::set_var("SLIM_TOKIO_WORKERS", "8");
-            std::env::set_var("SLIM_MAX_BLOCKING_THREADS", "256");
-        }
-
-        // Note: These won't affect already-initialized runtime,
-        // but we can verify parsing works
-        let workers: usize = std::env::var("SLIM_TOKIO_WORKERS")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(4);
-
-        let max_blocking: usize = std::env::var("SLIM_MAX_BLOCKING_THREADS")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(512);
-
-        assert_eq!(workers, 8);
-        assert_eq!(max_blocking, 256);
-
-        // Clean up
-        unsafe {
-            std::env::remove_var("SLIM_TOKIO_WORKERS");
-            std::env::remove_var("SLIM_MAX_BLOCKING_THREADS");
         }
     }
 
@@ -1741,9 +1601,9 @@ mod tests {
     #[test]
     fn test_initialize_crypto_provider_idempotent() {
         // Should not panic when called multiple times
-        initialize_crypto_provider();
-        initialize_crypto_provider();
-        initialize_crypto_provider();
+        crate::common::initialize_crypto_provider();
+        crate::common::initialize_crypto_provider();
+        crate::common::initialize_crypto_provider();
     }
 
     // ========================================================================

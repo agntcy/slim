@@ -27,24 +27,21 @@ pub struct BindingsSessionContext {
     pub session: std::sync::Weak<SessionController>,
     /// Message receiver wrapped in RwLock for concurrent access
     pub rx: RwLock<slim_session::AppChannelReceiver>,
-    /// Tokio runtime for blocking operations (static lifetime)
-    runtime: &'static tokio::runtime::Runtime,
 }
 
 impl BindingsSessionContext {
     /// Create a new BindingsSessionContext from a SessionContext and runtime
-    pub fn new(ctx: SessionContext, runtime: &'static tokio::runtime::Runtime) -> Self {
+    pub fn new(ctx: SessionContext) -> Self {
         let (session, rx) = ctx.into_parts();
         Self {
             session,
             rx: RwLock::new(rx),
-            runtime,
         }
     }
 
     /// Get the runtime (for internal use)
     pub fn runtime(&self) -> &'static tokio::runtime::Runtime {
-        self.runtime
+        crate::runtime::get_runtime()
     }
 }
 
@@ -197,7 +194,7 @@ impl BindingsSessionContext {
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<(), SlimError> {
-        self.runtime
+        self.runtime()
             .block_on(async { self.publish_async(data, payload_type, metadata).await })
     }
 
@@ -261,7 +258,7 @@ impl BindingsSessionContext {
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<Arc<FfiCompletionHandle>, SlimError> {
-        self.runtime.block_on(async {
+        self.runtime().block_on(async {
             self.publish_with_completion_async(data, payload_type, metadata)
                 .await
         })
@@ -294,7 +291,7 @@ impl BindingsSessionContext {
             )
             .await?;
 
-        Ok(Arc::new(FfiCompletionHandle::new(completion, self.runtime)))
+        Ok(Arc::new(FfiCompletionHandle::new(completion)))
     }
 
     /// Publish a reply message to the originator of a received message (blocking version for FFI)
@@ -319,7 +316,7 @@ impl BindingsSessionContext {
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<(), SlimError> {
-        self.runtime.block_on(async {
+        self.runtime().block_on(async {
             self.publish_to_async(message_context, data, payload_type, metadata)
                 .await
         })
@@ -361,7 +358,7 @@ impl BindingsSessionContext {
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<Arc<FfiCompletionHandle>, SlimError> {
-        self.runtime.block_on(async {
+        self.runtime().block_on(async {
             self.publish_to_with_completion_async(message_context, data, payload_type, metadata)
                 .await
         })
@@ -379,7 +376,7 @@ impl BindingsSessionContext {
             .publish_to_internal(&message_context, data, payload_type, metadata)
             .await?;
 
-        Ok(Arc::new(FfiCompletionHandle::new(completion, self.runtime)))
+        Ok(Arc::new(FfiCompletionHandle::new(completion)))
     }
 
     /// Low-level publish with full control over all parameters (blocking version for FFI)
@@ -403,7 +400,7 @@ impl BindingsSessionContext {
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<(), SlimError> {
-        self.runtime.block_on(async {
+        self.runtime().block_on(async {
             self.publish_with_params_async(
                 destination,
                 fanout,
@@ -451,7 +448,7 @@ impl BindingsSessionContext {
     /// * `Ok(ReceivedMessage)` - Message with context and payload bytes
     /// * `Err(SlimError)` - If the receive fails or times out
     pub fn get_message(&self, timeout_ms: Option<u32>) -> Result<ReceivedMessage, SlimError> {
-        self.runtime
+        self.runtime()
             .block_on(async { self.get_message_async(timeout_ms).await })
     }
 
@@ -475,7 +472,7 @@ impl BindingsSessionContext {
     /// **Auto-waits for completion:** This method automatically waits for the
     /// invitation to be sent and acknowledged before returning.
     pub fn invite(&self, participant: Arc<Name>) -> Result<(), SlimError> {
-        self.runtime
+        self.runtime()
             .block_on(async { self.invite_async(participant).await })
     }
 
@@ -499,7 +496,7 @@ impl BindingsSessionContext {
     /// **Auto-waits for completion:** This method automatically waits for the
     /// removal to be processed and acknowledged before returning.
     pub fn remove(&self, participant: Arc<Name>) -> Result<(), SlimError> {
-        self.runtime
+        self.runtime()
             .block_on(async { self.remove_async(participant).await })
     }
 
@@ -596,11 +593,6 @@ mod tests {
     use std::time::Duration;
     use tokio::sync::mpsc;
 
-    /// Get the shared test runtime (uses global runtime)
-    fn get_test_runtime() -> &'static tokio::runtime::Runtime {
-        crate::adapter::get_runtime()
-    }
-
     /// Helper to create SlimName for proto message construction
     fn make_slim_name(parts: [&str; 3]) -> SlimName {
         SlimName::from_strings(parts).with_id(0)
@@ -621,11 +613,9 @@ mod tests {
         mpsc::UnboundedSender<Result<ProtoMessage, SessionError>>,
     ) {
         let (tx, rx) = mpsc::unbounded_channel::<Result<ProtoMessage, SessionError>>();
-        let runtime = get_test_runtime();
         let ctx = BindingsSessionContext {
             session: std::sync::Weak::new(),
             rx: RwLock::new(rx),
-            runtime,
         };
         (ctx, tx)
     }

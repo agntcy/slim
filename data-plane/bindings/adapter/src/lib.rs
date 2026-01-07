@@ -41,20 +41,23 @@
 
 // Module declarations
 pub mod adapter;
+pub mod common;
 mod message_context;
 pub mod name;
+pub mod runtime;
 mod service_ref;
 pub mod session_context;
-
-pub use name::Name;
 
 // Public re-exports
 pub use adapter::{
     BindingsAdapter, BuildInfo, ClientConfig, FfiCompletionHandle, ReceivedMessage, ServerConfig,
     SessionConfig, SessionType, SlimError, TlsConfig, create_app_with_secret, get_build_info,
-    get_runtime, get_version, initialize_crypto_provider,
+    get_version,
 };
+pub use common::initialize_crypto_provider;
 pub use message_context::MessageContext;
+pub use name::Name;
+pub use runtime::get_runtime;
 pub use service_ref::{ServiceRef, get_or_init_global_service};
 pub use session_context::BindingsSessionContext;
 
