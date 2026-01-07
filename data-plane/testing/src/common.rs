@@ -26,7 +26,8 @@ pub async fn run_slim_node() -> Result<(), ServiceError> {
         GrpcServerConfig::with_endpoint(&format!("0.0.0.0:{}", DEFAULT_DATAPLANE_PORT))
             .with_tls_settings(TlsServerConfig::default().with_insecure(true));
 
-    let service_config = ServiceConfiguration::new().with_server(vec![dataplane_server_config]);
+    let service_config =
+        ServiceConfiguration::new().with_dataplane_server(vec![dataplane_server_config]);
 
     let svc_id = ID::new_with_str(DEFAULT_SERVICE_ID).unwrap();
     let mut service = service_config.build_server(svc_id.clone())?;
@@ -72,9 +73,9 @@ pub async fn create_and_subscribe_app(
     svc.run().await?;
 
     let conn_id = svc
-        .get_connection_id(&svc.config().clients()[0].endpoint)
+        .get_connection_id(&svc.config().dataplane_clients()[0].endpoint)
         .ok_or(ServiceError::ConnectionNotFoundForEndpoint(
-            svc.config().clients()[0].endpoint.clone(),
+            svc.config().dataplane_clients()[0].endpoint.clone(),
         ))?;
 
     app.subscribe(name, Some(conn_id)).await?;

@@ -131,7 +131,7 @@ func runParticipant(app *slim.BindingsAdapter, instance uint64) {
 	fmt.Printf("%s[%d]%s 👂 Waiting for incoming group session invitation...\n", colorCyan, instance, colorReset)
 
 	// Wait for incoming session
-	timeout := uint32(60000) // 60 seconds
+	timeout := time.Second * 60 // 60 seconds timeout
 	session, err := app.ListenForSession(&timeout)
 	if err != nil {
 		log.Fatalf("Failed to receive session: %v", err)

@@ -59,12 +59,20 @@ impl ModeratorTask {
         }
     }
 
-    pub(crate) fn failure_message(&self) -> SessionError {
+    pub(crate) fn failure_message(&self, err: SessionError) -> SessionError {
         match self {
-            ModeratorTask::Add(_) => SessionError::ModeratorTaskAddFailed,
-            ModeratorTask::Remove(_) => SessionError::ModeratorTaskRemoveFailed,
-            ModeratorTask::Update(_) => SessionError::ModeratorTaskUpdateFailed,
-            ModeratorTask::CloseOrDisconnect(_) => SessionError::ModeratorTaskCloseFailed,
+            ModeratorTask::Add(_) => SessionError::ModeratorTaskAddFailed {
+                source: Box::new(err),
+            },
+            ModeratorTask::Remove(_) => SessionError::ModeratorTaskRemoveFailed {
+                source: Box::new(err),
+            },
+            ModeratorTask::Update(_) => SessionError::ModeratorTaskUpdateFailed {
+                source: Box::new(err),
+            },
+            ModeratorTask::CloseOrDisconnect(_) => SessionError::ModeratorTaskCloseFailed {
+                source: Box::new(err),
+            },
         }
     }
     pub(crate) fn ack_msg(&self) -> Option<&Message> {

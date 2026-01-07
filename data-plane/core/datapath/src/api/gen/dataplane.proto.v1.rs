@@ -220,7 +220,7 @@ pub struct LeaveRequestPayload {
 /// Leave Reply
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct LeaveReplyPayload {}
-/// MLS payaload to add to the group
+/// MLS payload to add to the group
 /// messages when mls is active
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct MlsPayload {

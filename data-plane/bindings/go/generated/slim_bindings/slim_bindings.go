@@ -1,6 +1,14 @@
 package slim_bindings
 
-// #include <slim_bindings.h>
+/*
+#cgo CFLAGS: -I${SRCDIR}
+#cgo linux,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../../.cache/slim-bindings -lslim_bindings_x86_64_linux_gnu -lm
+#cgo linux,arm64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../../.cache/slim-bindings -lslim_bindings_aarch64_linux_gnu -lm
+#cgo darwin,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../../.cache/slim-bindings -lslim_bindings_x86_64_darwin -Wl,-undefined,dynamic_lookup
+#cgo darwin,arm64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../../.cache/slim-bindings -lslim_bindings_aarch64_darwin -Wl,-undefined,dynamic_lookup
+#cgo windows,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../../AppData/Local/slim-bindings -lslim_bindings_x86_64_windows_gnu -lws2_32 -lbcrypt -ladvapi32 -luserenv -lntdll -lgcc_eh -lgcc -lkernel32 -lole32
+#include <slim_bindings.h>
+*/
 import "C"
 
 import (
@@ -469,7 +477,7 @@ func uniffiCheckChecksums() {
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_bindings_checksum_method_bindingsadapter_listen_for_session()
 		})
-		if checksum != 17892 {
+		if checksum != 47253 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingsadapter_listen_for_session: UniFFI API checksum mismatch")
 		}
@@ -478,7 +486,7 @@ func uniffiCheckChecksums() {
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_bindings_checksum_method_bindingsadapter_listen_for_session_async()
 		})
-		if checksum != 38361 {
+		if checksum != 32970 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingsadapter_listen_for_session_async: UniFFI API checksum mismatch")
 		}
@@ -1140,9 +1148,9 @@ type BindingsAdapterInterface interface {
 	// Get the app ID (derived from name)
 	Id() uint64
 	// Listen for incoming sessions (blocking version for FFI)
-	ListenForSession(timeoutMs *uint32) (*BindingsSessionContext, error)
+	ListenForSession(timeout *time.Duration) (*BindingsSessionContext, error)
 	// Listen for incoming sessions (async version)
-	ListenForSessionAsync(timeoutMs *uint32) (*BindingsSessionContext, error)
+	ListenForSessionAsync(timeout *time.Duration) (*BindingsSessionContext, error)
 	// Get the app name
 	Name() Name
 	// Remove a route (blocking version for FFI)
@@ -1398,12 +1406,12 @@ func (_self *BindingsAdapter) Id() uint64 {
 }
 
 // Listen for incoming sessions (blocking version for FFI)
-func (_self *BindingsAdapter) ListenForSession(timeoutMs *uint32) (*BindingsSessionContext, error) {
+func (_self *BindingsAdapter) ListenForSession(timeout *time.Duration) (*BindingsSessionContext, error) {
 	_pointer := _self.ffiObject.incrementPointer("*BindingsAdapter")
 	defer _self.ffiObject.decrementPointer()
 	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
 		return C.uniffi_slim_bindings_fn_method_bindingsadapter_listen_for_session(
-			_pointer, FfiConverterOptionalUint32INSTANCE.Lower(timeoutMs), _uniffiStatus)
+			_pointer, FfiConverterOptionalDurationINSTANCE.Lower(timeout), _uniffiStatus)
 	})
 	if _uniffiErr != nil {
 		var _uniffiDefaultValue *BindingsSessionContext
@@ -1414,7 +1422,7 @@ func (_self *BindingsAdapter) ListenForSession(timeoutMs *uint32) (*BindingsSess
 }
 
 // Listen for incoming sessions (async version)
-func (_self *BindingsAdapter) ListenForSessionAsync(timeoutMs *uint32) (*BindingsSessionContext, error) {
+func (_self *BindingsAdapter) ListenForSessionAsync(timeout *time.Duration) (*BindingsSessionContext, error) {
 	_pointer := _self.ffiObject.incrementPointer("*BindingsAdapter")
 	defer _self.ffiObject.decrementPointer()
 	res, err := uniffiRustCallAsync[SlimError](
@@ -1429,7 +1437,7 @@ func (_self *BindingsAdapter) ListenForSessionAsync(timeoutMs *uint32) (*Binding
 			return FfiConverterBindingsSessionContextINSTANCE.Lift(ffi)
 		},
 		C.uniffi_slim_bindings_fn_method_bindingsadapter_listen_for_session_async(
-			_pointer, FfiConverterOptionalUint32INSTANCE.Lower(timeoutMs)),
+			_pointer, FfiConverterOptionalDurationINSTANCE.Lower(timeout)),
 		// pollFn
 		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
 			C.ffi_slim_bindings_rust_future_poll_pointer(handle, continuation, data)
@@ -3204,7 +3212,7 @@ func (err SlimError) Unwrap() error {
 }
 
 // Err* are used for checking error type with `errors.Is`
-var ErrSlimErrorConfigError = fmt.Errorf("SlimErrorConfigError")
+var ErrSlimErrorServiceError = fmt.Errorf("SlimErrorServiceError")
 var ErrSlimErrorSessionError = fmt.Errorf("SlimErrorSessionError")
 var ErrSlimErrorReceiveError = fmt.Errorf("SlimErrorReceiveError")
 var ErrSlimErrorSendError = fmt.Errorf("SlimErrorSendError")
@@ -3214,23 +3222,23 @@ var ErrSlimErrorInvalidArgument = fmt.Errorf("SlimErrorInvalidArgument")
 var ErrSlimErrorInternalError = fmt.Errorf("SlimErrorInternalError")
 
 // Variant structs
-type SlimErrorConfigError struct {
+type SlimErrorServiceError struct {
 	Message string
 }
 
-func NewSlimErrorConfigError(
+func NewSlimErrorServiceError(
 	message string,
 ) *SlimError {
-	return &SlimError{err: &SlimErrorConfigError{
+	return &SlimError{err: &SlimErrorServiceError{
 		Message: message}}
 }
 
-func (e SlimErrorConfigError) destroy() {
+func (e SlimErrorServiceError) destroy() {
 	FfiDestroyerString{}.Destroy(e.Message)
 }
 
-func (err SlimErrorConfigError) Error() string {
-	return fmt.Sprint("ConfigError",
+func (err SlimErrorServiceError) Error() string {
+	return fmt.Sprint("ServiceError",
 		": ",
 
 		"Message=",
@@ -3238,8 +3246,8 @@ func (err SlimErrorConfigError) Error() string {
 	)
 }
 
-func (self SlimErrorConfigError) Is(target error) bool {
-	return target == ErrSlimErrorConfigError
+func (self SlimErrorServiceError) Is(target error) bool {
+	return target == ErrSlimErrorServiceError
 }
 
 type SlimErrorSessionError struct {
@@ -3445,7 +3453,7 @@ func (c FfiConverterSlimError) Read(reader io.Reader) *SlimError {
 
 	switch errorID {
 	case 1:
-		return &SlimError{&SlimErrorConfigError{
+		return &SlimError{&SlimErrorServiceError{
 			Message: FfiConverterStringINSTANCE.Read(reader),
 		}}
 	case 2:
@@ -3481,7 +3489,7 @@ func (c FfiConverterSlimError) Read(reader io.Reader) *SlimError {
 
 func (c FfiConverterSlimError) Write(writer io.Writer, value *SlimError) {
 	switch variantValue := value.err.(type) {
-	case *SlimErrorConfigError:
+	case *SlimErrorServiceError:
 		writeInt32(writer, 1)
 		FfiConverterStringINSTANCE.Write(writer, variantValue.Message)
 	case *SlimErrorSessionError:
@@ -3514,7 +3522,7 @@ type FfiDestroyerSlimError struct{}
 
 func (_ FfiDestroyerSlimError) Destroy(value *SlimError) {
 	switch variantValue := value.err.(type) {
-	case SlimErrorConfigError:
+	case SlimErrorServiceError:
 		variantValue.destroy()
 	case SlimErrorSessionError:
 		variantValue.destroy()
@@ -3681,6 +3689,43 @@ type FfiDestroyerOptionalString struct{}
 func (_ FfiDestroyerOptionalString) Destroy(value *string) {
 	if value != nil {
 		FfiDestroyerString{}.Destroy(*value)
+	}
+}
+
+type FfiConverterOptionalDuration struct{}
+
+var FfiConverterOptionalDurationINSTANCE = FfiConverterOptionalDuration{}
+
+func (c FfiConverterOptionalDuration) Lift(rb RustBufferI) *time.Duration {
+	return LiftFromRustBuffer[*time.Duration](c, rb)
+}
+
+func (_ FfiConverterOptionalDuration) Read(reader io.Reader) *time.Duration {
+	if readInt8(reader) == 0 {
+		return nil
+	}
+	temp := FfiConverterDurationINSTANCE.Read(reader)
+	return &temp
+}
+
+func (c FfiConverterOptionalDuration) Lower(value *time.Duration) C.RustBuffer {
+	return LowerIntoRustBuffer[*time.Duration](c, value)
+}
+
+func (_ FfiConverterOptionalDuration) Write(writer io.Writer, value *time.Duration) {
+	if value == nil {
+		writeInt8(writer, 0)
+	} else {
+		writeInt8(writer, 1)
+		FfiConverterDurationINSTANCE.Write(writer, *value)
+	}
+}
+
+type FfiDestroyerOptionalDuration struct{}
+
+func (_ FfiDestroyerOptionalDuration) Destroy(value *time.Duration) {
+	if value != nil {
+		FfiDestroyerDuration{}.Destroy(*value)
 	}
 }
 

@@ -253,7 +253,7 @@ tasks:
     deps:
       - task: toolchain:build:install-cargo-components
         vars:
-          COMPONENTS: "cargo-machete@0.7.0"
+          COMPONENTS: "cargo-machete"
     cmds:
       - cargo machete {{.ARGS}}
     vars:
@@ -277,7 +277,7 @@ tasks:
     deps:
       - task: toolchain:build:install-cargo-components
         vars:
-          COMPONENTS: "cargo-deny@0.17.0"
+          COMPONENTS: "cargo-deny"
     cmds:
       - cargo deny check {{.ARGS}}
     vars:

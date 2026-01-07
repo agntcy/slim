@@ -435,12 +435,12 @@ uint64_t uniffi_slim_bindings_fn_method_bindingsadapter_id(void* ptr, RustCallSt
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_LISTEN_FOR_SESSION
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_LISTEN_FOR_SESSION
-void* uniffi_slim_bindings_fn_method_bindingsadapter_listen_for_session(void* ptr, RustBuffer timeout_ms, RustCallStatus *out_status
+void* uniffi_slim_bindings_fn_method_bindingsadapter_listen_for_session(void* ptr, RustBuffer timeout, RustCallStatus *out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_LISTEN_FOR_SESSION_ASYNC
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_LISTEN_FOR_SESSION_ASYNC
-uint64_t uniffi_slim_bindings_fn_method_bindingsadapter_listen_for_session_async(void* ptr, RustBuffer timeout_ms
+uint64_t uniffi_slim_bindings_fn_method_bindingsadapter_listen_for_session_async(void* ptr, RustBuffer timeout
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_NAME
@@ -1271,5 +1271,10 @@ uint32_t ffi_slim_bindings_uniffi_contract_version(void
 #endif
 
 
+#ifdef _WIN32
+__declspec(dllexport) void slim_bindings_uniffiFutureContinuationCallback(uint64_t, int8_t);
+__declspec(dllexport) void slim_bindings_uniffiFreeGorutine(uint64_t);
+#else
 void slim_bindings_uniffiFutureContinuationCallback(uint64_t, int8_t);
 void slim_bindings_uniffiFreeGorutine(uint64_t);
+#endif
