@@ -127,6 +127,33 @@ tasks:
               --scheme stdThirdPartyLocal \
               ./...
 
+
+  collector:vuln:
+    desc: Run go govulncheck
+    deps:
+      - tools
+    cmds:
+      - task: collector:foreach-module
+        vars:
+          CMD: "{{.TOOLS_INSTALL_DIR}}/govulncheck ./..."
+
+  collector:coverage-reports:
+    desc: Check test coverage
+    deps:
+      - tools
+    cmds:
+      - task: collector:foreach-module
+        vars:
+          CMD: |
+            {{.TOOLS_INSTALL_DIR}}/go-acc --output=$(basename  ${dir})-coverage.out ./...
+
+  collector:coverage:
+    desc: Show coverage in browser
+    deps:
+      - collector:coverage-reports
+    cmds:
+      - echo find . -name '*coverage.out' -execdir go tool cover -html=./{} \;
+
   # Docker tasks
   docker:build:
     desc: Build Docker image for the SLIM OpenTelemetry Collector
