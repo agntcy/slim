@@ -42,6 +42,11 @@ use slim_datapath::messages::encoder::calculate_hash;
 use slim_datapath::messages::utils::{DELETE_GROUP, IS_MODERATOR, SlimHeaderFlags, TRUE_VAL};
 use slim_datapath::tables::SubscriptionTable;
 
+use slim_session::timer::TimerType;
+use slim_session::timer_factory::TimerSettings;
+
+use crate::controller_timer_factory::ControllerTimerFactory;
+
 type TxChannel = mpsc::Sender<Result<ControlMessage, Status>>;
 type TxChannels = HashMap<String, TxChannel>;
 
@@ -382,6 +387,10 @@ impl ControlPlane {
                                             Publish(_) => {
                                                 if msg.get_session_message_type() == ProtoSessionMessageType::GroupAck {
                                                     controller.handle_group_ack_message(msg.get_id(), &clients).await;
+                                                } else if msg.get_session_message_type() == ProtoSessionMessageType::GroupNack {
+                                                    controller.handle_group_nack_message(msg.get_id(), &clients).await;
+                                                } else {
+                                                    debug!("Ignoring publish message with session type: {:?}", msg.get_session_message_type());
                                                 }
                                             }
                                         }
@@ -1331,8 +1340,43 @@ impl ControllerService {
         }
     }
 
+    async fn handle_group_nack_message(&self, msg_id: u32, clients: &[ClientConfig]) {
+        let original_message_id = self.inner.message_id_map.write().remove(&msg_id);
+        match original_message_id {
+            Some(id) => {
+                debug!("Received GroupNack for message ID: {}", id);
+                let ack = Ack {
+                    original_message_id: id,
+                    success: false,
+                    messages: vec![msg_id.to_string()],
+                };
+
+                let reply = ControlMessage {
+                    message_id: uuid::Uuid::new_v4().to_string(),
+                    payload: Some(Payload::Ack(ack)),
+                };
+
+                self.send_or_queue_notification(reply, clients).await;
+            }
+            None => {
+                debug!("Received GroupNack for unknown message ID: {}", msg_id);
+            }
+        }
+    }
+
     /// Send a control message to SLIM.
     async fn send_control_message(&self, msg: DataPlaneMessage) -> Result<(), ControllerError> {
+        let settings =
+            TimerSettings::new(Duration::from_millis(2000), None, None, TimerType::Constant);
+        let factory = ControllerTimerFactory::new(settings, self.inner.tx_slim.clone());
+        let timer_id = msg.get_id();
+
+        let _timer = factory.create_and_start_timer(
+            timer_id,
+            ProtoSessionMessageType::GroupNack,
+            self.inner.controller_name.clone(),
+        );
+
         self.inner.tx_slim.send(Ok(msg)).await.map_err(|e| {
             error!(error = %e.chain(), "error sending message into datapath");
             ControllerError::Datapath(slim_datapath::errors::DataPathError::ConnectionError)
