@@ -165,7 +165,7 @@ func (h *TestHarness) runReceiverListener(ctx context.Context, collector *Messag
 			return
 		default:
 			// Listen for incoming session with short timeout
-			timeout := uint32(100) // 100ms
+			timeout := time.Millisecond * 100
 			session, err := h.Receiver.ListenForSession(&timeout)
 			if err != nil {
 				// Timeout is expected, continue

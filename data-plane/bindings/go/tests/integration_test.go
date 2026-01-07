@@ -384,7 +384,7 @@ func TestListenForSessionTimeout(t *testing.T) {
 	app := setupTestApp(t, "listen-timeout-test")
 	defer app.Destroy()
 
-	timeout := uint32(100) // 100ms timeout
+	timeout := 100 * time.Millisecond
 
 	start := time.Now()
 	_, err := app.ListenForSession(&timeout)

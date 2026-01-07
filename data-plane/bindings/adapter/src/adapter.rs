@@ -561,19 +561,17 @@ impl BindingsAdapter {
     /// Listen for incoming sessions (blocking version for FFI)
     pub fn listen_for_session(
         &self,
-        timeout_ms: Option<u32>,
+        timeout: Option<std::time::Duration>,
     ) -> Result<Arc<crate::BindingsSessionContext>, SlimError> {
         self.runtime
-            .block_on(async { self.listen_for_session_async(timeout_ms).await })
+            .block_on(async { self.listen_for_session_async(timeout).await })
     }
 
     /// Listen for incoming sessions (async version)
     pub async fn listen_for_session_async(
         &self,
-        timeout_ms: Option<u32>,
+        timeout: Option<std::time::Duration>,
     ) -> Result<Arc<crate::BindingsSessionContext>, SlimError> {
-        let timeout = timeout_ms.map(|ms| std::time::Duration::from_millis(ms as u64));
-
         let mut rx = self.notification_rx.write().await;
 
         let recv_fut = rx.recv();
@@ -1939,7 +1937,9 @@ mod tests {
             .expect("Failed to create adapter");
 
         // Listen with a very short timeout - should timeout
-        let result = adapter.listen_for_session_async(Some(10)).await;
+        let result = adapter
+            .listen_for_session_async(Some(std::time::Duration::from_millis(10)))
+            .await;
 
         match result {
             Err(SlimError::ReceiveError { message }) => {
@@ -2121,7 +2121,9 @@ mod tests {
             .expect("Failed to create adapter");
 
         // Call async version with short timeout (blocking version can't be called from async context)
-        let result = adapter.listen_for_session_async(Some(10)).await;
+        let result = adapter
+            .listen_for_session_async(Some(std::time::Duration::from_millis(10)))
+            .await;
 
         // Should timeout
         match result {
