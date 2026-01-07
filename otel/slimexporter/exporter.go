@@ -7,14 +7,14 @@ import (
 	"sync"
 	"time"
 
-	slim "github.com/agntcy/slim-bindings-go"
-	common "github.com/agntcy/slim/otel"
-
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.uber.org/zap"
+
+	slim "github.com/agntcy/slim-bindings-go"
+	common "github.com/agntcy/slim/otel"
 )
 
 const (
@@ -90,7 +90,10 @@ type ExporterSessions struct {
 }
 
 // AddSessionForSignal adds a session to the appropriate signal type's session list
-func (e *ExporterSessions) AddSessionForSignal(signalType common.SignalType, session *slim.BindingsSessionContext) error {
+func (e *ExporterSessions) AddSessionForSignal(
+	signalType common.SignalType,
+	session *slim.BindingsSessionContext,
+) error {
 	switch signalType {
 	case common.SignalMetrics:
 		return e.metricsSessions.AddSession(session)
@@ -134,7 +137,7 @@ func (e *ExporterSessions) RemoveAllSessionsForSignal(signalType common.SignalTy
 	sessions.mutex.Lock()
 	defer sessions.mutex.Unlock()
 	for id, session := range sessions.sessions {
-		e.app.DeleteSession(session)
+		_ = e.app.DeleteSession(session)
 		delete(sessions.sessions, id)
 	}
 }
@@ -185,7 +188,13 @@ func getOrCreateApp(localID string, serverAddr string, secret string) (*slim.Bin
 
 // createSessionAndInvite creates a session for the given channel and signal,
 // and invites the participants specified in the config
-func createSessionAndInvite(app *slim.BindingsAdapter, connID uint64, config SessionConfig, channel string, signal string) (*slim.BindingsSessionContext, error) {
+func createSessionAndInvite(
+	app *slim.BindingsAdapter,
+	connID uint64,
+	config SessionConfig,
+	channel string,
+	signal string,
+) (*slim.BindingsSessionContext, error) {
 	channel = fmt.Sprintf("%s-%s", channel, signal)
 	name, err := common.SplitID(channel)
 	if err != nil {
@@ -212,7 +221,9 @@ func createSessionAndInvite(app *slim.BindingsAdapter, connID uint64, config Ses
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse participant name %s: %w", participant, err)
 		}
-		app.SetRoute(participantName, connID)
+		if err := app.SetRoute(participantName, connID); err != nil {
+			return nil, fmt.Errorf("failed to set route for participant %s: %w", participant, err)
+		}
 		if err := session.Invite(participantName); err != nil {
 			return nil, fmt.Errorf("failed to invite participant %s: %w", participant, err)
 		}
@@ -256,7 +267,8 @@ func listenForAllSessions(ctx context.Context, app *slim.BindingsAdapter, logger
 
 			// Check the third component (index 2) of the session name
 			if len(sessionName.Components) < 3 {
-				logger.Error("Received session with invalid name structure", zap.Int("components_count", len(sessionName.Components)))
+				logger.Error("Received session with invalid name structure",
+					zap.Int("components_count", len(sessionName.Components)))
 				continue
 			}
 
@@ -265,7 +277,9 @@ func listenForAllSessions(ctx context.Context, app *slim.BindingsAdapter, logger
 			// Determine signal type from suffix and assign to appropriate exporter
 			assignedSignal, err := common.ExtractSignalType(channelComponent)
 			if err != nil {
-				logger.Error("Received session with unrecognized suffix", zap.String("session_name", channelComponent), zap.Error(err))
+				logger.Error("Received session with unrecognized suffix",
+					zap.String("session_name", channelComponent),
+					zap.Error(err))
 				continue
 			}
 
@@ -301,7 +315,7 @@ func newSlimExporter(cfg *Config, logger *zap.Logger, signalType common.SignalTy
 }
 
 // start is invoked during service startup
-func (e *slimExporter) start(ctx context.Context, host component.Host) error {
+func (e *slimExporter) start(ctx context.Context, _ component.Host) error {
 	e.logger.Info("Starting Slim exporter",
 		zap.String("endpoint", e.config.SlimEndpoint),
 		zap.String("local-name", e.config.LocalName),
@@ -315,7 +329,9 @@ func (e *slimExporter) start(ctx context.Context, host component.Host) error {
 			if signal == string(e.signalType) {
 				session, err := createSessionAndInvite(app, connID, sessionCfg, sessionCfg.ChannelName, signal)
 				if err != nil {
-					return fmt.Errorf("failed to create and invite session for channel %s and signal %s: %w", sessionCfg.ChannelName, signal, err)
+					return fmt.Errorf(
+						"failed to create and invite session for channel %s and signal %s: %w",
+						sessionCfg.ChannelName, signal, err)
 				}
 				e.logger.Info("Session created and participants invited",
 					zap.String("channel", sessionCfg.ChannelName),
@@ -340,7 +356,7 @@ func (e *slimExporter) start(ctx context.Context, host component.Host) error {
 }
 
 // shutdown is invoked during service shutdown
-func (e *slimExporter) shutdown(ctx context.Context) error {
+func (e *slimExporter) shutdown(_ context.Context) error {
 	e.logger.Info("Shutting down Slim exporter", zap.String("signal", string(e.signalType)))
 
 	// Update shared data and close the app if all sessions are nil
@@ -368,7 +384,7 @@ func (e *slimExporter) shutdown(ctx context.Context) error {
 }
 
 // pushTraces exports trace data
-func (e *slimExporter) pushTraces(ctx context.Context, td ptrace.Traces) error {
+func (e *slimExporter) pushTraces(_ context.Context, td ptrace.Traces) error {
 	marshaler := ptrace.ProtoMarshaler{}
 	message, err := marshaler.MarshalTraces(td)
 	if err != nil {
@@ -380,7 +396,7 @@ func (e *slimExporter) pushTraces(ctx context.Context, td ptrace.Traces) error {
 }
 
 // pushMetrics exports metrics data
-func (e *slimExporter) pushMetrics(ctx context.Context, md pmetric.Metrics) error {
+func (e *slimExporter) pushMetrics(_ context.Context, md pmetric.Metrics) error {
 	marshaler := pmetric.ProtoMarshaler{}
 	message, err := marshaler.MarshalMetrics(md)
 	if err != nil {
@@ -392,7 +408,7 @@ func (e *slimExporter) pushMetrics(ctx context.Context, md pmetric.Metrics) erro
 }
 
 // pushLogs exports logs data
-func (e *slimExporter) pushLogs(ctx context.Context, ld plog.Logs) error {
+func (e *slimExporter) pushLogs(_ context.Context, ld plog.Logs) error {
 	marshaler := plog.ProtoMarshaler{}
 	message, err := marshaler.MarshalLogs(ld)
 	if err != nil {
@@ -434,7 +450,9 @@ func (e *slimExporter) publishData(data []byte, signalName string, count int) er
 
 	// Remove closed sessions after iteration
 	for _, id := range closedSessions {
-		state.RemoveSessionForSignal(signalType, id)
+		if err := state.RemoveSessionForSignal(signalType, id); err != nil {
+			return err
+		}
 	}
 
 	return nil

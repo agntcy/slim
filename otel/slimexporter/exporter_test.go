@@ -5,13 +5,13 @@ import (
 	"sync"
 	"testing"
 
-	slim "github.com/agntcy/slim-bindings-go"
-	common "github.com/agntcy/slim/otel"
-
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.uber.org/zap"
+
+	slim "github.com/agntcy/slim-bindings-go"
+	common "github.com/agntcy/slim/otel"
 )
 
 // TestSignalSessions_RemoveSession tests removing sessions from SignalSessions
@@ -136,7 +136,7 @@ func TestExporterSessions_RemoveSessionForSignal(t *testing.T) {
 
 // TestExporterSessions_RemoveAllSessionsForSignal tests removing all sessions for a signal type
 func TestExporterSessions_RemoveAllSessionsForSignal(t *testing.T) {
-	t.Run("remove all metrics sessions", func(t *testing.T) {
+	t.Run("remove all metrics sessions", func(_ *testing.T) {
 		// Note: We can't fully test this without mocking BindingsAdapter.DeleteSession
 		// This is a basic structure test
 		es := &ExporterSessions{

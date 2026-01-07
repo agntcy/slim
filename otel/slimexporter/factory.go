@@ -4,10 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	common "github.com/agntcy/slim/otel"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
+
+	common "github.com/agntcy/slim/otel"
 )
 
 const (

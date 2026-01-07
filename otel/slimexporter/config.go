@@ -65,7 +65,9 @@ func (cfg *Config) Validate() error {
 		// Validate signal types
 		for _, signal := range session.Signals {
 			if signal != "traces" && signal != "metrics" && signal != "logs" {
-				return fmt.Errorf("invalid signal type '%s' for session '%s' (must be traces, metrics, or logs)", signal, session.ChannelName)
+				return fmt.Errorf(
+					"invalid signal type '%s' for session '%s' (must be traces, metrics, or logs)",
+					signal, session.ChannelName)
 			}
 		}
 		if len(session.Participants) == 0 {

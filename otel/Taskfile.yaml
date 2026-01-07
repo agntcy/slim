@@ -3,6 +3,13 @@
 
 version: '3'
 
+silent: true
+
+includes:
+  tools:
+    taskfile: ../tasks/tools.yaml
+    flatten: true
+
 vars:
   ROOT_DIR:
     sh: pwd
@@ -19,6 +26,17 @@ vars:
   DOCKER_IMAGE: slim-otelcol
   DOCKER_TAG: latest
 
+  MAIN_MODULE: github.com/agntcy/slim
+
+  MODULES:
+    sh: |
+      find {{.ROOT_DIR}} -type f -name "go.mod" ! -path "./third-party/*" -exec dirname {} \; | \
+        sort | \
+        tr '\n' ' '
+
+env:
+  GOTOOLCHAIN: "go1.25.0+auto"
+
 tasks:
   default:
     cmds:
@@ -34,6 +52,25 @@ tasks:
       - echo "OCB downloaded successfully"
     status:
       - test -f ocb
+
+  collector:foreach-module:
+    internal: true
+    desc: Run task for each module
+    cmds:
+      - |
+        for dir in {{.MODULES}}; do
+          pushd ${dir} > /dev/null
+          echo "${dir}: running {{.CMD}}"
+          {{.CMD}}
+          popd > /dev/null
+        done
+
+  collector:modtidy:
+    desc: Install go modules
+    cmds:
+      - task: collector:foreach-module
+        vars:
+          CMD: go mod tidy
 
   collector:build:
     desc: Build the SLIM OpenTelemetry Collector
@@ -66,6 +103,29 @@ tasks:
     cmds:
       - echo "Running slimexporter tests..."
       - go test -v
+
+  collector:lint:
+    desc: Run go linter
+    deps:
+      - tools
+    cmds:
+      - task: collector:foreach-module
+        vars:
+          CMD: "echo ${PWD} && {{.TOOLS_INSTALL_DIR}}/golangci-lint run"
+
+  collector:impi:
+    desc: Run go impi
+    deps:
+      - tools
+    cmds:
+      - task: collector:foreach-module
+        vars:
+          CMD: |
+            {{.TOOLS_INSTALL_DIR}}/impi \
+              --local github.com/agntcy/slim \
+              --ignore-generated=true \
+              --scheme stdThirdPartyLocal \
+              ./...
 
   # Docker tasks
   docker:build:
