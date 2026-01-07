@@ -18,8 +18,8 @@ import (
 type TestHarness struct {
 	Sender       *slim.BindingsAdapter
 	Receiver     *slim.BindingsAdapter
-	SenderName   slim.Name
-	ReceiverName slim.Name
+	SenderName   *slim.Name
+	ReceiverName *slim.Name
 	SharedSecret string
 	t            *testing.T
 	cancel       context.CancelFunc
@@ -31,7 +31,7 @@ type ReceivedMessage struct {
 	Data        []byte
 	PayloadType string
 	Metadata    map[string]string
-	SourceName  slim.Name
+	SourceName  *slim.Name
 	Timestamp   time.Time
 }
 
@@ -100,15 +100,8 @@ func SetupTestHarness(t *testing.T, testName string) (*TestHarness, *MessageColl
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Create unique names for this test
-	senderName := slim.Name{
-		Components: []string{"org", fmt.Sprintf("%s-sender", testName), "v1"},
-		Id:         nil,
-	}
-
-	receiverName := slim.Name{
-		Components: []string{"org", fmt.Sprintf("%s-receiver", testName), "v1"},
-		Id:         nil,
-	}
+	senderName := slim.NewName("org", fmt.Sprintf("%s-sender", testName), "v1", nil)
+	receiverName := slim.NewName("org", fmt.Sprintf("%s-receiver", testName), "v1", nil)
 
 	// Use a shared secret (must be at least 32 bytes)
 	sharedSecret := "test-harness-shared-secret-must-be-32-bytes-or-more!"
@@ -183,7 +176,7 @@ func (h *TestHarness) runReceiverListener(ctx context.Context, collector *Messag
 				continue
 			}
 
-			h.t.Logf("[Receiver] Received new session from %v", source.Components)
+			h.t.Logf("[Receiver] Received new session from %v", source.Components())
 
 			// Handle this session in a separate goroutine
 			h.wg.Add(1)
@@ -253,7 +246,7 @@ func (h *TestHarness) CreateSession() (*slim.BindingsSessionContext, error) {
 		EnableMls:   false,
 	}
 
-	h.t.Logf("[Sender] Creating session to %v...", h.ReceiverName.Components)
+	h.t.Logf("[Sender] Creating session to %v...", h.ReceiverName.Components())
 	session, err := h.Sender.CreateSession(sessionConfig, h.ReceiverName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create session: %w", err)

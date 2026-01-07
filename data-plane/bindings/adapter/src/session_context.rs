@@ -13,7 +13,8 @@ use slim_datapath::messages::utils::{PUBLISH_TO, SlimHeaderFlags, TRUE_VAL};
 use slim_session::SessionError;
 use slim_session::context::SessionContext;
 
-use crate::adapter::{FfiCompletionHandle, Name, ReceivedMessage, SessionType, SlimError};
+use crate::Name;
+use crate::adapter::{FfiCompletionHandle, ReceivedMessage, SessionType, SlimError};
 use crate::message_context::MessageContext;
 
 /// Session context for language bindings (UniFFI-compatible)
@@ -395,7 +396,7 @@ impl BindingsSessionContext {
     /// * `metadata` - Optional key-value metadata pairs
     pub fn publish_with_params(
         &self,
-        destination: Name,
+        destination: Arc<Name>,
         fanout: u32,
         data: Vec<u8>,
         connection_out: Option<u64>,
@@ -418,14 +419,14 @@ impl BindingsSessionContext {
     /// Low-level publish with full control (async version)
     pub async fn publish_with_params_async(
         &self,
-        destination: Name,
+        destination: Arc<Name>,
         fanout: u32,
         data: Vec<u8>,
         connection_out: Option<u64>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<(), SlimError> {
-        let slim_dest: SlimName = destination.into();
+        let slim_dest: SlimName = destination.as_ref().into();
 
         self.publish_internal(
             &slim_dest,
@@ -473,7 +474,7 @@ impl BindingsSessionContext {
     ///
     /// **Auto-waits for completion:** This method automatically waits for the
     /// invitation to be sent and acknowledged before returning.
-    pub fn invite(&self, participant: Name) -> Result<(), SlimError> {
+    pub fn invite(&self, participant: Arc<Name>) -> Result<(), SlimError> {
         self.runtime
             .block_on(async { self.invite_async(participant).await })
     }
@@ -482,8 +483,8 @@ impl BindingsSessionContext {
     ///
     /// **Auto-waits for completion:** This method automatically waits for the
     /// invitation to be sent and acknowledged before returning.
-    pub async fn invite_async(&self, participant: Name) -> Result<(), SlimError> {
-        let slim_name: SlimName = participant.into();
+    pub async fn invite_async(&self, participant: Arc<Name>) -> Result<(), SlimError> {
+        let slim_name: SlimName = participant.as_ref().into();
 
         let completion = self.invite_internal(&slim_name).await?;
 
@@ -497,7 +498,7 @@ impl BindingsSessionContext {
     ///
     /// **Auto-waits for completion:** This method automatically waits for the
     /// removal to be processed and acknowledged before returning.
-    pub fn remove(&self, participant: Name) -> Result<(), SlimError> {
+    pub fn remove(&self, participant: Arc<Name>) -> Result<(), SlimError> {
         self.runtime
             .block_on(async { self.remove_async(participant).await })
     }
@@ -506,8 +507,8 @@ impl BindingsSessionContext {
     ///
     /// **Auto-waits for completion:** This method automatically waits for the
     /// removal to be processed and acknowledged before returning.
-    pub async fn remove_async(&self, participant: Name) -> Result<(), SlimError> {
-        let slim_name: SlimName = participant.into();
+    pub async fn remove_async(&self, participant: Arc<Name>) -> Result<(), SlimError> {
+        let slim_name: SlimName = participant.as_ref().into();
 
         let completion = self.remove_internal(&slim_name).await?;
 
@@ -587,7 +588,7 @@ impl BindingsSessionContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapter::Name as FfiName;
+    use crate::Name as FfiName;
     use slim_datapath::api::{
         ApplicationPayload, ProtoMessage, ProtoPublish, ProtoPublishType, SessionHeader, SlimHeader,
     };
@@ -607,10 +608,12 @@ mod tests {
 
     /// Helper to create FFI Name for MessageContext construction
     fn make_ffi_name(parts: [&str; 3]) -> FfiName {
-        FfiName {
-            components: parts.iter().map(|s| s.to_string()).collect(),
-            id: Some(u64::MAX), // Default SlimName ID
-        }
+        FfiName::new(
+            parts[0].to_string(),
+            parts[1].to_string(),
+            parts[2].to_string(),
+            Some(u64::MAX), // Default SlimName ID
+        )
     }
 
     fn make_context() -> (
@@ -995,10 +998,12 @@ mod tests {
     #[tokio::test]
     async fn test_publish_with_params_async_session_missing() {
         let (ctx, _tx) = make_context();
-        let dest = FfiName {
-            components: vec!["org".to_string(), "ns".to_string(), "dest".to_string()],
-            id: None,
-        };
+        let dest = Arc::new(FfiName::new(
+            "org".to_string(),
+            "ns".to_string(),
+            "dest".to_string(),
+            None,
+        ));
 
         let result = ctx
             .publish_with_params_async(dest, 1, b"test".to_vec(), None, None, None)
@@ -1015,10 +1020,12 @@ mod tests {
     #[tokio::test]
     async fn test_publish_with_params_async_with_all_options() {
         let (ctx, _tx) = make_context();
-        let dest = FfiName {
-            components: vec!["org".to_string(), "ns".to_string(), "dest".to_string()],
-            id: Some(123),
-        };
+        let dest = Arc::new(FfiName::new(
+            "org".to_string(),
+            "ns".to_string(),
+            "dest".to_string(),
+            Some(123),
+        ));
 
         let mut metadata = HashMap::new();
         metadata.insert("key".to_string(), "value".to_string());
@@ -1092,10 +1099,12 @@ mod tests {
     #[tokio::test]
     async fn test_invite_async_session_missing() {
         let (ctx, _tx) = make_context();
-        let participant = FfiName {
-            components: vec!["org".to_string(), "ns".to_string(), "peer".to_string()],
-            id: None,
-        };
+        let participant = Arc::new(FfiName::new(
+            "org".to_string(),
+            "ns".to_string(),
+            "peer".to_string(),
+            None,
+        ));
 
         let result = ctx.invite_async(participant).await;
         assert!(result.is_err_and(|e| {
@@ -1110,10 +1119,12 @@ mod tests {
     #[tokio::test]
     async fn test_remove_async_session_missing() {
         let (ctx, _tx) = make_context();
-        let participant = FfiName {
-            components: vec!["org".to_string(), "ns".to_string(), "peer".to_string()],
-            id: None,
-        };
+        let participant = Arc::new(FfiName::new(
+            "org".to_string(),
+            "ns".to_string(),
+            "peer".to_string(),
+            None,
+        ));
 
         let result = ctx.remove_async(participant).await;
         assert!(result.is_err_and(|e| {

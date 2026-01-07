@@ -32,15 +32,12 @@ const (
 //
 //	Name: Constructed identity object.
 //	error: If the id cannot be split into exactly three segments.
-func SplitID(id string) (slim.Name, error) {
+func SplitID(id string) (*slim.Name, error) {
 	parts := strings.Split(id, "/")
 	if len(parts) != 3 {
-		return slim.Name{}, fmt.Errorf("IDs must be in the format organization/namespace/app-or-stream, got: %s", id)
+		return nil, fmt.Errorf("IDs must be in the format organization/namespace/app-or-stream, got: %s", id)
 	}
-	return slim.Name{
-		Components: []string{parts[0], parts[1], parts[2]},
-		Id:         nil,
-	}, nil
+	return slim.NewName(parts[0], parts[1], parts[2], nil), nil
 }
 
 // CreateAndConnectApp creates a SLIM app with shared secret authentication

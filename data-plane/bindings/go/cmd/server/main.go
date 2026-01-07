@@ -32,10 +32,7 @@ func main() {
 	slim.InitializeCryptoProvider()
 
 	// Create server app
-	serverName := slim.Name{
-		Components: []string{"system", "server", "node"},
-		Id:         nil,
-	}
+	serverName := slim.NewName("system", "server", "node", nil)
 
 	app, err := slim.CreateAppWithSecret(serverName, *secret)
 	if err != nil {
