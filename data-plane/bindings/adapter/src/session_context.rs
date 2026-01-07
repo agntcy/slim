@@ -13,9 +13,9 @@ use slim_datapath::messages::utils::{PUBLISH_TO, SlimHeaderFlags, TRUE_VAL};
 use slim_session::SessionError;
 use slim_session::context::SessionContext;
 
-use crate::{Name, SlimError};
 use crate::adapter::{FfiCompletionHandle, ReceivedMessage, SessionType};
 use crate::message_context::MessageContext;
+use crate::{Name, SlimError};
 
 /// Session context for language bindings (UniFFI-compatible)
 ///

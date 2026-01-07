@@ -3,9 +3,9 @@
 
 use display_error_chain::ErrorChainExt;
 
+use slim_auth::errors::AuthError;
 use slim_service::errors::ServiceError;
 use slim_session::errors::SessionError;
-use slim_auth::errors::AuthError;
 
 /// Error types for SLIM operations
 #[derive(Debug, thiserror::Error, uniffi::Error)]

@@ -17,10 +17,14 @@ use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};
 use uniffi;
 
-use slim_auth::traits::Verifier;
+use crate::errors::SlimError;
+use crate::name::Name;
+use crate::runtime;
+use crate::service_ref::{ServiceRef, get_or_init_global_service};
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::shared_secret::SharedSecret;
 use slim_auth::traits::TokenProvider; // For get_token() and get_id()
+use slim_auth::traits::Verifier;
 use slim_config::component::ComponentBuilder;
 use slim_datapath::api::ProtoSessionType;
 use slim_datapath::messages::Name as SlimName;
@@ -29,10 +33,6 @@ use slim_service::app::App;
 use slim_session::SessionConfig as SlimSessionConfig;
 use slim_session::session_controller::SessionController;
 use slim_session::{Notification, SessionError as SlimSessionError};
-use crate::name::Name;
-use crate::runtime;
-use crate::service_ref::{ServiceRef, get_or_init_global_service};
-use crate::errors::SlimError;
 
 // ============================================================================
 // UniFFI Type Definitions
