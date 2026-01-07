@@ -10,6 +10,7 @@ use display_error_chain::ErrorChainExt;
 use slim_auth::metadata::MetadataValue;
 use slim_config::component::id::ID;
 use slim_config::grpc::server::ServerConfig;
+use slim_session::SessionMessage;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
@@ -42,10 +43,8 @@ use slim_datapath::messages::encoder::calculate_hash;
 use slim_datapath::messages::utils::{DELETE_GROUP, IS_MODERATOR, SlimHeaderFlags, TRUE_VAL};
 use slim_datapath::tables::SubscriptionTable;
 
-use slim_session::timer::TimerType;
-use slim_session::timer_factory::TimerSettings;
-
-use crate::controller_timer_factory::ControllerTimerFactory;
+use slim_session::timer::{Timer, TimerType};
+use slim_session::timer_factory::{TimerFactory, TimerSettings};
 
 type TxChannel = mpsc::Sender<Result<ControlMessage, Status>>;
 type TxChannels = HashMap<String, TxChannel>;
@@ -120,8 +119,14 @@ struct ControllerServiceInternal {
     /// queue for pending subscription notifications when connections are down
     pending_notifications: Arc<parking_lot::Mutex<Vec<ControlMessage>>>,
 
-    /// map of generated u32 keys to original string message IDs
-    message_id_map: Arc<parking_lot::RwLock<HashMap<u32, String>>>,
+    /// map of generated u32 keys to original string message IDs and their associated timers
+    message_id_map: Arc<parking_lot::RwLock<HashMap<u32, (String, Timer)>>>,
+
+    /// timer factory for controller messages
+    /// used to create timers for messages that require timeouts
+    /// the lock is needed to set the timer factory after initialization
+    /// because it requires a channel to send session messages
+    timer_factory: parking_lot::RwLock<Option<TimerFactory>>,
 }
 
 #[derive(Clone)]
@@ -229,6 +234,7 @@ impl ControlPlane {
         ])
         .with_id(rand::random::<u64>());
         debug!("create controller with name: {}", controller_name);
+
         ControlPlane {
             servers: config.servers,
             clients: config.clients,
@@ -248,6 +254,7 @@ impl ControlPlane {
                     _auth_verifier: config.auth_verifier,
                     pending_notifications: Arc::new(parking_lot::Mutex::new(Vec::new())),
                     message_id_map: Arc::new(parking_lot::RwLock::new(HashMap::new())),
+                    timer_factory: parking_lot::RwLock::new(None),
                 }),
             },
             drain_signal: parking_lot::RwLock::new(Some(signal)),
@@ -386,9 +393,7 @@ impl ControlPlane {
                                             }
                                             Publish(_) => {
                                                 if msg.get_session_message_type() == ProtoSessionMessageType::GroupAck {
-                                                    controller.handle_group_ack_message(msg.get_id(), &clients).await;
-                                                } else if msg.get_session_message_type() == ProtoSessionMessageType::GroupNack {
-                                                    controller.handle_group_nack_message(msg.get_id(), &clients).await;
+                                                    controller.send_ack_message(msg.get_id(), true, &clients).await;
                                                 } else {
                                                     debug!("Ignoring publish message with session type: {:?}", msg.get_session_message_type());
                                                 }
@@ -1045,10 +1050,16 @@ impl ControllerService {
                                     error!(error = %e.chain(), "failed to send channel creation");
                                     success = false;
                                 } else {
+                                    // create timer for the message
+                                    debug!("create timer for message id: {} with type {:?}", new_msg_id, ProtoSessionMessageType::JoinRequest);
+                                    let timer = self.inner.timer_factory.read().as_ref().unwrap().create_and_start_timer(
+                                        new_msg_id,
+                                        ProtoSessionMessageType::JoinRequest,
+                                        None);
                                     self.inner
                                         .message_id_map
                                         .write()
-                                        .insert(new_msg_id, msg.message_id.clone());
+                                        .insert(new_msg_id, (msg.message_id.clone(), timer));
                                 }
                             }
                         } else {
@@ -1100,10 +1111,16 @@ impl ControllerService {
                                     error!(error = %e.chain(), "failed to send delete channel");
                                     success = false;
                                 } else {
+                                    // create timer for the message
+                                    debug!("create timer for message id: {} with type {:?}", new_msg_id, ProtoSessionMessageType::LeaveRequest);
+                                    let timer = self.inner.timer_factory.read().as_ref().unwrap().create_and_start_timer(
+                                        new_msg_id,
+                                        ProtoSessionMessageType::LeaveRequest,
+                                        None);
                                     self.inner
                                         .message_id_map
                                         .write()
-                                        .insert(new_msg_id, msg.message_id.clone());
+                                        .insert(new_msg_id, (msg.message_id.clone(), timer));
                                 }
                             }
                         } else {
@@ -1162,10 +1179,16 @@ impl ControllerService {
                                     error!(error = %e.chain(), "failed to send channel creation");
                                     success = false;
                                 } else {
+                                    // create timer for the message
+                                    debug!("create timer for message id: {} with type {:?}", new_msg_id, ProtoSessionMessageType::DiscoveryRequest);
+                                    let timer = self.inner.timer_factory.read().as_ref().unwrap().create_and_start_timer(
+                                        new_msg_id,
+                                        ProtoSessionMessageType::DiscoveryRequest,
+                                        None);
                                     self.inner
                                         .message_id_map
                                         .write()
-                                        .insert(new_msg_id, msg.message_id.clone());
+                                        .insert(new_msg_id, (msg.message_id.clone(), timer));
                                 }
                             }
                         } else {
@@ -1217,10 +1240,16 @@ impl ControllerService {
                                     error!(error = %e.chain(), "failed to send channel creation");
                                     success = false;
                                 } else {
+                                    // create timer for the message
+                                    debug!("create timer for remove message with id: {}", new_msg_id);
+                                    let timer = self.inner.timer_factory.read().as_ref().unwrap().create_and_start_timer(
+                                        new_msg_id,
+                                        ProtoSessionMessageType::LeaveRequest,
+                                        None);
                                     self.inner
                                         .message_id_map
                                         .write()
-                                        .insert(new_msg_id, msg.message_id.clone());
+                                        .insert(new_msg_id, (msg.message_id.clone(), timer));
                                 }
                             }
                         } else {
@@ -1316,14 +1345,18 @@ impl ControllerService {
         return self.send_or_queue_notification(ctrl, clients).await;
     }
 
-    async fn handle_group_ack_message(&self, msg_id: u32, clients: &[ClientConfig]) {
+
+    async fn send_ack_message(&self, msg_id: u32, success: bool, clients: &[ClientConfig]) {
         let original_message_id = self.inner.message_id_map.write().remove(&msg_id);
         match original_message_id {
-            Some(id) => {
-                debug!("Received GroupAck for message ID: {}", id);
+            Some(mut entry) => {
+                debug!("Received GroupAck for message ID: {}", entry.0);
+                // stop timer and send ack
+                entry.1.stop();
+                
                 let ack = Ack {
-                    original_message_id: id,
-                    success: true,
+                    original_message_id: entry.0,
+                    success,
                     messages: vec![msg_id.to_string()],
                 };
 
@@ -1332,6 +1365,8 @@ impl ControllerService {
                     payload: Some(Payload::Ack(ack)),
                 };
 
+                // XXX: do we need to send this to all the controll planes or only
+                // to the one that sent the original message?
                 self.send_or_queue_notification(reply, clients).await;
             }
             None => {
@@ -1340,43 +1375,8 @@ impl ControllerService {
         }
     }
 
-    async fn handle_group_nack_message(&self, msg_id: u32, clients: &[ClientConfig]) {
-        let original_message_id = self.inner.message_id_map.write().remove(&msg_id);
-        match original_message_id {
-            Some(id) => {
-                debug!("Received GroupNack for message ID: {}", id);
-                let ack = Ack {
-                    original_message_id: id,
-                    success: false,
-                    messages: vec![msg_id.to_string()],
-                };
-
-                let reply = ControlMessage {
-                    message_id: uuid::Uuid::new_v4().to_string(),
-                    payload: Some(Payload::Ack(ack)),
-                };
-
-                self.send_or_queue_notification(reply, clients).await;
-            }
-            None => {
-                debug!("Received GroupNack for unknown message ID: {}", msg_id);
-            }
-        }
-    }
-
     /// Send a control message to SLIM.
     async fn send_control_message(&self, msg: DataPlaneMessage) -> Result<(), ControllerError> {
-        let settings =
-            TimerSettings::new(Duration::from_millis(2000), None, None, TimerType::Constant);
-        let factory = ControllerTimerFactory::new(settings, self.inner.tx_slim.clone());
-        let timer_id = msg.get_id();
-
-        let _timer = factory.create_and_start_timer(
-            timer_id,
-            ProtoSessionMessageType::GroupNack,
-            self.inner.controller_name.clone(),
-        );
-
         self.inner.tx_slim.send(Ok(msg)).await.map_err(|e| {
             error!(error = %e.chain(), "error sending message into datapath");
             ControllerError::Datapath(slim_datapath::errors::DataPathError::ConnectionError)
@@ -1479,11 +1479,13 @@ impl ControllerService {
         &self,
         config: Option<ClientConfig>,
         mut stream: impl Stream<Item = Result<ControlMessage, Status>> + Unpin + Send + 'static,
+        mut timer_rx: mpsc::Receiver<SessionMessage>,
         tx: mpsc::Sender<Result<ControlMessage, Status>>,
         cancellation_token: CancellationToken,
     ) -> Result<JoinHandle<()>, ControllerError> {
         let this = self.clone();
         let watch = self.drain_watch()?;
+        let clients = config.clone().unwrap();
 
         let handle = tokio::spawn(async move {
             // Send a register message to the control plane
@@ -1544,6 +1546,17 @@ impl ControllerService {
                             }
                         }
                     }
+                    Some(session_msg) = timer_rx.recv() => {
+                        match session_msg {
+                            SessionMessage::TimerFailure { message_id, message_type: _, name: _, timeouts: _} => {
+                                tracing::info!("got a failure for message id: {}", message_id);
+                                this.send_ack_message(message_id, false, &[clients.clone()]).await;
+                            }
+                            _ => {
+                                error!("unexpected session message received in controller");
+                            }
+                        }
+                    }
                     _ = cancellation_token.cancelled() => {
                         debug!("shutting down stream on cancellation token");
                         break;
@@ -1601,10 +1614,17 @@ impl ControllerService {
 
         self.send_queued_notifications(&tx, &config.endpoint).await;
 
+        let timer_settings =
+            TimerSettings::new(Duration::from_millis(2000), None, Some(0), TimerType::Constant);
+        let (timer_tx, timer_rx) = mpsc::channel::<SessionMessage>(128);
+        let timer_factory = TimerFactory::new(timer_settings, timer_tx.clone());
+        self.inner.timer_factory.write().replace(timer_factory);
+
         // start processing the incoming stream
         self.process_control_message_stream(
             Some(config),
             stream.into_inner(),
+            timer_rx,
             tx.clone(),
             cancellation_token.clone(),
         )?;
@@ -1654,7 +1674,13 @@ impl GrpcControllerService for ControllerService {
 
         let cancellation_token = CancellationToken::new();
 
-        self.process_control_message_stream(None, stream, tx.clone(), cancellation_token.clone())
+        let timer_settings =
+            TimerSettings::new(Duration::from_millis(2000), None, Some(0), TimerType::Constant);
+        let (timer_tx, timer_rx) = mpsc::channel::<SessionMessage>(128);
+        let timer_factory = TimerFactory::new(timer_settings, timer_tx.clone());
+        self.inner.timer_factory.write().replace(timer_factory);
+
+        self.process_control_message_stream(None, stream, timer_rx, tx.clone(), cancellation_token.clone())
             .map_err(|e| {
                 error!(error = %e.chain(), "error processing control message stream");
                 Status::unavailable("failed to process control message stream")
