@@ -41,9 +41,15 @@
 
 // Module declarations
 pub mod adapter;
-mod message_context;
+pub mod message_context;
 mod service_ref;
 pub mod session_context;
+pub mod completion_handle;
+pub mod error;
+pub mod build_info;
+pub mod name;
+pub mod session_config;
+pub mod connection_config;
 
 // Public re-exports
 pub use adapter::{
