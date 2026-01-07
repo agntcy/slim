@@ -441,6 +441,10 @@ where
                 // this message should arrive only from the control plane
                 // the effect of it is to create the session itself with
                 // the right settings. We need to set a route to the controller and send back the ack
+
+                // Add a 10 second sleep
+                tokio::time::sleep(Duration::from_secs(10)).await;
+
                 self.common
                     .add_route(&message.get_source(), message.get_incoming_conn())
                     .await

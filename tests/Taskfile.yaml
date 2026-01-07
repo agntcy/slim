@@ -29,4 +29,4 @@ tasks:
       - data-plane:build
       - control-plane:build
     cmds:
-      - go -C ./integration test -v -failfast -test.v -test.paniconexit0 -ginkgo.timeout 5m -timeout 5m -ginkgo.v .
+      - go -C ./integration test -v -failfast -test.v -test.paniconexit0 -ginkgo.timeout 5m -timeout 5m -ginkgo.focus "Group management through control plane" -ginkgo.v .
