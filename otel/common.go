@@ -16,12 +16,6 @@ import (
 	slim "github.com/agntcy/slim-bindings-go"
 )
 
-// Default configuration values
-const (
-	DefaultServerEndpoint = "http://localhost:46357"
-	DefaultSharedSecret   = "demo-shared-secret-min-32-chars!!"
-)
-
 type SignalType string
 
 // SignalType represents the type of signal to be exported

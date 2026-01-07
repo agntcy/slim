@@ -43,8 +43,8 @@ tasks:
       - echo "Generating collector sources..."
       - ./ocb --config builder-config.yaml --skip-compilation
       - echo "Compiling with CGO enabled..."
-      - go get github.com/agntcy/slim-bindings-go@main
-      - go run github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup@main
+      - go mod download
+      - go run github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup
       - cd {{.COLLECTOR_OUTPUT}} && CGO_ENABLED=1 go build -trimpath -o slim-otelcol -ldflags="-s -w"
       - echo "Collector built successfully at {{.COLLECTOR_OUTPUT}}/slim-otelcol"
 

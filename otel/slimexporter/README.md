@@ -12,7 +12,7 @@ The following settings are required:
 
 The following settings can be optionally configured:
 
-- `sessions` (default = `[]`): A list of session/channel configurations to create. In addition ot the list con session configure, the exporter will always listen for invitations to join channels sent from other participants.
+- `sessions` (default = `[]`): A list of session/channel configurations to create. When the list is empty, the exporter operates in passive mode, only listening for invitations from other participants. When sessions are configured, the exporter actively creates those sessions and invites participants, while also continuing to listen for incoming invitations from other participants.
 
 ### Session Configuration
 

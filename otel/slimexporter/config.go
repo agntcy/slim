@@ -60,16 +60,16 @@ func (cfg *Config) Validate() error {
 			return fmt.Errorf("channel-name is required for session %d", i)
 		}
 		if len(session.Signals) == 0 {
-			return errors.New("at least one signal must be specified for session " + session.ChannelName)
+			return fmt.Errorf("at least one signal must be specified for session '%s'", session.ChannelName)
 		}
 		// Validate signal types
 		for _, signal := range session.Signals {
 			if signal != "traces" && signal != "metrics" && signal != "logs" {
-				return errors.New("invalid signal type: " + signal + " (must be traces, metrics, or logs)")
+				return fmt.Errorf("invalid signal type '%s' for session '%s' (must be traces, metrics, or logs)", signal, session.ChannelName)
 			}
 		}
 		if len(session.Participants) == 0 {
-			return errors.New("at least one participant must be specified for session " + session.ChannelName)
+			return fmt.Errorf("at least one participant must be specified for session '%s'", session.ChannelName)
 		}
 	}
 

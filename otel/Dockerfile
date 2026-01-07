@@ -38,7 +38,7 @@ RUN ./ocb --config builder-config.yaml --skip-compilation
 # Build the collector with CGO enabled
 WORKDIR /build/slim-otelcol
 RUN go mod download && \
-    go run github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup@main && \
+    go run github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup && \
     CGO_ENABLED=1 CGO_LDFLAGS="-L/root/.cache/slim-bindings" go build -trimpath -o slim-otelcol -ldflags="-s -w"
 
 # Runtime stage
