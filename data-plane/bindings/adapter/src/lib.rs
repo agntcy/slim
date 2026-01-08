@@ -48,6 +48,8 @@ pub mod runtime;
 mod service_ref;
 pub mod session_context;
 
+pub use name::Name;
+
 // Public re-exports
 pub use adapter::{
     BindingsAdapter, BuildInfo, ClientConfig, FfiCompletionHandle, ReceivedMessage, ServerConfig,

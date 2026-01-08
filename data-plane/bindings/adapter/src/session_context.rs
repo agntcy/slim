@@ -16,6 +16,7 @@ use slim_session::context::SessionContext;
 use crate::Name;
 use crate::adapter::{FfiCompletionHandle, ReceivedMessage, SessionType, SlimError};
 use crate::message_context::MessageContext;
+use crate::runtime;
 
 /// Session context for language bindings (UniFFI-compatible)
 ///
@@ -37,11 +38,6 @@ impl BindingsSessionContext {
             session,
             rx: RwLock::new(rx),
         }
-    }
-
-    /// Get the runtime (for internal use)
-    pub fn runtime(&self) -> &'static tokio::runtime::Runtime {
-        crate::runtime::get_runtime()
     }
 }
 
@@ -194,7 +190,7 @@ impl BindingsSessionContext {
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<(), SlimError> {
-        self.runtime()
+        runtime.get_runtime()
             .block_on(async { self.publish_async(data, payload_type, metadata).await })
     }
 
@@ -258,7 +254,7 @@ impl BindingsSessionContext {
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<Arc<FfiCompletionHandle>, SlimError> {
-        self.runtime().block_on(async {
+        runtime.get_runtime().block_on(async {
             self.publish_with_completion_async(data, payload_type, metadata)
                 .await
         })
@@ -316,7 +312,7 @@ impl BindingsSessionContext {
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<(), SlimError> {
-        self.runtime().block_on(async {
+        runtime.get_runtime().block_on(async {
             self.publish_to_async(message_context, data, payload_type, metadata)
                 .await
         })
@@ -358,7 +354,7 @@ impl BindingsSessionContext {
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<Arc<FfiCompletionHandle>, SlimError> {
-        self.runtime().block_on(async {
+        runtime.get_runtime().block_on(async {
             self.publish_to_with_completion_async(message_context, data, payload_type, metadata)
                 .await
         })
@@ -400,7 +396,7 @@ impl BindingsSessionContext {
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<(), SlimError> {
-        self.runtime().block_on(async {
+        runtime.get_runtime().block_on(async {
             self.publish_with_params_async(
                 destination,
                 fanout,
@@ -448,7 +444,7 @@ impl BindingsSessionContext {
     /// * `Ok(ReceivedMessage)` - Message with context and payload bytes
     /// * `Err(SlimError)` - If the receive fails or times out
     pub fn get_message(&self, timeout_ms: Option<u32>) -> Result<ReceivedMessage, SlimError> {
-        self.runtime()
+        runtime.get_runtime()
             .block_on(async { self.get_message_async(timeout_ms).await })
     }
 
@@ -472,7 +468,7 @@ impl BindingsSessionContext {
     /// **Auto-waits for completion:** This method automatically waits for the
     /// invitation to be sent and acknowledged before returning.
     pub fn invite(&self, participant: Arc<Name>) -> Result<(), SlimError> {
-        self.runtime()
+        runtime.get_runtime()
             .block_on(async { self.invite_async(participant).await })
     }
 
@@ -496,7 +492,7 @@ impl BindingsSessionContext {
     /// **Auto-waits for completion:** This method automatically waits for the
     /// removal to be processed and acknowledged before returning.
     pub fn remove(&self, participant: Arc<Name>) -> Result<(), SlimError> {
-        self.runtime()
+        runtime.get_runtime()
             .block_on(async { self.remove_async(participant).await })
     }
 
@@ -895,7 +891,7 @@ mod tests {
     #[tokio::test]
     async fn test_runtime_accessor() {
         let (ctx, _tx) = make_context();
-        let runtime = ctx.runtime();
+        let runtime = runtime.get_runtime();
         // Verify runtime is accessible (we can't block_on from within a tokio test)
         // Just verify we get a valid handle
         let handle = runtime.handle();
