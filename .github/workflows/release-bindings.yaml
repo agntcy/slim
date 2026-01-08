@@ -335,26 +335,46 @@ jobs:
       fail-fast: false
       matrix:
         platform:
-          # Test on native runners for each platform we build for
+          # Linux x86_64 variants
           - runner: ubuntu-24.04
             os: linux
             target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04
+            os: linux
+            target: x86_64-unknown-linux-musl
+          # Linux ARM64 variants (using QEMU emulation)
+          - runner: ubuntu-24.04
+            os: linux
+            target: aarch64-unknown-linux-gnu
+            use_qemu: true
+          - runner: ubuntu-24.04
+            os: linux
+            target: aarch64-unknown-linux-musl
+            use_qemu: true
+          # Windows variants
           - runner: windows-latest
             os: windows
             target: x86_64-pc-windows-msvc
+          - runner: windows-latest
+            os: windows
+            target: x86_64-pc-windows-gnu
+          # macOS variants
           - runner: macos-15-intel
             os: macos
             target: x86_64-apple-darwin
           - runner: macos-15
             os: macos
             target: aarch64-apple-darwin
-          # Note: We build for aarch64-linux and musl variants via cross-compilation,
-          # but GitHub Actions doesn't provide free ARM64 Linux runners for testing.
-          # The setup tool will automatically select the correct binary for the platform.
     defaults:
       run:
         shell: bash
     steps:
+      - name: Setup QEMU for ARM64 emulation
+        if: matrix.platform.use_qemu == true
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -365,7 +385,92 @@ jobs:
           echo "⏳ Waiting 60 seconds for GitHub package index to update..."
           sleep 60
 
-      - name: Test bindings installation and usage
+      - name: Test bindings installation and usage (ARM64 with QEMU)
+        if: matrix.platform.use_qemu == true
+        run: |
+          # Extract version from tag name
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#slim-bindings-libs-}"
+          echo "📦 Testing version: $VERSION"
+          echo "🖥️  Platform: ${{ matrix.platform.target }}"
+          echo "🔧 Using QEMU ARM64 emulation"
+
+          # Determine Go arch for ARM64
+          if [[ "${{ matrix.platform.target }}" == *"aarch64"* ]]; then
+            GO_ARCH="arm64"
+          else
+            GO_ARCH="amd64"
+          fi
+
+          # Determine libc variant
+          if [[ "${{ matrix.platform.target }}" == *"musl"* ]]; then
+            ALPINE_VARIANT="alpine:latest"
+          else
+            ALPINE_VARIANT="arm64v8/ubuntu:22.04"
+          fi
+
+          # Run test in ARM64 container
+          docker run --rm --platform linux/arm64 \
+            -v $(pwd):/workspace \
+            -w /workspace \
+            $ALPINE_VARIANT \
+            sh -c "
+              # Install dependencies
+              if command -v apk >/dev/null; then
+                apk add --no-cache go git
+              else
+                apt-get update && apt-get install -y golang git
+              fi
+
+              # Create test directory
+              TEST_DIR=\$(mktemp -d)
+              cd \$TEST_DIR
+              echo '📂 Testing in: '\$TEST_DIR
+
+              # Initialize test module
+              go mod init test
+              echo '✅ Created test module'
+
+              # Fetch bindings
+              go get github.com/${{ env.GO_BINDINGS_REPO }}@$VERSION
+              echo '✅ Fetched bindings package version $VERSION'
+
+              # Run setup tool
+              go run github.com/${{ env.GO_BINDINGS_REPO }}/cmd/slim-bindings-setup@$VERSION
+              echo '✅ Downloaded native libraries'
+
+              # Create test program
+              cat << 'EOF' > main.go
+          package main
+
+          import (
+          	\"fmt\"
+
+          	slim \"github.com/${{ env.GO_BINDINGS_REPO }}\"
+          )
+
+          func main() {
+          	fmt.Println(\"🚀 SLIM Go Bindings Test\")
+          	fmt.Println(\"========================\")
+
+          	slim.InitializeCryptoProvider()
+          	fmt.Println(\"✅ Crypto initialized successfully\")
+
+          	fmt.Println(\"✅ Test passed!\")
+          }
+          EOF
+
+              echo '✅ Created test program'
+
+              # Run test
+              go run main.go
+
+              echo ''
+              echo '🎉 All tests passed on ${{ matrix.platform.target }}!'
+            "
+
+      - name: Test bindings installation and usage (Native)
+        if: matrix.platform.use_qemu != true
         run: |
           # Extract version from tag name
           VERSION="${{ github.ref_name }}"
@@ -382,6 +487,14 @@ jobs:
           echo "📂 Testing in: $TEST_DIR"
           echo "🖥️  Platform: ${{ matrix.platform.target }}"
           echo "🏃 Runner: ${{ matrix.platform.runner }}"
+
+          # For Windows MinGW, we need to ensure MinGW tools are in PATH
+          if [[ "${{ matrix.platform.target }}" == "x86_64-pc-windows-gnu" ]]; then
+            echo "🔧 Setting up MinGW environment"
+            # GitHub Windows runners have MinGW installed
+            export PATH="/c/ProgramData/chocolatey/lib/mingw/tools/install/mingw64/bin:$PATH"
+            gcc --version || echo "⚠️  MinGW GCC not found in PATH"
+          fi
 
           # Initialize a test Go module
           go mod init test
@@ -488,10 +601,27 @@ jobs:
           VERSION="${VERSION#slim-bindings-libs-}"
           PRE_RELEASE_BRANCH="pre-release-$VERSION"
 
-          # Delete the pre-release branch
-          git push origin --delete "$PRE_RELEASE_BRANCH" || echo "⚠️  Branch already deleted or doesn't exist"
+          echo "🧹 Cleaning up pre-release artifacts..."
 
-          echo "✅ Cleaned up pre-release branch: $PRE_RELEASE_BRANCH"
+          # Delete the pre-release branch
+          if git ls-remote --heads origin "$PRE_RELEASE_BRANCH" | grep -q "$PRE_RELEASE_BRANCH"; then
+            git push origin --delete "$PRE_RELEASE_BRANCH" && echo "✅ Deleted pre-release branch: $PRE_RELEASE_BRANCH" || echo "⚠️  Failed to delete branch"
+          else
+            echo "ℹ️  Pre-release branch doesn't exist (may have been deleted already)"
+          fi
+
+          # If the merge step failed, we need to delete the tag too
+          # (it's pointing to pre-release branch, not main)
+          if [ "${{ job.status }}" != "success" ]; then
+            echo "⚠️  Job failed - cleaning up pre-release tag as well"
+            if git ls-remote --tags origin "$VERSION" | grep -q "$VERSION"; then
+              git push origin --delete "$VERSION" && echo "✅ Deleted pre-release tag: $VERSION" || echo "⚠️  Failed to delete tag"
+            else
+              echo "ℹ️  Tag doesn't exist (may have been deleted already)"
+            fi
+          fi
+
+          echo "✅ Cleanup complete"
 
       - name: Release complete
         run: |
