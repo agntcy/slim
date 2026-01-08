@@ -400,12 +400,12 @@ uint64_t uniffi_slim_bindings_fn_method_bindingsadapter_connect_async(void* ptr,
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_CREATE_SESSION
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_CREATE_SESSION
-void* uniffi_slim_bindings_fn_method_bindingsadapter_create_session(void* ptr, RustBuffer config, RustBuffer destination, RustCallStatus *out_status
+void* uniffi_slim_bindings_fn_method_bindingsadapter_create_session(void* ptr, RustBuffer config, void* destination, RustCallStatus *out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_CREATE_SESSION_ASYNC
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_CREATE_SESSION_ASYNC
-uint64_t uniffi_slim_bindings_fn_method_bindingsadapter_create_session_async(void* ptr, RustBuffer config, RustBuffer destination
+uint64_t uniffi_slim_bindings_fn_method_bindingsadapter_create_session_async(void* ptr, RustBuffer config, void* destination
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_DELETE_SESSION
@@ -445,17 +445,17 @@ uint64_t uniffi_slim_bindings_fn_method_bindingsadapter_listen_for_session_async
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_NAME
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_NAME
-RustBuffer uniffi_slim_bindings_fn_method_bindingsadapter_name(void* ptr, RustCallStatus *out_status
+void* uniffi_slim_bindings_fn_method_bindingsadapter_name(void* ptr, RustCallStatus *out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_REMOVE_ROUTE
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_REMOVE_ROUTE
-void uniffi_slim_bindings_fn_method_bindingsadapter_remove_route(void* ptr, RustBuffer name, uint64_t connection_id, RustCallStatus *out_status
+void uniffi_slim_bindings_fn_method_bindingsadapter_remove_route(void* ptr, void* name, uint64_t connection_id, RustCallStatus *out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_REMOVE_ROUTE_ASYNC
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_REMOVE_ROUTE_ASYNC
-uint64_t uniffi_slim_bindings_fn_method_bindingsadapter_remove_route_async(void* ptr, RustBuffer name, uint64_t connection_id
+uint64_t uniffi_slim_bindings_fn_method_bindingsadapter_remove_route_async(void* ptr, void* name, uint64_t connection_id
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_RUN_SERVER
@@ -470,12 +470,12 @@ uint64_t uniffi_slim_bindings_fn_method_bindingsadapter_run_server_async(void* p
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_SET_ROUTE
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_SET_ROUTE
-void uniffi_slim_bindings_fn_method_bindingsadapter_set_route(void* ptr, RustBuffer name, uint64_t connection_id, RustCallStatus *out_status
+void uniffi_slim_bindings_fn_method_bindingsadapter_set_route(void* ptr, void* name, uint64_t connection_id, RustCallStatus *out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_SET_ROUTE_ASYNC
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_SET_ROUTE_ASYNC
-uint64_t uniffi_slim_bindings_fn_method_bindingsadapter_set_route_async(void* ptr, RustBuffer name, uint64_t connection_id
+uint64_t uniffi_slim_bindings_fn_method_bindingsadapter_set_route_async(void* ptr, void* name, uint64_t connection_id
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_STOP_SERVER
@@ -485,22 +485,22 @@ void uniffi_slim_bindings_fn_method_bindingsadapter_stop_server(void* ptr, RustB
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_SUBSCRIBE
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_SUBSCRIBE
-void uniffi_slim_bindings_fn_method_bindingsadapter_subscribe(void* ptr, RustBuffer name, RustBuffer connection_id, RustCallStatus *out_status
+void uniffi_slim_bindings_fn_method_bindingsadapter_subscribe(void* ptr, void* name, RustBuffer connection_id, RustCallStatus *out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_SUBSCRIBE_ASYNC
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_SUBSCRIBE_ASYNC
-uint64_t uniffi_slim_bindings_fn_method_bindingsadapter_subscribe_async(void* ptr, RustBuffer name, RustBuffer connection_id
+uint64_t uniffi_slim_bindings_fn_method_bindingsadapter_subscribe_async(void* ptr, void* name, RustBuffer connection_id
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_UNSUBSCRIBE
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_UNSUBSCRIBE
-void uniffi_slim_bindings_fn_method_bindingsadapter_unsubscribe(void* ptr, RustBuffer name, RustBuffer connection_id, RustCallStatus *out_status
+void uniffi_slim_bindings_fn_method_bindingsadapter_unsubscribe(void* ptr, void* name, RustBuffer connection_id, RustCallStatus *out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_UNSUBSCRIBE_ASYNC
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_UNSUBSCRIBE_ASYNC
-uint64_t uniffi_slim_bindings_fn_method_bindingsadapter_unsubscribe_async(void* ptr, RustBuffer name, RustBuffer connection_id
+uint64_t uniffi_slim_bindings_fn_method_bindingsadapter_unsubscribe_async(void* ptr, void* name, RustBuffer connection_id
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_CLONE_BINDINGSSESSIONCONTEXT
@@ -515,7 +515,7 @@ void uniffi_slim_bindings_fn_free_bindingssessioncontext(void* ptr, RustCallStat
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSSESSIONCONTEXT_DESTINATION
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSSESSIONCONTEXT_DESTINATION
-RustBuffer uniffi_slim_bindings_fn_method_bindingssessioncontext_destination(void* ptr, RustCallStatus *out_status
+void* uniffi_slim_bindings_fn_method_bindingssessioncontext_destination(void* ptr, RustCallStatus *out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSSESSIONCONTEXT_GET_MESSAGE
@@ -530,12 +530,12 @@ uint64_t uniffi_slim_bindings_fn_method_bindingssessioncontext_get_message_async
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSSESSIONCONTEXT_INVITE
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSSESSIONCONTEXT_INVITE
-void uniffi_slim_bindings_fn_method_bindingssessioncontext_invite(void* ptr, RustBuffer participant, RustCallStatus *out_status
+void uniffi_slim_bindings_fn_method_bindingssessioncontext_invite(void* ptr, void* participant, RustCallStatus *out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSSESSIONCONTEXT_INVITE_ASYNC
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSSESSIONCONTEXT_INVITE_ASYNC
-uint64_t uniffi_slim_bindings_fn_method_bindingssessioncontext_invite_async(void* ptr, RustBuffer participant
+uint64_t uniffi_slim_bindings_fn_method_bindingssessioncontext_invite_async(void* ptr, void* participant
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSSESSIONCONTEXT_IS_INITIATOR
@@ -585,22 +585,22 @@ uint64_t uniffi_slim_bindings_fn_method_bindingssessioncontext_publish_with_comp
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSSESSIONCONTEXT_PUBLISH_WITH_PARAMS
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSSESSIONCONTEXT_PUBLISH_WITH_PARAMS
-void uniffi_slim_bindings_fn_method_bindingssessioncontext_publish_with_params(void* ptr, RustBuffer destination, uint32_t fanout, RustBuffer data, RustBuffer connection_out, RustBuffer payload_type, RustBuffer metadata, RustCallStatus *out_status
+void uniffi_slim_bindings_fn_method_bindingssessioncontext_publish_with_params(void* ptr, void* destination, uint32_t fanout, RustBuffer data, RustBuffer connection_out, RustBuffer payload_type, RustBuffer metadata, RustCallStatus *out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSSESSIONCONTEXT_PUBLISH_WITH_PARAMS_ASYNC
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSSESSIONCONTEXT_PUBLISH_WITH_PARAMS_ASYNC
-uint64_t uniffi_slim_bindings_fn_method_bindingssessioncontext_publish_with_params_async(void* ptr, RustBuffer destination, uint32_t fanout, RustBuffer data, RustBuffer connection_out, RustBuffer payload_type, RustBuffer metadata
+uint64_t uniffi_slim_bindings_fn_method_bindingssessioncontext_publish_with_params_async(void* ptr, void* destination, uint32_t fanout, RustBuffer data, RustBuffer connection_out, RustBuffer payload_type, RustBuffer metadata
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSSESSIONCONTEXT_REMOVE
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSSESSIONCONTEXT_REMOVE
-void uniffi_slim_bindings_fn_method_bindingssessioncontext_remove(void* ptr, RustBuffer participant, RustCallStatus *out_status
+void uniffi_slim_bindings_fn_method_bindingssessioncontext_remove(void* ptr, void* participant, RustCallStatus *out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSSESSIONCONTEXT_REMOVE_ASYNC
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSSESSIONCONTEXT_REMOVE_ASYNC
-uint64_t uniffi_slim_bindings_fn_method_bindingssessioncontext_remove_async(void* ptr, RustBuffer participant
+uint64_t uniffi_slim_bindings_fn_method_bindingssessioncontext_remove_async(void* ptr, void* participant
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSSESSIONCONTEXT_SESSION_ID
@@ -615,7 +615,7 @@ RustBuffer uniffi_slim_bindings_fn_method_bindingssessioncontext_session_type(vo
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSSESSIONCONTEXT_SOURCE
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSSESSIONCONTEXT_SOURCE
-RustBuffer uniffi_slim_bindings_fn_method_bindingssessioncontext_source(void* ptr, RustCallStatus *out_status
+void* uniffi_slim_bindings_fn_method_bindingssessioncontext_source(void* ptr, RustCallStatus *out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_CLONE_FFICOMPLETIONHANDLE
@@ -648,9 +648,34 @@ void uniffi_slim_bindings_fn_method_fficompletionhandle_wait_for(void* ptr, Rust
 uint64_t uniffi_slim_bindings_fn_method_fficompletionhandle_wait_for_async(void* ptr, RustBuffer timeout
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_CLONE_NAME
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_CLONE_NAME
+void* uniffi_slim_bindings_fn_clone_name(void* ptr, RustCallStatus *out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FREE_NAME
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FREE_NAME
+void uniffi_slim_bindings_fn_free_name(void* ptr, RustCallStatus *out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_CONSTRUCTOR_NAME_NEW
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_CONSTRUCTOR_NAME_NEW
+void* uniffi_slim_bindings_fn_constructor_name_new(RustBuffer component_0, RustBuffer component1, RustBuffer component2, RustBuffer id, RustCallStatus *out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_NAME_COMPONENTS
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_NAME_COMPONENTS
+RustBuffer uniffi_slim_bindings_fn_method_name_components(void* ptr, RustCallStatus *out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_NAME_ID
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_NAME_ID
+uint64_t uniffi_slim_bindings_fn_method_name_id(void* ptr, RustCallStatus *out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_CREATE_APP_WITH_SECRET
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_CREATE_APP_WITH_SECRET
-void* uniffi_slim_bindings_fn_func_create_app_with_secret(RustBuffer app_name, RustBuffer shared_secret, RustCallStatus *out_status
+void* uniffi_slim_bindings_fn_func_create_app_with_secret(void* app_name, RustBuffer shared_secret, RustCallStatus *out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_GET_BUILD_INFO
@@ -1260,6 +1285,24 @@ uint16_t uniffi_slim_bindings_checksum_method_fficompletionhandle_wait_for(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_FFICOMPLETIONHANDLE_WAIT_FOR_ASYNC
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_FFICOMPLETIONHANDLE_WAIT_FOR_ASYNC
 uint16_t uniffi_slim_bindings_checksum_method_fficompletionhandle_wait_for_async(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_NAME_COMPONENTS
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_NAME_COMPONENTS
+uint16_t uniffi_slim_bindings_checksum_method_name_components(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_NAME_ID
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_NAME_ID
+uint16_t uniffi_slim_bindings_checksum_method_name_id(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_CONSTRUCTOR_NAME_NEW
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_CONSTRUCTOR_NAME_NEW
+uint16_t uniffi_slim_bindings_checksum_constructor_name_new(void
     
 );
 #endif

@@ -57,13 +57,15 @@ impl PyMessageContext {
 impl From<MessageContext> for PyMessageContext {
     /// Convert a common MessageContext into a Python-specific MessageContext
     fn from(ctx: MessageContext) -> Self {
-        let empty_name = FfiName {
-            components: vec!["".to_string(), "".to_string(), "".to_string()],
-            id: None,
-        };
+        let empty_name = FfiName::new("".to_string(), "".to_string(), "".to_string(), None);
         PyMessageContext {
-            source_name: PyName::from(ctx.source_name),
-            destination_name: PyName::from(ctx.destination_name.unwrap_or(empty_name)),
+            source_name: PyName::from(ctx.source_name.as_ref()),
+            destination_name: PyName::from(
+                ctx.destination_name
+                    .as_ref()
+                    .map(|n| n.as_ref())
+                    .unwrap_or(&empty_name),
+            ),
             payload_type: ctx.payload_type,
             metadata: ctx.metadata,
             input_connection: ctx.input_connection,
