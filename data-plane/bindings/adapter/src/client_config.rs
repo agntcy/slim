@@ -127,7 +127,7 @@ impl Default for ProxyConfig {
         let core_defaults = CoreProxyConfig::default();
         ProxyConfig {
             url: core_defaults.url,
-            tls: TlsClientConfig::default(), // Use FFI default since we can't convert back
+            tls: core_defaults.tls_setting.into(),
             username: core_defaults.username,
             password: core_defaults.password,
             headers: core_defaults.headers,

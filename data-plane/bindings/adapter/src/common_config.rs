@@ -71,6 +71,27 @@ impl From<TlsSource> for slim_config::tls::common::TlsSource {
     }
 }
 
+impl From<slim_config::tls::common::TlsSource> for TlsSource {
+    fn from(source: slim_config::tls::common::TlsSource) -> Self {
+        match source {
+            slim_config::tls::common::TlsSource::Pem { cert, key } => TlsSource::Pem { cert, key },
+            slim_config::tls::common::TlsSource::File { cert, key } => {
+                TlsSource::File { cert, key }
+            }
+            #[cfg(not(target_family = "windows"))]
+            slim_config::tls::common::TlsSource::Spire { config } => TlsSource::Spire {
+                config: SpireConfig {
+                    socket_path: config.socket_path,
+                    target_spiffe_id: config.target_spiffe_id,
+                    jwt_audiences: config.jwt_audiences,
+                    trust_domains: config.trust_domains,
+                },
+            },
+            slim_config::tls::common::TlsSource::None => TlsSource::None,
+        }
+    }
+}
+
 /// CA certificate source configuration
 #[derive(uniffi::Enum, Clone, Debug, PartialEq)]
 pub enum CaSource {
@@ -107,6 +128,25 @@ impl From<CaSource> for slim_config::tls::common::CaSource {
     }
 }
 
+impl From<slim_config::tls::common::CaSource> for CaSource {
+    fn from(source: slim_config::tls::common::CaSource) -> Self {
+        match source {
+            slim_config::tls::common::CaSource::File { path } => CaSource::File { path },
+            slim_config::tls::common::CaSource::Pem { data } => CaSource::Pem { data },
+            #[cfg(not(target_family = "windows"))]
+            slim_config::tls::common::CaSource::Spire { config } => CaSource::Spire {
+                config: SpireConfig {
+                    socket_path: config.socket_path,
+                    target_spiffe_id: config.target_spiffe_id,
+                    jwt_audiences: config.jwt_audiences,
+                    trust_domains: config.trust_domains,
+                },
+            },
+            slim_config::tls::common::CaSource::None => CaSource::None,
+        }
+    }
+}
+
 /// TLS configuration for client connections
 #[derive(uniffi::Record, Clone, Debug, PartialEq)]
 pub struct TlsClientConfig {
@@ -131,8 +171,8 @@ impl Default for TlsClientConfig {
         TlsClientConfig {
             insecure: core_defaults.insecure,
             insecure_skip_verify: core_defaults.insecure_skip_verify,
-            source: TlsSource::None, // Keep as None since we can't convert back from core
-            ca_source: CaSource::None, // Keep as None since we can't convert back from core
+            source: core_defaults.config.source.into(),
+            ca_source: core_defaults.config.ca_source.into(),
             include_system_ca_certs_pool: core_defaults.config.include_system_ca_certs_pool,
             tls_version: core_defaults.config.tls_version,
         }
@@ -141,19 +181,17 @@ impl Default for TlsClientConfig {
 
 impl From<TlsClientConfig> for CoreTlsClientConfig {
     fn from(config: TlsClientConfig) -> Self {
-        let mut core_config = CoreTlsClientConfig {
+        CoreTlsClientConfig {
+            config: slim_config::tls::common::Config {
+                source: config.source.into(),
+                ca_source: config.ca_source.into(),
+                include_system_ca_certs_pool: config.include_system_ca_certs_pool,
+                tls_version: config.tls_version,
+                reload_interval: None,
+            },
             insecure: config.insecure,
             insecure_skip_verify: config.insecure_skip_verify,
-            ..Default::default()
-        };
-
-        // Use From trait for conversions
-        core_config.config.source = config.source.into();
-        core_config.config.ca_source = config.ca_source.into();
-        core_config.config.include_system_ca_certs_pool = config.include_system_ca_certs_pool;
-        core_config.config.tls_version = config.tls_version;
-
-        core_config
+        }
     }
 }
 
@@ -162,8 +200,8 @@ impl From<CoreTlsClientConfig> for TlsClientConfig {
         TlsClientConfig {
             insecure: config.insecure,
             insecure_skip_verify: config.insecure_skip_verify,
-            source: TlsSource::None, // Can't convert back from core - use default
-            ca_source: CaSource::None, // Can't convert back from core - use default
+            source: config.config.source.into(),
+            ca_source: config.config.ca_source.into(),
             include_system_ca_certs_pool: config.config.include_system_ca_certs_pool,
             tls_version: config.config.tls_version,
         }
@@ -192,8 +230,8 @@ impl Default for TlsServerConfig {
         let core_defaults = CoreTlsServerConfig::default();
         TlsServerConfig {
             insecure: core_defaults.insecure,
-            source: TlsSource::None, // Keep as None since we can't convert back from core
-            client_ca: CaSource::None, // Keep as None since we can't convert back from core
+            source: core_defaults.config.source.into(),
+            client_ca: core_defaults.client_ca.into(),
             include_system_ca_certs_pool: core_defaults.config.include_system_ca_certs_pool,
             tls_version: core_defaults.config.tls_version,
             reload_client_ca_file: core_defaults.reload_client_ca_file,
@@ -203,19 +241,18 @@ impl Default for TlsServerConfig {
 
 impl From<TlsServerConfig> for CoreTlsServerConfig {
     fn from(config: TlsServerConfig) -> Self {
-        let mut core_config = CoreTlsServerConfig {
+        CoreTlsServerConfig {
+            config: slim_config::tls::common::Config {
+                source: config.source.into(),
+                ca_source: slim_config::tls::common::CaSource::None,
+                include_system_ca_certs_pool: config.include_system_ca_certs_pool,
+                tls_version: config.tls_version,
+                reload_interval: None,
+            },
             insecure: config.insecure,
+            client_ca: config.client_ca.into(),
             reload_client_ca_file: config.reload_client_ca_file,
-            ..Default::default()
-        };
-
-        // Use From trait for conversions
-        core_config.config.source = config.source.into();
-        core_config.client_ca = config.client_ca.into();
-        core_config.config.include_system_ca_certs_pool = config.include_system_ca_certs_pool;
-        core_config.config.tls_version = config.tls_version;
-
-        core_config
+        }
     }
 }
 
@@ -223,8 +260,8 @@ impl From<CoreTlsServerConfig> for TlsServerConfig {
     fn from(config: CoreTlsServerConfig) -> Self {
         TlsServerConfig {
             insecure: config.insecure,
-            source: TlsSource::None, // Can't convert back from core - use default
-            client_ca: CaSource::None, // Can't convert back from core - use default
+            source: config.config.source.into(),
+            client_ca: config.client_ca.into(),
             include_system_ca_certs_pool: config.config.include_system_ca_certs_pool,
             tls_version: config.config.tls_version,
             reload_client_ca_file: config.reload_client_ca_file,
