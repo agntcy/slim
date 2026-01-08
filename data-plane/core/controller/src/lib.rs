@@ -3,6 +3,5 @@
 
 pub mod api;
 pub mod config;
-pub mod controller_timer_factory;
 pub mod errors;
 pub mod service;

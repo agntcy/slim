@@ -176,6 +176,7 @@ pub struct AddParticipant {
     join: State,
     welcome: State,
     commit: State,
+    /// Optional ack message to send back to the control plane upon completion
     ack_msg: Option<Message>,
     /// Optional ack notifier to signal when the invite operation completes (after JoinReply)
     pub(crate) ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
@@ -305,6 +306,7 @@ impl TaskUpdate for AddParticipant {
 pub struct RemoveParticipant {
     commit: State,
     leave: State,
+    /// Optional ack message to send back to the control plane upon completion
     ack_msg: Option<Message>,
     /// Optional ack notifier to signal when the remove operation completes (after LeaveReply)
     pub(crate) ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
@@ -409,6 +411,7 @@ impl TaskUpdate for RemoveParticipant {
 #[derive(Debug, Default)]
 pub struct NotifyParticipants {
     notify: State,
+    /// Optional ack message to send back to the control plane upon completion
     ack_msg: Option<Message>,
     /// Optional ack notifier to signal when the notify operation completes
     pub(crate) ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
@@ -495,6 +498,7 @@ impl TaskUpdate for NotifyParticipants {
 pub struct UpdateParticipant {
     proposal: State,
     commit: State,
+    /// Optional ack message to send back to the control plane upon completion
     ack_msg: Option<Message>,
     /// Optional ack notifier to signal when the update operation completes
     pub(crate) ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,

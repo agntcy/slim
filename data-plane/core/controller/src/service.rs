@@ -1047,15 +1047,19 @@ impl ControllerService {
                                     success = false;
                                 } else {
                                     // create timer for the message
-                                    debug!("create timer for message id: {} with type {:?}", new_msg_id, ProtoSessionMessageType::JoinRequest);
-                                    let timer = if let Some(factory) = self.inner.timer_factory.read().as_ref() {
-                                        Some(factory.create_and_start_timer(
-                                            new_msg_id,
-                                            ProtoSessionMessageType::JoinRequest,
-                                            None))
-                                    } else {
-                                        None
-                                    };
+                                    debug!(
+                                        "create timer for message id: {} with type {:?}",
+                                        new_msg_id,
+                                        ProtoSessionMessageType::JoinRequest
+                                    );
+                                    let timer =
+                                        self.inner.timer_factory.read().as_ref().map(|factory| {
+                                            factory.create_and_start_timer(
+                                                new_msg_id,
+                                                ProtoSessionMessageType::JoinRequest,
+                                                None,
+                                            )
+                                        });
                                     self.inner
                                         .message_id_map
                                         .write()
@@ -1112,15 +1116,20 @@ impl ControllerService {
                                     success = false;
                                 } else {
                                     // create timer for the message
-                                    debug!("create timer for message id: {} with type {:?}", new_msg_id, ProtoSessionMessageType::LeaveRequest);
-                                    let timer = if let Some(factory) = self.inner.timer_factory.read().as_ref() {
-                                        Some(factory.create_and_start_timer(
-                                            new_msg_id,
-                                            ProtoSessionMessageType::LeaveRequest,
-                                            None))
-                                    } else {
-                                        None
-                                    };
+                                    debug!(
+                                        "create timer for message id: {} with type {:?}",
+                                        new_msg_id,
+                                        ProtoSessionMessageType::LeaveRequest
+                                    );
+                                    let timer =
+                                        self.inner.timer_factory.read().as_ref().map(|factory| {
+                                            factory.create_and_start_timer(
+                                                new_msg_id,
+                                                ProtoSessionMessageType::LeaveRequest,
+                                                None,
+                                            )
+                                        });
+
                                     self.inner
                                         .message_id_map
                                         .write()
@@ -1184,15 +1193,19 @@ impl ControllerService {
                                     success = false;
                                 } else {
                                     // create timer for the message
-                                    debug!("create timer for message id: {} with type {:?}", new_msg_id, ProtoSessionMessageType::DiscoveryRequest);
-                                    let timer = if let Some(factory) = self.inner.timer_factory.read().as_ref() {
-                                        Some(factory.create_and_start_timer(
-                                            new_msg_id,
-                                            ProtoSessionMessageType::DiscoveryRequest,
-                                            None))
-                                    } else {
-                                        None
-                                    };
+                                    debug!(
+                                        "create timer for message id: {} with type {:?}",
+                                        new_msg_id,
+                                        ProtoSessionMessageType::DiscoveryRequest
+                                    );
+                                    let timer =
+                                        self.inner.timer_factory.read().as_ref().map(|factory| {
+                                            factory.create_and_start_timer(
+                                                new_msg_id,
+                                                ProtoSessionMessageType::DiscoveryRequest,
+                                                None,
+                                            )
+                                        });
                                     self.inner
                                         .message_id_map
                                         .write()
@@ -1245,19 +1258,23 @@ impl ControllerService {
                                 )?;
 
                                 if let Err(e) = self.send_control_message(remove_msg).await {
-                                    error!(error = %e.chain(), "failed to send channel creation");
+                                    error!(error = %e.chain(), "failed to send delete participant request");
                                     success = false;
                                 } else {
                                     // create timer for the message
-                                    debug!("create timer for remove message with id: {}", new_msg_id);
-                                    let timer = if let Some(factory) = self.inner.timer_factory.read().as_ref() {
-                                        Some(factory.create_and_start_timer(
-                                            new_msg_id,
-                                            ProtoSessionMessageType::LeaveRequest,
-                                            None))
-                                    } else {
-                                        None
-                                    };
+                                    debug!(
+                                        "create timer for message id: {} with type {:?}",
+                                        new_msg_id,
+                                        ProtoSessionMessageType::LeaveRequest
+                                    );
+                                    let timer =
+                                        self.inner.timer_factory.read().as_ref().map(|factory| {
+                                            factory.create_and_start_timer(
+                                                new_msg_id,
+                                                ProtoSessionMessageType::LeaveRequest,
+                                                None,
+                                            )
+                                        });
                                     self.inner
                                         .message_id_map
                                         .write()
@@ -1357,7 +1374,8 @@ impl ControllerService {
         return self.send_or_queue_notification(ctrl, clients).await;
     }
 
-
+    // send an ack back to the control plane. the success fileld indicates whether the original
+    // operation was successfully delivered/processed or not.
     async fn send_ack_message(&self, msg_id: u32, success: bool, clients: &[ClientConfig]) {
         let original_message_id = self.inner.message_id_map.write().remove(&msg_id);
         match original_message_id {
@@ -1367,7 +1385,7 @@ impl ControllerService {
                 if let Some(mut timer) = entry.1 {
                     timer.stop();
                 }
-                
+
                 let ack = Ack {
                     original_message_id: entry.0,
                     success,
@@ -1379,8 +1397,6 @@ impl ControllerService {
                     payload: Some(Payload::Ack(ack)),
                 };
 
-                // XXX: do we need to send this to all the controll planes or only
-                // to the one that sent the original message?
                 self.send_or_queue_notification(reply, clients).await;
             }
             None => {
@@ -1569,7 +1585,7 @@ impl ControllerService {
                         match session_msg {
                             SessionMessage::TimerFailure { message_id, message_type: _, name: _, timeouts: _} => {
                                 tracing::info!("got a failure for message id: {}", message_id);
-                                this.send_ack_message(message_id, false, &[clients.clone()]).await;
+                                this.send_ack_message(message_id, false, std::slice::from_ref(&clients)).await;
                             }
                             _ => {
                                 error!("unexpected session message received in controller");
@@ -1633,8 +1649,12 @@ impl ControllerService {
 
         self.send_queued_notifications(&tx, &config.endpoint).await;
 
-        let timer_settings =
-            TimerSettings::new(Duration::from_millis(2000), None, Some(0), TimerType::Constant);
+        let timer_settings = TimerSettings::new(
+            Duration::from_millis(2000),
+            None,
+            Some(0),
+            TimerType::Constant,
+        );
         let (timer_tx, timer_rx) = mpsc::channel::<SessionMessage>(128);
         let timer_factory = TimerFactory::new(timer_settings, timer_tx.clone());
         self.inner.timer_factory.write().replace(timer_factory);
@@ -1694,11 +1714,17 @@ impl GrpcControllerService for ControllerService {
         let cancellation_token = CancellationToken::new();
 
         // Server-side connections don't initiate operations requiring acks, so no timer channel needed
-        self.process_control_message_stream(None, stream, None, tx.clone(), cancellation_token.clone())
-            .map_err(|e| {
-                error!(error = %e.chain(), "error processing control message stream");
-                Status::unavailable("failed to process control message stream")
-            })?;
+        self.process_control_message_stream(
+            None,
+            stream,
+            None,
+            tx.clone(),
+            cancellation_token.clone(),
+        )
+        .map_err(|e| {
+            error!(error = %e.chain(), "error processing control message stream");
+            Status::unavailable("failed to process control message stream")
+        })?;
 
         // store the sender in the tx_channels map
         self.inner

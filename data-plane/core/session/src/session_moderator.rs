@@ -481,10 +481,6 @@ where
                 // this message should arrive only from the control plane
                 // the effect of it is to create the session itself with
                 // the right settings. We need to set a route to the controller and send back the ack
-
-                // Add a 10 second sleep
-                tokio::time::sleep(Duration::from_secs(10)).await;
-
                 self.common
                     .add_route(&message.get_source(), message.get_incoming_conn())
                     .await
@@ -582,9 +578,7 @@ where
 
         let (mut discovery, ack) = match &payload.destination {
             Some(dst_name) => {
-                // set the route to forward the messages correctly
-                // here we assume that the destination is reachable from the
-                // same connection from where we got the message from the controller
+                // create the ack message to send back to the controller
                 let ack = self.common.create_control_message(
                     &msg.get_source(),
                     ProtoSessionMessageType::GroupAck,
@@ -593,10 +587,9 @@ where
                     false,
                 )?;
 
-                // src = controller
-                // dst = moderator
-                // payload = participant to add
-
+                // set the route to forward the messages correctly
+                // here we assume that the destination is reachable from the
+                // same connection from where we got the message from the controller
                 let dst = Name::from(dst_name);
                 self.common
                     .add_route(&dst, msg.get_incoming_conn())
@@ -881,6 +874,7 @@ where
 
         // Update message based on whether destination was provided in payload
         let ack = if payload_destination.is_some() {
+            // create also the ack to send back to the controller
             let ack = self.common.create_control_message(
                 &msg.get_source(),
                 ProtoSessionMessageType::GroupAck,
@@ -1041,17 +1035,8 @@ where
         debug!("Create disconnected task for the disconnection handling");
         // Reuse the disconnection task here, however we don't need to send the leave message
         // so we can mark it as done immediately
-        let ack = self.common.create_control_message(
-            &msg.get_source(),
-            ProtoSessionMessageType::GroupAck,
-            msg.get_id(),
-            CommandPayload::builder().group_ack().as_content(),
-            false,
-        )?;
-
         self.current_task = Some(ModeratorTask::CloseOrDisconnect(NotifyParticipants::new(
-            ack_tx,
-            Some(ack),
+            ack_tx, None,
         )));
 
         // Remove the participant from the group list and compute MLS payload
@@ -1075,6 +1060,8 @@ where
         &mut self,
         msg: Message,
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
+        // set to true if the delete all is requested from the control plane
+        // so that we can send back an ack message
         from_control_plane: bool,
     ) -> Result<(), SessionError> {
         debug!("receive a close channel message, send signals to all participants");
@@ -1212,15 +1199,17 @@ where
             return Ok(());
         }
 
-        // here the moderator is not busy anymore
+        // check if we need to send an ack message to the controller
         if let Some(ack_msg) = self.current_task.as_ref().unwrap().ack_msg() {
-            // Use ack_msg
+            // Use ack_msg to notify the cotroller that the task is done
+            debug!("Send ack message for task {:?}", self.current_task);
             self.common.send_to_slim(ack_msg.clone()).await?;
         } else {
-            // Handle case where there's no ack message
+            // NO need to send any notification here
             debug!("No ack message for task {:?}", self.current_task);
         }
 
+        // here the moderator is not busy anymore
         self.current_task = None;
         self.pop_task().await
     }
@@ -1459,11 +1448,11 @@ mod tests {
         let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
         moderator.init().await.unwrap();
 
-        let source = make_name(&["requester", "app", "v1"]).with_id(300);
-        let destination = moderator.common.settings.source.clone();
-
         // Set a current task to make moderator busy
         moderator.current_task = Some(ModeratorTask::Add(AddParticipant::new(None, None)));
+
+        let source = make_name(&["requester", "app", "v1"]).with_id(300);
+        let destination = moderator.common.settings.source.clone();
 
         let discovery_msg = Message::builder()
             .source(source.clone())
