@@ -15,7 +15,7 @@ use slim_session::context::SessionContext;
 
 use crate::adapter::{FfiCompletionHandle, ReceivedMessage, SessionType};
 use crate::message_context::MessageContext;
-use crate::{Name, SlimError};
+use crate::{Name, SlimError, runtime};
 
 /// Session context for language bindings (UniFFI-compatible)
 ///
