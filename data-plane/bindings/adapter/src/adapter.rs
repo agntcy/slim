@@ -35,6 +35,7 @@ use slim_session::errors::SessionError;
 use slim_session::session_controller::SessionController;
 use slim_session::{Notification, SessionError as SlimSessionError};
 
+use crate::name::Name;
 use crate::service_ref::{ServiceRef, get_or_init_global_service};
 
 // Re-export uniffi for proc macros
@@ -126,41 +127,6 @@ pub fn get_build_info() -> BuildInfo {
         git_sha: env!("GIT_SHA").to_string(),
         build_date: env!("BUILD_DATE").to_string(),
         profile: env!("PROFILE").to_string(),
-    }
-}
-
-/// Name type for SLIM (Secure Low-Latency Interactive Messaging)
-#[derive(Debug, Clone, PartialEq, uniffi::Record)]
-pub struct Name {
-    pub components: Vec<String>,
-    pub id: Option<u64>,
-}
-
-impl From<Name> for SlimName {
-    fn from(name: Name) -> Self {
-        let components: [String; 3] = [
-            name.components.first().cloned().unwrap_or_default(),
-            name.components.get(1).cloned().unwrap_or_default(),
-            name.components.get(2).cloned().unwrap_or_default(),
-        ];
-        let mut slim_name = SlimName::from_strings(components);
-        if let Some(id) = name.id {
-            slim_name = slim_name.with_id(id);
-        }
-        slim_name
-    }
-}
-
-impl From<&SlimName> for Name {
-    fn from(name: &SlimName) -> Self {
-        Name {
-            components: name
-                .components_strings()
-                .iter()
-                .map(|s| s.to_string())
-                .collect(),
-            id: Some(name.id()),
-        }
     }
 }
 
@@ -305,7 +271,7 @@ pub struct ReceivedMessage {
 /// This is the main entry point for creating a SLIM application from language bindings.
 #[uniffi::export]
 pub fn create_app_with_secret(
-    app_name: Name,
+    app_name: Arc<Name>,
     shared_secret: String,
 ) -> Result<Arc<BindingsAdapter>, SlimError> {
     let runtime = get_runtime();
@@ -314,10 +280,10 @@ pub fn create_app_with_secret(
 
 /// Create an app with the given name and shared secret (async version)
 async fn create_app_with_secret_async(
-    app_name: Name,
+    app_name: Arc<Name>,
     shared_secret: String,
 ) -> Result<Arc<BindingsAdapter>, SlimError> {
-    let slim_name: SlimName = app_name.into();
+    let slim_name: SlimName = app_name.as_ref().into();
     let shared_secret_impl = SharedSecret::new(&slim_name.components_strings()[1], &shared_secret)?;
 
     // Wrap in enum types for flexible auth support
@@ -421,15 +387,15 @@ impl BindingsAdapter {
     }
 
     /// Get the app name
-    pub fn name(&self) -> Name {
-        Name::from(self.app.app_name())
+    pub fn name(&self) -> Arc<Name> {
+        Arc::new(self.app.app_name().into())
     }
 
     /// Create a new session (blocking version for FFI)
     pub fn create_session(
         &self,
         config: SessionConfig,
-        destination: Name,
+        destination: Arc<Name>,
     ) -> Result<Arc<crate::BindingsSessionContext>, SlimError> {
         self.runtime
             .block_on(async { self.create_session_async(config, destination).await })
@@ -444,10 +410,10 @@ impl BindingsAdapter {
     pub async fn create_session_async(
         &self,
         config: SessionConfig,
-        destination: Name,
+        destination: Arc<Name>,
     ) -> Result<Arc<crate::BindingsSessionContext>, SlimError> {
         let slim_config: SlimSessionConfig = config.into();
-        let slim_dest: SlimName = destination.into();
+        let slim_dest: SlimName = destination.as_ref().into();
 
         let (session_ctx, completion) = self
             .app
@@ -495,7 +461,7 @@ impl BindingsAdapter {
     }
 
     /// Subscribe to a name (blocking version for FFI)
-    pub fn subscribe(&self, name: Name, connection_id: Option<u64>) -> Result<(), SlimError> {
+    pub fn subscribe(&self, name: Arc<Name>, connection_id: Option<u64>) -> Result<(), SlimError> {
         self.runtime
             .block_on(async { self.subscribe_async(name, connection_id).await })
     }
@@ -503,16 +469,20 @@ impl BindingsAdapter {
     /// Subscribe to a name (async version)
     pub async fn subscribe_async(
         &self,
-        name: Name,
+        name: Arc<Name>,
         connection_id: Option<u64>,
     ) -> Result<(), SlimError> {
-        let slim_name: SlimName = name.into();
+        let slim_name: SlimName = name.as_ref().into();
         self.app.subscribe(&slim_name, connection_id).await?;
         Ok(())
     }
 
     /// Unsubscribe from a name (blocking version for FFI)
-    pub fn unsubscribe(&self, name: Name, connection_id: Option<u64>) -> Result<(), SlimError> {
+    pub fn unsubscribe(
+        &self,
+        name: Arc<Name>,
+        connection_id: Option<u64>,
+    ) -> Result<(), SlimError> {
         self.runtime
             .block_on(async { self.unsubscribe_async(name, connection_id).await })
     }
@@ -520,29 +490,33 @@ impl BindingsAdapter {
     /// Unsubscribe from a name (async version)
     pub async fn unsubscribe_async(
         &self,
-        name: Name,
+        name: Arc<Name>,
         connection_id: Option<u64>,
     ) -> Result<(), SlimError> {
-        let slim_name: SlimName = name.into();
+        let slim_name: SlimName = name.as_ref().into();
         self.app.unsubscribe(&slim_name, connection_id).await?;
         Ok(())
     }
 
     /// Set a route to a name for a specific connection (blocking version for FFI)
-    pub fn set_route(&self, name: Name, connection_id: u64) -> Result<(), SlimError> {
+    pub fn set_route(&self, name: Arc<Name>, connection_id: u64) -> Result<(), SlimError> {
         self.runtime
             .block_on(async { self.set_route_async(name, connection_id).await })
     }
 
     /// Set a route to a name for a specific connection (async version)
-    pub async fn set_route_async(&self, name: Name, connection_id: u64) -> Result<(), SlimError> {
-        let slim_name: SlimName = name.into();
+    pub async fn set_route_async(
+        &self,
+        name: Arc<Name>,
+        connection_id: u64,
+    ) -> Result<(), SlimError> {
+        let slim_name: SlimName = name.as_ref().into();
         self.app.set_route(&slim_name, connection_id).await?;
         Ok(())
     }
 
     /// Remove a route (blocking version for FFI)
-    pub fn remove_route(&self, name: Name, connection_id: u64) -> Result<(), SlimError> {
+    pub fn remove_route(&self, name: Arc<Name>, connection_id: u64) -> Result<(), SlimError> {
         self.runtime
             .block_on(async { self.remove_route_async(name, connection_id).await })
     }
@@ -550,10 +524,10 @@ impl BindingsAdapter {
     /// Remove a route (async version)
     pub async fn remove_route_async(
         &self,
-        name: Name,
+        name: Arc<Name>,
         connection_id: u64,
     ) -> Result<(), SlimError> {
-        let slim_name: SlimName = name.into();
+        let slim_name: SlimName = name.as_ref().into();
         self.app.remove_route(&slim_name, connection_id).await?;
         Ok(())
     }
@@ -561,19 +535,17 @@ impl BindingsAdapter {
     /// Listen for incoming sessions (blocking version for FFI)
     pub fn listen_for_session(
         &self,
-        timeout_ms: Option<u32>,
+        timeout: Option<std::time::Duration>,
     ) -> Result<Arc<crate::BindingsSessionContext>, SlimError> {
         self.runtime
-            .block_on(async { self.listen_for_session_async(timeout_ms).await })
+            .block_on(async { self.listen_for_session_async(timeout).await })
     }
 
     /// Listen for incoming sessions (async version)
     pub async fn listen_for_session_async(
         &self,
-        timeout_ms: Option<u32>,
+        timeout: Option<std::time::Duration>,
     ) -> Result<Arc<crate::BindingsSessionContext>, SlimError> {
-        let timeout = timeout_ms.map(|ms| std::time::Duration::from_millis(ms as u64));
-
         let mut rx = self.notification_rx.write().await;
 
         let recv_fut = rx.recv();
@@ -1300,10 +1272,12 @@ mod tests {
             metadata: std::collections::HashMap::new(),
         };
 
-        let destination = Name {
-            components: vec!["org".to_string(), "test".to_string(), "dest".to_string()],
-            id: None,
-        };
+        let destination = Arc::new(Name::new(
+            "org".to_string(),
+            "test".to_string(),
+            "dest".to_string(),
+            None,
+        ));
 
         // This should auto-wait for session establishment
         // If it returns without error, the session is fully established
@@ -1348,10 +1322,12 @@ mod tests {
             metadata: std::collections::HashMap::new(),
         };
 
-        let destination = Name {
-            components: vec!["org".to_string(), "test".to_string(), "dest".to_string()],
-            id: None,
-        };
+        let destination = Arc::new(Name::new(
+            "org".to_string(),
+            "test".to_string(),
+            "dest".to_string(),
+            None,
+        ));
 
         // Try to create a session (may fail without network)
         if let Ok(session) = adapter
@@ -1424,93 +1400,6 @@ mod tests {
             std::env::remove_var("SLIM_TOKIO_WORKERS");
             std::env::remove_var("SLIM_MAX_BLOCKING_THREADS");
         }
-    }
-
-    // ========================================================================
-    // Name Conversion Tests
-    // ========================================================================
-
-    /// Test Name to SlimName conversion with full components
-    #[test]
-    fn test_name_to_slim_name_full() {
-        let name = Name {
-            components: vec![
-                "org".to_string(),
-                "namespace".to_string(),
-                "app".to_string(),
-            ],
-            id: Some(12345),
-        };
-
-        let slim_name: SlimName = name.into();
-        let components = slim_name.components_strings();
-
-        assert_eq!(components[0], "org");
-        assert_eq!(components[1], "namespace");
-        assert_eq!(components[2], "app");
-        assert_eq!(slim_name.id(), 12345);
-    }
-
-    /// Test Name to SlimName conversion with partial components
-    #[test]
-    fn test_name_to_slim_name_partial() {
-        let name = Name {
-            components: vec!["org".to_string()],
-            id: None,
-        };
-
-        let slim_name: SlimName = name.into();
-        let components = slim_name.components_strings();
-
-        assert_eq!(components[0], "org");
-        assert_eq!(components[1], "");
-        assert_eq!(components[2], "");
-    }
-
-    /// Test Name to SlimName conversion with empty components
-    #[test]
-    fn test_name_to_slim_name_empty() {
-        let name = Name {
-            components: vec![],
-            id: None,
-        };
-
-        let slim_name: SlimName = name.into();
-        let components = slim_name.components_strings();
-
-        assert_eq!(components[0], "");
-        assert_eq!(components[1], "");
-        assert_eq!(components[2], "");
-    }
-
-    /// Test SlimName to Name conversion
-    #[test]
-    fn test_slim_name_to_name() {
-        let slim_name = SlimName::from_strings(["org", "namespace", "app"]).with_id(54321);
-
-        let name = Name::from(&slim_name);
-
-        assert_eq!(name.components, vec!["org", "namespace", "app"]);
-        assert_eq!(name.id, Some(54321));
-    }
-
-    /// Test Name roundtrip conversion
-    #[test]
-    fn test_name_roundtrip() {
-        let original = Name {
-            components: vec![
-                "org".to_string(),
-                "namespace".to_string(),
-                "app".to_string(),
-            ],
-            id: Some(99999),
-        };
-
-        let slim_name: SlimName = original.clone().into();
-        let converted = Name::from(&slim_name);
-
-        assert_eq!(original.components, converted.components);
-        assert_eq!(original.id, converted.id);
     }
 
     // ========================================================================
@@ -1765,10 +1654,10 @@ mod tests {
 
         // Name should have the right components
         let name = adapter.name();
-        assert_eq!(name.components[0], "org");
-        assert_eq!(name.components[1], "namespace");
-        assert_eq!(name.components[2], "id-test");
-        assert!(name.id.is_some());
+        assert_eq!(name.components()[0], "org");
+        assert_eq!(name.components()[1], "namespace");
+        assert_eq!(name.components()[2], "id-test");
+        assert!(name.id() > 0);
     }
 
     /// Test adapter with local service
@@ -1818,14 +1707,18 @@ mod tests {
     fn test_received_message() {
         let msg = ReceivedMessage {
             context: crate::message_context::MessageContext::new(
-                Name {
-                    components: vec!["org".to_string(), "ns".to_string(), "app".to_string()],
-                    id: Some(123),
-                },
-                Some(Name {
-                    components: vec!["org".to_string(), "ns".to_string(), "dest".to_string()],
-                    id: Some(456),
-                }),
+                Name::new(
+                    "org".to_string(),
+                    "ns".to_string(),
+                    "app".to_string(),
+                    Some(123),
+                ),
+                Some(Name::new(
+                    "org".to_string(),
+                    "ns".to_string(),
+                    "dest".to_string(),
+                    Some(456),
+                )),
                 "application/json".to_string(),
                 std::collections::HashMap::new(),
                 789,
@@ -1854,49 +1747,18 @@ mod tests {
     }
 
     // ========================================================================
-    // Name Traits Tests
-    // ========================================================================
-
-    /// Test Name Debug, Clone, and PartialEq traits
-    #[test]
-    fn test_name_traits() {
-        let name1 = Name {
-            components: vec!["a".to_string(), "b".to_string(), "c".to_string()],
-            id: Some(100),
-        };
-        let name2 = name1.clone();
-
-        // PartialEq
-        assert_eq!(name1, name2);
-
-        // Different names should not be equal
-        let name3 = Name {
-            components: vec!["x".to_string(), "y".to_string(), "z".to_string()],
-            id: Some(200),
-        };
-        assert_ne!(name1, name3);
-
-        // Debug
-        let debug_str = format!("{:?}", name1);
-        assert!(debug_str.contains("Name"));
-        assert!(debug_str.contains("components"));
-    }
-
-    // ========================================================================
     // create_app_with_secret Tests
     // ========================================================================
 
     /// Test create_app_with_secret FFI entry point
     #[test]
     fn test_create_app_with_secret() {
-        let app_name = Name {
-            components: vec![
-                "org".to_string(),
-                "namespace".to_string(),
-                "ffi-app".to_string(),
-            ],
-            id: None,
-        };
+        let app_name = Arc::new(Name::new(
+            "org".to_string(),
+            "namespace".to_string(),
+            "ffi-app".to_string(),
+            None,
+        ));
 
         let result = create_app_with_secret(app_name, TEST_VALID_SECRET.to_string());
         assert!(result.is_ok(), "create_app_with_secret should succeed");
@@ -1905,18 +1767,20 @@ mod tests {
         assert!(adapter.id() > 0);
 
         let name = adapter.name();
-        assert_eq!(name.components[0], "org");
-        assert_eq!(name.components[1], "namespace");
-        assert_eq!(name.components[2], "ffi-app");
+        assert_eq!(name.components()[0], "org");
+        assert_eq!(name.components()[1], "namespace");
+        assert_eq!(name.components()[2], "ffi-app");
     }
 
     /// Test create_app_with_secret with empty name components
     #[test]
     fn test_create_app_with_secret_minimal_name() {
-        let app_name = Name {
-            components: vec!["org".to_string(), "ns".to_string(), "".to_string()],
-            id: None,
-        };
+        let app_name = Arc::new(Name::new(
+            "org".to_string(),
+            "ns".to_string(),
+            "".to_string(),
+            None,
+        ));
 
         let result = create_app_with_secret(app_name, TEST_VALID_SECRET.to_string());
         // Should handle empty component
@@ -1939,7 +1803,9 @@ mod tests {
             .expect("Failed to create adapter");
 
         // Listen with a very short timeout - should timeout
-        let result = adapter.listen_for_session_async(Some(10)).await;
+        let result = adapter
+            .listen_for_session_async(Some(std::time::Duration::from_millis(10)))
+            .await;
 
         match result {
             Err(SlimError::ReceiveError { message }) => {
@@ -1969,10 +1835,12 @@ mod tests {
         let adapter = BindingsAdapter::new(base_name, provider, verifier, true)
             .expect("Failed to create adapter");
 
-        let target_name = Name {
-            components: vec!["org".to_string(), "ns".to_string(), "target".to_string()],
-            id: None,
-        };
+        let target_name = Arc::new(Name::new(
+            "org".to_string(),
+            "ns".to_string(),
+            "target".to_string(),
+            None,
+        ));
 
         // Subscribe (may fail without connection, but shouldn't panic)
         let sub_result = adapter.subscribe_async(target_name.clone(), None).await;
@@ -2000,14 +1868,12 @@ mod tests {
         let adapter = BindingsAdapter::new(base_name, provider, verifier, true)
             .expect("Failed to create adapter");
 
-        let target_name = Name {
-            components: vec![
-                "org".to_string(),
-                "ns".to_string(),
-                "route-target".to_string(),
-            ],
-            id: None,
-        };
+        let target_name = Arc::new(Name::new(
+            "org".to_string(),
+            "ns".to_string(),
+            "route-target".to_string(),
+            None,
+        ));
 
         // Set route (may fail without valid connection_id)
         let set_result = adapter.set_route_async(target_name.clone(), 12345).await;
@@ -2084,14 +1950,12 @@ mod tests {
             metadata: std::collections::HashMap::new(),
         };
 
-        let destination = Name {
-            components: vec![
-                "org".to_string(),
-                "test".to_string(),
-                "delete-dest".to_string(),
-            ],
-            id: None,
-        };
+        let destination = Arc::new(Name::new(
+            "org".to_string(),
+            "test".to_string(),
+            "delete-dest".to_string(),
+            None,
+        ));
 
         // Create session (may fail without network)
         if let Ok(session) = adapter
@@ -2121,7 +1985,9 @@ mod tests {
             .expect("Failed to create adapter");
 
         // Call async version with short timeout (blocking version can't be called from async context)
-        let result = adapter.listen_for_session_async(Some(10)).await;
+        let result = adapter
+            .listen_for_session_async(Some(std::time::Duration::from_millis(10)))
+            .await;
 
         // Should timeout
         match result {
@@ -2145,14 +2011,12 @@ mod tests {
         let adapter = BindingsAdapter::new(base_name, provider, verifier, true)
             .expect("Failed to create adapter");
 
-        let target_name = Name {
-            components: vec![
-                "org".to_string(),
-                "ns".to_string(),
-                "blocking-target".to_string(),
-            ],
-            id: None,
-        };
+        let target_name = Arc::new(Name::new(
+            "org".to_string(),
+            "ns".to_string(),
+            "block-target".to_string(),
+            None,
+        ));
 
         // Call async version (blocking version can't be called from async context)
         let _ = adapter.subscribe_async(target_name, None).await;

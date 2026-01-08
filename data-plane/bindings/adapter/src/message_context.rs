@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use slim_datapath::api::{ProtoMessage, ProtoPublishType};
 use slim_datapath::messages::Name as SlimName;
@@ -9,7 +10,7 @@ use slim_datapath::messages::Name as SlimName;
 use slim_session::SessionError;
 
 // Import the FFI Name type for use in MessageContext fields
-use crate::adapter::Name;
+use crate::Name;
 
 /// Generic message context for language bindings (UniFFI-compatible)
 ///
@@ -19,9 +20,9 @@ use crate::adapter::Name;
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct MessageContext {
     /// Fully-qualified sender identity
-    pub source_name: Name,
+    pub source_name: Arc<Name>,
     /// Fully-qualified destination identity (may be empty for broadcast/group scenarios)
-    pub destination_name: Option<Name>,
+    pub destination_name: Option<Arc<Name>>,
     /// Logical/semantic type (defaults to "msg" if unspecified)
     pub payload_type: String,
     /// Arbitrary key/value pairs supplied by the sender (e.g. tracing IDs)
@@ -43,8 +44,8 @@ impl MessageContext {
         identity: String,
     ) -> Self {
         Self {
-            source_name: source,
-            destination_name: destination,
+            source_name: Arc::new(source),
+            destination_name: destination.map(Arc::new),
             payload_type,
             metadata,
             input_connection,
@@ -54,7 +55,7 @@ impl MessageContext {
 
     /// Get the source name as a SlimName (for internal use)
     pub fn source_as_slim_name(&self) -> SlimName {
-        SlimName::from(self.source_name.clone())
+        self.source_name.as_ref().into()
     }
 
     /// Build a `MessageContext` plus the raw payload bytes from a low-level
@@ -117,12 +118,14 @@ mod tests {
     use std::collections::HashMap;
 
     /// Helper to create FFI Name from string parts (matches what SlimName converts to)
-    fn ffi_name(parts: [&str; 3]) -> Name {
+    fn ffi_name(parts: [&str; 3]) -> Arc<Name> {
         // SlimName.id() returns u64::MAX by default, and our From impl always sets Some(id)
-        Name {
-            components: parts.iter().map(|s| s.to_string()).collect(),
-            id: Some(u64::MAX), // Default SlimName ID
-        }
+        Arc::new(Name::new(
+            parts[0].to_string(),
+            parts[1].to_string(),
+            parts[2].to_string(),
+            Some(u64::MAX), // Default SlimName ID
+        ))
     }
 
     /// Helper to create SlimName for ProtoMessage construction
@@ -169,16 +172,16 @@ mod tests {
         metadata.insert("test".to_string(), "value".to_string());
 
         let ctx = MessageContext::new(
-            source.clone(),
-            destination.clone(),
+            source.as_ref().clone(),
+            destination.as_ref().map(|n| n.as_ref().clone()),
             "application/json".to_string(),
             metadata.clone(),
             42,
             "test-identity".to_string(),
         );
 
-        assert_eq!(ctx.source_name, source);
-        assert_eq!(ctx.destination_name, destination);
+        assert_eq!(&ctx.source_name, &source);
+        assert_eq!(&ctx.destination_name, &destination);
         assert_eq!(ctx.payload_type, "application/json");
         assert_eq!(ctx.metadata, metadata);
         assert_eq!(ctx.input_connection, 42);
@@ -224,8 +227,8 @@ mod tests {
         let (ctx, payload) = result.unwrap();
 
         // Verify context fields (comparing FFI Names)
-        assert_eq!(ctx.source_name, source_ffi);
-        assert_eq!(ctx.destination_name, Some(dest_ffi));
+        assert_eq!(&ctx.source_name, &source_ffi);
+        assert_eq!(&ctx.destination_name, &Some(dest_ffi));
         assert_eq!(ctx.payload_type, content_type);
         assert_eq!(ctx.metadata, metadata);
         assert_eq!(ctx.input_connection, connection_id);
@@ -320,8 +323,8 @@ mod tests {
         assert!(result.is_ok());
 
         let (ctx, payload) = result.unwrap();
-        assert_eq!(ctx.source_name, source_ffi);
-        assert_eq!(ctx.destination_name, Some(dest_ffi));
+        assert_eq!(&ctx.source_name, &source_ffi);
+        assert_eq!(&ctx.destination_name, &Some(dest_ffi));
         assert_eq!(ctx.payload_type, "text/plain");
         assert_eq!(ctx.metadata, HashMap::new()); // Should be empty
         assert_eq!(ctx.input_connection, 99);

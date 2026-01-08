@@ -104,7 +104,7 @@ func runReceiver(app *slim.BindingsAdapter, instance uint64) {
 	fmt.Printf("[%d] 👂 Waiting for incoming sessions...\n", instance)
 
 	for {
-		timeout := uint32(30000) // 30 seconds
+		timeout := time.Second * 30
 		session, err := app.ListenForSession(&timeout)
 		if err != nil {
 			fmt.Printf("[%d] ⏱️  Timeout waiting for session, retrying...\n", instance)

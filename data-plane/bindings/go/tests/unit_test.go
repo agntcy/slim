@@ -13,7 +13,7 @@ import (
 func TestInitializeCryptoProvider(t *testing.T) {
 	// Should not panic
 	slim.InitializeCryptoProvider()
-	
+
 	// Multiple calls should be safe
 	slim.InitializeCryptoProvider()
 }
@@ -30,36 +30,34 @@ func TestGetVersion(t *testing.T) {
 // TestAppCreation tests App creation
 func TestAppCreation(t *testing.T) {
 	slim.InitializeCryptoProvider()
-	
-	appName := slim.Name{
-		Components: []string{"org", "testapp", "v1"},
-		Id:         nil,
-	}
+
+	appName := slim.NewName("org", "testapp", "v1", nil)
 
 	sharedSecret := "test-shared-secret-must-be-at-least-32-bytes-long!"
-	
+
 	app, err := slim.CreateAppWithSecret(appName, sharedSecret)
 	if err != nil {
 		t.Fatalf("Failed to create app: %v", err)
 	}
-	
+
 	if app == nil {
 		t.Fatal("App should not be nil")
 	}
-	
+
 	// Test app properties
 	appID := app.Id()
 	if appID == 0 {
 		t.Error("App ID should not be 0")
 	}
 	t.Logf("App ID: %d", appID)
-	
+
 	returnedName := app.Name()
-	if len(returnedName.Components) != 3 {
-		t.Errorf("Expected 3 name components, got %d", len(returnedName.Components))
+	returnedNameComponents := returnedName.Components()
+	if len(returnedNameComponents) != 3 {
+		t.Errorf("Expected 3 name components, got %d", len(returnedNameComponents))
 	}
-	if returnedName.Components[0] != "org" || returnedName.Components[1] != "testapp" {
-		t.Errorf("Name components don't match: %v", returnedName.Components)
+	if returnedNameComponents[0] != "org" || returnedNameComponents[1] != "testapp" {
+		t.Errorf("Name components don't match: %v", returnedNameComponents)
 	}
 
 	app.Destroy()
@@ -95,14 +93,23 @@ func TestNameStructure(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			name := slim.Name{
-				Components: tt.components,
-				Id:         tt.id,
+			// Create name using constructor
+			// Note: NewName requires exactly 3 components, so we need to handle different cases
+			var name *slim.Name
+			if len(tt.components) == 3 {
+				name = slim.NewName(tt.components[0], tt.components[1], tt.components[2], tt.id)
+			} else if len(tt.components) == 0 {
+				name = slim.NewName("", "", "", tt.id)
+			} else {
+				// Pad components to 3 elements
+				padded := make([]string, 3)
+				copy(padded, tt.components)
+				name = slim.NewName(padded[0], padded[1], padded[2], tt.id)
 			}
 
 			// Just verify the struct is created
-			if name.Components == nil && tt.components != nil {
-				t.Error("Components should not be nil")
+			if name == nil {
+				t.Error("Name should not be nil")
 			}
 		})
 	}
@@ -136,14 +143,14 @@ func TestSessionConfig(t *testing.T) {
 			enableMls:   true,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			config := slim.SessionConfig{
 				SessionType: tt.sessionType,
 				EnableMls:   tt.enableMls,
 			}
-			
+
 			if config.SessionType != tt.sessionType {
 				t.Errorf("Expected session type %v, got %v", tt.sessionType, config.SessionType)
 			}
@@ -157,17 +164,14 @@ func TestSessionConfig(t *testing.T) {
 // TestErrorHandling tests error handling for invalid inputs
 func TestErrorHandling(t *testing.T) {
 	slim.InitializeCryptoProvider()
-	
+
 	// Test with too-short shared secret (should fail or panic)
-	appName := slim.Name{
-		Components: []string{"org", "testapp", "v1"},
-		Id:         nil,
-	}
-	
+	appName := slim.NewName("org", "testapp", "v1", nil)
+
 	// Note: This will likely panic in Rust, not return error
 	// So we skip this test as it would cause test failure
 	t.Log("Skipping short secret test - would cause panic")
-	
+
 	// Test with valid secret
 	sharedSecret := "valid-shared-secret-must-be-at-least-32-bytes!"
 	app, err := slim.CreateAppWithSecret(appName, sharedSecret)
@@ -180,68 +184,61 @@ func TestErrorHandling(t *testing.T) {
 // TestMultipleApps tests creating multiple apps
 func TestMultipleApps(t *testing.T) {
 	slim.InitializeCryptoProvider()
-	
+
 	sharedSecret := "test-shared-secret-must-be-at-least-32-bytes-long!"
-	
+
 	// Create first app
 	app1, err := slim.CreateAppWithSecret(
-		slim.Name{Components: []string{"org", "app1", "v1"}, Id: nil},
+		slim.NewName("org", "app1", "v1", nil),
 		sharedSecret,
 	)
 	if err != nil {
 		t.Fatalf("Failed to create app1: %v", err)
 	}
 	defer app1.Destroy()
-	
+
 	// Create second app
 	app2, err := slim.CreateAppWithSecret(
-		slim.Name{Components: []string{"org", "app2", "v1"}, Id: nil},
+		slim.NewName("org", "app2", "v1", nil),
 		sharedSecret,
 	)
 	if err != nil {
 		t.Fatalf("Failed to create app2: %v", err)
-			}
+	}
 	defer app2.Destroy()
-	
+
 	// They should have different IDs
 	if app1.Id() == app2.Id() {
 		t.Error("Different apps should have different IDs")
 	}
-	
+
 	t.Logf("App1 ID: %d, App2 ID: %d", app1.Id(), app2.Id())
 }
 
 // TestNameWithID tests creating names with explicit IDs
 func TestNameWithID(t *testing.T) {
 	testID := uint64(99999)
-	name := slim.Name{
-		Components: []string{"org", "app", "v1"},
-		Id:         &testID,
-	}
-	
-	if name.Id == nil {
-		t.Fatal("ID should not be nil")
-	}
-	if *name.Id != testID {
-		t.Errorf("Expected ID %d, got %d", testID, *name.Id)
+	name := slim.NewName("org", "app", "v1", &testID)
+
+	if name.Id() != testID {
+		t.Errorf("Expected ID %d, got %d", testID, name.Id())
 	}
 }
 
 // TestCleanup tests proper cleanup of resources
 func TestCleanup(t *testing.T) {
 	slim.InitializeCryptoProvider()
-	
+
 	app, err := slim.CreateAppWithSecret(
-		slim.Name{Components: []string{"org", "cleanup", "v1"}, Id: nil},
+		slim.NewName("org", "cleanup", "v1", nil),
 		"test-shared-secret-must-be-at-least-32-bytes-long!",
 	)
 	if err != nil {
 		t.Fatalf("Failed to create app: %v", err)
 	}
-	
+
 	// Cleanup
 	app.Destroy()
-	
+
 	t.Log("Cleanup completed successfully")
 }
-

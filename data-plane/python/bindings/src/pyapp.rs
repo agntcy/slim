@@ -26,19 +26,6 @@ use crate::utils::PyName;
 use slim_config::grpc::client::ClientConfig as PyGrpcClientConfig;
 use slim_config::grpc::server::ServerConfig as PyGrpcServerConfig;
 
-/// Helper to convert PyName to FFI Name
-fn py_name_to_ffi(py_name: &PyName) -> slim_bindings::Name {
-    let internal_name: Name = py_name.into();
-    slim_bindings::Name {
-        components: internal_name
-            .components_strings()
-            .iter()
-            .map(|s| s.to_string())
-            .collect(),
-        id: Some(internal_name.id()),
-    }
-}
-
 #[gen_stub_pyclass]
 #[pyclass(name = "App")]
 #[derive(Clone)]
@@ -50,6 +37,12 @@ struct PyAppInternal {
     /// The adapter instance (uses AuthProvider/AuthVerifier enums internally)
     /// The adapter manages the service internally
     adapter: BindingsAdapter,
+}
+
+/// Helper function to convert PyName to Arc<FfiName>
+fn py_name_to_ffi(py_name: &PyName) -> Arc<slim_bindings::Name> {
+    let ffi_name: slim_bindings::Name = py_name.into();
+    Arc::new(ffi_name)
 }
 
 #[gen_stub_pymethods]
@@ -105,18 +98,7 @@ impl PyApp {
     #[getter]
     pub fn name(&self) -> PyName {
         // adapter.name() returns slim_bindings::Name, convert to PyName
-        let ffi_name = self.internal.adapter.name();
-        // Convert FFI Name back to datapath Name, then to PyName
-        let components: [String; 3] = [
-            ffi_name.components.first().cloned().unwrap_or_default(),
-            ffi_name.components.get(1).cloned().unwrap_or_default(),
-            ffi_name.components.get(2).cloned().unwrap_or_default(),
-        ];
-        let mut datapath_name = Name::from_strings(components);
-        if let Some(id) = ffi_name.id {
-            datapath_name = datapath_name.with_id(id);
-        }
-        PyName::from(datapath_name)
+        self.internal.adapter.name().as_ref().into()
     }
 
     #[gen_stub(override_return_type(type_repr="collections.abc.Awaitable[tuple[SessionContext, CompletionHandle]]", imports=("collections.abc",)))]

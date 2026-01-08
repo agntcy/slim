@@ -32,10 +32,7 @@ func setupTestApp(t *testing.T, appNameStr string) *slim.BindingsAdapter {
 
 	slim.InitializeCryptoProvider()
 
-	appName := slim.Name{
-		Components: []string{"org", appNameStr, "v1"},
-		Id:         nil,
-	}
+	appName := slim.NewName("org", appNameStr, "v1", nil)
 
 	sharedSecret := "test-shared-secret-must-be-at-least-32-bytes-long!"
 
@@ -276,10 +273,7 @@ func TestSessionLifecycle(t *testing.T) {
 func TestAppCreationAndProperties(t *testing.T) {
 	slim.InitializeCryptoProvider()
 
-	appName := slim.Name{
-		Components: []string{"org", "app-creation-test", "v1"},
-		Id:         nil,
-	}
+	appName := slim.NewName("org", "app-creation-test", "v1", nil)
 
 	sharedSecret := "test-secret-must-be-at-least-32-bytes-long!"
 
@@ -296,19 +290,23 @@ func TestAppCreationAndProperties(t *testing.T) {
 	}
 
 	retrievedName := app.Name()
-	if len(retrievedName.Components) != len(appName.Components) {
+
+	retrievedNameComponents := retrievedName.Components()
+	appNameComponents := appName.Components()
+
+	if len(retrievedNameComponents) != len(appNameComponents) {
 		t.Error("App name components count mismatch")
 	}
 
-	for i, comp := range retrievedName.Components {
-		if comp != appName.Components[i] {
+	for i, comp := range retrievedNameComponents {
+		if comp != appNameComponents[i] {
 			t.Errorf("Component %d mismatch: expected %s, got %s",
-				i, appName.Components[i], comp)
+				i, appNameComponents[i], comp)
 		}
 	}
 
 	t.Logf("✅ App created successfully with ID: %d", appID)
-	t.Logf("   Name: %v", retrievedName.Components)
+	t.Logf("   Name: %v", retrievedName.Components())
 }
 
 // TestVersionInfo tests version retrieval
@@ -328,10 +326,7 @@ func TestSubscribeUnsubscribe(t *testing.T) {
 	app := setupTestApp(t, "subscribe-test")
 	defer app.Destroy()
 
-	subscribeName := slim.Name{
-		Components: []string{"org", "sub", "topic"},
-		Id:         nil,
-	}
+	subscribeName := slim.NewName("org", "sub", "topic", nil)
 
 	// Test subscribe
 	err := app.Subscribe(subscribeName, nil)
@@ -355,10 +350,7 @@ func TestRouteOperations(t *testing.T) {
 	app := setupTestApp(t, "route-test")
 	defer app.Destroy()
 
-	routeName := slim.Name{
-		Components: []string{"org", "route", "target"},
-		Id:         nil,
-	}
+	routeName := slim.NewName("org", "route", "target", nil)
 
 	connID := uint64(123)
 
@@ -384,7 +376,7 @@ func TestListenForSessionTimeout(t *testing.T) {
 	app := setupTestApp(t, "listen-timeout-test")
 	defer app.Destroy()
 
-	timeout := uint32(100) // 100ms timeout
+	timeout := 100 * time.Millisecond
 
 	start := time.Now()
 	_, err := app.ListenForSession(&timeout)
@@ -412,10 +404,7 @@ func TestGroupSession(t *testing.T) {
 		EnableMls:   false,
 	}
 
-	destination := slim.Name{
-		Components: []string{"org", "group", "v1"},
-		Id:         nil,
-	}
+	destination := slim.NewName("org", "group", "v1", nil)
 
 	session, err := harness.Sender.CreateSession(sessionConfig, destination)
 	if err != nil {
@@ -436,10 +425,7 @@ func TestSessionInviteRemove(t *testing.T) {
 		EnableMls:   false,
 	}
 
-	destination := slim.Name{
-		Components: []string{"org", "group", "v1"},
-		Id:         nil,
-	}
+	destination := slim.NewName("org", "group", "v1", nil)
 
 	session, err := harness.Sender.CreateSession(sessionConfig, destination)
 	if err != nil {
@@ -447,10 +433,7 @@ func TestSessionInviteRemove(t *testing.T) {
 	}
 	defer session.Destroy()
 
-	participant := slim.Name{
-		Components: []string{"org", "participant", "v1"},
-		Id:         nil,
-	}
+	participant := slim.NewName("org", "participant", "v1", nil)
 
 	// Set route to participant to simulate connectivity
 	err = harness.Sender.SetRoute(participant, 1)
@@ -559,10 +542,7 @@ func TestInviteAutoWait(t *testing.T) {
 		EnableMls:   false,
 	}
 
-	destination := slim.Name{
-		Components: []string{"org", "group", "v1"},
-		Id:         nil,
-	}
+	destination := slim.NewName("org", "group", "v1", nil)
 
 	session, err := harness.Sender.CreateSession(sessionConfig, destination)
 	if err != nil {
@@ -570,10 +550,7 @@ func TestInviteAutoWait(t *testing.T) {
 	}
 	defer session.Destroy()
 
-	participant := slim.Name{
-		Components: []string{"org", "participant", "v1"},
-		Id:         nil,
-	}
+	participant := slim.NewName("org", "participant", "v1", nil)
 
 	// Invite should auto-wait for acknowledgment
 	start := time.Now()
@@ -599,10 +576,7 @@ func TestRemoveAutoWait(t *testing.T) {
 		EnableMls:   false,
 	}
 
-	destination := slim.Name{
-		Components: []string{"org", "group", "v1"},
-		Id:         nil,
-	}
+	destination := slim.NewName("org", "group", "v1", nil)
 
 	session, err := harness.Sender.CreateSession(sessionConfig, destination)
 	if err != nil {
@@ -610,10 +584,7 @@ func TestRemoveAutoWait(t *testing.T) {
 	}
 	defer session.Destroy()
 
-	participant := slim.Name{
-		Components: []string{"org", "participant", "v1"},
-		Id:         nil,
-	}
+	participant := slim.NewName("org", "participant", "v1", nil)
 
 	// Remove should auto-wait for acknowledgment
 	start := time.Now()
@@ -759,14 +730,14 @@ func BenchmarkPublishFireAndForget(b *testing.B) {
 	slim.InitializeCryptoProvider()
 
 	app, _ := slim.CreateAppWithSecret(
-		slim.Name{Components: []string{"org", "bench", "v1"}, Id: nil},
+		slim.NewName("org", "bench", "v1", nil),
 		"benchmark-secret-must-be-at-least-32-bytes!",
 	)
 	defer app.Destroy()
 
 	session, err := app.CreateSession(
 		slim.SessionConfig{SessionType: slim.SessionTypePointToPoint, EnableMls: false},
-		slim.Name{Components: []string{"org", "receiver", "v1"}, Id: nil},
+		slim.NewName("org", "receiver", "v1", nil),
 	)
 	if err != nil {
 		b.Skipf("Skipping benchmark - session creation failed: %v", err)
@@ -787,14 +758,14 @@ func BenchmarkPublishWithCompletion(b *testing.B) {
 	slim.InitializeCryptoProvider()
 
 	app, _ := slim.CreateAppWithSecret(
-		slim.Name{Components: []string{"org", "bench", "v1"}, Id: nil},
+		slim.NewName("org", "bench", "v1", nil),
 		"benchmark-secret-must-be-at-least-32-bytes!",
 	)
 	defer app.Destroy()
 
 	session, err := app.CreateSession(
 		slim.SessionConfig{SessionType: slim.SessionTypePointToPoint, EnableMls: false},
-		slim.Name{Components: []string{"org", "receiver", "v1"}, Id: nil},
+		slim.NewName("org", "receiver", "v1", nil),
 	)
 	if err != nil {
 		b.Skipf("Skipping benchmark - session creation failed: %v", err)
@@ -818,14 +789,14 @@ func BenchmarkPublishWithCompletionAndWait(b *testing.B) {
 	slim.InitializeCryptoProvider()
 
 	app, _ := slim.CreateAppWithSecret(
-		slim.Name{Components: []string{"org", "bench", "v1"}, Id: nil},
+		slim.NewName("org", "bench", "v1", nil),
 		"benchmark-secret-must-be-at-least-32-bytes!",
 	)
 	defer app.Destroy()
 
 	session, err := app.CreateSession(
 		slim.SessionConfig{SessionType: slim.SessionTypePointToPoint, EnableMls: false},
-		slim.Name{Components: []string{"org", "receiver", "v1"}, Id: nil},
+		slim.NewName("org", "receiver", "v1", nil),
 	)
 	if err != nil {
 		b.Skipf("Skipping benchmark - session creation failed: %v", err)
