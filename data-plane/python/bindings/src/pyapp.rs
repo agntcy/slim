@@ -226,7 +226,7 @@ impl PyApp {
                 request_timeout: std::time::Duration::from_secs(30),
                 buffer_size: None,
                 headers: std::collections::HashMap::new(),
-                auth: None,
+                auth: slim_bindings::ClientAuthenticationConfig::None,
                 backoff: slim_bindings::client_config::BackoffConfig::Exponential {
                     config: slim_bindings::client_config::ExponentialBackoff::default(),
                 },

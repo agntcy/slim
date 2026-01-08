@@ -15,9 +15,7 @@ use slim_config::grpc::client::{
     BackoffConfig as CoreBackoffConfig, KeepaliveConfig as CoreKeepaliveConfig,
 };
 
-use crate::common_config::{
-    ClientAuthenticationConfig, TlsClientConfig, convert_client_auth, convert_core_to_client_auth,
-};
+use crate::common_config::{ClientAuthenticationConfig, TlsClientConfig};
 
 /// Compression type for gRPC messages
 #[derive(uniffi::Enum, Clone, Debug, PartialEq)]
@@ -296,7 +294,7 @@ pub struct ClientConfig {
     pub headers: HashMap<String, String>,
 
     /// Authentication configuration for outgoing RPCs
-    pub auth: Option<ClientAuthenticationConfig>,
+    pub auth: ClientAuthenticationConfig,
 
     /// Backoff retry configuration
     pub backoff: BackoffConfig,
@@ -320,7 +318,7 @@ impl From<ClientConfig> for CoreClientConfig {
             request_timeout: config.request_timeout.into(),
             buffer_size: config.buffer_size.map(|s| s as usize),
             headers: config.headers,
-            auth: convert_client_auth(config.auth),
+            auth: config.auth.into(),
             backoff: config.backoff.into(),
             metadata: config
                 .metadata
@@ -345,7 +343,7 @@ impl Default for ClientConfig {
             request_timeout: core_defaults.request_timeout.into(),
             buffer_size: core_defaults.buffer_size.map(|s| s as u64),
             headers: core_defaults.headers,
-            auth: convert_core_to_client_auth(core_defaults.auth),
+            auth: core_defaults.auth.into(),
             backoff: core_defaults.backoff.into(),
             metadata: core_defaults
                 .metadata
@@ -397,7 +395,7 @@ mod tests {
             request_timeout: Duration::from_secs(30),
             buffer_size: None,
             headers: HashMap::new(),
-            auth: None,
+            auth: ClientAuthenticationConfig::None,
             backoff: BackoffConfig::Exponential {
                 config: ExponentialBackoff::default(),
             },
@@ -423,7 +421,7 @@ mod tests {
         assert_eq!(config.request_timeout, Duration::from_secs(0));
         assert_eq!(config.buffer_size, None);
         assert!(config.headers.is_empty());
-        assert_eq!(config.auth, None);
+        assert_eq!(config.auth, ClientAuthenticationConfig::None);
         assert_eq!(config.metadata, None);
     }
 
@@ -458,7 +456,7 @@ mod tests {
             request_timeout: Duration::from_secs(60),
             buffer_size: Some(8192),
             headers: headers.clone(),
-            auth: None,
+            auth: ClientAuthenticationConfig::None,
             backoff: BackoffConfig::FixedInterval {
                 config: FixedIntervalBackoff {
                     interval: Duration::from_secs(1),
@@ -506,7 +504,7 @@ mod tests {
             request_timeout: Duration::from_secs(10),
             buffer_size: Some(4096),
             headers: HashMap::new(),
-            auth: None,
+            auth: ClientAuthenticationConfig::None,
             backoff: BackoffConfig::Exponential {
                 config: ExponentialBackoff::default(),
             },
@@ -528,7 +526,7 @@ mod tests {
             request_timeout: core.request_timeout.into(),
             buffer_size: core.buffer_size.map(|s| s as u64),
             headers: core.headers,
-            auth: convert_core_to_client_auth(core.auth),
+            auth: core.auth.into(),
             backoff: core.backoff.into(),
             metadata: core.metadata.and_then(|m| serde_json::to_string(&m).ok()),
         };
@@ -675,7 +673,7 @@ mod tests {
             request_timeout: Duration::from_secs(30),
             buffer_size: None,
             headers: HashMap::new(),
-            auth: None,
+            auth: ClientAuthenticationConfig::None,
             backoff: BackoffConfig::Exponential {
                 config: ExponentialBackoff::default(),
             },
@@ -705,7 +703,7 @@ mod tests {
             request_timeout: Duration::from_secs(30),
             buffer_size: None,
             headers: HashMap::new(),
-            auth: None,
+            auth: ClientAuthenticationConfig::None,
             backoff: BackoffConfig::Exponential {
                 config: ExponentialBackoff::default(),
             },
@@ -716,5 +714,99 @@ mod tests {
 
         // Invalid JSON should result in None metadata
         assert!(core.metadata.is_none());
+    }
+
+    #[test]
+    fn test_jwt_auth_roundtrip() {
+        use crate::common_config::{
+            ClientJwtAuth, JwtAlgorithm, JwtKeyConfig, JwtKeyData, JwtKeyFormat, JwtKeyType,
+        };
+
+        let jwt_config = ClientJwtAuth {
+            key: JwtKeyType::Encoding {
+                key: JwtKeyConfig {
+                    algorithm: JwtAlgorithm::RS256,
+                    format: JwtKeyFormat::Pem,
+                    key: JwtKeyData::File {
+                        path: "/path/to/private_key.pem".to_string(),
+                    },
+                },
+            },
+            audience: Some(vec!["api.example.com".to_string()]),
+            issuer: Some("auth.example.com".to_string()),
+            subject: Some("user123".to_string()),
+            duration: Duration::from_secs(7200),
+        };
+
+        let auth = ClientAuthenticationConfig::Jwt {
+            config: jwt_config.clone(),
+        };
+
+        // Convert to core and back
+        let core_auth: slim_config::grpc::client::AuthenticationConfig = auth.into();
+        let roundtrip_auth: ClientAuthenticationConfig = core_auth.into();
+
+        // Verify roundtrip preserves the configuration
+        if let ClientAuthenticationConfig::Jwt { config } = roundtrip_auth {
+            assert_eq!(config.key, jwt_config.key);
+            assert_eq!(config.audience, jwt_config.audience);
+            assert_eq!(config.issuer, jwt_config.issuer);
+            assert_eq!(config.subject, jwt_config.subject);
+            // Note: duration might not be exactly preserved due to conversion limitations
+        } else {
+            panic!("Expected Jwt authentication config");
+        }
+    }
+
+    #[test]
+    fn test_basic_auth_roundtrip() {
+        use crate::common_config::BasicAuth;
+
+        let basic_config = BasicAuth {
+            username: "admin".to_string(),
+            password: "secret123".to_string(),
+        };
+
+        let auth = ClientAuthenticationConfig::Basic {
+            config: basic_config.clone(),
+        };
+
+        // Convert to core and back
+        let core_auth: slim_config::grpc::client::AuthenticationConfig = auth.into();
+        let roundtrip_auth: ClientAuthenticationConfig = core_auth.into();
+
+        // Verify roundtrip preserves the configuration
+        if let ClientAuthenticationConfig::Basic { config } = roundtrip_auth {
+            assert_eq!(config.username, basic_config.username);
+            assert_eq!(config.password, basic_config.password);
+        } else {
+            panic!("Expected Basic authentication config");
+        }
+    }
+
+    #[test]
+    fn test_static_jwt_auth_roundtrip() {
+        use crate::common_config::StaticJwtAuth;
+
+        let jwt_config = StaticJwtAuth {
+            token_file: "/path/to/token.jwt".to_string(),
+            duration: Duration::from_secs(1800),
+        };
+
+        let auth = ClientAuthenticationConfig::StaticJwt {
+            config: jwt_config.clone(),
+        };
+
+        // Convert to core and back
+        let core_auth: slim_config::grpc::client::AuthenticationConfig = auth.into();
+        let roundtrip_auth: ClientAuthenticationConfig = core_auth.into();
+
+        // Verify roundtrip preserves the configuration
+        if let ClientAuthenticationConfig::StaticJwt { config } = roundtrip_auth {
+            assert_eq!(config.token_file, jwt_config.token_file);
+            assert_eq!(config.duration, jwt_config.duration);
+        } else {
+            panic!("Expected StaticJwt authentication config");
+        }
     }
 }

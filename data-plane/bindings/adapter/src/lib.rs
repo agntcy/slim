@@ -59,8 +59,9 @@ pub use build_info::{BuildInfo, get_build_info, get_version};
 pub use client_config::{ClientConfig, new_insecure_client_config};
 pub use common::initialize_crypto_provider;
 pub use common_config::{
-    CaSource, ClientAuthenticationConfig, ServerAuthenticationConfig, SpireConfig, TlsClientConfig,
-    TlsServerConfig, TlsSource,
+    BasicAuth, CaSource, ClientAuthenticationConfig, ClientJwtAuth, JwtAlgorithm, JwtAuth,
+    JwtKeyConfig, JwtKeyData, JwtKeyFormat, JwtKeyType, ServerAuthenticationConfig, SpireConfig,
+    StaticJwtAuth, TlsClientConfig, TlsServerConfig, TlsSource,
 };
 pub use errors::SlimError;
 pub use message_context::MessageContext;

@@ -245,39 +245,273 @@ impl From<BasicAuth> for BasicAuthConfig {
     }
 }
 
+impl From<BasicAuthConfig> for BasicAuth {
+    fn from(config: BasicAuthConfig) -> Self {
+        BasicAuth {
+            username: config.username().to_string(),
+            password: config.password().as_str().to_string(),
+        }
+    }
+}
+
 /// Static JWT (Bearer token) authentication configuration
 /// The token is loaded from a file and automatically reloaded when changed
 #[derive(uniffi::Record, Clone, Debug, PartialEq)]
 pub struct StaticJwtAuth {
     /// Path to file containing the JWT token
     pub token_file: String,
-    /// Duration in seconds for caching the token before re-reading from file (default: 3600)
-    pub duration_secs: Option<u64>,
+    /// Duration for caching the token before re-reading from file (default: 3600 seconds)
+    pub duration: Duration,
 }
 
 impl From<StaticJwtAuth> for StaticJwtConfig {
     fn from(config: StaticJwtAuth) -> Self {
-        let mut jwt_config = StaticJwtConfig::with_file(&config.token_file);
-        if let Some(duration) = config.duration_secs {
-            jwt_config = jwt_config.with_duration(duration);
+        StaticJwtConfig::with_file(&config.token_file).with_duration(config.duration)
+    }
+}
+
+impl From<StaticJwtConfig> for StaticJwtAuth {
+    fn from(config: StaticJwtConfig) -> Self {
+        StaticJwtAuth {
+            token_file: config.source().file.clone(),
+            duration: config.duration(),
         }
-        jwt_config
+    }
+}
+
+/// JWT signing/verification algorithm
+#[derive(uniffi::Enum, Clone, Debug, PartialEq)]
+pub enum JwtAlgorithm {
+    HS256,
+    HS384,
+    HS512,
+    ES256,
+    ES384,
+    RS256,
+    RS384,
+    RS512,
+    PS256,
+    PS384,
+    PS512,
+    EdDSA,
+}
+
+impl From<JwtAlgorithm> for slim_auth::jwt::Algorithm {
+    fn from(algo: JwtAlgorithm) -> Self {
+        match algo {
+            JwtAlgorithm::HS256 => slim_auth::jwt::Algorithm::HS256,
+            JwtAlgorithm::HS384 => slim_auth::jwt::Algorithm::HS384,
+            JwtAlgorithm::HS512 => slim_auth::jwt::Algorithm::HS512,
+            JwtAlgorithm::ES256 => slim_auth::jwt::Algorithm::ES256,
+            JwtAlgorithm::ES384 => slim_auth::jwt::Algorithm::ES384,
+            JwtAlgorithm::RS256 => slim_auth::jwt::Algorithm::RS256,
+            JwtAlgorithm::RS384 => slim_auth::jwt::Algorithm::RS384,
+            JwtAlgorithm::RS512 => slim_auth::jwt::Algorithm::RS512,
+            JwtAlgorithm::PS256 => slim_auth::jwt::Algorithm::PS256,
+            JwtAlgorithm::PS384 => slim_auth::jwt::Algorithm::PS384,
+            JwtAlgorithm::PS512 => slim_auth::jwt::Algorithm::PS512,
+            JwtAlgorithm::EdDSA => slim_auth::jwt::Algorithm::EdDSA,
+        }
+    }
+}
+
+impl From<slim_auth::jwt::Algorithm> for JwtAlgorithm {
+    fn from(algo: slim_auth::jwt::Algorithm) -> Self {
+        match algo {
+            slim_auth::jwt::Algorithm::HS256 => JwtAlgorithm::HS256,
+            slim_auth::jwt::Algorithm::HS384 => JwtAlgorithm::HS384,
+            slim_auth::jwt::Algorithm::HS512 => JwtAlgorithm::HS512,
+            slim_auth::jwt::Algorithm::ES256 => JwtAlgorithm::ES256,
+            slim_auth::jwt::Algorithm::ES384 => JwtAlgorithm::ES384,
+            slim_auth::jwt::Algorithm::RS256 => JwtAlgorithm::RS256,
+            slim_auth::jwt::Algorithm::RS384 => JwtAlgorithm::RS384,
+            slim_auth::jwt::Algorithm::RS512 => JwtAlgorithm::RS512,
+            slim_auth::jwt::Algorithm::PS256 => JwtAlgorithm::PS256,
+            slim_auth::jwt::Algorithm::PS384 => JwtAlgorithm::PS384,
+            slim_auth::jwt::Algorithm::PS512 => JwtAlgorithm::PS512,
+            slim_auth::jwt::Algorithm::EdDSA => JwtAlgorithm::EdDSA,
+        }
+    }
+}
+
+/// JWT key format
+#[derive(uniffi::Enum, Clone, Debug, PartialEq)]
+pub enum JwtKeyFormat {
+    Pem,
+    Jwk,
+    Jwks,
+}
+
+impl From<JwtKeyFormat> for slim_auth::jwt::KeyFormat {
+    fn from(format: JwtKeyFormat) -> Self {
+        match format {
+            JwtKeyFormat::Pem => slim_auth::jwt::KeyFormat::Pem,
+            JwtKeyFormat::Jwk => slim_auth::jwt::KeyFormat::Jwk,
+            JwtKeyFormat::Jwks => slim_auth::jwt::KeyFormat::Jwks,
+        }
+    }
+}
+
+impl From<slim_auth::jwt::KeyFormat> for JwtKeyFormat {
+    fn from(format: slim_auth::jwt::KeyFormat) -> Self {
+        match format {
+            slim_auth::jwt::KeyFormat::Pem => JwtKeyFormat::Pem,
+            slim_auth::jwt::KeyFormat::Jwk => JwtKeyFormat::Jwk,
+            slim_auth::jwt::KeyFormat::Jwks => JwtKeyFormat::Jwks,
+        }
+    }
+}
+
+/// JWT key data source
+#[derive(uniffi::Enum, Clone, Debug, PartialEq)]
+pub enum JwtKeyData {
+    /// String with encoded key(s)
+    Data { value: String },
+    /// File path to the key(s)
+    File { path: String },
+}
+
+impl From<JwtKeyData> for slim_auth::jwt::KeyData {
+    fn from(data: JwtKeyData) -> Self {
+        match data {
+            JwtKeyData::Data { value } => slim_auth::jwt::KeyData::Data(value),
+            JwtKeyData::File { path } => slim_auth::jwt::KeyData::File(path),
+        }
+    }
+}
+
+impl From<slim_auth::jwt::KeyData> for JwtKeyData {
+    fn from(data: slim_auth::jwt::KeyData) -> Self {
+        match data {
+            slim_auth::jwt::KeyData::Data(value) => JwtKeyData::Data { value },
+            slim_auth::jwt::KeyData::File(path) => JwtKeyData::File { path },
+        }
+    }
+}
+
+/// JWT key configuration
+#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+pub struct JwtKeyConfig {
+    /// Algorithm used for signing/verifying the JWT
+    pub algorithm: JwtAlgorithm,
+    /// Key format - PEM, JWK or JWKS
+    pub format: JwtKeyFormat,
+    /// Encoded key or file path
+    pub key: JwtKeyData,
+}
+
+impl From<JwtKeyConfig> for slim_auth::jwt::Key {
+    fn from(config: JwtKeyConfig) -> Self {
+        slim_auth::jwt::Key {
+            algorithm: config.algorithm.into(),
+            format: config.format.into(),
+            key: config.key.into(),
+        }
+    }
+}
+
+impl From<slim_auth::jwt::Key> for JwtKeyConfig {
+    fn from(key: slim_auth::jwt::Key) -> Self {
+        JwtKeyConfig {
+            algorithm: key.algorithm.into(),
+            format: key.format.into(),
+            key: key.key.into(),
+        }
+    }
+}
+
+/// JWT key type (encoding, decoding, or autoresolve)
+#[derive(uniffi::Enum, Clone, Debug, PartialEq)]
+pub enum JwtKeyType {
+    /// Encoding key for signing JWTs (client-side)
+    Encoding { key: JwtKeyConfig },
+    /// Decoding key for verifying JWTs (server-side)
+    Decoding { key: JwtKeyConfig },
+    /// Automatically resolve keys based on claims
+    Autoresolve,
+}
+
+impl From<JwtKeyType> for JwtKey {
+    fn from(key_type: JwtKeyType) -> Self {
+        match key_type {
+            JwtKeyType::Encoding { key } => JwtKey::Encoding(key.into()),
+            JwtKeyType::Decoding { key } => JwtKey::Decoding(key.into()),
+            JwtKeyType::Autoresolve => JwtKey::Autoresolve,
+        }
+    }
+}
+
+impl From<JwtKey> for JwtKeyType {
+    fn from(key: JwtKey) -> Self {
+        match key {
+            JwtKey::Encoding(k) => JwtKeyType::Encoding { key: k.into() },
+            JwtKey::Decoding(k) => JwtKeyType::Decoding { key: k.into() },
+            JwtKey::Autoresolve => JwtKeyType::Autoresolve,
+        }
+    }
+}
+
+/// JWT authentication configuration for client-side signing
+#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+pub struct ClientJwtAuth {
+    /// JWT key configuration (encoding key for signing)
+    pub key: JwtKeyType,
+    /// JWT audience claims to include
+    pub audience: Option<Vec<String>>,
+    /// JWT issuer to include
+    pub issuer: Option<String>,
+    /// JWT subject to include
+    pub subject: Option<String>,
+    /// Token validity duration (default: 3600 seconds)
+    pub duration: Duration,
+}
+
+impl From<ClientJwtAuth> for JwtAuthConfig {
+    fn from(config: ClientJwtAuth) -> Self {
+        let mut claims = JwtClaims::default();
+
+        if let Some(audience) = config.audience {
+            claims = claims.with_audience(&audience);
+        }
+
+        if let Some(issuer) = config.issuer {
+            claims = claims.with_issuer(issuer);
+        }
+
+        if let Some(subject) = config.subject {
+            claims = claims.with_subject(subject);
+        }
+
+        JwtAuthConfig::new(claims, config.duration, config.key.into())
+    }
+}
+
+impl From<JwtAuthConfig> for ClientJwtAuth {
+    fn from(config: JwtAuthConfig) -> Self {
+        let claims = config.claims();
+        ClientJwtAuth {
+            key: config.key().clone().into(),
+            audience: claims.audience().clone(),
+            issuer: claims.issuer().clone(),
+            subject: claims.subject().clone(),
+            duration: Duration::from_secs(3600), // Default duration, can't easily extract from DurationString
+        }
     }
 }
 
 /// JWT authentication configuration for server-side verification
 #[derive(uniffi::Record, Clone, Debug, PartialEq)]
 pub struct JwtAuth {
-    /// Path to file containing the decoding key (public key for verification)
-    pub key_file: String,
+    /// JWT key configuration (decoding key for verification)
+    pub key: JwtKeyType,
     /// JWT audience claims to verify
     pub audience: Option<Vec<String>>,
     /// JWT issuer to verify
     pub issuer: Option<String>,
     /// JWT subject to verify
     pub subject: Option<String>,
-    /// Token validity duration in seconds (default: 3600)
-    pub duration_secs: Option<u64>,
+    /// Token validity duration (default: 3600 seconds)
+    pub duration: Duration,
 }
 
 impl From<JwtAuth> for JwtAuthConfig {
@@ -296,17 +530,20 @@ impl From<JwtAuth> for JwtAuthConfig {
             claims = claims.with_subject(subject);
         }
 
-        let duration = Duration::from_secs(config.duration_secs.unwrap_or(3600));
+        JwtAuthConfig::new(claims, config.duration, config.key.into())
+    }
+}
 
-        // For server-side verification, we use a decoding key from file
-        // Create the Key struct with proper fields
-        let key = JwtKey::Decoding(slim_auth::jwt::Key {
-            algorithm: slim_auth::jwt::Algorithm::RS256, // Default to RS256
-            format: slim_auth::jwt::KeyFormat::Pem,
-            key: slim_auth::jwt::KeyData::File(config.key_file),
-        });
-
-        JwtAuthConfig::new(claims, duration, key)
+impl From<JwtAuthConfig> for JwtAuth {
+    fn from(config: JwtAuthConfig) -> Self {
+        let claims = config.claims();
+        JwtAuth {
+            key: config.key().clone().into(),
+            audience: claims.audience().clone(),
+            issuer: claims.issuer().clone(),
+            subject: claims.subject().clone(),
+            duration: Duration::from_secs(3600), // Default duration, can't easily extract from DurationString
+        }
     }
 }
 
@@ -315,6 +552,7 @@ impl From<JwtAuth> for JwtAuthConfig {
 pub enum ClientAuthenticationConfig {
     Basic { config: BasicAuth },
     StaticJwt { config: StaticJwtAuth },
+    Jwt { config: ClientJwtAuth },
     None,
 }
 
@@ -327,6 +565,9 @@ impl From<ClientAuthenticationConfig> for slim_config::grpc::client::Authenticat
             ClientAuthenticationConfig::StaticJwt { config } => {
                 slim_config::grpc::client::AuthenticationConfig::StaticJwt(config.into())
             }
+            ClientAuthenticationConfig::Jwt { config } => {
+                slim_config::grpc::client::AuthenticationConfig::Jwt(config.into())
+            }
             ClientAuthenticationConfig::None => {
                 slim_config::grpc::client::AuthenticationConfig::None
             }
@@ -334,25 +575,24 @@ impl From<ClientAuthenticationConfig> for slim_config::grpc::client::Authenticat
     }
 }
 
-/// Helper function to convert Option<ClientAuthenticationConfig> to CoreAuthenticationConfig
-pub fn convert_client_auth(
-    config: Option<ClientAuthenticationConfig>,
-) -> slim_config::grpc::client::AuthenticationConfig {
-    match config {
-        Some(auth) => auth.into(),
-        None => slim_config::grpc::client::AuthenticationConfig::None,
-    }
-}
-
-/// Helper function to convert CoreAuthenticationConfig to Option<ClientAuthenticationConfig>
-pub fn convert_core_to_client_auth(
-    config: slim_config::grpc::client::AuthenticationConfig,
-) -> Option<ClientAuthenticationConfig> {
-    match config {
-        slim_config::grpc::client::AuthenticationConfig::None => None,
-        // For Basic and StaticJwt auth types, we can't fully convert back since we'd lose
-        // credential information (passwords, tokens). Return None to indicate no auth in FFI.
-        _ => None,
+impl From<slim_config::grpc::client::AuthenticationConfig> for ClientAuthenticationConfig {
+    fn from(config: slim_config::grpc::client::AuthenticationConfig) -> Self {
+        match config {
+            slim_config::grpc::client::AuthenticationConfig::None => {
+                ClientAuthenticationConfig::None
+            }
+            slim_config::grpc::client::AuthenticationConfig::Basic(basic) => {
+                ClientAuthenticationConfig::Basic {
+                    config: basic.into(),
+                }
+            }
+            slim_config::grpc::client::AuthenticationConfig::StaticJwt(jwt) => {
+                ClientAuthenticationConfig::StaticJwt { config: jwt.into() }
+            }
+            slim_config::grpc::client::AuthenticationConfig::Jwt(jwt) => {
+                ClientAuthenticationConfig::Jwt { config: jwt.into() }
+            }
+        }
     }
 }
 
@@ -386,9 +626,14 @@ impl From<slim_config::grpc::server::AuthenticationConfig> for ServerAuthenticat
             slim_config::grpc::server::AuthenticationConfig::None => {
                 ServerAuthenticationConfig::None
             }
-            // For Basic and Jwt auth types, we can't fully convert back since we'd lose
-            // credential information (passwords, tokens, keys). Return None variant.
-            _ => ServerAuthenticationConfig::None,
+            slim_config::grpc::server::AuthenticationConfig::Basic(basic) => {
+                ServerAuthenticationConfig::Basic {
+                    config: basic.into(),
+                }
+            }
+            slim_config::grpc::server::AuthenticationConfig::Jwt(jwt) => {
+                ServerAuthenticationConfig::Jwt { config: jwt.into() }
+            }
         }
     }
 }
