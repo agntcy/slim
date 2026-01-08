@@ -10,14 +10,14 @@ use tokio_retry::strategy::{ExponentialBackoff, jitter};
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 #[serde(default)]
 pub struct Config {
-    base: u64,
-    factor: u64,
+    pub base: u64,
+    pub factor: u64,
     #[schemars(with = "String")]
-    max_delay: DurationString,
+    pub max_delay: DurationString,
     #[serde(default = "default_max_attempts")]
-    max_attempts: usize,
+    pub max_attempts: usize,
     #[serde(default)]
-    jitter: bool,
+    pub jitter: bool,
 }
 
 impl Config {

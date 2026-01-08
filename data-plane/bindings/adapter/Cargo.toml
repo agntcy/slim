@@ -21,6 +21,7 @@ agntcy-slim-session = { workspace = true }
 display-error-chain = { workspace = true }
 num_cpus = { workspace = true }
 parking_lot = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 uniffi = { version = "0.28.3", features = ["cli"] }
