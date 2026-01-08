@@ -41,6 +41,7 @@
 
 // Module declarations
 pub mod adapter;
+mod identity;
 mod message_context;
 mod service_ref;
 pub mod session_context;
@@ -48,8 +49,16 @@ pub mod session_context;
 // Public re-exports
 pub use adapter::{
     BindingsAdapter, BuildInfo, ClientConfig, FfiCompletionHandle, Name, ReceivedMessage,
-    ServerConfig, SessionConfig, SessionType, SlimError, TlsConfig, create_app_with_secret,
-    get_build_info, get_runtime, get_version, initialize_crypto_provider,
+    ServerConfig, SessionConfig, SessionType, SlimError, TlsConfig, create_app,
+    create_app_local_svc, create_app_secret_local_svc, create_app_with_secret, get_build_info,
+    get_runtime, get_version, initialize_crypto_provider,
+};
+pub use identity::{
+    BindingsAlgorithm, BindingsIdentityProvider, BindingsIdentityVerifier, BindingsKey,
+    BindingsKeyData, BindingsKeyFormat, IdentityError, create_identity_provider_jwt,
+    create_identity_provider_shared_secret, create_identity_provider_spire,
+    create_identity_provider_static_jwt, create_identity_verifier_jwt,
+    create_identity_verifier_shared_secret, create_identity_verifier_spire, create_key_with_jwks,
 };
 pub use message_context::MessageContext;
 pub use service_ref::{ServiceRef, get_or_init_global_service};

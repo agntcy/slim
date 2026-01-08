@@ -5,13 +5,16 @@ Shared helper utilities for the slim_bindings CLI examples.
 
 This module centralizes:
   * Pretty-print / color formatting helpers
-  * Identity (auth) helper constructors (shared secret)
+  * Identity (auth) helper constructors (shared secret / JWT / JWKS / SPIRE)
   * Command-line option decoration (Click integration)
   * Convenience coroutine for constructing and connecting a local Slim app
 
 The heavy inline commenting is intentional: it is meant to teach newcomers
 exactly what each step does, line by line.
 """
+
+import base64  # Used to decode base64-encoded JWKS content (when provided).
+import json  # Used for parsing JWKS JSON and dynamic option values.
 
 import click  # CLI option parsing & command composition library.
 
@@ -74,6 +77,98 @@ def split_id(id: str) -> slim.Name:
         print("Error: IDs must be in the format organization/namespace/app-or-stream.")
         raise e
     return slim.Name(components=components, id=None)
+
+
+def jwt_identity(
+    jwt_path: str,
+    spire_bundle_path: str,
+    iss: str | None = None,
+    sub: str | None = None,
+    aud: list[str] | None = None,
+):
+    """
+    Construct a static-JWT provider and JWT verifier from file inputs.
+
+    Process:
+      1. Read a JSON structure containing (base64-encoded) JWKS data (a SPIRE
+         bundle with a JWKS for each trust domain).
+      2. Decode & merge all JWKS entries.
+      3. Create a StaticJwt identity provider pointing at a local JWT file.
+      4. Wrap merged JWKS JSON as Key with RS256 & JWKS format.
+      5. Build a Jwt verifier using the JWKS-derived public key.
+    """
+    print(f"Using SPIRE bundle file: {spire_bundle_path}")
+
+    with open(spire_bundle_path) as sb:
+        spire_bundle_string = sb.read()
+
+    spire_bundle = json.loads(spire_bundle_string)
+
+    all_keys = []
+    for trust_domain, v in spire_bundle.items():
+        print(f"Processing trust domain: {trust_domain}")
+        try:
+            decoded_jwks = base64.b64decode(v)
+            jwks_json = json.loads(decoded_jwks)
+            if "keys" in jwks_json:
+                all_keys.extend(jwks_json["keys"])
+                print(f"  Added {len(jwks_json['keys'])} keys from {trust_domain}")
+            else:
+                print(f"  Warning: No 'keys' found in JWKS for {trust_domain}")
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as e:
+            raise RuntimeError(
+                f"Failed to process trust domain {trust_domain}: {e}"
+            ) from e
+
+    spire_jwks = json.dumps({"keys": all_keys})
+    print(
+        f"Combined JWKS contains {len(all_keys)} total keys from {len(spire_bundle)} trust domains"
+    )
+
+    # Create static JWT provider using the UniFFI function
+    provider = slim.create_identity_provider_static_jwt(path=jwt_path)
+
+    # Create JWKS key for verification using the helper function
+    key = slim.create_key_with_jwks(content=spire_jwks)
+
+    # Create JWT verifier with the public key
+    verifier = slim.create_identity_verifier_jwt(
+        public_key=key,
+        autoresolve=None,
+        issuer=iss,
+        audience=aud,
+        subject=sub,
+        require_iss=None,
+        require_aud=None,
+        require_sub=None,
+    )
+    return provider, verifier
+
+
+def spire_identity(
+    socket_path: str | None,
+    target_spiffe_id: str | None,
+    jwt_audiences: list[str] | None,
+):
+    """
+    Construct a SPIRE-based dynamic identity provider and verifier.
+
+    Args:
+        socket_path: SPIRE Workload API socket path (optional).
+        target_spiffe_id: Specific SPIFFE ID to request (optional).
+        jwt_audiences: Audience list for JWT SVID requests (optional).
+    """
+    provider = slim.create_identity_provider_spire(
+        socket_path=socket_path,
+        target_spiffe_id=target_spiffe_id,
+        jwt_audiences=list(jwt_audiences) if jwt_audiences else None,
+    )
+    verifier = slim.create_identity_verifier_spire(
+        socket_path=socket_path,
+        target_spiffe_id=target_spiffe_id,
+        jwt_audiences=list(jwt_audiences) if jwt_audiences else None,
+    )
+    return provider, verifier
 
 
 def create_tls_config(
@@ -192,8 +287,6 @@ class DictParamType(click.ParamType):
     name = "dict"
 
     def convert(self, value, param, ctx):
-        import json
-
         if isinstance(value, dict):
             return value
         try:
@@ -247,6 +340,44 @@ def common_options(function):
     )(function)
 
     function = click.option(
+        "--jwt",
+        type=str,
+        help="Static JWT token path for authentication.",
+    )(function)
+
+    function = click.option(
+        "--spire-trust-bundle",
+        type=str,
+        help="SPIRE trust bundle path (for static JWT + JWKS mode).",
+    )(function)
+
+    function = click.option(
+        "--audience",
+        type=str,
+        help="Audience (comma-separated or single) for static JWT verification.",
+    )(function)
+
+    # SPIRE dynamic identity options.
+    function = click.option(
+        "--spire-socket-path",
+        type=str,
+        help="SPIRE Workload API socket path (overrides default).",
+    )(function)
+
+    function = click.option(
+        "--spire-target-spiffe-id",
+        type=str,
+        help="Target SPIFFE ID to request from SPIRE.",
+    )(function)
+
+    function = click.option(
+        "--spire-jwt-audience",
+        type=str,
+        multiple=True,
+        help="Audience(s) for SPIRE JWT SVID requests. Can be specified multiple times.",
+    )(function)
+
+    function = click.option(
         "--invites",
         type=str,
         multiple=True,
@@ -268,9 +399,20 @@ async def create_local_app(
     remote: str | None = None,
     enable_opentelemetry: bool = False,
     shared_secret: str = "abcde-12345-fedcb-67890-deadc",
+    jwt: str | None = None,
+    spire_trust_bundle: str | None = None,
+    audience: str | None = None,
+    spire_socket_path: str | None = None,
+    spire_target_spiffe_id: str | None = None,
+    spire_jwt_audience: tuple[str, ...] | None = None,
 ):
     """
     Build and connect a Slim application instance given user CLI parameters.
+
+    Resolution precedence for auth:
+      1. If spire_socket_path or spire_target_spiffe_id or spire_jwt_audience provided -> SPIRE dynamic flow.
+      2. Else if jwt + bundle + audience provided -> JWT/JWKS flow.
+      3. Else -> shared secret (must be provided, raises if missing).
 
     Args:
         local: Local identity string (org/ns/app).
@@ -278,6 +420,12 @@ async def create_local_app(
         remote: Optional remote identity (unused here, reserved for future).
         enable_opentelemetry: Enable OTEL tracing export (note: tracing config not available in uniffi).
         shared_secret: Symmetric secret for shared-secret mode.
+        jwt: Path to static JWT token (for StaticJwt provider).
+        spire_trust_bundle: Path to a spire trust bundle file (containing the JWKs for each trust domain).
+        audience: Audience string for JWT verification (comma-separated or single).
+        spire_socket_path: SPIRE Workload API socket path (optional).
+        spire_target_spiffe_id: Specific SPIFFE ID to request (optional).
+        spire_jwt_audience: Audience tuple for SPIRE JWT SVID requests (optional).
 
     Returns:
         tuple: (app, connection_id) - Connected Slim app instance and connection ID.
@@ -288,8 +436,31 @@ async def create_local_app(
     # Convert local identifier to a strongly typed Name.
     local_name = split_id(local)
 
-    # Create app with shared secret
-    app = slim.create_app_with_secret(local_name, shared_secret)
+    # Derive identity provider & verifier using precedence rules
+    if spire_socket_path or spire_target_spiffe_id or spire_jwt_audience:
+        print("Using SPIRE dynamic identity authentication.")
+        provider, verifier = spire_identity(
+            socket_path=spire_socket_path,
+            target_spiffe_id=spire_target_spiffe_id,
+            jwt_audiences=list(spire_jwt_audience) if spire_jwt_audience else None,
+        )
+        # Create app with provider and verifier
+        app = slim.create_app(local_name, provider, verifier)
+    elif jwt and spire_trust_bundle and audience:
+        print("Using JWT + JWKS authentication.")
+        # Parse audience string (could be comma-separated)
+        aud_list = [a.strip() for a in audience.split(",")] if audience else None
+        provider, verifier = jwt_identity(
+            jwt_path=jwt,
+            spire_bundle_path=spire_trust_bundle,
+            aud=aud_list,
+        )
+        # Create app with provider and verifier
+        app = slim.create_app(local_name, provider, verifier)
+    else:
+        print("Using shared-secret authentication.")
+        # Create app with shared secret
+        app = slim.create_app_with_secret(local_name, shared_secret)
 
     # Provide feedback to user (instance numeric id).
     format_message_print(f"{app.id()}", "Created app")

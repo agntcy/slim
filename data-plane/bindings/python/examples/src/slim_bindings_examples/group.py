@@ -160,7 +160,13 @@ async def run_client(
     enable_opentelemetry: bool = False,
     enable_mls: bool = False,
     shared_secret: str = "secret",
-    invites: list[str] | None = None,
+    jwt: str | None = None,
+    spire_trust_bundle: str | None = None,
+    audience: str | None = None,
+    spire_socket_path: str | None = None,
+    spire_target_spiffe_id: str | None = None,
+    spire_jwt_audience: tuple[str, ...] | None = None,
+    invites: tuple[str, ...] | None = None,
 ):
     """
     Orchestrate one group-capable client instance.
@@ -176,6 +182,12 @@ async def run_client(
         enable_opentelemetry: Activate OTEL tracing if backend available.
         enable_mls: Enable group MLS features.
         shared_secret: Shared secret for symmetric auth (demo only).
+        jwt: Path to static JWT token (optional).
+        spire_trust_bundle: Path to SPIRE trust bundle (optional).
+        audience: Audience for JWT verification (optional).
+        spire_socket_path: SPIRE Workload API socket path (optional).
+        spire_target_spiffe_id: Target SPIFFE ID (optional).
+        spire_jwt_audience: SPIRE JWT audiences (optional).
         invites: List of participant IDs to invite (moderator only).
     """
     # Create & connect the local Slim instance (auth derived from args).
@@ -184,6 +196,12 @@ async def run_client(
         slim_config,
         enable_opentelemetry=enable_opentelemetry,
         shared_secret=shared_secret,
+        jwt=jwt,
+        spire_trust_bundle=spire_trust_bundle,
+        audience=audience,
+        spire_socket_path=spire_socket_path,
+        spire_target_spiffe_id=spire_target_spiffe_id,
+        spire_jwt_audience=spire_jwt_audience,
     )
 
     # Parse the remote channel/topic if provided; else None triggers passive mode.
@@ -273,7 +291,13 @@ def group_main(
     enable_opentelemetry: bool = False,
     enable_mls: bool = False,
     shared_secret: str = "secret",
-    invites: list[str] | None = None,
+    jwt: str | None = None,
+    spire_trust_bundle: str | None = None,
+    audience: str | None = None,
+    spire_socket_path: str | None = None,
+    spire_target_spiffe_id: str | None = None,
+    spire_jwt_audience: tuple[str, ...] | None = None,
+    invites: tuple[str, ...] | None = None,
 ):
     """
     Synchronous entry-point for the group example (wrapped by Click).
@@ -289,6 +313,12 @@ def group_main(
                 enable_opentelemetry=enable_opentelemetry,
                 enable_mls=enable_mls,
                 shared_secret=shared_secret,
+                jwt=jwt,
+                spire_trust_bundle=spire_trust_bundle,
+                audience=audience,
+                spire_socket_path=spire_socket_path,
+                spire_target_spiffe_id=spire_target_spiffe_id,
+                spire_jwt_audience=spire_jwt_audience,
                 invites=invites,
             )
         )

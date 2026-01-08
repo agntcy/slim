@@ -48,6 +48,12 @@ async def run_client(
     enable_opentelemetry: bool = False,
     enable_mls: bool = False,
     shared_secret: str = "secret",
+    jwt: str | None = None,
+    spire_trust_bundle: str | None = None,
+    audience: str | None = None,
+    spire_socket_path: str | None = None,
+    spire_target_spiffe_id: str | None = None,
+    spire_jwt_audience: tuple[str, ...] | None = None,
     message: str | None = None,
     iterations: int = 1,
 ):
@@ -61,6 +67,12 @@ async def run_client(
         enable_opentelemetry: Enable OpenTelemetry tracing if configured.
         enable_mls: Enable MLS.
         shared_secret: Shared secret for symmetric auth (dev/demo).
+        jwt: Path to static JWT token (optional).
+        spire_trust_bundle: Path to SPIRE trust bundle (optional).
+        audience: Audience for JWT verification (optional).
+        spire_socket_path: SPIRE Workload API socket path (optional).
+        spire_target_spiffe_id: Target SPIFFE ID (optional).
+        spire_jwt_audience: SPIRE JWT audiences (optional).
         message: If provided, run in active mode sending this payload.
         iterations: Number of request/reply cycles in active mode.
 
@@ -75,6 +87,12 @@ async def run_client(
         slim_config,
         enable_opentelemetry=enable_opentelemetry,
         shared_secret=shared_secret,
+        jwt=jwt,
+        spire_trust_bundle=spire_trust_bundle,
+        audience=audience,
+        spire_socket_path=spire_socket_path,
+        spire_target_spiffe_id=spire_target_spiffe_id,
+        spire_jwt_audience=spire_jwt_audience,
     )
 
     # Numeric unique instance ID (useful for distinguishing multiple processes).
@@ -194,7 +212,13 @@ def p2p_main(
     enable_opentelemetry: bool = False,
     enable_mls: bool = False,
     shared_secret: str = "secret",
-    invites: list[str] | None = None,
+    jwt: str | None = None,
+    spire_trust_bundle: str | None = None,
+    audience: str | None = None,
+    spire_socket_path: str | None = None,
+    spire_target_spiffe_id: str | None = None,
+    spire_jwt_audience: tuple[str, ...] | None = None,
+    invites: tuple[str, ...] | None = None,
     message: str | None = None,
     iterations: int = 1,
 ):
@@ -215,6 +239,12 @@ def p2p_main(
                 enable_opentelemetry=enable_opentelemetry,
                 enable_mls=enable_mls,
                 shared_secret=shared_secret,
+                jwt=jwt,
+                spire_trust_bundle=spire_trust_bundle,
+                audience=audience,
+                spire_socket_path=spire_socket_path,
+                spire_target_spiffe_id=spire_target_spiffe_id,
+                spire_jwt_audience=spire_jwt_audience,
                 message=message,
                 iterations=iterations,
             )

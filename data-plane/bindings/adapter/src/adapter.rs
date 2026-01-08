@@ -321,6 +321,30 @@ pub fn create_app_secret_local_svc(
     runtime.block_on(async { create_app_with_secret_async(app_name, shared_secret, true).await })
 }
 
+/// Create an app with custom identity provider and verifier (blocking version for FFI)
+///
+/// This allows using JWT, SPIRE, or other authentication mechanisms.
+#[uniffi::export]
+pub fn create_app(
+    app_name: Name,
+    provider: Arc<crate::identity::BindingsIdentityProvider>,
+    verifier: Arc<crate::identity::BindingsIdentityVerifier>,
+) -> Result<Arc<BindingsAdapter>, SlimError> {
+    let runtime = get_runtime();
+    runtime.block_on(async { create_app_async(app_name, provider, verifier, false).await })
+}
+
+/// Create an app with custom identity provider and verifier using local service
+#[uniffi::export]
+pub fn create_app_local_svc(
+    app_name: Name,
+    provider: Arc<crate::identity::BindingsIdentityProvider>,
+    verifier: Arc<crate::identity::BindingsIdentityVerifier>,
+) -> Result<Arc<BindingsAdapter>, SlimError> {
+    let runtime = get_runtime();
+    runtime.block_on(async { create_app_async(app_name, provider, verifier, true).await })
+}
+
 /// Create an app with the given name and shared secret (async version)
 async fn create_app_with_secret_async(
     app_name: Name,
@@ -333,6 +357,30 @@ async fn create_app_with_secret_async(
     // Wrap in enum types for flexible auth support
     let mut provider = AuthProvider::SharedSecret(shared_secret_impl.clone());
     let mut verifier = AuthVerifier::SharedSecret(shared_secret_impl);
+
+    // Initialize the identity provider
+    provider.initialize().await?;
+
+    // Initialize the identity verifier
+    verifier.initialize().await?;
+
+    let adapter = BindingsAdapter::new(slim_name, provider, verifier, use_local_service)?;
+
+    Ok(Arc::new(adapter))
+}
+
+/// Create an app with custom identity provider and verifier (async version)
+async fn create_app_async(
+    app_name: Name,
+    provider: Arc<crate::identity::BindingsIdentityProvider>,
+    verifier: Arc<crate::identity::BindingsIdentityVerifier>,
+    use_local_service: bool,
+) -> Result<Arc<BindingsAdapter>, SlimError> {
+    let slim_name: SlimName = app_name.into();
+
+    // Clone the Arc-wrapped providers
+    let mut provider = (*provider.inner).clone();
+    let mut verifier = (*verifier.inner).clone();
 
     // Initialize the identity provider
     provider.initialize().await?;
