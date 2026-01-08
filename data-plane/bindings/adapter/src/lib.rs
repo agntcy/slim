@@ -42,7 +42,6 @@
 // Module declarations
 pub mod adapter;
 pub mod common;
-pub mod errors;
 mod message_context;
 pub mod name;
 pub mod runtime;
@@ -52,10 +51,10 @@ pub mod session_context;
 // Public re-exports
 pub use adapter::{
     BindingsAdapter, BuildInfo, ClientConfig, FfiCompletionHandle, ReceivedMessage, ServerConfig,
-    SessionConfig, SessionType, TlsConfig, create_app_with_secret, get_build_info, get_version,
+    SessionConfig, SessionType, SlimError, TlsConfig, create_app_with_secret, get_build_info,
+    get_version,
 };
 pub use common::initialize_crypto_provider;
-pub use errors::SlimError;
 pub use message_context::MessageContext;
 pub use name::Name;
 pub use runtime::get_runtime;
