@@ -1,0 +1,63 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["maturin>=1,<2"]
+build-backend = "maturin"
+
+[project]
+name = "slim-uniffi-bindings"
+version = "0.7.0"
+description = "Python bindings for SLIM (Secure Low-Latency Interactive Messaging) using UniFFI"
+requires-python = ">=3.10"
+readme = "README.md"
+license = "Apache-2.0"
+authors = [
+    {name = "AGNTCY Contributors", email = "slim@agntcy.io"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+[project.urls]
+Repository = "https://github.com/agntcy/slim"
+Issues = "https://github.com/agntcy/slim/issues"
+
+[dependency-groups]
+building = [
+    "maturin>=1.8.2",
+    "ziglang~=0.14.0; sys_platform == 'linux' or sys_platform == 'darwin'",
+    "maturin[patchelf]>=1.8.2; sys_platform == 'linux'",
+]
+
+testing = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+]
+
+[tool.maturin]
+bindings = "uniffi"
+manifest-path = "../adapter/Cargo.toml"
+module-name = "slim_uniffi_bindings._slim_bindings"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+markers = [
+    "integration: marks tests as integration tests (need running server)",
+]
+
+[tool.uv]
+default-groups = ["building", "testing"]
+
+[tool.uv.workspace]
+members = [".", "examples"]
+
