@@ -194,7 +194,7 @@ impl BindingsSessionContext {
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<(), SlimError> {
-        self.runtime()
+        runtime::get_runtime()
             .block_on(async { self.publish_async(data, payload_type, metadata).await })
     }
 
@@ -258,7 +258,7 @@ impl BindingsSessionContext {
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<Arc<FfiCompletionHandle>, SlimError> {
-        self.runtime().block_on(async {
+        runtime::get_runtime().block_on(async {
             self.publish_with_completion_async(data, payload_type, metadata)
                 .await
         })
@@ -316,7 +316,7 @@ impl BindingsSessionContext {
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<(), SlimError> {
-        self.runtime().block_on(async {
+        runtime::get_runtime().block_on(async {
             self.publish_to_async(message_context, data, payload_type, metadata)
                 .await
         })
@@ -358,7 +358,7 @@ impl BindingsSessionContext {
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<Arc<FfiCompletionHandle>, SlimError> {
-        self.runtime().block_on(async {
+        runtime::get_runtime().block_on(async {
             self.publish_to_with_completion_async(message_context, data, payload_type, metadata)
                 .await
         })
@@ -400,7 +400,7 @@ impl BindingsSessionContext {
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<(), SlimError> {
-        self.runtime().block_on(async {
+        runtime::get_runtime().block_on(async {
             self.publish_with_params_async(
                 destination,
                 fanout,
@@ -448,8 +448,7 @@ impl BindingsSessionContext {
     /// * `Ok(ReceivedMessage)` - Message with context and payload bytes
     /// * `Err(SlimError)` - If the receive fails or times out
     pub fn get_message(&self, timeout_ms: Option<u32>) -> Result<ReceivedMessage, SlimError> {
-        self.runtime()
-            .block_on(async { self.get_message_async(timeout_ms).await })
+        runtime::get_runtime().block_on(async { self.get_message_async(timeout_ms).await })
     }
 
     /// Receive a message from the session (async version)
@@ -472,8 +471,7 @@ impl BindingsSessionContext {
     /// **Auto-waits for completion:** This method automatically waits for the
     /// invitation to be sent and acknowledged before returning.
     pub fn invite(&self, participant: Arc<Name>) -> Result<(), SlimError> {
-        self.runtime()
-            .block_on(async { self.invite_async(participant).await })
+        runtime::get_runtime().block_on(async { self.invite_async(participant).await })
     }
 
     /// Invite a participant to the session (async version)
@@ -496,8 +494,7 @@ impl BindingsSessionContext {
     /// **Auto-waits for completion:** This method automatically waits for the
     /// removal to be processed and acknowledged before returning.
     pub fn remove(&self, participant: Arc<Name>) -> Result<(), SlimError> {
-        self.runtime()
-            .block_on(async { self.remove_async(participant).await })
+        runtime::get_runtime().block_on(async { self.remove_async(participant).await })
     }
 
     /// Remove a participant from the session (async version)
@@ -586,7 +583,6 @@ impl BindingsSessionContext {
 mod tests {
     use super::*;
     use crate::Name as FfiName;
-    use crate::errors::SlimError;
     use slim_datapath::api::{
         ApplicationPayload, ProtoMessage, ProtoPublish, ProtoPublishType, SessionHeader, SlimHeader,
     };
@@ -889,23 +885,6 @@ mod tests {
         let (ctx, _tx) = make_context();
         // With no actual SessionController, the weak ref should be None
         assert!(ctx.session.upgrade().is_none());
-    }
-
-    // ==================== Runtime Access Tests ====================
-
-    #[tokio::test]
-    async fn test_runtime_accessor() {
-        let (ctx, _tx) = make_context();
-        let runtime = ctx.runtime();
-        // Verify runtime is accessible (we can't block_on from within a tokio test)
-        // Just verify we get a valid handle
-        let handle = runtime.handle();
-        // Spawn a task on the runtime to verify it's working
-        let result = handle
-            .spawn(async { 42 })
-            .await
-            .expect("Task should complete");
-        assert_eq!(result, 42);
     }
 
     // ==================== FFI Method Tests (Session Missing) ====================
