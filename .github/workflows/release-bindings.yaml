@@ -273,7 +273,7 @@ jobs:
 
           popd
 
-      - name: Commit and push
+      - name: Commit and push to pre-release branch
         run: |
           pushd ./target-repo
 
@@ -281,6 +281,10 @@ jobs:
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#slim-bindings-libs-}"
           echo "📦 Extracted version: $VERSION"
+
+          # Create pre-release branch name
+          PRE_RELEASE_BRANCH="pre-release-$VERSION"
+          echo "🌿 Pre-release branch: $PRE_RELEASE_BRANCH"
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -306,12 +310,11 @@ jobs:
           - darwin/amd64 (x86_64-apple-darwin)
           - windows/amd64 (x86_64-pc-windows-msvc)"
 
-          git tag -a "$VERSION" -m "Release $VERSION"
+          # Create and push pre-release branch
+          git checkout -b "$PRE_RELEASE_BRANCH"
+          git push origin "$PRE_RELEASE_BRANCH"
 
-          git push origin main
-          git push origin "$VERSION"
-
-          echo "✅ Successfully pushed Go bindings to https://github.com/${{ env.GO_BINDINGS_REPO }}"
+          echo "✅ Successfully pushed Go bindings to pre-release branch: $PRE_RELEASE_BRANCH"
 
           popd
 
@@ -359,6 +362,12 @@ jobs:
 
       - name: Test bindings installation and usage
         run: |
+          # Extract version from tag name for branch reference
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#slim-bindings-libs-}"
+          PRE_RELEASE_BRANCH="pre-release-$VERSION"
+          echo "🌿 Testing branch: $PRE_RELEASE_BRANCH"
+
           # Create a temporary test directory
           if [ "$RUNNER_OS" = "Windows" ]; then
             TEST_DIR=$(mktemp -d -p "$RUNNER_TEMP")
@@ -374,12 +383,12 @@ jobs:
           go mod init test
           echo "✅ Created test module"
 
-          # Fetch the bindings from GitHub (use main branch for now)
-          go get github.com/${{ env.GO_BINDINGS_REPO }}@main
-          echo "✅ Fetched bindings package"
+          # Fetch the bindings from the pre-release branch
+          go get github.com/${{ env.GO_BINDINGS_REPO }}@$PRE_RELEASE_BRANCH
+          echo "✅ Fetched bindings package from pre-release branch"
 
           # Run the setup tool to download native libraries
-          go run github.com/${{ env.GO_BINDINGS_REPO }}/cmd/slim-bindings-setup@main
+          go run github.com/${{ env.GO_BINDINGS_REPO }}/cmd/slim-bindings-setup@$PRE_RELEASE_BRANCH
           echo "✅ Downloaded native libraries"
 
           # Create a test program
@@ -417,3 +426,73 @@ jobs:
         run: |
           echo "✅ Go bindings verification completed successfully on ${{ matrix.platform.target }}"
           echo "The published bindings can be safely tagged for release."
+
+  # ==========================================================================
+  # Job 5: Finalize release - merge to main, tag, and cleanup
+  # ==========================================================================
+  finalize-release:
+    name: Finalize Release
+    runs-on: ubuntu-latest
+    needs: test-go-bindings
+    if: startsWith(github.ref, 'refs/tags/slim-bindings-libs-')
+    steps:
+      - name: Clone target repository
+        run: |
+          git clone https://x-access-token:${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}@github.com/${{ env.GO_BINDINGS_REPO }}.git ./target-repo
+
+      - name: Merge to main and create tag
+        run: |
+          cd ./target-repo
+
+          # Set git config locally
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Extract version from tag name
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#slim-bindings-libs-}"
+          PRE_RELEASE_BRANCH="pre-release-$VERSION"
+
+          echo "📦 Version: $VERSION"
+          echo "🌿 Pre-release branch: $PRE_RELEASE_BRANCH"
+
+          # Fetch the pre-release branch
+          git fetch origin "$PRE_RELEASE_BRANCH"
+
+          # Checkout main and merge pre-release branch
+          git checkout main
+          git merge "origin/$PRE_RELEASE_BRANCH" --ff-only
+
+          # Create and push version tag
+          git tag -a "$VERSION" -m "Release $VERSION"
+
+          # Push main and tag
+          git push origin main
+          git push origin "$VERSION"
+
+          echo "✅ Merged pre-release branch to main"
+          echo "✅ Created and pushed tag: $VERSION"
+
+      - name: Cleanup pre-release branch
+        if: always()  # Run even if previous steps fail
+        run: |
+          cd ./target-repo
+
+          # Extract version from tag name
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#slim-bindings-libs-}"
+          PRE_RELEASE_BRANCH="pre-release-$VERSION"
+
+          # Delete the pre-release branch
+          git push origin --delete "$PRE_RELEASE_BRANCH" || echo "⚠️  Branch already deleted or doesn't exist"
+
+          echo "✅ Cleaned up pre-release branch: $PRE_RELEASE_BRANCH"
+
+      - name: Release complete
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#slim-bindings-libs-}"
+          echo ""
+          echo "🎉 Release $VERSION complete!"
+          echo "✅ Go bindings published to https://github.com/${{ env.GO_BINDINGS_REPO }}"
+          echo "✅ Tagged as $VERSION"
