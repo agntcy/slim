@@ -557,39 +557,53 @@ jobs:
         run: |
           git clone https://x-access-token:${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}@github.com/${{ env.GO_BINDINGS_REPO }}.git ./target-repo
 
-      - name: Merge to main and create tag
+      # TODO: Uncomment for production releases
+      # - name: Merge to main and create tag
+      #   run: |
+      #     cd ./target-repo
+      #
+      #     # Set git config locally
+      #     git config user.name "github-actions[bot]"
+      #     git config user.email "github-actions[bot]@users.noreply.github.com"
+      #
+      #     # Extract version from tag name
+      #     VERSION="${{ github.ref_name }}"
+      #     VERSION="${VERSION#slim-bindings-libs-}"
+      #     PRE_RELEASE_BRANCH="pre-release-$VERSION"
+      #
+      #     echo "📦 Version: $VERSION"
+      #     echo "🌿 Pre-release branch: $PRE_RELEASE_BRANCH"
+      #
+      #     # Fetch the pre-release branch
+      #     git fetch origin "$PRE_RELEASE_BRANCH"
+      #
+      #     # Checkout main and merge pre-release branch
+      #     git checkout main
+      #     git merge "origin/$PRE_RELEASE_BRANCH" --ff-only
+      #
+      #     # Note: Version tag already exists from Job 3, so we force update it
+      #     # to point to the merged commit on main
+      #     git tag -f -a "$VERSION" -m "Release $VERSION"
+      #
+      #     # Push main and tag
+      #     git push origin main
+      #     git push -f origin "$VERSION"
+      #
+      #     echo "✅ Merged pre-release branch to main"
+      #     echo "✅ Updated tag $VERSION to point to main"
+
+      - name: Test mode notice
         run: |
-          cd ./target-repo
-
-          # Set git config locally
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          # Extract version from tag name
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#slim-bindings-libs-}"
           PRE_RELEASE_BRANCH="pre-release-$VERSION"
 
+          echo "⚠️  TEST MODE: Merge to main is disabled"
           echo "📦 Version: $VERSION"
           echo "🌿 Pre-release branch: $PRE_RELEASE_BRANCH"
-
-          # Fetch the pre-release branch
-          git fetch origin "$PRE_RELEASE_BRANCH"
-
-          # Checkout main and merge pre-release branch
-          git checkout main
-          git merge "origin/$PRE_RELEASE_BRANCH" --ff-only
-
-          # Note: Version tag already exists from Job 3, so we force update it
-          # to point to the merged commit on main
-          git tag -f -a "$VERSION" -m "Release $VERSION"
-
-          # Push main and tag
-          git push origin main
-          git push -f origin "$VERSION"
-
-          echo "✅ Merged pre-release branch to main"
-          echo "✅ Updated tag $VERSION to point to main"
+          echo ""
+          echo "The pre-release branch has been tested and is ready."
+          echo "Main branch will NOT be updated."
 
       - name: Cleanup pre-release branch
         if: always()  # Run even if previous steps fail
@@ -628,7 +642,7 @@ jobs:
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#slim-bindings-libs-}"
           echo ""
-          echo "🎉 Release $VERSION complete!"
-          echo "✅ Go bindings published to https://github.com/${{ env.GO_BINDINGS_REPO }}"
-          echo "✅ Tagged as $VERSION"
-          echo "✅ All tests passed on 4 platforms"
+          echo "🎉 Test release $VERSION complete!"
+          echo "✅ All tests passed on 8 platforms"
+          echo "✅ Pre-release branch and tag cleaned up"
+          echo "⚠️  Main branch was NOT updated (test mode)"
