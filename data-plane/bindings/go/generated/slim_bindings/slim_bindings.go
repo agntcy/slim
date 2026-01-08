@@ -394,15 +394,6 @@ func uniffiCheckChecksums() {
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_bindings_checksum_func_new_client_config()
-		})
-		if checksum != 2830 {
-			// If this happens try cleaning and rebuilding your project
-			panic("slim_bindings: uniffi_slim_bindings_checksum_func_new_client_config: UniFFI API checksum mismatch")
-		}
-	}
-	{
-		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_bindings_checksum_func_new_insecure_client_config()
 		})
 		if checksum != 42525 {
@@ -3007,7 +2998,7 @@ type ClientConfig struct {
 	// Headers associated with gRPC requests
 	Headers map[string]string
 	// Authentication configuration for outgoing RPCs
-	Auth *ClientAuthenticationConfig
+	Auth ClientAuthenticationConfig
 	// Backoff retry configuration
 	Backoff BackoffConfig
 	// Arbitrary user-provided metadata as JSON string
@@ -3027,7 +3018,7 @@ func (r *ClientConfig) Destroy() {
 	FfiDestroyerDuration{}.Destroy(r.RequestTimeout)
 	FfiDestroyerOptionalUint64{}.Destroy(r.BufferSize)
 	FfiDestroyerMapStringString{}.Destroy(r.Headers)
-	FfiDestroyerOptionalClientAuthenticationConfig{}.Destroy(r.Auth)
+	FfiDestroyerClientAuthenticationConfig{}.Destroy(r.Auth)
 	FfiDestroyerBackoffConfig{}.Destroy(r.Backoff)
 	FfiDestroyerOptionalString{}.Destroy(r.Metadata)
 }
@@ -3054,7 +3045,7 @@ func (c FfiConverterClientConfig) Read(reader io.Reader) ClientConfig {
 		FfiConverterDurationINSTANCE.Read(reader),
 		FfiConverterOptionalUint64INSTANCE.Read(reader),
 		FfiConverterMapStringStringINSTANCE.Read(reader),
-		FfiConverterOptionalClientAuthenticationConfigINSTANCE.Read(reader),
+		FfiConverterClientAuthenticationConfigINSTANCE.Read(reader),
 		FfiConverterBackoffConfigINSTANCE.Read(reader),
 		FfiConverterOptionalStringINSTANCE.Read(reader),
 	}
@@ -3077,7 +3068,7 @@ func (c FfiConverterClientConfig) Write(writer io.Writer, value ClientConfig) {
 	FfiConverterDurationINSTANCE.Write(writer, value.RequestTimeout)
 	FfiConverterOptionalUint64INSTANCE.Write(writer, value.BufferSize)
 	FfiConverterMapStringStringINSTANCE.Write(writer, value.Headers)
-	FfiConverterOptionalClientAuthenticationConfigINSTANCE.Write(writer, value.Auth)
+	FfiConverterClientAuthenticationConfigINSTANCE.Write(writer, value.Auth)
 	FfiConverterBackoffConfigINSTANCE.Write(writer, value.Backoff)
 	FfiConverterOptionalStringINSTANCE.Write(writer, value.Metadata)
 }
@@ -3085,6 +3076,64 @@ func (c FfiConverterClientConfig) Write(writer io.Writer, value ClientConfig) {
 type FfiDestroyerClientConfig struct{}
 
 func (_ FfiDestroyerClientConfig) Destroy(value ClientConfig) {
+	value.Destroy()
+}
+
+// JWT authentication configuration for client-side signing
+type ClientJwtAuth struct {
+	// JWT key configuration (encoding key for signing)
+	Key JwtKeyType
+	// JWT audience claims to include
+	Audience *[]string
+	// JWT issuer to include
+	Issuer *string
+	// JWT subject to include
+	Subject *string
+	// Token validity duration (default: 3600 seconds)
+	Duration time.Duration
+}
+
+func (r *ClientJwtAuth) Destroy() {
+	FfiDestroyerJwtKeyType{}.Destroy(r.Key)
+	FfiDestroyerOptionalSequenceString{}.Destroy(r.Audience)
+	FfiDestroyerOptionalString{}.Destroy(r.Issuer)
+	FfiDestroyerOptionalString{}.Destroy(r.Subject)
+	FfiDestroyerDuration{}.Destroy(r.Duration)
+}
+
+type FfiConverterClientJwtAuth struct{}
+
+var FfiConverterClientJwtAuthINSTANCE = FfiConverterClientJwtAuth{}
+
+func (c FfiConverterClientJwtAuth) Lift(rb RustBufferI) ClientJwtAuth {
+	return LiftFromRustBuffer[ClientJwtAuth](c, rb)
+}
+
+func (c FfiConverterClientJwtAuth) Read(reader io.Reader) ClientJwtAuth {
+	return ClientJwtAuth{
+		FfiConverterJwtKeyTypeINSTANCE.Read(reader),
+		FfiConverterOptionalSequenceStringINSTANCE.Read(reader),
+		FfiConverterOptionalStringINSTANCE.Read(reader),
+		FfiConverterOptionalStringINSTANCE.Read(reader),
+		FfiConverterDurationINSTANCE.Read(reader),
+	}
+}
+
+func (c FfiConverterClientJwtAuth) Lower(value ClientJwtAuth) C.RustBuffer {
+	return LowerIntoRustBuffer[ClientJwtAuth](c, value)
+}
+
+func (c FfiConverterClientJwtAuth) Write(writer io.Writer, value ClientJwtAuth) {
+	FfiConverterJwtKeyTypeINSTANCE.Write(writer, value.Key)
+	FfiConverterOptionalSequenceStringINSTANCE.Write(writer, value.Audience)
+	FfiConverterOptionalStringINSTANCE.Write(writer, value.Issuer)
+	FfiConverterOptionalStringINSTANCE.Write(writer, value.Subject)
+	FfiConverterDurationINSTANCE.Write(writer, value.Duration)
+}
+
+type FfiDestroyerClientJwtAuth struct{}
+
+func (_ FfiDestroyerClientJwtAuth) Destroy(value ClientJwtAuth) {
 	value.Destroy()
 }
 
@@ -3191,24 +3240,24 @@ func (_ FfiDestroyerFixedIntervalBackoff) Destroy(value FixedIntervalBackoff) {
 
 // JWT authentication configuration for server-side verification
 type JwtAuth struct {
-	// Path to file containing the decoding key (public key for verification)
-	KeyFile string
+	// JWT key configuration (decoding key for verification)
+	Key JwtKeyType
 	// JWT audience claims to verify
 	Audience *[]string
 	// JWT issuer to verify
 	Issuer *string
 	// JWT subject to verify
 	Subject *string
-	// Token validity duration in seconds (default: 3600)
-	DurationSecs *uint64
+	// Token validity duration (default: 3600 seconds)
+	Duration time.Duration
 }
 
 func (r *JwtAuth) Destroy() {
-	FfiDestroyerString{}.Destroy(r.KeyFile)
+	FfiDestroyerJwtKeyType{}.Destroy(r.Key)
 	FfiDestroyerOptionalSequenceString{}.Destroy(r.Audience)
 	FfiDestroyerOptionalString{}.Destroy(r.Issuer)
 	FfiDestroyerOptionalString{}.Destroy(r.Subject)
-	FfiDestroyerOptionalUint64{}.Destroy(r.DurationSecs)
+	FfiDestroyerDuration{}.Destroy(r.Duration)
 }
 
 type FfiConverterJwtAuth struct{}
@@ -3221,11 +3270,11 @@ func (c FfiConverterJwtAuth) Lift(rb RustBufferI) JwtAuth {
 
 func (c FfiConverterJwtAuth) Read(reader io.Reader) JwtAuth {
 	return JwtAuth{
-		FfiConverterStringINSTANCE.Read(reader),
+		FfiConverterJwtKeyTypeINSTANCE.Read(reader),
 		FfiConverterOptionalSequenceStringINSTANCE.Read(reader),
 		FfiConverterOptionalStringINSTANCE.Read(reader),
 		FfiConverterOptionalStringINSTANCE.Read(reader),
-		FfiConverterOptionalUint64INSTANCE.Read(reader),
+		FfiConverterDurationINSTANCE.Read(reader),
 	}
 }
 
@@ -3234,16 +3283,64 @@ func (c FfiConverterJwtAuth) Lower(value JwtAuth) C.RustBuffer {
 }
 
 func (c FfiConverterJwtAuth) Write(writer io.Writer, value JwtAuth) {
-	FfiConverterStringINSTANCE.Write(writer, value.KeyFile)
+	FfiConverterJwtKeyTypeINSTANCE.Write(writer, value.Key)
 	FfiConverterOptionalSequenceStringINSTANCE.Write(writer, value.Audience)
 	FfiConverterOptionalStringINSTANCE.Write(writer, value.Issuer)
 	FfiConverterOptionalStringINSTANCE.Write(writer, value.Subject)
-	FfiConverterOptionalUint64INSTANCE.Write(writer, value.DurationSecs)
+	FfiConverterDurationINSTANCE.Write(writer, value.Duration)
 }
 
 type FfiDestroyerJwtAuth struct{}
 
 func (_ FfiDestroyerJwtAuth) Destroy(value JwtAuth) {
+	value.Destroy()
+}
+
+// JWT key configuration
+type JwtKeyConfig struct {
+	// Algorithm used for signing/verifying the JWT
+	Algorithm JwtAlgorithm
+	// Key format - PEM, JWK or JWKS
+	Format JwtKeyFormat
+	// Encoded key or file path
+	Key JwtKeyData
+}
+
+func (r *JwtKeyConfig) Destroy() {
+	FfiDestroyerJwtAlgorithm{}.Destroy(r.Algorithm)
+	FfiDestroyerJwtKeyFormat{}.Destroy(r.Format)
+	FfiDestroyerJwtKeyData{}.Destroy(r.Key)
+}
+
+type FfiConverterJwtKeyConfig struct{}
+
+var FfiConverterJwtKeyConfigINSTANCE = FfiConverterJwtKeyConfig{}
+
+func (c FfiConverterJwtKeyConfig) Lift(rb RustBufferI) JwtKeyConfig {
+	return LiftFromRustBuffer[JwtKeyConfig](c, rb)
+}
+
+func (c FfiConverterJwtKeyConfig) Read(reader io.Reader) JwtKeyConfig {
+	return JwtKeyConfig{
+		FfiConverterJwtAlgorithmINSTANCE.Read(reader),
+		FfiConverterJwtKeyFormatINSTANCE.Read(reader),
+		FfiConverterJwtKeyDataINSTANCE.Read(reader),
+	}
+}
+
+func (c FfiConverterJwtKeyConfig) Lower(value JwtKeyConfig) C.RustBuffer {
+	return LowerIntoRustBuffer[JwtKeyConfig](c, value)
+}
+
+func (c FfiConverterJwtKeyConfig) Write(writer io.Writer, value JwtKeyConfig) {
+	FfiConverterJwtAlgorithmINSTANCE.Write(writer, value.Algorithm)
+	FfiConverterJwtKeyFormatINSTANCE.Write(writer, value.Format)
+	FfiConverterJwtKeyDataINSTANCE.Write(writer, value.Key)
+}
+
+type FfiDestroyerJwtKeyConfig struct{}
+
+func (_ FfiDestroyerJwtKeyConfig) Destroy(value JwtKeyConfig) {
 	value.Destroy()
 }
 
@@ -3728,13 +3825,13 @@ func (_ FfiDestroyerSpireConfig) Destroy(value SpireConfig) {
 type StaticJwtAuth struct {
 	// Path to file containing the JWT token
 	TokenFile string
-	// Duration in seconds for caching the token before re-reading from file (default: 3600)
-	DurationSecs *uint64
+	// Duration for caching the token before re-reading from file (default: 3600 seconds)
+	Duration time.Duration
 }
 
 func (r *StaticJwtAuth) Destroy() {
 	FfiDestroyerString{}.Destroy(r.TokenFile)
-	FfiDestroyerOptionalUint64{}.Destroy(r.DurationSecs)
+	FfiDestroyerDuration{}.Destroy(r.Duration)
 }
 
 type FfiConverterStaticJwtAuth struct{}
@@ -3748,7 +3845,7 @@ func (c FfiConverterStaticJwtAuth) Lift(rb RustBufferI) StaticJwtAuth {
 func (c FfiConverterStaticJwtAuth) Read(reader io.Reader) StaticJwtAuth {
 	return StaticJwtAuth{
 		FfiConverterStringINSTANCE.Read(reader),
-		FfiConverterOptionalUint64INSTANCE.Read(reader),
+		FfiConverterDurationINSTANCE.Read(reader),
 	}
 }
 
@@ -3758,7 +3855,7 @@ func (c FfiConverterStaticJwtAuth) Lower(value StaticJwtAuth) C.RustBuffer {
 
 func (c FfiConverterStaticJwtAuth) Write(writer io.Writer, value StaticJwtAuth) {
 	FfiConverterStringINSTANCE.Write(writer, value.TokenFile)
-	FfiConverterOptionalUint64INSTANCE.Write(writer, value.DurationSecs)
+	FfiConverterDurationINSTANCE.Write(writer, value.Duration)
 }
 
 type FfiDestroyerStaticJwtAuth struct{}
@@ -4078,6 +4175,14 @@ func (e ClientAuthenticationConfigStaticJwt) Destroy() {
 	FfiDestroyerStaticJwtAuth{}.Destroy(e.Config)
 }
 
+type ClientAuthenticationConfigJwt struct {
+	Config ClientJwtAuth
+}
+
+func (e ClientAuthenticationConfigJwt) Destroy() {
+	FfiDestroyerClientJwtAuth{}.Destroy(e.Config)
+}
+
 type ClientAuthenticationConfigNone struct {
 }
 
@@ -4107,6 +4212,10 @@ func (FfiConverterClientAuthenticationConfig) Read(reader io.Reader) ClientAuthe
 			FfiConverterStaticJwtAuthINSTANCE.Read(reader),
 		}
 	case 3:
+		return ClientAuthenticationConfigJwt{
+			FfiConverterClientJwtAuthINSTANCE.Read(reader),
+		}
+	case 4:
 		return ClientAuthenticationConfigNone{}
 	default:
 		panic(fmt.Sprintf("invalid enum value %v in FfiConverterClientAuthenticationConfig.Read()", id))
@@ -4121,8 +4230,11 @@ func (FfiConverterClientAuthenticationConfig) Write(writer io.Writer, value Clie
 	case ClientAuthenticationConfigStaticJwt:
 		writeInt32(writer, 2)
 		FfiConverterStaticJwtAuthINSTANCE.Write(writer, variant_value.Config)
-	case ClientAuthenticationConfigNone:
+	case ClientAuthenticationConfigJwt:
 		writeInt32(writer, 3)
+		FfiConverterClientJwtAuthINSTANCE.Write(writer, variant_value.Config)
+	case ClientAuthenticationConfigNone:
+		writeInt32(writer, 4)
 	default:
 		_ = variant_value
 		panic(fmt.Sprintf("invalid enum value `%v` in FfiConverterClientAuthenticationConfig.Write", value))
@@ -4172,6 +4284,234 @@ func (FfiConverterCompressionType) Write(writer io.Writer, value CompressionType
 type FfiDestroyerCompressionType struct{}
 
 func (_ FfiDestroyerCompressionType) Destroy(value CompressionType) {
+}
+
+// JWT signing/verification algorithm
+type JwtAlgorithm uint
+
+const (
+	JwtAlgorithmHs256 JwtAlgorithm = 1
+	JwtAlgorithmHs384 JwtAlgorithm = 2
+	JwtAlgorithmHs512 JwtAlgorithm = 3
+	JwtAlgorithmEs256 JwtAlgorithm = 4
+	JwtAlgorithmEs384 JwtAlgorithm = 5
+	JwtAlgorithmRs256 JwtAlgorithm = 6
+	JwtAlgorithmRs384 JwtAlgorithm = 7
+	JwtAlgorithmRs512 JwtAlgorithm = 8
+	JwtAlgorithmPs256 JwtAlgorithm = 9
+	JwtAlgorithmPs384 JwtAlgorithm = 10
+	JwtAlgorithmPs512 JwtAlgorithm = 11
+	JwtAlgorithmEdDsa JwtAlgorithm = 12
+)
+
+type FfiConverterJwtAlgorithm struct{}
+
+var FfiConverterJwtAlgorithmINSTANCE = FfiConverterJwtAlgorithm{}
+
+func (c FfiConverterJwtAlgorithm) Lift(rb RustBufferI) JwtAlgorithm {
+	return LiftFromRustBuffer[JwtAlgorithm](c, rb)
+}
+
+func (c FfiConverterJwtAlgorithm) Lower(value JwtAlgorithm) C.RustBuffer {
+	return LowerIntoRustBuffer[JwtAlgorithm](c, value)
+}
+func (FfiConverterJwtAlgorithm) Read(reader io.Reader) JwtAlgorithm {
+	id := readInt32(reader)
+	return JwtAlgorithm(id)
+}
+
+func (FfiConverterJwtAlgorithm) Write(writer io.Writer, value JwtAlgorithm) {
+	writeInt32(writer, int32(value))
+}
+
+type FfiDestroyerJwtAlgorithm struct{}
+
+func (_ FfiDestroyerJwtAlgorithm) Destroy(value JwtAlgorithm) {
+}
+
+// JWT key data source
+type JwtKeyData interface {
+	Destroy()
+}
+
+// String with encoded key(s)
+type JwtKeyDataData struct {
+	Value string
+}
+
+func (e JwtKeyDataData) Destroy() {
+	FfiDestroyerString{}.Destroy(e.Value)
+}
+
+// File path to the key(s)
+type JwtKeyDataFile struct {
+	Path string
+}
+
+func (e JwtKeyDataFile) Destroy() {
+	FfiDestroyerString{}.Destroy(e.Path)
+}
+
+type FfiConverterJwtKeyData struct{}
+
+var FfiConverterJwtKeyDataINSTANCE = FfiConverterJwtKeyData{}
+
+func (c FfiConverterJwtKeyData) Lift(rb RustBufferI) JwtKeyData {
+	return LiftFromRustBuffer[JwtKeyData](c, rb)
+}
+
+func (c FfiConverterJwtKeyData) Lower(value JwtKeyData) C.RustBuffer {
+	return LowerIntoRustBuffer[JwtKeyData](c, value)
+}
+func (FfiConverterJwtKeyData) Read(reader io.Reader) JwtKeyData {
+	id := readInt32(reader)
+	switch id {
+	case 1:
+		return JwtKeyDataData{
+			FfiConverterStringINSTANCE.Read(reader),
+		}
+	case 2:
+		return JwtKeyDataFile{
+			FfiConverterStringINSTANCE.Read(reader),
+		}
+	default:
+		panic(fmt.Sprintf("invalid enum value %v in FfiConverterJwtKeyData.Read()", id))
+	}
+}
+
+func (FfiConverterJwtKeyData) Write(writer io.Writer, value JwtKeyData) {
+	switch variant_value := value.(type) {
+	case JwtKeyDataData:
+		writeInt32(writer, 1)
+		FfiConverterStringINSTANCE.Write(writer, variant_value.Value)
+	case JwtKeyDataFile:
+		writeInt32(writer, 2)
+		FfiConverterStringINSTANCE.Write(writer, variant_value.Path)
+	default:
+		_ = variant_value
+		panic(fmt.Sprintf("invalid enum value `%v` in FfiConverterJwtKeyData.Write", value))
+	}
+}
+
+type FfiDestroyerJwtKeyData struct{}
+
+func (_ FfiDestroyerJwtKeyData) Destroy(value JwtKeyData) {
+	value.Destroy()
+}
+
+// JWT key format
+type JwtKeyFormat uint
+
+const (
+	JwtKeyFormatPem  JwtKeyFormat = 1
+	JwtKeyFormatJwk  JwtKeyFormat = 2
+	JwtKeyFormatJwks JwtKeyFormat = 3
+)
+
+type FfiConverterJwtKeyFormat struct{}
+
+var FfiConverterJwtKeyFormatINSTANCE = FfiConverterJwtKeyFormat{}
+
+func (c FfiConverterJwtKeyFormat) Lift(rb RustBufferI) JwtKeyFormat {
+	return LiftFromRustBuffer[JwtKeyFormat](c, rb)
+}
+
+func (c FfiConverterJwtKeyFormat) Lower(value JwtKeyFormat) C.RustBuffer {
+	return LowerIntoRustBuffer[JwtKeyFormat](c, value)
+}
+func (FfiConverterJwtKeyFormat) Read(reader io.Reader) JwtKeyFormat {
+	id := readInt32(reader)
+	return JwtKeyFormat(id)
+}
+
+func (FfiConverterJwtKeyFormat) Write(writer io.Writer, value JwtKeyFormat) {
+	writeInt32(writer, int32(value))
+}
+
+type FfiDestroyerJwtKeyFormat struct{}
+
+func (_ FfiDestroyerJwtKeyFormat) Destroy(value JwtKeyFormat) {
+}
+
+// JWT key type (encoding, decoding, or autoresolve)
+type JwtKeyType interface {
+	Destroy()
+}
+
+// Encoding key for signing JWTs (client-side)
+type JwtKeyTypeEncoding struct {
+	Key JwtKeyConfig
+}
+
+func (e JwtKeyTypeEncoding) Destroy() {
+	FfiDestroyerJwtKeyConfig{}.Destroy(e.Key)
+}
+
+// Decoding key for verifying JWTs (server-side)
+type JwtKeyTypeDecoding struct {
+	Key JwtKeyConfig
+}
+
+func (e JwtKeyTypeDecoding) Destroy() {
+	FfiDestroyerJwtKeyConfig{}.Destroy(e.Key)
+}
+
+// Automatically resolve keys based on claims
+type JwtKeyTypeAutoresolve struct {
+}
+
+func (e JwtKeyTypeAutoresolve) Destroy() {
+}
+
+type FfiConverterJwtKeyType struct{}
+
+var FfiConverterJwtKeyTypeINSTANCE = FfiConverterJwtKeyType{}
+
+func (c FfiConverterJwtKeyType) Lift(rb RustBufferI) JwtKeyType {
+	return LiftFromRustBuffer[JwtKeyType](c, rb)
+}
+
+func (c FfiConverterJwtKeyType) Lower(value JwtKeyType) C.RustBuffer {
+	return LowerIntoRustBuffer[JwtKeyType](c, value)
+}
+func (FfiConverterJwtKeyType) Read(reader io.Reader) JwtKeyType {
+	id := readInt32(reader)
+	switch id {
+	case 1:
+		return JwtKeyTypeEncoding{
+			FfiConverterJwtKeyConfigINSTANCE.Read(reader),
+		}
+	case 2:
+		return JwtKeyTypeDecoding{
+			FfiConverterJwtKeyConfigINSTANCE.Read(reader),
+		}
+	case 3:
+		return JwtKeyTypeAutoresolve{}
+	default:
+		panic(fmt.Sprintf("invalid enum value %v in FfiConverterJwtKeyType.Read()", id))
+	}
+}
+
+func (FfiConverterJwtKeyType) Write(writer io.Writer, value JwtKeyType) {
+	switch variant_value := value.(type) {
+	case JwtKeyTypeEncoding:
+		writeInt32(writer, 1)
+		FfiConverterJwtKeyConfigINSTANCE.Write(writer, variant_value.Key)
+	case JwtKeyTypeDecoding:
+		writeInt32(writer, 2)
+		FfiConverterJwtKeyConfigINSTANCE.Write(writer, variant_value.Key)
+	case JwtKeyTypeAutoresolve:
+		writeInt32(writer, 3)
+	default:
+		_ = variant_value
+		panic(fmt.Sprintf("invalid enum value `%v` in FfiConverterJwtKeyType.Write", value))
+	}
+}
+
+type FfiDestroyerJwtKeyType struct{}
+
+func (_ FfiDestroyerJwtKeyType) Destroy(value JwtKeyType) {
+	value.Destroy()
 }
 
 // Authentication configuration enum for server
@@ -4967,43 +5307,6 @@ func (_ FfiDestroyerOptionalKeepaliveConfig) Destroy(value *KeepaliveConfig) {
 	}
 }
 
-type FfiConverterOptionalClientAuthenticationConfig struct{}
-
-var FfiConverterOptionalClientAuthenticationConfigINSTANCE = FfiConverterOptionalClientAuthenticationConfig{}
-
-func (c FfiConverterOptionalClientAuthenticationConfig) Lift(rb RustBufferI) *ClientAuthenticationConfig {
-	return LiftFromRustBuffer[*ClientAuthenticationConfig](c, rb)
-}
-
-func (_ FfiConverterOptionalClientAuthenticationConfig) Read(reader io.Reader) *ClientAuthenticationConfig {
-	if readInt8(reader) == 0 {
-		return nil
-	}
-	temp := FfiConverterClientAuthenticationConfigINSTANCE.Read(reader)
-	return &temp
-}
-
-func (c FfiConverterOptionalClientAuthenticationConfig) Lower(value *ClientAuthenticationConfig) C.RustBuffer {
-	return LowerIntoRustBuffer[*ClientAuthenticationConfig](c, value)
-}
-
-func (_ FfiConverterOptionalClientAuthenticationConfig) Write(writer io.Writer, value *ClientAuthenticationConfig) {
-	if value == nil {
-		writeInt8(writer, 0)
-	} else {
-		writeInt8(writer, 1)
-		FfiConverterClientAuthenticationConfigINSTANCE.Write(writer, *value)
-	}
-}
-
-type FfiDestroyerOptionalClientAuthenticationConfig struct{}
-
-func (_ FfiDestroyerOptionalClientAuthenticationConfig) Destroy(value *ClientAuthenticationConfig) {
-	if value != nil {
-		FfiDestroyerClientAuthenticationConfig{}.Destroy(*value)
-	}
-}
-
 type FfiConverterOptionalCompressionType struct{}
 
 var FfiConverterOptionalCompressionTypeINSTANCE = FfiConverterOptionalCompressionType{}
@@ -5306,15 +5609,6 @@ func InitializeCryptoProvider() {
 		C.uniffi_slim_bindings_fn_func_initialize_crypto_provider(_uniffiStatus)
 		return false
 	})
-}
-
-// Create a new client config with the given endpoint and default values
-func NewClientConfig(endpoint string) ClientConfig {
-	return FfiConverterClientConfigINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
-		return GoRustBuffer{
-			inner: C.uniffi_slim_bindings_fn_func_new_client_config(FfiConverterStringINSTANCE.Lower(endpoint), _uniffiStatus),
-		}
-	}))
 }
 
 // Create a new insecure client config (no TLS)
