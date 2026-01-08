@@ -55,6 +55,63 @@ custom_style = Style.from_dict(
 )
 
 
+async def handle_invite(session, invite_id):
+    """Handle inviting a participant to the group."""
+    parts = invite_id.split()
+    if len(parts) != 1:
+        print_formatted_text(
+            "Error: 'invite' command expects exactly one participant ID (e.g., 'invite org/ns/client-1')",
+            style=custom_style,
+        )
+        return
+
+    print(f"Inviting participant: {invite_id}")
+    invite_name = split_id(invite_id)
+    try:
+        handle = await session.invite(invite_name)
+        await handle
+    except Exception as e:
+        error_str = str(e)
+        if "participant already in group" in error_str:
+            print_formatted_text(
+                f"Error: Participant {invite_id} is already in the group.",
+                style=custom_style,
+            )
+        elif "failed to add participant to session" in error_str:
+            print_formatted_text(
+                f"Error: Failed to add participant {invite_id} to session.",
+                style=custom_style,
+            )
+        else:
+            raise
+
+
+async def handle_remove(session, remove_id):
+    """Handle removing a participant from the group."""
+    parts = remove_id.split()
+    if len(parts) != 1:
+        print_formatted_text(
+            "Error: 'remove' command expects exactly one participant ID (e.g., 'remove org/ns/client-1')",
+            style=custom_style,
+        )
+        return
+
+    print(f"Removing participant: {remove_id}")
+    remove_name = split_id(remove_id)
+    try:
+        handle = await session.remove(remove_name)
+        await handle
+    except Exception as e:
+        error_str = str(e)
+        if "participant not found in group" in error_str:
+            print_formatted_text(
+                f"Error: Participant {remove_id} is not in the group.",
+                style=custom_style,
+            )
+        else:
+            raise
+
+
 async def receive_loop(
     local_app, created_session, session_ready, shared_session_container
 ):
@@ -154,35 +211,13 @@ async def keyboard_loop(
                 break
 
             if user_input.lower().startswith("invite "):
-                # Extract the ID after "invite "
                 invite_id = user_input[7:].strip()  # Skip "invite " (7 chars)
-                parts = invite_id.split()
-                if len(parts) != 1:
-                    print_formatted_text(
-                        "Error: 'invite' command expects exactly one participant ID (e.g., 'invite org/ns/client-1')",
-                        style=custom_style,
-                    )
-                    continue
-                print(f"Inviting participant: {invite_id}")
-                invite_name = split_id(invite_id)
-                handle = await shared_session_container[0].invite(invite_name)
-                await handle
+                await handle_invite(shared_session_container[0], invite_id)
                 continue
 
             if user_input.lower().startswith("remove "):
-                # Extract the ID after "remove "
                 remove_id = user_input[7:].strip()  # Skip "remove " (7 chars)
-                parts = remove_id.split()
-                if len(parts) != 1:
-                    print_formatted_text(
-                        "Error: 'remove' command expects exactly one participant ID (e.g., 'remove org/ns/client-1')",
-                        style=custom_style,
-                    )
-                    continue
-                print(f"Removing participant: {remove_id}")
-                remove_name = split_id(remove_id)
-                handle = await shared_session_container[0].remove(remove_name)
-                await handle
+                await handle_remove(shared_session_container[0], remove_id)
                 continue
 
             # Send message to the channel_name specified when creating the session.
