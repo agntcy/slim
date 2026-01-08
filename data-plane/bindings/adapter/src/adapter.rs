@@ -246,8 +246,36 @@ impl_from_error_for_slim!(ServiceError, ServiceError);
 impl_from_error_for_slim!(SessionError, SessionError);
 impl_from_error_for_slim!(AuthError, AuthError);
 
-/// TLS configuration for server/client
-#[derive(uniffi::Record)]
+/// TLS source configuration - where to get client certificates from
+#[derive(uniffi::Enum, Debug, Clone, PartialEq)]
+pub enum TlsSource {
+    /// Load certificate and key from PEM-encoded strings
+    Pem { cert: String, key: String },
+    /// Load certificate and key from files
+    File { cert: String, key: String },
+    /// Get certificate and key from SPIRE (non-Windows only)
+    #[cfg(not(target_family = "windows"))]
+    Spire { socket_path: Option<String>, target_spiffe_id: Option<String>, jwt_audiences: Vec<String>, trust_domains: Vec<String> },
+    /// No client certificate
+    None,
+}
+
+/// CA source configuration - where to get trusted CA certificates from
+#[derive(uniffi::Enum, Debug, Clone, PartialEq)]
+pub enum CaSource {
+    /// Load CA from a file
+    File { path: String },
+    /// Load CA from PEM-encoded string
+    Pem { data: String },
+    /// Get CA bundle from SPIRE (non-Windows only)
+    #[cfg(not(target_family = "windows"))]
+    Spire { socket_path: Option<String>, target_spiffe_id: Option<String>, jwt_audiences: Vec<String>, trust_domains: Vec<String> },
+    /// No CA specified (may use system CAs)
+    None,
+}
+
+/// TLS configuration for client connections
+#[derive(uniffi::Record, Debug, Clone, PartialEq)]
 pub struct TlsConfig {
     /// Disable TLS entirely (plain text connection)
     pub insecure: bool,
@@ -256,14 +284,11 @@ pub struct TlsConfig {
     /// WARNING: Only use for testing - insecure in production!
     pub insecure_skip_verify: Option<bool>,
 
-    /// Path to certificate file (PEM format)
-    pub cert_file: Option<String>,
+    /// Source for client certificates (for mTLS)
+    pub source: Option<TlsSource>,
 
-    /// Path to private key file (PEM format)
-    pub key_file: Option<String>,
-
-    /// Path to CA certificate file (PEM format) for verifying peer certificates
-    pub ca_file: Option<String>,
+    /// Source for CA certificates (for server verification)
+    pub ca_source: Option<CaSource>,
 
     /// TLS version to use: "tls1.2" or "tls1.3" (default: "tls1.3")
     pub tls_version: Option<String>,
@@ -689,15 +714,66 @@ impl BindingsAdapter {
 
         let mut tls_config = TlsServerConfig::new().with_insecure(config.tls.insecure);
 
-        // Apply optional TLS settings
-        if let (Some(cert_file), Some(key_file)) =
-            (config.tls.cert_file.as_ref(), config.tls.key_file.as_ref())
-        {
-            tls_config = tls_config.with_cert_and_key_file(cert_file, key_file);
+        // Handle source field for server certificates
+        if let Some(source) = config.tls.source {
+            match source {
+                TlsSource::File { cert, key } => {
+                    tls_config = tls_config.with_cert_and_key_file(&cert, &key);
+                }
+                TlsSource::Pem { cert, key } => {
+                    tls_config = tls_config.with_cert_and_key_pem(&cert, &key);
+                }
+                #[cfg(not(target_family = "windows"))]
+                TlsSource::Spire {
+                    socket_path,
+                    target_spiffe_id,
+                    jwt_audiences,
+                    trust_domains,
+                } => {
+                    use slim_config::auth::spire::SpireConfig;
+                    let spire_config = SpireConfig {
+                        socket_path,
+                        target_spiffe_id,
+                        jwt_audiences,
+                        trust_domains,
+                    };
+                    tls_config = tls_config.with_spire(spire_config);
+                }
+                TlsSource::None => {
+                    // No server cert
+                }
+            }
         }
 
-        if let Some(ca_file) = config.tls.ca_file.as_ref() {
-            tls_config = tls_config.with_ca_file(ca_file);
+        // Handle ca_source field for client CA certificates (for mTLS client verification)
+        if let Some(ca_source) = config.tls.ca_source {
+            match ca_source {
+                CaSource::File { path } => {
+                    tls_config = tls_config.with_client_ca_file(&path);
+                }
+                CaSource::Pem { data } => {
+                    tls_config = tls_config.with_client_ca_pem(&data);
+                }
+                #[cfg(not(target_family = "windows"))]
+                CaSource::Spire {
+                    socket_path,
+                    target_spiffe_id,
+                    jwt_audiences,
+                    trust_domains,
+                } => {
+                    use slim_config::auth::spire::SpireConfig;
+                    let spire_config = SpireConfig {
+                        socket_path,
+                        target_spiffe_id,
+                        jwt_audiences,
+                        trust_domains,
+                    };
+                    tls_config = tls_config.with_client_ca_spire(spire_config);
+                }
+                CaSource::None => {
+                    // No client CA specified
+                }
+            }
         }
 
         if let Some(tls_version) = config.tls.tls_version.as_ref() {
@@ -760,14 +836,66 @@ impl BindingsAdapter {
             tls_config = tls_config.with_insecure_skip_verify(skip_verify);
         }
 
-        if let (Some(cert_file), Some(key_file)) =
-            (config.tls.cert_file.as_ref(), config.tls.key_file.as_ref())
-        {
-            tls_config = tls_config.with_cert_and_key_file(cert_file, key_file);
+        // Handle source field for client certificates
+        if let Some(source) = config.tls.source {
+            match source {
+                TlsSource::File { cert, key } => {
+                    tls_config = tls_config.with_cert_and_key_file(&cert, &key);
+                }
+                TlsSource::Pem { cert, key } => {
+                    tls_config = tls_config.with_cert_and_key_pem(&cert, &key);
+                }
+                #[cfg(not(target_family = "windows"))]
+                TlsSource::Spire {
+                    socket_path,
+                    target_spiffe_id,
+                    jwt_audiences,
+                    trust_domains,
+                } => {
+                    use slim_config::auth::spire::SpireConfig;
+                    let spire_config = SpireConfig {
+                        socket_path,
+                        target_spiffe_id,
+                        jwt_audiences,
+                        trust_domains,
+                    };
+                    tls_config = tls_config.with_cert_and_key_spire(spire_config);
+                }
+                TlsSource::None => {
+                    // No client cert
+                }
+            }
         }
 
-        if let Some(ca_file) = config.tls.ca_file.as_ref() {
-            tls_config = tls_config.with_ca_file(ca_file);
+        // Handle ca_source field for CA certificates
+        if let Some(ca_source) = config.tls.ca_source {
+            match ca_source {
+                CaSource::File { path } => {
+                    tls_config = tls_config.with_ca_file(&path);
+                }
+                CaSource::Pem { data } => {
+                    tls_config = tls_config.with_ca_pem(&data);
+                }
+                #[cfg(not(target_family = "windows"))]
+                CaSource::Spire {
+                    socket_path,
+                    target_spiffe_id,
+                    jwt_audiences,
+                    trust_domains,
+                } => {
+                    use slim_config::auth::spire::SpireConfig;
+                    let spire_config = SpireConfig {
+                        socket_path,
+                        target_spiffe_id,
+                        jwt_audiences,
+                        trust_domains,
+                    };
+                    tls_config = tls_config.with_ca_spire(spire_config);
+                }
+                CaSource::None => {
+                    // No CA specified
+                }
+            }
         }
 
         if let Some(tls_version) = config.tls.tls_version.as_ref() {
@@ -1687,18 +1815,21 @@ mod tests {
         let config = TlsConfig {
             insecure: false,
             insecure_skip_verify: Some(true),
-            cert_file: Some("/path/to/cert.pem".to_string()),
-            key_file: Some("/path/to/key.pem".to_string()),
-            ca_file: Some("/path/to/ca.pem".to_string()),
+            source: Some(TlsSource::File {
+                cert: "/path/to/cert.pem".to_string(),
+                key: "/path/to/key.pem".to_string(),
+            }),
+            ca_source: Some(CaSource::File {
+                path: "/path/to/ca.pem".to_string(),
+            }),
             tls_version: Some("tls1.3".to_string()),
             include_system_ca_certs_pool: Some(true),
         };
 
         assert!(!config.insecure);
         assert_eq!(config.insecure_skip_verify, Some(true));
-        assert_eq!(config.cert_file, Some("/path/to/cert.pem".to_string()));
-        assert_eq!(config.key_file, Some("/path/to/key.pem".to_string()));
-        assert_eq!(config.ca_file, Some("/path/to/ca.pem".to_string()));
+        assert!(matches!(config.source, Some(TlsSource::File { .. })));
+        assert!(matches!(config.ca_source, Some(CaSource::File { .. })));
         assert_eq!(config.tls_version, Some("tls1.3".to_string()));
         assert_eq!(config.include_system_ca_certs_pool, Some(true));
     }
@@ -1709,15 +1840,14 @@ mod tests {
         let config = TlsConfig {
             insecure: true,
             insecure_skip_verify: None,
-            cert_file: None,
-            key_file: None,
-            ca_file: None,
+            source: None,
+            ca_source: None,
             tls_version: None,
             include_system_ca_certs_pool: None,
         };
 
         assert!(config.insecure);
-        assert!(config.cert_file.is_none());
+        assert!(config.source.is_none());
     }
 
     // ========================================================================
@@ -1732,9 +1862,11 @@ mod tests {
             tls: TlsConfig {
                 insecure: false,
                 insecure_skip_verify: None,
-                cert_file: Some("/cert.pem".to_string()),
-                key_file: Some("/key.pem".to_string()),
-                ca_file: None,
+                source: Some(TlsSource::File {
+                    cert: "/cert.pem".to_string(),
+                    key: "/key.pem".to_string(),
+                }),
+                ca_source: None,
                 tls_version: None,
                 include_system_ca_certs_pool: None,
             },
@@ -1752,9 +1884,10 @@ mod tests {
             tls: TlsConfig {
                 insecure: false,
                 insecure_skip_verify: Some(false),
-                cert_file: None,
-                key_file: None,
-                ca_file: Some("/ca.pem".to_string()),
+                source: None,
+                ca_source: Some(CaSource::File {
+                    path: "/ca.pem".to_string(),
+                }),
                 tls_version: Some("tls1.2".to_string()),
                 include_system_ca_certs_pool: Some(true),
             },

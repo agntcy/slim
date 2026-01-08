@@ -48,10 +48,10 @@ pub mod session_context;
 
 // Public re-exports
 pub use adapter::{
-    BindingsAdapter, BuildInfo, ClientConfig, FfiCompletionHandle, Name, ReceivedMessage,
-    ServerConfig, SessionConfig, SessionType, SlimError, TlsConfig, create_app,
-    create_app_local_svc, create_app_secret_local_svc, create_app_with_secret, get_build_info,
-    get_runtime, get_version, initialize_crypto_provider,
+    BindingsAdapter, BuildInfo, CaSource, ClientConfig, FfiCompletionHandle, Name,
+    ReceivedMessage, ServerConfig, SessionConfig, SessionType, SlimError, TlsConfig, TlsSource,
+    create_app, create_app_local_svc, create_app_secret_local_svc, create_app_with_secret,
+    get_build_info, get_runtime, get_version, initialize_crypto_provider,
 };
 pub use identity::{
     BindingsAlgorithm, BindingsIdentityProvider, BindingsIdentityVerifier, BindingsKey,

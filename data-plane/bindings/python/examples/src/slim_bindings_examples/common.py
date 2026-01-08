@@ -174,9 +174,10 @@ def spire_identity(
 def create_tls_config(
     insecure: bool = False,
     insecure_skip_verify: bool = False,
-    cert_file: str = None,
-    key_file: str = None,
-    ca_file: str = None,
+    source: slim.TlsSource = None,
+    ca_source: slim.CaSource = None,
+    tls_version: str = None,
+    include_system_ca_certs_pool: bool = None,
 ) -> slim.TlsConfig:
     """
     Create a TLS configuration object.
@@ -184,9 +185,10 @@ def create_tls_config(
     Args:
         insecure: Disable TLS entirely (plain text)
         insecure_skip_verify: Skip server certificate verification (testing only!)
-        cert_file: Path to certificate file (PEM format)
-        key_file: Path to private key file (PEM format)
-        ca_file: Path to CA certificate file (PEM format)
+        source: TlsSource for client certificates
+        ca_source: CaSource for CA certificates
+        tls_version: TLS version to use ("tls1.2" or "tls1.3")
+        include_system_ca_certs_pool: Include system CA certificates
 
     Returns:
         slim.TlsConfig object
@@ -194,11 +196,10 @@ def create_tls_config(
     return slim.TlsConfig(
         insecure=insecure,
         insecure_skip_verify=insecure_skip_verify,
-        cert_file=cert_file,
-        key_file=key_file,
-        ca_file=ca_file,
-        tls_version=None,
-        include_system_ca_certs_pool=None,
+        source=source,
+        ca_source=ca_source,
+        tls_version=tls_version,
+        include_system_ca_certs_pool=include_system_ca_certs_pool,
     )
 
 
@@ -467,11 +468,53 @@ async def create_local_app(
 
     # Parse slim config and create client config
     endpoint = slim_config.get("endpoint", "http://127.0.0.1:46357")
-    tls_insecure = slim_config.get("tls", {}).get("insecure", True)
-    tls_skip_verify = slim_config.get("tls", {}).get("insecure_skip_verify", False)
+    tls_config_dict = slim_config.get("tls", {})
+    tls_insecure = tls_config_dict.get("insecure", True)
+    tls_skip_verify = tls_config_dict.get("insecure_skip_verify", False)
+
+    # Parse TLS source configuration (for client certificates)
+    tls_source = None
+    source_dict = tls_config_dict.get("source")
+    if source_dict:
+        source_type = source_dict.get("type", "none")
+        if source_type == "pem":
+            tls_source = slim.TlsSource.PEM(
+                cert=source_dict["cert"], key=source_dict["key"]
+            )
+        elif source_type == "file":
+            tls_source = slim.TlsSource.FILE(
+                cert=source_dict["cert"], key=source_dict["key"]
+            )
+        elif source_type == "spire":
+            tls_source = slim.TlsSource.SPIRE(
+                socket_path=source_dict.get("socket_path"),
+                target_spiffe_id=source_dict.get("target_spiffe_id"),
+                jwt_audiences=source_dict.get("jwt_audiences", []),
+                trust_domains=source_dict.get("trust_domains", []),
+            )
+
+    # Parse CA source configuration (for CA certificates)
+    ca_source = None
+    ca_source_dict = tls_config_dict.get("ca_source")
+    if ca_source_dict:
+        ca_type = ca_source_dict.get("type", "none")
+        if ca_type == "pem":
+            ca_source = slim.CaSource.PEM(data=ca_source_dict["data"])
+        elif ca_type == "file":
+            ca_source = slim.CaSource.FILE(path=ca_source_dict["path"])
+        elif ca_type == "spire":
+            ca_source = slim.CaSource.SPIRE(
+                socket_path=ca_source_dict.get("socket_path"),
+                target_spiffe_id=ca_source_dict.get("target_spiffe_id"),
+                jwt_audiences=ca_source_dict.get("jwt_audiences", []),
+                trust_domains=ca_source_dict.get("trust_domains", []),
+            )
 
     tls_config = create_tls_config(
-        insecure=tls_insecure, insecure_skip_verify=tls_skip_verify
+        insecure=tls_insecure,
+        insecure_skip_verify=tls_skip_verify,
+        source=tls_source,
+        ca_source=ca_source,
     )
     client_config = create_client_config(endpoint, tls_config)
 
