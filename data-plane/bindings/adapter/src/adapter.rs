@@ -12,33 +12,27 @@
 //! - **Hybrid API**: Both sync (FFI-exposed) and async (internal) methods
 //! - **Runtime management**: Manages Tokio runtime for blocking operations
 
-use slim_auth::errors::AuthError;
-use slim_auth::traits::Verifier;
 use std::sync::Arc;
+
 use tokio::sync::{RwLock, mpsc};
+use uniffi;
 
-use display_error_chain::ErrorChainExt;
-
+use crate::errors::SlimError;
+use crate::name::Name;
+use crate::runtime;
+use crate::service_ref::{ServiceRef, get_or_init_global_service};
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::shared_secret::SharedSecret;
 use slim_auth::traits::TokenProvider; // For get_token() and get_id()
+use slim_auth::traits::Verifier;
 use slim_config::component::ComponentBuilder;
 use slim_datapath::api::ProtoSessionType;
 use slim_datapath::messages::Name as SlimName;
 use slim_service::Service;
 use slim_service::app::App;
-use slim_service::errors::ServiceError;
 use slim_session::SessionConfig as SlimSessionConfig;
-use slim_session::errors::SessionError;
 use slim_session::session_controller::SessionController;
 use slim_session::{Notification, SessionError as SlimSessionError};
-
-use crate::name::Name;
-use crate::runtime;
-use crate::service_ref::{ServiceRef, get_or_init_global_service};
-
-// Re-export uniffi for proc macros
-use uniffi;
 
 // ============================================================================
 // UniFFI Type Definitions
@@ -118,43 +112,6 @@ impl From<SessionConfig> for SlimSessionConfig {
         }
     }
 }
-
-/// Error types for SLIM operations
-#[derive(Debug, thiserror::Error, uniffi::Error)]
-pub enum SlimError {
-    #[error("service error: {message}")]
-    ServiceError { message: String },
-    #[error("Session error: {message}")]
-    SessionError { message: String },
-    #[error("Receive error: {message}")]
-    ReceiveError { message: String },
-    #[error("Send error: {message}")]
-    SendError { message: String },
-    #[error("Authentication error: {message}")]
-    AuthError { message: String },
-    #[error("Operation timed out")]
-    Timeout,
-    #[error("Invalid argument: {message}")]
-    InvalidArgument { message: String },
-    #[error("Internal error: {message}")]
-    InternalError { message: String },
-}
-
-macro_rules! impl_from_error_for_slim {
-    ($source:ty, $variant:ident) => {
-        impl From<$source> for SlimError {
-            fn from(err: $source) -> Self {
-                SlimError::$variant {
-                    message: err.chain().to_string(),
-                }
-            }
-        }
-    };
-}
-
-impl_from_error_for_slim!(ServiceError, ServiceError);
-impl_from_error_for_slim!(SessionError, SessionError);
-impl_from_error_for_slim!(AuthError, AuthError);
 
 /// TLS configuration for server/client
 #[derive(uniffi::Record)]
@@ -1453,44 +1410,6 @@ mod tests {
 
         assert_eq!(config.endpoint, "example.com:443");
         assert_eq!(config.tls.tls_version, Some("tls1.2".to_string()));
-    }
-
-    // ========================================================================
-    // SlimError Display Tests
-    // ========================================================================
-
-    /// Test SlimError Display implementations
-    #[test]
-    fn test_slim_error_display() {
-        let errors = vec![
-            SlimError::SessionError {
-                message: "session".to_string(),
-            },
-            SlimError::ReceiveError {
-                message: "receive".to_string(),
-            },
-            SlimError::SendError {
-                message: "send".to_string(),
-            },
-            SlimError::AuthError {
-                message: "auth".to_string(),
-            },
-            SlimError::Timeout,
-            SlimError::InvalidArgument {
-                message: "invalid".to_string(),
-            },
-            SlimError::InternalError {
-                message: "internal".to_string(),
-            },
-        ];
-
-        for error in errors {
-            let display = format!("{}", error);
-            assert!(!display.is_empty(), "Error display should not be empty");
-        }
-
-        // Specific checks
-        assert!(format!("{}", SlimError::Timeout).contains("timed out"));
     }
 
     // ========================================================================

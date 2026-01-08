@@ -13,10 +13,9 @@ use slim_datapath::messages::utils::{PUBLISH_TO, SlimHeaderFlags, TRUE_VAL};
 use slim_session::SessionError;
 use slim_session::context::SessionContext;
 
-use crate::Name;
-use crate::adapter::{FfiCompletionHandle, ReceivedMessage, SessionType, SlimError};
+use crate::adapter::{FfiCompletionHandle, ReceivedMessage, SessionType};
 use crate::message_context::MessageContext;
-use crate::runtime;
+use crate::{Name, SlimError, runtime};
 
 /// Session context for language bindings (UniFFI-compatible)
 ///
@@ -38,6 +37,11 @@ impl BindingsSessionContext {
             session,
             rx: RwLock::new(rx),
         }
+    }
+
+    /// Get the runtime (for internal use)
+    pub fn runtime(&self) -> &'static tokio::runtime::Runtime {
+        crate::runtime::get_runtime()
     }
 }
 
@@ -891,7 +895,7 @@ mod tests {
         let result = ctx.publish_async(b"test".to_vec(), None, None).await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            crate::adapter::SlimError::SessionError { message } => {
+            SlimError::SessionError { message } => {
                 assert!(message.contains("closed") || message.contains("dropped"));
             }
             _ => panic!("Expected SessionError"),
@@ -906,7 +910,7 @@ mod tests {
             .await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            crate::adapter::SlimError::SessionError { message } => {
+            SlimError::SessionError { message } => {
                 assert!(message.contains("closed") || message.contains("dropped"));
             }
             _ => panic!("Expected SessionError"),
@@ -929,7 +933,7 @@ mod tests {
             .publish_to_async(message_ctx, b"reply".to_vec(), None, None)
             .await;
         assert!(result.is_err_and(|e| {
-            if let crate::adapter::SlimError::SessionError { message } = e {
+            if let SlimError::SessionError { message } = e {
                 message.contains("closed")
             } else {
                 false
@@ -953,7 +957,7 @@ mod tests {
             .publish_to_with_completion_async(message_ctx, b"reply".to_vec(), None, None)
             .await;
         assert!(result.is_err_and(|e| {
-            if let crate::adapter::SlimError::SessionError { message } = e {
+            if let SlimError::SessionError { message } = e {
                 message.contains("closed")
             } else {
                 false
@@ -975,7 +979,7 @@ mod tests {
             .publish_with_params_async(dest, 1, b"test".to_vec(), None, None, None)
             .await;
         assert!(result.is_err_and(|e| {
-            if let crate::adapter::SlimError::SessionError { message } = e {
+            if let SlimError::SessionError { message } = e {
                 message.contains("closed")
             } else {
                 false
@@ -1043,7 +1047,7 @@ mod tests {
 
         let result = ctx.get_message_async(Some(10)).await;
         assert!(result.is_err_and(|e| {
-            if let crate::adapter::SlimError::SessionError { message } = e {
+            if let SlimError::SessionError { message } = e {
                 message.contains("receive timeout")
             } else {
                 false
@@ -1057,7 +1061,7 @@ mod tests {
         drop(tx);
 
         let result = ctx.get_message_async(Some(100)).await;
-        assert!(result.is_err_and(|e| matches!(e, crate::adapter::SlimError::SessionError { .. })));
+        assert!(result.is_err_and(|e| matches!(e, SlimError::SessionError { .. })));
     }
 
     // ==================== Invite/Remove FFI Tests ====================
@@ -1074,7 +1078,7 @@ mod tests {
 
         let result = ctx.invite_async(participant).await;
         assert!(result.is_err_and(|e| {
-            if let crate::adapter::SlimError::SessionError { message } = e {
+            if let SlimError::SessionError { message } = e {
                 message.contains("closed")
             } else {
                 false
@@ -1094,7 +1098,7 @@ mod tests {
 
         let result = ctx.remove_async(participant).await;
         assert!(result.is_err_and(|e| {
-            if let crate::adapter::SlimError::SessionError { message } = e {
+            if let SlimError::SessionError { message } = e {
                 message.contains("closed")
             } else {
                 false
@@ -1110,7 +1114,7 @@ mod tests {
         let result = ctx.destination();
         assert!(result.is_err());
         match result.unwrap_err() {
-            crate::adapter::SlimError::SessionError { message } => {
+            SlimError::SessionError { message } => {
                 assert!(message.contains("closed") || message.contains("dropped"));
             }
             _ => panic!("Expected SessionError"),
@@ -1123,7 +1127,7 @@ mod tests {
         let result = ctx.source();
         assert!(result.is_err());
         match result.unwrap_err() {
-            crate::adapter::SlimError::SessionError { message } => {
+            SlimError::SessionError { message } => {
                 assert!(message.contains("closed") || message.contains("dropped"));
             }
             _ => panic!("Expected SessionError"),
@@ -1136,7 +1140,7 @@ mod tests {
         let result = ctx.session_id();
         assert!(result.is_err());
         match result.unwrap_err() {
-            crate::adapter::SlimError::SessionError { message } => {
+            SlimError::SessionError { message } => {
                 assert!(message.contains("closed") || message.contains("dropped"));
             }
             _ => panic!("Expected SessionError"),
@@ -1149,7 +1153,7 @@ mod tests {
         let result = ctx.session_type();
         assert!(result.is_err());
         match result.unwrap_err() {
-            crate::adapter::SlimError::SessionError { message } => {
+            SlimError::SessionError { message } => {
                 assert!(message.contains("closed") || message.contains("dropped"));
             }
             _ => panic!("Expected SessionError"),
@@ -1162,7 +1166,7 @@ mod tests {
         let result = ctx.is_initiator();
         assert!(result.is_err());
         match result.unwrap_err() {
-            crate::adapter::SlimError::SessionError { message } => {
+            SlimError::SessionError { message } => {
                 assert!(message.contains("closed") || message.contains("dropped"));
             }
             _ => panic!("Expected SessionError"),
