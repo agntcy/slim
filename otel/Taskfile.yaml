@@ -65,6 +65,15 @@ tasks:
           popd > /dev/null
         done
 
+  collector:fetch-and-run:
+    internal: true
+    desc: Fetch and install bindings
+    cmds:
+      - task: collector:foreach-module
+        vars:
+          CMD: go mod download
+      - go run github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup
+
   collector:modtidy:
     desc: Install go modules
     cmds:
@@ -76,12 +85,11 @@ tasks:
     desc: Build the SLIM OpenTelemetry Collector
     deps:
       - collector:download-ocb
+      - collector:fetch-and-run
     cmds:
       - echo "Generating collector sources..."
       - ./ocb --config builder-config.yaml --skip-compilation
       - echo "Compiling with CGO enabled..."
-      - go mod download
-      - go run github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup
       - cd {{.COLLECTOR_OUTPUT}} && CGO_ENABLED=1 go build -trimpath -o slim-otelcol -ldflags="-s -w"
       - echo "Collector built successfully at {{.COLLECTOR_OUTPUT}}/slim-otelcol"
 
@@ -100,6 +108,8 @@ tasks:
   collector:test:
     desc: Run tests for the SLIM exporter
     dir: slimexporter
+    deps:
+      - collector:fetch-and-run
     cmds:
       - echo "Running slimexporter tests..."
       - go test -v
@@ -141,6 +151,7 @@ tasks:
     desc: Check test coverage
     deps:
       - tools
+      - collector:fetch-and-run
     cmds:
       - task: collector:foreach-module
         vars:
