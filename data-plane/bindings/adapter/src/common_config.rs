@@ -494,7 +494,7 @@ impl From<JwtAuthConfig> for ClientJwtAuth {
             audience: claims.audience().clone(),
             issuer: claims.issuer().clone(),
             subject: claims.subject().clone(),
-            duration: Duration::from_secs(3600), // Default duration, can't easily extract from DurationString
+            duration: config.duration(),
         }
     }
 }
@@ -542,7 +542,7 @@ impl From<JwtAuthConfig> for JwtAuth {
             audience: claims.audience().clone(),
             issuer: claims.issuer().clone(),
             subject: claims.subject().clone(),
-            duration: Duration::from_secs(3600), // Default duration, can't easily extract from DurationString
+            duration: config.duration(),
         }
     }
 }
