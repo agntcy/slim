@@ -436,63 +436,89 @@ jobs:
     needs: test-go-bindings
     if: startsWith(github.ref, 'refs/tags/slim-bindings-libs-')
     steps:
-      - name: Clone target repository
+      # TODO: Uncomment this step when ready for production releases
+      # - name: Clone target repository
+      #   run: |
+      #     git clone https://x-access-token:${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}@github.com/${{ env.GO_BINDINGS_REPO }}.git ./target-repo
+
+      # TODO: Uncomment this step when ready for production releases
+      # - name: Merge to main and create tag
+      #   run: |
+      #     cd ./target-repo
+      #
+      #     # Set git config locally
+      #     git config user.name "github-actions[bot]"
+      #     git config user.email "github-actions[bot]@users.noreply.github.com"
+      #
+      #     # Extract version from tag name
+      #     VERSION="${{ github.ref_name }}"
+      #     VERSION="${VERSION#slim-bindings-libs-}"
+      #     PRE_RELEASE_BRANCH="pre-release-$VERSION"
+      #
+      #     echo "📦 Version: $VERSION"
+      #     echo "🌿 Pre-release branch: $PRE_RELEASE_BRANCH"
+      #
+      #     # Fetch the pre-release branch
+      #     git fetch origin "$PRE_RELEASE_BRANCH"
+      #
+      #     # Checkout main and merge pre-release branch
+      #     git checkout main
+      #     git merge "origin/$PRE_RELEASE_BRANCH" --ff-only
+      #
+      #     # Create and push version tag
+      #     git tag -a "$VERSION" -m "Release $VERSION"
+      #
+      #     # Push main and tag
+      #     git push origin main
+      #     git push origin "$VERSION"
+      #
+      #     echo "✅ Merged pre-release branch to main"
+      #     echo "✅ Created and pushed tag: $VERSION"
+
+      - name: Test mode notice
         run: |
-          git clone https://x-access-token:${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}@github.com/${{ env.GO_BINDINGS_REPO }}.git ./target-repo
-
-      - name: Merge to main and create tag
-        run: |
-          cd ./target-repo
-
-          # Set git config locally
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          # Extract version from tag name
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#slim-bindings-libs-}"
           PRE_RELEASE_BRANCH="pre-release-$VERSION"
 
+          echo "⚠️  TEST MODE: Merge to main is disabled"
           echo "📦 Version: $VERSION"
           echo "🌿 Pre-release branch: $PRE_RELEASE_BRANCH"
+          echo ""
+          echo "The pre-release branch has been tested and is ready."
+          echo "To merge manually:"
+          echo "  1. git clone https://github.com/${{ env.GO_BINDINGS_REPO }}.git"
+          echo "  2. cd slim-bindings-go"
+          echo "  3. git checkout main"
+          echo "  4. git merge origin/$PRE_RELEASE_BRANCH --ff-only"
+          echo "  5. git tag -a $VERSION -m 'Release $VERSION'"
+          echo "  6. git push origin main"
+          echo "  7. git push origin $VERSION"
 
-          # Fetch the pre-release branch
-          git fetch origin "$PRE_RELEASE_BRANCH"
-
-          # Checkout main and merge pre-release branch
-          git checkout main
-          git merge "origin/$PRE_RELEASE_BRANCH" --ff-only
-
-          # Create and push version tag
-          git tag -a "$VERSION" -m "Release $VERSION"
-
-          # Push main and tag
-          git push origin main
-          git push origin "$VERSION"
-
-          echo "✅ Merged pre-release branch to main"
-          echo "✅ Created and pushed tag: $VERSION"
-
-      - name: Cleanup pre-release branch
-        if: always()  # Run even if previous steps fail
-        run: |
-          cd ./target-repo
-
-          # Extract version from tag name
-          VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#slim-bindings-libs-}"
-          PRE_RELEASE_BRANCH="pre-release-$VERSION"
-
-          # Delete the pre-release branch
-          git push origin --delete "$PRE_RELEASE_BRANCH" || echo "⚠️  Branch already deleted or doesn't exist"
-
-          echo "✅ Cleaned up pre-release branch: $PRE_RELEASE_BRANCH"
+      # TODO: Uncomment this step when ready for production releases  
+      # - name: Cleanup pre-release branch
+      #   if: always()  # Run even if previous steps fail
+      #   run: |
+      #     cd ./target-repo
+      #
+      #     # Extract version from tag name
+      #     VERSION="${{ github.ref_name }}"
+      #     VERSION="${VERSION#slim-bindings-libs-}"
+      #     PRE_RELEASE_BRANCH="pre-release-$VERSION"
+      #
+      #     # Delete the pre-release branch
+      #     git push origin --delete "$PRE_RELEASE_BRANCH" || echo "⚠️  Branch already deleted or doesn't exist"
+      #
+      #     echo "✅ Cleaned up pre-release branch: $PRE_RELEASE_BRANCH"
 
       - name: Release complete
         run: |
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#slim-bindings-libs-}"
           echo ""
-          echo "🎉 Release $VERSION complete!"
-          echo "✅ Go bindings published to https://github.com/${{ env.GO_BINDINGS_REPO }}"
-          echo "✅ Tagged as $VERSION"
+          echo "🎉 Test release $VERSION complete!"
+          echo "✅ Pre-release branch created: pre-release-$VERSION"
+          echo "✅ All tests passed on 4 platforms"
+          echo "⚠️  Main branch was NOT updated (test mode)"
+          echo ""
+          echo "To complete the release, uncomment the merge steps in Job 5."
