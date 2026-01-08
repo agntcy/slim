@@ -310,11 +310,16 @@ jobs:
           - darwin/amd64 (x86_64-apple-darwin)
           - windows/amd64 (x86_64-pc-windows-msvc)"
 
-          # Create and push pre-release branch
+          # Create pre-release tag so Go can resolve by version (not pseudo-version)
+          git tag -a "$VERSION" -m "Pre-release $VERSION"
+
+          # Create and push pre-release branch and tag
           git checkout -b "$PRE_RELEASE_BRANCH"
           git push origin "$PRE_RELEASE_BRANCH"
+          git push origin "$VERSION"
 
           echo "✅ Successfully pushed Go bindings to pre-release branch: $PRE_RELEASE_BRANCH"
+          echo "✅ Created pre-release tag: $VERSION"
 
           popd
 
@@ -362,11 +367,10 @@ jobs:
 
       - name: Test bindings installation and usage
         run: |
-          # Extract version from tag name for branch reference
+          # Extract version from tag name
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#slim-bindings-libs-}"
-          PRE_RELEASE_BRANCH="pre-release-$VERSION"
-          echo "🌿 Testing branch: $PRE_RELEASE_BRANCH"
+          echo "📦 Testing version: $VERSION"
 
           # Create a temporary test directory
           if [ "$RUNNER_OS" = "Windows" ]; then
@@ -383,12 +387,12 @@ jobs:
           go mod init test
           echo "✅ Created test module"
 
-          # Fetch the bindings from the pre-release branch
-          go get github.com/${{ env.GO_BINDINGS_REPO }}@$PRE_RELEASE_BRANCH
-          echo "✅ Fetched bindings package from pre-release branch"
+          # Fetch the bindings using the version tag
+          go get github.com/${{ env.GO_BINDINGS_REPO }}@$VERSION
+          echo "✅ Fetched bindings package version $VERSION"
 
           # Run the setup tool to download native libraries
-          go run github.com/${{ env.GO_BINDINGS_REPO }}/cmd/slim-bindings-setup@$PRE_RELEASE_BRANCH
+          go run github.com/${{ env.GO_BINDINGS_REPO }}/cmd/slim-bindings-setup@$VERSION
           echo "✅ Downloaded native libraries"
 
           # Create a test program
@@ -496,7 +500,7 @@ jobs:
           echo "  7. git push origin $VERSION"
 
       # TODO: Uncomment this step when ready for production releases  
-      # - name: Cleanup pre-release branch
+      # - name: Cleanup pre-release branch and tag
       #   if: always()  # Run even if previous steps fail
       #   run: |
       #     cd ./target-repo
@@ -509,7 +513,11 @@ jobs:
       #     # Delete the pre-release branch
       #     git push origin --delete "$PRE_RELEASE_BRANCH" || echo "⚠️  Branch already deleted or doesn't exist"
       #
+      #     # Delete the pre-release tag (it will be recreated on main)
+      #     git push origin --delete "$VERSION" || echo "⚠️  Tag already deleted or doesn't exist"
+      #
       #     echo "✅ Cleaned up pre-release branch: $PRE_RELEASE_BRANCH"
+      #     echo "✅ Cleaned up pre-release tag: $VERSION"
 
       - name: Release complete
         run: |
