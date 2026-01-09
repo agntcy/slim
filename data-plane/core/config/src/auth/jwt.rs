@@ -155,6 +155,11 @@ impl Config {
         &self.key
     }
 
+    /// Get the duration
+    pub fn duration(&self) -> Duration {
+        *self.duration
+    }
+
     fn custom_claims(&self) -> MetadataMap {
         self.claims.custom_claims.clone().unwrap_or_default()
     }

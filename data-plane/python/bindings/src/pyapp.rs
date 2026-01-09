@@ -26,19 +26,6 @@ use crate::utils::PyName;
 use slim_config::grpc::client::ClientConfig as PyGrpcClientConfig;
 use slim_config::grpc::server::ServerConfig as PyGrpcServerConfig;
 
-/// Helper to convert PyName to FFI Name
-fn py_name_to_ffi(py_name: &PyName) -> slim_bindings::Name {
-    let internal_name: Name = py_name.into();
-    slim_bindings::Name {
-        components: internal_name
-            .components_strings()
-            .iter()
-            .map(|s| s.to_string())
-            .collect(),
-        id: Some(internal_name.id()),
-    }
-}
-
 #[gen_stub_pyclass]
 #[pyclass(name = "App")]
 #[derive(Clone)]
@@ -50,6 +37,12 @@ struct PyAppInternal {
     /// The adapter instance (uses AuthProvider/AuthVerifier enums internally)
     /// The adapter manages the service internally
     adapter: BindingsAdapter,
+}
+
+/// Helper function to convert PyName to Arc<FfiName>
+fn py_name_to_ffi(py_name: &PyName) -> Arc<slim_bindings::Name> {
+    let ffi_name: slim_bindings::Name = py_name.into();
+    Arc::new(ffi_name)
 }
 
 #[gen_stub_pymethods]
@@ -105,18 +98,7 @@ impl PyApp {
     #[getter]
     pub fn name(&self) -> PyName {
         // adapter.name() returns slim_bindings::Name, convert to PyName
-        let ffi_name = self.internal.adapter.name();
-        // Convert FFI Name back to datapath Name, then to PyName
-        let components: [String; 3] = [
-            ffi_name.components.first().cloned().unwrap_or_default(),
-            ffi_name.components.get(1).cloned().unwrap_or_default(),
-            ffi_name.components.get(2).cloned().unwrap_or_default(),
-        ];
-        let mut datapath_name = Name::from_strings(components);
-        if let Some(id) = ffi_name.id {
-            datapath_name = datapath_name.with_id(id);
-        }
-        PyName::from(datapath_name)
+        self.internal.adapter.name().as_ref().into()
     }
 
     #[gen_stub(override_return_type(type_repr="collections.abc.Awaitable[tuple[SessionContext, CompletionHandle]]", imports=("collections.abc",)))]
@@ -178,15 +160,23 @@ impl PyApp {
             // Convert to FFI ServerConfig
             let ffi_config = slim_bindings::ServerConfig {
                 endpoint: config.endpoint,
-                tls: slim_bindings::TlsConfig {
+                tls: slim_bindings::TlsServerConfig {
                     insecure: config.tls_setting.insecure,
-                    insecure_skip_verify: None,
-                    cert_file: None,
-                    key_file: None,
-                    ca_file: None,
-                    tls_version: None,
-                    include_system_ca_certs_pool: None,
+                    source: slim_bindings::TlsSource::None,
+                    client_ca: slim_bindings::CaSource::None,
+                    include_system_ca_certs_pool: true,
+                    tls_version: "tls1.3".to_string(),
+                    reload_client_ca_file: false,
                 },
+                http2_only: true,
+                max_frame_size: None,
+                max_concurrent_streams: None,
+                max_header_list_size: None,
+                read_buffer_size: None,
+                write_buffer_size: None,
+                keepalive: slim_bindings::server_config::KeepaliveServerParameters::default(),
+                auth: slim_bindings::ServerAuthenticationConfig::None,
+                metadata: None,
             };
 
             internal_clone
@@ -218,15 +208,29 @@ impl PyApp {
             // Convert to FFI ClientConfig
             let ffi_config = slim_bindings::ClientConfig {
                 endpoint: config.endpoint,
-                tls: slim_bindings::TlsConfig {
+                origin: None,
+                server_name: None,
+                compression: None,
+                rate_limit: None,
+                tls: slim_bindings::TlsClientConfig {
                     insecure: config.tls_setting.insecure,
-                    insecure_skip_verify: None,
-                    cert_file: None,
-                    key_file: None,
-                    ca_file: None,
-                    tls_version: None,
-                    include_system_ca_certs_pool: None,
+                    insecure_skip_verify: false,
+                    source: slim_bindings::TlsSource::None,
+                    ca_source: slim_bindings::CaSource::None,
+                    include_system_ca_certs_pool: true,
+                    tls_version: "tls1.3".to_string(),
                 },
+                keepalive: None,
+                proxy: slim_bindings::client_config::ProxyConfig::default(),
+                connect_timeout: std::time::Duration::from_secs(10),
+                request_timeout: std::time::Duration::from_secs(30),
+                buffer_size: None,
+                headers: std::collections::HashMap::new(),
+                auth: slim_bindings::ClientAuthenticationConfig::None,
+                backoff: slim_bindings::client_config::BackoffConfig::Exponential {
+                    config: slim_bindings::client_config::ExponentialBackoff::default(),
+                },
+                metadata: None,
             };
 
             internal_clone

@@ -53,8 +53,22 @@ impl From<FfiName> for PyName {
     }
 }
 
+impl From<&FfiName> for PyName {
+    fn from(ffi_name: &FfiName) -> Self {
+        // Convert FFI Name to datapath Name, then to PyName
+        let slim_name: Name = ffi_name.into();
+        PyName { name: slim_name }
+    }
+}
+
 impl From<PyName> for FfiName {
     fn from(py_name: PyName) -> Self {
+        FfiName::from(&py_name.name)
+    }
+}
+
+impl From<&PyName> for FfiName {
+    fn from(py_name: &PyName) -> Self {
         FfiName::from(&py_name.name)
     }
 }

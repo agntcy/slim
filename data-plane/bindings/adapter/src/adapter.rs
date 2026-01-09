@@ -12,279 +12,34 @@
 //! - **Hybrid API**: Both sync (FFI-exposed) and async (internal) methods
 //! - **Runtime management**: Manages Tokio runtime for blocking operations
 
-use slim_auth::errors::AuthError;
-use slim_auth::traits::Verifier;
 use std::sync::Arc;
-use std::sync::OnceLock;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use tokio::sync::{RwLock, mpsc};
 
-use display_error_chain::ErrorChainExt;
+use tokio::sync::{RwLock, mpsc};
+use uniffi;
+
+use crate::client_config::ClientConfig;
+use crate::errors::SlimError;
+use crate::name::Name;
+use crate::runtime;
+use crate::server_config::ServerConfig;
+use crate::service_ref::{ServiceRef, get_or_init_global_service};
+use crate::session_context::SessionConfig;
 
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::shared_secret::SharedSecret;
 use slim_auth::traits::TokenProvider; // For get_token() and get_id()
+use slim_auth::traits::Verifier;
 use slim_config::component::ComponentBuilder;
-use slim_datapath::api::ProtoSessionType;
 use slim_datapath::messages::Name as SlimName;
 use slim_service::Service;
 use slim_service::app::App;
-use slim_service::errors::ServiceError;
 use slim_session::SessionConfig as SlimSessionConfig;
-use slim_session::errors::SessionError;
 use slim_session::session_controller::SessionController;
 use slim_session::{Notification, SessionError as SlimSessionError};
-
-use crate::service_ref::{ServiceRef, get_or_init_global_service};
-
-// Re-export uniffi for proc macros
-use uniffi;
 
 // ============================================================================
 // UniFFI Type Definitions
 // ============================================================================
-
-/// Global Tokio runtime for async operations
-static GLOBAL_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-
-/// Get or initialize the global Tokio runtime
-///
-/// Configured for FFI workloads with:
-/// - Worker threads: 2x CPU cores (to handle blocking operations better)
-/// - Max blocking threads: 512 (allows high concurrency from FFI calls)
-/// - Named threads for easier debugging
-///
-/// Returns a static reference since the runtime lives for the entire program lifetime.
-/// This is exposed publicly for use by language bindings (e.g., Python) that need
-/// to create `BindingsSessionContext` instances with a runtime.
-pub fn get_runtime() -> &'static tokio::runtime::Runtime {
-    GLOBAL_RUNTIME.get_or_init(|| {
-        // Calculate optimal worker thread count
-        // Use 2x CPU cores for workloads with blocking operations from FFI
-        let num_workers = std::env::var("SLIM_TOKIO_WORKERS")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or_else(|| {
-                let cpus = num_cpus::get();
-                (cpus * 2).max(4) // At least 4 workers, preferably 2x CPUs
-            });
-
-        // Allow configurable max blocking threads (default: 512)
-        let max_blocking = std::env::var("SLIM_MAX_BLOCKING_THREADS")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(512);
-
-        tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(num_workers)
-            .max_blocking_threads(max_blocking)
-            .thread_name_fn(|| {
-                static ATOMIC_ID: AtomicUsize = AtomicUsize::new(0);
-                let id = ATOMIC_ID.fetch_add(1, Ordering::SeqCst);
-                format!("slim-rt-{}", id)
-            })
-            .enable_all()
-            .build()
-            .expect("Failed to create Tokio runtime")
-    })
-}
-
-/// Initialize the crypto provider
-///
-/// This must be called before any TLS operations. It's safe to call multiple times.
-#[uniffi::export]
-pub fn initialize_crypto_provider() {
-    slim_config::tls::provider::initialize_crypto_provider();
-    // Also initialize the global runtime
-    let _ = get_runtime();
-}
-
-/// Build information for the SLIM bindings
-#[derive(Debug, Clone, uniffi::Record)]
-pub struct BuildInfo {
-    /// Semantic version (e.g., "0.7.0")
-    pub version: String,
-    /// Git commit hash (short)
-    pub git_sha: String,
-    /// Build date in ISO 8601 UTC format
-    pub build_date: String,
-    /// Build profile (debug/release)
-    pub profile: String,
-}
-
-/// Get the version of the SLIM bindings (simple string)
-#[uniffi::export]
-pub fn get_version() -> String {
-    env!("CARGO_PKG_VERSION").to_string()
-}
-
-/// Get detailed build information
-#[uniffi::export]
-pub fn get_build_info() -> BuildInfo {
-    BuildInfo {
-        version: env!("CARGO_PKG_VERSION").to_string(),
-        git_sha: env!("GIT_SHA").to_string(),
-        build_date: env!("BUILD_DATE").to_string(),
-        profile: env!("PROFILE").to_string(),
-    }
-}
-
-/// Name type for SLIM (Secure Low-Latency Interactive Messaging)
-#[derive(Debug, Clone, PartialEq, uniffi::Record)]
-pub struct Name {
-    pub components: Vec<String>,
-    pub id: Option<u64>,
-}
-
-impl From<Name> for SlimName {
-    fn from(name: Name) -> Self {
-        let components: [String; 3] = [
-            name.components.first().cloned().unwrap_or_default(),
-            name.components.get(1).cloned().unwrap_or_default(),
-            name.components.get(2).cloned().unwrap_or_default(),
-        ];
-        let mut slim_name = SlimName::from_strings(components);
-        if let Some(id) = name.id {
-            slim_name = slim_name.with_id(id);
-        }
-        slim_name
-    }
-}
-
-impl From<&SlimName> for Name {
-    fn from(name: &SlimName) -> Self {
-        Name {
-            components: name
-                .components_strings()
-                .iter()
-                .map(|s| s.to_string())
-                .collect(),
-            id: Some(name.id()),
-        }
-    }
-}
-
-/// Session type enum
-#[derive(Debug, Clone, PartialEq, uniffi::Enum)]
-pub enum SessionType {
-    PointToPoint,
-    Group,
-}
-
-/// Session configuration
-#[derive(uniffi::Record)]
-pub struct SessionConfig {
-    /// Session type (PointToPoint or Group)
-    pub session_type: SessionType,
-
-    /// Enable MLS encryption for this session
-    pub enable_mls: bool,
-
-    /// Maximum number of retries for message transmission (None = use default)
-    pub max_retries: Option<u32>,
-
-    /// Interval between retries in milliseconds (None = use default)
-    pub interval_ms: Option<u64>,
-
-    /// Whether this endpoint is the session initiator
-    pub initiator: bool,
-
-    /// Custom metadata key-value pairs for the session
-    pub metadata: std::collections::HashMap<String, String>,
-}
-
-impl From<SessionConfig> for SlimSessionConfig {
-    fn from(config: SessionConfig) -> Self {
-        SlimSessionConfig {
-            session_type: match config.session_type {
-                SessionType::PointToPoint => ProtoSessionType::PointToPoint,
-                SessionType::Group => ProtoSessionType::Multicast,
-            },
-            max_retries: config.max_retries,
-            interval: config.interval_ms.map(std::time::Duration::from_millis),
-            mls_enabled: config.enable_mls,
-            initiator: config.initiator,
-            metadata: config.metadata,
-        }
-    }
-}
-
-/// Error types for SLIM operations
-#[derive(Debug, thiserror::Error, uniffi::Error)]
-pub enum SlimError {
-    #[error("service error: {message}")]
-    ServiceError { message: String },
-    #[error("Session error: {message}")]
-    SessionError { message: String },
-    #[error("Receive error: {message}")]
-    ReceiveError { message: String },
-    #[error("Send error: {message}")]
-    SendError { message: String },
-    #[error("Authentication error: {message}")]
-    AuthError { message: String },
-    #[error("Operation timed out")]
-    Timeout,
-    #[error("Invalid argument: {message}")]
-    InvalidArgument { message: String },
-    #[error("Internal error: {message}")]
-    InternalError { message: String },
-}
-
-macro_rules! impl_from_error_for_slim {
-    ($source:ty, $variant:ident) => {
-        impl From<$source> for SlimError {
-            fn from(err: $source) -> Self {
-                SlimError::$variant {
-                    message: err.chain().to_string(),
-                }
-            }
-        }
-    };
-}
-
-impl_from_error_for_slim!(ServiceError, ServiceError);
-impl_from_error_for_slim!(SessionError, SessionError);
-impl_from_error_for_slim!(AuthError, AuthError);
-
-/// TLS configuration for server/client
-#[derive(uniffi::Record)]
-pub struct TlsConfig {
-    /// Disable TLS entirely (plain text connection)
-    pub insecure: bool,
-
-    /// Skip server certificate verification (client only, enables TLS but doesn't verify certs)
-    /// WARNING: Only use for testing - insecure in production!
-    pub insecure_skip_verify: Option<bool>,
-
-    /// Path to certificate file (PEM format)
-    pub cert_file: Option<String>,
-
-    /// Path to private key file (PEM format)
-    pub key_file: Option<String>,
-
-    /// Path to CA certificate file (PEM format) for verifying peer certificates
-    pub ca_file: Option<String>,
-
-    /// TLS version to use: "tls1.2" or "tls1.3" (default: "tls1.3")
-    pub tls_version: Option<String>,
-
-    /// Include system CA certificates pool (default: false)
-    pub include_system_ca_certs_pool: Option<bool>,
-}
-
-/// Server configuration for running a SLIM server
-#[derive(uniffi::Record)]
-pub struct ServerConfig {
-    pub endpoint: String,
-    pub tls: TlsConfig,
-}
-
-/// Client configuration for connecting to a SLIM server
-#[derive(uniffi::Record)]
-pub struct ClientConfig {
-    pub endpoint: String,
-    pub tls: TlsConfig,
-}
 
 // Re-export MessageContext from message_context module (already has uniffi::Record)
 pub use crate::message_context::MessageContext;
@@ -305,19 +60,19 @@ pub struct ReceivedMessage {
 /// This is the main entry point for creating a SLIM application from language bindings.
 #[uniffi::export]
 pub fn create_app_with_secret(
-    app_name: Name,
+    app_name: Arc<Name>,
     shared_secret: String,
 ) -> Result<Arc<BindingsAdapter>, SlimError> {
-    let runtime = get_runtime();
-    runtime.block_on(async { create_app_with_secret_async(app_name, shared_secret).await })
+    runtime::get_runtime()
+        .block_on(async { create_app_with_secret_async(app_name, shared_secret).await })
 }
 
 /// Create an app with the given name and shared secret (async version)
 async fn create_app_with_secret_async(
-    app_name: Name,
+    app_name: Arc<Name>,
     shared_secret: String,
 ) -> Result<Arc<BindingsAdapter>, SlimError> {
-    let slim_name: SlimName = app_name.into();
+    let slim_name: SlimName = app_name.as_ref().into();
     let shared_secret_impl = SharedSecret::new(&slim_name.components_strings()[1], &shared_secret)?;
 
     // Wrap in enum types for flexible auth support
@@ -351,9 +106,6 @@ pub struct BindingsAdapter {
 
     /// Service reference for lifecycle management
     service_ref: ServiceRef,
-
-    /// Tokio runtime for blocking async operations (static lifetime)
-    runtime: &'static tokio::runtime::Runtime,
 }
 
 impl BindingsAdapter {
@@ -402,13 +154,10 @@ impl BindingsAdapter {
         // Create the app
         let (app, rx) = service.create_app(&app_name, identity_provider, identity_verifier)?;
 
-        let runtime = get_runtime();
-
         Ok(Self {
             app: Arc::new(app),
             notification_rx: Arc::new(RwLock::new(rx)),
             service_ref,
-            runtime,
         })
     }
 }
@@ -421,17 +170,17 @@ impl BindingsAdapter {
     }
 
     /// Get the app name
-    pub fn name(&self) -> Name {
-        Name::from(self.app.app_name())
+    pub fn name(&self) -> Arc<Name> {
+        Arc::new(self.app.app_name().into())
     }
 
     /// Create a new session (blocking version for FFI)
     pub fn create_session(
         &self,
         config: SessionConfig,
-        destination: Name,
+        destination: Arc<Name>,
     ) -> Result<Arc<crate::BindingsSessionContext>, SlimError> {
-        self.runtime
+        runtime::get_runtime()
             .block_on(async { self.create_session_async(config, destination).await })
     }
 
@@ -444,10 +193,10 @@ impl BindingsAdapter {
     pub async fn create_session_async(
         &self,
         config: SessionConfig,
-        destination: Name,
+        destination: Arc<Name>,
     ) -> Result<Arc<crate::BindingsSessionContext>, SlimError> {
         let slim_config: SlimSessionConfig = config.into();
-        let slim_dest: SlimName = destination.into();
+        let slim_dest: SlimName = destination.as_ref().into();
 
         let (session_ctx, completion) = self
             .app
@@ -459,10 +208,7 @@ impl BindingsAdapter {
         completion.await?;
 
         // Create BindingsSessionContext with the runtime
-        Ok(Arc::new(crate::BindingsSessionContext::new(
-            session_ctx,
-            self.runtime,
-        )))
+        Ok(Arc::new(crate::BindingsSessionContext::new(session_ctx)))
     }
 
     /// Delete a session (blocking version for FFI)
@@ -470,8 +216,7 @@ impl BindingsAdapter {
         &self,
         session: Arc<crate::BindingsSessionContext>,
     ) -> Result<(), SlimError> {
-        self.runtime
-            .block_on(async { self.delete_session_async(session).await })
+        runtime::get_runtime().block_on(async { self.delete_session_async(session).await })
     }
 
     /// Delete a session (async version)
@@ -495,65 +240,70 @@ impl BindingsAdapter {
     }
 
     /// Subscribe to a name (blocking version for FFI)
-    pub fn subscribe(&self, name: Name, connection_id: Option<u64>) -> Result<(), SlimError> {
-        self.runtime
-            .block_on(async { self.subscribe_async(name, connection_id).await })
+    pub fn subscribe(&self, name: Arc<Name>, connection_id: Option<u64>) -> Result<(), SlimError> {
+        runtime::get_runtime().block_on(async { self.subscribe_async(name, connection_id).await })
     }
 
     /// Subscribe to a name (async version)
     pub async fn subscribe_async(
         &self,
-        name: Name,
+        name: Arc<Name>,
         connection_id: Option<u64>,
     ) -> Result<(), SlimError> {
-        let slim_name: SlimName = name.into();
+        let slim_name: SlimName = name.as_ref().into();
         self.app.subscribe(&slim_name, connection_id).await?;
         Ok(())
     }
 
     /// Unsubscribe from a name (blocking version for FFI)
-    pub fn unsubscribe(&self, name: Name, connection_id: Option<u64>) -> Result<(), SlimError> {
-        self.runtime
-            .block_on(async { self.unsubscribe_async(name, connection_id).await })
+    pub fn unsubscribe(
+        &self,
+        name: Arc<Name>,
+        connection_id: Option<u64>,
+    ) -> Result<(), SlimError> {
+        runtime::get_runtime().block_on(async { self.unsubscribe_async(name, connection_id).await })
     }
 
     /// Unsubscribe from a name (async version)
     pub async fn unsubscribe_async(
         &self,
-        name: Name,
+        name: Arc<Name>,
         connection_id: Option<u64>,
     ) -> Result<(), SlimError> {
-        let slim_name: SlimName = name.into();
+        let slim_name: SlimName = name.as_ref().into();
         self.app.unsubscribe(&slim_name, connection_id).await?;
         Ok(())
     }
 
     /// Set a route to a name for a specific connection (blocking version for FFI)
-    pub fn set_route(&self, name: Name, connection_id: u64) -> Result<(), SlimError> {
-        self.runtime
-            .block_on(async { self.set_route_async(name, connection_id).await })
+    pub fn set_route(&self, name: Arc<Name>, connection_id: u64) -> Result<(), SlimError> {
+        runtime::get_runtime().block_on(async { self.set_route_async(name, connection_id).await })
     }
 
     /// Set a route to a name for a specific connection (async version)
-    pub async fn set_route_async(&self, name: Name, connection_id: u64) -> Result<(), SlimError> {
-        let slim_name: SlimName = name.into();
+    pub async fn set_route_async(
+        &self,
+        name: Arc<Name>,
+        connection_id: u64,
+    ) -> Result<(), SlimError> {
+        let slim_name: SlimName = name.as_ref().into();
         self.app.set_route(&slim_name, connection_id).await?;
         Ok(())
     }
 
     /// Remove a route (blocking version for FFI)
-    pub fn remove_route(&self, name: Name, connection_id: u64) -> Result<(), SlimError> {
-        self.runtime
+    pub fn remove_route(&self, name: Arc<Name>, connection_id: u64) -> Result<(), SlimError> {
+        runtime::get_runtime()
             .block_on(async { self.remove_route_async(name, connection_id).await })
     }
 
     /// Remove a route (async version)
     pub async fn remove_route_async(
         &self,
-        name: Name,
+        name: Arc<Name>,
         connection_id: u64,
     ) -> Result<(), SlimError> {
-        let slim_name: SlimName = name.into();
+        let slim_name: SlimName = name.as_ref().into();
         self.app.remove_route(&slim_name, connection_id).await?;
         Ok(())
     }
@@ -563,8 +313,7 @@ impl BindingsAdapter {
         &self,
         timeout: Option<std::time::Duration>,
     ) -> Result<Arc<crate::BindingsSessionContext>, SlimError> {
-        self.runtime
-            .block_on(async { self.listen_for_session_async(timeout).await })
+        runtime::get_runtime().block_on(async { self.listen_for_session_async(timeout).await })
     }
 
     /// Listen for incoming sessions (async version)
@@ -595,10 +344,9 @@ impl BindingsAdapter {
         }
 
         match notification_opt.unwrap() {
-            Ok(Notification::NewSession(ctx)) => Ok(Arc::new(crate::BindingsSessionContext::new(
-                ctx,
-                self.runtime,
-            ))),
+            Ok(Notification::NewSession(ctx)) => {
+                Ok(Arc::new(crate::BindingsSessionContext::new(ctx)))
+            }
             Ok(Notification::NewMessage(_)) => Err(SlimError::ReceiveError {
                 message: "received unexpected message notification while listening for session"
                     .to_string(),
@@ -618,42 +366,19 @@ impl BindingsAdapter {
     /// * `Ok(())` - Server started successfully
     /// * `Err(SlimError)` - If server startup fails
     pub fn run_server(&self, config: ServerConfig) -> Result<(), SlimError> {
-        self.runtime
-            .block_on(async { self.run_server_async(config).await })
+        runtime::get_runtime().block_on(async { self.run_server_async(config).await })
     }
 
     /// Run a SLIM server (async version)
     pub async fn run_server_async(&self, config: ServerConfig) -> Result<(), SlimError> {
         use slim_config::grpc::server::ServerConfig as GrpcServerConfig;
-        use slim_config::tls::server::TlsServerConfig;
 
-        let mut tls_config = TlsServerConfig::new().with_insecure(config.tls.insecure);
-
-        // Apply optional TLS settings
-        if let (Some(cert_file), Some(key_file)) =
-            (config.tls.cert_file.as_ref(), config.tls.key_file.as_ref())
-        {
-            tls_config = tls_config.with_cert_and_key_file(cert_file, key_file);
-        }
-
-        if let Some(ca_file) = config.tls.ca_file.as_ref() {
-            tls_config = tls_config.with_ca_file(ca_file);
-        }
-
-        if let Some(tls_version) = config.tls.tls_version.as_ref() {
-            tls_config = tls_config.with_tls_version(tls_version);
-        }
-
-        if let Some(include_system_ca) = config.tls.include_system_ca_certs_pool {
-            tls_config = tls_config.with_include_system_ca_certs_pool(include_system_ca);
-        }
-
-        let server_config =
-            GrpcServerConfig::with_endpoint(&config.endpoint).with_tls_settings(tls_config);
+        // Convert our bindings ServerConfig to core ServerConfig
+        let grpc_config: GrpcServerConfig = config.into();
 
         self.service_ref
             .get_service()
-            .run_server(&server_config)
+            .run_server(&grpc_config)
             .await?;
 
         Ok(())
@@ -681,8 +406,7 @@ impl BindingsAdapter {
     /// * `Ok(connection_id)` - Connected successfully, returns the connection ID
     /// * `Err(SlimError)` - If connection fails
     pub fn connect(&self, config: ClientConfig) -> Result<u64, SlimError> {
-        self.runtime
-            .block_on(async { self.connect_async(config).await })
+        runtime::get_runtime().block_on(async { self.connect_async(config).await })
     }
 
     /// Connect to a SLIM server (async version)
@@ -691,41 +415,11 @@ impl BindingsAdapter {
     /// to enable receiving inbound messages and sessions.
     pub async fn connect_async(&self, config: ClientConfig) -> Result<u64, SlimError> {
         use slim_config::grpc::client::ClientConfig as GrpcClientConfig;
-        use slim_config::tls::client::TlsClientConfig;
 
-        let mut tls_config = TlsClientConfig::new().with_insecure(config.tls.insecure);
+        // Convert our bindings ClientConfig to core ClientConfig
+        let grpc_config: GrpcClientConfig = config.into();
 
-        // Apply optional TLS settings
-        if let Some(skip_verify) = config.tls.insecure_skip_verify {
-            tls_config = tls_config.with_insecure_skip_verify(skip_verify);
-        }
-
-        if let (Some(cert_file), Some(key_file)) =
-            (config.tls.cert_file.as_ref(), config.tls.key_file.as_ref())
-        {
-            tls_config = tls_config.with_cert_and_key_file(cert_file, key_file);
-        }
-
-        if let Some(ca_file) = config.tls.ca_file.as_ref() {
-            tls_config = tls_config.with_ca_file(ca_file);
-        }
-
-        if let Some(tls_version) = config.tls.tls_version.as_ref() {
-            tls_config = tls_config.with_tls_version(tls_version);
-        }
-
-        if let Some(include_system_ca) = config.tls.include_system_ca_certs_pool {
-            tls_config = tls_config.with_include_system_ca_certs_pool(include_system_ca);
-        }
-
-        let client_config =
-            GrpcClientConfig::with_endpoint(&config.endpoint).with_tls_setting(tls_config);
-
-        let conn_id = self
-            .service_ref
-            .get_service()
-            .connect(&client_config)
-            .await?;
+        let conn_id = self.service_ref.get_service().connect(&grpc_config).await?;
 
         // Automatically subscribe to our own name so we can receive messages.
         // If subscription fails, clean up the connection to avoid resource leaks.
@@ -747,8 +441,7 @@ impl BindingsAdapter {
     /// * `Ok(())` - Disconnected successfully
     /// * `Err(SlimError)` - If disconnection fails
     pub fn disconnect(&self, connection_id: u64) -> Result<(), SlimError> {
-        self.runtime
-            .block_on(async { self.disconnect_async(connection_id).await })
+        runtime::get_runtime().block_on(async { self.disconnect_async(connection_id).await })
     }
 
     /// Disconnect from a SLIM server (async version)
@@ -788,7 +481,6 @@ pub struct FfiCompletionHandle {
             Option<tokio::sync::oneshot::Receiver<Result<(), slim_session::SessionError>>>,
         >,
     >,
-    runtime: &'static tokio::runtime::Runtime,
 }
 
 impl std::fmt::Debug for FfiCompletionHandle {
@@ -802,21 +494,17 @@ impl std::fmt::Debug for FfiCompletionHandle {
 
 impl FfiCompletionHandle {
     /// Create a new FFI completion handle from a Rust CompletionHandle
-    pub fn new(
-        handle: slim_session::CompletionHandle,
-        runtime: &'static tokio::runtime::Runtime,
-    ) -> Self {
+    pub fn new(handle: slim_session::CompletionHandle) -> Self {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         // Spawn a task to await the completion and send the result
-        runtime.spawn(async move {
+        runtime::get_runtime().spawn(async move {
             let result = handle.await;
             let _ = tx.send(result);
         });
 
         Self {
             receiver: Arc::new(parking_lot::Mutex::new(Some(rx))),
-            runtime,
         }
     }
 }
@@ -836,7 +524,7 @@ impl FfiCompletionHandle {
     /// * `Ok(())` - Operation completed successfully
     /// * `Err(SlimError)` - Operation failed or handle already consumed
     pub fn wait(&self) -> Result<(), SlimError> {
-        self.runtime.block_on(self.wait_async())
+        runtime::get_runtime().block_on(self.wait_async())
     }
 
     /// Wait for the operation to complete with a timeout (blocking version)
@@ -856,7 +544,7 @@ impl FfiCompletionHandle {
     /// * `Err(SlimError::Timeout)` - If the operation timed out
     /// * `Err(SlimError)` - Operation failed or handle already consumed
     pub fn wait_for(&self, timeout: std::time::Duration) -> Result<(), SlimError> {
-        self.runtime.block_on(self.wait_for_async(timeout))
+        runtime::get_runtime().block_on(self.wait_for_async(timeout))
     }
 
     /// Wait for the operation to complete indefinitely (async version)
@@ -1010,6 +698,8 @@ impl BindingsAdapter {
 
 #[cfg(test)]
 mod tests {
+    use crate::SessionType;
+
     use super::*;
 
     use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
@@ -1058,12 +748,10 @@ mod tests {
     /// Test FfiCompletionHandle basic functionality
     #[tokio::test]
     async fn test_completion_handle_success() {
-        let runtime = get_runtime();
-
         // Create a successful completion
         let (tx, rx) = tokio::sync::oneshot::channel();
         let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
-        let ffi_handle = FfiCompletionHandle::new(completion, runtime);
+        let ffi_handle = FfiCompletionHandle::new(completion);
 
         // Send success
         tx.send(Ok(())).unwrap();
@@ -1076,12 +764,10 @@ mod tests {
     /// Test FfiCompletionHandle failure propagation
     #[tokio::test]
     async fn test_completion_handle_failure() {
-        let runtime = get_runtime();
-
         // Create a failed completion
         let (tx, rx) = tokio::sync::oneshot::channel();
         let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
-        let ffi_handle = FfiCompletionHandle::new(completion, runtime);
+        let ffi_handle = FfiCompletionHandle::new(completion);
 
         // Send error
         tx.send(Err(slim_session::SessionError::SlimMessageSendFailed))
@@ -1095,11 +781,9 @@ mod tests {
     /// Test FfiCompletionHandle can only be consumed once
     #[tokio::test]
     async fn test_completion_handle_single_consumption() {
-        let runtime = get_runtime();
-
         let (tx, rx) = tokio::sync::oneshot::channel();
         let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
-        let ffi_handle = Arc::new(FfiCompletionHandle::new(completion, runtime));
+        let ffi_handle = Arc::new(FfiCompletionHandle::new(completion));
 
         tx.send(Ok(())).unwrap();
 
@@ -1122,11 +806,9 @@ mod tests {
     /// Test FfiCompletionHandle async version
     #[tokio::test]
     async fn test_completion_handle_async() {
-        let runtime = get_runtime();
-
         let (tx, rx) = tokio::sync::oneshot::channel();
         let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
-        let ffi_handle = FfiCompletionHandle::new(completion, runtime);
+        let ffi_handle = FfiCompletionHandle::new(completion);
 
         // Send success in a separate task
         tokio::spawn(async move {
@@ -1142,11 +824,9 @@ mod tests {
     /// Test FfiCompletionHandle with dropped sender
     #[tokio::test]
     async fn test_completion_handle_sender_dropped() {
-        let runtime = get_runtime();
-
         let (_tx, rx) = tokio::sync::oneshot::channel();
         let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
-        let ffi_handle = FfiCompletionHandle::new(completion, runtime);
+        let ffi_handle = FfiCompletionHandle::new(completion);
 
         // Drop the sender explicitly
         drop(_tx);
@@ -1188,7 +868,6 @@ mod tests {
     async fn test_completion_handle_concurrent() {
         use std::sync::atomic::{AtomicU32, Ordering};
 
-        let runtime = get_runtime();
         let success_count = Arc::new(AtomicU32::new(0));
         let mut handles = vec![];
 
@@ -1196,7 +875,7 @@ mod tests {
         for _ in 0..10 {
             let (tx, rx) = tokio::sync::oneshot::channel();
             let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
-            let ffi_handle = Arc::new(FfiCompletionHandle::new(completion, runtime));
+            let ffi_handle = Arc::new(FfiCompletionHandle::new(completion));
 
             let count = Arc::clone(&success_count);
             let handle = tokio::spawn(async move {
@@ -1224,15 +903,13 @@ mod tests {
     /// Test FfiCompletionHandle with timeout
     #[tokio::test]
     async fn test_completion_handle_with_timeout() {
-        let runtime = get_runtime();
-
         // Create a completion that will never complete (sender not sent)
         // NOTE: We must hold onto `tx` so the channel stays open.
         // If we use `_tx`, it gets dropped immediately and the receiver
         // returns RecvError instead of timing out.
         let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), SlimSessionError>>();
         let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
-        let ffi_handle = FfiCompletionHandle::new(completion, runtime);
+        let ffi_handle = FfiCompletionHandle::new(completion);
 
         // Wait with a short timeout - should timeout
         let result = ffi_handle
@@ -1256,11 +933,9 @@ mod tests {
     /// Test FfiCompletionHandle with timeout that completes in time
     #[tokio::test]
     async fn test_completion_handle_timeout_success() {
-        let runtime = get_runtime();
-
         let (tx, rx) = tokio::sync::oneshot::channel();
         let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
-        let ffi_handle = FfiCompletionHandle::new(completion, runtime);
+        let ffi_handle = FfiCompletionHandle::new(completion);
 
         // Send success immediately
         tx.send(Ok(())).unwrap();
@@ -1293,15 +968,16 @@ mod tests {
             session_type: SessionType::PointToPoint,
             enable_mls: false,
             max_retries: Some(3),
-            interval_ms: Some(100),
-            initiator: true,
+            interval: Some(std::time::Duration::from_millis(100)),
             metadata: std::collections::HashMap::new(),
         };
 
-        let destination = Name {
-            components: vec!["org".to_string(), "test".to_string(), "dest".to_string()],
-            id: None,
-        };
+        let destination = Arc::new(Name::new(
+            "org".to_string(),
+            "test".to_string(),
+            "dest".to_string(),
+            None,
+        ));
 
         // This should auto-wait for session establishment
         // If it returns without error, the session is fully established
@@ -1341,15 +1017,16 @@ mod tests {
             session_type: SessionType::PointToPoint,
             enable_mls: false,
             max_retries: Some(3),
-            interval_ms: Some(100),
-            initiator: true,
+            interval: Some(std::time::Duration::from_millis(100)),
             metadata: std::collections::HashMap::new(),
         };
 
-        let destination = Name {
-            components: vec!["org".to_string(), "test".to_string(), "dest".to_string()],
-            id: None,
-        };
+        let destination = Arc::new(Name::new(
+            "org".to_string(),
+            "test".to_string(),
+            "dest".to_string(),
+            None,
+        ));
 
         // Try to create a session (may fail without network)
         if let Ok(session) = adapter
@@ -1378,245 +1055,6 @@ mod tests {
         }
     }
 
-    /// Test runtime configuration
-    #[test]
-    fn test_runtime_configuration() {
-        let runtime = get_runtime();
-
-        // Verify runtime was created (not null)
-        // Runtime is static, so just verify we can access it
-        let _handle = runtime.handle();
-
-        // Runtime should be accessible multiple times (returns same instance)
-        let runtime2 = get_runtime();
-        assert!(std::ptr::eq(runtime, runtime2));
-    }
-
-    /// Test environment variable configuration
-    #[test]
-    #[allow(clippy::disallowed_methods)]
-    fn test_env_var_configuration() {
-        // Set environment variables
-        unsafe {
-            std::env::set_var("SLIM_TOKIO_WORKERS", "8");
-            std::env::set_var("SLIM_MAX_BLOCKING_THREADS", "256");
-        }
-
-        // Note: These won't affect already-initialized runtime,
-        // but we can verify parsing works
-        let workers: usize = std::env::var("SLIM_TOKIO_WORKERS")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(4);
-
-        let max_blocking: usize = std::env::var("SLIM_MAX_BLOCKING_THREADS")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(512);
-
-        assert_eq!(workers, 8);
-        assert_eq!(max_blocking, 256);
-
-        // Clean up
-        unsafe {
-            std::env::remove_var("SLIM_TOKIO_WORKERS");
-            std::env::remove_var("SLIM_MAX_BLOCKING_THREADS");
-        }
-    }
-
-    // ========================================================================
-    // Name Conversion Tests
-    // ========================================================================
-
-    /// Test Name to SlimName conversion with full components
-    #[test]
-    fn test_name_to_slim_name_full() {
-        let name = Name {
-            components: vec![
-                "org".to_string(),
-                "namespace".to_string(),
-                "app".to_string(),
-            ],
-            id: Some(12345),
-        };
-
-        let slim_name: SlimName = name.into();
-        let components = slim_name.components_strings();
-
-        assert_eq!(components[0], "org");
-        assert_eq!(components[1], "namespace");
-        assert_eq!(components[2], "app");
-        assert_eq!(slim_name.id(), 12345);
-    }
-
-    /// Test Name to SlimName conversion with partial components
-    #[test]
-    fn test_name_to_slim_name_partial() {
-        let name = Name {
-            components: vec!["org".to_string()],
-            id: None,
-        };
-
-        let slim_name: SlimName = name.into();
-        let components = slim_name.components_strings();
-
-        assert_eq!(components[0], "org");
-        assert_eq!(components[1], "");
-        assert_eq!(components[2], "");
-    }
-
-    /// Test Name to SlimName conversion with empty components
-    #[test]
-    fn test_name_to_slim_name_empty() {
-        let name = Name {
-            components: vec![],
-            id: None,
-        };
-
-        let slim_name: SlimName = name.into();
-        let components = slim_name.components_strings();
-
-        assert_eq!(components[0], "");
-        assert_eq!(components[1], "");
-        assert_eq!(components[2], "");
-    }
-
-    /// Test SlimName to Name conversion
-    #[test]
-    fn test_slim_name_to_name() {
-        let slim_name = SlimName::from_strings(["org", "namespace", "app"]).with_id(54321);
-
-        let name = Name::from(&slim_name);
-
-        assert_eq!(name.components, vec!["org", "namespace", "app"]);
-        assert_eq!(name.id, Some(54321));
-    }
-
-    /// Test Name roundtrip conversion
-    #[test]
-    fn test_name_roundtrip() {
-        let original = Name {
-            components: vec![
-                "org".to_string(),
-                "namespace".to_string(),
-                "app".to_string(),
-            ],
-            id: Some(99999),
-        };
-
-        let slim_name: SlimName = original.clone().into();
-        let converted = Name::from(&slim_name);
-
-        assert_eq!(original.components, converted.components);
-        assert_eq!(original.id, converted.id);
-    }
-
-    // ========================================================================
-    // SessionConfig Conversion Tests
-    // ========================================================================
-
-    /// Test SessionConfig to SlimSessionConfig conversion for PointToPoint
-    #[test]
-    fn test_session_config_point_to_point() {
-        let config = SessionConfig {
-            session_type: SessionType::PointToPoint,
-            enable_mls: true,
-            max_retries: Some(5),
-            interval_ms: Some(200),
-            initiator: true,
-            metadata: std::collections::HashMap::from([
-                ("key1".to_string(), "value1".to_string()),
-                ("key2".to_string(), "value2".to_string()),
-            ]),
-        };
-
-        let slim_config: SlimSessionConfig = config.into();
-
-        assert_eq!(slim_config.session_type, ProtoSessionType::PointToPoint);
-        assert!(slim_config.mls_enabled);
-        assert_eq!(slim_config.max_retries, Some(5));
-        assert_eq!(
-            slim_config.interval,
-            Some(std::time::Duration::from_millis(200))
-        );
-        assert!(slim_config.initiator);
-        assert_eq!(
-            slim_config.metadata.get("key1"),
-            Some(&"value1".to_string())
-        );
-    }
-
-    /// Test SessionConfig to SlimSessionConfig conversion for Group
-    #[test]
-    fn test_session_config_group() {
-        let config = SessionConfig {
-            session_type: SessionType::Group,
-            enable_mls: false,
-            max_retries: None,
-            interval_ms: None,
-            initiator: false,
-            metadata: std::collections::HashMap::new(),
-        };
-
-        let slim_config: SlimSessionConfig = config.into();
-
-        assert_eq!(slim_config.session_type, ProtoSessionType::Multicast);
-        assert!(!slim_config.mls_enabled);
-        assert!(slim_config.max_retries.is_none());
-        assert!(slim_config.interval.is_none());
-        assert!(!slim_config.initiator);
-    }
-
-    // ========================================================================
-    // BuildInfo and Version Tests
-    // ========================================================================
-
-    /// Test get_version returns non-empty version string
-    #[test]
-    fn test_get_version() {
-        let version = get_version();
-        assert!(!version.is_empty());
-        // Version should be semver format
-        assert!(
-            version.contains('.'),
-            "Version should contain dot separator"
-        );
-    }
-
-    /// Test get_build_info returns valid build information
-    #[test]
-    fn test_get_build_info() {
-        let info = get_build_info();
-
-        assert!(!info.version.is_empty());
-        assert!(!info.git_sha.is_empty());
-        assert!(!info.build_date.is_empty());
-        assert!(!info.profile.is_empty());
-
-        // Profile should be either debug or release
-        assert!(
-            info.profile == "debug" || info.profile == "release",
-            "Profile should be debug or release, got: {}",
-            info.profile
-        );
-    }
-
-    /// Test BuildInfo clone and debug
-    #[test]
-    fn test_build_info_traits() {
-        let info = get_build_info();
-        let cloned = info.clone();
-
-        assert_eq!(info.version, cloned.version);
-        assert_eq!(info.git_sha, cloned.git_sha);
-        assert_eq!(info.build_date, cloned.build_date);
-        assert_eq!(info.profile, cloned.profile);
-
-        // Debug trait should work
-        let debug_str = format!("{:?}", info);
-        assert!(debug_str.contains("BuildInfo"));
-    }
-
     // ========================================================================
     // TlsConfig Tests
     // ========================================================================
@@ -1624,122 +1062,55 @@ mod tests {
     /// Test TlsConfig with all fields
     #[test]
     fn test_tls_config_full() {
-        let config = TlsConfig {
+        use crate::common_config::TlsClientConfig;
+
+        let config = TlsClientConfig {
             insecure: false,
-            insecure_skip_verify: Some(true),
-            cert_file: Some("/path/to/cert.pem".to_string()),
-            key_file: Some("/path/to/key.pem".to_string()),
-            ca_file: Some("/path/to/ca.pem".to_string()),
-            tls_version: Some("tls1.3".to_string()),
-            include_system_ca_certs_pool: Some(true),
+            insecure_skip_verify: false,
+            source: crate::common_config::TlsSource::File {
+                cert: "test-cert.pem".to_string(),
+                key: "test-key.pem".to_string(),
+            },
+            ca_source: crate::common_config::CaSource::File {
+                path: "test-ca.pem".to_string(),
+            },
+            include_system_ca_certs_pool: true,
+            tls_version: "tls1.3".to_string(),
         };
 
         assert!(!config.insecure);
-        assert_eq!(config.insecure_skip_verify, Some(true));
-        assert_eq!(config.cert_file, Some("/path/to/cert.pem".to_string()));
-        assert_eq!(config.key_file, Some("/path/to/key.pem".to_string()));
-        assert_eq!(config.ca_file, Some("/path/to/ca.pem".to_string()));
-        assert_eq!(config.tls_version, Some("tls1.3".to_string()));
-        assert_eq!(config.include_system_ca_certs_pool, Some(true));
+        assert!(!config.insecure_skip_verify);
+        assert!(matches!(
+            config.source,
+            crate::common_config::TlsSource::File { .. }
+        ));
+        assert!(matches!(
+            config.ca_source,
+            crate::common_config::CaSource::File { .. }
+        ));
+        assert_eq!(config.tls_version, "tls1.3");
+        assert!(config.include_system_ca_certs_pool);
     }
 
     /// Test TlsConfig with insecure mode
     #[test]
     fn test_tls_config_insecure() {
-        let config = TlsConfig {
+        use crate::common_config::TlsClientConfig;
+
+        let config = TlsClientConfig {
             insecure: true,
-            insecure_skip_verify: None,
-            cert_file: None,
-            key_file: None,
-            ca_file: None,
-            tls_version: None,
-            include_system_ca_certs_pool: None,
+            insecure_skip_verify: false,
+            source: crate::common_config::TlsSource::None,
+            ca_source: crate::common_config::CaSource::None,
+            include_system_ca_certs_pool: true,
+            tls_version: "tls1.3".to_string(),
         };
 
         assert!(config.insecure);
-        assert!(config.cert_file.is_none());
-    }
-
-    // ========================================================================
-    // ServerConfig and ClientConfig Tests
-    // ========================================================================
-
-    /// Test ServerConfig creation
-    #[test]
-    fn test_server_config() {
-        let config = ServerConfig {
-            endpoint: "127.0.0.1:8080".to_string(),
-            tls: TlsConfig {
-                insecure: false,
-                insecure_skip_verify: None,
-                cert_file: Some("/cert.pem".to_string()),
-                key_file: Some("/key.pem".to_string()),
-                ca_file: None,
-                tls_version: None,
-                include_system_ca_certs_pool: None,
-            },
-        };
-
-        assert_eq!(config.endpoint, "127.0.0.1:8080");
-        assert!(!config.tls.insecure);
-    }
-
-    /// Test ClientConfig creation
-    #[test]
-    fn test_client_config() {
-        let config = ClientConfig {
-            endpoint: "example.com:443".to_string(),
-            tls: TlsConfig {
-                insecure: false,
-                insecure_skip_verify: Some(false),
-                cert_file: None,
-                key_file: None,
-                ca_file: Some("/ca.pem".to_string()),
-                tls_version: Some("tls1.2".to_string()),
-                include_system_ca_certs_pool: Some(true),
-            },
-        };
-
-        assert_eq!(config.endpoint, "example.com:443");
-        assert_eq!(config.tls.tls_version, Some("tls1.2".to_string()));
-    }
-
-    // ========================================================================
-    // SlimError Display Tests
-    // ========================================================================
-
-    /// Test SlimError Display implementations
-    #[test]
-    fn test_slim_error_display() {
-        let errors = vec![
-            SlimError::SessionError {
-                message: "session".to_string(),
-            },
-            SlimError::ReceiveError {
-                message: "receive".to_string(),
-            },
-            SlimError::SendError {
-                message: "send".to_string(),
-            },
-            SlimError::AuthError {
-                message: "auth".to_string(),
-            },
-            SlimError::Timeout,
-            SlimError::InvalidArgument {
-                message: "invalid".to_string(),
-            },
-            SlimError::InternalError {
-                message: "internal".to_string(),
-            },
-        ];
-
-        for error in errors {
-            let display = format!("{}", error);
-            assert!(!display.is_empty(), "Error display should not be empty");
-        }
-
-        // Specific checks
-        assert!(format!("{}", SlimError::Timeout).contains("timed out"));
+        assert!(matches!(
+            config.source,
+            crate::common_config::TlsSource::None
+        ));
     }
 
     // ========================================================================
@@ -1763,10 +1134,10 @@ mod tests {
 
         // Name should have the right components
         let name = adapter.name();
-        assert_eq!(name.components[0], "org");
-        assert_eq!(name.components[1], "namespace");
-        assert_eq!(name.components[2], "id-test");
-        assert!(name.id.is_some());
+        assert_eq!(name.components()[0], "org");
+        assert_eq!(name.components()[1], "namespace");
+        assert_eq!(name.components()[2], "id-test");
+        assert!(name.id() > 0);
     }
 
     /// Test adapter with local service
@@ -1816,14 +1187,18 @@ mod tests {
     fn test_received_message() {
         let msg = ReceivedMessage {
             context: crate::message_context::MessageContext::new(
-                Name {
-                    components: vec!["org".to_string(), "ns".to_string(), "app".to_string()],
-                    id: Some(123),
-                },
-                Some(Name {
-                    components: vec!["org".to_string(), "ns".to_string(), "dest".to_string()],
-                    id: Some(456),
-                }),
+                Name::new(
+                    "org".to_string(),
+                    "ns".to_string(),
+                    "app".to_string(),
+                    Some(123),
+                ),
+                Some(Name::new(
+                    "org".to_string(),
+                    "ns".to_string(),
+                    "dest".to_string(),
+                    Some(456),
+                )),
                 "application/json".to_string(),
                 std::collections::HashMap::new(),
                 789,
@@ -1846,38 +1221,9 @@ mod tests {
     #[test]
     fn test_initialize_crypto_provider_idempotent() {
         // Should not panic when called multiple times
-        initialize_crypto_provider();
-        initialize_crypto_provider();
-        initialize_crypto_provider();
-    }
-
-    // ========================================================================
-    // Name Traits Tests
-    // ========================================================================
-
-    /// Test Name Debug, Clone, and PartialEq traits
-    #[test]
-    fn test_name_traits() {
-        let name1 = Name {
-            components: vec!["a".to_string(), "b".to_string(), "c".to_string()],
-            id: Some(100),
-        };
-        let name2 = name1.clone();
-
-        // PartialEq
-        assert_eq!(name1, name2);
-
-        // Different names should not be equal
-        let name3 = Name {
-            components: vec!["x".to_string(), "y".to_string(), "z".to_string()],
-            id: Some(200),
-        };
-        assert_ne!(name1, name3);
-
-        // Debug
-        let debug_str = format!("{:?}", name1);
-        assert!(debug_str.contains("Name"));
-        assert!(debug_str.contains("components"));
+        crate::common::initialize_crypto_provider();
+        crate::common::initialize_crypto_provider();
+        crate::common::initialize_crypto_provider();
     }
 
     // ========================================================================
@@ -1887,14 +1233,12 @@ mod tests {
     /// Test create_app_with_secret FFI entry point
     #[test]
     fn test_create_app_with_secret() {
-        let app_name = Name {
-            components: vec![
-                "org".to_string(),
-                "namespace".to_string(),
-                "ffi-app".to_string(),
-            ],
-            id: None,
-        };
+        let app_name = Arc::new(Name::new(
+            "org".to_string(),
+            "namespace".to_string(),
+            "ffi-app".to_string(),
+            None,
+        ));
 
         let result = create_app_with_secret(app_name, TEST_VALID_SECRET.to_string());
         assert!(result.is_ok(), "create_app_with_secret should succeed");
@@ -1903,18 +1247,20 @@ mod tests {
         assert!(adapter.id() > 0);
 
         let name = adapter.name();
-        assert_eq!(name.components[0], "org");
-        assert_eq!(name.components[1], "namespace");
-        assert_eq!(name.components[2], "ffi-app");
+        assert_eq!(name.components()[0], "org");
+        assert_eq!(name.components()[1], "namespace");
+        assert_eq!(name.components()[2], "ffi-app");
     }
 
     /// Test create_app_with_secret with empty name components
     #[test]
     fn test_create_app_with_secret_minimal_name() {
-        let app_name = Name {
-            components: vec!["org".to_string(), "ns".to_string(), "".to_string()],
-            id: None,
-        };
+        let app_name = Arc::new(Name::new(
+            "org".to_string(),
+            "ns".to_string(),
+            "".to_string(),
+            None,
+        ));
 
         let result = create_app_with_secret(app_name, TEST_VALID_SECRET.to_string());
         // Should handle empty component
@@ -1969,10 +1315,12 @@ mod tests {
         let adapter = BindingsAdapter::new(base_name, provider, verifier, true)
             .expect("Failed to create adapter");
 
-        let target_name = Name {
-            components: vec!["org".to_string(), "ns".to_string(), "target".to_string()],
-            id: None,
-        };
+        let target_name = Arc::new(Name::new(
+            "org".to_string(),
+            "ns".to_string(),
+            "target".to_string(),
+            None,
+        ));
 
         // Subscribe (may fail without connection, but shouldn't panic)
         let sub_result = adapter.subscribe_async(target_name.clone(), None).await;
@@ -2000,14 +1348,12 @@ mod tests {
         let adapter = BindingsAdapter::new(base_name, provider, verifier, true)
             .expect("Failed to create adapter");
 
-        let target_name = Name {
-            components: vec![
-                "org".to_string(),
-                "ns".to_string(),
-                "route-target".to_string(),
-            ],
-            id: None,
-        };
+        let target_name = Arc::new(Name::new(
+            "org".to_string(),
+            "ns".to_string(),
+            "route-target".to_string(),
+            None,
+        ));
 
         // Set route (may fail without valid connection_id)
         let set_result = adapter.set_route_async(target_name.clone(), 12345).await;
@@ -2079,19 +1425,16 @@ mod tests {
             session_type: SessionType::PointToPoint,
             enable_mls: false,
             max_retries: Some(1),
-            interval_ms: Some(50),
-            initiator: true,
+            interval: Some(std::time::Duration::from_millis(50)),
             metadata: std::collections::HashMap::new(),
         };
 
-        let destination = Name {
-            components: vec![
-                "org".to_string(),
-                "test".to_string(),
-                "delete-dest".to_string(),
-            ],
-            id: None,
-        };
+        let destination = Arc::new(Name::new(
+            "org".to_string(),
+            "test".to_string(),
+            "delete-dest".to_string(),
+            None,
+        ));
 
         // Create session (may fail without network)
         if let Ok(session) = adapter
@@ -2147,14 +1490,12 @@ mod tests {
         let adapter = BindingsAdapter::new(base_name, provider, verifier, true)
             .expect("Failed to create adapter");
 
-        let target_name = Name {
-            components: vec![
-                "org".to_string(),
-                "ns".to_string(),
-                "blocking-target".to_string(),
-            ],
-            id: None,
-        };
+        let target_name = Arc::new(Name::new(
+            "org".to_string(),
+            "ns".to_string(),
+            "block-target".to_string(),
+            None,
+        ));
 
         // Call async version (blocking version can't be called from async context)
         let _ = adapter.subscribe_async(target_name, None).await;

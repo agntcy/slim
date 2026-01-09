@@ -23,10 +23,7 @@ func main() {
 	fmt.Printf("📦 SLIM Bindings Version: %s\n\n", version)
 
 	// Create an app with shared secret authentication
-	appName := slim.Name{
-		Components: []string{"org", "myapp", "v1"},
-		Id:         nil,
-	}
+	appName := slim.NewName("org", "myapp", "v1", nil)
 
 	// Note: Shared secret must be at least 32 bytes
 	sharedSecret := "my-shared-secret-value-must-be-at-least-32-bytes-long!"
@@ -38,7 +35,7 @@ func main() {
 
 	fmt.Printf("✅ App created with ID: %d\n", app.Id())
 	appNameResult := app.Name()
-	fmt.Printf("   Name components: %v\n\n", appNameResult.Components)
+	fmt.Printf("   Name components: %v\n\n", appNameResult.Components())
 
 	// Create a session configuration
 	sessionConfig := slim.SessionConfig{
@@ -46,10 +43,7 @@ func main() {
 		EnableMls:   false,
 	}
 
-	destination := slim.Name{
-		Components: []string{"org", "receiver", "v1"},
-		Id:         nil,
-	}
+	destination := slim.NewName("org", "receiver", "v1", nil)
 
 	fmt.Println("📡 Creating session to destination...")
 	session, err := app.CreateSession(sessionConfig, destination)
@@ -81,10 +75,7 @@ func main() {
 	}
 
 	// Test subscription
-	subscriptionName := slim.Name{
-		Components: []string{"org", "myapp", "events"},
-		Id:         nil,
-	}
+	subscriptionName := slim.NewName("org", "myapp", "events", nil)
 
 	fmt.Println("\n📥 Testing subscription...")
 	err = app.Subscribe(subscriptionName, nil)
@@ -103,10 +94,7 @@ func main() {
 	}
 
 	// Test invite (will fail for non-multicast session)
-	inviteeName := slim.Name{
-		Components: []string{"org", "guest", "v1"},
-		Id:         nil,
-	}
+	inviteeName := slim.NewName("org", "guest", "v1", nil)
 
 	fmt.Println("\n👥 Testing session invite...")
 	err = session.Invite(inviteeName)

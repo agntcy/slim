@@ -10,9 +10,9 @@ use tokio_retry::strategy::FixedInterval;
 #[serde(default)]
 pub struct Config {
     #[schemars(with = "String")]
-    interval: DurationString,
+    pub interval: DurationString,
     #[serde(default = "default_max_attempts")]
-    max_attempts: usize,
+    pub max_attempts: usize,
 }
 
 impl Config {
