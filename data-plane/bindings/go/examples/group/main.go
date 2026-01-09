@@ -81,12 +81,12 @@ func runModerator(app *slim.BindingsAdapter, connID uint64, remote string, invit
 	fmt.Printf("%s[%d]%s 📡 Creating group session as moderator for channel: %s\n", colorCyan, instance, colorReset, remote)
 
 	// Create multicast session
+	interval := time.Second * 5
 	config := slim.SessionConfig{
 		SessionType: slim.SessionTypeGroup,
 		EnableMls:   enableMLS,
-		MaxRetries:  &[]uint32{5}[0],    // 5 retries
-		IntervalMs:  &[]uint64{5000}[0], // 5 second timeout
-		Initiator:   true,
+		MaxRetries:  &[]uint32{5}[0], // 5 retries
+		Interval:    &interval,
 		Metadata:    make(map[string]string),
 	}
 

@@ -76,10 +76,7 @@ func CreateAndConnectApp(localID, serverAddr, secret string) (*slim.BindingsAdap
 	}
 
 	// Connect to SLIM server (returns connection ID)
-	config := slim.ClientConfig{
-		Endpoint: serverAddr,
-		Tls:      slim.TlsConfig{Insecure: true},
-	}
+	config := slim.NewInsecureClientConfig(serverAddr)
 	connID, err := app.Connect(config)
 	if err != nil {
 		app.Destroy()

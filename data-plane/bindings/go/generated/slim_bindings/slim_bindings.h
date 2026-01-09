@@ -696,6 +696,21 @@ void uniffi_slim_bindings_fn_func_initialize_crypto_provider(RustCallStatus *out
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_NEW_INSECURE_CLIENT_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_NEW_INSECURE_CLIENT_CONFIG
+RustBuffer uniffi_slim_bindings_fn_func_new_insecure_client_config(RustBuffer endpoint, RustCallStatus *out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_NEW_INSECURE_SERVER_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_NEW_INSECURE_SERVER_CONFIG
+RustBuffer uniffi_slim_bindings_fn_func_new_insecure_server_config(RustBuffer endpoint, RustCallStatus *out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_NEW_SERVER_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_NEW_SERVER_CONFIG
+RustBuffer uniffi_slim_bindings_fn_func_new_server_config(RustBuffer endpoint, RustCallStatus *out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_FFI_SLIM_BINDINGS_RUSTBUFFER_ALLOC
 #define UNIFFI_FFIDEF_FFI_SLIM_BINDINGS_RUSTBUFFER_ALLOC
 RustBuffer ffi_slim_bindings_rustbuffer_alloc(uint64_t size, RustCallStatus *out_status
@@ -997,6 +1012,24 @@ uint16_t uniffi_slim_bindings_checksum_func_get_version(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_INITIALIZE_CRYPTO_PROVIDER
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_INITIALIZE_CRYPTO_PROVIDER
 uint16_t uniffi_slim_bindings_checksum_func_initialize_crypto_provider(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_NEW_INSECURE_CLIENT_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_NEW_INSECURE_CLIENT_CONFIG
+uint16_t uniffi_slim_bindings_checksum_func_new_insecure_client_config(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_NEW_INSECURE_SERVER_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_NEW_INSECURE_SERVER_CONFIG
+uint16_t uniffi_slim_bindings_checksum_func_new_insecure_server_config(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_NEW_SERVER_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_NEW_SERVER_CONFIG
+uint16_t uniffi_slim_bindings_checksum_func_new_server_config(void
     
 );
 #endif
