@@ -38,6 +38,21 @@ use slim_session::session_controller::SessionController;
 use slim_session::{Notification, SessionError as SlimSessionError};
 
 // ============================================================================
+// Return Types
+// ============================================================================
+
+/// Result of creating a session, containing the session context and a completion handle
+///
+/// The completion handle should be awaited to ensure the session is fully established.
+#[derive(uniffi::Record)]
+pub struct SessionWithCompletion {
+    /// The session context for performing operations
+    pub session: Arc<crate::BindingsSessionContext>,
+    /// Completion handle to wait for session establishment
+    pub completion: Arc<crate::CompletionHandle>,
+}
+
+// ============================================================================
 // FFI Entry Points
 // ============================================================================
 
@@ -161,26 +176,29 @@ impl BindingsAdapter {
     }
 
     /// Create a new session (blocking version for FFI)
+    ///
+    /// Returns a SessionWithCompletion containing the session context and a completion handle.
+    /// Call `.wait()` on the completion handle to wait for session establishment.
     pub fn create_session(
         &self,
         config: SessionConfig,
         destination: Arc<Name>,
-    ) -> Result<Arc<crate::BindingsSessionContext>, SlimError> {
+    ) -> Result<SessionWithCompletion, SlimError> {
         runtime::get_runtime()
             .block_on(async { self.create_session_async(config, destination).await })
     }
 
     /// Create a new session (async version)
     ///
-    /// **Auto-waits for session establishment:** This method automatically waits for the
-    /// session handshake to complete before returning. For point-to-point sessions, this
-    /// ensures the remote peer has acknowledged the session. For multicast sessions, this
-    /// ensures the initial setup is complete.
+    /// Returns a SessionWithCompletion containing the session context and a completion handle.
+    /// Await the completion handle to wait for session establishment.
+    /// For point-to-point sessions, this ensures the remote peer has acknowledged the session.
+    /// For multicast sessions, this ensures the initial setup is complete.
     pub async fn create_session_async(
         &self,
         config: SessionConfig,
         destination: Arc<Name>,
-    ) -> Result<Arc<crate::BindingsSessionContext>, SlimError> {
+    ) -> Result<SessionWithCompletion, SlimError> {
         let slim_config: SlimSessionConfig = config.into();
         let slim_dest: SlimName = destination.as_ref().into();
 
@@ -189,27 +207,60 @@ impl BindingsAdapter {
             .create_session(slim_config, slim_dest, None)
             .await?;
 
-        // Wait for session establishment to complete
-        // This ensures the session is fully ready before returning
-        completion.await?;
+        // Create BindingsSessionContext and CompletionHandle
+        let bindings_ctx = Arc::new(crate::BindingsSessionContext::new(session_ctx));
+        let completion_handle = Arc::new(crate::CompletionHandle::from(completion));
 
-        // Create BindingsSessionContext with the runtime
-        Ok(Arc::new(crate::BindingsSessionContext::new(session_ctx)))
+        Ok(SessionWithCompletion {
+            session: bindings_ctx,
+            completion: completion_handle,
+        })
+    }
+
+    /// Create a new session and wait for completion (blocking version)
+    ///
+    /// This method creates a session and blocks until the session establishment completes.
+    /// Returns only the session context, as the completion has already been awaited.
+    pub fn create_session_and_wait(
+        &self,
+        config: SessionConfig,
+        destination: Arc<Name>,
+    ) -> Result<Arc<crate::BindingsSessionContext>, SlimError> {
+        runtime::get_runtime()
+            .block_on(async { self.create_session_and_wait_async(config, destination).await })
+    }
+
+    /// Create a new session and wait for completion (async version)
+    ///
+    /// This method creates a session and waits until the session establishment completes.
+    /// Returns only the session context, as the completion has already been awaited.
+    pub async fn create_session_and_wait_async(
+        &self,
+        config: SessionConfig,
+        destination: Arc<Name>,
+    ) -> Result<Arc<crate::BindingsSessionContext>, SlimError> {
+        let session_with_completion = self.create_session_async(config, destination).await?;
+        session_with_completion.completion.wait_async().await?;
+        Ok(session_with_completion.session)
     }
 
     /// Delete a session (blocking version for FFI)
+    ///
+    /// Returns a completion handle that can be awaited to ensure the deletion completes.
     pub fn delete_session(
         &self,
         session: Arc<crate::BindingsSessionContext>,
-    ) -> Result<(), SlimError> {
+    ) -> Result<Arc<crate::CompletionHandle>, SlimError> {
         runtime::get_runtime().block_on(async { self.delete_session_async(session).await })
     }
 
     /// Delete a session (async version)
+    ///
+    /// Returns a completion handle that can be awaited to ensure the deletion completes.
     pub async fn delete_session_async(
         &self,
         session: Arc<crate::BindingsSessionContext>,
-    ) -> Result<(), SlimError> {
+    ) -> Result<Arc<crate::CompletionHandle>, SlimError> {
         let session_ref = session
             .session
             .upgrade()
@@ -219,13 +270,32 @@ impl BindingsAdapter {
 
         let completion = self.app.delete_session(&session_ref)?;
 
-        // Wait for session deletion to complete
-        completion.await?;
-
-        Ok(())
+        // Return completion handle for caller to wait on
+        Ok(Arc::new(crate::CompletionHandle::from(completion)))
     }
 
-    /// Subscribe to a name (blocking version for FFI)
+    /// Delete a session and wait for completion (blocking version)
+    ///
+    /// This method deletes a session and blocks until the deletion completes.
+    pub fn delete_session_and_wait(
+        &self,
+        session: Arc<crate::BindingsSessionContext>,
+    ) -> Result<(), SlimError> {
+        runtime::get_runtime().block_on(async { self.delete_session_and_wait_async(session).await })
+    }
+
+    /// Delete a session and wait for completion (async version)
+    ///
+    /// This method deletes a session and waits until the deletion completes.
+    pub async fn delete_session_and_wait_async(
+        &self,
+        session: Arc<crate::BindingsSessionContext>,
+    ) -> Result<(), SlimError> {
+        let completion_handle = self.delete_session_async(session).await?;
+        completion_handle.wait_async().await
+    }
+
+    /// Subscribe to a session name (blocking version for FFI)
     pub fn subscribe(&self, name: Arc<Name>, connection_id: Option<u64>) -> Result<(), SlimError> {
         runtime::get_runtime().block_on(async { self.subscribe_async(name, connection_id).await })
     }
@@ -1021,11 +1091,9 @@ mod tests {
         {
             let data = b"test message".to_vec();
 
-            // Attempt to publish with completion
+            // Attempt to publish (always returns completion handle)
             // This verifies the API exists and returns the right type
-            let result = session
-                .publish_with_completion_async(data, None, None)
-                .await;
+            let result = session.session.publish_async(data, None, None).await;
 
             match result {
                 Ok(completion_handle) => {
@@ -1388,14 +1456,18 @@ mod tests {
         ));
 
         // Create session (may fail without network)
-        if let Ok(session) = adapter
+        if let Ok(session_with_completion) = adapter
             .create_session_async(session_config, destination)
             .await
         {
             // Delete session
-            let delete_result = adapter.delete_session_async(session).await;
+            let delete_result = adapter
+                .delete_session_async(session_with_completion.session)
+                .await;
             // May succeed or fail depending on session state
-            let _ = delete_result;
+            if let Ok(completion) = delete_result {
+                let _ = completion;
+            }
         }
     }
 

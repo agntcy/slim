@@ -251,7 +251,7 @@ func TestSessionLifecycle(t *testing.T) {
 
 	// Step 4: Delete session
 	t.Log("Deleting session...")
-	err = harness.Sender.DeleteSession(session)
+	err = harness.Sender.DeleteSessionAndWait(session)
 	if err != nil {
 		t.Fatalf("Failed to delete session: %v", err)
 	}
@@ -427,7 +427,7 @@ func TestSessionInviteRemove(t *testing.T) {
 
 	destination := slim.NewName("org", "group", "v1", nil)
 
-	session, err := harness.Sender.CreateSession(sessionConfig, destination)
+	session, err := harness.Sender.CreateSessionAndWait(sessionConfig, destination)
 	if err != nil {
 		t.Fatalf("Failed to create session for invite test: %v", err)
 	}
@@ -439,7 +439,7 @@ func TestSessionInviteRemove(t *testing.T) {
 	err = harness.Sender.SetRoute(participant, 1)
 
 	// Test invite - may fail for point-to-point or without full group management
-	err = session.Invite(participant)
+	err = session.InviteAndWait(participant)
 	if err != nil {
 		t.Logf("Invite failed (may be expected for basic session): %v", err)
 	} else {
@@ -447,7 +447,7 @@ func TestSessionInviteRemove(t *testing.T) {
 	}
 
 	// Test remove
-	err = session.Remove(participant)
+	err = session.RemoveAndWait(participant)
 	if err != nil {
 		t.Logf("Remove failed (may be expected): %v", err)
 	} else {
@@ -479,10 +479,10 @@ func TestCompletionHandleDoubleWait(t *testing.T) {
 	message := []byte("Test message")
 	payloadType := "text/plain"
 
-	// Get completion handle
-	completion, err := session.PublishWithCompletion(message, &payloadType, nil)
+	// Get completion handle - use regular Publish which returns a completion handle
+	completion, err := session.Publish(message, &payloadType, nil)
 	if err != nil {
-		t.Fatalf("PublishWithCompletion failed: %v", err)
+		t.Fatalf("Publish failed: %v", err)
 	}
 	defer completion.Destroy()
 
@@ -544,7 +544,7 @@ func TestInviteAutoWait(t *testing.T) {
 
 	destination := slim.NewName("org", "group", "v1", nil)
 
-	session, err := harness.Sender.CreateSession(sessionConfig, destination)
+	session, err := harness.Sender.CreateSessionAndWait(sessionConfig, destination)
 	if err != nil {
 		t.Fatalf("Failed to create multicast session: %v", err)
 	}
@@ -554,7 +554,7 @@ func TestInviteAutoWait(t *testing.T) {
 
 	// Invite should auto-wait for acknowledgment
 	start := time.Now()
-	err = session.Invite(participant)
+	err = session.InviteAndWait(participant)
 	elapsed := time.Since(start)
 
 	// Will fail without full group management, but should still auto-wait
@@ -578,7 +578,7 @@ func TestRemoveAutoWait(t *testing.T) {
 
 	destination := slim.NewName("org", "group", "v1", nil)
 
-	session, err := harness.Sender.CreateSession(sessionConfig, destination)
+	session, err := harness.Sender.CreateSessionAndWait(sessionConfig, destination)
 	if err != nil {
 		t.Fatalf("Failed to create multicast session: %v", err)
 	}
@@ -588,7 +588,7 @@ func TestRemoveAutoWait(t *testing.T) {
 
 	// Remove should auto-wait for acknowledgment
 	start := time.Now()
-	err = session.Remove(participant)
+	err = session.RemoveAndWait(participant)
 	elapsed := time.Since(start)
 
 	// Will fail without participant, but should still auto-wait

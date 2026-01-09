@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use slim_session::CompletionHandle;
+use slim_session::CompletionHandle as SlimCompletionHandle;
 use slim_session::session_controller::SessionController;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -14,9 +14,8 @@ use slim_session::SessionConfig as SlimSessionConfig;
 use slim_session::SessionError;
 use slim_session::context::SessionContext;
 
-use crate::adapter::FfiCompletionHandle;
 use crate::message_context::MessageContext;
-use crate::{Name, ReceivedMessage, SlimError, runtime};
+use crate::{CompletionHandle, Name, ReceivedMessage, SlimError, runtime};
 
 /// Session type enum
 #[derive(Debug, Clone, PartialEq, uniffi::Enum)]
@@ -111,7 +110,7 @@ impl BindingsSessionContext {
         conn_out: Option<u64>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<CompletionHandle, SessionError> {
+    ) -> Result<SlimCompletionHandle, SessionError> {
         let session = self.session.upgrade().ok_or(SessionError::SessionClosed)?;
 
         let flags = SlimHeaderFlags::new(fanout, None, conn_out, None, None);
@@ -127,13 +126,13 @@ impl BindingsSessionContext {
     ///
     /// This is the low-level publish_to method that takes MessageContext reference.
     /// Use `publish_to()` for FFI-compatible API.
-    pub async fn publish_to_internal(
+    async fn publish_to_internal(
         &self,
         message_ctx: &MessageContext,
         blob: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<CompletionHandle, SessionError> {
+    ) -> Result<SlimCompletionHandle, SessionError> {
         let session = self.session.upgrade().ok_or(SessionError::SessionClosed)?;
 
         let flags = SlimHeaderFlags::new(
@@ -167,10 +166,10 @@ impl BindingsSessionContext {
     ///
     /// This is the low-level invite method that takes SlimName reference.
     /// Use `invite()` for FFI-compatible API with auto-wait.
-    pub async fn invite_internal(
+    async fn invite_internal(
         &self,
         destination: &SlimName,
-    ) -> Result<CompletionHandle, SessionError> {
+    ) -> Result<SlimCompletionHandle, SessionError> {
         let session = self.session.upgrade().ok_or(SessionError::SessionClosed)?;
 
         session.invite_participant(destination).await
@@ -180,17 +179,17 @@ impl BindingsSessionContext {
     ///
     /// This is the low-level remove method that takes SlimName reference.
     /// Use `remove()` for FFI-compatible API with auto-wait.
-    pub async fn remove_internal(
+    async fn remove_internal(
         &self,
         destination: &SlimName,
-    ) -> Result<CompletionHandle, SessionError> {
+    ) -> Result<SlimCompletionHandle, SessionError> {
         let session = self.session.upgrade().ok_or(SessionError::SessionClosed)?;
 
         session.remove_participant(destination).await
     }
 
     /// Receive a message from this session with optional timeout
-    pub async fn get_session_message(
+    async fn get_session_message(
         &self,
         timeout: Option<std::time::Duration>,
     ) -> Result<(MessageContext, Vec<u8>), SessionError> {
@@ -218,16 +217,9 @@ impl BindingsSessionContext {
 
 #[uniffi::export]
 impl BindingsSessionContext {
-    /// Publish a message to the session's destination (fire-and-forget, blocking version)
+    /// Publish a message to the session's destination (blocking version)
     ///
-    /// This is the simple "fire-and-forget" API that most users want.
-    /// The message is queued for sending and this method returns immediately without
-    /// waiting for delivery confirmation.
-    ///
-    /// **When to use:** Most common use case where you don't need delivery confirmation.
-    ///
-    /// **When not to use:** If you need to ensure the message was delivered, use
-    /// `publish_with_completion()` instead.
+    /// Returns a completion handle that can be awaited to ensure the message was delivered.
     ///
     /// # Arguments
     /// * `data` - The message payload bytes
@@ -235,91 +227,33 @@ impl BindingsSessionContext {
     /// * `metadata` - Optional key-value metadata pairs
     ///
     /// # Returns
-    /// * `Ok(())` - Message queued successfully
+    /// * `Ok(CompletionHandle)` - Handle to await delivery confirmation
     /// * `Err(SlimError)` - If publishing fails
+    ///
+    /// # Example
+    /// ```ignore
+    /// let completion = session.publish(data, None, None)?;
+    /// completion.wait()?; // Blocks until message is delivered
+    /// ```
     pub fn publish(
         &self,
         data: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<(), SlimError> {
+    ) -> Result<Arc<CompletionHandle>, SlimError> {
         runtime::get_runtime()
             .block_on(async { self.publish_async(data, payload_type, metadata).await })
     }
 
-    /// Publish a message to the session's destination (fire-and-forget, async version)
+    /// Publish a message to the session's destination (async version)
+    ///
+    /// Returns a completion handle that can be awaited to ensure the message was delivered.
     pub async fn publish_async(
         &self,
         data: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<(), SlimError> {
-        // Get the session's destination
-        let session = self
-            .session
-            .upgrade()
-            .ok_or_else(|| SlimError::SessionError {
-                message: "Session already closed or dropped".to_string(),
-            })?;
-
-        let destination = session.dst();
-
-        // Fire and forget - discard completion handle
-        self.publish_internal(
-            destination,
-            1, // fanout = 1 for normal publish
-            data,
-            None, // connection_out
-            payload_type,
-            metadata,
-        )
-        .await
-        .map(|_| ())?; // ignore completion handle
-
-        Ok(())
-    }
-
-    /// Publish a message with delivery confirmation (blocking version)
-    ///
-    /// This variant returns a `FfiCompletionHandle` that can be awaited to ensure
-    /// the message was delivered successfully. Use this when you need reliable
-    /// delivery confirmation.
-    ///
-    /// **When to use:** Critical messages where you need delivery confirmation.
-    ///
-    /// # Arguments
-    /// * `data` - The message payload bytes
-    /// * `payload_type` - Optional content type identifier
-    /// * `metadata` - Optional key-value metadata pairs
-    ///
-    /// # Returns
-    /// * `Ok(FfiCompletionHandle)` - Handle to await delivery confirmation
-    /// * `Err(SlimError)` - If publishing fails
-    ///
-    /// # Example
-    /// ```ignore
-    /// let completion = session.publish_with_completion(data, None, None)?;
-    /// completion.wait()?; // Blocks until message is delivered
-    /// ```
-    pub fn publish_with_completion(
-        &self,
-        data: Vec<u8>,
-        payload_type: Option<String>,
-        metadata: Option<HashMap<String, String>>,
-    ) -> Result<Arc<FfiCompletionHandle>, SlimError> {
-        runtime::get_runtime().block_on(async {
-            self.publish_with_completion_async(data, payload_type, metadata)
-                .await
-        })
-    }
-
-    /// Publish a message with delivery confirmation (async version)
-    pub async fn publish_with_completion_async(
-        &self,
-        data: Vec<u8>,
-        payload_type: Option<String>,
-        metadata: Option<HashMap<String, String>>,
-    ) -> Result<Arc<FfiCompletionHandle>, SlimError> {
+    ) -> Result<Arc<CompletionHandle>, SlimError> {
         let session = self
             .session
             .upgrade()
@@ -340,7 +274,33 @@ impl BindingsSessionContext {
             )
             .await?;
 
-        Ok(Arc::new(FfiCompletionHandle::new(completion)))
+        Ok(Arc::new(CompletionHandle::from(completion)))
+    }
+
+    /// Publish a message and wait for completion (blocking version)
+    ///
+    /// This method publishes a message and blocks until the delivery completes.
+    pub fn publish_and_wait(
+        &self,
+        data: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<(), SlimError> {
+        runtime::get_runtime()
+            .block_on(async { self.publish_and_wait_async(data, payload_type, metadata).await })
+    }
+
+    /// Publish a message and wait for completion (async version)
+    ///
+    /// This method publishes a message and waits until the delivery completes.
+    pub async fn publish_and_wait_async(
+        &self,
+        data: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<(), SlimError> {
+        let completion_handle = self.publish_async(data, payload_type, metadata).await?;
+        completion_handle.wait_async().await
     }
 
     /// Publish a reply message to the originator of a received message (blocking version for FFI)
@@ -349,6 +309,8 @@ impl BindingsSessionContext {
     /// to send a reply back to the sender. This is the preferred way to implement
     /// request/reply patterns.
     ///
+    /// Returns a completion handle that can be awaited to ensure the message was delivered.
+    ///
     /// # Arguments
     /// * `message_context` - Context from a message received via `get_message()`
     /// * `data` - The reply payload bytes
@@ -356,76 +318,68 @@ impl BindingsSessionContext {
     /// * `metadata` - Optional key-value metadata pairs
     ///
     /// # Returns
-    /// * `Ok(())` on success
-    /// * `Err(SlimError)` if publishing fails
+    /// * `Ok(CompletionHandle)` - Handle to await delivery confirmation
+    /// * `Err(SlimError)` - If publishing fails
     pub fn publish_to(
         &self,
         message_context: MessageContext,
         data: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<(), SlimError> {
+    ) -> Result<Arc<CompletionHandle>, SlimError> {
         runtime::get_runtime().block_on(async {
             self.publish_to_async(message_context, data, payload_type, metadata)
                 .await
         })
     }
 
-    /// Publish a reply message (fire-and-forget, async version)
+    /// Publish a reply message (async version)
+    ///
+    /// Returns a completion handle that can be awaited to ensure the message was delivered.
     pub async fn publish_to_async(
         &self,
         message_context: MessageContext,
         data: Vec<u8>,
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
-    ) -> Result<(), SlimError> {
-        self.publish_to_internal(&message_context, data, payload_type, metadata)
-            .await
-            .map(|_| ())?;
-
-        Ok(())
-    }
-
-    /// Publish a reply message with delivery confirmation (blocking version)
-    ///
-    /// Similar to `publish_with_completion()` but for reply messages.
-    /// Returns a completion handle to await delivery confirmation.
-    ///
-    /// # Arguments
-    /// * `message_context` - Context from a message received via `get_message()`
-    /// * `data` - The reply payload bytes
-    /// * `payload_type` - Optional content type identifier
-    /// * `metadata` - Optional key-value metadata pairs
-    ///
-    /// # Returns
-    /// * `Ok(FfiCompletionHandle)` - Handle to await delivery confirmation
-    /// * `Err(SlimError)` - If publishing fails
-    pub fn publish_to_with_completion(
-        &self,
-        message_context: MessageContext,
-        data: Vec<u8>,
-        payload_type: Option<String>,
-        metadata: Option<HashMap<String, String>>,
-    ) -> Result<Arc<FfiCompletionHandle>, SlimError> {
-        runtime::get_runtime().block_on(async {
-            self.publish_to_with_completion_async(message_context, data, payload_type, metadata)
-                .await
-        })
-    }
-
-    /// Publish a reply message with delivery confirmation (async version)
-    pub async fn publish_to_with_completion_async(
-        &self,
-        message_context: MessageContext,
-        data: Vec<u8>,
-        payload_type: Option<String>,
-        metadata: Option<HashMap<String, String>>,
-    ) -> Result<Arc<FfiCompletionHandle>, SlimError> {
+    ) -> Result<Arc<CompletionHandle>, SlimError> {
         let completion = self
             .publish_to_internal(&message_context, data, payload_type, metadata)
             .await?;
 
-        Ok(Arc::new(FfiCompletionHandle::new(completion)))
+        Ok(Arc::new(CompletionHandle::from(completion)))
+    }
+
+    /// Publish a reply message and wait for completion (blocking version)
+    ///
+    /// This method publishes a reply to a received message and blocks until the delivery completes.
+    pub fn publish_to_and_wait(
+        &self,
+        message_context: MessageContext,
+        data: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<(), SlimError> {
+        runtime::get_runtime().block_on(async {
+            self.publish_to_and_wait_async(message_context, data, payload_type, metadata)
+                .await
+        })
+    }
+
+    /// Publish a reply message and wait for completion (async version)
+    ///
+    /// This method publishes a reply to a received message and waits until the delivery completes.
+    pub async fn publish_to_and_wait_async(
+        &self,
+        message_context: MessageContext,
+        data: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<(), SlimError> {
+        let completion_handle = self
+            .publish_to_async(message_context, data, payload_type, metadata)
+            .await?;
+        completion_handle.wait_async().await
     }
 
     /// Low-level publish with full control over all parameters (blocking version for FFI)
@@ -515,50 +469,78 @@ impl BindingsSessionContext {
         })
     }
 
-    /// Invite a participant to the session (blocking version for FFI)
+    /// Invite a participant to the session (blocking version)
     ///
-    /// **Auto-waits for completion:** This method automatically waits for the
-    /// invitation to be sent and acknowledged before returning.
-    pub fn invite(&self, participant: Arc<Name>) -> Result<(), SlimError> {
+    /// Returns a completion handle that can be awaited to ensure the invitation completes.
+    pub fn invite(&self, participant: Arc<Name>) -> Result<Arc<CompletionHandle>, SlimError> {
         runtime::get_runtime().block_on(async { self.invite_async(participant).await })
     }
 
     /// Invite a participant to the session (async version)
     ///
-    /// **Auto-waits for completion:** This method automatically waits for the
-    /// invitation to be sent and acknowledged before returning.
-    pub async fn invite_async(&self, participant: Arc<Name>) -> Result<(), SlimError> {
+    /// Returns a completion handle that can be awaited to ensure the invitation completes.
+    pub async fn invite_async(
+        &self,
+        participant: Arc<Name>,
+    ) -> Result<Arc<CompletionHandle>, SlimError> {
         let slim_name: SlimName = participant.as_ref().into();
 
         let completion = self.invite_internal(&slim_name).await?;
 
-        // Wait for invitation to complete
-        completion.await?;
-
-        Ok(())
+        // Return completion handle for caller to wait on
+        Ok(Arc::new(CompletionHandle::from(completion)))
     }
 
-    /// Remove a participant from the session (blocking version for FFI)
+    /// Invite a participant and wait for completion (blocking version)
     ///
-    /// **Auto-waits for completion:** This method automatically waits for the
-    /// removal to be processed and acknowledged before returning.
-    pub fn remove(&self, participant: Arc<Name>) -> Result<(), SlimError> {
+    /// This method invites a participant and blocks until the invitation completes.
+    pub fn invite_and_wait(&self, participant: Arc<Name>) -> Result<(), SlimError> {
+        runtime::get_runtime().block_on(async { self.invite_and_wait_async(participant).await })
+    }
+
+    /// Invite a participant and wait for completion (async version)
+    ///
+    /// This method invites a participant and waits until the invitation completes.
+    pub async fn invite_and_wait_async(&self, participant: Arc<Name>) -> Result<(), SlimError> {
+        let completion_handle = self.invite_async(participant).await?;
+        completion_handle.wait_async().await
+    }
+
+    /// Remove a participant from the session (blocking version)
+    ///
+    /// Returns a completion handle that can be awaited to ensure the removal completes.
+    pub fn remove(&self, participant: Arc<Name>) -> Result<Arc<CompletionHandle>, SlimError> {
         runtime::get_runtime().block_on(async { self.remove_async(participant).await })
     }
 
     /// Remove a participant from the session (async version)
     ///
-    /// **Auto-waits for completion:** This method automatically waits for the
-    /// removal to be processed and acknowledged before returning.
-    pub async fn remove_async(&self, participant: Arc<Name>) -> Result<(), SlimError> {
+    /// Returns a completion handle that can be awaited to ensure the removal completes.
+    pub async fn remove_async(
+        &self,
+        participant: Arc<Name>,
+    ) -> Result<Arc<CompletionHandle>, SlimError> {
         let slim_name: SlimName = participant.as_ref().into();
 
         let completion = self.remove_internal(&slim_name).await?;
 
-        // Wait for removal to complete
-        completion.await?;
+        // Return completion handle for caller to wait on
+        Ok(Arc::new(CompletionHandle::from(completion)))
+    }
 
-        Ok(())
+    /// Remove a participant and wait for completion (blocking version)
+    ///
+    /// This method removes a participant and blocks until the removal completes.
+    pub fn remove_and_wait(&self, participant: Arc<Name>) -> Result<(), SlimError> {
+        runtime::get_runtime().block_on(async { self.remove_and_wait_async(participant).await })
+    }
+
+    /// Remove a participant and wait for completion (async version)
+    ///
+    /// This method removes a participant and waits until the removal completes.
+    pub async fn remove_and_wait_async(&self, participant: Arc<Name>) -> Result<(), SlimError> {
+        let completion_handle = self.remove_async(participant).await?;
+        completion_handle.wait_async().await
     }
 
     /// Get the destination name for this session
@@ -953,21 +935,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_publish_with_completion_async_session_missing() {
-        let (ctx, _tx) = make_context();
-        let result = ctx
-            .publish_with_completion_async(b"test".to_vec(), None, None)
-            .await;
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            SlimError::SessionError { message } => {
-                assert!(message.contains("closed") || message.contains("dropped"));
-            }
-            _ => panic!("Expected SessionError"),
-        }
-    }
-
-    #[tokio::test]
     async fn test_publish_to_async_session_missing() {
         let (ctx, _tx) = make_context();
         let message_ctx = MessageContext::new(
@@ -981,30 +948,6 @@ mod tests {
 
         let result = ctx
             .publish_to_async(message_ctx, b"reply".to_vec(), None, None)
-            .await;
-        assert!(result.is_err_and(|e| {
-            if let SlimError::SessionError { message } = e {
-                message.contains("closed")
-            } else {
-                false
-            }
-        }));
-    }
-
-    #[tokio::test]
-    async fn test_publish_to_with_completion_async_session_missing() {
-        let (ctx, _tx) = make_context();
-        let message_ctx = MessageContext::new(
-            make_ffi_name(["sender", "org", "service"]),
-            Some(make_ffi_name(["receiver", "org", "service"])),
-            "application/json".to_string(),
-            HashMap::new(),
-            42,
-            "identity".to_string(),
-        );
-
-        let result = ctx
-            .publish_to_with_completion_async(message_ctx, b"reply".to_vec(), None, None)
             .await;
         assert!(result.is_err_and(|e| {
             if let SlimError::SessionError { message } = e {
@@ -1386,21 +1329,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_publish_with_completion_async_with_options() {
+    async fn test_publish_async_with_options() {
         let (ctx, _tx) = make_context();
 
         let mut metadata = HashMap::new();
         metadata.insert("trace".to_string(), "123".to_string());
 
         let result = ctx
-            .publish_with_completion_async(
+            .publish_async(
                 b"important message".to_vec(),
                 Some("text/plain".to_string()),
                 Some(metadata),
             )
             .await;
 
-        // Should fail because session is missing
+        // Should fail because session is missing, but returns CompletionHandle
         assert!(result.is_err());
     }
 
