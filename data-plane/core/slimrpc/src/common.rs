@@ -90,10 +90,13 @@ pub fn method_to_name(base_name: &Name, service_name: &str, method_name: &str) -
 }
 
 /// Create shared secret identity provider and verifier
-pub fn create_shared_secret_auth(identity: &str, secret: &str) -> (SharedSecret, SharedSecret) {
-    let provider = SharedSecret::new(identity, secret);
-    let verifier = SharedSecret::new(identity, secret);
-    (provider, verifier)
+pub fn create_shared_secret_auth(
+    identity: &str,
+    secret: &str,
+) -> Result<(SharedSecret, SharedSecret)> {
+    let provider = SharedSecret::new(identity, secret)?;
+    let verifier = SharedSecret::new(identity, secret)?;
+    Ok((provider, verifier))
 }
 
 /// Create a local app with the given configuration and connect to SLIM service
@@ -113,7 +116,8 @@ pub async fn create_local_app(
     let local_name = config.identity_name().context("Failed to parse identity")?;
 
     // Create shared secret auth
-    let (provider, verifier) = create_shared_secret_auth(&config.identity, &config.shared_secret);
+    let (provider, verifier) = create_shared_secret_auth(&config.identity, &config.shared_secret)
+        .context("Failed to create shared secret auth")?;
 
     // Create app
     let (app, rx) = service
