@@ -20,11 +20,13 @@
 //! ### From Rust
 //!
 //! ```rust,ignore
-//! use slim_bindings::{create_app_with_secret, Name, SessionConfig, SessionType};
+//! use slim_bindings::{BindingsAdapter, Name, SessionConfig, SessionType, IdentityProviderConfig, IdentityVerifierConfig};
 //!
 //! // Create an app
-//! let app_name = Name { components: vec!["org".into(), "app".into(), "v1".into()], id: None };
-//! let app = create_app_with_secret(app_name, "my-secret".to_string())?;
+//! let app_name = Arc::new(Name { components: vec!["org".into(), "app".into(), "v1".into()], id: None });
+//! let provider_config = IdentityProviderConfig::SharedSecret { data: "my-secret".to_string() };
+//! let verifier_config = IdentityVerifierConfig::SharedSecret { data: "my-secret".to_string() };
+//! let app = BindingsAdapter::new(app_name, provider_config, verifier_config, false)?;
 //!
 //! // Create a session
 //! let config = SessionConfig { session_type: SessionType::PointToPoint, ... };
@@ -34,7 +36,9 @@
 //! ### From Go (via generated bindings)
 //!
 //! ```go
-//! app, err := slim.CreateAppWithSecret(appName, sharedSecret)
+//! providerConfig := slim.IdentityProviderConfigSharedSecret{Data: sharedSecret}
+//! verifierConfig := slim.IdentityVerifierConfigSharedSecret{Data: sharedSecret}
+//! app, err := slim.NewBindingsAdapter(appName, providerConfig, verifierConfig, false)
 //! session, err := app.CreateSession(config, destination)
 //! session.Publish(data, payloadType, metadata)
 //! ```
@@ -47,6 +51,7 @@ mod common;
 mod common_config;
 mod completion_handle;
 mod errors;
+mod identity_config;
 mod message_context;
 mod name;
 mod runtime;
@@ -55,7 +60,7 @@ mod service_ref;
 mod session_context;
 
 // Public re-exports
-pub use adapter::{BindingsAdapter, SessionWithCompletion, create_app_with_secret};
+pub use adapter::{BindingsAdapter, SessionWithCompletion};
 pub use build_info::{BuildInfo, get_build_info, get_version};
 pub use client_config::{
     BackoffConfig, ClientConfig, ExponentialBackoff, KeepaliveConfig, ProxyConfig,
@@ -63,12 +68,15 @@ pub use client_config::{
 };
 pub use common::initialize_crypto_provider;
 pub use common_config::{
-    BasicAuth, CaSource, ClientAuthenticationConfig, ClientJwtAuth, JwtAlgorithm, JwtAuth,
-    JwtKeyConfig, JwtKeyData, JwtKeyFormat, JwtKeyType, ServerAuthenticationConfig, SpireConfig,
-    StaticJwtAuth, TlsClientConfig, TlsServerConfig, TlsSource,
+    BasicAuth, CaSource, ClientAuthenticationConfig, ServerAuthenticationConfig, SpireConfig,
+    TlsClientConfig, TlsServerConfig, TlsSource,
 };
 pub use completion_handle::CompletionHandle;
 pub use errors::SlimError;
+pub use identity_config::{
+    ClientJwtAuth, IdentityProviderConfig, IdentityVerifierConfig, JwtAlgorithm, JwtAuth,
+    JwtKeyConfig, JwtKeyData, JwtKeyFormat, JwtKeyType, StaticJwtAuth,
+};
 pub use message_context::{MessageContext, ReceivedMessage};
 pub use name::Name;
 pub use runtime::get_runtime;

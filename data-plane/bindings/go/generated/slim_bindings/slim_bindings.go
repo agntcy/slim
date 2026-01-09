@@ -4655,6 +4655,184 @@ type FfiDestroyerCompressionType struct{}
 func (_ FfiDestroyerCompressionType) Destroy(value CompressionType) {
 }
 
+// Identity provider configuration - used to prove identity to others
+type IdentityProviderConfig interface {
+	Destroy()
+}
+
+// Shared secret authentication (symmetric key)
+type IdentityProviderConfigSharedSecret struct {
+	Data string
+}
+
+func (e IdentityProviderConfigSharedSecret) Destroy() {
+	FfiDestroyerString{}.Destroy(e.Data)
+}
+
+// Static JWT loaded from file with auto-reload
+type IdentityProviderConfigStaticJwt struct {
+	Config StaticJwtAuth
+}
+
+func (e IdentityProviderConfigStaticJwt) Destroy() {
+	FfiDestroyerStaticJwtAuth{}.Destroy(e.Config)
+}
+
+// Dynamic JWT generation with signing key
+type IdentityProviderConfigJwt struct {
+	Config ClientJwtAuth
+}
+
+func (e IdentityProviderConfigJwt) Destroy() {
+	FfiDestroyerClientJwtAuth{}.Destroy(e.Config)
+}
+
+// No identity provider configured
+type IdentityProviderConfigNone struct {
+}
+
+func (e IdentityProviderConfigNone) Destroy() {
+}
+
+type FfiConverterIdentityProviderConfig struct{}
+
+var FfiConverterIdentityProviderConfigINSTANCE = FfiConverterIdentityProviderConfig{}
+
+func (c FfiConverterIdentityProviderConfig) Lift(rb RustBufferI) IdentityProviderConfig {
+	return LiftFromRustBuffer[IdentityProviderConfig](c, rb)
+}
+
+func (c FfiConverterIdentityProviderConfig) Lower(value IdentityProviderConfig) C.RustBuffer {
+	return LowerIntoRustBuffer[IdentityProviderConfig](c, value)
+}
+func (FfiConverterIdentityProviderConfig) Read(reader io.Reader) IdentityProviderConfig {
+	id := readInt32(reader)
+	switch id {
+	case 1:
+		return IdentityProviderConfigSharedSecret{
+			FfiConverterStringINSTANCE.Read(reader),
+		}
+	case 2:
+		return IdentityProviderConfigStaticJwt{
+			FfiConverterStaticJwtAuthINSTANCE.Read(reader),
+		}
+	case 3:
+		return IdentityProviderConfigJwt{
+			FfiConverterClientJwtAuthINSTANCE.Read(reader),
+		}
+	case 4:
+		return IdentityProviderConfigNone{}
+	default:
+		panic(fmt.Sprintf("invalid enum value %v in FfiConverterIdentityProviderConfig.Read()", id))
+	}
+}
+
+func (FfiConverterIdentityProviderConfig) Write(writer io.Writer, value IdentityProviderConfig) {
+	switch variant_value := value.(type) {
+	case IdentityProviderConfigSharedSecret:
+		writeInt32(writer, 1)
+		FfiConverterStringINSTANCE.Write(writer, variant_value.Data)
+	case IdentityProviderConfigStaticJwt:
+		writeInt32(writer, 2)
+		FfiConverterStaticJwtAuthINSTANCE.Write(writer, variant_value.Config)
+	case IdentityProviderConfigJwt:
+		writeInt32(writer, 3)
+		FfiConverterClientJwtAuthINSTANCE.Write(writer, variant_value.Config)
+	case IdentityProviderConfigNone:
+		writeInt32(writer, 4)
+	default:
+		_ = variant_value
+		panic(fmt.Sprintf("invalid enum value `%v` in FfiConverterIdentityProviderConfig.Write", value))
+	}
+}
+
+type FfiDestroyerIdentityProviderConfig struct{}
+
+func (_ FfiDestroyerIdentityProviderConfig) Destroy(value IdentityProviderConfig) {
+	value.Destroy()
+}
+
+// Identity verifier configuration - used to verify identity of others
+type IdentityVerifierConfig interface {
+	Destroy()
+}
+
+// Shared secret verification (symmetric key)
+type IdentityVerifierConfigSharedSecret struct {
+	Data string
+}
+
+func (e IdentityVerifierConfigSharedSecret) Destroy() {
+	FfiDestroyerString{}.Destroy(e.Data)
+}
+
+// JWT verification with decoding key
+type IdentityVerifierConfigJwt struct {
+	Config JwtAuth
+}
+
+func (e IdentityVerifierConfigJwt) Destroy() {
+	FfiDestroyerJwtAuth{}.Destroy(e.Config)
+}
+
+// No identity verifier configured
+type IdentityVerifierConfigNone struct {
+}
+
+func (e IdentityVerifierConfigNone) Destroy() {
+}
+
+type FfiConverterIdentityVerifierConfig struct{}
+
+var FfiConverterIdentityVerifierConfigINSTANCE = FfiConverterIdentityVerifierConfig{}
+
+func (c FfiConverterIdentityVerifierConfig) Lift(rb RustBufferI) IdentityVerifierConfig {
+	return LiftFromRustBuffer[IdentityVerifierConfig](c, rb)
+}
+
+func (c FfiConverterIdentityVerifierConfig) Lower(value IdentityVerifierConfig) C.RustBuffer {
+	return LowerIntoRustBuffer[IdentityVerifierConfig](c, value)
+}
+func (FfiConverterIdentityVerifierConfig) Read(reader io.Reader) IdentityVerifierConfig {
+	id := readInt32(reader)
+	switch id {
+	case 1:
+		return IdentityVerifierConfigSharedSecret{
+			FfiConverterStringINSTANCE.Read(reader),
+		}
+	case 2:
+		return IdentityVerifierConfigJwt{
+			FfiConverterJwtAuthINSTANCE.Read(reader),
+		}
+	case 3:
+		return IdentityVerifierConfigNone{}
+	default:
+		panic(fmt.Sprintf("invalid enum value %v in FfiConverterIdentityVerifierConfig.Read()", id))
+	}
+}
+
+func (FfiConverterIdentityVerifierConfig) Write(writer io.Writer, value IdentityVerifierConfig) {
+	switch variant_value := value.(type) {
+	case IdentityVerifierConfigSharedSecret:
+		writeInt32(writer, 1)
+		FfiConverterStringINSTANCE.Write(writer, variant_value.Data)
+	case IdentityVerifierConfigJwt:
+		writeInt32(writer, 2)
+		FfiConverterJwtAuthINSTANCE.Write(writer, variant_value.Config)
+	case IdentityVerifierConfigNone:
+		writeInt32(writer, 3)
+	default:
+		_ = variant_value
+		panic(fmt.Sprintf("invalid enum value `%v` in FfiConverterIdentityVerifierConfig.Write", value))
+	}
+}
+
+type FfiDestroyerIdentityVerifierConfig struct{}
+
+func (_ FfiDestroyerIdentityVerifierConfig) Destroy(value IdentityVerifierConfig) {
+	value.Destroy()
+}
+
 // JWT signing/verification algorithm
 type JwtAlgorithm uint
 

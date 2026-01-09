@@ -607,11 +607,12 @@ mod tests {
                 assert_eq!(config.token_verifier, IdentityVerifierConfig::None);
 
                 // Adding one shouldn't affect the other
-                let config_with_provider = config.clone().with_token_provider_auth(
-                    IdentityProviderConfig::SharedSecret {
-                        data: "secret".to_string(),
-                    },
-                );
+                let config_with_provider =
+                    config
+                        .clone()
+                        .with_token_provider_auth(IdentityProviderConfig::SharedSecret {
+                            data: "secret".to_string(),
+                        });
 
                 assert_ne!(
                     config_with_provider.token_provider,

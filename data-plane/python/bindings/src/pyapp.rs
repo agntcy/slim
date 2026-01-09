@@ -9,15 +9,13 @@ use pyo3::types::PyDict;
 use pyo3_stub_gen::derive::gen_stub_pyclass;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
 use serde_pyobject::from_pyobject;
-use slim_auth::traits::TokenProvider;
-use slim_auth::traits::Verifier;
-use slim_bindings::BindingsAdapter;
-use slim_bindings::SlimError;
+use slim_bindings::{
+    BindingsAdapter, ClientJwtAuth, IdentityProviderConfig, IdentityVerifierConfig, JwtAuth,
+    JwtKeyConfig, JwtKeyType, SlimError, StaticJwtAuth,
+};
 use slim_datapath::messages::encoder::Name;
 use slim_session::SessionConfig;
 
-use crate::pyidentity::IdentityProvider;
-use crate::pyidentity::IdentityVerifier;
 use crate::pyidentity::PyIdentityProvider;
 use crate::pyidentity::PyIdentityVerifier;
 
@@ -36,7 +34,7 @@ pub struct PyApp {
 struct PyAppInternal {
     /// The adapter instance (uses AuthProvider/AuthVerifier enums internally)
     /// The adapter manages the service internally
-    adapter: BindingsAdapter,
+    adapter: Arc<BindingsAdapter>,
 }
 
 /// Helper function to convert PyName to Arc<FfiName>
@@ -60,25 +58,130 @@ impl PyApp {
             provider: PyIdentityProvider,
             verifier: PyIdentityVerifier,
             local_service: bool,
-        ) -> Result<BindingsAdapter, SlimError> {
-            // Convert the PyIdentityProvider into IdentityProvider
-            let mut provider: IdentityProvider = provider.try_into()?;
+        ) -> Result<Arc<BindingsAdapter>, SlimError> {
+            // Convert PyIdentityProvider to IdentityProviderConfig
+            let provider_config: IdentityProviderConfig = match provider {
+                PyIdentityProvider::StaticJwt { path } => IdentityProviderConfig::StaticJwt {
+                    config: StaticJwtAuth {
+                        token_file: path,
+                        duration: std::time::Duration::from_secs(3600),
+                    },
+                },
+                PyIdentityProvider::Jwt {
+                    private_key,
+                    duration,
+                    issuer,
+                    audience,
+                    subject,
+                } => {
+                    // Convert PyKey to slim_auth::jwt::Key first, then to JwtKeyConfig
+                    let auth_key: slim_auth::jwt::Key = private_key.into();
+                    let key_config = JwtKeyConfig {
+                        algorithm: auth_key.algorithm.into(),
+                        format: auth_key.format.into(),
+                        key: auth_key.key.into(),
+                    };
+                    IdentityProviderConfig::Jwt {
+                        config: ClientJwtAuth {
+                            key: JwtKeyType::Encoding { key: key_config },
+                            audience,
+                            issuer,
+                            subject,
+                            duration,
+                        },
+                    }
+                }
+                PyIdentityProvider::SharedSecret {
+                    identity: _,
+                    shared_secret,
+                } => IdentityProviderConfig::SharedSecret {
+                    data: shared_secret,
+                },
+                #[cfg(not(target_family = "windows"))]
+                PyIdentityProvider::Spire {
+                    socket_path,
+                    target_spiffe_id,
+                    jwt_audiences,
+                } => {
+                    use slim_bindings::SpireConfig;
+                    IdentityProviderConfig::Spire {
+                        config: SpireConfig {
+                            socket_path,
+                            target_spiffe_id,
+                            jwt_audiences: jwt_audiences
+                                .unwrap_or_else(|| vec!["slim".to_string()]),
+                            trust_domains: vec![],
+                        },
+                    }
+                }
+            };
 
-            // Initialize the identity provider
-            provider.initialize().await?;
+            // Convert PyIdentityVerifier to IdentityVerifierConfig
+            let verifier_config: IdentityVerifierConfig = match verifier {
+                PyIdentityVerifier::Jwt {
+                    public_key,
+                    autoresolve,
+                    issuer,
+                    audience,
+                    subject,
+                    ..
+                } => {
+                    let key_type = if autoresolve {
+                        JwtKeyType::Autoresolve
+                    } else if let Some(key) = public_key {
+                        // Convert PyKey to slim_auth::jwt::Key first, then to JwtKeyConfig
+                        let auth_key: slim_auth::jwt::Key = key.into();
+                        let key_config = JwtKeyConfig {
+                            algorithm: auth_key.algorithm.into(),
+                            format: auth_key.format.into(),
+                            key: auth_key.key.into(),
+                        };
+                        JwtKeyType::Decoding { key: key_config }
+                    } else {
+                        JwtKeyType::Autoresolve
+                    };
 
-            // Convert the PyIdentityVerifier into IdentityVerifier
-            let mut verifier: IdentityVerifier = verifier.try_into()?;
+                    IdentityVerifierConfig::Jwt {
+                        config: JwtAuth {
+                            key: key_type,
+                            audience,
+                            issuer,
+                            subject,
+                            duration: std::time::Duration::from_secs(3600),
+                        },
+                    }
+                }
+                PyIdentityVerifier::SharedSecret {
+                    identity: _,
+                    shared_secret,
+                } => IdentityVerifierConfig::SharedSecret {
+                    data: shared_secret,
+                },
+                #[cfg(not(target_family = "windows"))]
+                PyIdentityVerifier::Spire {
+                    socket_path,
+                    target_spiffe_id,
+                    jwt_audiences,
+                } => {
+                    use slim_bindings::SpireConfig;
+                    IdentityVerifierConfig::Spire {
+                        config: SpireConfig {
+                            socket_path,
+                            target_spiffe_id,
+                            jwt_audiences: jwt_audiences
+                                .unwrap_or_else(|| vec!["slim".to_string()]),
+                            trust_domains: vec![],
+                        },
+                    }
+                }
+            };
 
-            // Initialize the identity verifier
-            verifier.initialize().await?;
-
-            // Convert PyName into Name
+            // Convert PyName into slim_bindings::Name and wrap in Arc
             let base_name: Name = name.into();
+            let arc_name = Arc::new(base_name.into());
 
-            // IdentityProvider/IdentityVerifier are already AuthProvider/AuthVerifier type aliases
-            // Use BindingsAdapter's complete creation logic
-            BindingsAdapter::new(base_name, provider, verifier, local_service)
+            // Use BindingsAdapter's new constructor
+            BindingsAdapter::new(arc_name, provider_config, verifier_config, local_service)
         }
 
         let adapter = pyo3_async_runtimes::tokio::get_runtime()
