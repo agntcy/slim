@@ -1511,7 +1511,6 @@ mod tests {
             .unwrap();
         let result = moderator.process_control_message(join_msg, None).await;
         assert!(result.is_ok());
-        // println!("{:?}", rx_slim.recv().await.unwrap().unwrap());
         let subscribe_msg = rx_slim.recv().await.unwrap().unwrap();
         assert!(
             matches!(
