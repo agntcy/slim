@@ -1585,8 +1585,9 @@ impl ControllerService {
                         match session_msg {
                             SessionMessage::TimerFailure { message_id, message_type: _, name: _, timeouts: _} => {
                                 tracing::info!("got a failure for message id: {}", message_id);
+                                // if there's a timer the clientconfig is always set
                                 if let Some(clients) = &clients {
-                                    this.send_ack_message(message_id, false, std::slice::from_ref(&clients)).await;
+                                    this.send_ack_message(message_id, false, std::slice::from_ref(clients)).await;
                                 }
                             }
                             _ => {
