@@ -1374,7 +1374,7 @@ impl ControllerService {
         return self.send_or_queue_notification(ctrl, clients).await;
     }
 
-    // send an ack back to the control plane. the success fileld indicates whether the original
+    // send an ack back to the control plane. the success field indicates whether the original
     // operation was successfully delivered/processed or not.
     async fn send_ack_message(&self, msg_id: u32, success: bool, clients: &[ClientConfig]) {
         let original_message_id = self.inner.message_id_map.write().remove(&msg_id);

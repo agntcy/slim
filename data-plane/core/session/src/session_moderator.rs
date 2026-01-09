@@ -1201,7 +1201,7 @@ where
 
         // check if we need to send an ack message to the controller
         if let Some(ack_msg) = self.current_task.as_ref().unwrap().ack_msg() {
-            // Use ack_msg to notify the cotroller that the task is done
+            // Use ack_msg to notify the controller that the task is done
             debug!("Send ack message for task {:?}", self.current_task);
             self.common.send_to_slim(ack_msg.clone()).await?;
         } else {
