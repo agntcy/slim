@@ -14,9 +14,9 @@ use slim_session::SessionConfig as SlimSessionConfig;
 use slim_session::SessionError;
 use slim_session::context::SessionContext;
 
-use crate::adapter::{FfiCompletionHandle, ReceivedMessage};
+use crate::adapter::FfiCompletionHandle;
 use crate::message_context::MessageContext;
-use crate::{Name, SlimError, runtime};
+use crate::{Name, ReceivedMessage, SlimError, runtime};
 
 /// Session type enum
 #[derive(Debug, Clone, PartialEq, uniffi::Enum)]
@@ -632,6 +632,7 @@ impl BindingsSessionContext {
 mod tests {
     use super::*;
     use crate::Name as FfiName;
+    use crate::errors::SlimError;
     use slim_datapath::api::{
         ApplicationPayload, ProtoMessage, ProtoPublish, ProtoPublishType, SessionHeader, SlimHeader,
     };

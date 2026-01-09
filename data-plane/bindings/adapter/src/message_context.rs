@@ -109,6 +109,13 @@ impl MessageContext {
     }
 }
 
+/// Received message containing context and payload
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct ReceivedMessage {
+    pub context: MessageContext,
+    pub payload: Vec<u8>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -329,5 +336,36 @@ mod tests {
         assert_eq!(ctx.metadata, HashMap::new()); // Should be empty
         assert_eq!(ctx.input_connection, 99);
         assert_eq!(payload, payload_data);
+    }
+
+    /// Test ReceivedMessage creation
+    #[test]
+    fn test_received_message() {
+        let msg = ReceivedMessage {
+            context: MessageContext::new(
+                Name::new(
+                    "org".to_string(),
+                    "ns".to_string(),
+                    "app".to_string(),
+                    Some(123),
+                ),
+                Some(Name::new(
+                    "org".to_string(),
+                    "ns".to_string(),
+                    "dest".to_string(),
+                    Some(456),
+                )),
+                "application/json".to_string(),
+                std::collections::HashMap::new(),
+                789,
+                "test-identity".to_string(),
+            ),
+            payload: b"hello world".to_vec(),
+        };
+
+        assert_eq!(msg.payload, b"hello world");
+        assert_eq!(msg.context.input_connection, 789);
+        assert_eq!(msg.context.payload_type, "application/json");
+        assert_eq!(msg.context.identity, "test-identity");
     }
 }
