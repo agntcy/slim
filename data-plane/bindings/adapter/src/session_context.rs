@@ -87,6 +87,11 @@ impl BindingsSessionContext {
             rx: RwLock::new(rx),
         }
     }
+
+    /// Get the runtime (for internal use)
+    pub fn runtime(&self) -> &'static tokio::runtime::Runtime {
+        crate::runtime::get_runtime()
+    }
 }
 
 // ============================================================================

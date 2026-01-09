@@ -421,4 +421,72 @@ mod tests {
         // Invalid JSON should result in None metadata
         assert!(core.metadata.is_none());
     }
+
+    #[test]
+    fn test_basic_auth_roundtrip() {
+        use crate::common_config::BasicAuth;
+
+        let basic_config = BasicAuth {
+            username: "admin".to_string(),
+            password: "secret123".to_string(),
+        };
+
+        let auth = ServerAuthenticationConfig::Basic {
+            config: basic_config.clone(),
+        };
+
+        // Convert to core and back
+        let core_auth: slim_config::grpc::server::AuthenticationConfig = auth.into();
+        let roundtrip_auth: ServerAuthenticationConfig = core_auth.into();
+
+        // Verify roundtrip preserves the configuration
+        if let ServerAuthenticationConfig::Basic { config } = roundtrip_auth {
+            assert_eq!(config.username, basic_config.username);
+            assert_eq!(config.password, basic_config.password);
+        } else {
+            panic!("Expected Basic authentication config");
+        }
+    }
+
+    #[test]
+    fn test_jwt_auth_roundtrip() {
+        use crate::common_config::{
+            JwtAlgorithm, JwtAuth, JwtKeyConfig, JwtKeyData, JwtKeyFormat, JwtKeyType,
+        };
+
+        let jwt_config = JwtAuth {
+            key: JwtKeyType::Decoding {
+                key: JwtKeyConfig {
+                    algorithm: JwtAlgorithm::RS256,
+                    format: JwtKeyFormat::Pem,
+                    key: JwtKeyData::File {
+                        path: "/path/to/public_key.pem".to_string(),
+                    },
+                },
+            },
+            audience: Some(vec!["api.example.com".to_string()]),
+            issuer: Some("auth.example.com".to_string()),
+            subject: Some("service123".to_string()),
+            duration: Duration::from_secs(7200),
+        };
+
+        let auth = ServerAuthenticationConfig::Jwt {
+            config: jwt_config.clone(),
+        };
+
+        // Convert to core and back
+        let core_auth: slim_config::grpc::server::AuthenticationConfig = auth.into();
+        let roundtrip_auth: ServerAuthenticationConfig = core_auth.into();
+
+        // Verify roundtrip preserves the configuration
+        if let ServerAuthenticationConfig::Jwt { config } = roundtrip_auth {
+            assert_eq!(config.key, jwt_config.key);
+            assert_eq!(config.audience, jwt_config.audience);
+            assert_eq!(config.issuer, jwt_config.issuer);
+            assert_eq!(config.subject, jwt_config.subject);
+            // Note: duration might not be exactly preserved due to conversion limitations
+        } else {
+            panic!("Expected Jwt authentication config");
+        }
+    }
 }

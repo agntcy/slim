@@ -11,6 +11,18 @@
         "type": "none"
       }
     },
+    "backoff": {
+      "description": "Backoff retry configuration.",
+      "$ref": "#/$defs/BackoffConfig",
+      "default": {
+        "base": 100,
+        "factor": 1,
+        "jitter": true,
+        "max_attempts": 18446744073709551615,
+        "max_delay": "1s",
+        "type": "exponential"
+      }
+    },
     "buffer_size": {
       "description": "ReadBufferSize.",
       "type": [
@@ -219,6 +231,38 @@
         }
       ]
     },
+    "BackoffConfig": {
+      "description": "Enum holding one configuration for the client.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "exponential"
+            }
+          },
+          "$ref": "#/$defs/Config4",
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "description": "FixedInterval backoff retry config.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "fixed_interval"
+            }
+          },
+          "$ref": "#/$defs/Config5",
+          "required": [
+            "type"
+          ]
+        }
+      ]
+    },
     "CaSource": {
       "oneOf": [
         {
@@ -388,11 +432,9 @@
       "type": "object",
       "properties": {
         "duration": {
-          "description": "Duration (in seconds) used by the AddJwtLayer cache for re-fetching the token.\nThis duration bounds the \"validity\" window before re-reading from file.",
-          "type": "integer",
-          "format": "uint64",
-          "default": 3600,
-          "minimum": 0
+          "description": "Duration used by the AddJwtLayer cache for re-fetching the token.\nThis duration bounds the \"validity\" window before re-reading from file.",
+          "type": "string",
+          "default": "1h"
         },
         "file": {
           "description": "Path to a file containing the token (auto-reloaded on change)",
@@ -429,6 +471,52 @@
       "required": [
         "key"
       ]
+    },
+    "Config4": {
+      "type": "object",
+      "properties": {
+        "base": {
+          "type": "integer",
+          "format": "uint64",
+          "default": 100,
+          "minimum": 0
+        },
+        "factor": {
+          "type": "integer",
+          "format": "uint64",
+          "default": 1,
+          "minimum": 0
+        },
+        "jitter": {
+          "type": "boolean",
+          "default": false
+        },
+        "max_attempts": {
+          "type": "integer",
+          "format": "uint",
+          "default": 18446744073709551615,
+          "minimum": 0
+        },
+        "max_delay": {
+          "type": "string",
+          "default": "1s"
+        }
+      }
+    },
+    "Config5": {
+      "type": "object",
+      "properties": {
+        "interval": {
+          "type": "string",
+          "default": "1s"
+        },
+        "max_attempts": {
+          "type": "integer",
+          "format": "uint",
+          "default": 18446744073709551615,
+          "minimum": 0
+        }
+      }
     },
     "Duration": {
       "type": "object",
