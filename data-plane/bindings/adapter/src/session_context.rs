@@ -10,12 +10,61 @@ use tokio::sync::RwLock;
 use slim_datapath::api::ProtoSessionType;
 use slim_datapath::messages::Name as SlimName;
 use slim_datapath::messages::utils::{PUBLISH_TO, SlimHeaderFlags, TRUE_VAL};
+use slim_session::SessionConfig as SlimSessionConfig;
 use slim_session::SessionError;
 use slim_session::context::SessionContext;
 
-use crate::adapter::{FfiCompletionHandle, ReceivedMessage, SessionType};
+use crate::adapter::{FfiCompletionHandle, ReceivedMessage};
 use crate::message_context::MessageContext;
 use crate::{Name, SlimError, runtime};
+
+/// Session type enum
+#[derive(Debug, Clone, PartialEq, uniffi::Enum)]
+pub enum SessionType {
+    PointToPoint,
+    Group,
+}
+
+impl From<SessionType> for ProtoSessionType {
+    fn from(session_type: SessionType) -> Self {
+        match session_type {
+            SessionType::PointToPoint => ProtoSessionType::PointToPoint,
+            SessionType::Group => ProtoSessionType::Multicast,
+        }
+    }
+}
+
+/// Session configuration
+#[derive(uniffi::Record)]
+pub struct SessionConfig {
+    /// Session type (PointToPoint or Group)
+    pub session_type: SessionType,
+
+    /// Enable MLS encryption for this session
+    pub enable_mls: bool,
+
+    /// Maximum number of retries for message transmission (None = use default)
+    pub max_retries: Option<u32>,
+
+    /// Interval between retries in milliseconds (None = use default)
+    pub interval: Option<std::time::Duration>,
+
+    /// Custom metadata key-value pairs for the session
+    pub metadata: std::collections::HashMap<String, String>,
+}
+
+impl From<SessionConfig> for SlimSessionConfig {
+    fn from(config: SessionConfig) -> Self {
+        SlimSessionConfig {
+            session_type: config.session_type.into(),
+            max_retries: config.max_retries,
+            interval: config.interval,
+            mls_enabled: config.enable_mls,
+            initiator: true,
+            metadata: config.metadata,
+        }
+    }
+}
 
 /// Session context for language bindings (UniFFI-compatible)
 ///
@@ -1352,5 +1401,56 @@ mod tests {
 
         // Should fail because session is missing
         assert!(result.is_err());
+    }
+
+    // ========================================================================    // SessionConfig Conversion Tests
+    // ========================================================================
+
+    /// Test SessionConfig to SlimSessionConfig conversion for PointToPoint
+    #[test]
+    fn test_session_config_point_to_point() {
+        let config = SessionConfig {
+            session_type: SessionType::PointToPoint,
+            enable_mls: true,
+            max_retries: Some(5),
+            interval: Some(std::time::Duration::from_millis(200)),
+            metadata: std::collections::HashMap::from([
+                ("key1".to_string(), "value1".to_string()),
+                ("key2".to_string(), "value2".to_string()),
+            ]),
+        };
+
+        let slim_config: SlimSessionConfig = config.into();
+
+        assert_eq!(slim_config.session_type, ProtoSessionType::PointToPoint);
+        assert!(slim_config.mls_enabled);
+        assert_eq!(slim_config.max_retries, Some(5));
+        assert_eq!(
+            slim_config.interval,
+            Some(std::time::Duration::from_millis(200))
+        );
+        assert_eq!(
+            slim_config.metadata.get("key1"),
+            Some(&"value1".to_string())
+        );
+    }
+
+    /// Test SessionConfig to SlimSessionConfig conversion for Group
+    #[test]
+    fn test_session_config_group() {
+        let config = SessionConfig {
+            session_type: SessionType::Group,
+            enable_mls: false,
+            max_retries: None,
+            interval: None,
+            metadata: std::collections::HashMap::new(),
+        };
+
+        let slim_config: SlimSessionConfig = config.into();
+
+        assert_eq!(slim_config.session_type, ProtoSessionType::Multicast);
+        assert!(!slim_config.mls_enabled);
+        assert!(slim_config.max_retries.is_none());
+        assert!(slim_config.interval.is_none());
     }
 }

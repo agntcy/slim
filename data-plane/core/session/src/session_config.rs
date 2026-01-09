@@ -29,14 +29,14 @@ pub struct SessionConfig {
 }
 
 impl SessionConfig {
-    pub fn with_session_type(&self, session_type: ProtoSessionType) -> Self {
+    pub fn with_session_type(self, session_type: ProtoSessionType) -> Self {
         Self {
             session_type,
             max_retries: self.max_retries,
             interval: self.interval,
             mls_enabled: self.mls_enabled,
             initiator: self.initiator,
-            metadata: self.metadata.clone(),
+            metadata: self.metadata,
         }
     }
 

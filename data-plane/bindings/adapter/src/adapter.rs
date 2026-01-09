@@ -17,16 +17,19 @@ use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};
 use uniffi;
 
+use crate::client_config::ClientConfig;
 use crate::errors::SlimError;
 use crate::name::Name;
 use crate::runtime;
+use crate::server_config::ServerConfig;
 use crate::service_ref::{ServiceRef, get_or_init_global_service};
+use crate::session_context::SessionConfig;
+
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::shared_secret::SharedSecret;
 use slim_auth::traits::TokenProvider; // For get_token() and get_id()
 use slim_auth::traits::Verifier;
 use slim_config::component::ComponentBuilder;
-use slim_datapath::api::ProtoSessionType;
 use slim_datapath::messages::Name as SlimName;
 use slim_service::Service;
 use slim_service::app::App;
@@ -37,91 +40,6 @@ use slim_session::{Notification, SessionError as SlimSessionError};
 // ============================================================================
 // UniFFI Type Definitions
 // ============================================================================
-
-/// Session type enum
-#[derive(Debug, Clone, PartialEq, uniffi::Enum)]
-pub enum SessionType {
-    PointToPoint,
-    Group,
-}
-
-/// Session configuration
-#[derive(uniffi::Record)]
-pub struct SessionConfig {
-    /// Session type (PointToPoint or Group)
-    pub session_type: SessionType,
-
-    /// Enable MLS encryption for this session
-    pub enable_mls: bool,
-
-    /// Maximum number of retries for message transmission (None = use default)
-    pub max_retries: Option<u32>,
-
-    /// Interval between retries in milliseconds (None = use default)
-    pub interval_ms: Option<u64>,
-
-    /// Whether this endpoint is the session initiator
-    pub initiator: bool,
-
-    /// Custom metadata key-value pairs for the session
-    pub metadata: std::collections::HashMap<String, String>,
-}
-
-impl From<SessionConfig> for SlimSessionConfig {
-    fn from(config: SessionConfig) -> Self {
-        SlimSessionConfig {
-            session_type: match config.session_type {
-                SessionType::PointToPoint => ProtoSessionType::PointToPoint,
-                SessionType::Group => ProtoSessionType::Multicast,
-            },
-            max_retries: config.max_retries,
-            interval: config.interval_ms.map(std::time::Duration::from_millis),
-            mls_enabled: config.enable_mls,
-            initiator: config.initiator,
-            metadata: config.metadata,
-        }
-    }
-}
-
-/// TLS configuration for server/client
-#[derive(uniffi::Record)]
-pub struct TlsConfig {
-    /// Disable TLS entirely (plain text connection)
-    pub insecure: bool,
-
-    /// Skip server certificate verification (client only, enables TLS but doesn't verify certs)
-    /// WARNING: Only use for testing - insecure in production!
-    pub insecure_skip_verify: Option<bool>,
-
-    /// Path to certificate file (PEM format)
-    pub cert_file: Option<String>,
-
-    /// Path to private key file (PEM format)
-    pub key_file: Option<String>,
-
-    /// Path to CA certificate file (PEM format) for verifying peer certificates
-    pub ca_file: Option<String>,
-
-    /// TLS version to use: "tls1.2" or "tls1.3" (default: "tls1.3")
-    pub tls_version: Option<String>,
-
-    /// Include system CA certificates pool (default: false)
-    pub include_system_ca_certs_pool: Option<bool>,
-}
-
-/// Server configuration for running a SLIM server
-#[derive(uniffi::Record)]
-pub struct ServerConfig {
-    pub endpoint: String,
-    pub tls: TlsConfig,
-}
-
-/// Client configuration for connecting to a SLIM server
-#[derive(uniffi::Record)]
-pub struct ClientConfig {
-    pub endpoint: String,
-    pub tls: TlsConfig,
-}
 
 // Re-export MessageContext from message_context module (already has uniffi::Record)
 pub use crate::message_context::MessageContext;
@@ -454,35 +372,13 @@ impl BindingsAdapter {
     /// Run a SLIM server (async version)
     pub async fn run_server_async(&self, config: ServerConfig) -> Result<(), SlimError> {
         use slim_config::grpc::server::ServerConfig as GrpcServerConfig;
-        use slim_config::tls::server::TlsServerConfig;
 
-        let mut tls_config = TlsServerConfig::new().with_insecure(config.tls.insecure);
-
-        // Apply optional TLS settings
-        if let (Some(cert_file), Some(key_file)) =
-            (config.tls.cert_file.as_ref(), config.tls.key_file.as_ref())
-        {
-            tls_config = tls_config.with_cert_and_key_file(cert_file, key_file);
-        }
-
-        if let Some(ca_file) = config.tls.ca_file.as_ref() {
-            tls_config = tls_config.with_ca_file(ca_file);
-        }
-
-        if let Some(tls_version) = config.tls.tls_version.as_ref() {
-            tls_config = tls_config.with_tls_version(tls_version);
-        }
-
-        if let Some(include_system_ca) = config.tls.include_system_ca_certs_pool {
-            tls_config = tls_config.with_include_system_ca_certs_pool(include_system_ca);
-        }
-
-        let server_config =
-            GrpcServerConfig::with_endpoint(&config.endpoint).with_tls_settings(tls_config);
+        // Convert our bindings ServerConfig to core ServerConfig
+        let grpc_config: GrpcServerConfig = config.into();
 
         self.service_ref
             .get_service()
-            .run_server(&server_config)
+            .run_server(&grpc_config)
             .await?;
 
         Ok(())
@@ -519,41 +415,11 @@ impl BindingsAdapter {
     /// to enable receiving inbound messages and sessions.
     pub async fn connect_async(&self, config: ClientConfig) -> Result<u64, SlimError> {
         use slim_config::grpc::client::ClientConfig as GrpcClientConfig;
-        use slim_config::tls::client::TlsClientConfig;
 
-        let mut tls_config = TlsClientConfig::new().with_insecure(config.tls.insecure);
+        // Convert our bindings ClientConfig to core ClientConfig
+        let grpc_config: GrpcClientConfig = config.into();
 
-        // Apply optional TLS settings
-        if let Some(skip_verify) = config.tls.insecure_skip_verify {
-            tls_config = tls_config.with_insecure_skip_verify(skip_verify);
-        }
-
-        if let (Some(cert_file), Some(key_file)) =
-            (config.tls.cert_file.as_ref(), config.tls.key_file.as_ref())
-        {
-            tls_config = tls_config.with_cert_and_key_file(cert_file, key_file);
-        }
-
-        if let Some(ca_file) = config.tls.ca_file.as_ref() {
-            tls_config = tls_config.with_ca_file(ca_file);
-        }
-
-        if let Some(tls_version) = config.tls.tls_version.as_ref() {
-            tls_config = tls_config.with_tls_version(tls_version);
-        }
-
-        if let Some(include_system_ca) = config.tls.include_system_ca_certs_pool {
-            tls_config = tls_config.with_include_system_ca_certs_pool(include_system_ca);
-        }
-
-        let client_config =
-            GrpcClientConfig::with_endpoint(&config.endpoint).with_tls_setting(tls_config);
-
-        let conn_id = self
-            .service_ref
-            .get_service()
-            .connect(&client_config)
-            .await?;
+        let conn_id = self.service_ref.get_service().connect(&grpc_config).await?;
 
         // Automatically subscribe to our own name so we can receive messages.
         // If subscription fails, clean up the connection to avoid resource leaks.
@@ -832,6 +698,8 @@ impl BindingsAdapter {
 
 #[cfg(test)]
 mod tests {
+    use crate::SessionType;
+
     use super::*;
 
     use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
@@ -1100,8 +968,7 @@ mod tests {
             session_type: SessionType::PointToPoint,
             enable_mls: false,
             max_retries: Some(3),
-            interval_ms: Some(100),
-            initiator: true,
+            interval: Some(std::time::Duration::from_millis(100)),
             metadata: std::collections::HashMap::new(),
         };
 
@@ -1150,8 +1017,7 @@ mod tests {
             session_type: SessionType::PointToPoint,
             enable_mls: false,
             max_retries: Some(3),
-            interval_ms: Some(100),
-            initiator: true,
+            interval: Some(std::time::Duration::from_millis(100)),
             metadata: std::collections::HashMap::new(),
         };
 
@@ -1190,146 +1056,61 @@ mod tests {
     }
 
     // ========================================================================
-    // SessionConfig Conversion Tests
-    // ========================================================================
-
-    /// Test SessionConfig to SlimSessionConfig conversion for PointToPoint
-    #[test]
-    fn test_session_config_point_to_point() {
-        let config = SessionConfig {
-            session_type: SessionType::PointToPoint,
-            enable_mls: true,
-            max_retries: Some(5),
-            interval_ms: Some(200),
-            initiator: true,
-            metadata: std::collections::HashMap::from([
-                ("key1".to_string(), "value1".to_string()),
-                ("key2".to_string(), "value2".to_string()),
-            ]),
-        };
-
-        let slim_config: SlimSessionConfig = config.into();
-
-        assert_eq!(slim_config.session_type, ProtoSessionType::PointToPoint);
-        assert!(slim_config.mls_enabled);
-        assert_eq!(slim_config.max_retries, Some(5));
-        assert_eq!(
-            slim_config.interval,
-            Some(std::time::Duration::from_millis(200))
-        );
-        assert!(slim_config.initiator);
-        assert_eq!(
-            slim_config.metadata.get("key1"),
-            Some(&"value1".to_string())
-        );
-    }
-
-    /// Test SessionConfig to SlimSessionConfig conversion for Group
-    #[test]
-    fn test_session_config_group() {
-        let config = SessionConfig {
-            session_type: SessionType::Group,
-            enable_mls: false,
-            max_retries: None,
-            interval_ms: None,
-            initiator: false,
-            metadata: std::collections::HashMap::new(),
-        };
-
-        let slim_config: SlimSessionConfig = config.into();
-
-        assert_eq!(slim_config.session_type, ProtoSessionType::Multicast);
-        assert!(!slim_config.mls_enabled);
-        assert!(slim_config.max_retries.is_none());
-        assert!(slim_config.interval.is_none());
-        assert!(!slim_config.initiator);
-    }
-
-    // ========================================================================
     // TlsConfig Tests
     // ========================================================================
 
     /// Test TlsConfig with all fields
     #[test]
     fn test_tls_config_full() {
-        let config = TlsConfig {
+        use crate::common_config::TlsClientConfig;
+
+        let config = TlsClientConfig {
             insecure: false,
-            insecure_skip_verify: Some(true),
-            cert_file: Some("/path/to/cert.pem".to_string()),
-            key_file: Some("/path/to/key.pem".to_string()),
-            ca_file: Some("/path/to/ca.pem".to_string()),
-            tls_version: Some("tls1.3".to_string()),
-            include_system_ca_certs_pool: Some(true),
+            insecure_skip_verify: false,
+            source: crate::common_config::TlsSource::File {
+                cert: "test-cert.pem".to_string(),
+                key: "test-key.pem".to_string(),
+            },
+            ca_source: crate::common_config::CaSource::File {
+                path: "test-ca.pem".to_string(),
+            },
+            include_system_ca_certs_pool: true,
+            tls_version: "tls1.3".to_string(),
         };
 
         assert!(!config.insecure);
-        assert_eq!(config.insecure_skip_verify, Some(true));
-        assert_eq!(config.cert_file, Some("/path/to/cert.pem".to_string()));
-        assert_eq!(config.key_file, Some("/path/to/key.pem".to_string()));
-        assert_eq!(config.ca_file, Some("/path/to/ca.pem".to_string()));
-        assert_eq!(config.tls_version, Some("tls1.3".to_string()));
-        assert_eq!(config.include_system_ca_certs_pool, Some(true));
+        assert!(!config.insecure_skip_verify);
+        assert!(matches!(
+            config.source,
+            crate::common_config::TlsSource::File { .. }
+        ));
+        assert!(matches!(
+            config.ca_source,
+            crate::common_config::CaSource::File { .. }
+        ));
+        assert_eq!(config.tls_version, "tls1.3");
+        assert!(config.include_system_ca_certs_pool);
     }
 
     /// Test TlsConfig with insecure mode
     #[test]
     fn test_tls_config_insecure() {
-        let config = TlsConfig {
+        use crate::common_config::TlsClientConfig;
+
+        let config = TlsClientConfig {
             insecure: true,
-            insecure_skip_verify: None,
-            cert_file: None,
-            key_file: None,
-            ca_file: None,
-            tls_version: None,
-            include_system_ca_certs_pool: None,
+            insecure_skip_verify: false,
+            source: crate::common_config::TlsSource::None,
+            ca_source: crate::common_config::CaSource::None,
+            include_system_ca_certs_pool: true,
+            tls_version: "tls1.3".to_string(),
         };
 
         assert!(config.insecure);
-        assert!(config.cert_file.is_none());
-    }
-
-    // ========================================================================
-    // ServerConfig and ClientConfig Tests
-    // ========================================================================
-
-    /// Test ServerConfig creation
-    #[test]
-    fn test_server_config() {
-        let config = ServerConfig {
-            endpoint: "127.0.0.1:8080".to_string(),
-            tls: TlsConfig {
-                insecure: false,
-                insecure_skip_verify: None,
-                cert_file: Some("/cert.pem".to_string()),
-                key_file: Some("/key.pem".to_string()),
-                ca_file: None,
-                tls_version: None,
-                include_system_ca_certs_pool: None,
-            },
-        };
-
-        assert_eq!(config.endpoint, "127.0.0.1:8080");
-        assert!(!config.tls.insecure);
-    }
-
-    /// Test ClientConfig creation
-    #[test]
-    fn test_client_config() {
-        let config = ClientConfig {
-            endpoint: "example.com:443".to_string(),
-            tls: TlsConfig {
-                insecure: false,
-                insecure_skip_verify: Some(false),
-                cert_file: None,
-                key_file: None,
-                ca_file: Some("/ca.pem".to_string()),
-                tls_version: Some("tls1.2".to_string()),
-                include_system_ca_certs_pool: Some(true),
-            },
-        };
-
-        assert_eq!(config.endpoint, "example.com:443");
-        assert_eq!(config.tls.tls_version, Some("tls1.2".to_string()));
+        assert!(matches!(
+            config.source,
+            crate::common_config::TlsSource::None
+        ));
     }
 
     // ========================================================================
@@ -1644,8 +1425,7 @@ mod tests {
             session_type: SessionType::PointToPoint,
             enable_mls: false,
             max_retries: Some(1),
-            interval_ms: Some(50),
-            initiator: true,
+            interval: Some(std::time::Duration::from_millis(50)),
             metadata: std::collections::HashMap::new(),
         };
 

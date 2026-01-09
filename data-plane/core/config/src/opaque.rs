@@ -16,6 +16,11 @@ impl OpaqueString {
     pub fn new(value: &str) -> Self {
         OpaqueString(value.to_string())
     }
+
+    /// Get the cleartext value as a string slice
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 // Implement the Display trait to print asterisks
@@ -130,5 +135,18 @@ mod tests {
 
         let deserialized: OpaqueString = serde_json::from_str(&format!("\"{}\"", value)).unwrap();
         assert_eq!(deserialized, opaque);
+    }
+
+    #[test]
+    fn test_opaque_string_as_str() {
+        let value = "my_secret_password";
+        let opaque = OpaqueString::new(value);
+
+        // Verify as_str returns the cleartext value
+        assert_eq!(opaque.as_str(), value);
+
+        // Verify Display/Debug still show asterisks
+        assert_eq!(format!("{}", opaque), "*".repeat(value.len()));
+        assert_eq!(format!("{:?}", opaque), "*".repeat(value.len()));
     }
 }
