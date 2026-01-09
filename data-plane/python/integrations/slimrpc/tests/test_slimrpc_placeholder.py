@@ -2,5 +2,5 @@
 # SPDX-License-Identifier: Apache-2.0
 
 
-def test_slima2a_placeholder() -> None:
+def test_slimrpc_placeholder() -> None:
     assert True
