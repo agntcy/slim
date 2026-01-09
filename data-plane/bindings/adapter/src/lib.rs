@@ -54,7 +54,7 @@ mod service_ref;
 pub mod session_context;
 
 // Public re-exports
-pub use adapter::{BindingsAdapter, FfiCompletionHandle, ReceivedMessage, create_app_with_secret};
+pub use adapter::{BindingsAdapter, FfiCompletionHandle, create_app_with_secret};
 pub use build_info::{BuildInfo, get_build_info, get_version};
 pub use client_config::{ClientConfig, new_insecure_client_config};
 pub use common::initialize_crypto_provider;
@@ -64,7 +64,7 @@ pub use common_config::{
     StaticJwtAuth, TlsClientConfig, TlsServerConfig, TlsSource,
 };
 pub use errors::SlimError;
-pub use message_context::MessageContext;
+pub use message_context::{MessageContext, ReceivedMessage};
 pub use name::Name;
 pub use runtime::get_runtime;
 pub use server_config::{ServerConfig, new_insecure_server_config, new_server_config};
