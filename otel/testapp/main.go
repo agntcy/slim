@@ -227,7 +227,9 @@ func waitForSessionsAndMessages(
 				continue
 			}
 
-			logger.Info("New session established", zap.String("telemetryType", string(signalType)))
+			dstStr := dst.Components[0] + "/" + dst.Components[1] + "/" + dst.Components[2]
+
+			logger.Info("New session established", zap.String("telemetryType", string(signalType)), zap.String("channelName", dstStr))
 			// Handle the session in a goroutine
 			wg.Add(1)
 			go handleSession(ctx, wg, logger, app, session, signalType)
