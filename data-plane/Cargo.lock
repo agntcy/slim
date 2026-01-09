@@ -8,7 +8,7 @@ version = "0.1.1"
 dependencies = [
  "anyhow",
  "heck 0.5.0",
- "prost 0.14.1",
+ "prost",
  "prost-types",
 ]
 
@@ -121,7 +121,7 @@ dependencies = [
  "hyper-util",
  "lazy_static",
  "parking_lot",
- "prost 0.14.1",
+ "prost",
  "protoc-bin-vendored",
  "rand 0.9.2",
  "regex",
@@ -195,7 +195,7 @@ dependencies = [
  "h2",
  "opentelemetry",
  "parking_lot",
- "prost 0.14.1",
+ "prost",
  "protoc-bin-vendored",
  "rand 0.9.2",
  "serde",
@@ -368,10 +368,9 @@ dependencies = [
  "async-trait",
  "clap",
  "futures",
- "prost 0.12.6",
  "serde",
  "serde_yaml",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tokio-stream",
  "tokio-test",
@@ -2795,7 +2794,7 @@ dependencies = [
  "opentelemetry-http",
  "opentelemetry-proto",
  "opentelemetry_sdk",
- "prost 0.14.1",
+ "prost",
  "reqwest",
  "thiserror 2.0.17",
  "tokio",
@@ -2811,7 +2810,7 @@ checksum = "a7175df06de5eaee9909d4805a3d07e28bb752c34cab57fa9cff549da596b30f"
 dependencies = [
  "opentelemetry",
  "opentelemetry_sdk",
- "prost 0.14.1",
+ "prost",
  "tonic",
  "tonic-prost",
 ]
@@ -3123,7 +3122,7 @@ dependencies = [
  "multimap",
  "petgraph",
  "prettyplease 0.2.37",
- "prost 0.14.1",
+ "prost",
  "prost-types",
  "pulldown-cmark",
  "pulldown-cmark-to-cmark",
@@ -3166,7 +3165,7 @@ checksum = "b89455ef41ed200cafc47c76c552ee7792370ac420497e551f16123a9135f76e"
 dependencies = [
  "logos",
  "miette",
- "prost 0.14.1",
+ "prost",
  "prost-types",
 ]
 
@@ -3176,7 +3175,7 @@ version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8991c4cbdb8bc5b11f0b074ffe286c30e523de90fee5ba8132f1399f23cb3dd7"
 dependencies = [
- "prost 0.14.1",
+ "prost",
 ]
 
 [[package]]
@@ -3251,7 +3250,7 @@ checksum = "4f25a07a73c6717f0b9bbbd685918f5df9815f7efba450b83d9c9dea41f0e3a1"
 dependencies = [
  "bytes",
  "miette",
- "prost 0.14.1",
+ "prost",
  "prost-reflect",
  "prost-types",
  "protox-parse",
@@ -4238,7 +4237,7 @@ dependencies = [
  "jsonwebtoken",
  "log",
  "pkcs8",
- "prost 0.14.1",
+ "prost",
  "prost-build",
  "prost-types",
  "protox",
@@ -4578,7 +4577,6 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
- "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",
@@ -4761,7 +4759,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "66bd50ad6ce1252d87ef024b3d64fe4c3cf54a86fb9ef4c631fdd0ded7aeaa67"
 dependencies = [
  "bytes",
- "prost 0.14.1",
+ "prost",
  "tonic",
 ]
 
