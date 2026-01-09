@@ -145,6 +145,7 @@ dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
  "agntcy-slim-datapath",
+ "agntcy-slim-session",
  "agntcy-slim-signal",
  "agntcy-slim-testing",
  "agntcy-slim-tracing",
