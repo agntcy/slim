@@ -41,6 +41,7 @@
 
 // Module declarations
 pub mod adapter;
+pub mod build_info;
 pub mod common;
 pub mod errors;
 mod message_context;
@@ -51,9 +52,10 @@ pub mod session_context;
 
 // Public re-exports
 pub use adapter::{
-    BindingsAdapter, BuildInfo, ClientConfig, FfiCompletionHandle, ReceivedMessage, ServerConfig,
-    SessionConfig, SessionType, TlsConfig, create_app_with_secret, get_build_info, get_version,
+    BindingsAdapter, ClientConfig, FfiCompletionHandle, ReceivedMessage, ServerConfig,
+    SessionConfig, SessionType, TlsConfig, create_app_with_secret,
 };
+pub use build_info::{BuildInfo, get_build_info, get_version};
 pub use common::initialize_crypto_provider;
 pub use errors::SlimError;
 pub use message_context::MessageContext;
