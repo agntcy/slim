@@ -628,7 +628,7 @@ impl BindingsSessionContext {
     }
 
     /// Get list of participants in the session
-    async fn participants_list_async(&self) -> Result<Vec<Arc<Name>>, SlimError> {
+    pub async fn participants_list_async(&self) -> Result<Vec<Arc<Name>>, SlimError> {
         let session = self
             .session
             .upgrade()
@@ -1252,7 +1252,7 @@ mod tests {
     #[tokio::test]
     async fn test_participants_list_session_missing() {
         let (ctx, _tx) = make_context();
-        let result = ctx.participants_list();
+        let result = ctx.participants_list_async().await;
         assert!(result.is_err());
         match result.unwrap_err() {
             SlimError::SessionError { message } => {
