@@ -664,6 +664,15 @@ func uniffiCheckChecksums() {
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_method_bindingssessioncontext_config()
+		})
+		if checksum != 23518 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingssessioncontext_config: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_bindings_checksum_method_bindingssessioncontext_destination()
 		})
 		if checksum != 36250 {
@@ -732,6 +741,15 @@ func uniffiCheckChecksums() {
 		if checksum != 11659 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingssessioncontext_is_initiator: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_method_bindingssessioncontext_metadata()
+		})
+		if checksum != 33472 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingssessioncontext_metadata: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -2040,6 +2058,8 @@ func (_ FfiDestroyerBindingsAdapter) Destroy(value *BindingsAdapter) {
 // Wraps the session context with proper async access patterns for message reception.
 // Provides both synchronous (blocking) and asynchronous methods for FFI compatibility.
 type BindingsSessionContextInterface interface {
+	// Get the session configuration
+	Config() (SessionConfig, error)
 	// Get the destination name for this session
 	Destination() (*Name, error)
 	// Receive a message from the session (blocking version for FFI)
@@ -2071,6 +2091,8 @@ type BindingsSessionContextInterface interface {
 	InviteAsync(participant *Name) (*CompletionHandle, error)
 	// Check if this session is the initiator
 	IsInitiator() (bool, error)
+	// Get the session metadata
+	Metadata() (map[string]string, error)
 	// Publish a message to the session's destination (blocking version)
 	//
 	// Returns a completion handle that can be awaited to ensure the message was delivered.
@@ -2177,6 +2199,24 @@ type BindingsSessionContextInterface interface {
 // Provides both synchronous (blocking) and asynchronous methods for FFI compatibility.
 type BindingsSessionContext struct {
 	ffiObject FfiObject
+}
+
+// Get the session configuration
+func (_self *BindingsSessionContext) Config() (SessionConfig, error) {
+	_pointer := _self.ffiObject.incrementPointer("*BindingsSessionContext")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer{
+			inner: C.uniffi_slim_bindings_fn_method_bindingssessioncontext_config(
+				_pointer, _uniffiStatus),
+		}
+	})
+	if _uniffiErr != nil {
+		var _uniffiDefaultValue SessionConfig
+		return _uniffiDefaultValue, _uniffiErr
+	} else {
+		return FfiConverterSessionConfigINSTANCE.Lift(_uniffiRV), nil
+	}
 }
 
 // Get the destination name for this session
@@ -2359,6 +2399,24 @@ func (_self *BindingsSessionContext) IsInitiator() (bool, error) {
 		return _uniffiDefaultValue, _uniffiErr
 	} else {
 		return FfiConverterBoolINSTANCE.Lift(_uniffiRV), nil
+	}
+}
+
+// Get the session metadata
+func (_self *BindingsSessionContext) Metadata() (map[string]string, error) {
+	_pointer := _self.ffiObject.incrementPointer("*BindingsSessionContext")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer{
+			inner: C.uniffi_slim_bindings_fn_method_bindingssessioncontext_metadata(
+				_pointer, _uniffiStatus),
+		}
+	})
+	if _uniffiErr != nil {
+		var _uniffiDefaultValue map[string]string
+		return _uniffiDefaultValue, _uniffiErr
+	} else {
+		return FfiConverterMapStringStringINSTANCE.Lift(_uniffiRV), nil
 	}
 }
 

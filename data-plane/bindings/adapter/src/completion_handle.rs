@@ -79,7 +79,10 @@ impl CompletionHandle {
     /// * `Ok(())` - Operation completed successfully
     /// * `Err(SlimError::Timeout)` - If the operation timed out
     /// * `Err(SlimError)` - Operation failed or handle already consumed
-    pub fn wait_for(self: std::sync::Arc<Self>, timeout: std::time::Duration) -> Result<(), SlimError> {
+    pub fn wait_for(
+        self: std::sync::Arc<Self>,
+        timeout: std::time::Duration,
+    ) -> Result<(), SlimError> {
         runtime::get_runtime().block_on(self.wait_for_async(timeout))
     }
 
@@ -113,7 +116,10 @@ impl CompletionHandle {
     /// * `Ok(())` - Operation completed successfully
     /// * `Err(SlimError::Timeout)` - If the operation timed out
     /// * `Err(SlimError)` - Operation failed or handle already consumed
-    pub async fn wait_for_async(self: std::sync::Arc<Self>, timeout: std::time::Duration) -> Result<(), SlimError> {
+    pub async fn wait_for_async(
+        self: std::sync::Arc<Self>,
+        timeout: std::time::Duration,
+    ) -> Result<(), SlimError> {
         self.wait_internal(Some(timeout)).await
     }
 }
@@ -130,11 +136,7 @@ impl CompletionHandle {
                     .to_string(),
             })?;
 
-        let wait_future = async {
-            receiver
-                .await
-                .map_err(|e| SlimError::from(e))
-        };
+        let wait_future = async { receiver.await.map_err(SlimError::from) };
 
         if let Some(duration) = timeout {
             tokio::time::timeout(duration, wait_future)

@@ -15,7 +15,6 @@
 use std::sync::Arc;
 
 use tokio::sync::{RwLock, mpsc};
-use uniffi;
 
 use crate::client_config::ClientConfig;
 use crate::errors::SlimError;
@@ -226,8 +225,10 @@ impl BindingsAdapter {
         config: SessionConfig,
         destination: Arc<Name>,
     ) -> Result<Arc<crate::BindingsSessionContext>, SlimError> {
-        runtime::get_runtime()
-            .block_on(async { self.create_session_and_wait_async(config, destination).await })
+        runtime::get_runtime().block_on(async {
+            self.create_session_and_wait_async(config, destination)
+                .await
+        })
     }
 
     /// Create a new session and wait for completion (async version)

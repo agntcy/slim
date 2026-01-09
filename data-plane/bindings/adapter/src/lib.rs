@@ -55,21 +55,28 @@ mod service_ref;
 mod session_context;
 
 // Public re-exports
-pub use adapter::{BindingsAdapter, FfiCompletionHandle, SessionWithCompletion, create_app_with_secret};
-pub use completion_handle::CompletionHandle;
+pub use adapter::{
+    BindingsAdapter, FfiCompletionHandle, SessionWithCompletion, create_app_with_secret,
+};
 pub use build_info::{BuildInfo, get_build_info, get_version};
-pub use client_config::{ClientConfig, new_insecure_client_config};
+pub use client_config::{
+    BackoffConfig, ClientConfig, ExponentialBackoff, KeepaliveConfig, ProxyConfig,
+    new_insecure_client_config,
+};
 pub use common::initialize_crypto_provider;
 pub use common_config::{
     BasicAuth, CaSource, ClientAuthenticationConfig, ClientJwtAuth, JwtAlgorithm, JwtAuth,
     JwtKeyConfig, JwtKeyData, JwtKeyFormat, JwtKeyType, ServerAuthenticationConfig, SpireConfig,
     StaticJwtAuth, TlsClientConfig, TlsServerConfig, TlsSource,
 };
+pub use completion_handle::CompletionHandle;
 pub use errors::SlimError;
 pub use message_context::{MessageContext, ReceivedMessage};
 pub use name::Name;
 pub use runtime::get_runtime;
-pub use server_config::{ServerConfig, new_insecure_server_config, new_server_config};
+pub use server_config::{
+    KeepaliveServerParameters, ServerConfig, new_insecure_server_config, new_server_config,
+};
 pub use service_ref::{ServiceRef, get_or_init_global_service};
 pub use session_context::{BindingsSessionContext, SessionConfig, SessionType};
 

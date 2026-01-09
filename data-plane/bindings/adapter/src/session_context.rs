@@ -33,6 +33,16 @@ impl From<SessionType> for ProtoSessionType {
     }
 }
 
+impl From<ProtoSessionType> for SessionType {
+    fn from(session_type: ProtoSessionType) -> Self {
+        match session_type {
+            ProtoSessionType::PointToPoint => SessionType::PointToPoint,
+            ProtoSessionType::Multicast => SessionType::Group,
+            ProtoSessionType::Unspecified => SessionType::PointToPoint, // Default to PointToPoint
+        }
+    }
+}
+
 /// Session configuration
 #[derive(uniffi::Record)]
 pub struct SessionConfig {
@@ -60,6 +70,18 @@ impl From<SessionConfig> for SlimSessionConfig {
             interval: config.interval,
             mls_enabled: config.enable_mls,
             initiator: true,
+            metadata: config.metadata,
+        }
+    }
+}
+
+impl From<SlimSessionConfig> for SessionConfig {
+    fn from(config: SlimSessionConfig) -> Self {
+        SessionConfig {
+            session_type: config.session_type.into(),
+            enable_mls: config.mls_enabled,
+            max_retries: config.max_retries,
+            interval: config.interval,
             metadata: config.metadata,
         }
     }
@@ -126,7 +148,7 @@ impl BindingsSessionContext {
     ///
     /// This is the low-level publish_to method that takes MessageContext reference.
     /// Use `publish_to()` for FFI-compatible API.
-    async fn publish_to_internal(
+    pub async fn publish_to_internal(
         &self,
         message_ctx: &MessageContext,
         blob: Vec<u8>,
@@ -166,7 +188,7 @@ impl BindingsSessionContext {
     ///
     /// This is the low-level invite method that takes SlimName reference.
     /// Use `invite()` for FFI-compatible API with auto-wait.
-    async fn invite_internal(
+    pub async fn invite_internal(
         &self,
         destination: &SlimName,
     ) -> Result<SlimCompletionHandle, SessionError> {
@@ -179,7 +201,7 @@ impl BindingsSessionContext {
     ///
     /// This is the low-level remove method that takes SlimName reference.
     /// Use `remove()` for FFI-compatible API with auto-wait.
-    async fn remove_internal(
+    pub async fn remove_internal(
         &self,
         destination: &SlimName,
     ) -> Result<SlimCompletionHandle, SessionError> {
@@ -189,7 +211,7 @@ impl BindingsSessionContext {
     }
 
     /// Receive a message from this session with optional timeout
-    async fn get_session_message(
+    pub async fn get_session_message(
         &self,
         timeout: Option<std::time::Duration>,
     ) -> Result<(MessageContext, Vec<u8>), SessionError> {
@@ -286,8 +308,10 @@ impl BindingsSessionContext {
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<(), SlimError> {
-        runtime::get_runtime()
-            .block_on(async { self.publish_and_wait_async(data, payload_type, metadata).await })
+        runtime::get_runtime().block_on(async {
+            self.publish_and_wait_async(data, payload_type, metadata)
+                .await
+        })
     }
 
     /// Publish a message and wait for completion (async version)
@@ -607,6 +631,30 @@ impl BindingsSessionContext {
             })?;
 
         Ok(session.is_initiator())
+    }
+
+    /// Get the session metadata
+    pub fn metadata(&self) -> Result<HashMap<String, String>, SlimError> {
+        let session = self
+            .session
+            .upgrade()
+            .ok_or_else(|| SlimError::SessionError {
+                message: "Session already closed or dropped".to_string(),
+            })?;
+
+        Ok(session.metadata())
+    }
+
+    /// Get the session configuration
+    pub fn config(&self) -> Result<SessionConfig, SlimError> {
+        let session = self
+            .session
+            .upgrade()
+            .ok_or_else(|| SlimError::SessionError {
+                message: "Session already closed or dropped".to_string(),
+            })?;
+
+        Ok(session.session_config().into())
     }
 }
 
@@ -1347,7 +1395,8 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // ========================================================================    // SessionConfig Conversion Tests
+    // ========================================================================
+    // SessionConfig Conversion Tests
     // ========================================================================
 
     /// Test SessionConfig to SlimSessionConfig conversion for PointToPoint
