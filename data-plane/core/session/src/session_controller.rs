@@ -265,16 +265,17 @@ impl SessionController {
         self.config.initiator
     }
 
-    pub fn participants_list(&self) -> Result<Vec<Name>, SessionError> {
+    pub async fn participants_list(&self) -> Result<Vec<Name>, SessionError> {
         let (tx, rx) = oneshot::channel();
 
         // Send query to the processing loop
         self.tx_controller
-            .try_send(SessionMessage::GetParticipantsList { tx })
+            .send(SessionMessage::GetParticipantsList { tx })
+            .await
             .map_err(|_| SessionError::ParticipantsListQueryFailed)?;
 
         // Wait for response
-        rx.blocking_recv()
+        rx.await
             .map_err(|_| SessionError::ParticipantsListQueryFailed)
     }
 

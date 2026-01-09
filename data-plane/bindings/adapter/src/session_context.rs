@@ -628,7 +628,7 @@ impl BindingsSessionContext {
     }
 
     /// Get list of participants in the session
-    pub fn participants_list(&self) -> Result<Vec<Arc<Name>>, SlimError> {
+    async fn participants_list_async(&self) -> Result<Vec<Arc<Name>>, SlimError> {
         let session = self
             .session
             .upgrade()
@@ -636,7 +636,7 @@ impl BindingsSessionContext {
                 message: "Session already closed or dropped".to_string(),
             })?;
 
-        match session.participants_list() {
+        match session.participants_list().await {
             Ok(list) => {
                 let names: Vec<Arc<Name>> =
                     list.into_iter().map(|n| Arc::new(Name::from(n))).collect();
@@ -646,6 +646,11 @@ impl BindingsSessionContext {
                 message: format!("Failed to get participants list: {}", e),
             }),
         }
+    }
+
+    /// Get list of participants in the session (blocking version for FFI)
+    pub fn participants_list(&self) -> Result<Vec<Arc<Name>>, SlimError> {
+        runtime::get_runtime().block_on(async { self.participants_list_async().await })
     }
 }
 
