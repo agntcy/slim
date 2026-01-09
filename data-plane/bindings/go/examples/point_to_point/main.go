@@ -68,11 +68,11 @@ func runSender(app *slim.BindingsAdapter, connID uint64, remote, message string,
 	}
 
 	fmt.Printf("[%d] 🔍 Creating session to %s...\n", instance, remote)
-	session, err := app.CreateSession(config, remoteName)
+	session, err := app.CreateSessionAndWait(config, remoteName)
 	if err != nil {
 		log.Fatalf("Failed to create session: %v", err)
 	}
-	defer app.DeleteSession(session)
+	defer app.DeleteSessionAndWait(session)
 
 	// Give session a moment to establish
 	time.Sleep(100 * time.Millisecond)
@@ -80,7 +80,7 @@ func runSender(app *slim.BindingsAdapter, connID uint64, remote, message string,
 	fmt.Printf("[%d] 📡 Session created\n", instance)
 
 	for i := 0; i < iterations; i++ {
-		if err := session.Publish([]byte(message), nil, nil); err != nil {
+		if err := session.PublishAndWait([]byte(message), nil, nil); err != nil {
 			fmt.Printf("[%d] ❌ Error sending message %d/%d: %v\n", instance, i+1, iterations, err)
 			continue
 		}
@@ -118,7 +118,7 @@ func runReceiver(app *slim.BindingsAdapter, instance uint64) {
 
 func handleSession(app *slim.BindingsAdapter, session *slim.BindingsSessionContext, instance uint64) {
 	defer func() {
-		if err := app.DeleteSession(session); err != nil {
+		if err := app.DeleteSessionAndWait(session); err != nil {
 			log.Printf("[%d] ⚠️  Warning: failed to delete session: %v", instance, err)
 		}
 		fmt.Printf("[%d] 👋 Session closed\n", instance)
@@ -136,7 +136,7 @@ func handleSession(app *slim.BindingsAdapter, session *slim.BindingsSessionConte
 		fmt.Printf("[%d] 📨 Received: %s\n", instance, text)
 
 		reply := fmt.Sprintf("%s from %d", text, instance)
-		if err := session.PublishTo(msg.Context, []byte(reply), nil, nil); err != nil {
+		if err := session.PublishToAndWait(msg.Context, []byte(reply), nil, nil); err != nil {
 			log.Printf("[%d] ❌ Error sending reply: %v", instance, err)
 			break
 		}
