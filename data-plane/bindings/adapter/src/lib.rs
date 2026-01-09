@@ -40,21 +40,23 @@
 //! ```
 
 // Module declarations
-pub mod adapter;
-pub mod build_info;
-pub mod client_config;
-pub mod common;
+mod adapter;
+mod build_info;
+mod client_config;
+mod common;
 mod common_config;
-pub mod errors;
+mod completion_handle;
+mod errors;
 mod message_context;
-pub mod name;
-pub mod runtime;
-pub mod server_config;
+mod name;
+mod runtime;
+mod server_config;
 mod service_ref;
-pub mod session_context;
+mod session_context;
 
 // Public re-exports
-pub use adapter::{BindingsAdapter, FfiCompletionHandle, create_app_with_secret};
+pub use adapter::{BindingsAdapter, FfiCompletionHandle, SessionWithCompletion, create_app_with_secret};
+pub use completion_handle::CompletionHandle;
 pub use build_info::{BuildInfo, get_build_info, get_version};
 pub use client_config::{ClientConfig, new_insecure_client_config};
 pub use common::initialize_crypto_provider;
