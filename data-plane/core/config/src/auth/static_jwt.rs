@@ -1,6 +1,9 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::time::Duration;
+
+use duration_string::DurationString;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -26,14 +29,15 @@ pub struct Config {
     #[serde(flatten)]
     source: JwtSource,
 
-    /// Duration (in seconds) used by the AddJwtLayer cache for re-fetching the token.
+    /// Duration used by the AddJwtLayer cache for re-fetching the token.
     /// This duration bounds the "validity" window before re-reading from file.
     #[serde(default = "default_duration")]
-    duration: u64,
+    #[schemars(with = "String")]
+    duration: DurationString,
 }
 
-fn default_duration() -> u64 {
-    3600
+fn default_duration() -> DurationString {
+    Duration::from_secs(3600).into()
 }
 
 impl Default for Config {
@@ -58,10 +62,10 @@ impl Config {
         }
     }
 
-    /// Set custom cache duration (seconds).
-    pub fn with_duration(self, duration_secs: u64) -> Self {
+    /// Set custom cache duration.
+    pub fn with_duration(self, duration: Duration) -> Self {
         Self {
-            duration: duration_secs,
+            duration: duration.into(),
             ..self
         }
     }
@@ -72,8 +76,8 @@ impl Config {
     }
 
     /// Get duration for client layer caching.
-    pub fn duration(&self) -> u64 {
-        self.duration
+    pub fn duration(&self) -> Duration {
+        *self.duration
     }
 
     /// Build StaticTokenProvider using jwt.rs types.
@@ -126,8 +130,8 @@ mod tests {
 
     #[test]
     fn test_config_duration() {
-        let cfg = Config::with_file("/path/to/token").with_duration(7200);
-        assert_eq!(cfg.duration(), 7200);
+        let cfg = Config::with_file("/path/to/token").with_duration(Duration::from_secs(7200));
+        assert_eq!(cfg.duration(), Duration::from_secs(7200));
     }
 
     #[test]
@@ -139,7 +143,7 @@ mod tests {
     #[test]
     fn test_default_config() {
         let cfg = Config::default();
-        assert_eq!(cfg.duration(), 3600);
+        assert_eq!(cfg.duration(), Duration::from_secs(3600));
         assert_eq!(cfg.source().file, "/path/to/token.jwt");
     }
 

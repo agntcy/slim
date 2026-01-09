@@ -10,12 +10,61 @@ use tokio::sync::RwLock;
 use slim_datapath::api::ProtoSessionType;
 use slim_datapath::messages::Name as SlimName;
 use slim_datapath::messages::utils::{PUBLISH_TO, SlimHeaderFlags, TRUE_VAL};
+use slim_session::SessionConfig as SlimSessionConfig;
 use slim_session::SessionError;
 use slim_session::context::SessionContext;
 
-use crate::Name;
-use crate::adapter::{FfiCompletionHandle, ReceivedMessage, SessionType, SlimError};
+use crate::adapter::{FfiCompletionHandle, ReceivedMessage};
 use crate::message_context::MessageContext;
+use crate::{Name, SlimError, runtime};
+
+/// Session type enum
+#[derive(Debug, Clone, PartialEq, uniffi::Enum)]
+pub enum SessionType {
+    PointToPoint,
+    Group,
+}
+
+impl From<SessionType> for ProtoSessionType {
+    fn from(session_type: SessionType) -> Self {
+        match session_type {
+            SessionType::PointToPoint => ProtoSessionType::PointToPoint,
+            SessionType::Group => ProtoSessionType::Multicast,
+        }
+    }
+}
+
+/// Session configuration
+#[derive(uniffi::Record)]
+pub struct SessionConfig {
+    /// Session type (PointToPoint or Group)
+    pub session_type: SessionType,
+
+    /// Enable MLS encryption for this session
+    pub enable_mls: bool,
+
+    /// Maximum number of retries for message transmission (None = use default)
+    pub max_retries: Option<u32>,
+
+    /// Interval between retries in milliseconds (None = use default)
+    pub interval: Option<std::time::Duration>,
+
+    /// Custom metadata key-value pairs for the session
+    pub metadata: std::collections::HashMap<String, String>,
+}
+
+impl From<SessionConfig> for SlimSessionConfig {
+    fn from(config: SessionConfig) -> Self {
+        SlimSessionConfig {
+            session_type: config.session_type.into(),
+            max_retries: config.max_retries,
+            interval: config.interval,
+            mls_enabled: config.enable_mls,
+            initiator: true,
+            metadata: config.metadata,
+        }
+    }
+}
 
 /// Session context for language bindings (UniFFI-compatible)
 ///
@@ -27,24 +76,21 @@ pub struct BindingsSessionContext {
     pub session: std::sync::Weak<SessionController>,
     /// Message receiver wrapped in RwLock for concurrent access
     pub rx: RwLock<slim_session::AppChannelReceiver>,
-    /// Tokio runtime for blocking operations (static lifetime)
-    runtime: &'static tokio::runtime::Runtime,
 }
 
 impl BindingsSessionContext {
     /// Create a new BindingsSessionContext from a SessionContext and runtime
-    pub fn new(ctx: SessionContext, runtime: &'static tokio::runtime::Runtime) -> Self {
+    pub fn new(ctx: SessionContext) -> Self {
         let (session, rx) = ctx.into_parts();
         Self {
             session,
             rx: RwLock::new(rx),
-            runtime,
         }
     }
 
     /// Get the runtime (for internal use)
     pub fn runtime(&self) -> &'static tokio::runtime::Runtime {
-        self.runtime
+        crate::runtime::get_runtime()
     }
 }
 
@@ -197,7 +243,7 @@ impl BindingsSessionContext {
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<(), SlimError> {
-        self.runtime
+        runtime::get_runtime()
             .block_on(async { self.publish_async(data, payload_type, metadata).await })
     }
 
@@ -261,7 +307,7 @@ impl BindingsSessionContext {
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<Arc<FfiCompletionHandle>, SlimError> {
-        self.runtime.block_on(async {
+        runtime::get_runtime().block_on(async {
             self.publish_with_completion_async(data, payload_type, metadata)
                 .await
         })
@@ -294,7 +340,7 @@ impl BindingsSessionContext {
             )
             .await?;
 
-        Ok(Arc::new(FfiCompletionHandle::new(completion, self.runtime)))
+        Ok(Arc::new(FfiCompletionHandle::new(completion)))
     }
 
     /// Publish a reply message to the originator of a received message (blocking version for FFI)
@@ -319,7 +365,7 @@ impl BindingsSessionContext {
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<(), SlimError> {
-        self.runtime.block_on(async {
+        runtime::get_runtime().block_on(async {
             self.publish_to_async(message_context, data, payload_type, metadata)
                 .await
         })
@@ -361,7 +407,7 @@ impl BindingsSessionContext {
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<Arc<FfiCompletionHandle>, SlimError> {
-        self.runtime.block_on(async {
+        runtime::get_runtime().block_on(async {
             self.publish_to_with_completion_async(message_context, data, payload_type, metadata)
                 .await
         })
@@ -379,7 +425,7 @@ impl BindingsSessionContext {
             .publish_to_internal(&message_context, data, payload_type, metadata)
             .await?;
 
-        Ok(Arc::new(FfiCompletionHandle::new(completion, self.runtime)))
+        Ok(Arc::new(FfiCompletionHandle::new(completion)))
     }
 
     /// Low-level publish with full control over all parameters (blocking version for FFI)
@@ -403,7 +449,7 @@ impl BindingsSessionContext {
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<(), SlimError> {
-        self.runtime.block_on(async {
+        runtime::get_runtime().block_on(async {
             self.publish_with_params_async(
                 destination,
                 fanout,
@@ -451,8 +497,7 @@ impl BindingsSessionContext {
     /// * `Ok(ReceivedMessage)` - Message with context and payload bytes
     /// * `Err(SlimError)` - If the receive fails or times out
     pub fn get_message(&self, timeout_ms: Option<u32>) -> Result<ReceivedMessage, SlimError> {
-        self.runtime
-            .block_on(async { self.get_message_async(timeout_ms).await })
+        runtime::get_runtime().block_on(async { self.get_message_async(timeout_ms).await })
     }
 
     /// Receive a message from the session (async version)
@@ -475,8 +520,7 @@ impl BindingsSessionContext {
     /// **Auto-waits for completion:** This method automatically waits for the
     /// invitation to be sent and acknowledged before returning.
     pub fn invite(&self, participant: Arc<Name>) -> Result<(), SlimError> {
-        self.runtime
-            .block_on(async { self.invite_async(participant).await })
+        runtime::get_runtime().block_on(async { self.invite_async(participant).await })
     }
 
     /// Invite a participant to the session (async version)
@@ -499,8 +543,7 @@ impl BindingsSessionContext {
     /// **Auto-waits for completion:** This method automatically waits for the
     /// removal to be processed and acknowledged before returning.
     pub fn remove(&self, participant: Arc<Name>) -> Result<(), SlimError> {
-        self.runtime
-            .block_on(async { self.remove_async(participant).await })
+        runtime::get_runtime().block_on(async { self.remove_async(participant).await })
     }
 
     /// Remove a participant from the session (async version)
@@ -596,11 +639,6 @@ mod tests {
     use std::time::Duration;
     use tokio::sync::mpsc;
 
-    /// Get the shared test runtime (uses global runtime)
-    fn get_test_runtime() -> &'static tokio::runtime::Runtime {
-        crate::adapter::get_runtime()
-    }
-
     /// Helper to create SlimName for proto message construction
     fn make_slim_name(parts: [&str; 3]) -> SlimName {
         SlimName::from_strings(parts).with_id(0)
@@ -621,11 +659,9 @@ mod tests {
         mpsc::UnboundedSender<Result<ProtoMessage, SessionError>>,
     ) {
         let (tx, rx) = mpsc::unbounded_channel::<Result<ProtoMessage, SessionError>>();
-        let runtime = get_test_runtime();
         let ctx = BindingsSessionContext {
             session: std::sync::Weak::new(),
             rx: RwLock::new(rx),
-            runtime,
         };
         (ctx, tx)
     }
@@ -900,23 +936,6 @@ mod tests {
         assert!(ctx.session.upgrade().is_none());
     }
 
-    // ==================== Runtime Access Tests ====================
-
-    #[tokio::test]
-    async fn test_runtime_accessor() {
-        let (ctx, _tx) = make_context();
-        let runtime = ctx.runtime();
-        // Verify runtime is accessible (we can't block_on from within a tokio test)
-        // Just verify we get a valid handle
-        let handle = runtime.handle();
-        // Spawn a task on the runtime to verify it's working
-        let result = handle
-            .spawn(async { 42 })
-            .await
-            .expect("Task should complete");
-        assert_eq!(result, 42);
-    }
-
     // ==================== FFI Method Tests (Session Missing) ====================
 
     #[tokio::test]
@@ -925,7 +944,7 @@ mod tests {
         let result = ctx.publish_async(b"test".to_vec(), None, None).await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            crate::adapter::SlimError::SessionError { message } => {
+            SlimError::SessionError { message } => {
                 assert!(message.contains("closed") || message.contains("dropped"));
             }
             _ => panic!("Expected SessionError"),
@@ -940,7 +959,7 @@ mod tests {
             .await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            crate::adapter::SlimError::SessionError { message } => {
+            SlimError::SessionError { message } => {
                 assert!(message.contains("closed") || message.contains("dropped"));
             }
             _ => panic!("Expected SessionError"),
@@ -963,7 +982,7 @@ mod tests {
             .publish_to_async(message_ctx, b"reply".to_vec(), None, None)
             .await;
         assert!(result.is_err_and(|e| {
-            if let crate::adapter::SlimError::SessionError { message } = e {
+            if let SlimError::SessionError { message } = e {
                 message.contains("closed")
             } else {
                 false
@@ -987,7 +1006,7 @@ mod tests {
             .publish_to_with_completion_async(message_ctx, b"reply".to_vec(), None, None)
             .await;
         assert!(result.is_err_and(|e| {
-            if let crate::adapter::SlimError::SessionError { message } = e {
+            if let SlimError::SessionError { message } = e {
                 message.contains("closed")
             } else {
                 false
@@ -1009,7 +1028,7 @@ mod tests {
             .publish_with_params_async(dest, 1, b"test".to_vec(), None, None, None)
             .await;
         assert!(result.is_err_and(|e| {
-            if let crate::adapter::SlimError::SessionError { message } = e {
+            if let SlimError::SessionError { message } = e {
                 message.contains("closed")
             } else {
                 false
@@ -1077,7 +1096,7 @@ mod tests {
 
         let result = ctx.get_message_async(Some(10)).await;
         assert!(result.is_err_and(|e| {
-            if let crate::adapter::SlimError::SessionError { message } = e {
+            if let SlimError::SessionError { message } = e {
                 message.contains("receive timeout")
             } else {
                 false
@@ -1091,7 +1110,7 @@ mod tests {
         drop(tx);
 
         let result = ctx.get_message_async(Some(100)).await;
-        assert!(result.is_err_and(|e| matches!(e, crate::adapter::SlimError::SessionError { .. })));
+        assert!(result.is_err_and(|e| matches!(e, SlimError::SessionError { .. })));
     }
 
     // ==================== Invite/Remove FFI Tests ====================
@@ -1108,7 +1127,7 @@ mod tests {
 
         let result = ctx.invite_async(participant).await;
         assert!(result.is_err_and(|e| {
-            if let crate::adapter::SlimError::SessionError { message } = e {
+            if let SlimError::SessionError { message } = e {
                 message.contains("closed")
             } else {
                 false
@@ -1128,7 +1147,7 @@ mod tests {
 
         let result = ctx.remove_async(participant).await;
         assert!(result.is_err_and(|e| {
-            if let crate::adapter::SlimError::SessionError { message } = e {
+            if let SlimError::SessionError { message } = e {
                 message.contains("closed")
             } else {
                 false
@@ -1144,7 +1163,7 @@ mod tests {
         let result = ctx.destination();
         assert!(result.is_err());
         match result.unwrap_err() {
-            crate::adapter::SlimError::SessionError { message } => {
+            SlimError::SessionError { message } => {
                 assert!(message.contains("closed") || message.contains("dropped"));
             }
             _ => panic!("Expected SessionError"),
@@ -1157,7 +1176,7 @@ mod tests {
         let result = ctx.source();
         assert!(result.is_err());
         match result.unwrap_err() {
-            crate::adapter::SlimError::SessionError { message } => {
+            SlimError::SessionError { message } => {
                 assert!(message.contains("closed") || message.contains("dropped"));
             }
             _ => panic!("Expected SessionError"),
@@ -1170,7 +1189,7 @@ mod tests {
         let result = ctx.session_id();
         assert!(result.is_err());
         match result.unwrap_err() {
-            crate::adapter::SlimError::SessionError { message } => {
+            SlimError::SessionError { message } => {
                 assert!(message.contains("closed") || message.contains("dropped"));
             }
             _ => panic!("Expected SessionError"),
@@ -1183,7 +1202,7 @@ mod tests {
         let result = ctx.session_type();
         assert!(result.is_err());
         match result.unwrap_err() {
-            crate::adapter::SlimError::SessionError { message } => {
+            SlimError::SessionError { message } => {
                 assert!(message.contains("closed") || message.contains("dropped"));
             }
             _ => panic!("Expected SessionError"),
@@ -1196,7 +1215,7 @@ mod tests {
         let result = ctx.is_initiator();
         assert!(result.is_err());
         match result.unwrap_err() {
-            crate::adapter::SlimError::SessionError { message } => {
+            SlimError::SessionError { message } => {
                 assert!(message.contains("closed") || message.contains("dropped"));
             }
             _ => panic!("Expected SessionError"),
@@ -1382,5 +1401,56 @@ mod tests {
 
         // Should fail because session is missing
         assert!(result.is_err());
+    }
+
+    // ========================================================================    // SessionConfig Conversion Tests
+    // ========================================================================
+
+    /// Test SessionConfig to SlimSessionConfig conversion for PointToPoint
+    #[test]
+    fn test_session_config_point_to_point() {
+        let config = SessionConfig {
+            session_type: SessionType::PointToPoint,
+            enable_mls: true,
+            max_retries: Some(5),
+            interval: Some(std::time::Duration::from_millis(200)),
+            metadata: std::collections::HashMap::from([
+                ("key1".to_string(), "value1".to_string()),
+                ("key2".to_string(), "value2".to_string()),
+            ]),
+        };
+
+        let slim_config: SlimSessionConfig = config.into();
+
+        assert_eq!(slim_config.session_type, ProtoSessionType::PointToPoint);
+        assert!(slim_config.mls_enabled);
+        assert_eq!(slim_config.max_retries, Some(5));
+        assert_eq!(
+            slim_config.interval,
+            Some(std::time::Duration::from_millis(200))
+        );
+        assert_eq!(
+            slim_config.metadata.get("key1"),
+            Some(&"value1".to_string())
+        );
+    }
+
+    /// Test SessionConfig to SlimSessionConfig conversion for Group
+    #[test]
+    fn test_session_config_group() {
+        let config = SessionConfig {
+            session_type: SessionType::Group,
+            enable_mls: false,
+            max_retries: None,
+            interval: None,
+            metadata: std::collections::HashMap::new(),
+        };
+
+        let slim_config: SlimSessionConfig = config.into();
+
+        assert_eq!(slim_config.session_type, ProtoSessionType::Multicast);
+        assert!(!slim_config.mls_enabled);
+        assert!(slim_config.max_retries.is_none());
+        assert!(slim_config.interval.is_none());
     }
 }

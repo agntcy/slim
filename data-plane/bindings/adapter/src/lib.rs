@@ -41,22 +41,35 @@
 
 // Module declarations
 pub mod adapter;
+pub mod build_info;
+pub mod client_config;
+pub mod common;
+mod common_config;
+pub mod errors;
 mod message_context;
 pub mod name;
+pub mod runtime;
+pub mod server_config;
 mod service_ref;
 pub mod session_context;
 
-pub use name::Name;
-
 // Public re-exports
-pub use adapter::{
-    BindingsAdapter, BuildInfo, ClientConfig, FfiCompletionHandle, ReceivedMessage, ServerConfig,
-    SessionConfig, SessionType, SlimError, TlsConfig, create_app_with_secret, get_build_info,
-    get_runtime, get_version, initialize_crypto_provider,
+pub use adapter::{BindingsAdapter, FfiCompletionHandle, ReceivedMessage, create_app_with_secret};
+pub use build_info::{BuildInfo, get_build_info, get_version};
+pub use client_config::{ClientConfig, new_insecure_client_config};
+pub use common::initialize_crypto_provider;
+pub use common_config::{
+    BasicAuth, CaSource, ClientAuthenticationConfig, ClientJwtAuth, JwtAlgorithm, JwtAuth,
+    JwtKeyConfig, JwtKeyData, JwtKeyFormat, JwtKeyType, ServerAuthenticationConfig, SpireConfig,
+    StaticJwtAuth, TlsClientConfig, TlsServerConfig, TlsSource,
 };
+pub use errors::SlimError;
 pub use message_context::MessageContext;
+pub use name::Name;
+pub use runtime::get_runtime;
+pub use server_config::{ServerConfig, new_insecure_server_config, new_server_config};
 pub use service_ref::{ServiceRef, get_or_init_global_service};
-pub use session_context::BindingsSessionContext;
+pub use session_context::{BindingsSessionContext, SessionConfig, SessionType};
 
 // UniFFI scaffolding setup (must be at crate root)
 uniffi::setup_scaffolding!();

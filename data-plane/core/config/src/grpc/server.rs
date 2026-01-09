@@ -30,27 +30,27 @@ pub struct KeepaliveServerParameters {
     /// max_connection_idle sets the time after which an idle connection is closed.
     #[serde(default = "default_max_connection_idle")]
     #[schemars(with = "String")]
-    max_connection_idle: DurationString,
+    pub max_connection_idle: DurationString,
 
     /// max_connection_age sets the maximum amount of time a connection may exist before it will be closed.
     #[serde(default = "default_max_connection_age")]
     #[schemars(with = "String")]
-    max_connection_age: DurationString,
+    pub max_connection_age: DurationString,
 
     /// max_connection_age_grace is an additional time given after MaxConnectionAge before closing the connection.
     #[serde(default = "default_max_connection_age_grace")]
     #[schemars(with = "String")]
-    max_connection_age_grace: DurationString,
+    pub max_connection_age_grace: DurationString,
 
     /// Time sets the frequency of the keepalive ping.
     #[serde(default = "default_time")]
     #[schemars(with = "String")]
-    time: DurationString,
+    pub time: DurationString,
 
     /// Timeout sets the amount of time the server waits for a keepalive ping ack.
     #[serde(default = "default_timeout")]
     #[schemars(with = "String")]
-    timeout: DurationString,
+    pub timeout: DurationString,
 }
 
 /// Enum holding one configuration for the client.
