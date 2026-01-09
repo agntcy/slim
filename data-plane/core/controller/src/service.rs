@@ -1515,7 +1515,7 @@ impl ControllerService {
     ) -> Result<JoinHandle<()>, ControllerError> {
         let this = self.clone();
         let watch = self.drain_watch()?;
-        let clients = config.clone().unwrap();
+        let clients = config.clone();
 
         let handle = tokio::spawn(async move {
             // Send a register message to the control plane
@@ -1585,7 +1585,9 @@ impl ControllerService {
                         match session_msg {
                             SessionMessage::TimerFailure { message_id, message_type: _, name: _, timeouts: _} => {
                                 tracing::info!("got a failure for message id: {}", message_id);
-                                this.send_ack_message(message_id, false, std::slice::from_ref(&clients)).await;
+                                if let Some(clients) = &clients {
+                                    this.send_ack_message(message_id, false, std::slice::from_ref(&clients)).await;
+                                }
                             }
                             _ => {
                                 error!("unexpected session message received in controller");
