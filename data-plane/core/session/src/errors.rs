@@ -44,6 +44,8 @@ pub enum SessionError {
     MessageTypeUnexpected(Box<ProtoMessage>),
     #[error("session message type unexpected: {0:?}")]
     SessionMessageTypeUnexpected(ProtoSessionMessageType),
+    #[error("error getting the participants list")]
+    ParticipantsListQueryFailed,
     #[error("unexpected error")]
     UnexpectedError { source: Box<SessionError> },
 

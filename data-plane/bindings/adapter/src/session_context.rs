@@ -626,6 +626,27 @@ impl BindingsSessionContext {
 
         Ok(session.is_initiator())
     }
+
+    /// Get list of participants in the session
+    pub fn participants_list(&self) -> Result<Vec<Arc<Name>>, SlimError> {
+        let session = self
+            .session
+            .upgrade()
+            .ok_or_else(|| SlimError::SessionError {
+                message: "Session already closed or dropped".to_string(),
+            })?;
+
+        match session.participants_list() {
+            Ok(list) => {
+                let names: Vec<Arc<Name>> =
+                    list.into_iter().map(|n| Arc::new(Name::from(n))).collect();
+                Ok(names)
+            }
+            Err(e) => Err(SlimError::SessionError {
+                message: format!("Failed to get participants list: {}", e),
+            }),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1214,6 +1235,19 @@ mod tests {
     async fn test_is_initiator_session_missing() {
         let (ctx, _tx) = make_context();
         let result = ctx.is_initiator();
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            SlimError::SessionError { message } => {
+                assert!(message.contains("closed") || message.contains("dropped"));
+            }
+            _ => panic!("Expected SessionError"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_participants_list_session_missing() {
+        let (ctx, _tx) = make_context();
+        let result = ctx.participants_list();
         assert!(result.is_err());
         match result.unwrap_err() {
             SlimError::SessionError { message } => {

@@ -272,6 +272,13 @@ where
         self.common.processing_state
     }
 
+    fn participants_list(&self) -> Vec<Name> {
+        self.group_list
+            .iter()
+            .map(|(name, id)| name.clone().with_id(*id))
+            .collect()
+    }
+
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {
         // Moderator-specific cleanup
         self.subscribed = false;

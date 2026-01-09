@@ -77,4 +77,10 @@ pub trait MessageHandler: Send + Sync {
     async fn on_tick(&mut self) -> Result<(), SessionError> {
         Ok(())
     }
+
+    /// Get the current participants list (participants in the session)
+    /// Default implementation returns an empty list.
+    fn participants_list(&self) -> Vec<slim_datapath::messages::Name> {
+        vec![]
+    }
 }
