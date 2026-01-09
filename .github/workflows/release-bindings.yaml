@@ -204,7 +204,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.25'
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
@@ -273,7 +273,7 @@ jobs:
 
           popd
 
-      - name: Commit and push
+      - name: Commit and push to pre-release branch
         run: |
           pushd ./target-repo
 
@@ -281,6 +281,10 @@ jobs:
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#slim-bindings-libs-}"
           echo "📦 Extracted version: $VERSION"
+
+          # Create pre-release branch name
+          PRE_RELEASE_BRANCH="pre-release-$VERSION"
+          echo "🌿 Pre-release branch: $PRE_RELEASE_BRANCH"
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -306,11 +310,325 @@ jobs:
           - darwin/amd64 (x86_64-apple-darwin)
           - windows/amd64 (x86_64-pc-windows-msvc)"
 
-          git tag -a "$VERSION" -m "Release $VERSION"
+          # Create pre-release tag so Go can resolve by version (not pseudo-version)
+          git tag -a "$VERSION" -m "Pre-release $VERSION"
 
-          git push origin main
+          # Create and push pre-release branch and tag
+          git checkout -b "$PRE_RELEASE_BRANCH"
+          git push origin "$PRE_RELEASE_BRANCH"
           git push origin "$VERSION"
 
-          echo "✅ Successfully pushed Go bindings to https://github.com/${{ env.GO_BINDINGS_REPO }}"
+          echo "✅ Successfully pushed Go bindings to pre-release branch: $PRE_RELEASE_BRANCH"
+          echo "✅ Created pre-release tag: $VERSION"
 
           popd
+
+  # ==========================================================================
+  # Job 4: Test the published Go bindings work as expected
+  # ==========================================================================
+  test-go-bindings:
+    name: Test Go Bindings (${{ matrix.platform.target }})
+    runs-on: ${{ matrix.platform.runner }}
+    needs: release-go-bindings
+    if: startsWith(github.ref, 'refs/tags/slim-bindings-libs-')
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          # Linux x86_64 variants
+          - runner: ubuntu-24.04
+            os: linux
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04
+            os: linux
+            target: x86_64-unknown-linux-musl
+          # Linux ARM64 variants (using QEMU emulation)
+          - runner: ubuntu-24.04
+            os: linux
+            target: aarch64-unknown-linux-gnu
+            use_qemu: true
+          - runner: ubuntu-24.04
+            os: linux
+            target: aarch64-unknown-linux-musl
+            use_qemu: true
+          # Windows variants
+          - runner: windows-latest
+            os: windows
+            target: x86_64-pc-windows-msvc
+          - runner: windows-latest
+            os: windows
+            target: x86_64-pc-windows-gnu
+          # macOS variants
+          - runner: macos-15-intel
+            os: macos
+            target: x86_64-apple-darwin
+          - runner: macos-15
+            os: macos
+            target: aarch64-apple-darwin
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Setup QEMU for ARM64 emulation
+        if: matrix.platform.use_qemu == true
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Wait for GitHub to update (package propagation)
+        run: |
+          echo "⏳ Waiting 60 seconds for GitHub package index to update..."
+          sleep 60
+
+      - name: Test bindings installation and usage (ARM64 with QEMU)
+        if: matrix.platform.use_qemu == true
+        run: |
+          # Extract version from tag name
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#slim-bindings-libs-}"
+          echo "📦 Testing version: $VERSION"
+          echo "🖥️  Platform: ${{ matrix.platform.target }}"
+          echo "🔧 Using QEMU ARM64 emulation"
+
+          # Determine Go arch for ARM64
+          if [[ "${{ matrix.platform.target }}" == *"aarch64"* ]]; then
+            GO_ARCH="arm64"
+          else
+            GO_ARCH="amd64"
+          fi
+
+          # Determine libc variant
+          if [[ "${{ matrix.platform.target }}" == *"musl"* ]]; then
+            ALPINE_VARIANT="alpine:latest"
+          else
+            ALPINE_VARIANT="arm64v8/ubuntu:22.04"
+          fi
+
+          # Run test in ARM64 container
+          docker run --rm --platform linux/arm64 \
+            -v $(pwd):/workspace \
+            -w /workspace \
+            $ALPINE_VARIANT \
+            sh -c "
+              # Install dependencies
+              if command -v apk >/dev/null; then
+                apk add --no-cache go git
+              else
+                apt-get update && apt-get install -y golang git
+              fi
+
+              # Create test directory
+              TEST_DIR=\$(mktemp -d)
+              cd \$TEST_DIR
+              echo '📂 Testing in: '\$TEST_DIR
+
+              # Initialize test module
+              go mod init test
+              echo '✅ Created test module'
+
+              # Fetch bindings
+              go get github.com/${{ env.GO_BINDINGS_REPO }}@$VERSION
+              echo '✅ Fetched bindings package version $VERSION'
+
+              # Run setup tool
+              go run github.com/${{ env.GO_BINDINGS_REPO }}/cmd/slim-bindings-setup@$VERSION
+              echo '✅ Downloaded native libraries'
+
+              # Create test program
+              cat << 'EOF' > main.go
+          package main
+
+          import (
+          	\"fmt\"
+
+          	slim \"github.com/${{ env.GO_BINDINGS_REPO }}\"
+          )
+
+          func main() {
+          	fmt.Println(\"🚀 SLIM Go Bindings Test\")
+          	fmt.Println(\"========================\")
+
+          	slim.InitializeCryptoProvider()
+          	fmt.Println(\"✅ Crypto initialized successfully\")
+
+          	fmt.Println(\"✅ Test passed!\")
+          }
+          EOF
+
+              echo '✅ Created test program'
+
+              # Run test
+              go run main.go
+
+              echo ''
+              echo '🎉 All tests passed on ${{ matrix.platform.target }}!'
+            "
+
+      - name: Test bindings installation and usage (Native)
+        if: matrix.platform.use_qemu != true
+        run: |
+          # Extract version from tag name
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#slim-bindings-libs-}"
+          echo "📦 Testing version: $VERSION"
+
+          # Create a temporary test directory
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            TEST_DIR=$(mktemp -d -p "$RUNNER_TEMP")
+          else
+            TEST_DIR=$(mktemp -d)
+          fi
+          cd "$TEST_DIR"
+          echo "📂 Testing in: $TEST_DIR"
+          echo "🖥️  Platform: ${{ matrix.platform.target }}"
+          echo "🏃 Runner: ${{ matrix.platform.runner }}"
+
+          # For Windows MinGW, we need to ensure MinGW tools are in PATH
+          if [[ "${{ matrix.platform.target }}" == "x86_64-pc-windows-gnu" ]]; then
+            echo "🔧 Setting up MinGW environment"
+            # GitHub Windows runners have MinGW installed
+            export PATH="/c/ProgramData/chocolatey/lib/mingw/tools/install/mingw64/bin:$PATH"
+            gcc --version || echo "⚠️  MinGW GCC not found in PATH"
+          fi
+
+          # Initialize a test Go module
+          go mod init test
+          echo "✅ Created test module"
+
+          # Fetch the bindings using the version tag
+          go get github.com/${{ env.GO_BINDINGS_REPO }}@$VERSION
+          echo "✅ Fetched bindings package version $VERSION"
+
+          # Run the setup tool to download native libraries
+          go run github.com/${{ env.GO_BINDINGS_REPO }}/cmd/slim-bindings-setup@$VERSION
+          echo "✅ Downloaded native libraries"
+
+          # Create a test program
+          cat << 'EOF' > main.go
+          package main
+
+          import (
+          	"fmt"
+
+          	slim "github.com/${{ env.GO_BINDINGS_REPO }}"
+          )
+
+          func main() {
+          	fmt.Println("🚀 SLIM Go Bindings Test")
+          	fmt.Println("========================")
+
+          	// Initialize crypto provider (required before any operations)
+          	slim.InitializeCryptoProvider()
+          	fmt.Println("✅ Crypto initialized successfully")
+
+          	fmt.Println("✅ Test passed!")
+          }
+          EOF
+
+          echo "✅ Created test program"
+
+          # Run the test program
+          go run main.go
+
+          echo ""
+          echo "🎉 All tests passed on ${{ matrix.platform.target }}!"
+
+      - name: Test result summary
+        if: success()
+        run: |
+          echo "✅ Go bindings verification completed successfully on ${{ matrix.platform.target }}"
+          echo "The published bindings can be safely tagged for release."
+
+  # ==========================================================================
+  # Job 5: Finalize release - merge to main, tag, and cleanup
+  # ==========================================================================
+  finalize-release:
+    name: Finalize Release
+    runs-on: ubuntu-latest
+    needs: test-go-bindings
+    if: startsWith(github.ref, 'refs/tags/slim-bindings-libs-')
+    steps:
+      - name: Clone target repository
+        run: |
+          git clone https://x-access-token:${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}@github.com/${{ env.GO_BINDINGS_REPO }}.git ./target-repo
+
+      - name: Merge to main and create tag
+        run: |
+          cd ./target-repo
+
+          # Set git config locally
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Extract version from tag name
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#slim-bindings-libs-}"
+          PRE_RELEASE_BRANCH="pre-release-$VERSION"
+
+          echo "📦 Version: $VERSION"
+          echo "🌿 Pre-release branch: $PRE_RELEASE_BRANCH"
+
+          # Fetch the pre-release branch
+          git fetch origin "$PRE_RELEASE_BRANCH"
+
+          # Checkout main and merge pre-release branch
+          git checkout main
+          git merge "origin/$PRE_RELEASE_BRANCH" --ff-only
+
+          # Note: Version tag already exists from Job 3, so we force update it
+          # to point to the merged commit on main
+          git tag -f -a "$VERSION" -m "Release $VERSION"
+
+          # Push main and tag
+          git push origin main
+          git push -f origin "$VERSION"
+
+          echo "✅ Merged pre-release branch to main"
+          echo "✅ Updated tag $VERSION to point to main"
+
+      - name: Cleanup pre-release branch
+        if: always()  # Run even if previous steps fail
+        run: |
+          cd ./target-repo
+
+          # Extract version from tag name
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#slim-bindings-libs-}"
+          PRE_RELEASE_BRANCH="pre-release-$VERSION"
+
+          echo "🧹 Cleaning up pre-release artifacts..."
+
+          # Delete the pre-release branch
+          if git ls-remote --heads origin "$PRE_RELEASE_BRANCH" | grep -q "$PRE_RELEASE_BRANCH"; then
+            git push origin --delete "$PRE_RELEASE_BRANCH" && echo "✅ Deleted pre-release branch: $PRE_RELEASE_BRANCH" || echo "⚠️  Failed to delete branch"
+          else
+            echo "ℹ️  Pre-release branch doesn't exist (may have been deleted already)"
+          fi
+
+          # If the merge step failed, we need to delete the tag too
+          # (it's pointing to pre-release branch, not main)
+          if [ "${{ job.status }}" != "success" ]; then
+            echo "⚠️  Job failed - cleaning up pre-release tag as well"
+            if git ls-remote --tags origin "$VERSION" | grep -q "$VERSION"; then
+              git push origin --delete "$VERSION" && echo "✅ Deleted pre-release tag: $VERSION" || echo "⚠️  Failed to delete tag"
+            else
+              echo "ℹ️  Tag doesn't exist (may have been deleted already)"
+            fi
+          fi
+
+          echo "✅ Cleanup complete"
+
+      - name: Release complete
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#slim-bindings-libs-}"
+          echo ""
+          echo "🎉 Release $VERSION complete!"
+          echo "✅ Go bindings published to https://github.com/${{ env.GO_BINDINGS_REPO }}"
+          echo "✅ Tagged as $VERSION"
+          echo "✅ All tests passed on 4 platforms"

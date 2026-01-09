@@ -394,15 +394,6 @@ func uniffiCheckChecksums() {
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_slim_bindings_checksum_func_new_client_config()
-		})
-		if checksum != 2830 {
-			// If this happens try cleaning and rebuilding your project
-			panic("slim_bindings: uniffi_slim_bindings_checksum_func_new_client_config: UniFFI API checksum mismatch")
-		}
-	}
-	{
-		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_bindings_checksum_func_new_insecure_client_config()
 		})
 		if checksum != 42525 {
@@ -5306,15 +5297,6 @@ func InitializeCryptoProvider() {
 		C.uniffi_slim_bindings_fn_func_initialize_crypto_provider(_uniffiStatus)
 		return false
 	})
-}
-
-// Create a new client config with the given endpoint and default values
-func NewClientConfig(endpoint string) ClientConfig {
-	return FfiConverterClientConfigINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
-		return GoRustBuffer{
-			inner: C.uniffi_slim_bindings_fn_func_new_client_config(FfiConverterStringINSTANCE.Lower(endpoint), _uniffiStatus),
-		}
-	}))
 }
 
 // Create a new insecure client config (no TLS)
