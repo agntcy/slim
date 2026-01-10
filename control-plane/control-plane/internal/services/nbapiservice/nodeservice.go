@@ -3,11 +3,12 @@ package nbapiservice
 import (
 	"context"
 
+	"google.golang.org/protobuf/types/known/structpb"
+
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
-	"google.golang.org/protobuf/types/known/structpb"
 )
 
 type NodeServiceDataAccess interface {

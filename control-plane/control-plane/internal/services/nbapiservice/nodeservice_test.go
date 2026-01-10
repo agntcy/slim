@@ -47,7 +47,9 @@ func TestNodeService_GetNodeByID_Success(t *testing.T) {
 	assert.True(t, result.Connections[0].MtlsRequired)
 	// Check metadata for external_endpoint
 	assert.NotNil(t, result.Connections[0].Metadata)
-	assert.Equal(t, externalEndpoint, result.Connections[0].Metadata["external_endpoint"].GetStringValue())
+	assert.NotNil(t, result.Connections[0].Metadata.Fields)
+	assert.Equal(t, externalEndpoint,
+		result.Connections[0].Metadata.Fields["external_endpoint"].GetStringValue())
 
 	mockDB.AssertExpectations(t)
 }
@@ -142,13 +144,17 @@ func TestNodeService_GetNodeByID_MultipleConnections(t *testing.T) {
 	assert.Equal(t, endPoint1, result.Connections[0].Endpoint)
 	assert.True(t, result.Connections[0].MtlsRequired)
 	assert.NotNil(t, result.Connections[0].Metadata)
-	assert.Equal(t, externalEndpoint1, result.Connections[0].Metadata["external_endpoint"].GetStringValue())
+	assert.NotNil(t, result.Connections[0].Metadata.Fields)
+	assert.Equal(t, externalEndpoint1,
+		result.Connections[0].Metadata.Fields["external_endpoint"].GetStringValue())
 
 	// Check second connection
 	assert.Equal(t, endPoint2, result.Connections[1].Endpoint)
 	assert.False(t, result.Connections[1].MtlsRequired)
 	assert.NotNil(t, result.Connections[1].Metadata)
-	assert.Equal(t, externalEndpoint2, result.Connections[1].Metadata["external_endpoint"].GetStringValue())
+	assert.NotNil(t, result.Connections[1].Metadata.Fields)
+	assert.Equal(t, externalEndpoint2,
+		result.Connections[1].Metadata.Fields["external_endpoint"].GetStringValue())
 
 	mockDB.AssertExpectations(t)
 }
@@ -200,7 +206,9 @@ func TestNodeService_ListNodes_Success(t *testing.T) {
 	assert.Equal(t, endPoint1, result.Entries[0].Connections[0].Endpoint)
 	assert.True(t, result.Entries[0].Connections[0].MtlsRequired)
 	assert.NotNil(t, result.Entries[0].Connections[0].Metadata)
-	assert.Equal(t, externalEndpoint1, result.Entries[0].Connections[0].Metadata["external_endpoint"].GetStringValue())
+	assert.NotNil(t, result.Entries[0].Connections[0].Metadata.Fields)
+	assert.Equal(t, externalEndpoint1, result.Entries[0].
+		Connections[0].Metadata.Fields["external_endpoint"].GetStringValue())
 	assert.Equal(t, controlplaneApi.NodeStatus_CONNECTED, result.Entries[0].Status)
 
 	// Check second node
