@@ -5,6 +5,7 @@ syntax = "proto3";
 package controller.proto.v1;
 
 import "google/protobuf/wrappers.proto";
+import "google/protobuf/struct.proto";
 
 option go_package = "github.com/agntcy/slim/control-plane/common/proto/controller/v1;controllerv1";
 
@@ -122,30 +123,10 @@ message Node {
   string id = 1;
 }
 
-// Represents a metadata value that can be a string, number, list, or nested map
-message MetadataValue {
-  oneof value {
-    string string_value = 1;
-    double number_value = 2;
-    MetadataList list_value = 3;
-    MetadataMap map_value = 4;
-  }
-}
-
-// Represents a list of metadata values
-message MetadataList {
-  repeated MetadataValue values = 1;
-}
-
-// Represents a map of metadata key-value pairs
-message MetadataMap {
-  map<string, MetadataValue> entries = 1;
-}
-
 message ConnectionDetails {
   string endpoint = 1;
   bool mtls_required = 2;
-  map<string, MetadataValue> metadata = 3;
+  google.protobuf.Struct metadata = 3;
   optional string auth = 4;
   optional string tls = 5;
 }

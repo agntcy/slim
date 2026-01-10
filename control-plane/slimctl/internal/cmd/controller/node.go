@@ -55,8 +55,8 @@ func newListNodesCmd(opts *options.CommonOptions) *cobra.Command {
 						fmt.Printf("  - Endpoint: %s\n", conn.Endpoint)
 						fmt.Printf("    MtlsRequired: %v\n", conn.MtlsRequired)
 						// Check metadata for external_endpoint
-						if conn.Metadata != nil {
-							if extEndpoint, ok := conn.Metadata["external_endpoint"]; ok && extEndpoint.GetStringValue() != "" {
+						if conn.Metadata != nil && conn.Metadata.Fields != nil {
+							if extEndpoint, ok := conn.Metadata.Fields["external_endpoint"]; ok && extEndpoint.GetStringValue() != "" {
 								fmt.Printf("    ExternalEndpoint: %s\n", extEndpoint.GetStringValue())
 							}
 						}

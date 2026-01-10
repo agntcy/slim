@@ -164,16 +164,16 @@ func getConnDetails(host string, detail *controllerapi.ConnectionDetails) db.Con
 	var externalEndpoint *string
 	var trustDomain *string
 
-	if detail.Metadata != nil {
-		if le, ok := detail.Metadata["local_endpoint"]; ok && le.GetStringValue() != "" {
+	if detail.Metadata != nil && detail.Metadata.Fields != nil {
+		if le, ok := detail.Metadata.Fields["local_endpoint"]; ok && le.GetStringValue() != "" {
 			val := le.GetStringValue()
 			localEndpoint = &val
 		}
-		if ee, ok := detail.Metadata["external_endpoint"]; ok && ee.GetStringValue() != "" {
+		if ee, ok := detail.Metadata.Fields["external_endpoint"]; ok && ee.GetStringValue() != "" {
 			val := ee.GetStringValue()
 			externalEndpoint = &val
 		}
-		if td, ok := detail.Metadata["trust_domain"]; ok && td.GetStringValue() != "" {
+		if td, ok := detail.Metadata.Fields["trust_domain"]; ok && td.GetStringValue() != "" {
 			val := td.GetStringValue()
 			trustDomain = &val
 		}
