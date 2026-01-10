@@ -68,6 +68,7 @@ tasks:
 
   run-client:
     desc: Run the client example
+    internal: true
     vars:
       RPC_TYPE: '{{.RPC_TYPE | default "unary"}}'
     cmds:
