@@ -33,6 +33,9 @@ func (cd ConnectionDetails) String() string {
 	if cd.ExternalEndpoint != nil && *cd.ExternalEndpoint != "" {
 		parts = append(parts, fmt.Sprintf("externalEndpoint: %s", *cd.ExternalEndpoint))
 	}
+	if cd.TrustDomain != nil && *cd.TrustDomain != "" {
+		parts = append(parts, fmt.Sprintf("trustDomain: %s", *cd.TrustDomain))
+	}
 	return strings.Join(parts, ", ")
 }
 
