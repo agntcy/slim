@@ -69,6 +69,10 @@ impl Name {
     pub fn id(&self) -> u64 {
         self.inner.id()
     }
+
+    pub fn as_string(&self) -> String {
+        self.to_string()
+    }
 }
 
 impl Name {

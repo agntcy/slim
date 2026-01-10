@@ -311,7 +311,7 @@ impl From<JwtAuthConfig> for JwtAuth {
 #[derive(uniffi::Enum, Clone, Debug, PartialEq)]
 pub enum IdentityProviderConfig {
     /// Shared secret authentication (symmetric key)
-    SharedSecret { data: String },
+    SharedSecret { id: String, data: String },
     /// Static JWT loaded from file with auto-reload
     StaticJwt { config: StaticJwtAuth },
     /// Dynamic JWT generation with signing key
@@ -326,8 +326,8 @@ pub enum IdentityProviderConfig {
 impl From<IdentityProviderConfig> for CoreIdentityProviderConfig {
     fn from(config: IdentityProviderConfig) -> Self {
         match config {
-            IdentityProviderConfig::SharedSecret { data } => {
-                CoreIdentityProviderConfig::SharedSecret { data }
+            IdentityProviderConfig::SharedSecret { id, data } => {
+                CoreIdentityProviderConfig::SharedSecret { id, data }
             }
             IdentityProviderConfig::StaticJwt { config } => {
                 CoreIdentityProviderConfig::StaticJwt(config.into())
@@ -348,8 +348,8 @@ impl From<IdentityProviderConfig> for CoreIdentityProviderConfig {
 impl From<CoreIdentityProviderConfig> for IdentityProviderConfig {
     fn from(config: CoreIdentityProviderConfig) -> Self {
         match config {
-            CoreIdentityProviderConfig::SharedSecret { data } => {
-                IdentityProviderConfig::SharedSecret { data }
+            CoreIdentityProviderConfig::SharedSecret { id, data } => {
+                IdentityProviderConfig::SharedSecret { id, data }
             }
             CoreIdentityProviderConfig::StaticJwt(config) => IdentityProviderConfig::StaticJwt {
                 config: config.into(),
@@ -366,7 +366,7 @@ impl From<CoreIdentityProviderConfig> for IdentityProviderConfig {
 #[derive(uniffi::Enum, Clone, Debug, PartialEq)]
 pub enum IdentityVerifierConfig {
     /// Shared secret verification (symmetric key)
-    SharedSecret { data: String },
+    SharedSecret { id: String, data: String },
     /// JWT verification with decoding key
     Jwt { config: JwtAuth },
     /// SPIRE-based identity verifier (non-Windows only)
@@ -379,8 +379,8 @@ pub enum IdentityVerifierConfig {
 impl From<IdentityVerifierConfig> for CoreIdentityVerifierConfig {
     fn from(config: IdentityVerifierConfig) -> Self {
         match config {
-            IdentityVerifierConfig::SharedSecret { data } => {
-                CoreIdentityVerifierConfig::SharedSecret { data }
+            IdentityVerifierConfig::SharedSecret { id, data } => {
+                CoreIdentityVerifierConfig::SharedSecret { id, data }
             }
             IdentityVerifierConfig::Jwt { config } => {
                 CoreIdentityVerifierConfig::Jwt(config.into())
@@ -398,8 +398,8 @@ impl From<IdentityVerifierConfig> for CoreIdentityVerifierConfig {
 impl From<CoreIdentityVerifierConfig> for IdentityVerifierConfig {
     fn from(config: CoreIdentityVerifierConfig) -> Self {
         match config {
-            CoreIdentityVerifierConfig::SharedSecret { data } => {
-                IdentityVerifierConfig::SharedSecret { data }
+            CoreIdentityVerifierConfig::SharedSecret { id, data } => {
+                IdentityVerifierConfig::SharedSecret { id, data }
             }
             CoreIdentityVerifierConfig::Jwt(config) => IdentityVerifierConfig::Jwt {
                 config: config.into(),
@@ -414,8 +414,8 @@ impl TryFrom<IdentityProviderConfig> for AuthProvider {
 
     fn try_from(config: IdentityProviderConfig) -> Result<Self, Self::Error> {
         match config {
-            IdentityProviderConfig::SharedSecret { data } => {
-                AuthProvider::shared_secret_from_str("bindings-adapter", &data).map_err(|e| {
+            IdentityProviderConfig::SharedSecret { id, data } => {
+                AuthProvider::shared_secret_from_str(&id, &data).map_err(|e| {
                     SlimError::InvalidArgument {
                         message: format!("Failed to create SharedSecret provider: {}", e),
                     }
@@ -471,8 +471,8 @@ impl TryFrom<IdentityVerifierConfig> for AuthVerifier {
 
     fn try_from(config: IdentityVerifierConfig) -> Result<Self, Self::Error> {
         match config {
-            IdentityVerifierConfig::SharedSecret { data } => {
-                AuthVerifier::shared_secret_from_str("bindings-adapter", &data).map_err(|e| {
+            IdentityVerifierConfig::SharedSecret { id, data } => {
+                AuthVerifier::shared_secret_from_str(&id, &data).map_err(|e| {
                     SlimError::InvalidArgument {
                         message: format!("Failed to create SharedSecret verifier: {}", e),
                     }

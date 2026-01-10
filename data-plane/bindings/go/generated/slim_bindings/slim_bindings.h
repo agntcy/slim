@@ -388,6 +388,11 @@ void* uniffi_slim_bindings_fn_clone_bindingsadapter(void* ptr, RustCallStatus *o
 void uniffi_slim_bindings_fn_free_bindingsadapter(void* ptr, RustCallStatus *out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_CONSTRUCTOR_BINDINGSADAPTER_NEW
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_CONSTRUCTOR_BINDINGSADAPTER_NEW
+void* uniffi_slim_bindings_fn_constructor_bindingsadapter_new(void* base_name, RustBuffer identity_provider_config, RustBuffer identity_verifier_config, int8_t use_local_service, RustCallStatus *out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_CONNECT
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_CONNECT
 uint64_t uniffi_slim_bindings_fn_method_bindingsadapter_connect(void* ptr, RustBuffer config, RustCallStatus *out_status
@@ -713,6 +718,11 @@ void uniffi_slim_bindings_fn_free_name(void* ptr, RustCallStatus *out_status
 void* uniffi_slim_bindings_fn_constructor_name_new(RustBuffer component_0, RustBuffer component1, RustBuffer component2, RustBuffer id, RustCallStatus *out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_NAME_AS_STRING
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_NAME_AS_STRING
+RustBuffer uniffi_slim_bindings_fn_method_name_as_string(void* ptr, RustCallStatus *out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_NAME_COMPONENTS
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_NAME_COMPONENTS
 RustBuffer uniffi_slim_bindings_fn_method_name_components(void* ptr, RustCallStatus *out_status
@@ -725,7 +735,7 @@ uint64_t uniffi_slim_bindings_fn_method_name_id(void* ptr, RustCallStatus *out_s
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_CREATE_APP_WITH_SECRET
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_CREATE_APP_WITH_SECRET
-void* uniffi_slim_bindings_fn_func_create_app_with_secret(void* app_name, RustBuffer shared_secret, RustCallStatus *out_status
+void* uniffi_slim_bindings_fn_func_create_app_with_secret(void* name, RustBuffer secret, RustCallStatus *out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_GET_BUILD_INFO
@@ -1431,6 +1441,12 @@ uint16_t uniffi_slim_bindings_checksum_method_completionhandle_wait_for_async(vo
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_NAME_AS_STRING
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_NAME_AS_STRING
+uint16_t uniffi_slim_bindings_checksum_method_name_as_string(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_NAME_COMPONENTS
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_NAME_COMPONENTS
 uint16_t uniffi_slim_bindings_checksum_method_name_components(void
@@ -1440,6 +1456,12 @@ uint16_t uniffi_slim_bindings_checksum_method_name_components(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_NAME_ID
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_NAME_ID
 uint16_t uniffi_slim_bindings_checksum_method_name_id(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_CONSTRUCTOR_BINDINGSADAPTER_NEW
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_CONSTRUCTOR_BINDINGSADAPTER_NEW
+uint16_t uniffi_slim_bindings_checksum_constructor_bindingsadapter_new(void
     
 );
 #endif

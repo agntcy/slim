@@ -46,9 +46,11 @@ mod tests {
     /// Create test authentication configurations
     fn create_test_auth() -> (IdentityProviderConfig, IdentityVerifierConfig) {
         let provider = IdentityProviderConfig::SharedSecret {
+            id: "test-service".to_string(),
             data: TEST_VALID_SECRET.to_string(),
         };
         let verifier = IdentityVerifierConfig::SharedSecret {
+            id: "test-service".to_string(),
             data: TEST_VALID_SECRET.to_string(),
         };
         (provider, verifier)

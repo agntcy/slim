@@ -10,6 +10,7 @@ use crate::auth::static_jwt::Config as StaticJwtConfig;
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum IdentityProviderConfig {
     SharedSecret {
+        id: String,
         data: String,
     },
     StaticJwt(StaticJwtConfig),
@@ -22,6 +23,7 @@ pub enum IdentityProviderConfig {
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum IdentityVerifierConfig {
     SharedSecret {
+        id: String,
         data: String,
     },
     Jwt(JwtConfig),

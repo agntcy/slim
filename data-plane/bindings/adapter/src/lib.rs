@@ -60,7 +60,7 @@ mod service_ref;
 mod session_context;
 
 // Public re-exports
-pub use adapter::{BindingsAdapter, SessionWithCompletion};
+pub use adapter::{BindingsAdapter, SessionWithCompletion, create_app_with_secret};
 pub use build_info::{BuildInfo, get_build_info, get_version};
 pub use client_config::{
     BackoffConfig, ClientConfig, ExponentialBackoff, KeepaliveConfig, ProxyConfig,

@@ -84,8 +84,8 @@ impl Config {
 
     fn get_token_provider_auth(&self) -> Option<AuthProvider> {
         match &self.token_provider {
-            IdentityProviderConfig::SharedSecret { data } => {
-                AuthProvider::shared_secret_from_str("control-plane", data).ok()
+            IdentityProviderConfig::SharedSecret { id, data } => {
+                AuthProvider::shared_secret_from_str(id, data).ok()
             }
             IdentityProviderConfig::StaticJwt(static_jwt_config) => {
                 let provider = static_jwt_config
@@ -105,8 +105,8 @@ impl Config {
 
     fn get_token_verifier_auth(&self) -> Option<AuthVerifier> {
         match &self.token_verifier {
-            IdentityVerifierConfig::SharedSecret { data } => {
-                AuthVerifier::shared_secret_from_str("control-plane", data).ok()
+            IdentityVerifierConfig::SharedSecret { id, data } => {
+                AuthVerifier::shared_secret_from_str(id, data).ok()
             }
             IdentityVerifierConfig::Jwt(jwt_config) => {
                 let verifier = jwt_config
@@ -227,6 +227,7 @@ mod tests {
     #[test]
     fn test_config_with_token_provider_auth_shared_secret() {
         let auth = IdentityProviderConfig::SharedSecret {
+            id: "test-provider".to_string(),
             data: "test-secret".to_string(),
         };
         let config = Config::new().with_token_provider_auth(auth.clone());
@@ -267,6 +268,7 @@ mod tests {
     #[test]
     fn test_config_with_token_verifier_auth_shared_secret() {
         let auth = IdentityVerifierConfig::SharedSecret {
+            id: "test-verifier".to_string(),
             data: "test-secret".to_string(),
         };
         let config = Config::new().with_token_verifier_auth(auth.clone());
@@ -320,9 +322,11 @@ mod tests {
         let server_config = create_test_server_config();
         let client_config = create_test_client_config();
         let provider_auth = IdentityProviderConfig::SharedSecret {
+            id: "test-provider".to_string(),
             data: "provider-secret".to_string(),
         };
         let verifier_auth = IdentityVerifierConfig::SharedSecret {
+            id: "test-verifier".to_string(),
             data: "verifier-secret".to_string(),
         };
 
@@ -358,12 +362,15 @@ mod tests {
     #[test]
     fn test_token_provider_auth_config_equality() {
         let secret1 = IdentityProviderConfig::SharedSecret {
+            id: "test-id".to_string(),
             data: "secret0".to_string(),
         };
         let secret2 = IdentityProviderConfig::SharedSecret {
+            id: "test-id".to_string(),
             data: "secret0".to_string(),
         };
         let secret3 = IdentityProviderConfig::SharedSecret {
+            id: "test-id".to_string(),
             data: "secret2".to_string(),
         };
 
@@ -374,12 +381,15 @@ mod tests {
     #[test]
     fn test_token_verifier_auth_config_equality() {
         let secret1 = IdentityVerifierConfig::SharedSecret {
+            id: "test-id".to_string(),
             data: "secret0".to_string(),
         };
         let secret2 = IdentityVerifierConfig::SharedSecret {
+            id: "test-id".to_string(),
             data: "secret0".to_string(),
         };
         let secret3 = IdentityVerifierConfig::SharedSecret {
+            id: "test-id".to_string(),
             data: "secret2".to_string(),
         };
 
@@ -392,6 +402,7 @@ mod tests {
         let server_config = create_test_server_config();
         let client_config = create_test_client_config();
         let auth = IdentityProviderConfig::SharedSecret {
+            id: "test-provider".to_string(),
             data: "secret0".to_string(),
         };
 
@@ -413,6 +424,7 @@ mod tests {
         let server_config = create_test_server_config();
         let client_config = create_test_client_config();
         let auth = IdentityProviderConfig::SharedSecret {
+            id: "test-provider".to_string(),
             data: TEST_VALID_SECRET.to_string(),
         };
 
@@ -445,6 +457,7 @@ mod tests {
         #[test]
         fn test_token_provider_auth_config_serialize_shared_secret() {
             let auth = IdentityProviderConfig::SharedSecret {
+                id: "test-provider".to_string(),
                 data: "test-secret".to_string(),
             };
             let json = serde_json::to_string(&auth).unwrap();
@@ -454,11 +467,12 @@ mod tests {
 
         #[test]
         fn test_token_provider_auth_config_deserialize_shared_secret() {
-            let json = r#"{"type": "shared_secret", "data": "test-secret"}"#;
+            let json = r#"{"type": "shared_secret", "id": "test-provider", "data": "test-secret"}"#;
             let auth: IdentityProviderConfig = serde_json::from_str(json).unwrap();
 
             match auth {
-                IdentityProviderConfig::SharedSecret { data } => {
+                IdentityProviderConfig::SharedSecret { id, data } => {
+                    assert_eq!(id, "test-provider");
                     assert_eq!(data, "test-secret");
                 }
                 _ => panic!("Expected SharedSecret variant"),
@@ -488,9 +502,11 @@ mod tests {
         #[test]
         fn test_config_with_all_auth_combinations() {
             let provider_auth = IdentityProviderConfig::SharedSecret {
+                id: "test-provider".to_string(),
                 data: "provider-secret".to_string(),
             };
             let verifier_auth = IdentityVerifierConfig::SharedSecret {
+                id: "test-verifier".to_string(),
                 data: "verifier-secret".to_string(),
             };
 
@@ -611,6 +627,7 @@ mod tests {
                     config
                         .clone()
                         .with_token_provider_auth(IdentityProviderConfig::SharedSecret {
+                            id: "test-provider".to_string(),
                             data: "secret".to_string(),
                         });
 
@@ -628,6 +645,7 @@ mod tests {
         #[test]
         fn test_token_verifier_auth_config_serialize_shared_secret() {
             let auth = IdentityVerifierConfig::SharedSecret {
+                id: "test-verifier".to_string(),
                 data: "test-secret".to_string(),
             };
             let json = serde_json::to_string(&auth).unwrap();
@@ -637,11 +655,12 @@ mod tests {
 
         #[test]
         fn test_token_verifier_auth_config_deserialize_shared_secret() {
-            let json = r#"{"type": "shared_secret", "data": "test-secret"}"#;
+            let json = r#"{"type": "shared_secret", "id": "test-verifier", "data": "test-secret"}"#;
             let auth: IdentityVerifierConfig = serde_json::from_str(json).unwrap();
 
             match auth {
-                IdentityVerifierConfig::SharedSecret { data } => {
+                IdentityVerifierConfig::SharedSecret { id, data } => {
+                    assert_eq!(id, "test-verifier");
                     assert_eq!(data, "test-secret");
                 }
                 _ => panic!("Expected SharedSecret variant"),

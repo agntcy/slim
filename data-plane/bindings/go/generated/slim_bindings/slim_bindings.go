@@ -360,7 +360,7 @@ func uniffiCheckChecksums() {
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_bindings_checksum_func_create_app_with_secret()
 		})
-		if checksum != 11047 {
+		if checksum != 20246 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_bindings: uniffi_slim_bindings_checksum_func_create_app_with_secret: UniFFI API checksum mismatch")
 		}
@@ -943,6 +943,15 @@ func uniffiCheckChecksums() {
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_method_name_as_string()
+		})
+		if checksum != 25170 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_name_as_string: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_bindings_checksum_method_name_components()
 		})
 		if checksum != 49977 {
@@ -957,6 +966,15 @@ func uniffiCheckChecksums() {
 		if checksum != 28732 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_bindings: uniffi_slim_bindings_checksum_method_name_id: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_constructor_bindingsadapter_new()
+		})
+		if checksum != 22886 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_constructor_bindingsadapter_new: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -1368,6 +1386,36 @@ type BindingsAdapterInterface interface {
 // for flexibility.
 type BindingsAdapter struct {
 	ffiObject FfiObject
+}
+
+// Create a new BindingsAdapter with identity provider and verifier configurations
+//
+// This is the main entry point for creating a SLIM application from language bindings.
+//
+// # Arguments
+// * `base_name` - The base name for the app (without ID)
+// * `identity_provider_config` - Configuration for proving identity to others
+// * `identity_verifier_config` - Configuration for verifying identity of others
+// * `use_local_service` - If true, creates a local service instance; if false, uses global service
+//
+// # Returns
+// * `Ok(Arc<BindingsAdapter>)` - Successfully created adapter
+// * `Err(SlimError)` - If adapter creation fails
+//
+// # Supported Identity Types
+// - SharedSecret: Symmetric key authentication
+// - JWT: Dynamic JWT generation/verification with signing/decoding keys
+// - StaticJWT: Static JWT loaded from file with auto-reload
+func NewBindingsAdapter(baseName *Name, identityProviderConfig IdentityProviderConfig, identityVerifierConfig IdentityVerifierConfig, useLocalService bool) (*BindingsAdapter, error) {
+	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
+		return C.uniffi_slim_bindings_fn_constructor_bindingsadapter_new(FfiConverterNameINSTANCE.Lower(baseName), FfiConverterIdentityProviderConfigINSTANCE.Lower(identityProviderConfig), FfiConverterIdentityVerifierConfigINSTANCE.Lower(identityVerifierConfig), FfiConverterBoolINSTANCE.Lower(useLocalService), _uniffiStatus)
+	})
+	if _uniffiErr != nil {
+		var _uniffiDefaultValue *BindingsAdapter
+		return _uniffiDefaultValue, _uniffiErr
+	} else {
+		return FfiConverterBindingsAdapterINSTANCE.Lift(_uniffiRV), nil
+	}
 }
 
 // Connect to a SLIM server as a client (blocking version for FFI)
@@ -3113,6 +3161,7 @@ func (_ FfiDestroyerCompletionHandle) Destroy(value *CompletionHandle) {
 
 // Name type for SLIM (Secure Low-Latency Interactive Messaging)
 type NameInterface interface {
+	AsString() string
 	// Get the name components as a vector of strings
 	Components() []string
 	// Get the name ID
@@ -3128,6 +3177,17 @@ type Name struct {
 func NewName(component0 string, component1 string, component2 string, id *uint64) *Name {
 	return FfiConverterNameINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
 		return C.uniffi_slim_bindings_fn_constructor_name_new(FfiConverterStringINSTANCE.Lower(component0), FfiConverterStringINSTANCE.Lower(component1), FfiConverterStringINSTANCE.Lower(component2), FfiConverterOptionalUint64INSTANCE.Lower(id), _uniffiStatus)
+	}))
+}
+
+func (_self *Name) AsString() string {
+	_pointer := _self.ffiObject.incrementPointer("*Name")
+	defer _self.ffiObject.decrementPointer()
+	return FfiConverterStringINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer{
+			inner: C.uniffi_slim_bindings_fn_method_name_as_string(
+				_pointer, _uniffiStatus),
+		}
 	}))
 }
 
@@ -4662,10 +4722,12 @@ type IdentityProviderConfig interface {
 
 // Shared secret authentication (symmetric key)
 type IdentityProviderConfigSharedSecret struct {
+	Id   string
 	Data string
 }
 
 func (e IdentityProviderConfigSharedSecret) Destroy() {
+	FfiDestroyerString{}.Destroy(e.Id)
 	FfiDestroyerString{}.Destroy(e.Data)
 }
 
@@ -4685,6 +4747,15 @@ type IdentityProviderConfigJwt struct {
 
 func (e IdentityProviderConfigJwt) Destroy() {
 	FfiDestroyerClientJwtAuth{}.Destroy(e.Config)
+}
+
+// SPIRE-based identity provider (non-Windows only)
+type IdentityProviderConfigSpire struct {
+	Config SpireConfig
+}
+
+func (e IdentityProviderConfigSpire) Destroy() {
+	FfiDestroyerSpireConfig{}.Destroy(e.Config)
 }
 
 // No identity provider configured
@@ -4711,6 +4782,7 @@ func (FfiConverterIdentityProviderConfig) Read(reader io.Reader) IdentityProvide
 	case 1:
 		return IdentityProviderConfigSharedSecret{
 			FfiConverterStringINSTANCE.Read(reader),
+			FfiConverterStringINSTANCE.Read(reader),
 		}
 	case 2:
 		return IdentityProviderConfigStaticJwt{
@@ -4721,6 +4793,10 @@ func (FfiConverterIdentityProviderConfig) Read(reader io.Reader) IdentityProvide
 			FfiConverterClientJwtAuthINSTANCE.Read(reader),
 		}
 	case 4:
+		return IdentityProviderConfigSpire{
+			FfiConverterSpireConfigINSTANCE.Read(reader),
+		}
+	case 5:
 		return IdentityProviderConfigNone{}
 	default:
 		panic(fmt.Sprintf("invalid enum value %v in FfiConverterIdentityProviderConfig.Read()", id))
@@ -4731,6 +4807,7 @@ func (FfiConverterIdentityProviderConfig) Write(writer io.Writer, value Identity
 	switch variant_value := value.(type) {
 	case IdentityProviderConfigSharedSecret:
 		writeInt32(writer, 1)
+		FfiConverterStringINSTANCE.Write(writer, variant_value.Id)
 		FfiConverterStringINSTANCE.Write(writer, variant_value.Data)
 	case IdentityProviderConfigStaticJwt:
 		writeInt32(writer, 2)
@@ -4738,8 +4815,11 @@ func (FfiConverterIdentityProviderConfig) Write(writer io.Writer, value Identity
 	case IdentityProviderConfigJwt:
 		writeInt32(writer, 3)
 		FfiConverterClientJwtAuthINSTANCE.Write(writer, variant_value.Config)
-	case IdentityProviderConfigNone:
+	case IdentityProviderConfigSpire:
 		writeInt32(writer, 4)
+		FfiConverterSpireConfigINSTANCE.Write(writer, variant_value.Config)
+	case IdentityProviderConfigNone:
+		writeInt32(writer, 5)
 	default:
 		_ = variant_value
 		panic(fmt.Sprintf("invalid enum value `%v` in FfiConverterIdentityProviderConfig.Write", value))
@@ -4759,10 +4839,12 @@ type IdentityVerifierConfig interface {
 
 // Shared secret verification (symmetric key)
 type IdentityVerifierConfigSharedSecret struct {
+	Id   string
 	Data string
 }
 
 func (e IdentityVerifierConfigSharedSecret) Destroy() {
+	FfiDestroyerString{}.Destroy(e.Id)
 	FfiDestroyerString{}.Destroy(e.Data)
 }
 
@@ -4773,6 +4855,15 @@ type IdentityVerifierConfigJwt struct {
 
 func (e IdentityVerifierConfigJwt) Destroy() {
 	FfiDestroyerJwtAuth{}.Destroy(e.Config)
+}
+
+// SPIRE-based identity verifier (non-Windows only)
+type IdentityVerifierConfigSpire struct {
+	Config SpireConfig
+}
+
+func (e IdentityVerifierConfigSpire) Destroy() {
+	FfiDestroyerSpireConfig{}.Destroy(e.Config)
 }
 
 // No identity verifier configured
@@ -4799,12 +4890,17 @@ func (FfiConverterIdentityVerifierConfig) Read(reader io.Reader) IdentityVerifie
 	case 1:
 		return IdentityVerifierConfigSharedSecret{
 			FfiConverterStringINSTANCE.Read(reader),
+			FfiConverterStringINSTANCE.Read(reader),
 		}
 	case 2:
 		return IdentityVerifierConfigJwt{
 			FfiConverterJwtAuthINSTANCE.Read(reader),
 		}
 	case 3:
+		return IdentityVerifierConfigSpire{
+			FfiConverterSpireConfigINSTANCE.Read(reader),
+		}
+	case 4:
 		return IdentityVerifierConfigNone{}
 	default:
 		panic(fmt.Sprintf("invalid enum value %v in FfiConverterIdentityVerifierConfig.Read()", id))
@@ -4815,12 +4911,16 @@ func (FfiConverterIdentityVerifierConfig) Write(writer io.Writer, value Identity
 	switch variant_value := value.(type) {
 	case IdentityVerifierConfigSharedSecret:
 		writeInt32(writer, 1)
+		FfiConverterStringINSTANCE.Write(writer, variant_value.Id)
 		FfiConverterStringINSTANCE.Write(writer, variant_value.Data)
 	case IdentityVerifierConfigJwt:
 		writeInt32(writer, 2)
 		FfiConverterJwtAuthINSTANCE.Write(writer, variant_value.Config)
-	case IdentityVerifierConfigNone:
+	case IdentityVerifierConfigSpire:
 		writeInt32(writer, 3)
+		FfiConverterSpireConfigINSTANCE.Write(writer, variant_value.Config)
+	case IdentityVerifierConfigNone:
+		writeInt32(writer, 4)
 	default:
 		_ = variant_value
 		panic(fmt.Sprintf("invalid enum value `%v` in FfiConverterIdentityVerifierConfig.Write", value))
@@ -6115,12 +6215,20 @@ func slim_bindings_uniffiFreeGorutine(data C.uint64_t) {
 	guard <- struct{}{}
 }
 
-// Create an app with the given name and shared secret (blocking version for FFI)
+// Create a new BindingsAdapter with SharedSecret authentication (helper function)
 //
-// This is the main entry point for creating a SLIM application from language bindings.
-func CreateAppWithSecret(appName *Name, sharedSecret string) (*BindingsAdapter, error) {
+// This is a convenience function for creating a SLIM application using SharedSecret authentication.
+//
+// # Arguments
+// * `name` - The base name for the app (without ID)
+// * `secret` - The shared secret string for authentication
+//
+// # Returns
+// * `Ok(Arc<BindingsAdapter>)` - Successfully created adapter
+// * `Err(SlimError)` - If adapter creation fails
+func CreateAppWithSecret(name *Name, secret string) (*BindingsAdapter, error) {
 	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
-		return C.uniffi_slim_bindings_fn_func_create_app_with_secret(FfiConverterNameINSTANCE.Lower(appName), FfiConverterStringINSTANCE.Lower(sharedSecret), _uniffiStatus)
+		return C.uniffi_slim_bindings_fn_func_create_app_with_secret(FfiConverterNameINSTANCE.Lower(name), FfiConverterStringINSTANCE.Lower(secret), _uniffiStatus)
 	})
 	if _uniffiErr != nil {
 		var _uniffiDefaultValue *BindingsAdapter

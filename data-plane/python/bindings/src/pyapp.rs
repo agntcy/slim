@@ -92,9 +92,10 @@ impl PyApp {
                     }
                 }
                 PyIdentityProvider::SharedSecret {
-                    identity: _,
+                    identity,
                     shared_secret,
                 } => IdentityProviderConfig::SharedSecret {
+                    id: identity,
                     data: shared_secret,
                 },
                 #[cfg(not(target_family = "windows"))]
@@ -152,9 +153,10 @@ impl PyApp {
                     }
                 }
                 PyIdentityVerifier::SharedSecret {
-                    identity: _,
+                    identity,
                     shared_secret,
                 } => IdentityVerifierConfig::SharedSecret {
+                    id: identity,
                     data: shared_secret,
                 },
                 #[cfg(not(target_family = "windows"))]
@@ -176,12 +178,18 @@ impl PyApp {
                 }
             };
 
-            // Convert PyName into slim_bindings::Name and wrap in Arc
-            let base_name: Name = name.into();
-            let arc_name = Arc::new(base_name.into());
+            // Convert PyName to slim_datapath::messages::Name (SlimName)
+            let slim_name: slim_datapath::messages::Name = name.into();
 
-            // Use BindingsAdapter's new constructor
-            BindingsAdapter::new(arc_name, provider_config, verifier_config, local_service)
+            // Use BindingsAdapter's async constructor to avoid nested block_on
+            let adapter = BindingsAdapter::new_async(
+                slim_name,
+                provider_config,
+                verifier_config,
+                local_service,
+            )
+            .await?;
+            Ok(Arc::new(adapter))
         }
 
         let adapter = pyo3_async_runtimes::tokio::get_runtime()

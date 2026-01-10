@@ -106,15 +106,47 @@ func SetupTestHarness(t *testing.T, testName string) (*TestHarness, *MessageColl
 	// Use a shared secret (must be at least 32 bytes)
 	sharedSecret := "test-harness-shared-secret-must-be-32-bytes-or-more!"
 
+	// create shared secret provider and verifier
+	senderIdentityProvider := slim.IdentityProviderConfigSharedSecret{
+		Data: sharedSecret,
+		Id:   senderName.AsString(),
+	}
+
+	senderIdentityVerifier := slim.IdentityVerifierConfigSharedSecret{
+		Data: sharedSecret,
+		Id:   senderName.AsString(),
+	}
+
 	// Create sender app
-	sender, err := slim.CreateAppWithSecret(senderName, sharedSecret)
+	sender, err := slim.NewBindingsAdapter(
+		senderName,
+		senderIdentityProvider,
+		senderIdentityVerifier,
+		false,
+	)
 	if err != nil {
 		cancel()
 		t.Fatalf("Failed to create sender app: %v", err)
 	}
 
+	// create shared secret provider and verifier
+	receiverIdentityProvider := slim.IdentityProviderConfigSharedSecret{
+		Data: sharedSecret,
+		Id:   receiverName.AsString(),
+	}
+
+	receiverIdentityVerifier := slim.IdentityVerifierConfigSharedSecret{
+		Data: sharedSecret,
+		Id:   receiverName.AsString(),
+	}
+
 	// Create receiver app
-	receiver, err := slim.CreateAppWithSecret(receiverName, sharedSecret)
+	receiver, err := slim.NewBindingsAdapter(
+		receiverName,
+		receiverIdentityProvider,
+		receiverIdentityVerifier,
+		false,
+	)
 	if err != nil {
 		sender.Destroy()
 		cancel()
