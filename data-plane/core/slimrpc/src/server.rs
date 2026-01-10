@@ -5,7 +5,6 @@ use crate::common::{method_to_name, DEADLINE_KEY, MAX_TIMEOUT};
 use crate::context::{MessageContext, SessionContext};
 use crate::error::{Result, SRPCError};
 use crate::rpc::{RPCHandler, RPCHandlerType};
-use anyhow::Context;
 use futures::StreamExt;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::messages::Name;
@@ -90,7 +89,7 @@ where
         self.app
             .subscribe(self.app.app_name(), Some(self.conn_id))
             .await
-            .context("Failed to subscribe to local name")?;
+            .map_err(SRPCError::Subscription)?;
 
         // Subscribe to all handler names
         for (service_method, handler) in &self.handlers {
@@ -98,8 +97,7 @@ where
                 self.app.app_name(),
                 &service_method.service,
                 &service_method.method,
-            )
-            .context("Failed to create subscription name")?;
+            )?;
 
             info!(
                 "Subscribing to {} with conn_id {}",
@@ -109,7 +107,7 @@ where
             self.app
                 .subscribe(&subscription_name, Some(self.conn_id))
                 .await
-                .context("Failed to subscribe to handler")?;
+                .map_err(SRPCError::Subscription)?;
 
             self.name_to_handler
                 .insert(subscription_name, handler.clone());
@@ -241,7 +239,7 @@ where
                     session
                         .publish(session.dst(), response, None, Some(metadata))
                         .await
-                        .context("Failed to publish response")?;
+                        .map_err(SRPCError::PublishError)?;
                 }
 
                 // Send end of stream for streaming responses
@@ -255,7 +253,7 @@ where
                     session
                         .publish(session.dst(), vec![], None, Some(metadata))
                         .await
-                        .context("Failed to send end of stream")?;
+                        .map_err(SRPCError::PublishError)?;
                 }
             }
             Ok(Err(e)) => {

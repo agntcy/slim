@@ -14,7 +14,6 @@ agntcy-slim-datapath = { workspace = true }
 agntcy-slim-service = { workspace = true }
 agntcy-slim-session = { workspace = true }
 agntcy-slim-signal = { workspace = true }
-anyhow = "1.0"
 
 async-stream = { workspace = true }
 async-trait = { workspace = true }
@@ -27,6 +26,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
+anyhow = "1.0"
 tokio-test = { workspace = true }
 
 [[example]]

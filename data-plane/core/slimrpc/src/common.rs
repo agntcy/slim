@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow::{Context, Result};
+use crate::error::{Result, SRPCError};
 use slim_auth::shared_secret::SharedSecret;
 use slim_datapath::messages::Name;
 use slim_service::app::App;
@@ -53,10 +53,10 @@ impl SLIMAppConfig {
 pub fn split_id(id: &str) -> Result<Name> {
     let parts: Vec<&str> = id.split('/').collect();
     if parts.len() < 3 {
-        anyhow::bail!(
+        return Err(SRPCError::InvalidId(format!(
             "ID must be in format organization/namespace/app, got: {}",
             id
-        );
+        )));
     }
 
     Ok(Name::from_strings([parts[0], parts[1], parts[2]]).with_id(0))
@@ -66,7 +66,9 @@ pub fn split_id(id: &str) -> Result<Name> {
 pub fn service_and_method_to_name(base_name: &Name, service_method: &str) -> Result<Name> {
     let parts: Vec<&str> = service_method.split('/').collect();
     if parts.len() < 3 {
-        anyhow::bail!("Service method must be in format /service/method");
+        return Err(SRPCError::InvalidServiceMethod(
+            "Service method must be in format /service/method".to_string(),
+        ));
     }
 
     let service_name = parts[1];
@@ -81,7 +83,9 @@ pub fn method_to_name(base_name: &Name, service_name: &str, method_name: &str) -
     let parts: Vec<&str> = components.split('/').collect();
 
     if parts.len() < 3 {
-        anyhow::bail!("Base name must have at least 3 components");
+        return Err(SRPCError::InvalidBaseName(
+            "Base name must have at least 3 components".to_string(),
+        ));
     }
 
     let subscription_name = format!("{}-{}-{}", parts[2], service_name, method_name);
@@ -94,8 +98,8 @@ pub fn create_shared_secret_auth(
     identity: &str,
     secret: &str,
 ) -> Result<(SharedSecret, SharedSecret)> {
-    let provider = SharedSecret::new(identity, secret)?;
-    let verifier = SharedSecret::new(identity, secret)?;
+    let provider = SharedSecret::new(identity, secret).map_err(SRPCError::AuthCreation)?;
+    let verifier = SharedSecret::new(identity, secret).map_err(SRPCError::AuthCreation)?;
     Ok((provider, verifier))
 }
 
@@ -113,22 +117,23 @@ pub async fn create_local_app(
     slim_config::tls::provider::initialize_crypto_provider();
 
     // Parse identity
-    let local_name = config.identity_name().context("Failed to parse identity")?;
+    let local_name = config
+        .identity_name()
+        .map_err(|e| SRPCError::ParseIdentity(e.to_string()))?;
 
     // Create shared secret auth
-    let (provider, verifier) = create_shared_secret_auth(&config.identity, &config.shared_secret)
-        .context("Failed to create shared secret auth")?;
+    let (provider, verifier) = create_shared_secret_auth(&config.identity, &config.shared_secret)?;
 
     // Create app
     let (app, rx) = service
         .create_app(&local_name, provider, verifier)
-        .context("Failed to create app")?;
+        .map_err(SRPCError::AppCreation)?;
 
     // Connect to SLIM service
     let endpoint = config
         .slim_client_config
         .get("endpoint")
-        .context("Missing endpoint in config")?;
+        .ok_or_else(|| SRPCError::Config("Missing endpoint in config".to_string()))?;
 
     // Create ClientConfig from endpoint
     let client_config = slim_config::grpc::client::ClientConfig::with_endpoint(endpoint);
@@ -136,12 +141,12 @@ pub async fn create_local_app(
     let conn_id = service
         .connect(&client_config)
         .await
-        .context("Failed to connect to SLIM service")?;
+        .map_err(SRPCError::Connection)?;
 
     // Subscribe to the local name
     app.subscribe(&local_name, Some(conn_id))
         .await
-        .context("Failed to subscribe to local name")?;
+        .map_err(SRPCError::Subscription)?;
 
     Ok((app, rx, conn_id))
 }
