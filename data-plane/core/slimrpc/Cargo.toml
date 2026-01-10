@@ -2,30 +2,29 @@
 name = "agntcy-slimrpc"
 version = "0.1.0"
 edition = "2021"
+license = { workspace = true }
 
 [dependencies]
+
+# SLIM dependencies
+agntcy-slim = { workspace = true }
+agntcy-slim-auth = { workspace = true }
+agntcy-slim-config = { workspace = true }
+agntcy-slim-datapath = { workspace = true }
+agntcy-slim-service = { workspace = true }
+agntcy-slim-session = { workspace = true }
+agntcy-slim-signal = { workspace = true }
 anyhow = "1.0"
 
 async-stream = { workspace = true }
 async-trait = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
-serde = { workspace = true }
-serde_yaml = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-
-# SLIM dependencies
-agntcy-slim = { workspace = true }
-agntcy-slim-service = { workspace = true }
-agntcy-slim-auth = { workspace = true }
-agntcy-slim-config = { workspace = true }
-agntcy-slim-datapath = { workspace = true }
-agntcy-slim-session = { workspace = true }
-agntcy-slim-signal = { workspace = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }

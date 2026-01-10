@@ -388,10 +388,9 @@ where
 
                     // Check for end of stream
                     let metadata = msg.get_metadata_map();
-                    if metadata.get("code") == Some(&"0".to_string()) {
-                        if msg.get_payload().is_none() {
-                            break;
-                        }
+                    if metadata.get("code") == Some(&"0".to_string()) && msg.get_payload().is_none()
+                    {
+                        break;
                     }
 
                     let request = msg
