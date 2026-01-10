@@ -11,10 +11,10 @@ members = [
     "core/session",
     "core/signal",
     "core/slim",
-    "core/slimrpc",
     "core/tracing",
     "examples",
     "python/bindings",
+    "slimrpc",
     "slimrpc-compiler",
     "testing",
 ]
@@ -48,7 +48,7 @@ agntcy-slim-mls = { path = "core/mls", version = "0.1.5" }
 agntcy-slim-service = { path = "core/service", version = "0.8.2", default-features = false }
 agntcy-slim-session = { path = "core/session", version = "0.1.2" }
 agntcy-slim-signal = { path = "core/signal", version = "0.1.3" }
-agntcy-slim-slimrpc = { path = "core/slimrpc", version = "0.1.0" }
+agntcy-slim-slimrpc = { path = "slimrpc", version = "0.1.0" }
 agntcy-slim-testing = { path = "testing" }
 agntcy-slim-tracing = { path = "core/tracing", version = "0.2.7" }
 
