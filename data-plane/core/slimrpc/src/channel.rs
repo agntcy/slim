@@ -4,7 +4,6 @@
 use crate::common::{service_and_method_to_name, DEADLINE_KEY, MAX_TIMEOUT};
 use crate::context::MessageContext;
 use crate::error::{Result, SRPCError};
-use anyhow::Context;
 use futures::stream::StreamExt;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::ProtoSessionType;
@@ -52,8 +51,7 @@ where
         slim_session::context::SessionContext,
         HashMap<String, String>,
     )> {
-        let service_name = service_and_method_to_name(&self.remote, method)
-            .context("Failed to create service name")?;
+        let service_name = service_and_method_to_name(&self.remote, method)?;
 
         info!(
             "Setting route for service {} with conn_id {}",
@@ -64,7 +62,7 @@ where
         self.app
             .set_route(&service_name, self.conn_id)
             .await
-            .context("Failed to set route")?;
+            .map_err(SRPCError::SetRoute)?;
 
         info!("Creating session for service {}", service_name);
 
@@ -81,13 +79,13 @@ where
             .app
             .create_session(config, service_name.clone(), None)
             .await
-            .context("Failed to create session")?;
+            .map_err(SRPCError::SessionCreationError)?;
 
         let session = session_ctx
             .session_arc()
             .ok_or_else(|| SRPCError::Session("Failed to get session".to_string()))?;
 
-        init_ack.await.context("Failed to initialize session")?;
+        init_ack.await.map_err(SRPCError::SessionInit)?;
 
         Ok((
             service_name,
@@ -110,7 +108,7 @@ where
         session
             .publish(service_name, request, None, Some(metadata))
             .await
-            .context("Failed to publish request")?;
+            .map_err(SRPCError::PublishError)?;
 
         Ok(())
     }
@@ -130,7 +128,7 @@ where
             session
                 .publish(service_name, request, None, Some(metadata.clone()))
                 .await
-                .context("Failed to publish request")?;
+                .map_err(SRPCError::PublishError)?;
         }
 
         // Send end of stream
@@ -140,7 +138,7 @@ where
         session
             .publish(service_name, vec![], None, Some(end_metadata))
             .await
-            .context("Failed to send end of stream")?;
+            .map_err(SRPCError::PublishError)?;
 
         Ok(())
     }
