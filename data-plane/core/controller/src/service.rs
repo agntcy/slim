@@ -24,12 +24,12 @@ use crate::api::proto::api::v1::{
     self, ConnectionDetails, ConnectionListResponse, ConnectionType, SubscriptionListResponse,
 };
 use crate::api::proto::api::v1::{
-    Ack, ConnectionEntry, ControlMessage, MetadataList as ProtoMetadataList,
-    MetadataMap as ProtoMetadataMap, MetadataValue as ProtoMetadataValue, SubscriptionEntry,
+    Ack, ConnectionEntry, ControlMessage, SubscriptionEntry,
     controller_service_client::ControllerServiceClient,
-    controller_service_server::ControllerService as GrpcControllerService, metadata_value,
+    controller_service_server::ControllerService as GrpcControllerService,
 };
 use crate::errors::ControllerError;
+use prost_types::{ListValue, Struct, Value, value};
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::traits::TokenProvider;
 use slim_config::grpc::client::ClientConfig;
@@ -167,49 +167,43 @@ impl Drop for ControlPlane {
     }
 }
 
-/// Convert slim_auth::metadata::MetadataValue to proto MetadataValue
-fn convert_metadata_value(value: &slim_auth::metadata::MetadataValue) -> ProtoMetadataValue {
+/// Convert slim_auth::metadata::MetadataValue to protobuf Value
+fn convert_metadata_value(value: &slim_auth::metadata::MetadataValue) -> Value {
     use slim_auth::metadata::MetadataValue as SlimMetadataValue;
 
-    let proto_value = match value {
-        SlimMetadataValue::String(s) => metadata_value::Value::StringValue(s.clone()),
+    let kind = match value {
+        SlimMetadataValue::String(s) => value::Kind::StringValue(s.clone()),
         SlimMetadataValue::Number(n) => {
             // Convert serde_json::Number to f64
-            metadata_value::Value::NumberValue(
-                n.as_f64().unwrap_or_else(|| n.as_i64().unwrap_or(0) as f64),
-            )
+            value::Kind::NumberValue(n.as_f64().unwrap_or_else(|| n.as_i64().unwrap_or(0) as f64))
         }
         SlimMetadataValue::List(list) => {
             let values = list.iter().map(convert_metadata_value).collect();
-            metadata_value::Value::ListValue(ProtoMetadataList { values })
+            value::Kind::ListValue(ListValue { values })
         }
         SlimMetadataValue::Map(map) => {
-            let entries = map
+            let fields = map
                 .inner
                 .iter()
                 .map(|(k, v)| (k.clone(), convert_metadata_value(v)))
                 .collect();
-            metadata_value::Value::MapValue(ProtoMetadataMap { entries })
+            value::Kind::StructValue(Struct { fields })
         }
     };
 
-    ProtoMetadataValue {
-        value: Some(proto_value),
-    }
+    Value { kind: Some(kind) }
 }
 
-fn from_server_config(server_config: &ServerConfig) -> ConnectionDetails {
-    // Convert metadata from MetadataMap to proto metadata
-    let metadata = server_config
-        .metadata
-        .as_ref()
-        .map(|m| {
-            m.inner
-                .iter()
-                .map(|(k, v)| (k.clone(), convert_metadata_value(v)))
-                .collect()
-        })
-        .unwrap_or_default();
+pub(crate) fn from_server_config(server_config: &ServerConfig) -> ConnectionDetails {
+    // Convert metadata from MetadataMap to proto Struct
+    let metadata = server_config.metadata.as_ref().map(|m| {
+        let fields = m
+            .inner
+            .iter()
+            .map(|(k, v)| (k.clone(), convert_metadata_value(v)))
+            .collect();
+        Struct { fields }
+    });
 
     // Serialize auth config to JSON string
     let auth = serde_json::to_string(&server_config.auth).ok();

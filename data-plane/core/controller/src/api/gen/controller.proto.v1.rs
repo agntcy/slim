@@ -167,52 +167,14 @@ pub struct Node {
     #[prost(string, tag = "1")]
     pub id: ::prost::alloc::string::String,
 }
-/// Represents a metadata value that can be a string, number, list, or nested map
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct MetadataValue {
-    #[prost(oneof = "metadata_value::Value", tags = "1, 2, 3, 4")]
-    pub value: ::core::option::Option<metadata_value::Value>,
-}
-/// Nested message and enum types in `MetadataValue`.
-pub mod metadata_value {
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Value {
-        #[prost(string, tag = "1")]
-        StringValue(::prost::alloc::string::String),
-        #[prost(double, tag = "2")]
-        NumberValue(f64),
-        #[prost(message, tag = "3")]
-        ListValue(super::MetadataList),
-        #[prost(message, tag = "4")]
-        MapValue(super::MetadataMap),
-    }
-}
-/// Represents a list of metadata values
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct MetadataList {
-    #[prost(message, repeated, tag = "1")]
-    pub values: ::prost::alloc::vec::Vec<MetadataValue>,
-}
-/// Represents a map of metadata key-value pairs
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct MetadataMap {
-    #[prost(map = "string, message", tag = "1")]
-    pub entries: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        MetadataValue,
-    >,
-}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ConnectionDetails {
     #[prost(string, tag = "1")]
     pub endpoint: ::prost::alloc::string::String,
     #[prost(bool, tag = "2")]
     pub mtls_required: bool,
-    #[prost(map = "string, message", tag = "3")]
-    pub metadata: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        MetadataValue,
-    >,
+    #[prost(message, optional, tag = "3")]
+    pub metadata: ::core::option::Option<::prost_types::Struct>,
     #[prost(string, optional, tag = "4")]
     pub auth: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, optional, tag = "5")]

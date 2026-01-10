@@ -7,6 +7,7 @@ import (
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 type NodeServiceDataAccess interface {
@@ -75,16 +76,16 @@ func getNodeConnDetails(node db.Node) []*controllerapi.ConnectionDetails {
 		cd := &controllerapi.ConnectionDetails{
 			Endpoint:     conn.Endpoint,
 			MtlsRequired: conn.MTLSRequired,
-			Metadata:     make(map[string]*controllerapi.MetadataValue),
 		}
 
 		// Add ExternalEndpoint to metadata if present
 		if conn.ExternalEndpoint != nil {
-			cd.Metadata["external_endpoint"] = &controllerapi.MetadataValue{
-				Value: &controllerapi.MetadataValue_StringValue{
-					StringValue: *conn.ExternalEndpoint,
-				},
+			if cd.Metadata == nil {
+				cd.Metadata = &structpb.Struct{
+					Fields: make(map[string]*structpb.Value),
+				}
 			}
+			cd.Metadata.Fields["external_endpoint"] = structpb.NewStringValue(*conn.ExternalEndpoint)
 		}
 
 		connDetails = append(connDetails, cd)
