@@ -7,7 +7,8 @@ use tower_http::auth::require_authorization::Basic;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tower_http::auth::AddAuthorizationLayer;
+#[allow(deprecated)]
+use tower_http::auth::{AddAuthorizationLayer, require_authorization::Basic};
 use tower_http::validate_request::ValidateRequestHeaderLayer;
 
 use super::{ClientAuthenticator, ConfigAuthError, ServerAuthenticator};
@@ -55,6 +56,7 @@ impl ClientAuthenticator for Config {
     // Associated types
     type ClientLayer = AddAuthorizationLayer;
 
+    #[allow(deprecated)]
     fn get_client_layer(&self) -> Result<Self::ClientLayer, ConfigAuthError> {
         match (self.username(), self.password().as_ref()) {
             ("", _) => Err(ConfigAuthError::AuthBasicEmptyUsername),
@@ -73,8 +75,10 @@ where
 {
     // Associated types
     #[allow(deprecated)]
+    #[allow(deprecated)]
     type ServerLayer = ValidateRequestHeaderLayer<Basic<Response>>;
 
+    #[allow(deprecated)]
     #[allow(deprecated)]
     fn get_server_layer(&self) -> Result<Self::ServerLayer, ConfigAuthError> {
         Ok(ValidateRequestHeaderLayer::basic(
@@ -103,6 +107,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(deprecated)]
     #[allow(deprecated)]
     async fn test_authenticator() {
         let username = "admin".to_string();

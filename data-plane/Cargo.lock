@@ -366,8 +366,6 @@ dependencies = [
  "async-trait",
  "clap",
  "futures",
- "serde",
- "serde_yaml",
  "thiserror 2.0.17",
  "tokio",
  "tokio-stream",

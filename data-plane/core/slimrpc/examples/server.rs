@@ -13,7 +13,6 @@ use futures::StreamExt;
 use slim_config::component::ComponentBuilder;
 use std::collections::HashMap;
 use tracing::{info, Level};
-use tracing_subscriber;
 
 #[derive(Parser, Debug)]
 #[command(name = "slimrpc-server")]
