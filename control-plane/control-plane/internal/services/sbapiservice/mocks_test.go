@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
@@ -88,32 +89,22 @@ func (m *MockSlimServer) connect(ctx context.Context) error {
 	connDetails := &controllerapi.ConnectionDetails{
 		Endpoint:     fmt.Sprintf("127.0.0.1:%v", m.Port),
 		MtlsRequired: m.MTLSRequired,
-		Metadata:     make(map[string]*controllerapi.MetadataValue),
+		Metadata: &structpb.Struct{
+			Fields: make(map[string]*structpb.Value),
+		},
 	}
 
 	// Add local_endpoint to metadata if present
 	if m.LocalEndpoint != nil {
-		connDetails.Metadata["local_endpoint"] = &controllerapi.MetadataValue{
-			Value: &controllerapi.MetadataValue_StringValue{
-				StringValue: *m.LocalEndpoint,
-			},
-		}
+		connDetails.Metadata.Fields["local_endpoint"] = structpb.NewStringValue(*m.LocalEndpoint)
 	}
 
 	// Add external_endpoint to metadata if present
 	if m.ExternalEndpoint != nil {
-		connDetails.Metadata["external_endpoint"] = &controllerapi.MetadataValue{
-			Value: &controllerapi.MetadataValue_StringValue{
-				StringValue: *m.ExternalEndpoint,
-			},
-		}
+		connDetails.Metadata.Fields["external_endpoint"] = structpb.NewStringValue(*m.ExternalEndpoint)
 	}
 	if m.TrustDomain != nil {
-		connDetails.Metadata["trust_domain"] = &controllerapi.MetadataValue{
-			Value: &controllerapi.MetadataValue_StringValue{
-				StringValue: *m.TrustDomain,
-			},
-		}
+		connDetails.Metadata.Fields["trust_domain"] = structpb.NewStringValue(*m.TrustDomain)
 	}
 	if m.Auth != nil {
 		authJSON, _ := json.Marshal(m.Auth)
