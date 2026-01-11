@@ -95,7 +95,12 @@ pub fn create_app_with_secret(
         data: secret,
     };
 
-    BindingsAdapter::new(name, identity_provider_config, identity_verifier_config, false)
+    BindingsAdapter::new(
+        name,
+        identity_provider_config,
+        identity_verifier_config,
+        false,
+    )
 }
 
 impl BindingsAdapter {
