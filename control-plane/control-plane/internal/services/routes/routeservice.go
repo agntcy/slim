@@ -423,7 +423,8 @@ func (s *RouteService) ListConnections(
 	return nil, fmt.Errorf("no ConnectionListResponse received")
 }
 
-func (s *RouteService) getConnectionDetails(ctx context.Context, route db.Route) (endpoint string, configData string, err error) {
+func (s *RouteService) getConnectionDetails(ctx context.Context,
+	route db.Route) (endpoint string, configData string, err error) {
 	if route.DestNodeID == "" {
 		return route.DestEndpoint, route.ConnConfigData, nil
 	}
