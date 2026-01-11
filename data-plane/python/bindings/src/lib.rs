@@ -42,7 +42,7 @@ mod _slim_bindings {
         m.add("__version__", build_info::BUILD_INFO.version)?;
         m.add("build_profile", build_info::BUILD_INFO.profile)?;
         m.add("build_info", build_info::BUILD_INFO.to_string())?;
-        m.add("SESSION_UNSPECIFIED", pysession::SESSION_UNSPECIFIED)?;
+        m.add("SESSION_UNSPECIFIED2", pysession::SESSION_UNSPECIFIED)?;
         Ok(())
     }
 }
