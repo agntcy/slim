@@ -146,7 +146,7 @@ func (s *RouteService) AddRoute(ctx context.Context, route Route) (string, error
 
 func (s *RouteService) addSingleRoute(ctx context.Context, dbRoute db.Route) (string, error) {
 	if dbRoute.SourceNodeID != AllNodesID {
-		endpoint, configData, err := s.getConnectionDetails(dbRoute)
+		endpoint, configData, err := s.getConnectionDetails(ctx, dbRoute)
 		if err != nil {
 			return "", fmt.Errorf("failed to set connection details for route: %w", err)
 		}
@@ -251,7 +251,7 @@ func (s *RouteService) NodeRegistered(ctx context.Context, nodeID string, connDe
 			Deleted:        false,
 		}
 
-		endpoint, configData, err := s.getConnectionDetails(newRoute)
+		endpoint, configData, err := s.getConnectionDetails(ctx, newRoute)
 		if err != nil {
 			zlog.Error().Err(err).Msgf("Failed to get connection details for route: %s", newRoute)
 		}
@@ -274,7 +274,7 @@ func (s *RouteService) NodeRegistered(ctx context.Context, nodeID string, connDe
 
 			// get new conn details and compare with existing ones, if they differ, mark existing as deleted
 			// and create a new route and reconcile
-			endpoint, configData, err := s.getConnectionDetails(r)
+			endpoint, configData, err := s.getConnectionDetails(ctx, r)
 			if err != nil {
 				zlog.Error().Msgf("failed to get connection details for route %s: %v", r, err)
 				continue
@@ -314,7 +314,7 @@ func (s *RouteService) NodeRegistered(ctx context.Context, nodeID string, connDe
 
 			// get new conn details and compare with existing ones, if they differ, mark existing as deleted
 			// and create a new route and reconcile
-			endpoint, configData, err := s.getConnectionDetails(r)
+			endpoint, configData, err := s.getConnectionDetails(ctx, r)
 			if err != nil {
 				zlog.Error().Msgf("failed to get connection details for route %s: %v", r, err)
 				continue
@@ -423,7 +423,7 @@ func (s *RouteService) ListConnections(
 	return nil, fmt.Errorf("no ConnectionListResponse received")
 }
 
-func (s *RouteService) getConnectionDetails(route db.Route) (endpoint string, configData string, err error) {
+func (s *RouteService) getConnectionDetails(ctx context.Context, route db.Route) (endpoint string, configData string, err error) {
 	if route.DestNodeID == "" {
 		return route.DestEndpoint, route.ConnConfigData, nil
 	}
@@ -441,7 +441,7 @@ func (s *RouteService) getConnectionDetails(route db.Route) (endpoint string, co
 	}
 
 	connDetails, localConnection := selectConnection(destNode, srcNode)
-	connID, configData, err := generateConfigData(connDetails, localConnection, destNode, srcNode)
+	connID, configData, err := generateConfigData(ctx, connDetails, localConnection, destNode, srcNode)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to generate config data for route %v: %w", route, err)
 	}
@@ -478,8 +478,9 @@ func getSrcNodeSpireSocketPath(srcNode *db.Node) *string {
 	return nil
 }
 
-func generateConfigData(detail db.ConnectionDetails, localConnection bool,
+func generateConfigData(ctx context.Context, detail db.ConnectionDetails, localConnection bool,
 	destNode *db.Node, srcNode *db.Node) (string, string, error) {
+	zlog := zerolog.Ctx(ctx)
 	truev := true
 	falsev := false
 	skipVerify := false
@@ -503,9 +504,7 @@ func generateConfigData(detail db.ConnectionDetails, localConnection bool,
 		if srcNodeSpireSocketPath == nil {
 			return "", "", fmt.Errorf("no SPIRE socket path found for source node %s", srcNode.ID)
 		}
-		// TODO remove
-		fmt.Println("SPIRE socket path for source node:")
-		fmt.Println(*srcNodeSpireSocketPath)
+		zlog.Debug().Msgf("SPIRE socket path for source node: %s", *srcNodeSpireSocketPath)
 
 		config.Endpoint = "https://" + config.Endpoint
 		config.TLS = &db.TLS{
@@ -522,12 +521,10 @@ func generateConfigData(detail db.ConnectionDetails, localConnection bool,
 		}
 		if detail.TrustDomain != nil {
 			config.TLS.CaSource.TrustDomains = &[]string{*detail.TrustDomain}
-			fmt.Println("Trust domain set to:")
-			fmt.Println(*detail.TrustDomain)
+			zlog.Debug().Msgf("Trust domain set to: %s", *detail.TrustDomain)
 		} else if destNode.GroupName != nil {
 			config.TLS.CaSource.TrustDomains = &[]string{*destNode.GroupName}
-			fmt.Println("Trust domain set to:")
-			fmt.Println(*destNode.GroupName)
+			zlog.Debug().Msgf("Trust domain set to: %s", *destNode.GroupName)
 		}
 	}
 	var bufferSize int64 = 1024
