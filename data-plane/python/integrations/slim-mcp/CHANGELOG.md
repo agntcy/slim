@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.8](https://github.com/agntcy/slim/compare/slim-mcp-v0.1.7...slim-mcp-v0.1.8) (2026-01-12)
+
+
+### Features
+
+* **slimrpc,slima2a,slim-mcp:** Upgrade to v0.7.1 slim_bindings ([#839](https://github.com/agntcy/slim/issues/839)) ([eedb157](https://github.com/agntcy/slim/commit/eedb157d63b1562eda4b92162f7183355632cc12))
+
 ## [0.1.7](https://github.com/agntcy/slim/compare/slim-mcp-v0.1.6...slim-mcp-v0.1.7) (2025-09-18)
 
 ### Bug Fixes
