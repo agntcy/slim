@@ -29,21 +29,20 @@ func main() {
 	sharedSecret := "my-shared-secret-value-must-be-at-least-32-bytes-long!"
 
 	// create shared secret provider and verifier
-	identityProvider := slim.IdentityProviderConfigSharedSecret {
+	identityProvider := slim.IdentityProviderConfigSharedSecret{
 		Data: sharedSecret,
-		Id: appName.AsString(),
+		Id:   appName.AsString(),
 	}
 
-	identityVerifier := slim.IdentityVerifierConfigSharedSecret {
+	identityVerifier := slim.IdentityVerifierConfigSharedSecret{
 		Data: sharedSecret,
-		Id: appName.AsString(),
+		Id:   appName.AsString(),
 	}
 
 	app, err := slim.NewBindingsAdapter(
 		appName,
 		&identityProvider,
 		&identityVerifier,
-		false,
 	)
 	if err != nil {
 		log.Fatalf("❌ Failed to create app: %v", err)

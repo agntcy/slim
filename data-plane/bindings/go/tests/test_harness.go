@@ -122,7 +122,6 @@ func SetupTestHarness(t *testing.T, testName string) (*TestHarness, *MessageColl
 		senderName,
 		senderIdentityProvider,
 		senderIdentityVerifier,
-		false,
 	)
 	if err != nil {
 		cancel()
@@ -145,7 +144,6 @@ func SetupTestHarness(t *testing.T, testName string) (*TestHarness, *MessageColl
 		receiverName,
 		receiverIdentityProvider,
 		receiverIdentityVerifier,
-		false,
 	)
 	if err != nil {
 		sender.Destroy()
