@@ -358,6 +358,24 @@ func uniffiCheckChecksums() {
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_func_connect()
+		})
+		if checksum != 14553 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_func_connect: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_func_create_adapter()
+		})
+		if checksum != 54172 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_func_create_adapter: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_bindings_checksum_func_create_app_with_secret()
 		})
 		if checksum != 20246 {
@@ -367,11 +385,56 @@ func uniffiCheckChecksums() {
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_func_create_service()
+		})
+		if checksum != 50798 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_func_create_service: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_func_create_service_with_config()
+		})
+		if checksum != 8715 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_func_create_service_with_config: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_func_disconnect()
+		})
+		if checksum != 47922 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_func_disconnect: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_bindings_checksum_func_get_build_info()
 		})
 		if checksum != 20767 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_bindings: uniffi_slim_bindings_checksum_func_get_build_info: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_func_get_connection_id()
+		})
+		if checksum != 25867 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_func_get_connection_id: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_func_get_global_service()
+		})
+		if checksum != 63486 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_func_get_global_service: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -390,6 +453,15 @@ func uniffiCheckChecksums() {
 		if checksum != 65424 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_bindings: uniffi_slim_bindings_checksum_func_initialize_crypto_provider: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_func_new_dataplane_config()
+		})
+		if checksum != 6114 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_func_new_dataplane_config: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -417,6 +489,69 @@ func uniffiCheckChecksums() {
 		if checksum != 36482 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_bindings: uniffi_slim_bindings_checksum_func_new_server_config: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_func_new_service_configuration()
+		})
+		if checksum != 35963 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_func_new_service_configuration: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_func_run_server()
+		})
+		if checksum != 9546 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_func_run_server: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_func_service_config()
+		})
+		if checksum != 29950 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_func_service_config: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_func_service_name()
+		})
+		if checksum != 3301 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_func_service_name: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_func_service_run()
+		})
+		if checksum != 32636 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_func_service_run: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_func_service_shutdown()
+		})
+		if checksum != 8212 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_func_service_shutdown: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_func_stop_server()
+		})
+		if checksum != 2838 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_func_stop_server: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -970,9 +1105,99 @@ func uniffiCheckChecksums() {
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_method_service_config()
+		})
+		if checksum != 44402 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_service_config: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_method_service_connect()
+		})
+		if checksum != 9324 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_service_connect: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_method_service_create_adapter_async()
+		})
+		if checksum != 48527 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_service_create_adapter_async: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_method_service_disconnect()
+		})
+		if checksum != 4165 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_service_disconnect: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_method_service_get_connection_id()
+		})
+		if checksum != 24315 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_service_get_connection_id: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_method_service_get_name()
+		})
+		if checksum != 46803 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_service_get_name: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_method_service_run()
+		})
+		if checksum != 53844 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_service_run: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_method_service_run_server()
+		})
+		if checksum != 51221 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_service_run_server: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_method_service_shutdown()
+		})
+		if checksum != 13242 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_service_shutdown: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_method_service_stop_server()
+		})
+		if checksum != 356 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_service_stop_server: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_bindings_checksum_constructor_bindingsadapter_new()
 		})
-		if checksum != 22886 {
+		if checksum != 30508 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_bindings: uniffi_slim_bindings_checksum_constructor_bindingsadapter_new: UniFFI API checksum mismatch")
 		}
@@ -984,6 +1209,24 @@ func uniffiCheckChecksums() {
 		if checksum != 65156 {
 			// If this happens try cleaning and rebuilding your project
 			panic("slim_bindings: uniffi_slim_bindings_checksum_constructor_name_new: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_constructor_service_new()
+		})
+		if checksum != 45367 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_constructor_service_new: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_constructor_service_new_with_config()
+		})
+		if checksum != 29770 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_constructor_service_new_with_config: UniFFI API checksum mismatch")
 		}
 	}
 }
@@ -1396,7 +1639,6 @@ type BindingsAdapter struct {
 // * `base_name` - The base name for the app (without ID)
 // * `identity_provider_config` - Configuration for proving identity to others
 // * `identity_verifier_config` - Configuration for verifying identity of others
-// * `use_local_service` - If true, creates a local service instance; if false, uses global service
 //
 // # Returns
 // * `Ok(Arc<BindingsAdapter>)` - Successfully created adapter
@@ -1406,9 +1648,9 @@ type BindingsAdapter struct {
 // - SharedSecret: Symmetric key authentication
 // - JWT: Dynamic JWT generation/verification with signing/decoding keys
 // - StaticJWT: Static JWT loaded from file with auto-reload
-func NewBindingsAdapter(baseName *Name, identityProviderConfig IdentityProviderConfig, identityVerifierConfig IdentityVerifierConfig, useLocalService bool) (*BindingsAdapter, error) {
+func NewBindingsAdapter(baseName *Name, identityProviderConfig IdentityProviderConfig, identityVerifierConfig IdentityVerifierConfig) (*BindingsAdapter, error) {
 	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
-		return C.uniffi_slim_bindings_fn_constructor_bindingsadapter_new(FfiConverterNameINSTANCE.Lower(baseName), FfiConverterIdentityProviderConfigINSTANCE.Lower(identityProviderConfig), FfiConverterIdentityVerifierConfigINSTANCE.Lower(identityVerifierConfig), FfiConverterBoolINSTANCE.Lower(useLocalService), _uniffiStatus)
+		return C.uniffi_slim_bindings_fn_constructor_bindingsadapter_new(FfiConverterNameINSTANCE.Lower(baseName), FfiConverterIdentityProviderConfigINSTANCE.Lower(identityProviderConfig), FfiConverterIdentityVerifierConfigINSTANCE.Lower(identityVerifierConfig), _uniffiStatus)
 	})
 	if _uniffiErr != nil {
 		var _uniffiDefaultValue *BindingsAdapter
@@ -3261,6 +3503,417 @@ func (_ FfiDestroyerName) Destroy(value *Name) {
 	value.Destroy()
 }
 
+// Service wrapper for uniffi bindings
+type ServiceInterface interface {
+	// Get the service configuration
+	Config() ServiceConfiguration
+	// Connect to a remote endpoint as a client
+	Connect(config ClientConfig) (uint64, error)
+	// Create a new BindingsAdapter with authentication configuration (async version)
+	//
+	// This method initializes authentication providers/verifiers and creates a BindingsAdapter
+	// on this service instance.
+	//
+	// # Arguments
+	// * `base_name` - The base name for the app (without ID)
+	// * `identity_provider_config` - Configuration for proving identity to others
+	// * `identity_verifier_config` - Configuration for verifying identity of others
+	//
+	// # Returns
+	// * `Ok(Arc<BindingsAdapter>)` - Successfully created adapter
+	// * `Err(SlimError)` - If adapter creation fails
+	CreateAdapterAsync(baseName *Name, identityProviderConfig IdentityProviderConfig, identityVerifierConfig IdentityVerifierConfig) (*BindingsAdapter, error)
+	// Disconnect a client connection by connection ID
+	Disconnect(connId uint64) error
+	// Get the connection ID for a given endpoint
+	GetConnectionId(endpoint string) *uint64
+	// Get the service identifier/name
+	GetName() string
+	// Run the service (starts all configured servers and clients)
+	Run() error
+	// Start a server with the given configuration
+	RunServer(config ServerConfig) error
+	// Shutdown the service gracefully
+	Shutdown() error
+	// Stop a server by endpoint
+	StopServer(endpoint string) error
+}
+
+// Service wrapper for uniffi bindings
+type Service struct {
+	ffiObject FfiObject
+}
+
+// Create a new Service with the given name
+func NewService(name string) *Service {
+	return FfiConverterServiceINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
+		return C.uniffi_slim_bindings_fn_constructor_service_new(FfiConverterStringINSTANCE.Lower(name), _uniffiStatus)
+	}))
+}
+
+// Create a new Service with configuration
+func ServiceNewWithConfig(name string, config ServiceConfiguration) *Service {
+	return FfiConverterServiceINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
+		return C.uniffi_slim_bindings_fn_constructor_service_new_with_config(FfiConverterStringINSTANCE.Lower(name), FfiConverterServiceConfigurationINSTANCE.Lower(config), _uniffiStatus)
+	}))
+}
+
+// Get the service configuration
+func (_self *Service) Config() ServiceConfiguration {
+	_pointer := _self.ffiObject.incrementPointer("*Service")
+	defer _self.ffiObject.decrementPointer()
+	res, _ := uniffiRustCallAsync[error](
+		nil,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) RustBufferI {
+			res := C.ffi_slim_bindings_rust_future_complete_rust_buffer(handle, status)
+			return GoRustBuffer{
+				inner: res,
+			}
+		},
+		// liftFn
+		func(ffi RustBufferI) ServiceConfiguration {
+			return FfiConverterServiceConfigurationINSTANCE.Lift(ffi)
+		},
+		C.uniffi_slim_bindings_fn_method_service_config(
+			_pointer),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_poll_rust_buffer(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_free_rust_buffer(handle)
+		},
+	)
+
+	return res
+}
+
+// Connect to a remote endpoint as a client
+func (_self *Service) Connect(config ClientConfig) (uint64, error) {
+	_pointer := _self.ffiObject.incrementPointer("*Service")
+	defer _self.ffiObject.decrementPointer()
+	res, err := uniffiRustCallAsync[SlimError](
+		FfiConverterSlimErrorINSTANCE,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) C.uint64_t {
+			res := C.ffi_slim_bindings_rust_future_complete_u64(handle, status)
+			return res
+		},
+		// liftFn
+		func(ffi C.uint64_t) uint64 {
+			return FfiConverterUint64INSTANCE.Lift(ffi)
+		},
+		C.uniffi_slim_bindings_fn_method_service_connect(
+			_pointer, FfiConverterClientConfigINSTANCE.Lower(config)),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_poll_u64(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_free_u64(handle)
+		},
+	)
+
+	return res, err
+}
+
+// Create a new BindingsAdapter with authentication configuration (async version)
+//
+// This method initializes authentication providers/verifiers and creates a BindingsAdapter
+// on this service instance.
+//
+// # Arguments
+// * `base_name` - The base name for the app (without ID)
+// * `identity_provider_config` - Configuration for proving identity to others
+// * `identity_verifier_config` - Configuration for verifying identity of others
+//
+// # Returns
+// * `Ok(Arc<BindingsAdapter>)` - Successfully created adapter
+// * `Err(SlimError)` - If adapter creation fails
+func (_self *Service) CreateAdapterAsync(baseName *Name, identityProviderConfig IdentityProviderConfig, identityVerifierConfig IdentityVerifierConfig) (*BindingsAdapter, error) {
+	_pointer := _self.ffiObject.incrementPointer("*Service")
+	defer _self.ffiObject.decrementPointer()
+	res, err := uniffiRustCallAsync[SlimError](
+		FfiConverterSlimErrorINSTANCE,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) unsafe.Pointer {
+			res := C.ffi_slim_bindings_rust_future_complete_pointer(handle, status)
+			return res
+		},
+		// liftFn
+		func(ffi unsafe.Pointer) *BindingsAdapter {
+			return FfiConverterBindingsAdapterINSTANCE.Lift(ffi)
+		},
+		C.uniffi_slim_bindings_fn_method_service_create_adapter_async(
+			_pointer, FfiConverterNameINSTANCE.Lower(baseName), FfiConverterIdentityProviderConfigINSTANCE.Lower(identityProviderConfig), FfiConverterIdentityVerifierConfigINSTANCE.Lower(identityVerifierConfig)),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_poll_pointer(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_free_pointer(handle)
+		},
+	)
+
+	return res, err
+}
+
+// Disconnect a client connection by connection ID
+func (_self *Service) Disconnect(connId uint64) error {
+	_pointer := _self.ffiObject.incrementPointer("*Service")
+	defer _self.ffiObject.decrementPointer()
+	_, err := uniffiRustCallAsync[SlimError](
+		FfiConverterSlimErrorINSTANCE,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
+			C.ffi_slim_bindings_rust_future_complete_void(handle, status)
+			return struct{}{}
+		},
+		// liftFn
+		func(_ struct{}) struct{} { return struct{}{} },
+		C.uniffi_slim_bindings_fn_method_service_disconnect(
+			_pointer, FfiConverterUint64INSTANCE.Lower(connId)),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_poll_void(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_free_void(handle)
+		},
+	)
+
+	return err
+}
+
+// Get the connection ID for a given endpoint
+func (_self *Service) GetConnectionId(endpoint string) *uint64 {
+	_pointer := _self.ffiObject.incrementPointer("*Service")
+	defer _self.ffiObject.decrementPointer()
+	res, _ := uniffiRustCallAsync[error](
+		nil,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) RustBufferI {
+			res := C.ffi_slim_bindings_rust_future_complete_rust_buffer(handle, status)
+			return GoRustBuffer{
+				inner: res,
+			}
+		},
+		// liftFn
+		func(ffi RustBufferI) *uint64 {
+			return FfiConverterOptionalUint64INSTANCE.Lift(ffi)
+		},
+		C.uniffi_slim_bindings_fn_method_service_get_connection_id(
+			_pointer, FfiConverterStringINSTANCE.Lower(endpoint)),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_poll_rust_buffer(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_free_rust_buffer(handle)
+		},
+	)
+
+	return res
+}
+
+// Get the service identifier/name
+func (_self *Service) GetName() string {
+	_pointer := _self.ffiObject.incrementPointer("*Service")
+	defer _self.ffiObject.decrementPointer()
+	res, _ := uniffiRustCallAsync[error](
+		nil,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) RustBufferI {
+			res := C.ffi_slim_bindings_rust_future_complete_rust_buffer(handle, status)
+			return GoRustBuffer{
+				inner: res,
+			}
+		},
+		// liftFn
+		func(ffi RustBufferI) string {
+			return FfiConverterStringINSTANCE.Lift(ffi)
+		},
+		C.uniffi_slim_bindings_fn_method_service_get_name(
+			_pointer),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_poll_rust_buffer(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_free_rust_buffer(handle)
+		},
+	)
+
+	return res
+}
+
+// Run the service (starts all configured servers and clients)
+func (_self *Service) Run() error {
+	_pointer := _self.ffiObject.incrementPointer("*Service")
+	defer _self.ffiObject.decrementPointer()
+	_, err := uniffiRustCallAsync[SlimError](
+		FfiConverterSlimErrorINSTANCE,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
+			C.ffi_slim_bindings_rust_future_complete_void(handle, status)
+			return struct{}{}
+		},
+		// liftFn
+		func(_ struct{}) struct{} { return struct{}{} },
+		C.uniffi_slim_bindings_fn_method_service_run(
+			_pointer),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_poll_void(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_free_void(handle)
+		},
+	)
+
+	return err
+}
+
+// Start a server with the given configuration
+func (_self *Service) RunServer(config ServerConfig) error {
+	_pointer := _self.ffiObject.incrementPointer("*Service")
+	defer _self.ffiObject.decrementPointer()
+	_, err := uniffiRustCallAsync[SlimError](
+		FfiConverterSlimErrorINSTANCE,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
+			C.ffi_slim_bindings_rust_future_complete_void(handle, status)
+			return struct{}{}
+		},
+		// liftFn
+		func(_ struct{}) struct{} { return struct{}{} },
+		C.uniffi_slim_bindings_fn_method_service_run_server(
+			_pointer, FfiConverterServerConfigINSTANCE.Lower(config)),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_poll_void(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_free_void(handle)
+		},
+	)
+
+	return err
+}
+
+// Shutdown the service gracefully
+func (_self *Service) Shutdown() error {
+	_pointer := _self.ffiObject.incrementPointer("*Service")
+	defer _self.ffiObject.decrementPointer()
+	_, err := uniffiRustCallAsync[SlimError](
+		FfiConverterSlimErrorINSTANCE,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
+			C.ffi_slim_bindings_rust_future_complete_void(handle, status)
+			return struct{}{}
+		},
+		// liftFn
+		func(_ struct{}) struct{} { return struct{}{} },
+		C.uniffi_slim_bindings_fn_method_service_shutdown(
+			_pointer),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_poll_void(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_free_void(handle)
+		},
+	)
+
+	return err
+}
+
+// Stop a server by endpoint
+func (_self *Service) StopServer(endpoint string) error {
+	_pointer := _self.ffiObject.incrementPointer("*Service")
+	defer _self.ffiObject.decrementPointer()
+	_, err := uniffiRustCallAsync[SlimError](
+		FfiConverterSlimErrorINSTANCE,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
+			C.ffi_slim_bindings_rust_future_complete_void(handle, status)
+			return struct{}{}
+		},
+		// liftFn
+		func(_ struct{}) struct{} { return struct{}{} },
+		C.uniffi_slim_bindings_fn_method_service_stop_server(
+			_pointer, FfiConverterStringINSTANCE.Lower(endpoint)),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_poll_void(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_free_void(handle)
+		},
+	)
+
+	return err
+}
+func (object *Service) Destroy() {
+	runtime.SetFinalizer(object, nil)
+	object.ffiObject.destroy()
+}
+
+type FfiConverterService struct{}
+
+var FfiConverterServiceINSTANCE = FfiConverterService{}
+
+func (c FfiConverterService) Lift(pointer unsafe.Pointer) *Service {
+	result := &Service{
+		newFfiObject(
+			pointer,
+			func(pointer unsafe.Pointer, status *C.RustCallStatus) unsafe.Pointer {
+				return C.uniffi_slim_bindings_fn_clone_service(pointer, status)
+			},
+			func(pointer unsafe.Pointer, status *C.RustCallStatus) {
+				C.uniffi_slim_bindings_fn_free_service(pointer, status)
+			},
+		),
+	}
+	runtime.SetFinalizer(result, (*Service).Destroy)
+	return result
+}
+
+func (c FfiConverterService) Read(reader io.Reader) *Service {
+	return c.Lift(unsafe.Pointer(uintptr(readUint64(reader))))
+}
+
+func (c FfiConverterService) Lower(value *Service) unsafe.Pointer {
+	// TODO: this is bad - all synchronization from ObjectRuntime.go is discarded here,
+	// because the pointer will be decremented immediately after this function returns,
+	// and someone will be left holding onto a non-locked pointer.
+	pointer := value.ffiObject.incrementPointer("*Service")
+	defer value.ffiObject.decrementPointer()
+	return pointer
+
+}
+
+func (c FfiConverterService) Write(writer io.Writer, value *Service) {
+	writeUint64(writer, uint64(uintptr(c.Lower(value))))
+}
+
+type FfiDestroyerService struct{}
+
+func (_ FfiDestroyerService) Destroy(value *Service) {
+	value.Destroy()
+}
+
 // Basic authentication configuration
 type BasicAuth struct {
 	Username string
@@ -3518,6 +4171,49 @@ func (c FfiConverterClientJwtAuth) Write(writer io.Writer, value ClientJwtAuth) 
 type FfiDestroyerClientJwtAuth struct{}
 
 func (_ FfiDestroyerClientJwtAuth) Destroy(value ClientJwtAuth) {
+	value.Destroy()
+}
+
+// DataPlane configuration wrapper for uniffi bindings
+type DataplaneConfig struct {
+	// DataPlane GRPC server settings
+	Servers []ServerConfig
+	// DataPlane client configs
+	Clients []ClientConfig
+}
+
+func (r *DataplaneConfig) Destroy() {
+	FfiDestroyerSequenceServerConfig{}.Destroy(r.Servers)
+	FfiDestroyerSequenceClientConfig{}.Destroy(r.Clients)
+}
+
+type FfiConverterDataplaneConfig struct{}
+
+var FfiConverterDataplaneConfigINSTANCE = FfiConverterDataplaneConfig{}
+
+func (c FfiConverterDataplaneConfig) Lift(rb RustBufferI) DataplaneConfig {
+	return LiftFromRustBuffer[DataplaneConfig](c, rb)
+}
+
+func (c FfiConverterDataplaneConfig) Read(reader io.Reader) DataplaneConfig {
+	return DataplaneConfig{
+		FfiConverterSequenceServerConfigINSTANCE.Read(reader),
+		FfiConverterSequenceClientConfigINSTANCE.Read(reader),
+	}
+}
+
+func (c FfiConverterDataplaneConfig) Lower(value DataplaneConfig) C.RustBuffer {
+	return LowerIntoRustBuffer[DataplaneConfig](c, value)
+}
+
+func (c FfiConverterDataplaneConfig) Write(writer io.Writer, value DataplaneConfig) {
+	FfiConverterSequenceServerConfigINSTANCE.Write(writer, value.Servers)
+	FfiConverterSequenceClientConfigINSTANCE.Write(writer, value.Clients)
+}
+
+type FfiDestroyerDataplaneConfig struct{}
+
+func (_ FfiDestroyerDataplaneConfig) Destroy(value DataplaneConfig) {
 	value.Destroy()
 }
 
@@ -4090,6 +4786,51 @@ func (c FfiConverterServerConfig) Write(writer io.Writer, value ServerConfig) {
 type FfiDestroyerServerConfig struct{}
 
 func (_ FfiDestroyerServerConfig) Destroy(value ServerConfig) {
+	value.Destroy()
+}
+
+// Service configuration wrapper for uniffi bindings
+type ServiceConfiguration struct {
+	NodeId    *string
+	GroupName *string
+	Dataplane DataplaneConfig
+}
+
+func (r *ServiceConfiguration) Destroy() {
+	FfiDestroyerOptionalString{}.Destroy(r.NodeId)
+	FfiDestroyerOptionalString{}.Destroy(r.GroupName)
+	FfiDestroyerDataplaneConfig{}.Destroy(r.Dataplane)
+}
+
+type FfiConverterServiceConfiguration struct{}
+
+var FfiConverterServiceConfigurationINSTANCE = FfiConverterServiceConfiguration{}
+
+func (c FfiConverterServiceConfiguration) Lift(rb RustBufferI) ServiceConfiguration {
+	return LiftFromRustBuffer[ServiceConfiguration](c, rb)
+}
+
+func (c FfiConverterServiceConfiguration) Read(reader io.Reader) ServiceConfiguration {
+	return ServiceConfiguration{
+		FfiConverterOptionalStringINSTANCE.Read(reader),
+		FfiConverterOptionalStringINSTANCE.Read(reader),
+		FfiConverterDataplaneConfigINSTANCE.Read(reader),
+	}
+}
+
+func (c FfiConverterServiceConfiguration) Lower(value ServiceConfiguration) C.RustBuffer {
+	return LowerIntoRustBuffer[ServiceConfiguration](c, value)
+}
+
+func (c FfiConverterServiceConfiguration) Write(writer io.Writer, value ServiceConfiguration) {
+	FfiConverterOptionalStringINSTANCE.Write(writer, value.NodeId)
+	FfiConverterOptionalStringINSTANCE.Write(writer, value.GroupName)
+	FfiConverterDataplaneConfigINSTANCE.Write(writer, value.Dataplane)
+}
+
+type FfiDestroyerServiceConfiguration struct{}
+
+func (_ FfiDestroyerServiceConfiguration) Destroy(value ServiceConfiguration) {
 	value.Destroy()
 }
 
@@ -6108,6 +6849,92 @@ func (FfiDestroyerSequenceString) Destroy(sequence []string) {
 	}
 }
 
+type FfiConverterSequenceClientConfig struct{}
+
+var FfiConverterSequenceClientConfigINSTANCE = FfiConverterSequenceClientConfig{}
+
+func (c FfiConverterSequenceClientConfig) Lift(rb RustBufferI) []ClientConfig {
+	return LiftFromRustBuffer[[]ClientConfig](c, rb)
+}
+
+func (c FfiConverterSequenceClientConfig) Read(reader io.Reader) []ClientConfig {
+	length := readInt32(reader)
+	if length == 0 {
+		return nil
+	}
+	result := make([]ClientConfig, 0, length)
+	for i := int32(0); i < length; i++ {
+		result = append(result, FfiConverterClientConfigINSTANCE.Read(reader))
+	}
+	return result
+}
+
+func (c FfiConverterSequenceClientConfig) Lower(value []ClientConfig) C.RustBuffer {
+	return LowerIntoRustBuffer[[]ClientConfig](c, value)
+}
+
+func (c FfiConverterSequenceClientConfig) Write(writer io.Writer, value []ClientConfig) {
+	if len(value) > math.MaxInt32 {
+		panic("[]ClientConfig is too large to fit into Int32")
+	}
+
+	writeInt32(writer, int32(len(value)))
+	for _, item := range value {
+		FfiConverterClientConfigINSTANCE.Write(writer, item)
+	}
+}
+
+type FfiDestroyerSequenceClientConfig struct{}
+
+func (FfiDestroyerSequenceClientConfig) Destroy(sequence []ClientConfig) {
+	for _, value := range sequence {
+		FfiDestroyerClientConfig{}.Destroy(value)
+	}
+}
+
+type FfiConverterSequenceServerConfig struct{}
+
+var FfiConverterSequenceServerConfigINSTANCE = FfiConverterSequenceServerConfig{}
+
+func (c FfiConverterSequenceServerConfig) Lift(rb RustBufferI) []ServerConfig {
+	return LiftFromRustBuffer[[]ServerConfig](c, rb)
+}
+
+func (c FfiConverterSequenceServerConfig) Read(reader io.Reader) []ServerConfig {
+	length := readInt32(reader)
+	if length == 0 {
+		return nil
+	}
+	result := make([]ServerConfig, 0, length)
+	for i := int32(0); i < length; i++ {
+		result = append(result, FfiConverterServerConfigINSTANCE.Read(reader))
+	}
+	return result
+}
+
+func (c FfiConverterSequenceServerConfig) Lower(value []ServerConfig) C.RustBuffer {
+	return LowerIntoRustBuffer[[]ServerConfig](c, value)
+}
+
+func (c FfiConverterSequenceServerConfig) Write(writer io.Writer, value []ServerConfig) {
+	if len(value) > math.MaxInt32 {
+		panic("[]ServerConfig is too large to fit into Int32")
+	}
+
+	writeInt32(writer, int32(len(value)))
+	for _, item := range value {
+		FfiConverterServerConfigINSTANCE.Write(writer, item)
+	}
+}
+
+type FfiDestroyerSequenceServerConfig struct{}
+
+func (FfiDestroyerSequenceServerConfig) Destroy(sequence []ServerConfig) {
+	for _, value := range sequence {
+		FfiDestroyerServerConfig{}.Destroy(value)
+	}
+}
+
 type FfiConverterMapStringString struct{}
 
 var FfiConverterMapStringStringINSTANCE = FfiConverterMapStringString{}
@@ -6215,6 +7042,71 @@ func slim_bindings_uniffiFreeGorutine(data C.uint64_t) {
 	guard <- struct{}{}
 }
 
+// Connect to a remote endpoint as a client using the global service
+func Connect(config ClientConfig) (uint64, error) {
+	res, err := uniffiRustCallAsync[SlimError](
+		FfiConverterSlimErrorINSTANCE,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) C.uint64_t {
+			res := C.ffi_slim_bindings_rust_future_complete_u64(handle, status)
+			return res
+		},
+		// liftFn
+		func(ffi C.uint64_t) uint64 {
+			return FfiConverterUint64INSTANCE.Lift(ffi)
+		},
+		C.uniffi_slim_bindings_fn_func_connect(FfiConverterClientConfigINSTANCE.Lower(config)),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_poll_u64(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_free_u64(handle)
+		},
+	)
+
+	return res, err
+}
+
+// Create a new BindingsAdapter with authentication on the global service
+//
+// This is a convenience function that creates an adapter using the global service instance.
+//
+// # Arguments
+// * `base_name` - The base name for the app (without ID)
+// * `identity_provider_config` - Configuration for proving identity to others
+// * `identity_verifier_config` - Configuration for verifying identity of others
+//
+// # Returns
+// * `Ok(Arc<BindingsAdapter>)` - Successfully created adapter
+// * `Err(SlimError)` - If adapter creation fails
+func CreateAdapter(baseName *Name, identityProviderConfig IdentityProviderConfig, identityVerifierConfig IdentityVerifierConfig) (*BindingsAdapter, error) {
+	res, err := uniffiRustCallAsync[SlimError](
+		FfiConverterSlimErrorINSTANCE,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) unsafe.Pointer {
+			res := C.ffi_slim_bindings_rust_future_complete_pointer(handle, status)
+			return res
+		},
+		// liftFn
+		func(ffi unsafe.Pointer) *BindingsAdapter {
+			return FfiConverterBindingsAdapterINSTANCE.Lift(ffi)
+		},
+		C.uniffi_slim_bindings_fn_func_create_adapter(FfiConverterNameINSTANCE.Lower(baseName), FfiConverterIdentityProviderConfigINSTANCE.Lower(identityProviderConfig), FfiConverterIdentityVerifierConfigINSTANCE.Lower(identityVerifierConfig)),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_poll_pointer(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_free_pointer(handle)
+		},
+	)
+
+	return res, err
+}
+
 // Create a new BindingsAdapter with SharedSecret authentication (helper function)
 //
 // This is a convenience function for creating a SLIM application using SharedSecret authentication.
@@ -6238,12 +7130,102 @@ func CreateAppWithSecret(name *Name, secret string) (*BindingsAdapter, error) {
 	}
 }
 
+// Create a new Service with builder pattern
+func CreateService(name string) (*Service, error) {
+	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
+		return C.uniffi_slim_bindings_fn_func_create_service(FfiConverterStringINSTANCE.Lower(name), _uniffiStatus)
+	})
+	if _uniffiErr != nil {
+		var _uniffiDefaultValue *Service
+		return _uniffiDefaultValue, _uniffiErr
+	} else {
+		return FfiConverterServiceINSTANCE.Lift(_uniffiRV), nil
+	}
+}
+
+// Create a new Service with configuration
+func CreateServiceWithConfig(name string, config ServiceConfiguration) (*Service, error) {
+	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
+		return C.uniffi_slim_bindings_fn_func_create_service_with_config(FfiConverterStringINSTANCE.Lower(name), FfiConverterServiceConfigurationINSTANCE.Lower(config), _uniffiStatus)
+	})
+	if _uniffiErr != nil {
+		var _uniffiDefaultValue *Service
+		return _uniffiDefaultValue, _uniffiErr
+	} else {
+		return FfiConverterServiceINSTANCE.Lift(_uniffiRV), nil
+	}
+}
+
+// Disconnect a client connection by connection ID on the global service
+func Disconnect(connId uint64) error {
+	_, err := uniffiRustCallAsync[SlimError](
+		FfiConverterSlimErrorINSTANCE,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
+			C.ffi_slim_bindings_rust_future_complete_void(handle, status)
+			return struct{}{}
+		},
+		// liftFn
+		func(_ struct{}) struct{} { return struct{}{} },
+		C.uniffi_slim_bindings_fn_func_disconnect(FfiConverterUint64INSTANCE.Lower(connId)),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_poll_void(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_free_void(handle)
+		},
+	)
+
+	return err
+}
+
 // Get detailed build information
 func GetBuildInfo() BuildInfo {
 	return FfiConverterBuildInfoINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
 		return GoRustBuffer{
 			inner: C.uniffi_slim_bindings_fn_func_get_build_info(_uniffiStatus),
 		}
+	}))
+}
+
+// Get the connection ID for a given endpoint on the global service
+func GetConnectionId(endpoint string) *uint64 {
+	res, _ := uniffiRustCallAsync[error](
+		nil,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) RustBufferI {
+			res := C.ffi_slim_bindings_rust_future_complete_rust_buffer(handle, status)
+			return GoRustBuffer{
+				inner: res,
+			}
+		},
+		// liftFn
+		func(ffi RustBufferI) *uint64 {
+			return FfiConverterOptionalUint64INSTANCE.Lift(ffi)
+		},
+		C.uniffi_slim_bindings_fn_func_get_connection_id(FfiConverterStringINSTANCE.Lower(endpoint)),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_poll_rust_buffer(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_free_rust_buffer(handle)
+		},
+	)
+
+	return res
+}
+
+// Get the global service instance (creates it if it doesn't exist)
+//
+// This returns a reference to the shared global service that can be used
+// across the application. All calls to this function return the same service instance.
+func GetGlobalService() *Service {
+	return FfiConverterServiceINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
+		return C.uniffi_slim_bindings_fn_func_get_global_service(_uniffiStatus)
 	}))
 }
 
@@ -6264,6 +7246,15 @@ func InitializeCryptoProvider() {
 		C.uniffi_slim_bindings_fn_func_initialize_crypto_provider(_uniffiStatus)
 		return false
 	})
+}
+
+// Create a new DataplaneConfig
+func NewDataplaneConfig() DataplaneConfig {
+	return FfiConverterDataplaneConfigINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer{
+			inner: C.uniffi_slim_bindings_fn_func_new_dataplane_config(_uniffiStatus),
+		}
+	}))
 }
 
 // Create a new insecure client config (no TLS)
@@ -6291,4 +7282,171 @@ func NewServerConfig(endpoint string) ServerConfig {
 			inner: C.uniffi_slim_bindings_fn_func_new_server_config(FfiConverterStringINSTANCE.Lower(endpoint), _uniffiStatus),
 		}
 	}))
+}
+
+// Create a new ServiceConfiguration
+func NewServiceConfiguration() ServiceConfiguration {
+	return FfiConverterServiceConfigurationINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer{
+			inner: C.uniffi_slim_bindings_fn_func_new_service_configuration(_uniffiStatus),
+		}
+	}))
+}
+
+// Start a server on the global service with the given configuration
+func RunServer(config ServerConfig) error {
+	_, err := uniffiRustCallAsync[SlimError](
+		FfiConverterSlimErrorINSTANCE,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
+			C.ffi_slim_bindings_rust_future_complete_void(handle, status)
+			return struct{}{}
+		},
+		// liftFn
+		func(_ struct{}) struct{} { return struct{}{} },
+		C.uniffi_slim_bindings_fn_func_run_server(FfiConverterServerConfigINSTANCE.Lower(config)),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_poll_void(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_free_void(handle)
+		},
+	)
+
+	return err
+}
+
+// Get the global service configuration
+func ServiceConfig() ServiceConfiguration {
+	res, _ := uniffiRustCallAsync[error](
+		nil,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) RustBufferI {
+			res := C.ffi_slim_bindings_rust_future_complete_rust_buffer(handle, status)
+			return GoRustBuffer{
+				inner: res,
+			}
+		},
+		// liftFn
+		func(ffi RustBufferI) ServiceConfiguration {
+			return FfiConverterServiceConfigurationINSTANCE.Lift(ffi)
+		},
+		C.uniffi_slim_bindings_fn_func_service_config(),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_poll_rust_buffer(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_free_rust_buffer(handle)
+		},
+	)
+
+	return res
+}
+
+// Get the global service identifier/name
+func ServiceName() string {
+	res, _ := uniffiRustCallAsync[error](
+		nil,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) RustBufferI {
+			res := C.ffi_slim_bindings_rust_future_complete_rust_buffer(handle, status)
+			return GoRustBuffer{
+				inner: res,
+			}
+		},
+		// liftFn
+		func(ffi RustBufferI) string {
+			return FfiConverterStringINSTANCE.Lift(ffi)
+		},
+		C.uniffi_slim_bindings_fn_func_service_name(),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_poll_rust_buffer(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_free_rust_buffer(handle)
+		},
+	)
+
+	return res
+}
+
+// Run the global service (starts all configured servers and clients)
+func ServiceRun() error {
+	_, err := uniffiRustCallAsync[SlimError](
+		FfiConverterSlimErrorINSTANCE,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
+			C.ffi_slim_bindings_rust_future_complete_void(handle, status)
+			return struct{}{}
+		},
+		// liftFn
+		func(_ struct{}) struct{} { return struct{}{} },
+		C.uniffi_slim_bindings_fn_func_service_run(),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_poll_void(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_free_void(handle)
+		},
+	)
+
+	return err
+}
+
+// Shutdown the global service gracefully
+func ServiceShutdown() error {
+	_, err := uniffiRustCallAsync[SlimError](
+		FfiConverterSlimErrorINSTANCE,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
+			C.ffi_slim_bindings_rust_future_complete_void(handle, status)
+			return struct{}{}
+		},
+		// liftFn
+		func(_ struct{}) struct{} { return struct{}{} },
+		C.uniffi_slim_bindings_fn_func_service_shutdown(),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_poll_void(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_free_void(handle)
+		},
+	)
+
+	return err
+}
+
+// Stop a server on the global service by endpoint
+func StopServer(endpoint string) error {
+	_, err := uniffiRustCallAsync[SlimError](
+		FfiConverterSlimErrorINSTANCE,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
+			C.ffi_slim_bindings_rust_future_complete_void(handle, status)
+			return struct{}{}
+		},
+		// liftFn
+		func(_ struct{}) struct{} { return struct{}{} },
+		C.uniffi_slim_bindings_fn_func_stop_server(FfiConverterStringINSTANCE.Lower(endpoint)),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_poll_void(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_free_void(handle)
+		},
+	)
+
+	return err
 }

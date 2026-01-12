@@ -143,6 +143,26 @@ impl From<ServerConfig> for CoreServerConfig {
     }
 }
 
+impl From<CoreServerConfig> for ServerConfig {
+    fn from(config: CoreServerConfig) -> Self {
+        ServerConfig {
+            endpoint: config.endpoint,
+            tls: config.tls_setting.into(),
+            http2_only: config.http2_only,
+            max_frame_size: config.max_frame_size,
+            max_concurrent_streams: config.max_concurrent_streams,
+            max_header_list_size: config.max_header_list_size,
+            read_buffer_size: config.read_buffer_size.map(|s| s as u64),
+            write_buffer_size: config.write_buffer_size.map(|s| s as u64),
+            keepalive: config.keepalive.into(),
+            auth: config.auth.into(),
+            metadata: config
+                .metadata
+                .and_then(|m| serde_json::to_string(&m).ok()),
+        }
+    }
+}
+
 /// Create a new server config with the given endpoint and default values
 #[uniffi::export]
 pub fn new_server_config(endpoint: String) -> ServerConfig {

@@ -327,6 +327,30 @@ impl From<ClientConfig> for CoreClientConfig {
     }
 }
 
+impl From<CoreClientConfig> for ClientConfig {
+    fn from(config: CoreClientConfig) -> Self {
+        ClientConfig {
+            endpoint: config.endpoint,
+            origin: config.origin,
+            server_name: config.server_name,
+            compression: config.compression.map(Into::into),
+            rate_limit: config.rate_limit,
+            tls: config.tls_setting.into(),
+            keepalive: config.keepalive.map(Into::into),
+            proxy: config.proxy.into(),
+            connect_timeout: *config.connect_timeout,
+            request_timeout: *config.request_timeout,
+            buffer_size: config.buffer_size.map(|s| s as u64),
+            headers: config.headers,
+            auth: config.auth.into(),
+            backoff: config.backoff.into(),
+            metadata: config
+                .metadata
+                .and_then(|m| serde_json::to_string(&m).ok()),
+        }
+    }
+}
+
 impl Default for ClientConfig {
     fn default() -> Self {
         let core_defaults = CoreClientConfig::default();

@@ -390,7 +390,7 @@ void uniffi_slim_bindings_fn_free_bindingsadapter(void* ptr, RustCallStatus *out
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_CONSTRUCTOR_BINDINGSADAPTER_NEW
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_CONSTRUCTOR_BINDINGSADAPTER_NEW
-void* uniffi_slim_bindings_fn_constructor_bindingsadapter_new(void* base_name, RustBuffer identity_provider_config, RustBuffer identity_verifier_config, int8_t use_local_service, RustCallStatus *out_status
+void* uniffi_slim_bindings_fn_constructor_bindingsadapter_new(void* base_name, RustBuffer identity_provider_config, RustBuffer identity_verifier_config, RustCallStatus *out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_BINDINGSADAPTER_CONNECT
@@ -733,14 +733,120 @@ RustBuffer uniffi_slim_bindings_fn_method_name_components(void* ptr, RustCallSta
 uint64_t uniffi_slim_bindings_fn_method_name_id(void* ptr, RustCallStatus *out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_CLONE_SERVICE
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_CLONE_SERVICE
+void* uniffi_slim_bindings_fn_clone_service(void* ptr, RustCallStatus *out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FREE_SERVICE
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FREE_SERVICE
+void uniffi_slim_bindings_fn_free_service(void* ptr, RustCallStatus *out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_CONSTRUCTOR_SERVICE_NEW
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_CONSTRUCTOR_SERVICE_NEW
+void* uniffi_slim_bindings_fn_constructor_service_new(RustBuffer name, RustCallStatus *out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_CONSTRUCTOR_SERVICE_NEW_WITH_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_CONSTRUCTOR_SERVICE_NEW_WITH_CONFIG
+void* uniffi_slim_bindings_fn_constructor_service_new_with_config(RustBuffer name, RustBuffer config, RustCallStatus *out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_SERVICE_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_SERVICE_CONFIG
+uint64_t uniffi_slim_bindings_fn_method_service_config(void* ptr
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_SERVICE_CONNECT
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_SERVICE_CONNECT
+uint64_t uniffi_slim_bindings_fn_method_service_connect(void* ptr, RustBuffer config
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_SERVICE_CREATE_ADAPTER_ASYNC
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_SERVICE_CREATE_ADAPTER_ASYNC
+uint64_t uniffi_slim_bindings_fn_method_service_create_adapter_async(void* ptr, void* base_name, RustBuffer identity_provider_config, RustBuffer identity_verifier_config
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_SERVICE_DISCONNECT
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_SERVICE_DISCONNECT
+uint64_t uniffi_slim_bindings_fn_method_service_disconnect(void* ptr, uint64_t conn_id
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_SERVICE_GET_CONNECTION_ID
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_SERVICE_GET_CONNECTION_ID
+uint64_t uniffi_slim_bindings_fn_method_service_get_connection_id(void* ptr, RustBuffer endpoint
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_SERVICE_GET_NAME
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_SERVICE_GET_NAME
+uint64_t uniffi_slim_bindings_fn_method_service_get_name(void* ptr
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_SERVICE_RUN
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_SERVICE_RUN
+uint64_t uniffi_slim_bindings_fn_method_service_run(void* ptr
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_SERVICE_RUN_SERVER
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_SERVICE_RUN_SERVER
+uint64_t uniffi_slim_bindings_fn_method_service_run_server(void* ptr, RustBuffer config
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_SERVICE_SHUTDOWN
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_SERVICE_SHUTDOWN
+uint64_t uniffi_slim_bindings_fn_method_service_shutdown(void* ptr
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_SERVICE_STOP_SERVER
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_METHOD_SERVICE_STOP_SERVER
+uint64_t uniffi_slim_bindings_fn_method_service_stop_server(void* ptr, RustBuffer endpoint
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_CONNECT
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_CONNECT
+uint64_t uniffi_slim_bindings_fn_func_connect(RustBuffer config
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_CREATE_ADAPTER
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_CREATE_ADAPTER
+uint64_t uniffi_slim_bindings_fn_func_create_adapter(void* base_name, RustBuffer identity_provider_config, RustBuffer identity_verifier_config
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_CREATE_APP_WITH_SECRET
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_CREATE_APP_WITH_SECRET
 void* uniffi_slim_bindings_fn_func_create_app_with_secret(void* name, RustBuffer secret, RustCallStatus *out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_CREATE_SERVICE
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_CREATE_SERVICE
+void* uniffi_slim_bindings_fn_func_create_service(RustBuffer name, RustCallStatus *out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_CREATE_SERVICE_WITH_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_CREATE_SERVICE_WITH_CONFIG
+void* uniffi_slim_bindings_fn_func_create_service_with_config(RustBuffer name, RustBuffer config, RustCallStatus *out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_DISCONNECT
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_DISCONNECT
+uint64_t uniffi_slim_bindings_fn_func_disconnect(uint64_t conn_id
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_GET_BUILD_INFO
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_GET_BUILD_INFO
 RustBuffer uniffi_slim_bindings_fn_func_get_build_info(RustCallStatus *out_status
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_GET_CONNECTION_ID
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_GET_CONNECTION_ID
+uint64_t uniffi_slim_bindings_fn_func_get_connection_id(RustBuffer endpoint
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_GET_GLOBAL_SERVICE
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_GET_GLOBAL_SERVICE
+void* uniffi_slim_bindings_fn_func_get_global_service(RustCallStatus *out_status
     
 );
 #endif
@@ -753,6 +859,12 @@ RustBuffer uniffi_slim_bindings_fn_func_get_version(RustCallStatus *out_status
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_INITIALIZE_CRYPTO_PROVIDER
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_INITIALIZE_CRYPTO_PROVIDER
 void uniffi_slim_bindings_fn_func_initialize_crypto_provider(RustCallStatus *out_status
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_NEW_DATAPLANE_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_NEW_DATAPLANE_CONFIG
+RustBuffer uniffi_slim_bindings_fn_func_new_dataplane_config(RustCallStatus *out_status
     
 );
 #endif
@@ -769,6 +881,46 @@ RustBuffer uniffi_slim_bindings_fn_func_new_insecure_server_config(RustBuffer en
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_NEW_SERVER_CONFIG
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_NEW_SERVER_CONFIG
 RustBuffer uniffi_slim_bindings_fn_func_new_server_config(RustBuffer endpoint, RustCallStatus *out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_NEW_SERVICE_CONFIGURATION
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_NEW_SERVICE_CONFIGURATION
+RustBuffer uniffi_slim_bindings_fn_func_new_service_configuration(RustCallStatus *out_status
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_RUN_SERVER
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_RUN_SERVER
+uint64_t uniffi_slim_bindings_fn_func_run_server(RustBuffer config
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_SERVICE_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_SERVICE_CONFIG
+uint64_t uniffi_slim_bindings_fn_func_service_config(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_SERVICE_NAME
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_SERVICE_NAME
+uint64_t uniffi_slim_bindings_fn_func_service_name(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_SERVICE_RUN
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_SERVICE_RUN
+uint64_t uniffi_slim_bindings_fn_func_service_run(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_SERVICE_SHUTDOWN
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_SERVICE_SHUTDOWN
+uint64_t uniffi_slim_bindings_fn_func_service_shutdown(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_STOP_SERVER
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_FN_FUNC_STOP_SERVER
+uint64_t uniffi_slim_bindings_fn_func_stop_server(RustBuffer endpoint
 );
 #endif
 #ifndef UNIFFI_FFIDEF_FFI_SLIM_BINDINGS_RUSTBUFFER_ALLOC
@@ -1051,15 +1203,57 @@ void ffi_slim_bindings_rust_future_free_void(uint64_t handle
 void ffi_slim_bindings_rust_future_complete_void(uint64_t handle, RustCallStatus *out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_CONNECT
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_CONNECT
+uint16_t uniffi_slim_bindings_checksum_func_connect(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_CREATE_ADAPTER
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_CREATE_ADAPTER
+uint16_t uniffi_slim_bindings_checksum_func_create_adapter(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_CREATE_APP_WITH_SECRET
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_CREATE_APP_WITH_SECRET
 uint16_t uniffi_slim_bindings_checksum_func_create_app_with_secret(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_CREATE_SERVICE
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_CREATE_SERVICE
+uint16_t uniffi_slim_bindings_checksum_func_create_service(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_CREATE_SERVICE_WITH_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_CREATE_SERVICE_WITH_CONFIG
+uint16_t uniffi_slim_bindings_checksum_func_create_service_with_config(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_DISCONNECT
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_DISCONNECT
+uint16_t uniffi_slim_bindings_checksum_func_disconnect(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_GET_BUILD_INFO
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_GET_BUILD_INFO
 uint16_t uniffi_slim_bindings_checksum_func_get_build_info(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_GET_CONNECTION_ID
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_GET_CONNECTION_ID
+uint16_t uniffi_slim_bindings_checksum_func_get_connection_id(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_GET_GLOBAL_SERVICE
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_GET_GLOBAL_SERVICE
+uint16_t uniffi_slim_bindings_checksum_func_get_global_service(void
     
 );
 #endif
@@ -1072,6 +1266,12 @@ uint16_t uniffi_slim_bindings_checksum_func_get_version(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_INITIALIZE_CRYPTO_PROVIDER
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_INITIALIZE_CRYPTO_PROVIDER
 uint16_t uniffi_slim_bindings_checksum_func_initialize_crypto_provider(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_NEW_DATAPLANE_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_NEW_DATAPLANE_CONFIG
+uint16_t uniffi_slim_bindings_checksum_func_new_dataplane_config(void
     
 );
 #endif
@@ -1090,6 +1290,48 @@ uint16_t uniffi_slim_bindings_checksum_func_new_insecure_server_config(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_NEW_SERVER_CONFIG
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_NEW_SERVER_CONFIG
 uint16_t uniffi_slim_bindings_checksum_func_new_server_config(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_NEW_SERVICE_CONFIGURATION
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_NEW_SERVICE_CONFIGURATION
+uint16_t uniffi_slim_bindings_checksum_func_new_service_configuration(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_RUN_SERVER
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_RUN_SERVER
+uint16_t uniffi_slim_bindings_checksum_func_run_server(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_SERVICE_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_SERVICE_CONFIG
+uint16_t uniffi_slim_bindings_checksum_func_service_config(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_SERVICE_NAME
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_SERVICE_NAME
+uint16_t uniffi_slim_bindings_checksum_func_service_name(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_SERVICE_RUN
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_SERVICE_RUN
+uint16_t uniffi_slim_bindings_checksum_func_service_run(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_SERVICE_SHUTDOWN
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_SERVICE_SHUTDOWN
+uint16_t uniffi_slim_bindings_checksum_func_service_shutdown(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_STOP_SERVER
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_FUNC_STOP_SERVER
+uint16_t uniffi_slim_bindings_checksum_func_stop_server(void
     
 );
 #endif
@@ -1459,6 +1701,66 @@ uint16_t uniffi_slim_bindings_checksum_method_name_id(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_SERVICE_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_SERVICE_CONFIG
+uint16_t uniffi_slim_bindings_checksum_method_service_config(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_SERVICE_CONNECT
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_SERVICE_CONNECT
+uint16_t uniffi_slim_bindings_checksum_method_service_connect(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_SERVICE_CREATE_ADAPTER_ASYNC
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_SERVICE_CREATE_ADAPTER_ASYNC
+uint16_t uniffi_slim_bindings_checksum_method_service_create_adapter_async(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_SERVICE_DISCONNECT
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_SERVICE_DISCONNECT
+uint16_t uniffi_slim_bindings_checksum_method_service_disconnect(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_SERVICE_GET_CONNECTION_ID
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_SERVICE_GET_CONNECTION_ID
+uint16_t uniffi_slim_bindings_checksum_method_service_get_connection_id(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_SERVICE_GET_NAME
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_SERVICE_GET_NAME
+uint16_t uniffi_slim_bindings_checksum_method_service_get_name(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_SERVICE_RUN
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_SERVICE_RUN
+uint16_t uniffi_slim_bindings_checksum_method_service_run(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_SERVICE_RUN_SERVER
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_SERVICE_RUN_SERVER
+uint16_t uniffi_slim_bindings_checksum_method_service_run_server(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_SERVICE_SHUTDOWN
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_SERVICE_SHUTDOWN
+uint16_t uniffi_slim_bindings_checksum_method_service_shutdown(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_SERVICE_STOP_SERVER
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_METHOD_SERVICE_STOP_SERVER
+uint16_t uniffi_slim_bindings_checksum_method_service_stop_server(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_CONSTRUCTOR_BINDINGSADAPTER_NEW
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_CONSTRUCTOR_BINDINGSADAPTER_NEW
 uint16_t uniffi_slim_bindings_checksum_constructor_bindingsadapter_new(void
@@ -1468,6 +1770,18 @@ uint16_t uniffi_slim_bindings_checksum_constructor_bindingsadapter_new(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_CONSTRUCTOR_NAME_NEW
 #define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_CONSTRUCTOR_NAME_NEW
 uint16_t uniffi_slim_bindings_checksum_constructor_name_new(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_CONSTRUCTOR_SERVICE_NEW
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_CONSTRUCTOR_SERVICE_NEW
+uint16_t uniffi_slim_bindings_checksum_constructor_service_new(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_CONSTRUCTOR_SERVICE_NEW_WITH_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_SLIM_BINDINGS_CHECKSUM_CONSTRUCTOR_SERVICE_NEW_WITH_CONFIG
+uint16_t uniffi_slim_bindings_checksum_constructor_service_new_with_config(void
     
 );
 #endif

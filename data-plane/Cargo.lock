@@ -79,6 +79,7 @@ version = "0.7.0"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
+ "agntcy-slim-controller",
  "agntcy-slim-datapath",
  "agntcy-slim-service",
  "agntcy-slim-session",
