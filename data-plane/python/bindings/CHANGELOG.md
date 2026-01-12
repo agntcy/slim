@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.7.2](https://github.com/agntcy/slim/compare/slim-bindings-v0.7.1...slim-bindings-v0.7.2) (2026-01-05)
+
+
+### Features
+
+* Go bindings generation using uniffi ([#979](https://github.com/agntcy/slim/issues/979)) ([5b7d813](https://github.com/agntcy/slim/commit/5b7d813a95528788d87614502b170a63b6369812))
+* Golang binding improvements ([#1032](https://github.com/agntcy/slim/issues/1032)) ([f55424d](https://github.com/agntcy/slim/commit/f55424d43901c1e3cffe17952b46444d6ee0e21d))
+* make backoff retry configurable ([#991](https://github.com/agntcy/slim/issues/991)) ([9392edd](https://github.com/agntcy/slim/commit/9392edddefb9bd694ac0117fbceb12cf1090b7fa))
+
+
+### Bug Fixes
+
+* **bindings:** improve identity error handling ([#1042](https://github.com/agntcy/slim/issues/1042)) ([44002b5](https://github.com/agntcy/slim/commit/44002b51c598f3780645b8f3fac48f5e34a373cb))
+* **session:** route dataplane errors to correct session ([#1056](https://github.com/agntcy/slim/issues/1056)) ([0fb9042](https://github.com/agntcy/slim/commit/0fb90425a7a54c0dea743f97f6f2f998e02facad))
+
 ## [0.7.1](https://github.com/agntcy/slim/compare/slim-bindings-v0.7.0...slim-bindings-v0.7.1) (2025-11-21)
 
 
