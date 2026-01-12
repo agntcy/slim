@@ -9,7 +9,7 @@ use pyo3::types::PyDict;
 use pyo3_stub_gen::derive::gen_stub_pyclass;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
 use serde_pyobject::from_pyobject;
-use slim_auth::errors::AuthError;
+
 use slim_bindings::{
     BindingsAdapter, ClientJwtAuth, IdentityProviderConfig, IdentityVerifierConfig, JwtAuth,
     JwtKeyConfig, JwtKeyType, SlimError, StaticJwtAuth,
@@ -24,6 +24,9 @@ use crate::pysession::{PyCompletionHandle, PySessionConfiguration, PySessionCont
 use crate::utils::PyName;
 use slim_config::grpc::client::ClientConfig as PyGrpcClientConfig;
 use slim_config::grpc::server::ServerConfig as PyGrpcServerConfig;
+
+#[cfg(target_family = "windows")]
+use slim_auth::errors::AuthError;
 
 #[gen_stub_pyclass]
 #[pyclass(name = "App")]
