@@ -520,3 +520,476 @@ impl TryFrom<IdentityVerifierConfig> for AuthVerifier {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    // Test StaticJwtAuth conversions
+    #[test]
+    fn test_static_jwt_auth_conversion() {
+        let auth = StaticJwtAuth {
+            token_file: "/path/to/token.jwt".to_string(),
+            duration: Duration::from_secs(7200),
+        };
+
+        let core_config: StaticJwtConfig = auth.clone().into();
+        assert_eq!(core_config.source().file, auth.token_file);
+        assert_eq!(core_config.duration(), auth.duration);
+
+        let back_to_auth: StaticJwtAuth = core_config.into();
+        assert_eq!(back_to_auth, auth);
+    }
+
+    // Test JwtAlgorithm conversions
+    #[test]
+    fn test_jwt_algorithm_conversions() {
+        let algorithms = vec![
+            JwtAlgorithm::HS256,
+            JwtAlgorithm::HS384,
+            JwtAlgorithm::HS512,
+            JwtAlgorithm::ES256,
+            JwtAlgorithm::ES384,
+            JwtAlgorithm::RS256,
+            JwtAlgorithm::RS384,
+            JwtAlgorithm::RS512,
+            JwtAlgorithm::PS256,
+            JwtAlgorithm::PS384,
+            JwtAlgorithm::PS512,
+            JwtAlgorithm::EdDSA,
+        ];
+
+        for algo in algorithms {
+            let core_algo: slim_auth::jwt::Algorithm = algo.clone().into();
+            let back: JwtAlgorithm = core_algo.into();
+            assert_eq!(back, algo);
+        }
+    }
+
+    // Test JwtKeyFormat conversions
+    #[test]
+    fn test_jwt_key_format_conversions() {
+        let formats = vec![JwtKeyFormat::Pem, JwtKeyFormat::Jwk, JwtKeyFormat::Jwks];
+
+        for format in formats {
+            let core_format: slim_auth::jwt::KeyFormat = format.clone().into();
+            let back: JwtKeyFormat = core_format.into();
+            assert_eq!(back, format);
+        }
+    }
+
+    // Test JwtKeyData conversions
+    #[test]
+    fn test_jwt_key_data_conversions() {
+        let data_value = JwtKeyData::Data {
+            value: "test-key-data".to_string(),
+        };
+        let core_data: slim_auth::jwt::KeyData = data_value.clone().into();
+        let back: JwtKeyData = core_data.into();
+        assert_eq!(back, data_value);
+
+        let file_path = JwtKeyData::File {
+            path: "/path/to/key.pem".to_string(),
+        };
+        let core_file: slim_auth::jwt::KeyData = file_path.clone().into();
+        let back_file: JwtKeyData = core_file.into();
+        assert_eq!(back_file, file_path);
+    }
+
+    // Test JwtKeyConfig conversions
+    #[test]
+    fn test_jwt_key_config_conversions() {
+        let key_config = JwtKeyConfig {
+            algorithm: JwtAlgorithm::RS256,
+            format: JwtKeyFormat::Pem,
+            key: JwtKeyData::File {
+                path: "/path/to/key.pem".to_string(),
+            },
+        };
+
+        let core_key: slim_auth::jwt::Key = key_config.clone().into();
+        let back: JwtKeyConfig = core_key.into();
+        assert_eq!(back, key_config);
+    }
+
+    // Test JwtKeyType conversions
+    #[test]
+    fn test_jwt_key_type_conversions() {
+        let encoding_key = JwtKeyType::Encoding {
+            key: JwtKeyConfig {
+                algorithm: JwtAlgorithm::RS256,
+                format: JwtKeyFormat::Pem,
+                key: JwtKeyData::Data {
+                    value: "encoding-key".to_string(),
+                },
+            },
+        };
+
+        let core_encoding: JwtKey = encoding_key.clone().into();
+        let back_encoding: JwtKeyType = core_encoding.into();
+        assert_eq!(back_encoding, encoding_key);
+
+        let decoding_key = JwtKeyType::Decoding {
+            key: JwtKeyConfig {
+                algorithm: JwtAlgorithm::ES256,
+                format: JwtKeyFormat::Jwk,
+                key: JwtKeyData::File {
+                    path: "/path/to/key.jwk".to_string(),
+                },
+            },
+        };
+
+        let core_decoding: JwtKey = decoding_key.clone().into();
+        let back_decoding: JwtKeyType = core_decoding.into();
+        assert_eq!(back_decoding, decoding_key);
+
+        let autoresolve = JwtKeyType::Autoresolve;
+        let core_auto: JwtKey = autoresolve.clone().into();
+        let back_auto: JwtKeyType = core_auto.into();
+        assert_eq!(back_auto, autoresolve);
+    }
+
+    // Test ClientJwtAuth conversions
+    #[test]
+    fn test_client_jwt_auth_conversions() {
+        let client_auth = ClientJwtAuth {
+            key: JwtKeyType::Autoresolve,
+            audience: Some(vec!["api.example.com".to_string()]),
+            issuer: Some("auth.example.com".to_string()),
+            subject: Some("user@example.com".to_string()),
+            duration: Duration::from_secs(1800),
+        };
+
+        let core_config: JwtAuthConfig = client_auth.clone().into();
+        assert_eq!(core_config.duration(), client_auth.duration);
+
+        let back: ClientJwtAuth = core_config.into();
+        assert_eq!(back, client_auth);
+    }
+
+    // Test ClientJwtAuth with None fields
+    #[test]
+    fn test_client_jwt_auth_with_none_fields() {
+        let client_auth = ClientJwtAuth {
+            key: JwtKeyType::Autoresolve,
+            audience: None,
+            issuer: None,
+            subject: None,
+            duration: Duration::from_secs(3600),
+        };
+
+        let core_config: JwtAuthConfig = client_auth.clone().into();
+        let back: ClientJwtAuth = core_config.into();
+        assert_eq!(back.audience, None);
+        assert_eq!(back.issuer, None);
+        assert_eq!(back.subject, None);
+    }
+
+    // Test JwtAuth conversions
+    #[test]
+    fn test_jwt_auth_conversions() {
+        let jwt_auth = JwtAuth {
+            key: JwtKeyType::Decoding {
+                key: JwtKeyConfig {
+                    algorithm: JwtAlgorithm::RS256,
+                    format: JwtKeyFormat::Pem,
+                    key: JwtKeyData::File {
+                        path: "/path/to/key.pem".to_string(),
+                    },
+                },
+            },
+            audience: Some(vec!["service.example.com".to_string()]),
+            issuer: Some("issuer.example.com".to_string()),
+            subject: Some("subject".to_string()),
+            duration: Duration::from_secs(900),
+        };
+
+        let core_config: JwtAuthConfig = jwt_auth.clone().into();
+        let back: JwtAuth = core_config.into();
+        assert_eq!(back, jwt_auth);
+    }
+
+    // Test IdentityProviderConfig conversions
+    #[test]
+    fn test_identity_provider_config_shared_secret() {
+        let config = IdentityProviderConfig::SharedSecret {
+            id: "test-id".to_string(),
+            data: "secret-data".to_string(),
+        };
+
+        let core_config: CoreIdentityProviderConfig = config.clone().into();
+        let back: IdentityProviderConfig = core_config.into();
+        assert_eq!(back, config);
+    }
+
+    #[test]
+    fn test_identity_provider_config_static_jwt() {
+        let config = IdentityProviderConfig::StaticJwt {
+            config: StaticJwtAuth {
+                token_file: "/path/to/token.jwt".to_string(),
+                duration: Duration::from_secs(3600),
+            },
+        };
+
+        let core_config: CoreIdentityProviderConfig = config.clone().into();
+        let back: IdentityProviderConfig = core_config.into();
+        assert_eq!(back, config);
+    }
+
+    #[test]
+    fn test_identity_provider_config_jwt() {
+        let config = IdentityProviderConfig::Jwt {
+            config: ClientJwtAuth {
+                key: JwtKeyType::Autoresolve,
+                audience: Some(vec!["test".to_string()]),
+                issuer: None,
+                subject: None,
+                duration: Duration::from_secs(3600),
+            },
+        };
+
+        let core_config: CoreIdentityProviderConfig = config.clone().into();
+        let back: IdentityProviderConfig = core_config.into();
+        assert_eq!(back, config);
+    }
+
+    #[test]
+    fn test_identity_provider_config_none() {
+        let config = IdentityProviderConfig::None;
+        let core_config: CoreIdentityProviderConfig = config.clone().into();
+        let back: IdentityProviderConfig = core_config.into();
+        assert_eq!(back, config);
+    }
+
+    // Test IdentityVerifierConfig conversions
+    #[test]
+    fn test_identity_verifier_config_shared_secret() {
+        let config = IdentityVerifierConfig::SharedSecret {
+            id: "verifier-id".to_string(),
+            data: "verifier-secret".to_string(),
+        };
+
+        let core_config: CoreIdentityVerifierConfig = config.clone().into();
+        let back: IdentityVerifierConfig = core_config.into();
+        assert_eq!(back, config);
+    }
+
+    #[test]
+    fn test_identity_verifier_config_jwt() {
+        let config = IdentityVerifierConfig::Jwt {
+            config: JwtAuth {
+                key: JwtKeyType::Autoresolve,
+                audience: Some(vec!["verifier".to_string()]),
+                issuer: Some("auth".to_string()),
+                subject: None,
+                duration: Duration::from_secs(7200),
+            },
+        };
+
+        let core_config: CoreIdentityVerifierConfig = config.clone().into();
+        let back: IdentityVerifierConfig = core_config.into();
+        assert_eq!(back, config);
+    }
+
+    #[test]
+    fn test_identity_verifier_config_none() {
+        let config = IdentityVerifierConfig::None;
+        let core_config: CoreIdentityVerifierConfig = config.clone().into();
+        let back: IdentityVerifierConfig = core_config.into();
+        assert_eq!(back, config);
+    }
+
+    // Test TryFrom for IdentityProviderConfig to AuthProvider
+    #[test]
+    fn test_identity_provider_to_auth_provider_shared_secret() {
+        let config = IdentityProviderConfig::SharedSecret {
+            id: "test-id".to_string(),
+            data: "shared-secret-value-0123456789abcdef".to_string(), // Must be 32+ chars
+        };
+
+        let result: Result<AuthProvider, SlimError> = config.try_into();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_identity_provider_to_auth_provider_none_fails() {
+        let config = IdentityProviderConfig::None;
+        let result: Result<AuthProvider, SlimError> = config.try_into();
+        assert!(result.is_err());
+        if let Err(SlimError::InvalidArgument { message }) = result {
+            assert!(message.contains("Cannot create AuthProvider from None variant"));
+        }
+    }
+
+    // Test TryFrom for IdentityVerifierConfig to AuthVerifier
+    #[test]
+    fn test_identity_verifier_to_auth_verifier_shared_secret() {
+        let config = IdentityVerifierConfig::SharedSecret {
+            id: "verifier-id".to_string(),
+            data: "verifier-shared-secret-0123456789abcdef".to_string(), // Must be 32+ chars
+        };
+
+        let result: Result<AuthVerifier, SlimError> = config.try_into();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_identity_verifier_to_auth_verifier_none_fails() {
+        let config = IdentityVerifierConfig::None;
+        let result: Result<AuthVerifier, SlimError> = config.try_into();
+        assert!(result.is_err());
+        if let Err(SlimError::InvalidArgument { message }) = result {
+            assert!(message.contains("Cannot create AuthVerifier from None variant"));
+        }
+    }
+
+    // Test invalid shared secret (too short)
+    #[test]
+    fn test_identity_provider_invalid_shared_secret() {
+        let config = IdentityProviderConfig::SharedSecret {
+            id: "test-id".to_string(),
+            data: "tooshort".to_string(), // Must be at least 32 characters
+        };
+
+        let result: Result<AuthProvider, SlimError> = config.try_into();
+        assert!(result.is_err());
+        if let Err(SlimError::InvalidArgument { message }) = result {
+            assert!(message.contains("Failed to create SharedSecret provider"));
+        }
+    }
+
+    #[test]
+    fn test_identity_verifier_invalid_shared_secret() {
+        let config = IdentityVerifierConfig::SharedSecret {
+            id: "test-id".to_string(),
+            data: "tooshort".to_string(), // Too short - must be 32+ chars
+        };
+
+        let result: Result<AuthVerifier, SlimError> = config.try_into();
+        assert!(result.is_err());
+        if let Err(SlimError::InvalidArgument { message }) = result {
+            assert!(message.contains("Failed to create SharedSecret verifier"));
+        }
+    }
+
+    // Test SPIRE config conversions (non-Windows only)
+    #[cfg(not(target_family = "windows"))]
+    #[test]
+    fn test_identity_provider_config_spire() {
+        let spire_config = SpireConfig {
+            socket_path: Some("/tmp/spire.sock".to_string()),
+            target_spiffe_id: Some("spiffe://example.com/service".to_string()),
+            jwt_audiences: vec!["audience1".to_string(), "audience2".to_string()],
+            trust_domains: vec![],
+        };
+
+        let config = IdentityProviderConfig::Spire {
+            config: spire_config.clone(),
+        };
+
+        let core_config: CoreIdentityProviderConfig = config.clone().into();
+        let back: IdentityProviderConfig = core_config.into();
+
+        if let IdentityProviderConfig::Spire {
+            config: back_config,
+        } = back
+        {
+            assert_eq!(back_config.socket_path, spire_config.socket_path);
+            assert_eq!(back_config.target_spiffe_id, spire_config.target_spiffe_id);
+            assert_eq!(back_config.jwt_audiences, spire_config.jwt_audiences);
+        } else {
+            panic!("Expected Spire variant");
+        }
+    }
+
+    #[cfg(not(target_family = "windows"))]
+    #[test]
+    fn test_identity_verifier_config_spire() {
+        let spire_config = SpireConfig {
+            socket_path: None,
+            target_spiffe_id: None,
+            jwt_audiences: vec!["slim".to_string()],
+            trust_domains: vec!["example.com".to_string()],
+        };
+
+        let config = IdentityVerifierConfig::Spire {
+            config: spire_config.clone(),
+        };
+
+        let core_config: CoreIdentityVerifierConfig = config.clone().into();
+        let back: IdentityVerifierConfig = core_config.into();
+
+        if let IdentityVerifierConfig::Spire {
+            config: back_config,
+        } = back
+        {
+            assert_eq!(back_config.socket_path, spire_config.socket_path);
+            assert_eq!(back_config.jwt_audiences, spire_config.jwt_audiences);
+        } else {
+            panic!("Expected Spire variant");
+        }
+    }
+
+    // Test complex JWT key configurations
+    #[test]
+    fn test_complex_jwt_key_configurations() {
+        let configurations = vec![
+            JwtKeyConfig {
+                algorithm: JwtAlgorithm::HS256,
+                format: JwtKeyFormat::Pem,
+                key: JwtKeyData::Data {
+                    value: "secret-key".to_string(),
+                },
+            },
+            JwtKeyConfig {
+                algorithm: JwtAlgorithm::ES384,
+                format: JwtKeyFormat::Jwk,
+                key: JwtKeyData::File {
+                    path: "/etc/keys/ec-key.jwk".to_string(),
+                },
+            },
+            JwtKeyConfig {
+                algorithm: JwtAlgorithm::PS512,
+                format: JwtKeyFormat::Jwks,
+                key: JwtKeyData::File {
+                    path: "/etc/keys/jwks.json".to_string(),
+                },
+            },
+        ];
+
+        for config in configurations {
+            let core_key: slim_auth::jwt::Key = config.clone().into();
+            let back: JwtKeyConfig = core_key.into();
+            assert_eq!(back, config);
+        }
+    }
+
+    // Test all JWT algorithms are covered
+    #[test]
+    fn test_all_jwt_algorithms_covered() {
+        let all_algorithms = vec![
+            (JwtAlgorithm::HS256, slim_auth::jwt::Algorithm::HS256),
+            (JwtAlgorithm::HS384, slim_auth::jwt::Algorithm::HS384),
+            (JwtAlgorithm::HS512, slim_auth::jwt::Algorithm::HS512),
+            (JwtAlgorithm::ES256, slim_auth::jwt::Algorithm::ES256),
+            (JwtAlgorithm::ES384, slim_auth::jwt::Algorithm::ES384),
+            (JwtAlgorithm::RS256, slim_auth::jwt::Algorithm::RS256),
+            (JwtAlgorithm::RS384, slim_auth::jwt::Algorithm::RS384),
+            (JwtAlgorithm::RS512, slim_auth::jwt::Algorithm::RS512),
+            (JwtAlgorithm::PS256, slim_auth::jwt::Algorithm::PS256),
+            (JwtAlgorithm::PS384, slim_auth::jwt::Algorithm::PS384),
+            (JwtAlgorithm::PS512, slim_auth::jwt::Algorithm::PS512),
+            (JwtAlgorithm::EdDSA, slim_auth::jwt::Algorithm::EdDSA),
+        ];
+
+        for (adapter_algo, core_algo) in all_algorithms {
+            let converted_core: slim_auth::jwt::Algorithm = adapter_algo.clone().into();
+            let converted_back: JwtAlgorithm = converted_core.into();
+            assert_eq!(converted_back, adapter_algo);
+
+            let direct_back: JwtAlgorithm = core_algo.into();
+            assert_eq!(direct_back, adapter_algo);
+        }
+    }
+}

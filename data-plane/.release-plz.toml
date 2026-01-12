@@ -78,10 +78,3 @@ name = "agntcy-protoc-slimrpc-plugin"
 publish = true
 release = true
 changelog_update = true
-
-[[package]]
-name = "agntcy-slim-bindings"
-publish = true
-release = true
-changelog_update = true
-git_tag_name = "slim-bindings-libs-v{{ version }}"
