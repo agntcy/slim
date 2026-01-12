@@ -11,6 +11,7 @@ use slim_config::auth::jwt::{Claims as JwtClaims, JwtKey};
 use slim_config::auth::static_jwt::Config as StaticJwtConfig;
 use std::time::Duration;
 
+#[cfg_attr(target_family = "windows", allow(unused_imports))]
 use crate::common_config::SpireConfig;
 use crate::errors::SlimError;
 

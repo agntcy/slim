@@ -115,6 +115,12 @@ impl PyApp {
                         },
                     }
                 }
+                #[cfg(target_family = "windows")]
+                PyIdentityProvider::Spire { .. } => {
+                    return Err(SlimError::Auth(
+                        slim_auth::AuthError::SpireUnsupportedOnWindows,
+                    ));
+                }
             };
 
             // Convert PyIdentityVerifier to IdentityVerifierConfig
@@ -175,6 +181,12 @@ impl PyApp {
                             trust_domains: vec![],
                         },
                     }
+                }
+                #[cfg(target_family = "windows")]
+                PyIdentityVerifier::Spire { .. } => {
+                    return Err(SlimError::Auth(
+                        slim_auth::AuthError::SpireUnsupportedOnWindows,
+                    ));
                 }
             };
 
