@@ -214,7 +214,6 @@ func receiveLoop(session *slim.BindingsSessionContext, sourceName *slim.Name, in
 func keyboardLoop(session *slim.BindingsSessionContext, sourceName, channelName *slim.Name, instance uint64, stopChan chan struct{}) {
 	reader := bufio.NewReader(os.Stdin)
 
-	time.Sleep(1000 * time.Millisecond)
 	fmt.Printf("\n%s[%d]%s Welcome to the group %v!\n", colorCyan, instance, colorReset, channelName.Components())
 	listenerNames, err := session.ParticipantsList()
 	if err != nil {

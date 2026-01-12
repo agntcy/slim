@@ -75,6 +75,11 @@ where
 
     /// Channel to clone on session creation
     tx_session: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
+
+    /// map from session id to session context
+    /// once a new session is created on reception of a join request, store it temporarily
+    /// in this map waiting for the welcome message before notifying it to the application
+    to_notify: SyncRwLock<HashMap<u32, SessionContext>>,
 }
 
 impl<P, V, T> SessionLayer<P, V, T>
@@ -110,6 +115,7 @@ where
             routes_cache: SessionRoutes::default(),
             storage_path,
             tx_session,
+            to_notify: SyncRwLock::new(HashMap::new()),
         };
 
         sl.listen_from_sessions(rx_session);
@@ -479,7 +485,23 @@ where
         let session_controller = self.pool.read().get(&id).cloned();
         if let Some(controller) = session_controller {
             // pass the message to the session
-            return controller.on_message_from_slim(message).await;
+            controller.on_message_from_slim(message).await?;
+
+            // if this is a welcome message, notify the app that a new session is ready to be used
+            if session_message_type == ProtoSessionMessageType::GroupWelcome {
+                let new_session = self
+                    .to_notify
+                    .write()
+                    .remove(&id)
+                    .ok_or(SessionError::NewSessionSendFailed)?;
+                return self
+                    .tx_app
+                    .send(Ok(Notification::NewSession(new_session)))
+                    .await
+                    .map_err(|_e| SessionError::NewSessionSendFailed);
+            }
+
+            return Ok(());
         }
 
         // get local name for the session
@@ -576,11 +598,12 @@ where
             .on_message_from_slim(message)
             .await?;
 
-        // send new session to the app
-        self.tx_app
-            .send(Ok(Notification::NewSession(new_session)))
-            .await
-            .map_err(|_e| SessionError::NewSessionSendFailed)
+        // add the new session to the to_notify map
+        self.to_notify
+            .write()
+            .insert(new_session.session_id(), new_session);
+
+        Ok(())
     }
 
     /// Handle a discovery request message.

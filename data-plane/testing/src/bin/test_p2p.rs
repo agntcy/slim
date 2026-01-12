@@ -94,8 +94,6 @@ async fn run_client_task(name: Name, moderator_name: Name) -> Result<(), Service
                     Some(res) => match res {
                         Ok(notification) => match notification {
                             Notification::NewSession(session_ctx) => {
-                                tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
-
                                 println!("create new session on client {}", name_clone);
                                 let name_clone_session = name_clone.clone();
                                 let session_arc = session_ctx.session_arc().unwrap();
