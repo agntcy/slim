@@ -8,8 +8,6 @@ use slim_config::auth::identity::{
 };
 use slim_config::auth::jwt::Config as JwtAuthConfig;
 use slim_config::auth::jwt::{Claims as JwtClaims, JwtKey};
-#[cfg(not(target_family = "windows"))]
-use slim_config::auth::spire::SpireConfig as CoreSpireConfig;
 use slim_config::auth::static_jwt::Config as StaticJwtConfig;
 use std::time::Duration;
 
@@ -340,12 +338,7 @@ impl From<IdentityProviderConfig> for CoreIdentityProviderConfig {
             }
             #[cfg(not(target_family = "windows"))]
             IdentityProviderConfig::Spire { config } => {
-                CoreIdentityProviderConfig::Spire(CoreSpireConfig {
-                    socket_path: config.socket_path,
-                    target_spiffe_id: config.target_spiffe_id,
-                    jwt_audiences: config.jwt_audiences,
-                    trust_domains: config.trust_domains,
-                })
+                CoreIdentityProviderConfig::Spire(config.into())
             }
             IdentityProviderConfig::None => CoreIdentityProviderConfig::None,
         }
@@ -366,12 +359,7 @@ impl From<CoreIdentityProviderConfig> for IdentityProviderConfig {
             },
             #[cfg(not(target_family = "windows"))]
             CoreIdentityProviderConfig::Spire(config) => IdentityProviderConfig::Spire {
-                config: SpireConfig {
-                    socket_path: config.socket_path,
-                    target_spiffe_id: config.target_spiffe_id,
-                    jwt_audiences: config.jwt_audiences,
-                    trust_domains: config.trust_domains,
-                },
+                config: config.into(),
             },
             CoreIdentityProviderConfig::None => IdentityProviderConfig::None,
         }
@@ -403,12 +391,7 @@ impl From<IdentityVerifierConfig> for CoreIdentityVerifierConfig {
             }
             #[cfg(not(target_family = "windows"))]
             IdentityVerifierConfig::Spire { config } => {
-                CoreIdentityVerifierConfig::Spire(CoreSpireConfig {
-                    socket_path: config.socket_path,
-                    target_spiffe_id: config.target_spiffe_id,
-                    jwt_audiences: config.jwt_audiences,
-                    trust_domains: config.trust_domains,
-                })
+                CoreIdentityVerifierConfig::Spire(config.into())
             }
             IdentityVerifierConfig::None => CoreIdentityVerifierConfig::None,
         }
@@ -426,12 +409,7 @@ impl From<CoreIdentityVerifierConfig> for IdentityVerifierConfig {
             },
             #[cfg(not(target_family = "windows"))]
             CoreIdentityVerifierConfig::Spire(config) => IdentityVerifierConfig::Spire {
-                config: SpireConfig {
-                    socket_path: config.socket_path,
-                    target_spiffe_id: config.target_spiffe_id,
-                    jwt_audiences: config.jwt_audiences,
-                    trust_domains: config.trust_domains,
-                },
+                config: config.into(),
             },
             CoreIdentityVerifierConfig::None => IdentityVerifierConfig::None,
         }
