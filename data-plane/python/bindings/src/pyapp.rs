@@ -9,6 +9,7 @@ use pyo3::types::PyDict;
 use pyo3_stub_gen::derive::gen_stub_pyclass;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
 use serde_pyobject::from_pyobject;
+use slim_auth::errors::AuthError;
 use slim_bindings::{
     BindingsAdapter, ClientJwtAuth, IdentityProviderConfig, IdentityVerifierConfig, JwtAuth,
     JwtKeyConfig, JwtKeyType, SlimError, StaticJwtAuth,
@@ -117,9 +118,9 @@ impl PyApp {
                 }
                 #[cfg(target_family = "windows")]
                 PyIdentityProvider::Spire { .. } => {
-                    return Err(SlimError::Auth(
-                        slim_auth::AuthError::SpireUnsupportedOnWindows,
-                    ));
+                    return Err(SlimError::AuthError {
+                        message: AuthError::SpireUnsupportedOnWindows.to_string(),
+                    });
                 }
             };
 
@@ -184,9 +185,9 @@ impl PyApp {
                 }
                 #[cfg(target_family = "windows")]
                 PyIdentityVerifier::Spire { .. } => {
-                    return Err(SlimError::Auth(
-                        slim_auth::AuthError::SpireUnsupportedOnWindows,
-                    ));
+                    return Err(SlimError::AuthError {
+                        message: AuthError::SpireUnsupportedOnWindows.to_string(),
+                    });
                 }
             };
 
