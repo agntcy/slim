@@ -754,6 +754,24 @@ func uniffiCheckChecksums() {
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_method_bindingssessioncontext_participants_list()
+		})
+		if checksum != 16291 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingssessioncontext_participants_list: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_slim_bindings_checksum_method_bindingssessioncontext_participants_list_async()
+		})
+		if checksum != 39528 {
+			// If this happens try cleaning and rebuilding your project
+			panic("slim_bindings: uniffi_slim_bindings_checksum_method_bindingssessioncontext_participants_list_async: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_slim_bindings_checksum_method_bindingssessioncontext_publish()
 		})
 		if checksum != 15851 {
@@ -2057,6 +2075,10 @@ type BindingsSessionContextInterface interface {
 	IsInitiator() (bool, error)
 	// Get the session metadata
 	Metadata() (map[string]string, error)
+	// Get list of participants in the session (blocking version for FFI)
+	ParticipantsList() ([]*Name, error)
+	// Get list of participants in the session
+	ParticipantsListAsync() ([]*Name, error)
 	// Publish a message to the session's destination (blocking version)
 	//
 	// Returns a completion handle that can be awaited to ensure the message was delivered.
@@ -2382,6 +2404,56 @@ func (_self *BindingsSessionContext) Metadata() (map[string]string, error) {
 	} else {
 		return FfiConverterMapStringStringINSTANCE.Lift(_uniffiRV), nil
 	}
+}
+
+// Get list of participants in the session (blocking version for FFI)
+func (_self *BindingsSessionContext) ParticipantsList() ([]*Name, error) {
+	_pointer := _self.ffiObject.incrementPointer("*BindingsSessionContext")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[SlimError](FfiConverterSlimError{}, func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer{
+			inner: C.uniffi_slim_bindings_fn_method_bindingssessioncontext_participants_list(
+				_pointer, _uniffiStatus),
+		}
+	})
+	if _uniffiErr != nil {
+		var _uniffiDefaultValue []*Name
+		return _uniffiDefaultValue, _uniffiErr
+	} else {
+		return FfiConverterSequenceNameINSTANCE.Lift(_uniffiRV), nil
+	}
+}
+
+// Get list of participants in the session
+func (_self *BindingsSessionContext) ParticipantsListAsync() ([]*Name, error) {
+	_pointer := _self.ffiObject.incrementPointer("*BindingsSessionContext")
+	defer _self.ffiObject.decrementPointer()
+	res, err := uniffiRustCallAsync[SlimError](
+		FfiConverterSlimErrorINSTANCE,
+		// completeFn
+		func(handle C.uint64_t, status *C.RustCallStatus) RustBufferI {
+			res := C.ffi_slim_bindings_rust_future_complete_rust_buffer(handle, status)
+			return GoRustBuffer{
+				inner: res,
+			}
+		},
+		// liftFn
+		func(ffi RustBufferI) []*Name {
+			return FfiConverterSequenceNameINSTANCE.Lift(ffi)
+		},
+		C.uniffi_slim_bindings_fn_method_bindingssessioncontext_participants_list_async(
+			_pointer),
+		// pollFn
+		func(handle C.uint64_t, continuation C.UniffiRustFutureContinuationCallback, data C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_poll_rust_buffer(handle, continuation, data)
+		},
+		// freeFn
+		func(handle C.uint64_t) {
+			C.ffi_slim_bindings_rust_future_free_rust_buffer(handle)
+		},
+	)
+
+	return res, err
 }
 
 // Publish a message to the session's destination (blocking version)
@@ -5827,6 +5899,49 @@ type FfiDestroyerSequenceString struct{}
 func (FfiDestroyerSequenceString) Destroy(sequence []string) {
 	for _, value := range sequence {
 		FfiDestroyerString{}.Destroy(value)
+	}
+}
+
+type FfiConverterSequenceName struct{}
+
+var FfiConverterSequenceNameINSTANCE = FfiConverterSequenceName{}
+
+func (c FfiConverterSequenceName) Lift(rb RustBufferI) []*Name {
+	return LiftFromRustBuffer[[]*Name](c, rb)
+}
+
+func (c FfiConverterSequenceName) Read(reader io.Reader) []*Name {
+	length := readInt32(reader)
+	if length == 0 {
+		return nil
+	}
+	result := make([]*Name, 0, length)
+	for i := int32(0); i < length; i++ {
+		result = append(result, FfiConverterNameINSTANCE.Read(reader))
+	}
+	return result
+}
+
+func (c FfiConverterSequenceName) Lower(value []*Name) C.RustBuffer {
+	return LowerIntoRustBuffer[[]*Name](c, value)
+}
+
+func (c FfiConverterSequenceName) Write(writer io.Writer, value []*Name) {
+	if len(value) > math.MaxInt32 {
+		panic("[]*Name is too large to fit into Int32")
+	}
+
+	writeInt32(writer, int32(len(value)))
+	for _, item := range value {
+		FfiConverterNameINSTANCE.Write(writer, item)
+	}
+}
+
+type FfiDestroyerSequenceName struct{}
+
+func (FfiDestroyerSequenceName) Destroy(sequence []*Name) {
+	for _, value := range sequence {
+		FfiDestroyerName{}.Destroy(value)
 	}
 }
 
