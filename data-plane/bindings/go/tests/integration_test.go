@@ -251,7 +251,7 @@ func TestSessionLifecycle(t *testing.T) {
 
 	// Step 4: Delete session
 	t.Log("Deleting session...")
-	err = harness.Sender.DeleteSession(session)
+	err = harness.Sender.DeleteSessionAndWait(session)
 	if err != nil {
 		t.Fatalf("Failed to delete session: %v", err)
 	}
@@ -427,7 +427,7 @@ func TestSessionInviteRemove(t *testing.T) {
 
 	destination := slim.NewName("org", "group", "v1", nil)
 
-	session, err := harness.Sender.CreateSession(sessionConfig, destination)
+	session, err := harness.Sender.CreateSessionAndWait(sessionConfig, destination)
 	if err != nil {
 		t.Fatalf("Failed to create session for invite test: %v", err)
 	}
@@ -439,7 +439,7 @@ func TestSessionInviteRemove(t *testing.T) {
 	err = harness.Sender.SetRoute(participant, 1)
 
 	// Test invite - may fail for point-to-point or without full group management
-	err = session.Invite(participant)
+	err = session.InviteAndWait(participant)
 	if err != nil {
 		t.Logf("Invite failed (may be expected for basic session): %v", err)
 	} else {
@@ -447,7 +447,7 @@ func TestSessionInviteRemove(t *testing.T) {
 	}
 
 	// Test remove
-	err = session.Remove(participant)
+	err = session.RemoveAndWait(participant)
 	if err != nil {
 		t.Logf("Remove failed (may be expected): %v", err)
 	} else {
@@ -479,10 +479,10 @@ func TestCompletionHandleDoubleWait(t *testing.T) {
 	message := []byte("Test message")
 	payloadType := "text/plain"
 
-	// Get completion handle
-	completion, err := session.PublishWithCompletion(message, &payloadType, nil)
+	// Get completion handle - use regular Publish which returns a completion handle
+	completion, err := session.Publish(message, &payloadType, nil)
 	if err != nil {
-		t.Fatalf("PublishWithCompletion failed: %v", err)
+		t.Fatalf("Publish failed: %v", err)
 	}
 	defer completion.Destroy()
 
@@ -544,7 +544,7 @@ func TestInviteAutoWait(t *testing.T) {
 
 	destination := slim.NewName("org", "group", "v1", nil)
 
-	session, err := harness.Sender.CreateSession(sessionConfig, destination)
+	session, err := harness.Sender.CreateSessionAndWait(sessionConfig, destination)
 	if err != nil {
 		t.Fatalf("Failed to create multicast session: %v", err)
 	}
@@ -554,7 +554,7 @@ func TestInviteAutoWait(t *testing.T) {
 
 	// Invite should auto-wait for acknowledgment
 	start := time.Now()
-	err = session.Invite(participant)
+	err = session.InviteAndWait(participant)
 	elapsed := time.Since(start)
 
 	// Will fail without full group management, but should still auto-wait
@@ -578,7 +578,7 @@ func TestRemoveAutoWait(t *testing.T) {
 
 	destination := slim.NewName("org", "group", "v1", nil)
 
-	session, err := harness.Sender.CreateSession(sessionConfig, destination)
+	session, err := harness.Sender.CreateSessionAndWait(sessionConfig, destination)
 	if err != nil {
 		t.Fatalf("Failed to create multicast session: %v", err)
 	}
@@ -588,7 +588,7 @@ func TestRemoveAutoWait(t *testing.T) {
 
 	// Remove should auto-wait for acknowledgment
 	start := time.Now()
-	err = session.Remove(participant)
+	err = session.RemoveAndWait(participant)
 	elapsed := time.Since(start)
 
 	// Will fail without participant, but should still auto-wait
@@ -611,29 +611,18 @@ func TestCompletionHandleAsync(t *testing.T) {
 	defer session.Destroy()
 
 	message := []byte("Async test message")
-	completion, err := session.PublishWithCompletion(message, nil, nil)
+	completion, err := session.Publish(message, nil, nil)
 	if err != nil {
 		t.Fatalf("PublishWithCompletion failed: %v", err)
 	}
 	defer completion.Destroy()
 
-	// Use WaitAsync in a goroutine
-	done := make(chan error, 1)
-	go func() {
-		err := completion.WaitAsync()
-		done <- err
-	}()
-
-	// Wait for completion with timeout
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Logf("Async wait completed with error (may be expected): %v", err)
-		} else {
-			t.Log("✅ Async wait completed successfully")
-		}
-	case <-time.After(5 * time.Second):
-		t.Error("Async wait timed out after 5 seconds")
+	// Call Wait directly
+	err = completion.Wait()
+	if err != nil {
+		t.Logf("Wait completed with error (may be expected): %v", err)
+	} else {
+		t.Log("✅ Wait completed successfully")
 	}
 }
 
@@ -647,12 +636,12 @@ func TestBatchPublishWithCompletion(t *testing.T) {
 
 	// Publish multiple messages and collect completion handles
 	numMessages := 5
-	completions := make([]*slim.FfiCompletionHandle, 0, numMessages)
+	completions := make([]*slim.CompletionHandle, 0, numMessages)
 
 	for i := 0; i < numMessages; i++ {
 		message := []byte(fmt.Sprintf("Batch message %d", i))
 		payloadType := "text/plain"
-		completion, err := session.PublishWithCompletion(message, &payloadType, nil)
+		completion, err := session.Publish(message, &payloadType, nil)
 		if err != nil {
 			t.Fatalf("Message %d failed to publish: %v", i, err)
 		}
@@ -690,7 +679,7 @@ func TestFireAndForgetVsWithCompletion(t *testing.T) {
 	t.Log("Testing fire-and-forget publish...")
 	message1 := []byte("Fire and forget message")
 	payloadType := "text/plain"
-	err := session.Publish(message1, &payloadType, nil)
+	err := session.PublishAndWait(message1, &payloadType, nil)
 	if err != nil {
 		t.Fatalf("Fire-and-forget publish failed: %v", err)
 	}
@@ -699,7 +688,7 @@ func TestFireAndForgetVsWithCompletion(t *testing.T) {
 	// Test 2: With completion tracking
 	t.Log("Testing publish with completion...")
 	message2 := []byte("Message with completion")
-	completion, err := session.PublishWithCompletion(message2, &payloadType, nil)
+	completion, err := session.Publish(message2, &payloadType, nil)
 	if err != nil {
 		t.Fatalf("Publish with completion failed: %v", err)
 	}
@@ -749,7 +738,7 @@ func BenchmarkPublishFireAndForget(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = session.Publish(message, nil, nil)
+		_ = session.Session.PublishAndWait(message, nil, nil)
 	}
 }
 
@@ -777,7 +766,7 @@ func BenchmarkPublishWithCompletion(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		completion, err := session.PublishWithCompletion(message, nil, nil)
+		completion, err := session.Session.Publish(message, nil, nil)
 		if err == nil {
 			completion.Destroy()
 		}
@@ -808,7 +797,7 @@ func BenchmarkPublishWithCompletionAndWait(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		completion, err := session.PublishWithCompletion(message, nil, nil)
+		completion, err := session.Session.Publish(message, nil, nil)
 		if err == nil {
 			_ = completion.Wait()
 			completion.Destroy()

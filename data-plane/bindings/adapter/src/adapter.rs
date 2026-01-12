@@ -15,7 +15,6 @@
 use std::sync::Arc;
 
 use tokio::sync::{RwLock, mpsc};
-use uniffi;
 
 use crate::client_config::ClientConfig;
 use crate::errors::SlimError;
@@ -36,6 +35,21 @@ use slim_service::app::App;
 use slim_session::SessionConfig as SlimSessionConfig;
 use slim_session::session_controller::SessionController;
 use slim_session::{Notification, SessionError as SlimSessionError};
+
+// ============================================================================
+// Return Types
+// ============================================================================
+
+/// Result of creating a session, containing the session context and a completion handle
+///
+/// The completion handle should be awaited to ensure the session is fully established.
+#[derive(uniffi::Record)]
+pub struct SessionWithCompletion {
+    /// The session context for performing operations
+    pub session: Arc<crate::BindingsSessionContext>,
+    /// Completion handle to wait for session establishment
+    pub completion: Arc<crate::CompletionHandle>,
+}
 
 // ============================================================================
 // FFI Entry Points
@@ -161,26 +175,29 @@ impl BindingsAdapter {
     }
 
     /// Create a new session (blocking version for FFI)
+    ///
+    /// Returns a SessionWithCompletion containing the session context and a completion handle.
+    /// Call `.wait()` on the completion handle to wait for session establishment.
     pub fn create_session(
         &self,
         config: SessionConfig,
         destination: Arc<Name>,
-    ) -> Result<Arc<crate::BindingsSessionContext>, SlimError> {
+    ) -> Result<SessionWithCompletion, SlimError> {
         runtime::get_runtime()
             .block_on(async { self.create_session_async(config, destination).await })
     }
 
     /// Create a new session (async version)
     ///
-    /// **Auto-waits for session establishment:** This method automatically waits for the
-    /// session handshake to complete before returning. For point-to-point sessions, this
-    /// ensures the remote peer has acknowledged the session. For multicast sessions, this
-    /// ensures the initial setup is complete.
+    /// Returns a SessionWithCompletion containing the session context and a completion handle.
+    /// Await the completion handle to wait for session establishment.
+    /// For point-to-point sessions, this ensures the remote peer has acknowledged the session.
+    /// For multicast sessions, this ensures the initial setup is complete.
     pub async fn create_session_async(
         &self,
         config: SessionConfig,
         destination: Arc<Name>,
-    ) -> Result<Arc<crate::BindingsSessionContext>, SlimError> {
+    ) -> Result<SessionWithCompletion, SlimError> {
         let slim_config: SlimSessionConfig = config.into();
         let slim_dest: SlimName = destination.as_ref().into();
 
@@ -189,27 +206,62 @@ impl BindingsAdapter {
             .create_session(slim_config, slim_dest, None)
             .await?;
 
-        // Wait for session establishment to complete
-        // This ensures the session is fully ready before returning
-        completion.await?;
+        // Create BindingsSessionContext and CompletionHandle
+        let bindings_ctx = Arc::new(crate::BindingsSessionContext::new(session_ctx));
+        let completion_handle = Arc::new(crate::CompletionHandle::from(completion));
 
-        // Create BindingsSessionContext with the runtime
-        Ok(Arc::new(crate::BindingsSessionContext::new(session_ctx)))
+        Ok(SessionWithCompletion {
+            session: bindings_ctx,
+            completion: completion_handle,
+        })
+    }
+
+    /// Create a new session and wait for completion (blocking version)
+    ///
+    /// This method creates a session and blocks until the session establishment completes.
+    /// Returns only the session context, as the completion has already been awaited.
+    pub fn create_session_and_wait(
+        &self,
+        config: SessionConfig,
+        destination: Arc<Name>,
+    ) -> Result<Arc<crate::BindingsSessionContext>, SlimError> {
+        runtime::get_runtime().block_on(async {
+            self.create_session_and_wait_async(config, destination)
+                .await
+        })
+    }
+
+    /// Create a new session and wait for completion (async version)
+    ///
+    /// This method creates a session and waits until the session establishment completes.
+    /// Returns only the session context, as the completion has already been awaited.
+    pub async fn create_session_and_wait_async(
+        &self,
+        config: SessionConfig,
+        destination: Arc<Name>,
+    ) -> Result<Arc<crate::BindingsSessionContext>, SlimError> {
+        let session_with_completion = self.create_session_async(config, destination).await?;
+        session_with_completion.completion.wait_async().await?;
+        Ok(session_with_completion.session)
     }
 
     /// Delete a session (blocking version for FFI)
+    ///
+    /// Returns a completion handle that can be awaited to ensure the deletion completes.
     pub fn delete_session(
         &self,
         session: Arc<crate::BindingsSessionContext>,
-    ) -> Result<(), SlimError> {
+    ) -> Result<Arc<crate::CompletionHandle>, SlimError> {
         runtime::get_runtime().block_on(async { self.delete_session_async(session).await })
     }
 
     /// Delete a session (async version)
+    ///
+    /// Returns a completion handle that can be awaited to ensure the deletion completes.
     pub async fn delete_session_async(
         &self,
         session: Arc<crate::BindingsSessionContext>,
-    ) -> Result<(), SlimError> {
+    ) -> Result<Arc<crate::CompletionHandle>, SlimError> {
         let session_ref = session
             .session
             .upgrade()
@@ -219,13 +271,32 @@ impl BindingsAdapter {
 
         let completion = self.app.delete_session(&session_ref)?;
 
-        // Wait for session deletion to complete
-        completion.await?;
-
-        Ok(())
+        // Return completion handle for caller to wait on
+        Ok(Arc::new(crate::CompletionHandle::from(completion)))
     }
 
-    /// Subscribe to a name (blocking version for FFI)
+    /// Delete a session and wait for completion (blocking version)
+    ///
+    /// This method deletes a session and blocks until the deletion completes.
+    pub fn delete_session_and_wait(
+        &self,
+        session: Arc<crate::BindingsSessionContext>,
+    ) -> Result<(), SlimError> {
+        runtime::get_runtime().block_on(async { self.delete_session_and_wait_async(session).await })
+    }
+
+    /// Delete a session and wait for completion (async version)
+    ///
+    /// This method deletes a session and waits until the deletion completes.
+    pub async fn delete_session_and_wait_async(
+        &self,
+        session: Arc<crate::BindingsSessionContext>,
+    ) -> Result<(), SlimError> {
+        let completion_handle = self.delete_session_async(session).await?;
+        completion_handle.wait_async().await
+    }
+
+    /// Subscribe to a session name (blocking version for FFI)
     pub fn subscribe(&self, name: Arc<Name>, connection_id: Option<u64>) -> Result<(), SlimError> {
         runtime::get_runtime().block_on(async { self.subscribe_async(name, connection_id).await })
     }
@@ -439,169 +510,6 @@ impl BindingsAdapter {
 }
 
 // ============================================================================
-// FFI CompletionHandle Wrapper
-// ============================================================================
-
-/// FFI-compatible completion handle for async operations
-///
-/// Represents a pending operation that can be awaited to ensure completion.
-/// Used for operations that need delivery confirmation or handshake acknowledgment.
-///
-/// # Design Note
-/// Since Rust futures can only be polled once to completion, this handle uses
-/// a shared receiver that can only be consumed once. Attempting to wait multiple
-/// times on the same handle will return an error.
-///
-/// # Examples
-///
-/// Basic usage:
-/// ```ignore
-/// let completion = session.publish_with_completion(data, None, None)?;
-/// completion.wait()?; // Wait for delivery confirmation
-/// ```
-#[derive(uniffi::Object)]
-pub struct FfiCompletionHandle {
-    /// Receiver for the completion result (can only be consumed once)
-    receiver: Arc<
-        parking_lot::Mutex<
-            Option<tokio::sync::oneshot::Receiver<Result<(), slim_session::SessionError>>>,
-        >,
-    >,
-}
-
-impl std::fmt::Debug for FfiCompletionHandle {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let has_receiver = self.receiver.lock().is_some();
-        f.debug_struct("FfiCompletionHandle")
-            .field("receiver_available", &has_receiver)
-            .finish()
-    }
-}
-
-impl FfiCompletionHandle {
-    /// Create a new FFI completion handle from a Rust CompletionHandle
-    pub fn new(handle: slim_session::CompletionHandle) -> Self {
-        let (tx, rx) = tokio::sync::oneshot::channel();
-
-        // Spawn a task to await the completion and send the result
-        runtime::get_runtime().spawn(async move {
-            let result = handle.await;
-            let _ = tx.send(result);
-        });
-
-        Self {
-            receiver: Arc::new(parking_lot::Mutex::new(Some(rx))),
-        }
-    }
-}
-
-#[uniffi::export]
-impl FfiCompletionHandle {
-    /// Wait for the operation to complete indefinitely (blocking version)
-    ///
-    /// This blocks the calling thread until the operation completes.
-    /// Use this from Go or other languages when you need to ensure
-    /// an operation has finished before proceeding.
-    ///
-    /// **Note:** This can only be called once per handle. Subsequent calls
-    /// will return an error.
-    ///
-    /// # Returns
-    /// * `Ok(())` - Operation completed successfully
-    /// * `Err(SlimError)` - Operation failed or handle already consumed
-    pub fn wait(&self) -> Result<(), SlimError> {
-        runtime::get_runtime().block_on(self.wait_async())
-    }
-
-    /// Wait for the operation to complete with a timeout (blocking version)
-    ///
-    /// This blocks the calling thread until the operation completes or the timeout expires.
-    /// Use this from Go or other languages when you need to ensure
-    /// an operation has finished before proceeding with a time limit.
-    ///
-    /// **Note:** This can only be called once per handle. Subsequent calls
-    /// will return an error.
-    ///
-    /// # Arguments
-    /// * `timeout` - Maximum time to wait for completion
-    ///
-    /// # Returns
-    /// * `Ok(())` - Operation completed successfully
-    /// * `Err(SlimError::Timeout)` - If the operation timed out
-    /// * `Err(SlimError)` - Operation failed or handle already consumed
-    pub fn wait_for(&self, timeout: std::time::Duration) -> Result<(), SlimError> {
-        runtime::get_runtime().block_on(self.wait_for_async(timeout))
-    }
-
-    /// Wait for the operation to complete indefinitely (async version)
-    ///
-    /// This is the async version that integrates with UniFFI's polling mechanism.
-    /// The operation will yield control while waiting.
-    ///
-    /// **Note:** This can only be called once per handle. Subsequent calls
-    /// will return an error.
-    ///
-    /// # Returns
-    /// * `Ok(())` - Operation completed successfully
-    /// * `Err(SlimError)` - Operation failed or handle already consumed
-    pub async fn wait_async(&self) -> Result<(), SlimError> {
-        self.wait_internal(None).await
-    }
-
-    /// Wait for the operation to complete with a timeout (async version)
-    ///
-    /// This is the async version that integrates with UniFFI's polling mechanism.
-    /// The operation will yield control while waiting until completion or timeout.
-    ///
-    /// **Note:** This can only be called once per handle. Subsequent calls
-    /// will return an error.
-    ///
-    /// # Arguments
-    /// * `timeout` - Maximum time to wait for completion
-    ///
-    /// # Returns
-    /// * `Ok(())` - Operation completed successfully
-    /// * `Err(SlimError::Timeout)` - If the operation timed out
-    /// * `Err(SlimError)` - Operation failed or handle already consumed
-    pub async fn wait_for_async(&self, timeout: std::time::Duration) -> Result<(), SlimError> {
-        self.wait_internal(Some(timeout)).await
-    }
-}
-
-impl FfiCompletionHandle {
-    /// Internal implementation for wait operations
-    async fn wait_internal(&self, timeout: Option<std::time::Duration>) -> Result<(), SlimError> {
-        let receiver = self
-            .receiver
-            .lock()
-            .take()
-            .ok_or_else(|| SlimError::InternalError {
-                message: "CompletionHandle already consumed (wait can only be called once)"
-                    .to_string(),
-            })?;
-
-        let wait_future = async {
-            receiver
-                .await
-                .map_err(|_| SlimError::InternalError {
-                    message: "Completion sender dropped before result was sent".to_string(),
-                })?
-                .map_err(|e| SlimError::SessionError {
-                    message: e.to_string(),
-                })
-        };
-
-        if let Some(duration) = timeout {
-            tokio::time::timeout(duration, wait_future)
-                .await
-                .map_err(|_| SlimError::Timeout)?
-        } else {
-            wait_future.await
-        }
-    }
-}
-
-// ============================================================================
 // Internal methods for PyO3 bindings (not exported through UniFFI)
 // ============================================================================
 
@@ -731,211 +639,6 @@ mod tests {
         assert_eq!(adapter.id(), expected_hash);
     }
 
-    /// Test FfiCompletionHandle basic functionality
-    #[tokio::test]
-    async fn test_completion_handle_success() {
-        // Create a successful completion
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
-        let ffi_handle = FfiCompletionHandle::new(completion);
-
-        // Send success
-        tx.send(Ok(())).unwrap();
-
-        // Wait should succeed
-        let result = ffi_handle.wait_async().await;
-        assert!(result.is_ok(), "Completion should succeed");
-    }
-
-    /// Test FfiCompletionHandle failure propagation
-    #[tokio::test]
-    async fn test_completion_handle_failure() {
-        // Create a failed completion
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
-        let ffi_handle = FfiCompletionHandle::new(completion);
-
-        // Send error
-        tx.send(Err(slim_session::SessionError::SlimMessageSendFailed))
-            .unwrap();
-
-        // Wait should fail with error
-        let result = ffi_handle.wait_async().await;
-        assert!(result.is_err_and(|e| matches!(e, SlimError::SessionError { .. })));
-    }
-
-    /// Test FfiCompletionHandle can only be consumed once
-    #[tokio::test]
-    async fn test_completion_handle_single_consumption() {
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
-        let ffi_handle = Arc::new(FfiCompletionHandle::new(completion));
-
-        tx.send(Ok(())).unwrap();
-
-        // First wait should succeed
-        let result1 = ffi_handle.wait_async().await;
-        assert!(result1.is_ok(), "First wait should succeed");
-
-        // Second wait should fail (already consumed)
-        let result2 = ffi_handle.wait_async().await;
-        assert!(result2.is_err(), "Second wait should fail");
-
-        match result2 {
-            Err(SlimError::InternalError { message }) => {
-                assert!(message.contains("already consumed"));
-            }
-            _ => panic!("Expected InternalError about consumption"),
-        }
-    }
-
-    /// Test FfiCompletionHandle async version
-    #[tokio::test]
-    async fn test_completion_handle_async() {
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
-        let ffi_handle = FfiCompletionHandle::new(completion);
-
-        // Send success in a separate task
-        tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            tx.send(Ok(())).unwrap();
-        });
-
-        // Async wait should succeed
-        let result = ffi_handle.wait_async().await;
-        assert!(result.is_ok(), "Async wait should succeed");
-    }
-
-    /// Test FfiCompletionHandle with dropped sender
-    #[tokio::test]
-    async fn test_completion_handle_sender_dropped() {
-        let (_tx, rx) = tokio::sync::oneshot::channel();
-        let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
-        let ffi_handle = FfiCompletionHandle::new(completion);
-
-        // Drop the sender explicitly
-        drop(_tx);
-
-        // Give the spawned task time to process
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
-        // Wait should fail because sender was dropped (or already consumed by background task)
-        let result = ffi_handle.wait_async().await;
-        assert!(
-            result.is_err(),
-            "Should fail when sender is dropped or already consumed"
-        );
-
-        // Either error type is valid depending on timing
-        match result {
-            Err(SlimError::InternalError { message }) => {
-                assert!(
-                    message.contains("sender dropped") || message.contains("already consumed"),
-                    "Error message should mention sender dropped or already consumed, got: {}",
-                    message
-                );
-            }
-            Err(SlimError::SessionError { message }) => {
-                // The background task may have consumed the receiver and got a channel closed error
-                assert!(
-                    message.contains("channel closed") || message.contains("receiving ack"),
-                    "Expected channel closed error, got: {}",
-                    message
-                );
-            }
-            Err(e) => panic!("Unexpected error type: {:?}", e),
-            Ok(_) => panic!("Expected error, got Ok"),
-        }
-    }
-
-    /// Test concurrent completion handle usage
-    #[tokio::test]
-    async fn test_completion_handle_concurrent() {
-        use std::sync::atomic::{AtomicU32, Ordering};
-
-        let success_count = Arc::new(AtomicU32::new(0));
-        let mut handles = vec![];
-
-        // Create multiple completion handles
-        for _ in 0..10 {
-            let (tx, rx) = tokio::sync::oneshot::channel();
-            let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
-            let ffi_handle = Arc::new(FfiCompletionHandle::new(completion));
-
-            let count = Arc::clone(&success_count);
-            let handle = tokio::spawn(async move {
-                // Send success
-                tx.send(Ok(())).unwrap();
-
-                // Wait for completion
-                if ffi_handle.wait_async().await.is_ok() {
-                    count.fetch_add(1, Ordering::SeqCst);
-                }
-            });
-
-            handles.push(handle);
-        }
-
-        // Wait for all tasks
-        for handle in handles {
-            handle.await.unwrap();
-        }
-
-        // All should succeed
-        assert_eq!(success_count.load(Ordering::SeqCst), 10);
-    }
-
-    /// Test FfiCompletionHandle with timeout
-    #[tokio::test]
-    async fn test_completion_handle_with_timeout() {
-        // Create a completion that will never complete (sender not sent)
-        // NOTE: We must hold onto `tx` so the channel stays open.
-        // If we use `_tx`, it gets dropped immediately and the receiver
-        // returns RecvError instead of timing out.
-        let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), SlimSessionError>>();
-        let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
-        let ffi_handle = FfiCompletionHandle::new(completion);
-
-        // Wait with a short timeout - should timeout
-        let result = ffi_handle
-            .wait_for_async(std::time::Duration::from_millis(50))
-            .await;
-        assert!(
-            result.is_err(),
-            "Should timeout when operation doesn't complete"
-        );
-
-        match result {
-            Err(SlimError::Timeout) => {} // Expected
-            Err(e) => panic!("Expected Timeout error, got: {:?}", e),
-            Ok(_) => panic!("Expected timeout, got Ok"),
-        }
-
-        // Explicitly drop tx after the test to avoid unused variable warning
-        drop(tx);
-    }
-
-    /// Test FfiCompletionHandle with timeout that completes in time
-    #[tokio::test]
-    async fn test_completion_handle_timeout_success() {
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        let completion = slim_session::CompletionHandle::from_oneshot_receiver(rx);
-        let ffi_handle = FfiCompletionHandle::new(completion);
-
-        // Send success immediately
-        tx.send(Ok(())).unwrap();
-
-        // Wait with a generous timeout - should succeed
-        let result = ffi_handle
-            .wait_for_async(std::time::Duration::from_millis(5000))
-            .await;
-        assert!(
-            result.is_ok(),
-            "Should succeed when operation completes before timeout"
-        );
-    }
-
     /// Test that session creation auto-waits for establishment
     #[tokio::test]
     async fn test_session_creation_auto_wait() {
@@ -1021,11 +724,9 @@ mod tests {
         {
             let data = b"test message".to_vec();
 
-            // Attempt to publish with completion
+            // Attempt to publish (always returns completion handle)
             // This verifies the API exists and returns the right type
-            let result = session
-                .publish_with_completion_async(data, None, None)
-                .await;
+            let result = session.session.publish_async(data, None, None).await;
 
             match result {
                 Ok(completion_handle) => {
@@ -1388,14 +1089,18 @@ mod tests {
         ));
 
         // Create session (may fail without network)
-        if let Ok(session) = adapter
+        if let Ok(session_with_completion) = adapter
             .create_session_async(session_config, destination)
             .await
         {
             // Delete session
-            let delete_result = adapter.delete_session_async(session).await;
+            let delete_result = adapter
+                .delete_session_async(session_with_completion.session)
+                .await;
             // May succeed or fail depending on session state
-            let _ = delete_result;
+            if let Ok(completion) = delete_result {
+                let _ = completion;
+            }
         }
     }
 
