@@ -99,6 +99,11 @@ impl Config {
                     .expect("Failed to build JwtTokenProvider");
                 Some(AuthProvider::jwt_signer(provider))
             }
+            #[cfg(not(target_family = "windows"))]
+            IdentityProviderConfig::Spire(spire_config) => {
+                let manager = spire_config.create_provider();
+                Some(AuthProvider::spire(manager))
+            }
             IdentityProviderConfig::None => None,
         }
     }
@@ -113,6 +118,11 @@ impl Config {
                     .get_verifier()
                     .expect("Failed to build JwtTokenVerifier");
                 Some(AuthVerifier::jwt_verifier(verifier))
+            }
+            #[cfg(not(target_family = "windows"))]
+            IdentityVerifierConfig::Spire(spire_config) => {
+                let manager = spire_config.create_provider();
+                Some(AuthVerifier::spire(manager))
             }
             IdentityVerifierConfig::None => None,
         }
