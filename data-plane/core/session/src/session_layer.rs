@@ -591,17 +591,30 @@ where
         };
 
         // process the message
-        new_session
+        let session_controller = new_session
             .session()
             .upgrade()
-            .ok_or(SessionError::SessionClosed)?
-            .on_message_from_slim(message)
-            .await?;
+            .ok_or(SessionError::SessionClosed)?;
 
-        // add the new session to the to_notify map
-        self.to_notify
-            .write()
-            .insert(new_session.session_id(), new_session);
+        let message_type = message.get_session_message_type();
+        session_controller.on_message_from_slim(message).await?;
+
+        // if the message received is a join request and we are the initiator
+        // this means that the message was coming from the control plane so
+        // we need to notify the application right away
+        if message_type == ProtoSessionMessageType::JoinRequest && session_controller.is_initiator()
+        {
+            return self
+                .tx_app
+                .send(Ok(Notification::NewSession(new_session)))
+                .await
+                .map_err(|_e| SessionError::NewSessionSendFailed);
+        } else {
+            // add the new session to the to_notify map
+            self.to_notify
+                .write()
+                .insert(new_session.session_id(), new_session);
+        }
 
         Ok(())
     }
