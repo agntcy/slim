@@ -718,7 +718,7 @@ mod tests {
 
     #[test]
     fn test_jwt_auth_roundtrip() {
-        use crate::common_config::{
+        use crate::identity_config::{
             ClientJwtAuth, JwtAlgorithm, JwtKeyConfig, JwtKeyData, JwtKeyFormat, JwtKeyType,
         };
 
@@ -786,7 +786,7 @@ mod tests {
 
     #[test]
     fn test_static_jwt_auth_roundtrip() {
-        use crate::common_config::StaticJwtAuth;
+        use crate::identity_config::StaticJwtAuth;
 
         let jwt_config = StaticJwtAuth {
             token_file: "/path/to/token.jwt".to_string(),

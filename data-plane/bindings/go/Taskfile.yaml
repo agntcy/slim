@@ -211,9 +211,7 @@ tasks:
   test:
     desc: Run all tests
     deps:
-     - task: adapter:bindings:build:all
-       vars:
-         PROFILE: release
+     - task: generate
     cmds:
       - echo "🧪 Running all tests..."
       - go test -v ./...

@@ -450,7 +450,7 @@ mod tests {
 
     #[test]
     fn test_jwt_auth_roundtrip() {
-        use crate::common_config::{
+        use crate::identity_config::{
             JwtAlgorithm, JwtAuth, JwtKeyConfig, JwtKeyData, JwtKeyFormat, JwtKeyType,
         };
 

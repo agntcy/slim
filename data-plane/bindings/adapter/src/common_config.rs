@@ -2,12 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use slim_config::auth::basic::Config as BasicAuthConfig;
-use slim_config::auth::jwt::Config as JwtAuthConfig;
-use slim_config::auth::jwt::{Claims as JwtClaims, JwtKey};
-use slim_config::auth::static_jwt::Config as StaticJwtConfig;
 use slim_config::tls::client::TlsClientConfig as CoreTlsClientConfig;
 use slim_config::tls::server::TlsServerConfig as CoreTlsServerConfig;
-use std::time::Duration;
+
+use crate::identity_config::{ClientJwtAuth, JwtAuth, StaticJwtAuth};
 
 /// SPIRE configuration for SPIFFE Workload API integration
 #[derive(uniffi::Record, Clone, Debug, PartialEq)]
@@ -29,6 +27,30 @@ impl Default for SpireConfig {
             target_spiffe_id: None,
             jwt_audiences: vec!["slim".to_string()],
             trust_domains: vec![],
+        }
+    }
+}
+
+#[cfg(not(target_family = "windows"))]
+impl From<SpireConfig> for slim_config::auth::spire::SpireConfig {
+    fn from(config: SpireConfig) -> Self {
+        slim_config::auth::spire::SpireConfig {
+            socket_path: config.socket_path,
+            target_spiffe_id: config.target_spiffe_id,
+            jwt_audiences: config.jwt_audiences,
+            trust_domains: config.trust_domains,
+        }
+    }
+}
+
+#[cfg(not(target_family = "windows"))]
+impl From<slim_config::auth::spire::SpireConfig> for SpireConfig {
+    fn from(config: slim_config::auth::spire::SpireConfig) -> Self {
+        SpireConfig {
+            socket_path: config.socket_path,
+            target_spiffe_id: config.target_spiffe_id,
+            jwt_audiences: config.jwt_audiences,
+            trust_domains: config.trust_domains,
         }
     }
 }
@@ -55,12 +77,7 @@ impl From<TlsSource> for slim_config::tls::common::TlsSource {
             }
             #[cfg(not(target_family = "windows"))]
             TlsSource::Spire { config } => slim_config::tls::common::TlsSource::Spire {
-                config: slim_config::auth::spire::SpireConfig {
-                    socket_path: config.socket_path,
-                    target_spiffe_id: config.target_spiffe_id,
-                    jwt_audiences: config.jwt_audiences,
-                    trust_domains: config.trust_domains,
-                },
+                config: config.into(),
             },
             #[cfg(target_family = "windows")]
             TlsSource::Spire { .. } => {
@@ -80,12 +97,7 @@ impl From<slim_config::tls::common::TlsSource> for TlsSource {
             }
             #[cfg(not(target_family = "windows"))]
             slim_config::tls::common::TlsSource::Spire { config } => TlsSource::Spire {
-                config: SpireConfig {
-                    socket_path: config.socket_path,
-                    target_spiffe_id: config.target_spiffe_id,
-                    jwt_audiences: config.jwt_audiences,
-                    trust_domains: config.trust_domains,
-                },
+                config: config.into(),
             },
             slim_config::tls::common::TlsSource::None => TlsSource::None,
         }
@@ -112,12 +124,7 @@ impl From<CaSource> for slim_config::tls::common::CaSource {
             CaSource::Pem { data } => slim_config::tls::common::CaSource::Pem { data },
             #[cfg(not(target_family = "windows"))]
             CaSource::Spire { config } => slim_config::tls::common::CaSource::Spire {
-                config: slim_config::auth::spire::SpireConfig {
-                    socket_path: config.socket_path,
-                    target_spiffe_id: config.target_spiffe_id,
-                    jwt_audiences: config.jwt_audiences,
-                    trust_domains: config.trust_domains,
-                },
+                config: config.into(),
             },
             #[cfg(target_family = "windows")]
             CaSource::Spire { .. } => {
@@ -135,12 +142,7 @@ impl From<slim_config::tls::common::CaSource> for CaSource {
             slim_config::tls::common::CaSource::Pem { data } => CaSource::Pem { data },
             #[cfg(not(target_family = "windows"))]
             slim_config::tls::common::CaSource::Spire { config } => CaSource::Spire {
-                config: SpireConfig {
-                    socket_path: config.socket_path,
-                    target_spiffe_id: config.target_spiffe_id,
-                    jwt_audiences: config.jwt_audiences,
-                    trust_domains: config.trust_domains,
-                },
+                config: config.into(),
             },
             slim_config::tls::common::CaSource::None => CaSource::None,
         }
@@ -291,299 +293,6 @@ impl From<BasicAuthConfig> for BasicAuth {
     }
 }
 
-/// Static JWT (Bearer token) authentication configuration
-/// The token is loaded from a file and automatically reloaded when changed
-#[derive(uniffi::Record, Clone, Debug, PartialEq)]
-pub struct StaticJwtAuth {
-    /// Path to file containing the JWT token
-    pub token_file: String,
-    /// Duration for caching the token before re-reading from file (default: 3600 seconds)
-    pub duration: Duration,
-}
-
-impl From<StaticJwtAuth> for StaticJwtConfig {
-    fn from(config: StaticJwtAuth) -> Self {
-        StaticJwtConfig::with_file(&config.token_file).with_duration(config.duration)
-    }
-}
-
-impl From<StaticJwtConfig> for StaticJwtAuth {
-    fn from(config: StaticJwtConfig) -> Self {
-        StaticJwtAuth {
-            token_file: config.source().file.clone(),
-            duration: config.duration(),
-        }
-    }
-}
-
-/// JWT signing/verification algorithm
-#[derive(uniffi::Enum, Clone, Debug, PartialEq)]
-pub enum JwtAlgorithm {
-    HS256,
-    HS384,
-    HS512,
-    ES256,
-    ES384,
-    RS256,
-    RS384,
-    RS512,
-    PS256,
-    PS384,
-    PS512,
-    EdDSA,
-}
-
-impl From<JwtAlgorithm> for slim_auth::jwt::Algorithm {
-    fn from(algo: JwtAlgorithm) -> Self {
-        match algo {
-            JwtAlgorithm::HS256 => slim_auth::jwt::Algorithm::HS256,
-            JwtAlgorithm::HS384 => slim_auth::jwt::Algorithm::HS384,
-            JwtAlgorithm::HS512 => slim_auth::jwt::Algorithm::HS512,
-            JwtAlgorithm::ES256 => slim_auth::jwt::Algorithm::ES256,
-            JwtAlgorithm::ES384 => slim_auth::jwt::Algorithm::ES384,
-            JwtAlgorithm::RS256 => slim_auth::jwt::Algorithm::RS256,
-            JwtAlgorithm::RS384 => slim_auth::jwt::Algorithm::RS384,
-            JwtAlgorithm::RS512 => slim_auth::jwt::Algorithm::RS512,
-            JwtAlgorithm::PS256 => slim_auth::jwt::Algorithm::PS256,
-            JwtAlgorithm::PS384 => slim_auth::jwt::Algorithm::PS384,
-            JwtAlgorithm::PS512 => slim_auth::jwt::Algorithm::PS512,
-            JwtAlgorithm::EdDSA => slim_auth::jwt::Algorithm::EdDSA,
-        }
-    }
-}
-
-impl From<slim_auth::jwt::Algorithm> for JwtAlgorithm {
-    fn from(algo: slim_auth::jwt::Algorithm) -> Self {
-        match algo {
-            slim_auth::jwt::Algorithm::HS256 => JwtAlgorithm::HS256,
-            slim_auth::jwt::Algorithm::HS384 => JwtAlgorithm::HS384,
-            slim_auth::jwt::Algorithm::HS512 => JwtAlgorithm::HS512,
-            slim_auth::jwt::Algorithm::ES256 => JwtAlgorithm::ES256,
-            slim_auth::jwt::Algorithm::ES384 => JwtAlgorithm::ES384,
-            slim_auth::jwt::Algorithm::RS256 => JwtAlgorithm::RS256,
-            slim_auth::jwt::Algorithm::RS384 => JwtAlgorithm::RS384,
-            slim_auth::jwt::Algorithm::RS512 => JwtAlgorithm::RS512,
-            slim_auth::jwt::Algorithm::PS256 => JwtAlgorithm::PS256,
-            slim_auth::jwt::Algorithm::PS384 => JwtAlgorithm::PS384,
-            slim_auth::jwt::Algorithm::PS512 => JwtAlgorithm::PS512,
-            slim_auth::jwt::Algorithm::EdDSA => JwtAlgorithm::EdDSA,
-        }
-    }
-}
-
-/// JWT key format
-#[derive(uniffi::Enum, Clone, Debug, PartialEq)]
-pub enum JwtKeyFormat {
-    Pem,
-    Jwk,
-    Jwks,
-}
-
-impl From<JwtKeyFormat> for slim_auth::jwt::KeyFormat {
-    fn from(format: JwtKeyFormat) -> Self {
-        match format {
-            JwtKeyFormat::Pem => slim_auth::jwt::KeyFormat::Pem,
-            JwtKeyFormat::Jwk => slim_auth::jwt::KeyFormat::Jwk,
-            JwtKeyFormat::Jwks => slim_auth::jwt::KeyFormat::Jwks,
-        }
-    }
-}
-
-impl From<slim_auth::jwt::KeyFormat> for JwtKeyFormat {
-    fn from(format: slim_auth::jwt::KeyFormat) -> Self {
-        match format {
-            slim_auth::jwt::KeyFormat::Pem => JwtKeyFormat::Pem,
-            slim_auth::jwt::KeyFormat::Jwk => JwtKeyFormat::Jwk,
-            slim_auth::jwt::KeyFormat::Jwks => JwtKeyFormat::Jwks,
-        }
-    }
-}
-
-/// JWT key data source
-#[derive(uniffi::Enum, Clone, Debug, PartialEq)]
-pub enum JwtKeyData {
-    /// String with encoded key(s)
-    Data { value: String },
-    /// File path to the key(s)
-    File { path: String },
-}
-
-impl From<JwtKeyData> for slim_auth::jwt::KeyData {
-    fn from(data: JwtKeyData) -> Self {
-        match data {
-            JwtKeyData::Data { value } => slim_auth::jwt::KeyData::Data(value),
-            JwtKeyData::File { path } => slim_auth::jwt::KeyData::File(path),
-        }
-    }
-}
-
-impl From<slim_auth::jwt::KeyData> for JwtKeyData {
-    fn from(data: slim_auth::jwt::KeyData) -> Self {
-        match data {
-            slim_auth::jwt::KeyData::Data(value) => JwtKeyData::Data { value },
-            slim_auth::jwt::KeyData::File(path) => JwtKeyData::File { path },
-        }
-    }
-}
-
-/// JWT key configuration
-#[derive(uniffi::Record, Clone, Debug, PartialEq)]
-pub struct JwtKeyConfig {
-    /// Algorithm used for signing/verifying the JWT
-    pub algorithm: JwtAlgorithm,
-    /// Key format - PEM, JWK or JWKS
-    pub format: JwtKeyFormat,
-    /// Encoded key or file path
-    pub key: JwtKeyData,
-}
-
-impl From<JwtKeyConfig> for slim_auth::jwt::Key {
-    fn from(config: JwtKeyConfig) -> Self {
-        slim_auth::jwt::Key {
-            algorithm: config.algorithm.into(),
-            format: config.format.into(),
-            key: config.key.into(),
-        }
-    }
-}
-
-impl From<slim_auth::jwt::Key> for JwtKeyConfig {
-    fn from(key: slim_auth::jwt::Key) -> Self {
-        JwtKeyConfig {
-            algorithm: key.algorithm.into(),
-            format: key.format.into(),
-            key: key.key.into(),
-        }
-    }
-}
-
-/// JWT key type (encoding, decoding, or autoresolve)
-#[derive(uniffi::Enum, Clone, Debug, PartialEq)]
-pub enum JwtKeyType {
-    /// Encoding key for signing JWTs (client-side)
-    Encoding { key: JwtKeyConfig },
-    /// Decoding key for verifying JWTs (server-side)
-    Decoding { key: JwtKeyConfig },
-    /// Automatically resolve keys based on claims
-    Autoresolve,
-}
-
-impl From<JwtKeyType> for JwtKey {
-    fn from(key_type: JwtKeyType) -> Self {
-        match key_type {
-            JwtKeyType::Encoding { key } => JwtKey::Encoding(key.into()),
-            JwtKeyType::Decoding { key } => JwtKey::Decoding(key.into()),
-            JwtKeyType::Autoresolve => JwtKey::Autoresolve,
-        }
-    }
-}
-
-impl From<JwtKey> for JwtKeyType {
-    fn from(key: JwtKey) -> Self {
-        match key {
-            JwtKey::Encoding(k) => JwtKeyType::Encoding { key: k.into() },
-            JwtKey::Decoding(k) => JwtKeyType::Decoding { key: k.into() },
-            JwtKey::Autoresolve => JwtKeyType::Autoresolve,
-        }
-    }
-}
-
-/// JWT authentication configuration for client-side signing
-#[derive(uniffi::Record, Clone, Debug, PartialEq)]
-pub struct ClientJwtAuth {
-    /// JWT key configuration (encoding key for signing)
-    pub key: JwtKeyType,
-    /// JWT audience claims to include
-    pub audience: Option<Vec<String>>,
-    /// JWT issuer to include
-    pub issuer: Option<String>,
-    /// JWT subject to include
-    pub subject: Option<String>,
-    /// Token validity duration (default: 3600 seconds)
-    pub duration: Duration,
-}
-
-impl From<ClientJwtAuth> for JwtAuthConfig {
-    fn from(config: ClientJwtAuth) -> Self {
-        let mut claims = JwtClaims::default();
-
-        if let Some(audience) = config.audience {
-            claims = claims.with_audience(&audience);
-        }
-
-        if let Some(issuer) = config.issuer {
-            claims = claims.with_issuer(issuer);
-        }
-
-        if let Some(subject) = config.subject {
-            claims = claims.with_subject(subject);
-        }
-
-        JwtAuthConfig::new(claims, config.duration, config.key.into())
-    }
-}
-
-impl From<JwtAuthConfig> for ClientJwtAuth {
-    fn from(config: JwtAuthConfig) -> Self {
-        let claims = config.claims();
-        ClientJwtAuth {
-            key: config.key().clone().into(),
-            audience: claims.audience().clone(),
-            issuer: claims.issuer().clone(),
-            subject: claims.subject().clone(),
-            duration: config.duration(),
-        }
-    }
-}
-
-/// JWT authentication configuration for server-side verification
-#[derive(uniffi::Record, Clone, Debug, PartialEq)]
-pub struct JwtAuth {
-    /// JWT key configuration (decoding key for verification)
-    pub key: JwtKeyType,
-    /// JWT audience claims to verify
-    pub audience: Option<Vec<String>>,
-    /// JWT issuer to verify
-    pub issuer: Option<String>,
-    /// JWT subject to verify
-    pub subject: Option<String>,
-    /// Token validity duration (default: 3600 seconds)
-    pub duration: Duration,
-}
-
-impl From<JwtAuth> for JwtAuthConfig {
-    fn from(config: JwtAuth) -> Self {
-        let mut claims = JwtClaims::default();
-
-        if let Some(audience) = config.audience {
-            claims = claims.with_audience(&audience);
-        }
-
-        if let Some(issuer) = config.issuer {
-            claims = claims.with_issuer(issuer);
-        }
-
-        if let Some(subject) = config.subject {
-            claims = claims.with_subject(subject);
-        }
-
-        JwtAuthConfig::new(claims, config.duration, config.key.into())
-    }
-}
-
-impl From<JwtAuthConfig> for JwtAuth {
-    fn from(config: JwtAuthConfig) -> Self {
-        let claims = config.claims();
-        JwtAuth {
-            key: config.key().clone().into(),
-            audience: claims.audience().clone(),
-            issuer: claims.issuer().clone(),
-            subject: claims.subject().clone(),
-            duration: config.duration(),
-        }
-    }
-}
-
 /// Authentication configuration enum for client
 #[derive(uniffi::Enum, Clone, Debug, PartialEq)]
 pub enum ClientAuthenticationConfig {
@@ -672,5 +381,493 @@ impl From<slim_config::grpc::server::AuthenticationConfig> for ServerAuthenticat
                 ServerAuthenticationConfig::Jwt { config: jwt.into() }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::identity_config::{
+        JwtAlgorithm, JwtKeyConfig, JwtKeyData, JwtKeyFormat, JwtKeyType,
+    };
+    use std::time::Duration;
+
+    // Test SpireConfig default
+    #[test]
+    fn test_spire_config_default() {
+        let config = SpireConfig::default();
+        assert_eq!(config.socket_path, None);
+        assert_eq!(config.target_spiffe_id, None);
+        assert_eq!(config.jwt_audiences, vec!["slim".to_string()]);
+        assert_eq!(config.trust_domains, Vec::<String>::new());
+    }
+
+    // Test SpireConfig conversions (non-Windows only)
+    #[cfg(not(target_family = "windows"))]
+    #[test]
+    fn test_spire_config_conversions() {
+        let config = SpireConfig {
+            socket_path: Some("/var/run/spire/socket".to_string()),
+            target_spiffe_id: Some("spiffe://example.com/service".to_string()),
+            jwt_audiences: vec!["audience1".to_string(), "audience2".to_string()],
+            trust_domains: vec!["example.com".to_string()],
+        };
+
+        let core_config: slim_config::auth::spire::SpireConfig = config.clone().into();
+        assert_eq!(core_config.socket_path, config.socket_path);
+        assert_eq!(core_config.target_spiffe_id, config.target_spiffe_id);
+        assert_eq!(core_config.jwt_audiences, config.jwt_audiences);
+        assert_eq!(core_config.trust_domains, config.trust_domains);
+
+        let back: SpireConfig = core_config.into();
+        assert_eq!(back, config);
+    }
+
+    // Test TlsSource conversions - Pem variant
+    #[test]
+    fn test_tls_source_pem_conversion() {
+        let source = TlsSource::Pem {
+            cert: "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----".to_string(),
+            key: "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----".to_string(),
+        };
+
+        let core_source: slim_config::tls::common::TlsSource = source.clone().into();
+        let back: TlsSource = core_source.into();
+        assert_eq!(back, source);
+    }
+
+    // Test TlsSource conversions - File variant
+    #[test]
+    fn test_tls_source_file_conversion() {
+        let source = TlsSource::File {
+            cert: "/path/to/cert.pem".to_string(),
+            key: "/path/to/key.pem".to_string(),
+        };
+
+        let core_source: slim_config::tls::common::TlsSource = source.clone().into();
+        let back: TlsSource = core_source.into();
+        assert_eq!(back, source);
+    }
+
+    // Test TlsSource conversions - None variant
+    #[test]
+    fn test_tls_source_none_conversion() {
+        let source = TlsSource::None;
+        let core_source: slim_config::tls::common::TlsSource = source.clone().into();
+        let back: TlsSource = core_source.into();
+        assert_eq!(back, source);
+    }
+
+    // Test TlsSource conversions - Spire variant (non-Windows only)
+    #[cfg(not(target_family = "windows"))]
+    #[test]
+    fn test_tls_source_spire_conversion() {
+        let source = TlsSource::Spire {
+            config: SpireConfig::default(),
+        };
+
+        let core_source: slim_config::tls::common::TlsSource = source.clone().into();
+        let back: TlsSource = core_source.into();
+        assert_eq!(back, source);
+    }
+
+    // Test CaSource conversions - File variant
+    #[test]
+    fn test_ca_source_file_conversion() {
+        let source = CaSource::File {
+            path: "/path/to/ca.pem".to_string(),
+        };
+
+        let core_source: slim_config::tls::common::CaSource = source.clone().into();
+        let back: CaSource = core_source.into();
+        assert_eq!(back, source);
+    }
+
+    // Test CaSource conversions - Pem variant
+    #[test]
+    fn test_ca_source_pem_conversion() {
+        let source = CaSource::Pem {
+            data: "-----BEGIN CERTIFICATE-----\nCA\n-----END CERTIFICATE-----".to_string(),
+        };
+
+        let core_source: slim_config::tls::common::CaSource = source.clone().into();
+        let back: CaSource = core_source.into();
+        assert_eq!(back, source);
+    }
+
+    // Test CaSource conversions - None variant
+    #[test]
+    fn test_ca_source_none_conversion() {
+        let source = CaSource::None;
+        let core_source: slim_config::tls::common::CaSource = source.clone().into();
+        let back: CaSource = core_source.into();
+        assert_eq!(back, source);
+    }
+
+    // Test CaSource conversions - Spire variant (non-Windows only)
+    #[cfg(not(target_family = "windows"))]
+    #[test]
+    fn test_ca_source_spire_conversion() {
+        let source = CaSource::Spire {
+            config: SpireConfig::default(),
+        };
+
+        let core_source: slim_config::tls::common::CaSource = source.clone().into();
+        let back: CaSource = core_source.into();
+        assert_eq!(back, source);
+    }
+
+    // Test TlsClientConfig default
+    #[test]
+    fn test_tls_client_config_default() {
+        let config = TlsClientConfig::default();
+        assert!(!config.insecure);
+        assert!(!config.insecure_skip_verify);
+        assert_eq!(config.source, TlsSource::None);
+        assert_eq!(config.ca_source, CaSource::None);
+        assert!(config.include_system_ca_certs_pool);
+        assert_eq!(config.tls_version, "tls1.3");
+    }
+
+    // Test TlsClientConfig conversions
+    #[test]
+    fn test_tls_client_config_conversion() {
+        let config = TlsClientConfig {
+            insecure: false,
+            insecure_skip_verify: false,
+            source: TlsSource::File {
+                cert: "/path/to/cert.pem".to_string(),
+                key: "/path/to/key.pem".to_string(),
+            },
+            ca_source: CaSource::File {
+                path: "/path/to/ca.pem".to_string(),
+            },
+            include_system_ca_certs_pool: true,
+            tls_version: "tls1.3".to_string(),
+        };
+
+        let core_config: CoreTlsClientConfig = config.clone().into();
+        assert_eq!(core_config.insecure, config.insecure);
+        assert_eq!(
+            core_config.insecure_skip_verify,
+            config.insecure_skip_verify
+        );
+        assert_eq!(
+            core_config.config.include_system_ca_certs_pool,
+            config.include_system_ca_certs_pool
+        );
+        assert_eq!(core_config.config.tls_version, config.tls_version);
+
+        let back: TlsClientConfig = core_config.into();
+        assert_eq!(back, config);
+    }
+
+    // Test TlsClientConfig with insecure options
+    #[test]
+    fn test_tls_client_config_insecure() {
+        let config = TlsClientConfig {
+            insecure: true,
+            insecure_skip_verify: true,
+            source: TlsSource::None,
+            ca_source: CaSource::None,
+            include_system_ca_certs_pool: false,
+            tls_version: "tls1.2".to_string(),
+        };
+
+        let core_config: CoreTlsClientConfig = config.clone().into();
+        let back: TlsClientConfig = core_config.into();
+        assert!(back.insecure);
+        assert!(back.insecure_skip_verify);
+        assert!(!back.include_system_ca_certs_pool);
+        assert_eq!(back.tls_version, "tls1.2");
+    }
+
+    // Test TlsServerConfig default
+    #[test]
+    fn test_tls_server_config_default() {
+        let config = TlsServerConfig::default();
+        assert!(!config.insecure);
+        assert_eq!(config.source, TlsSource::None);
+        assert_eq!(config.client_ca, CaSource::None);
+        assert!(config.include_system_ca_certs_pool);
+        assert_eq!(config.tls_version, "tls1.3");
+        assert!(!config.reload_client_ca_file);
+    }
+
+    // Test TlsServerConfig conversions
+    #[test]
+    fn test_tls_server_config_conversion() {
+        let config = TlsServerConfig {
+            insecure: false,
+            source: TlsSource::Pem {
+                cert: "cert-data".to_string(),
+                key: "key-data".to_string(),
+            },
+            client_ca: CaSource::Pem {
+                data: "ca-data".to_string(),
+            },
+            include_system_ca_certs_pool: true,
+            tls_version: "tls1.3".to_string(),
+            reload_client_ca_file: true,
+        };
+
+        let core_config: CoreTlsServerConfig = config.clone().into();
+        assert_eq!(core_config.insecure, config.insecure);
+        assert_eq!(
+            core_config.reload_client_ca_file,
+            config.reload_client_ca_file
+        );
+        assert_eq!(
+            core_config.config.include_system_ca_certs_pool,
+            config.include_system_ca_certs_pool
+        );
+        assert_eq!(core_config.config.tls_version, config.tls_version);
+
+        let back: TlsServerConfig = core_config.into();
+        assert_eq!(back, config);
+    }
+
+    // Test BasicAuth conversions
+    #[test]
+    fn test_basic_auth_conversion() {
+        let auth = BasicAuth {
+            username: "testuser".to_string(),
+            password: "testpassword".to_string(),
+        };
+
+        let core_auth: BasicAuthConfig = auth.clone().into();
+        assert_eq!(core_auth.username(), "testuser");
+        assert_eq!(core_auth.password().as_str(), "testpassword");
+
+        let back: BasicAuth = core_auth.into();
+        assert_eq!(back, auth);
+    }
+
+    // Test ClientAuthenticationConfig - Basic variant
+    #[test]
+    fn test_client_auth_config_basic() {
+        let config = ClientAuthenticationConfig::Basic {
+            config: BasicAuth {
+                username: "user".to_string(),
+                password: "pass".to_string(),
+            },
+        };
+
+        let core_config: slim_config::grpc::client::AuthenticationConfig = config.clone().into();
+        let back: ClientAuthenticationConfig = core_config.into();
+        assert_eq!(back, config);
+    }
+
+    // Test ClientAuthenticationConfig - StaticJwt variant
+    #[test]
+    fn test_client_auth_config_static_jwt() {
+        let config = ClientAuthenticationConfig::StaticJwt {
+            config: StaticJwtAuth {
+                token_file: "/path/to/token.jwt".to_string(),
+                duration: Duration::from_secs(3600),
+            },
+        };
+
+        let core_config: slim_config::grpc::client::AuthenticationConfig = config.clone().into();
+        let back: ClientAuthenticationConfig = core_config.into();
+        assert_eq!(back, config);
+    }
+
+    // Test ClientAuthenticationConfig - Jwt variant
+    #[test]
+    fn test_client_auth_config_jwt() {
+        let config = ClientAuthenticationConfig::Jwt {
+            config: ClientJwtAuth {
+                key: JwtKeyType::Autoresolve,
+                audience: Some(vec!["api".to_string()]),
+                issuer: None,
+                subject: None,
+                duration: Duration::from_secs(3600),
+            },
+        };
+
+        let core_config: slim_config::grpc::client::AuthenticationConfig = config.clone().into();
+        let back: ClientAuthenticationConfig = core_config.into();
+        assert_eq!(back, config);
+    }
+
+    // Test ClientAuthenticationConfig - None variant
+    #[test]
+    fn test_client_auth_config_none() {
+        let config = ClientAuthenticationConfig::None;
+        let core_config: slim_config::grpc::client::AuthenticationConfig = config.clone().into();
+        let back: ClientAuthenticationConfig = core_config.into();
+        assert_eq!(back, config);
+    }
+
+    // Test ServerAuthenticationConfig - Basic variant
+    #[test]
+    fn test_server_auth_config_basic() {
+        let config = ServerAuthenticationConfig::Basic {
+            config: BasicAuth {
+                username: "admin".to_string(),
+                password: "secret".to_string(),
+            },
+        };
+
+        let core_config: slim_config::grpc::server::AuthenticationConfig = config.clone().into();
+        let back: ServerAuthenticationConfig = core_config.into();
+        assert_eq!(back, config);
+    }
+
+    // Test ServerAuthenticationConfig - Jwt variant
+    #[test]
+    fn test_server_auth_config_jwt() {
+        let config = ServerAuthenticationConfig::Jwt {
+            config: JwtAuth {
+                key: JwtKeyType::Decoding {
+                    key: JwtKeyConfig {
+                        algorithm: JwtAlgorithm::RS256,
+                        format: JwtKeyFormat::Pem,
+                        key: JwtKeyData::File {
+                            path: "/path/to/key.pem".to_string(),
+                        },
+                    },
+                },
+                audience: Some(vec!["service".to_string()]),
+                issuer: Some("issuer".to_string()),
+                subject: None,
+                duration: Duration::from_secs(7200),
+            },
+        };
+
+        let core_config: slim_config::grpc::server::AuthenticationConfig = config.clone().into();
+        let back: ServerAuthenticationConfig = core_config.into();
+        assert_eq!(back, config);
+    }
+
+    // Test ServerAuthenticationConfig - None variant
+    #[test]
+    fn test_server_auth_config_none() {
+        let config = ServerAuthenticationConfig::None;
+        let core_config: slim_config::grpc::server::AuthenticationConfig = config.clone().into();
+        let back: ServerAuthenticationConfig = core_config.into();
+        assert_eq!(back, config);
+    }
+
+    // Test complex TlsClientConfig with all options
+    #[test]
+    fn test_complex_tls_client_config() {
+        let config = TlsClientConfig {
+            insecure: false,
+            insecure_skip_verify: false,
+            source: TlsSource::Pem {
+                cert: "-----BEGIN CERTIFICATE-----\ncert\n-----END CERTIFICATE-----".to_string(),
+                key: "-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----".to_string(),
+            },
+            ca_source: CaSource::Pem {
+                data: "-----BEGIN CERTIFICATE-----\nCA\n-----END CERTIFICATE-----".to_string(),
+            },
+            include_system_ca_certs_pool: false,
+            tls_version: "tls1.2".to_string(),
+        };
+
+        let core_config: CoreTlsClientConfig = config.clone().into();
+        let back: TlsClientConfig = core_config.into();
+        assert_eq!(back, config);
+    }
+
+    // Test complex TlsServerConfig with all options
+    #[test]
+    fn test_complex_tls_server_config() {
+        let config = TlsServerConfig {
+            insecure: false,
+            source: TlsSource::File {
+                cert: "/etc/tls/server.crt".to_string(),
+                key: "/etc/tls/server.key".to_string(),
+            },
+            client_ca: CaSource::File {
+                path: "/etc/tls/ca.crt".to_string(),
+            },
+            include_system_ca_certs_pool: false,
+            tls_version: "tls1.2".to_string(),
+            reload_client_ca_file: true,
+        };
+
+        let core_config: CoreTlsServerConfig = config.clone().into();
+        let back: TlsServerConfig = core_config.into();
+        assert_eq!(back, config);
+    }
+
+    // Test all TlsSource variants
+    #[test]
+    fn test_all_tls_source_variants() {
+        let variants = vec![
+            TlsSource::Pem {
+                cert: "cert1".to_string(),
+                key: "key1".to_string(),
+            },
+            TlsSource::File {
+                cert: "/path1".to_string(),
+                key: "/path2".to_string(),
+            },
+            TlsSource::None,
+        ];
+
+        for variant in variants {
+            let core: slim_config::tls::common::TlsSource = variant.clone().into();
+            let back: TlsSource = core.into();
+            assert_eq!(back, variant);
+        }
+    }
+
+    // Test all CaSource variants
+    #[test]
+    fn test_all_ca_source_variants() {
+        let variants = vec![
+            CaSource::File {
+                path: "/ca/path".to_string(),
+            },
+            CaSource::Pem {
+                data: "ca-pem-data".to_string(),
+            },
+            CaSource::None,
+        ];
+
+        for variant in variants {
+            let core: slim_config::tls::common::CaSource = variant.clone().into();
+            let back: CaSource = core.into();
+            assert_eq!(back, variant);
+        }
+    }
+
+    // Test SpireConfig with minimal configuration
+    #[test]
+    fn test_spire_config_minimal() {
+        let config = SpireConfig {
+            socket_path: None,
+            target_spiffe_id: None,
+            jwt_audiences: vec![],
+            trust_domains: vec![],
+        };
+
+        assert_eq!(config.socket_path, None);
+        assert_eq!(config.target_spiffe_id, None);
+        assert!(config.jwt_audiences.is_empty());
+        assert!(config.trust_domains.is_empty());
+    }
+
+    // Test SpireConfig with full configuration
+    #[test]
+    fn test_spire_config_full() {
+        let config = SpireConfig {
+            socket_path: Some("/var/run/spire.sock".to_string()),
+            target_spiffe_id: Some("spiffe://example.com/workload".to_string()),
+            jwt_audiences: vec!["aud1".to_string(), "aud2".to_string(), "aud3".to_string()],
+            trust_domains: vec!["domain1.com".to_string(), "domain2.com".to_string()],
+        };
+
+        assert_eq!(config.socket_path, Some("/var/run/spire.sock".to_string()));
+        assert_eq!(
+            config.target_spiffe_id,
+            Some("spiffe://example.com/workload".to_string())
+        );
+        assert_eq!(config.jwt_audiences.len(), 3);
+        assert_eq!(config.trust_domains.len(), 2);
     }
 }
