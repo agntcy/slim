@@ -11,7 +11,8 @@ use pyo3_stub_gen::derive::gen_stub_pymethods;
 use serde_pyobject::from_pyobject;
 use slim_bindings::{
     BindingsAdapter, ClientJwtAuth, IdentityProviderConfig, IdentityVerifierConfig, JwtAuth,
-    JwtKeyConfig, JwtKeyType, SlimError, StaticJwtAuth,
+    JwtKeyConfig, JwtKeyType, Service as BindingsService, SlimError, StaticJwtAuth,
+    get_or_init_global_service,
 };
 use slim_datapath::messages::encoder::Name;
 use slim_session::SessionConfig;
@@ -33,8 +34,9 @@ pub struct PyApp {
 
 struct PyAppInternal {
     /// The adapter instance (uses AuthProvider/AuthVerifier enums internally)
-    /// The adapter manages the service internally
     adapter: Arc<BindingsAdapter>,
+    /// The service instance for service-level operations (run_server, connect, etc.)
+    service: Arc<BindingsService>,
 }
 
 /// Helper function to convert PyName to Arc<FfiName>
@@ -47,6 +49,7 @@ fn py_name_to_ffi(py_name: &PyName) -> Arc<slim_bindings::Name> {
 #[pymethods]
 impl PyApp {
     #[new]
+    #[pyo3(signature = (name, provider, verifier, local_service=false))]
     fn new(
         name: PyName,
         provider: PyIdentityProvider,
@@ -58,7 +61,7 @@ impl PyApp {
             provider: PyIdentityProvider,
             verifier: PyIdentityVerifier,
             local_service: bool,
-        ) -> Result<Arc<BindingsAdapter>, SlimError> {
+        ) -> Result<(Arc<BindingsAdapter>, Arc<BindingsService>), SlimError> {
             // Convert PyIdentityProvider to IdentityProviderConfig
             let provider_config: IdentityProviderConfig = match provider {
                 PyIdentityProvider::StaticJwt { path } => IdentityProviderConfig::StaticJwt {
@@ -193,22 +196,32 @@ impl PyApp {
             // Convert PyName to slim_datapath::messages::Name (SlimName)
             let slim_name: slim_datapath::messages::Name = name.into();
 
-            // Use BindingsAdapter's async constructor to avoid nested block_on
-            let adapter = BindingsAdapter::new_async(
-                slim_name,
-                provider_config,
-                verifier_config,
-                local_service,
-            )
-            .await?;
-            Ok(Arc::new(adapter))
+            // Create service based on local_service parameter
+            let service_instance = if local_service {
+                // Create a local service instance
+                Arc::new(BindingsService::new("localservice".to_string()))
+            } else {
+                // Use global service
+                get_or_init_global_service()
+            };
+
+            // Use BindingsAdapter's async constructor with optional service
+            let adapter =
+                BindingsAdapter::new_async_with_service(
+                    slim_name,
+                    provider_config,
+                    verifier_config,
+                    Some(service_instance.inner())
+                ).await?;
+
+            Ok((Arc::new(adapter), service_instance))
         }
 
-        let adapter = pyo3_async_runtimes::tokio::get_runtime()
+        let (adapter, service) = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(create_adapter(name, provider, verifier, local_service))
             .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
 
-        let internal = Arc::new(PyAppInternal { adapter });
+        let internal = Arc::new(PyAppInternal { adapter, service });
 
         Ok(PyApp { internal })
     }
@@ -303,8 +316,8 @@ impl PyApp {
             };
 
             internal_clone
-                .adapter
-                .run_server_async(ffi_config)
+                .service
+                .run_server(ffi_config)
                 .await
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })
@@ -316,8 +329,9 @@ impl PyApp {
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             internal_clone
-                .adapter
+                .service
                 .stop_server(endpoint)
+                .await
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })
     }
@@ -357,8 +371,8 @@ impl PyApp {
             };
 
             internal_clone
-                .adapter
-                .connect_async(ffi_config)
+                .service
+                .connect(ffi_config)
                 .await
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })
@@ -370,8 +384,8 @@ impl PyApp {
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             internal_clone
-                .adapter
-                .disconnect_async(conn)
+                .service
+                .disconnect(conn)
                 .await
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })

@@ -45,21 +45,12 @@ pub fn get_or_init_global_service() -> Arc<Service> {
 }
 
 /// DataPlane configuration wrapper for uniffi bindings
-#[derive(Clone, uniffi::Record)]
+#[derive(Clone, Default, uniffi::Record)]
 pub struct DataplaneConfig {
     /// DataPlane GRPC server settings
     pub servers: Vec<ServerConfig>,
     /// DataPlane client configs
     pub clients: Vec<ClientConfig>,
-}
-
-impl Default for DataplaneConfig {
-    fn default() -> Self {
-        Self {
-            servers: Vec::new(),
-            clients: Vec::new(),
-        }
-    }
 }
 
 impl From<DataplaneConfig> for CoreControllerConfig {
@@ -97,7 +88,7 @@ impl From<CoreControllerConfig> for DataplaneConfig {
 }
 
 /// Service configuration wrapper for uniffi bindings
-#[derive(Clone, uniffi::Record)]
+#[derive(Clone, Default, uniffi::Record)]
 pub struct ServiceConfiguration {
     pub node_id: Option<String>,
     pub group_name: Option<String>,
@@ -138,6 +129,13 @@ impl From<SlimServiceConfiguration> for ServiceConfiguration {
 #[derive(uniffi::Object)]
 pub struct Service {
     pub(crate) inner: Arc<RwLock<SlimService>>,
+}
+
+impl Service {
+    /// Get a clone of the inner service Arc for advanced use cases
+    pub fn inner(&self) -> Arc<RwLock<SlimService>> {
+        self.inner.clone()
+    }
 }
 
 /// Conversion traits
@@ -424,7 +422,9 @@ pub async fn disconnect(conn_id: u64) -> Result<(), SlimError> {
 /// Get the connection ID for a given endpoint on the global service
 #[uniffi::export]
 pub async fn get_connection_id(endpoint: String) -> Option<u64> {
-    get_or_init_global_service().get_connection_id(endpoint).await
+    get_or_init_global_service()
+        .get_connection_id(endpoint)
+        .await
 }
 
 /// Create a new BindingsAdapter with authentication on the global service
@@ -446,7 +446,11 @@ pub async fn create_adapter(
     identity_verifier_config: IdentityVerifierConfig,
 ) -> Result<Arc<crate::adapter::BindingsAdapter>, SlimError> {
     get_or_init_global_service()
-        .create_adapter_async(base_name, identity_provider_config, identity_verifier_config)
+        .create_adapter_async(
+            base_name,
+            identity_provider_config,
+            identity_verifier_config,
+        )
         .await
 }
 
@@ -484,7 +488,7 @@ mod tests {
 
         // They should be the same instance (same memory address)
         assert!(Arc::ptr_eq(&service1, &service2));
-        
+
         // Also check that the inner Arc is the same
         assert!(Arc::ptr_eq(&service1.inner, &service2.inner));
     }
@@ -511,7 +515,7 @@ mod tests {
 
         let global_service2 = get_or_init_global_service();
         let ptr2 = Arc::as_ptr(&global_service2.inner) as usize;
-        
+
         // They should point to the same inner Arc
         assert_eq!(ptr1, ptr2);
     }

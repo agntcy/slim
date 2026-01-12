@@ -156,9 +156,7 @@ impl From<CoreServerConfig> for ServerConfig {
             write_buffer_size: config.write_buffer_size.map(|s| s as u64),
             keepalive: config.keepalive.into(),
             auth: config.auth.into(),
-            metadata: config
-                .metadata
-                .and_then(|m| serde_json::to_string(&m).ok()),
+            metadata: config.metadata.and_then(|m| serde_json::to_string(&m).ok()),
         }
     }
 }

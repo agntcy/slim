@@ -344,9 +344,7 @@ impl From<CoreClientConfig> for ClientConfig {
             headers: config.headers,
             auth: config.auth.into(),
             backoff: config.backoff.into(),
-            metadata: config
-                .metadata
-                .and_then(|m| serde_json::to_string(&m).ok()),
+            metadata: config.metadata.and_then(|m| serde_json::to_string(&m).ok()),
         }
     }
 }
