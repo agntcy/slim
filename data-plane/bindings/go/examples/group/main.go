@@ -90,11 +90,11 @@ func runModerator(app *slim.BindingsAdapter, connID uint64, remote string, invit
 		Metadata:    make(map[string]string),
 	}
 
-	session, err := app.CreateSession(config, channelName)
+	session, err := app.CreateSessionAndWait(config, channelName)
 	if err != nil {
 		log.Fatalf("Failed to create session: %v", err)
 	}
-	defer app.DeleteSession(session)
+	defer app.DeleteSessionAndWait(session)
 
 	// Give session a moment to establish
 	time.Sleep(100 * time.Millisecond)
@@ -115,7 +115,7 @@ func runModerator(app *slim.BindingsAdapter, connID uint64, remote string, invit
 		}
 
 		// Send invite
-		if err := session.Invite(inviteName); err != nil {
+		if err := session.InviteAndWait(inviteName); err != nil {
 			log.Printf("Failed to invite %s: %v", inviteID, err)
 			continue
 		}
@@ -136,7 +136,7 @@ func runParticipant(app *slim.BindingsAdapter, instance uint64) {
 	if err != nil {
 		log.Fatalf("Failed to receive session: %v", err)
 	}
-	defer app.DeleteSession(session)
+	defer app.DeleteSessionAndWait(session)
 
 	channelName, err := session.Destination()
 	if err != nil {
@@ -200,7 +200,7 @@ func receiveLoop(session *slim.BindingsSessionContext, sourceName *slim.Name, in
 			// Auto-reply if this is not already a reply (prevent loops)
 			if _, hasPublishTo := msg.Context.Metadata["PUBLISH_TO"]; !hasPublishTo {
 				reply := fmt.Sprintf("message received by %v", sourceName.Components())
-				if err := session.PublishTo(msg.Context, []byte(reply), nil, nil); err != nil {
+				if err := session.PublishToAndWait(msg.Context, []byte(reply), nil, nil); err != nil {
 					fmt.Printf("%s[%d]%s ❌ Error sending reply: %v\n", colorCyan, instance, colorReset, err)
 				}
 			}
@@ -245,7 +245,7 @@ func keyboardLoop(session *slim.BindingsSessionContext, sourceName, channelName 
 			}
 
 			// Publish message to group
-			if err := session.Publish([]byte(input), nil, nil); err != nil {
+			if err := session.PublishAndWait([]byte(input), nil, nil); err != nil {
 				fmt.Printf("%s[%d]%s ❌ Error sending message: %v\n", colorCyan, instance, colorReset, err)
 			} else {
 				fmt.Printf("%s[%d]%s 📤 Sent to group\n", colorCyan, instance, colorReset)

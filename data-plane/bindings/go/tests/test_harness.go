@@ -227,7 +227,7 @@ func (h *TestHarness) handleReceiverSession(ctx context.Context, session *slim.B
 			// Optionally send acknowledgment
 			ackData := []byte("ACK")
 			ackType := "text/plain"
-			err = session.PublishTo(receivedMsg.Context, ackData, &ackType, nil)
+			err = session.PublishToAndWait(receivedMsg.Context, ackData, &ackType, nil)
 			if err != nil {
 				h.t.Logf("[Receiver] Failed to send ACK: %v", err)
 			} else {
@@ -247,7 +247,7 @@ func (h *TestHarness) CreateSession() (*slim.BindingsSessionContext, error) {
 	}
 
 	h.t.Logf("[Sender] Creating session to %v...", h.ReceiverName.Components())
-	session, err := h.Sender.CreateSession(sessionConfig, h.ReceiverName)
+	session, err := h.Sender.CreateSessionAndWait(sessionConfig, h.ReceiverName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create session: %w", err)
 	}
@@ -267,7 +267,7 @@ func (h *TestHarness) SendMessage(session *slim.BindingsSessionContext, data []b
 	h.t.Helper()
 
 	h.t.Logf("[Sender] Sending message: %d bytes", len(data))
-	err := session.Publish(data, payloadType, metadata)
+	err := session.PublishAndWait(data, payloadType, metadata)
 	if err != nil {
 		return fmt.Errorf("failed to send message: %w", err)
 	}
@@ -281,16 +281,9 @@ func (h *TestHarness) SendMessageWithCompletion(session *slim.BindingsSessionCon
 	h.t.Helper()
 
 	h.t.Logf("[Sender] Sending message with completion: %d bytes", len(data))
-	completion, err := session.PublishWithCompletion(data, payloadType, metadata)
+	err := session.PublishAndWait(data, payloadType, metadata)
 	if err != nil {
 		return fmt.Errorf("failed to send message: %w", err)
-	}
-	defer completion.Destroy()
-
-	h.t.Logf("[Sender] Waiting for delivery confirmation...")
-	err = completion.Wait()
-	if err != nil {
-		return fmt.Errorf("message delivery failed: %w", err)
 	}
 
 	h.t.Logf("[Sender] Message delivered successfully")

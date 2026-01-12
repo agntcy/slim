@@ -46,7 +46,7 @@ func main() {
 	destination := slim.NewName("org", "receiver", "v1", nil)
 
 	fmt.Println("📡 Creating session to destination...")
-	session, err := app.CreateSession(sessionConfig, destination)
+	session, err := app.CreateSessionAndWait(sessionConfig, destination)
 	if err != nil {
 		log.Fatalf("❌ Failed to create session: %v", err)
 	}
@@ -55,7 +55,7 @@ func main() {
 	// Ensure session cleanup when done
 	defer func() {
 		fmt.Println("\n🗑️  Cleaning up session...")
-		if err := app.DeleteSession(session); err != nil {
+		if err := app.DeleteSessionAndWait(session); err != nil {
 			fmt.Printf("⚠️  Failed to delete session: %v\n", err)
 		} else {
 			fmt.Println("✅ Session deleted")
@@ -66,7 +66,7 @@ func main() {
 	message := []byte("Hello from Go! 👋")
 
 	fmt.Println("\n📤 Publishing message...")
-	err = session.Publish(message, nil, nil)
+	err = session.PublishAndWait(message, nil, nil)
 	if err != nil {
 		// This might fail without a real SLIM network - that's expected
 		fmt.Printf("⚠️  Publish failed (expected without network): %v\n", err)
@@ -97,7 +97,7 @@ func main() {
 	inviteeName := slim.NewName("org", "guest", "v1", nil)
 
 	fmt.Println("\n👥 Testing session invite...")
-	err = session.Invite(inviteeName)
+	err = session.InviteAndWait(inviteeName)
 	if err != nil {
 		fmt.Printf("⚠️  Invite failed (expected for point-to-point session): %v\n", err)
 	} else {
