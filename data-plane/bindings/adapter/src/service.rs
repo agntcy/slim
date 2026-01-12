@@ -427,33 +427,6 @@ pub async fn get_connection_id(endpoint: String) -> Option<u64> {
         .await
 }
 
-/// Create a new BindingsAdapter with authentication on the global service
-///
-/// This is a convenience function that creates an adapter using the global service instance.
-///
-/// # Arguments
-/// * `base_name` - The base name for the app (without ID)
-/// * `identity_provider_config` - Configuration for proving identity to others
-/// * `identity_verifier_config` - Configuration for verifying identity of others
-///
-/// # Returns
-/// * `Ok(Arc<BindingsAdapter>)` - Successfully created adapter
-/// * `Err(SlimError)` - If adapter creation fails
-#[uniffi::export]
-pub async fn create_adapter(
-    base_name: Arc<Name>,
-    identity_provider_config: IdentityProviderConfig,
-    identity_verifier_config: IdentityVerifierConfig,
-) -> Result<Arc<crate::adapter::BindingsAdapter>, SlimError> {
-    get_or_init_global_service()
-        .create_adapter_async(
-            base_name,
-            identity_provider_config,
-            identity_verifier_config,
-        )
-        .await
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
