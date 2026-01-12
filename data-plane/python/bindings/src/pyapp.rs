@@ -174,7 +174,7 @@ impl PyApp {
                 max_header_list_size: None,
                 read_buffer_size: None,
                 write_buffer_size: None,
-                keepalive: slim_bindings::server_config::KeepaliveServerParameters::default(),
+                keepalive: slim_bindings::KeepaliveServerParameters::default(),
                 auth: slim_bindings::ServerAuthenticationConfig::None,
                 metadata: None,
             };
@@ -221,14 +221,14 @@ impl PyApp {
                     tls_version: "tls1.3".to_string(),
                 },
                 keepalive: None,
-                proxy: slim_bindings::client_config::ProxyConfig::default(),
+                proxy: slim_bindings::ProxyConfig::default(),
                 connect_timeout: std::time::Duration::from_secs(10),
                 request_timeout: std::time::Duration::from_secs(30),
                 buffer_size: None,
                 headers: std::collections::HashMap::new(),
                 auth: slim_bindings::ClientAuthenticationConfig::None,
-                backoff: slim_bindings::client_config::BackoffConfig::Exponential {
-                    config: slim_bindings::client_config::ExponentialBackoff::default(),
+                backoff: slim_bindings::BackoffConfig::Exponential {
+                    config: slim_bindings::ExponentialBackoff::default(),
                 },
                 metadata: None,
             };
