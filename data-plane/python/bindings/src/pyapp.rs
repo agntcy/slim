@@ -10,9 +10,8 @@ use pyo3_stub_gen::derive::gen_stub_pyclass;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
 use serde_pyobject::from_pyobject;
 use slim_bindings::{
-    BindingsAdapter, ClientJwtAuth, IdentityProviderConfig, IdentityVerifierConfig, JwtAuth,
-    JwtKeyConfig, JwtKeyType, Service as BindingsService, SlimError, StaticJwtAuth,
-    get_or_init_global_service,
+    BindingsAdapter, IdentityProviderConfig, IdentityVerifierConfig, Service as BindingsService,
+    SlimError, get_or_init_global_service,
 };
 use slim_datapath::messages::encoder::Name;
 use slim_session::SessionConfig;
@@ -62,136 +61,11 @@ impl PyApp {
             verifier: PyIdentityVerifier,
             local_service: bool,
         ) -> Result<(Arc<BindingsAdapter>, Arc<BindingsService>), SlimError> {
-            // Convert PyIdentityProvider to IdentityProviderConfig
-            let provider_config: IdentityProviderConfig = match provider {
-                PyIdentityProvider::StaticJwt { path } => IdentityProviderConfig::StaticJwt {
-                    config: StaticJwtAuth {
-                        token_file: path,
-                        duration: std::time::Duration::from_secs(3600),
-                    },
-                },
-                PyIdentityProvider::Jwt {
-                    private_key,
-                    duration,
-                    issuer,
-                    audience,
-                    subject,
-                } => {
-                    // Convert PyKey to slim_auth::jwt::Key first, then to JwtKeyConfig
-                    let auth_key: slim_auth::jwt::Key = private_key.into();
-                    let key_config = JwtKeyConfig {
-                        algorithm: auth_key.algorithm.into(),
-                        format: auth_key.format.into(),
-                        key: auth_key.key.into(),
-                    };
-                    IdentityProviderConfig::Jwt {
-                        config: ClientJwtAuth {
-                            key: JwtKeyType::Encoding { key: key_config },
-                            audience,
-                            issuer,
-                            subject,
-                            duration,
-                        },
-                    }
-                }
-                PyIdentityProvider::SharedSecret {
-                    identity,
-                    shared_secret,
-                } => IdentityProviderConfig::SharedSecret {
-                    id: identity,
-                    data: shared_secret,
-                },
-                #[cfg(not(target_family = "windows"))]
-                PyIdentityProvider::Spire {
-                    socket_path,
-                    target_spiffe_id,
-                    jwt_audiences,
-                } => {
-                    use slim_bindings::SpireConfig;
-                    IdentityProviderConfig::Spire {
-                        config: SpireConfig {
-                            socket_path,
-                            target_spiffe_id,
-                            jwt_audiences: jwt_audiences
-                                .unwrap_or_else(|| vec!["slim".to_string()]),
-                            trust_domains: vec![],
-                        },
-                    }
-                }
-                #[cfg(target_family = "windows")]
-                PyIdentityProvider::Spire { .. } => {
-                    return Err(SlimError::Auth(
-                        slim_auth::AuthError::SpireUnsupportedOnWindows,
-                    ));
-                }
-            };
+            // Convert PyIdentityProvider to IdentityProviderConfig using TryFrom
+            let provider_config: IdentityProviderConfig = provider.try_into()?;
 
-            // Convert PyIdentityVerifier to IdentityVerifierConfig
-            let verifier_config: IdentityVerifierConfig = match verifier {
-                PyIdentityVerifier::Jwt {
-                    public_key,
-                    autoresolve,
-                    issuer,
-                    audience,
-                    subject,
-                    ..
-                } => {
-                    let key_type = if autoresolve {
-                        JwtKeyType::Autoresolve
-                    } else if let Some(key) = public_key {
-                        // Convert PyKey to slim_auth::jwt::Key first, then to JwtKeyConfig
-                        let auth_key: slim_auth::jwt::Key = key.into();
-                        let key_config = JwtKeyConfig {
-                            algorithm: auth_key.algorithm.into(),
-                            format: auth_key.format.into(),
-                            key: auth_key.key.into(),
-                        };
-                        JwtKeyType::Decoding { key: key_config }
-                    } else {
-                        JwtKeyType::Autoresolve
-                    };
-
-                    IdentityVerifierConfig::Jwt {
-                        config: JwtAuth {
-                            key: key_type,
-                            audience,
-                            issuer,
-                            subject,
-                            duration: std::time::Duration::from_secs(3600),
-                        },
-                    }
-                }
-                PyIdentityVerifier::SharedSecret {
-                    identity,
-                    shared_secret,
-                } => IdentityVerifierConfig::SharedSecret {
-                    id: identity,
-                    data: shared_secret,
-                },
-                #[cfg(not(target_family = "windows"))]
-                PyIdentityVerifier::Spire {
-                    socket_path,
-                    target_spiffe_id,
-                    jwt_audiences,
-                } => {
-                    use slim_bindings::SpireConfig;
-                    IdentityVerifierConfig::Spire {
-                        config: SpireConfig {
-                            socket_path,
-                            target_spiffe_id,
-                            jwt_audiences: jwt_audiences
-                                .unwrap_or_else(|| vec!["slim".to_string()]),
-                            trust_domains: vec![],
-                        },
-                    }
-                }
-                #[cfg(target_family = "windows")]
-                PyIdentityVerifier::Spire { .. } => {
-                    return Err(SlimError::Auth(
-                        slim_auth::AuthError::SpireUnsupportedOnWindows,
-                    ));
-                }
-            };
+            // Convert PyIdentityVerifier to IdentityVerifierConfig using TryFrom
+            let verifier_config: IdentityVerifierConfig = verifier.try_into()?;
 
             // Convert PyName to slim_datapath::messages::Name (SlimName)
             let slim_name: slim_datapath::messages::Name = name.into();
@@ -206,13 +80,13 @@ impl PyApp {
             };
 
             // Use BindingsAdapter's async constructor with optional service
-            let adapter =
-                BindingsAdapter::new_async_with_service(
-                    slim_name,
-                    provider_config,
-                    verifier_config,
-                    Some(service_instance.inner())
-                ).await?;
+            let adapter = BindingsAdapter::new_async_with_service(
+                slim_name,
+                provider_config,
+                verifier_config,
+                Some(service_instance.inner()),
+            )
+            .await?;
 
             Ok((Arc::new(adapter), service_instance))
         }

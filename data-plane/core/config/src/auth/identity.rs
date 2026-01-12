@@ -4,6 +4,8 @@
 use serde::Deserialize;
 
 use crate::auth::jwt::Config as JwtConfig;
+#[cfg(not(target_family = "windows"))]
+use crate::auth::spire::SpireConfig;
 use crate::auth::static_jwt::Config as StaticJwtConfig;
 
 #[derive(Default, Debug, Clone, Deserialize, PartialEq, serde::Serialize)]
@@ -15,6 +17,8 @@ pub enum IdentityProviderConfig {
     },
     StaticJwt(StaticJwtConfig),
     Jwt(JwtConfig),
+    #[cfg(not(target_family = "windows"))]
+    Spire(SpireConfig),
     #[default]
     None,
 }
@@ -27,6 +31,8 @@ pub enum IdentityVerifierConfig {
         data: String,
     },
     Jwt(JwtConfig),
+    #[cfg(not(target_family = "windows"))]
+    Spire(SpireConfig),
     #[default]
     None,
 }

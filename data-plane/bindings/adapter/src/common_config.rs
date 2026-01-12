@@ -31,6 +31,30 @@ impl Default for SpireConfig {
     }
 }
 
+#[cfg(not(target_family = "windows"))]
+impl From<SpireConfig> for slim_config::auth::spire::SpireConfig {
+    fn from(config: SpireConfig) -> Self {
+        slim_config::auth::spire::SpireConfig {
+            socket_path: config.socket_path,
+            target_spiffe_id: config.target_spiffe_id,
+            jwt_audiences: config.jwt_audiences,
+            trust_domains: config.trust_domains,
+        }
+    }
+}
+
+#[cfg(not(target_family = "windows"))]
+impl From<slim_config::auth::spire::SpireConfig> for SpireConfig {
+    fn from(config: slim_config::auth::spire::SpireConfig) -> Self {
+        SpireConfig {
+            socket_path: config.socket_path,
+            target_spiffe_id: config.target_spiffe_id,
+            jwt_audiences: config.jwt_audiences,
+            trust_domains: config.trust_domains,
+        }
+    }
+}
+
 /// TLS certificate and key source configuration
 #[derive(uniffi::Enum, Clone, Debug, PartialEq)]
 pub enum TlsSource {
@@ -53,12 +77,7 @@ impl From<TlsSource> for slim_config::tls::common::TlsSource {
             }
             #[cfg(not(target_family = "windows"))]
             TlsSource::Spire { config } => slim_config::tls::common::TlsSource::Spire {
-                config: slim_config::auth::spire::SpireConfig {
-                    socket_path: config.socket_path,
-                    target_spiffe_id: config.target_spiffe_id,
-                    jwt_audiences: config.jwt_audiences,
-                    trust_domains: config.trust_domains,
-                },
+                config: config.into(),
             },
             #[cfg(target_family = "windows")]
             TlsSource::Spire { .. } => {
@@ -78,12 +97,7 @@ impl From<slim_config::tls::common::TlsSource> for TlsSource {
             }
             #[cfg(not(target_family = "windows"))]
             slim_config::tls::common::TlsSource::Spire { config } => TlsSource::Spire {
-                config: SpireConfig {
-                    socket_path: config.socket_path,
-                    target_spiffe_id: config.target_spiffe_id,
-                    jwt_audiences: config.jwt_audiences,
-                    trust_domains: config.trust_domains,
-                },
+                config: config.into(),
             },
             slim_config::tls::common::TlsSource::None => TlsSource::None,
         }
@@ -110,12 +124,7 @@ impl From<CaSource> for slim_config::tls::common::CaSource {
             CaSource::Pem { data } => slim_config::tls::common::CaSource::Pem { data },
             #[cfg(not(target_family = "windows"))]
             CaSource::Spire { config } => slim_config::tls::common::CaSource::Spire {
-                config: slim_config::auth::spire::SpireConfig {
-                    socket_path: config.socket_path,
-                    target_spiffe_id: config.target_spiffe_id,
-                    jwt_audiences: config.jwt_audiences,
-                    trust_domains: config.trust_domains,
-                },
+                config: config.into(),
             },
             #[cfg(target_family = "windows")]
             CaSource::Spire { .. } => {
@@ -133,12 +142,7 @@ impl From<slim_config::tls::common::CaSource> for CaSource {
             slim_config::tls::common::CaSource::Pem { data } => CaSource::Pem { data },
             #[cfg(not(target_family = "windows"))]
             slim_config::tls::common::CaSource::Spire { config } => CaSource::Spire {
-                config: SpireConfig {
-                    socket_path: config.socket_path,
-                    target_spiffe_id: config.target_spiffe_id,
-                    jwt_audiences: config.jwt_audiences,
-                    trust_domains: config.trust_domains,
-                },
+                config: config.into(),
             },
             slim_config::tls::common::CaSource::None => CaSource::None,
         }

@@ -337,9 +337,8 @@ impl From<IdentityProviderConfig> for CoreIdentityProviderConfig {
                 CoreIdentityProviderConfig::Jwt(config.into())
             }
             #[cfg(not(target_family = "windows"))]
-            IdentityProviderConfig::Spire { .. } => {
-                // Spire not supported in core config, will be handled in TryFrom<IdentityProviderConfig> for AuthProvider
-                CoreIdentityProviderConfig::None
+            IdentityProviderConfig::Spire { config } => {
+                CoreIdentityProviderConfig::Spire(config.into())
             }
             IdentityProviderConfig::None => CoreIdentityProviderConfig::None,
         }
@@ -356,6 +355,10 @@ impl From<CoreIdentityProviderConfig> for IdentityProviderConfig {
                 config: config.into(),
             },
             CoreIdentityProviderConfig::Jwt(config) => IdentityProviderConfig::Jwt {
+                config: config.into(),
+            },
+            #[cfg(not(target_family = "windows"))]
+            CoreIdentityProviderConfig::Spire(config) => IdentityProviderConfig::Spire {
                 config: config.into(),
             },
             CoreIdentityProviderConfig::None => IdentityProviderConfig::None,
@@ -387,9 +390,8 @@ impl From<IdentityVerifierConfig> for CoreIdentityVerifierConfig {
                 CoreIdentityVerifierConfig::Jwt(config.into())
             }
             #[cfg(not(target_family = "windows"))]
-            IdentityVerifierConfig::Spire { .. } => {
-                // Spire not supported in core config, will be handled in TryFrom<IdentityVerifierConfig> for AuthVerifier
-                CoreIdentityVerifierConfig::None
+            IdentityVerifierConfig::Spire { config } => {
+                CoreIdentityVerifierConfig::Spire(config.into())
             }
             IdentityVerifierConfig::None => CoreIdentityVerifierConfig::None,
         }
@@ -403,6 +405,10 @@ impl From<CoreIdentityVerifierConfig> for IdentityVerifierConfig {
                 IdentityVerifierConfig::SharedSecret { id, data }
             }
             CoreIdentityVerifierConfig::Jwt(config) => IdentityVerifierConfig::Jwt {
+                config: config.into(),
+            },
+            #[cfg(not(target_family = "windows"))]
+            CoreIdentityVerifierConfig::Spire(config) => IdentityVerifierConfig::Spire {
                 config: config.into(),
             },
             CoreIdentityVerifierConfig::None => IdentityVerifierConfig::None,

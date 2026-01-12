@@ -16,11 +16,9 @@ use std::sync::Arc;
 
 use tokio::sync::{RwLock, mpsc};
 
-use crate::client_config::ClientConfig;
 use crate::errors::SlimError;
 use crate::name::Name;
 use crate::runtime;
-use crate::server_config::ServerConfig;
 use crate::service::get_or_init_global_service;
 use crate::session_context::SessionConfig;
 
@@ -68,7 +66,7 @@ pub struct BindingsAdapter {
     notification_rx: Arc<RwLock<mpsc::Receiver<Result<Notification, SlimSessionError>>>>,
 
     /// Service instance for lifecycle management (Arc to inner SlimService)
-    service: Arc<RwLock<SlimService>>,
+    _service: Arc<RwLock<SlimService>>,
 }
 
 /// Create a new BindingsAdapter with SharedSecret authentication (helper function)
@@ -111,7 +109,7 @@ impl BindingsAdapter {
         Self {
             app,
             notification_rx,
-            service,
+            _service: service,
         }
     }
 
@@ -124,7 +122,13 @@ impl BindingsAdapter {
         identity_provider_config: IdentityProviderConfig,
         identity_verifier_config: IdentityVerifierConfig,
     ) -> Result<Self, SlimError> {
-        Self::new_async_with_service(base_name, identity_provider_config, identity_verifier_config, None).await
+        Self::new_async_with_service(
+            base_name,
+            identity_provider_config,
+            identity_verifier_config,
+            None,
+        )
+        .await
     }
 
     /// Async constructor with optional service - Create a new BindingsAdapter with complete creation logic
@@ -181,7 +185,7 @@ impl BindingsAdapter {
         Ok(Self {
             app: Arc::new(app),
             notification_rx: Arc::new(RwLock::new(rx)),
-            service: service_arc,
+            _service: service_arc,
         })
     }
 }
