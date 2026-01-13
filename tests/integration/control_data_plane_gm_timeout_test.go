@@ -4,6 +4,7 @@
 package integration
 
 import (
+	"fmt"
 	"os/exec"
 	"strings"
 	"time"
@@ -83,7 +84,7 @@ var _ = Describe("Group management through control plane with timeout", func() {
 			Expect(addChannelOutput).NotTo(BeEmpty())
 
 			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say(MsgCreateChannelRequest))
-			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(MsgChannelCreatedSuccessfully))
+			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(fmt.Sprintf(MsgChannelCreated, ".+", true)))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(MsgChannelSavedSuccessfully))
 
 			// CombinedOutput is "Received response org/default/moderator1/0-... \n"
@@ -109,9 +110,9 @@ var _ = Describe("Group management through control plane with timeout", func() {
 			time.Sleep(2000 * time.Millisecond)
 
 			Expect(errA).To(HaveOccurred())
-			Expect(string(addClientAOutput)).To(ContainSubstring("failed to add participants"))
+			Expect(string(addClientAOutput)).To(ContainSubstring("failed to add participants: unsuccessful response"))
 			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say(MsgParticipantAddRequest))
-			//TODO: Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("failed to add participant"))
+			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(fmt.Sprintf(MsgParticipantAdded, false)))
 		})
 	})
 })

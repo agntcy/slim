@@ -69,7 +69,7 @@ func newDeleteParticipantCmd(opts *options.CommonOptions) *cobra.Command {
 				return fmt.Errorf("failed to delete participant: %w", err)
 			}
 			if !deleteParticipantResponse.Success {
-				return fmt.Errorf("failed to delete participant")
+				return fmt.Errorf("failed to delete participant: unsuccessful response")
 			}
 			fmt.Printf("Participant deleted successfully from channel ID %s: %v\n", channelID, ParticipantName)
 			return nil
@@ -112,7 +112,7 @@ func newAddParticipantCmd(opts *options.CommonOptions) *cobra.Command {
 				return fmt.Errorf("failed to add participants: %w", err)
 			}
 			if !addParticipantResponse.Success {
-				return fmt.Errorf("failed to add participants")
+				return fmt.Errorf("failed to add participants: unsuccessful response")
 			}
 			fmt.Printf("Participant added successfully to channel ID %s: %v\n", channelID, ParticipantName)
 			return nil
