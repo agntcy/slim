@@ -11,6 +11,11 @@ includes:
     taskfile: ../tasks/tools.yaml
     flatten: true
 
+  go-bindings:
+    taskfile: ../data-plane/bindings/go/Taskfile.yaml
+    dir: ../data-plane/bindings/go
+
+
 vars:
   REPO_ROOT:
     sh: git rev-parse --show-toplevel
@@ -143,14 +148,29 @@ tasks:
           --plugin={{.REPO_ROOT}}/.tools/protoc-gen-go-grpc \
           controller/v1/controller.proto controlplane/v1/controlplane.proto
 
+  
+  control-plane:go-bindings:setup:
+    desc: Downloads the OS / Arch specific bindings library
+    vars:
+      _DEFAULT_XDG_CACHE_HOME: '{{.REPO_ROOT}}/.cache'
+      XDG_CACHE_HOME: '{{.XDG_CACHE_HOME | default ._DEFAULT_XDG_CACHE_HOME}}'
+    cmds:
+      - task: control-plane:modtidy
+      - |
+        mkdir -p {{.XDG_CACHE_HOME}}
+        # Run the setup tool to download native libraries
+        go run github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup@latest
+
   control-plane:slimctl:build:
     desc: Build slimctl
     deps:
       - control-plane:proto:generate
+      - control-plane:go-bindings:setup
     dir: slimctl/cmd
     cmds:
       - task: control-plane:gogen
       - |
+        CGO_ENABLED=1 \
         go build -o \
           {{.OUTPUT_DIR}}/bin/slimctl \
           -ldflags \
@@ -161,6 +181,108 @@ tasks:
             {{.FLAGS}} \
           "
     vars:
+      GIT_COMMIT:
+        sh: git log -n 1 --format=%h
+      BUILD_DATE:
+        sh: date -u +'%Y-%m-%dT%H:%M:%SZ'
+      VERSION:
+        sh: pushd {{.REPO_ROOT}} > /dev/null && task version && popd > /dev/null
+
+  control-plane:slimctl:crossbuild:
+    desc: Cross-compile slimctl using Zig (accepts TARGETOS and TARGETARCH)
+    deps:
+      - control-plane:proto:generate
+      - control-plane:go-bindings:setup
+      - go-bindings:adapter:bindings:install-zig
+    dir: slimctl/cmd
+    cmds:
+      - task: control-plane:gogen
+      - |
+        # Detect current platform
+        CURRENT_OS=$(go env GOOS)
+        CURRENT_ARCH=$(go env GOARCH)
+        
+        # Determine output binary name
+        BINARY="slimctl"
+        [ "{{.TARGETOS}}" = "windows" ] && BINARY="slimctl.exe"
+        
+        # Setup build context based on native vs cross-compilation
+        if [ "{{.TARGETOS}}" = "$CURRENT_OS" ] && [ "{{.TARGETARCH}}" = "$CURRENT_ARCH" ]; then
+          # Native build
+          echo "🔨 Building slimctl for native platform ({{.TARGETOS}}/{{.TARGETARCH}})"
+          BUILD_MODE="native"
+        else
+          # Cross-compilation - setup Zig compiler
+          echo "🔨 Cross-compiling slimctl from $CURRENT_OS/$CURRENT_ARCH to {{.TARGETOS}}/{{.TARGETARCH}}"
+          BUILD_MODE="cross"
+          
+          # Map GOOS/GOARCH to Zig target triple
+          case "{{.TARGETOS}}" in
+            linux)
+              case "{{.TARGETARCH}}" in
+                amd64) ZIG_TARGET="x86_64-linux-gnu" ;;
+                arm64) ZIG_TARGET="aarch64-linux-gnu" ;;
+                *) echo "❌ Unsupported TARGETARCH: {{.TARGETARCH}}"; exit 1 ;;
+              esac
+              ;;
+            darwin)
+              case "{{.TARGETARCH}}" in
+                amd64) ZIG_TARGET="x86_64-macos" ;;
+                arm64) ZIG_TARGET="aarch64-macos" ;;
+                *) echo "❌ Unsupported TARGETARCH: {{.TARGETARCH}}"; exit 1 ;;
+              esac
+              ;;
+            windows)
+              case "{{.TARGETARCH}}" in
+                amd64) ZIG_TARGET="x86_64-windows-gnu" ;;
+                arm64) ZIG_TARGET="aarch64-windows-gnu" ;;
+                *) echo "❌ Unsupported TARGETARCH: {{.TARGETARCH}}"; exit 1 ;;
+              esac
+              ;;
+            *)
+              echo "❌ Unsupported TARGETOS: {{.TARGETOS}}"
+              exit 1
+              ;;
+          esac
+          
+          # Verify Zig is available
+          ZIG="{{.ZIG_DIR}}/zig"
+          if [ ! -f "$ZIG" ]; then
+            echo "❌ Error: Zig binary not found at $ZIG"
+            exit 1
+          fi
+          
+          echo "   Using Zig target: $ZIG_TARGET"
+          
+          # Configure Zig as the C/C++ compiler
+          export CC="$ZIG cc -target $ZIG_TARGET"
+          export CXX="$ZIG c++ -target $ZIG_TARGET"
+        fi
+        
+        # Execute build with configured context
+        CGO_ENABLED=1 \
+        GOOS={{.TARGETOS}} \
+        GOARCH={{.TARGETARCH}} \
+        go build -o {{.OUTPUT_DIR}}/bin/$BINARY \
+          -ldflags " \
+            -X '{{.MAIN_MODULE}}/control-plane/slimctl/internal/cmd/version.semVersion={{.VERSION}}'
+            -X '{{.MAIN_MODULE}}/control-plane/slimctl/internal/cmd/version.gitCommit={{.GIT_COMMIT}}'
+            -X '{{.MAIN_MODULE}}/control-plane/slimctl/internal/cmd/version.buildDate={{.BUILD_DATE}}'
+            {{.FLAGS}} \
+          "
+        
+        # Report success
+        if [ "$BUILD_MODE" = "native" ]; then
+          echo "✅ Successfully built $BINARY for {{.TARGETOS}}/{{.TARGETARCH}}"
+        else
+          echo "✅ Successfully cross-compiled $BINARY for {{.TARGETOS}}/{{.TARGETARCH}}"
+        fi
+    vars:
+      TARGETOS: '{{.TARGETOS | default "linux"}}'
+      TARGETARCH: '{{.TARGETARCH | default "amd64"}}'
+      _DEFAULT_ZIG_DIR:
+        sh: echo "{{.REPO_ROOT}}/data-plane/bindings/adapter/.tools/zig"
+      ZIG_DIR: '{{.ZIG_DIR | default ._DEFAULT_ZIG_DIR}}'
       GIT_COMMIT:
         sh: git log -n 1 --format=%h
       BUILD_DATE:
@@ -197,7 +319,8 @@ tasks:
     cmds:
       - task: control-plane:control-plane:build
       - task: control-plane:token-service:build
-      - task: control-plane:slimctl:build
+      # - task: control-plane:slimctl:build
+
 
 
   #  control plane related tasks
