@@ -10,10 +10,9 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use slim::runtime::RuntimeConfiguration as CoreRuntimeConfiguration;
-use slim_service::ServiceConfiguration as CoreServiceConfiguration;
 use slim_tracing::TracingConfiguration as CoreTracingConfiguration;
 
-use crate::service::DataplaneConfig;
+use crate::{ServiceConfig, service::DataplaneConfig};
 
 /// Runtime configuration for the SLIM bindings
 ///
@@ -112,53 +111,6 @@ impl From<CoreTracingConfiguration> for TracingConfig {
     }
 }
 
-/// Service configuration for the SLIM bindings
-///
-/// Controls service behavior including node ID, group name, and dataplane settings.
-#[derive(uniffi::Record, Clone)]
-pub struct ServiceConfig {
-    /// Optional node ID for the service
-    pub node_id: Option<String>,
-
-    /// Optional group name for the service
-    pub group_name: Option<String>,
-
-    /// DataPlane configuration (servers and clients)
-    pub dataplane: DataplaneConfig,
-}
-
-impl Default for ServiceConfig {
-    fn default() -> Self {
-        let core = CoreServiceConfiguration::default();
-        ServiceConfig {
-            node_id: core.node_id.clone(),
-            group_name: core.group_name.clone(),
-            dataplane: DataplaneConfig::from(core.dataplane.clone()),
-        }
-    }
-}
-
-impl From<ServiceConfig> for CoreServiceConfiguration {
-    fn from(config: ServiceConfig) -> Self {
-        CoreServiceConfiguration {
-            node_id: config.node_id,
-            group_name: config.group_name,
-            dataplane: config.dataplane.into(),
-            ..Default::default()
-        }
-    }
-}
-
-impl From<CoreServiceConfiguration> for ServiceConfig {
-    fn from(config: CoreServiceConfiguration) -> Self {
-        ServiceConfig {
-            node_id: config.node_id,
-            group_name: config.group_name,
-            dataplane: DataplaneConfig::from(config.dataplane),
-        }
-    }
-}
-
 // Constructor functions for UniFFI
 
 /// Create a new BindingsRuntimeConfig with default values
@@ -225,6 +177,8 @@ pub fn new_service_config_with(
 
 #[cfg(test)]
 mod tests {
+    use slim_service::ServiceConfiguration as CoreServiceConfiguration;
+
     use super::*;
 
     #[test]

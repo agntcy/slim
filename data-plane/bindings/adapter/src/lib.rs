@@ -82,8 +82,8 @@ pub use identity_config::{
     JwtKeyConfig, JwtKeyData, JwtKeyFormat, JwtKeyType, StaticJwtAuth,
 };
 pub use init_config::{
-    RuntimeConfig, ServiceConfig, TracingConfig, new_runtime_config, new_runtime_config_with,
-    new_service_config, new_service_config_with, new_tracing_config, new_tracing_config_with,
+    RuntimeConfig, TracingConfig, new_runtime_config, new_runtime_config_with, new_service_config,
+    new_service_config_with, new_tracing_config, new_tracing_config_with,
 };
 pub use message_context::{MessageContext, ReceivedMessage};
 pub use name::Name;
@@ -91,10 +91,10 @@ pub use server_config::{
     KeepaliveServerParameters, ServerConfig, new_insecure_server_config, new_server_config,
 };
 pub use service::{
-    DataplaneConfig, Service, ServiceConfiguration, connect, create_service,
-    create_service_with_config, disconnect, get_connection_id, get_global_service,
-    get_or_init_global_service, new_dataplane_config, new_service_configuration, run_server,
-    service_config, service_name, service_run, service_shutdown, stop_server,
+    DataplaneConfig, Service, ServiceConfig, connect, create_service, create_service_with_config,
+    disconnect, get_connection_id, get_global_service, get_or_init_global_service,
+    new_dataplane_config, new_service_configuration, run_server, service_name, service_run,
+    service_shutdown, stop_server,
 };
 pub use session_context::{BindingsSessionContext, SessionConfig, SessionType};
 

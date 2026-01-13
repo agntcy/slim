@@ -16,8 +16,9 @@ use slim_config::tls::provider;
 use slim_service::ServiceConfiguration as CoreServiceConfiguration;
 use slim_tracing::TracingConfiguration as CoreTracingConfiguration;
 
+use crate::ServiceConfig;
 use crate::errors::SlimError;
-use crate::init_config::{RuntimeConfig, ServiceConfig, TracingConfig};
+use crate::init_config::{RuntimeConfig, TracingConfig};
 
 /// Global state instance
 static GLOBAL_STATE: OnceLock<GlobalState> = OnceLock::new();

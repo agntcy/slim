@@ -77,13 +77,18 @@ impl From<CoreControllerConfig> for DataplaneConfig {
 
 /// Service configuration wrapper for uniffi bindings
 #[derive(Clone, Default, uniffi::Record)]
-pub struct ServiceConfiguration {
+pub struct ServiceConfig {
+    /// Optional node ID for the service
     pub node_id: Option<String>,
+
+    /// Optional group name for the service
     pub group_name: Option<String>,
+
+    /// DataPlane configuration (servers and clients)
     pub dataplane: DataplaneConfig,
 }
 
-impl ServiceConfiguration {
+impl ServiceConfig {
     pub fn new() -> Self {
         Self {
             node_id: None,
@@ -93,8 +98,8 @@ impl ServiceConfiguration {
     }
 }
 
-impl From<ServiceConfiguration> for SlimServiceConfiguration {
-    fn from(config: ServiceConfiguration) -> Self {
+impl From<ServiceConfig> for SlimServiceConfiguration {
+    fn from(config: ServiceConfig) -> Self {
         let mut core_config = SlimServiceConfiguration::new();
         core_config.node_id = config.node_id;
         core_config.group_name = config.group_name;
@@ -103,7 +108,7 @@ impl From<ServiceConfiguration> for SlimServiceConfiguration {
     }
 }
 
-impl From<SlimServiceConfiguration> for ServiceConfiguration {
+impl From<SlimServiceConfiguration> for ServiceConfig {
     fn from(config: SlimServiceConfiguration) -> Self {
         Self {
             node_id: config.node_id,
@@ -158,7 +163,7 @@ impl Service {
 
     /// Create a new Service with configuration
     #[uniffi::constructor]
-    pub fn new_with_config(name: String, config: ServiceConfiguration) -> Self {
+    pub fn new_with_config(name: String, config: ServiceConfig) -> Self {
         let kind = Kind::new(KIND).expect("Invalid service kind");
         let id = ID::new_with_name(kind, &name).expect("Invalid service name");
         let core_config: SlimServiceConfiguration = config.into();
@@ -169,7 +174,7 @@ impl Service {
     }
 
     /// Get the service configuration
-    pub async fn config(&self) -> ServiceConfiguration {
+    pub async fn config(&self) -> ServiceConfig {
         self.inner.read().await.config().clone().into()
     }
 
@@ -320,8 +325,8 @@ impl Service {
 
 /// Create a new ServiceConfiguration
 #[uniffi::export]
-pub fn new_service_configuration() -> ServiceConfiguration {
-    ServiceConfiguration::new()
+pub fn new_service_configuration() -> ServiceConfig {
+    ServiceConfig::new()
 }
 
 /// Create a new DataplaneConfig
@@ -340,7 +345,7 @@ pub fn create_service(name: String) -> Result<Arc<Service>, SlimError> {
 #[uniffi::export]
 pub fn create_service_with_config(
     name: String,
-    config: ServiceConfiguration,
+    config: ServiceConfig,
 ) -> Result<Arc<Service>, SlimError> {
     Ok(Arc::new(Service::new_with_config(name, config)))
 }
@@ -358,12 +363,6 @@ pub fn get_global_service() -> Arc<Service> {
 // Global Service Convenience Functions
 // ============================================================================
 // These functions operate on the global service instance directly
-
-/// Get the global service configuration
-#[uniffi::export]
-pub async fn service_config() -> ServiceConfiguration {
-    get_or_init_global_service().config().await
-}
 
 /// Get the global service identifier/name
 #[uniffi::export]
@@ -506,7 +505,7 @@ mod tests {
 
     #[test]
     fn test_service_configuration_new() {
-        let config = ServiceConfiguration::new();
+        let config = ServiceConfig::new();
         assert!(config.node_id.is_none());
         assert!(config.group_name.is_none());
         assert!(config.dataplane.servers.is_empty());
@@ -515,14 +514,14 @@ mod tests {
 
     #[test]
     fn test_service_configuration_default() {
-        let config = ServiceConfiguration::default();
+        let config = ServiceConfig::default();
         assert!(config.node_id.is_none());
         assert!(config.group_name.is_none());
     }
 
     #[test]
     fn test_service_configuration_with_values() {
-        let config = ServiceConfiguration {
+        let config = ServiceConfig {
             node_id: Some("node-123".to_string()),
             group_name: Some("test-group".to_string()),
             dataplane: DataplaneConfig::default(),
@@ -534,7 +533,7 @@ mod tests {
 
     #[test]
     fn test_service_configuration_to_core_conversion() {
-        let config = ServiceConfiguration {
+        let config = ServiceConfig {
             node_id: Some("node-456".to_string()),
             group_name: Some("group-abc".to_string()),
             dataplane: DataplaneConfig::default(),
@@ -551,21 +550,21 @@ mod tests {
         core_config.node_id = Some("core-node".to_string());
         core_config.group_name = Some("core-group".to_string());
 
-        let config: ServiceConfiguration = core_config.into();
+        let config: ServiceConfig = core_config.into();
         assert_eq!(config.node_id.as_deref(), Some("core-node"));
         assert_eq!(config.group_name.as_deref(), Some("core-group"));
     }
 
     #[test]
     fn test_service_configuration_roundtrip() {
-        let original = ServiceConfiguration {
+        let original = ServiceConfig {
             node_id: Some("roundtrip-node".to_string()),
             group_name: Some("roundtrip-group".to_string()),
             dataplane: DataplaneConfig::default(),
         };
 
         let core: SlimServiceConfiguration = original.clone().into();
-        let roundtrip: ServiceConfiguration = core.into();
+        let roundtrip: ServiceConfig = core.into();
 
         assert_eq!(original.node_id, roundtrip.node_id);
         assert_eq!(original.group_name, roundtrip.group_name);
@@ -584,7 +583,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_service_new_with_config() {
-        let config = ServiceConfiguration {
+        let config = ServiceConfig {
             node_id: Some("test-node".to_string()),
             group_name: Some("test-group".to_string()),
             dataplane: DataplaneConfig::default(),
@@ -667,13 +666,6 @@ mod tests {
 
         // They should point to the same inner Arc
         assert_eq!(ptr1, ptr2);
-    }
-
-    #[tokio::test]
-    async fn test_global_service_config() {
-        let config = service_config().await;
-        // Global service should have default config initially
-        assert!(config.node_id.is_none() || config.node_id.is_some());
     }
 
     #[tokio::test]
@@ -839,7 +831,7 @@ mod tests {
 
     #[test]
     fn test_create_service_with_config() {
-        let config = ServiceConfiguration {
+        let config = ServiceConfig {
             node_id: Some("factory-node".to_string()),
             group_name: Some("factory-group".to_string()),
             dataplane: DataplaneConfig::default(),
@@ -909,7 +901,7 @@ mod tests {
             clients: vec![client_config.clone(), client_config],
         };
 
-        let service_config = ServiceConfiguration {
+        let service_config = ServiceConfig {
             node_id: Some("multi-config-node".to_string()),
             group_name: Some("multi-config-group".to_string()),
             dataplane,
@@ -924,7 +916,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_service_config_mutation_isolation() {
-        let config = ServiceConfiguration {
+        let config = ServiceConfig {
             node_id: Some("original-node".to_string()),
             group_name: Some("original-group".to_string()),
             dataplane: DataplaneConfig::default(),
