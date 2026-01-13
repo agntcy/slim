@@ -17,7 +17,7 @@ agntcy-slim-auth = { workspace = true }
 agntcy-slim-bindings = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
-agntcy-slim-service = { workspace = true }
+agntcy-slim-service = { workspace = true, features = ["session"] }
 agntcy-slim-session = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
 pyo3 = { workspace = true }
