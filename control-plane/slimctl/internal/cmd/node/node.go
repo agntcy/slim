@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/agntcy/slim/control-plane/common/options"
+	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd"
 )
 
 func NewNodeCmd(opts *options.CommonOptions) *cobra.Command {
@@ -16,7 +17,7 @@ func NewNodeCmd(opts *options.CommonOptions) *cobra.Command {
 		Short:   "Connect directly to the node to manage connections & routes.",
 		Long: `Connect directly to the node to manage connections & routes.
 In this case --server should point to the node controller endpoint.`,
-		GroupID: "node",
+		GroupID: cmd.GroupNode,
 	}
 
 	cmd.AddCommand(newRouteCmd(opts))
