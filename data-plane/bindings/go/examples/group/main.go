@@ -215,6 +215,17 @@ func keyboardLoop(session *slim.BindingsSessionContext, sourceName, channelName 
 	reader := bufio.NewReader(os.Stdin)
 
 	fmt.Printf("\n%s[%d]%s Welcome to the group %v!\n", colorCyan, instance, colorReset, channelName.Components())
+	listenerNames, err := session.ParticipantsList()
+	if err != nil {
+		log.Fatalf("Failed to get participants list: %v", err)
+	}
+
+	// Display participants
+	fmt.Printf("%s[%d]%s 👥 Participants in the group:\n", colorCyan, instance, colorReset)
+	for _, participant := range listenerNames {
+		fmt.Printf("%s[%d]%s 👤 Participant: %v\n", colorCyan, instance, colorReset, participant.Components())
+	}
+
 	fmt.Printf("%s[%d]%s Type a message and press Enter to send, or 'exit'/'quit' to leave.\n\n", colorCyan, instance, colorReset)
 	fmt.Printf("%s%v > %s", colorGreen, sourceName.Components(), colorReset)
 

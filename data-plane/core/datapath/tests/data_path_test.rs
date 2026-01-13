@@ -150,7 +150,7 @@ mod tests {
     #[traced_test]
     async fn test_disconnection() {
         // setup server from configuration
-        let mut server_conf = ServerConfig::with_endpoint("127.0.0.1:50052");
+        let mut server_conf = ServerConfig::with_endpoint("127.0.0.1:50053");
         server_conf.tls_setting.insecure = true;
 
         let processor = MessageProcessor::new();
@@ -171,7 +171,7 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         // create a client config we will attach to the connection
-        let mut client_config = ClientConfig::with_endpoint("http://127.0.0.1:50052");
+        let mut client_config = ClientConfig::with_endpoint("http://127.0.0.1:50053");
         client_config.tls_setting.insecure = true;
 
         // connect with client_config Some(...)
@@ -179,7 +179,7 @@ mod tests {
             .connect(
                 client_config.clone(),
                 None,
-                Some(SocketAddr::from(([127, 0, 0, 1], 50052))),
+                Some(SocketAddr::from(([127, 0, 0, 1], 50053))),
             )
             .await
             .expect("error creating channel");

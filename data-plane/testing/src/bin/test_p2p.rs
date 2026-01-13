@@ -77,7 +77,7 @@ impl Args {
     }
 }
 
-async fn run_client_task(name: Name) -> Result<(), ServiceError> {
+async fn run_client_task(name: Name, moderator_name: Name) -> Result<(), ServiceError> {
     /* this is the same */
     println!("client {} task starting...", name);
 
@@ -96,6 +96,16 @@ async fn run_client_task(name: Name) -> Result<(), ServiceError> {
                             Notification::NewSession(session_ctx) => {
                                 println!("create new session on client {}", name_clone);
                                 let name_clone_session = name_clone.clone();
+                                let session_arc = session_ctx.session_arc().unwrap();
+                                let list = session_arc.participants_list().await?;
+                                println!("Participant {}: session participants: {:?}", name_clone_session, list);
+                                // check participants list
+                                assert_eq!(list.len(), 2, "Expected 2 participants in the session");
+                                assert!(list.iter().any(|n| n.components_strings() == name_clone_session.components_strings()),
+                                    "Participants list should contain the client name");
+                                assert!(list.iter().any(|n| n.components_strings() == moderator_name.components_strings()),
+                                    "Participants list should contain the moderator name");
+
                                 session_ctx.spawn_receiver(move |mut rx, weak| async move {
                                     loop{
                                         match rx.recv().await {
@@ -160,6 +170,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         mls_enabled, apps, !without_slim, multiple_remotes
     );
 
+    // moderator name
+    let moderator_name = Name::from_strings(["org", "ns", "moderator"]).with_id(1);
+
     // start slim node
     if !without_slim {
         tokio::spawn(async move {
@@ -183,8 +196,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for i in 0..tot_clients {
         let c = clients[0].clone().with_id(i.into());
         clients.push(c.clone());
+        let moderator = moderator_name.clone();
         tokio::spawn(async move {
-            let _ = run_client_task(c).await;
+            let _ = run_client_task(c, moderator).await;
         });
     }
 
@@ -192,17 +206,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for i in 0..tot_clients {
         let c = clients[1].clone().with_id(i.into());
         clients.push(c.clone());
+        let moderator = moderator_name.clone();
         tokio::spawn(async move {
-            let _ = run_client_task(c).await;
+            let _ = run_client_task(c, moderator).await;
         });
     }
 
     // start moderator
-    let name = Name::from_strings(["org", "ns", "main"]).with_id(1);
 
     let svc = build_client_service(DEFAULT_DATAPLANE_PORT, DEFAULT_SERVICE_ID);
 
-    let (app, _rx, conn_id, _svc) = create_and_subscribe_app(svc, &name).await?;
+    let (app, _rx, conn_id, _svc) = create_and_subscribe_app(svc, &moderator_name.clone()).await?;
 
     let conf = SessionConfig {
         session_type: slim_datapath::api::ProtoSessionType::PointToPoint,
@@ -252,6 +266,49 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
+
+    for session in &sessions {
+        let session_arc = session.session_arc().unwrap();
+        let list = session_arc.participants_list().await?;
+        println!("Moderator: session participants: {:?}", list);
+        if multiple_remotes {
+            // check that each session has 2 participants: moderator and one of the two clients
+            assert_eq!(
+                list.len(),
+                2,
+                "Expected 2 participants in the moderator session"
+            );
+            assert!(
+                list.iter()
+                    .any(|n| n.components_strings() == moderator_name.components_strings()),
+                "Participants list should contain the moderator name"
+            );
+            assert!(
+                list.iter().any(
+                    |n| n.components_strings() == client_1_name.components_strings()
+                        || n.components_strings() == client_2_name.components_strings()
+                ),
+                "Participants list should contain the client name"
+            );
+        } else {
+            // check that each session has 2 participants: moderator and client-1
+            assert_eq!(
+                list.len(),
+                2,
+                "Expected 2 participants in the moderator session"
+            );
+            assert!(
+                list.iter()
+                    .any(|n| n.components_strings() == moderator_name.components_strings()),
+                "Participants list should contain the moderator name"
+            );
+            assert!(
+                list.iter()
+                    .any(|n| n.components_strings() == client_1_name.components_strings()),
+                "Participants list should contain the client-1 name"
+            );
+        }
+    }
 
     // listen for messages
     let max_packets = 50;

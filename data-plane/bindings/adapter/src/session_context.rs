@@ -641,7 +641,6 @@ impl BindingsSessionContext {
             .ok_or_else(|| SlimError::SessionError {
                 message: "Session already closed or dropped".to_string(),
             })?;
-
         Ok(session.metadata())
     }
 
@@ -655,6 +654,29 @@ impl BindingsSessionContext {
             })?;
 
         Ok(session.session_config().into())
+    }
+
+    /// Get list of participants in the session
+    pub async fn participants_list_async(&self) -> Result<Vec<Arc<Name>>, SlimError> {
+        let session = self
+            .session
+            .upgrade()
+            .ok_or_else(|| SlimError::SessionError {
+                message: "Session already closed or dropped".to_string(),
+            })?;
+
+        session
+            .participants_list()
+            .await
+            .map(|list| list.into_iter().map(|n| Arc::new(Name::from(n))).collect())
+            .map_err(|e| SlimError::SessionError {
+                message: format!("Failed to get participants list: {}", e),
+            })
+    }
+
+    /// Get list of participants in the session (blocking version for FFI)
+    pub fn participants_list(&self) -> Result<Vec<Arc<Name>>, SlimError> {
+        runtime::get_runtime().block_on(async { self.participants_list_async().await })
     }
 }
 
@@ -1205,6 +1227,19 @@ mod tests {
     async fn test_is_initiator_session_missing() {
         let (ctx, _tx) = make_context();
         let result = ctx.is_initiator();
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            SlimError::SessionError { message } => {
+                assert!(message.contains("closed") || message.contains("dropped"));
+            }
+            _ => panic!("Expected SessionError"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_participants_list_session_missing() {
+        let (ctx, _tx) = make_context();
+        let result = ctx.participants_list_async().await;
         assert!(result.is_err());
         match result.unwrap_err() {
             SlimError::SessionError { message } => {

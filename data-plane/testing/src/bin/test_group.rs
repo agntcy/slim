@@ -172,12 +172,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // invite N-1 participants
     for c in participants.iter().take(tot_participants - 1) {
         println!("Invite participant {}", c);
-        session_ctx
+        let handler = session_ctx
             .session_arc()
             .unwrap()
             .invite_participant(c)
             .await
             .expect("error sending invite message");
+        handler
+            .await
+            .expect("error awaiting the execution of the participant invite");
     }
 
     // listen for messages
@@ -187,6 +190,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Clone the Arc to session for later use
     let session_arc = session_ctx.session_arc().unwrap();
+
+    let list = session_arc.participants_list().await?;
+    println!("Moderator: session participants: {:?}", list);
+    assert_eq!(
+        list.len(),
+        tot_participants, // moderator + N-1 participants
+        "Expected {} participants in the moderator session",
+        tot_participants
+    );
 
     session_ctx.spawn_receiver(move |mut rx, _weak| async move {
         loop {
@@ -259,6 +271,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .await
                 .expect("error awaiting the execution of the participant remove");
 
+            let list = session_arc.participants_list().await?;
+            println!("Moderator: session participants after remove: {:?}", list);
+            assert_eq!(
+                list.len(),
+                tot_participants - 1, // moderator + N-2 participants
+                "Expected {} participants in the moderator session",
+                tot_participants - 1
+            );
+            assert!(list.iter().all(|n| n.components_strings() != participants[to_remove].components_strings()),
+                "Participants to remove is still present in the session");
+
             let handler = session_arc
                 .invite_participant(&participants[to_add])
                 .await
@@ -266,6 +289,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             handler
                 .await
                 .expect("error awaiting the execution of the participant add");
+
+            let list = session_arc.participants_list().await?;
+            println!("Moderator: session participants after remove: {:?}", list);
+            assert_eq!(
+                list.len(),
+                tot_participants, // moderator + N-1 participants
+                "Expected {} participants in the moderator session",
+                tot_participants
+            );
+            assert!(
+                list.iter()
+                    .any(|n| n.components_strings() == participants[to_add].components_strings()),
+                "Participants to add is not present in the session"
+            );
+
             to_remove = (to_remove + 1) % tot_participants;
             to_add = (to_add + 1) % tot_participants;
 
