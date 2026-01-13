@@ -54,6 +54,9 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4 # v4.2.2
 
+    - name: Disk cleanup
+      uses: ./.github/actions/cleanup-disk
+
     - name: Log language being analyzed
       run: |
         echo "🔍 Starting CodeQL analysis for: ${{ matrix.language }}"
