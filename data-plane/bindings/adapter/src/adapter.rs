@@ -18,7 +18,7 @@ use tokio::sync::{RwLock, mpsc};
 
 use crate::errors::SlimError;
 use crate::name::Name;
-use crate::runtime;
+
 use crate::service::get_or_init_global_service;
 use crate::session_context::SessionConfig;
 
@@ -215,7 +215,7 @@ impl BindingsAdapter {
         identity_provider_config: IdentityProviderConfig,
         identity_verifier_config: IdentityVerifierConfig,
     ) -> Result<Arc<Self>, SlimError> {
-        runtime::get_runtime().block_on(async {
+        crate::config::get_runtime().block_on(async {
             Self::new_async(
                 base_name.as_ref().into(),
                 identity_provider_config,
@@ -245,7 +245,7 @@ impl BindingsAdapter {
         config: SessionConfig,
         destination: Arc<Name>,
     ) -> Result<SessionWithCompletion, SlimError> {
-        runtime::get_runtime()
+        crate::config::get_runtime()
             .block_on(async { self.create_session_async(config, destination).await })
     }
 
@@ -287,7 +287,7 @@ impl BindingsAdapter {
         config: SessionConfig,
         destination: Arc<Name>,
     ) -> Result<Arc<crate::BindingsSessionContext>, SlimError> {
-        runtime::get_runtime().block_on(async {
+        crate::config::get_runtime().block_on(async {
             self.create_session_and_wait_async(config, destination)
                 .await
         })
@@ -314,7 +314,7 @@ impl BindingsAdapter {
         &self,
         session: Arc<crate::BindingsSessionContext>,
     ) -> Result<Arc<crate::CompletionHandle>, SlimError> {
-        runtime::get_runtime().block_on(async { self.delete_session_async(session).await })
+        crate::config::get_runtime().block_on(async { self.delete_session_async(session).await })
     }
 
     /// Delete a session (async version)
@@ -344,7 +344,8 @@ impl BindingsAdapter {
         &self,
         session: Arc<crate::BindingsSessionContext>,
     ) -> Result<(), SlimError> {
-        runtime::get_runtime().block_on(async { self.delete_session_and_wait_async(session).await })
+        crate::config::get_runtime()
+            .block_on(async { self.delete_session_and_wait_async(session).await })
     }
 
     /// Delete a session and wait for completion (async version)
@@ -360,7 +361,8 @@ impl BindingsAdapter {
 
     /// Subscribe to a session name (blocking version for FFI)
     pub fn subscribe(&self, name: Arc<Name>, connection_id: Option<u64>) -> Result<(), SlimError> {
-        runtime::get_runtime().block_on(async { self.subscribe_async(name, connection_id).await })
+        crate::config::get_runtime()
+            .block_on(async { self.subscribe_async(name, connection_id).await })
     }
 
     /// Subscribe to a name (async version)
@@ -380,7 +382,8 @@ impl BindingsAdapter {
         name: Arc<Name>,
         connection_id: Option<u64>,
     ) -> Result<(), SlimError> {
-        runtime::get_runtime().block_on(async { self.unsubscribe_async(name, connection_id).await })
+        crate::config::get_runtime()
+            .block_on(async { self.unsubscribe_async(name, connection_id).await })
     }
 
     /// Unsubscribe from a name (async version)
@@ -396,7 +399,8 @@ impl BindingsAdapter {
 
     /// Set a route to a name for a specific connection (blocking version for FFI)
     pub fn set_route(&self, name: Arc<Name>, connection_id: u64) -> Result<(), SlimError> {
-        runtime::get_runtime().block_on(async { self.set_route_async(name, connection_id).await })
+        crate::config::get_runtime()
+            .block_on(async { self.set_route_async(name, connection_id).await })
     }
 
     /// Set a route to a name for a specific connection (async version)
@@ -412,7 +416,7 @@ impl BindingsAdapter {
 
     /// Remove a route (blocking version for FFI)
     pub fn remove_route(&self, name: Arc<Name>, connection_id: u64) -> Result<(), SlimError> {
-        runtime::get_runtime()
+        crate::config::get_runtime()
             .block_on(async { self.remove_route_async(name, connection_id).await })
     }
 
@@ -432,7 +436,7 @@ impl BindingsAdapter {
         &self,
         timeout: Option<std::time::Duration>,
     ) -> Result<Arc<crate::BindingsSessionContext>, SlimError> {
-        runtime::get_runtime().block_on(async { self.listen_for_session_async(timeout).await })
+        crate::get_runtime().block_on(async { self.listen_for_session_async(timeout).await })
     }
 
     /// Listen for incoming sessions (async version)

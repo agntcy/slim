@@ -23,8 +23,8 @@ agntcy-slim-tracing = { workspace = true }
 
 # External dependencies
 display-error-chain = { workspace = true }
-num_cpus = { workspace = true }
 parking_lot = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }

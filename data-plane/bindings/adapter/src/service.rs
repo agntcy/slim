@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
@@ -15,8 +15,8 @@ use slim_config::auth::identity::{
     IdentityProviderConfig as CoreIdentityProviderConfig,
     IdentityVerifierConfig as CoreIdentityVerifierConfig,
 };
+use slim_config::component::Component;
 use slim_config::component::id::{ID, Kind};
-use slim_config::component::{Component, ComponentBuilder};
 use slim_config::grpc::client::ClientConfig as CoreClientConfig;
 use slim_config::grpc::server::ServerConfig as CoreServerConfig;
 use slim_controller::config::Config as CoreControllerConfig;
@@ -27,21 +27,9 @@ use slim_service::{
 
 use crate::name::Name;
 
-// Global static service instance for bindings
-pub(crate) static GLOBAL_SERVICE: OnceLock<Arc<Service>> = OnceLock::new();
-
 /// Get or initialize the global service for bindings
 pub fn get_or_init_global_service() -> Arc<Service> {
-    GLOBAL_SERVICE
-        .get_or_init(|| {
-            let slim_service = SlimService::builder()
-                .build("global-bindings-service".to_string())
-                .expect("Failed to create global bindings service");
-            Arc::new(Service {
-                inner: Arc::new(RwLock::new(slim_service)),
-            })
-        })
-        .clone()
+    crate::config::get_service()
 }
 
 /// DataPlane configuration wrapper for uniffi bindings

@@ -9,7 +9,7 @@ use parking_lot::Mutex;
 
 use slim_session::CompletionHandle as SlimCompletionHandle;
 
-use crate::{SlimError, runtime};
+use crate::SlimError;
 
 /// FFI-compatible completion handle for async operations
 ///
@@ -60,7 +60,7 @@ impl CompletionHandle {
     /// * `Ok(())` - Operation completed successfully
     /// * `Err(SlimError)` - Operation failed or handle already consumed
     pub fn wait(self: std::sync::Arc<Self>) -> Result<(), SlimError> {
-        runtime::get_runtime().block_on(self.wait_async())
+        crate::config::get_runtime().block_on(self.wait_async())
     }
 
     /// Wait for the operation to complete with a timeout (blocking version)
@@ -83,7 +83,7 @@ impl CompletionHandle {
         self: std::sync::Arc<Self>,
         timeout: std::time::Duration,
     ) -> Result<(), SlimError> {
-        runtime::get_runtime().block_on(self.wait_for_async(timeout))
+        crate::config::get_runtime().block_on(self.wait_for_async(timeout))
     }
 
     /// Wait for the operation to complete indefinitely (async version)

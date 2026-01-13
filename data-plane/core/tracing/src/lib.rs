@@ -38,6 +38,10 @@ pub enum ConfigError {
     // Filter parsing / directives
     #[error("error parsing filter directives")]
     FilterParseError(#[from] tracing_subscriber::filter::ParseError),
+
+    // Tracing subscriber initialization
+    #[error("error setting up tracing subscriber")]
+    TracingSetupError(#[from] tracing_subscriber::util::TryInitError),
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -542,7 +546,7 @@ impl TracingConfiguration {
                 .with(fmt_layer)
                 .with(MetricsLayer::new(meter_provider.clone()))
                 .with(OpenTelemetryLayer::new(tracer))
-                .init();
+                .try_init()?;
 
             Ok(OtelGuard {
                 tracer_provider: Some(tracer_provider),
@@ -553,7 +557,7 @@ impl TracingConfiguration {
             tracing_subscriber::registry()
                 .with(level_filter)
                 .with(fmt_layer)
-                .init();
+                .try_init()?;
 
             Ok(OtelGuard {
                 tracer_provider: None,

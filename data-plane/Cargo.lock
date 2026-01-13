@@ -88,8 +88,8 @@ dependencies = [
  "agntcy-slim-testing",
  "agntcy-slim-tracing",
  "display-error-chain",
- "num_cpus",
  "parking_lot",
+ "serde",
  "serde_json",
  "thiserror 2.0.17",
  "tokio",
@@ -242,7 +242,6 @@ dependencies = [
  "pyo3-async-runtimes",
  "pyo3-stub-gen",
  "serde-pyobject",
- "tokio",
 ]
 
 [[package]]

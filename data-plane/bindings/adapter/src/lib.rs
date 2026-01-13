@@ -52,9 +52,9 @@ mod completion_handle;
 mod config;
 mod errors;
 mod identity_config;
+mod init_config;
 mod message_context;
 mod name;
-mod runtime;
 mod server_config;
 mod service;
 mod session_context;
@@ -71,19 +71,22 @@ pub use common_config::{
     TlsClientConfig, TlsServerConfig, TlsSource,
 };
 pub use completion_handle::CompletionHandle;
+pub use config::get_runtime;
 pub use config::{
     get_runtime_config, get_service_config, get_tracing_config, initialize_from_config,
-    initialize_with_defaults, is_initialized, shutdown, shutdown_blocking,
-    wait_for_shutdown_signal, wait_for_shutdown_signal_blocking,
+    initialize_with_configs, initialize_with_defaults, is_initialized, shutdown, shutdown_blocking,
 };
 pub use errors::SlimError;
 pub use identity_config::{
     ClientJwtAuth, IdentityProviderConfig, IdentityVerifierConfig, JwtAlgorithm, JwtAuth,
     JwtKeyConfig, JwtKeyData, JwtKeyFormat, JwtKeyType, StaticJwtAuth,
 };
+pub use init_config::{
+    RuntimeConfig, ServiceConfig, TracingConfig, new_runtime_config, new_runtime_config_with,
+    new_service_config, new_service_config_with, new_tracing_config, new_tracing_config_with,
+};
 pub use message_context::{MessageContext, ReceivedMessage};
 pub use name::Name;
-pub use runtime::get_runtime;
 pub use server_config::{
     KeepaliveServerParameters, ServerConfig, new_insecure_server_config, new_server_config,
 };
