@@ -29,7 +29,7 @@ use crate::api::proto::api::v1::{
     controller_service_server::ControllerService as GrpcControllerService,
 };
 use crate::errors::ControllerError;
-use prost_types::{ListValue, Struct, Value, value};
+use prost_types::Struct;
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::traits::TokenProvider;
 use slim_config::grpc::client::ClientConfig;
@@ -167,40 +167,13 @@ impl Drop for ControlPlane {
     }
 }
 
-/// Convert slim_auth::metadata::MetadataValue to protobuf Value
-fn convert_metadata_value(value: &slim_auth::metadata::MetadataValue) -> Value {
-    use slim_auth::metadata::MetadataValue as SlimMetadataValue;
-
-    let kind = match value {
-        SlimMetadataValue::String(s) => value::Kind::StringValue(s.clone()),
-        SlimMetadataValue::Number(n) => {
-            // Convert serde_json::Number to f64
-            value::Kind::NumberValue(n.as_f64().unwrap_or_else(|| n.as_i64().unwrap_or(0) as f64))
-        }
-        SlimMetadataValue::List(list) => {
-            let values = list.iter().map(convert_metadata_value).collect();
-            value::Kind::ListValue(ListValue { values })
-        }
-        SlimMetadataValue::Map(map) => {
-            let fields = map
-                .inner
-                .iter()
-                .map(|(k, v)| (k.clone(), convert_metadata_value(v)))
-                .collect();
-            value::Kind::StructValue(Struct { fields })
-        }
-    };
-
-    Value { kind: Some(kind) }
-}
-
 pub(crate) fn from_server_config(server_config: &ServerConfig) -> ConnectionDetails {
     // Convert metadata from MetadataMap to proto Struct
     let metadata = server_config.metadata.as_ref().map(|m| {
         let fields = m
             .inner
             .iter()
-            .map(|(k, v)| (k.clone(), convert_metadata_value(v)))
+            .map(|(k, v)| (k.clone(), prost_types::Value::from(v)))
             .collect();
         Struct { fields }
     });
