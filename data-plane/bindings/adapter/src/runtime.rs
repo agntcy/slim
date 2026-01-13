@@ -28,27 +28,10 @@ pub fn initialize_runtime_from_config(config: &RuntimeConfiguration) -> Result<(
     }
 
     let runtime = build_runtime_from_config(config);
-    GLOBAL_RUNTIME.set(runtime).map_err(|_| "Failed to set global runtime".to_string())?;
-    
-    Ok(())
-}
+    GLOBAL_RUNTIME
+        .set(runtime)
+        .map_err(|_| "Failed to set global runtime".to_string())?;
 
-/// Initialize the global runtime with default configuration
-///
-/// Uses the same defaults as the main SLIM application would use.
-///
-/// # Returns
-/// * `Ok(())` - Runtime successfully initialized
-/// * `Err(String)` - If runtime is already initialized
-pub fn initialize_runtime_with_defaults() -> Result<(), String> {
-    if GLOBAL_RUNTIME.get().is_some() {
-        return Err("Runtime already initialized".to_string());
-    }
-
-    let config = RuntimeConfiguration::default();
-    let runtime = build_runtime_from_config(&config);
-    GLOBAL_RUNTIME.set(runtime).map_err(|_| "Failed to set global runtime".to_string())?;
-    
     Ok(())
 }
 

@@ -26,12 +26,15 @@ struct GlobalConfig {
     /// The tracing guard must be kept alive for the duration of the program
     #[allow(dead_code)]
     tracing_guard: Option<Box<dyn std::any::Any + Send + Sync>>,
-    
+
     /// Runtime configuration
     runtime_config: RuntimeConfiguration,
-    
+
     /// Tracing configuration
     tracing_config: TracingConfiguration,
+
+    /// Service configuration
+    service_config: ServiceConfiguration,
 }
 
 /// Initialize SLIM bindings from a configuration file
@@ -66,38 +69,13 @@ pub fn initialize_from_config(config_path: String) -> Result<(), SlimError> {
     }
 
     // Load configuration
-    let mut config = ConfigLoader::new(&config_path)
-        .map_err(|e| SlimError::ConfigError { 
-            message: format!("Failed to load configuration: {}", e) 
-        })?;
+    let mut config = ConfigLoader::new(&config_path).map_err(|e| SlimError::ConfigError {
+        message: format!("Failed to load configuration: {}", e),
+    })?;
 
-    // Initialize crypto provider (must be done before any TLS operations)
-    provider::initialize_crypto_provider();
-
-    // Get runtime configuration and initialize the global runtime
-    // Runtime may already be initialized by get_runtime(), that's OK
+    // Get configurations
     let runtime_config = config.runtime().clone();
-    let _ = crate::runtime::initialize_runtime_from_config(&runtime_config);
-
-    // Get tracing configuration
     let tracing_conf = config.tracing().clone();
-    
-    // Setup tracing subscriber (may fail if already set, which is OK)
-    let guard = match tracing_conf.setup_tracing_subscriber() {
-        Ok(g) => {
-            debug!(?tracing_conf, "Tracing configuration loaded");
-            info!("SLIM bindings initialized from configuration file");
-            Some(Box::new(g) as Box<dyn std::any::Any + Send + Sync>)
-        }
-        Err(e) => {
-            debug!("Tracing subscriber already set or failed to initialize: {}", e);
-            None
-        }
-    };
-
-    // Initialize and start the global service
-    // If services are defined in config, use the first one's configuration
-    // Otherwise, use default (empty) configuration
     let service_config = match config.services() {
         Ok(services) => {
             if let Some(service) = services.values().next() {
@@ -114,26 +92,8 @@ pub fn initialize_from_config(config_path: String) -> Result<(), SlimError> {
         }
     };
 
-    // Initialize the global service with config and start it
-    let runtime = crate::runtime::get_runtime();
-    runtime.block_on(async {
-        initialize_and_start_global_service(service_config).await
-    })?;
-
-    // Store the guard and all configurations
-    let global_config = GlobalConfig {
-        tracing_guard: guard,
-        runtime_config,
-        tracing_config: tracing_conf,
-    };
-
-    GLOBAL_CONFIG.set(global_config).map_err(|_| {
-        SlimError::ConfigError {
-            message: "Failed to set global config (already initialized)".to_string(),
-        }
-    })?;
-
-    Ok(())
+    // Perform initialization
+    initialize_internal(runtime_config, tracing_conf, service_config)
 }
 
 /// Initialize SLIM bindings with default configuration
@@ -153,44 +113,59 @@ pub fn initialize_with_defaults() -> Result<(), SlimError> {
         return Ok(());
     }
 
-    // Initialize crypto provider
+    // Use default configurations
+    initialize_internal(
+        RuntimeConfiguration::default(),
+        TracingConfiguration::default(),
+        ServiceConfiguration::default(),
+    )
+}
+
+/// Internal initialization function with common logic
+fn initialize_internal(
+    runtime_config: RuntimeConfiguration,
+    tracing_conf: TracingConfiguration,
+    service_config: ServiceConfiguration,
+) -> Result<(), SlimError> {
+    // Initialize crypto provider (must be done before any TLS operations)
     provider::initialize_crypto_provider();
 
-    // Initialize runtime with defaults (may already be initialized by get_runtime())
-    let _ = crate::runtime::initialize_runtime_with_defaults();
+    // Initialize runtime (may already be initialized by get_runtime(), that's OK)
+    let _ = crate::runtime::initialize_runtime_from_config(&runtime_config);
 
-    // Setup default tracing (may fail if already set, which is OK)
-    let tracing_conf = TracingConfiguration::default();
+    // Setup tracing subscriber (may fail if already set, which is OK)
     let guard = match tracing_conf.setup_tracing_subscriber() {
         Ok(g) => {
-            debug!("Tracing configuration: using defaults");
-            info!("SLIM bindings initialized with default configuration");
+            debug!(?tracing_conf, "Tracing configuration loaded");
+            info!("SLIM bindings initialized");
             Some(Box::new(g) as Box<dyn std::any::Any + Send + Sync>)
         }
         Err(e) => {
-            debug!("Tracing subscriber already set or failed to initialize: {}", e);
+            debug!(
+                "Tracing subscriber already set or failed to initialize: {}",
+                e
+            );
             None
         }
     };
 
-    // Initialize the global service with defaults (no config) and start it
-    let runtime = crate::runtime::get_runtime();
-    runtime.block_on(async {
-        initialize_and_start_global_service(ServiceConfiguration::default()).await
-    })?;
-
-    // Store the guard and default configurations
+    // Store the configuration before moving service_config
     let global_config = GlobalConfig {
         tracing_guard: guard,
-        runtime_config: RuntimeConfiguration::default(),
-        tracing_config: TracingConfiguration::default(),
+        runtime_config,
+        tracing_config: tracing_conf,
+        service_config: service_config.clone(),
     };
 
-    GLOBAL_CONFIG.set(global_config).map_err(|_| {
-        SlimError::ConfigError {
+    // Initialize the global service with config and start it
+    let runtime = crate::runtime::get_runtime();
+    runtime.block_on(async { initialize_and_start_global_service(service_config).await })?;
+
+    GLOBAL_CONFIG
+        .set(global_config)
+        .map_err(|_| SlimError::ConfigError {
             message: "Failed to set global config (already initialized)".to_string(),
-        }
-    })?;
+        })?;
 
     Ok(())
 }
@@ -221,12 +196,14 @@ pub fn get_tracing_config() -> TracingConfiguration {
         .unwrap_or_default()
 }
 
-/// Get the configured drain timeout
+/// Get the service configuration
 ///
-/// Returns the drain timeout from the runtime configuration, or a default
-/// of 10 seconds if not initialized.
-pub fn get_drain_timeout() -> std::time::Duration {
-    get_runtime_config().drain_timeout()
+/// Returns the service configuration, or the default if not initialized.
+pub fn get_service_config() -> ServiceConfiguration {
+    GLOBAL_CONFIG
+        .get()
+        .map(|config| config.service_config.clone())
+        .unwrap_or_default()
 }
 
 /// Initialize the global service with configuration and start it
@@ -240,7 +217,7 @@ async fn initialize_and_start_global_service(
 ) -> Result<(), SlimError> {
     use slim_config::component::{Component, ComponentBuilder};
     use slim_service::ServiceBuilder;
-    
+
     // Create service with configuration
     debug!("Creating global service with configuration");
     let mut slim_service = ServiceBuilder::new()
@@ -260,7 +237,9 @@ async fn initialize_and_start_global_service(
             // Check if the error is due to no servers/clients configured
             // This is acceptable for bindings that may not need network layer
             if e.to_string().contains("no server or client configured") {
-                debug!("No servers or clients configured, service initialized without network layer");
+                debug!(
+                    "No servers or clients configured, service initialized without network layer"
+                );
             } else {
                 return Err(SlimError::ServiceError {
                     message: format!("Failed to start service: {}", e),
@@ -295,19 +274,19 @@ async fn initialize_and_start_global_service(
 /// ```ignore
 /// // Initialize
 /// initialize_from_config("/path/to/config.yaml")?;
-/// 
+///
 /// // Start your services/adapters
 /// let app = create_app_with_secret(name, "secret")?;
-/// 
+///
 /// // Wait for shutdown signal
 /// wait_for_shutdown_signal().await;
-/// 
+///
 /// // Perform cleanup
 /// shutdown().await?;
 /// ```
 pub async fn wait_for_shutdown_signal() {
     use tracing::debug;
-    
+
     tokio::select! {
         _ = slim_signal::shutdown() => {
             debug!("Received shutdown signal");
@@ -324,13 +303,13 @@ pub async fn wait_for_shutdown_signal() {
 /// ```ignore
 /// // Initialize
 /// initialize_from_config("/path/to/config.yaml")?;
-/// 
+///
 /// // Start your services/adapters
 /// let app = create_app_with_secret(name, "secret")?;
-/// 
+///
 /// // Wait for shutdown signal (blocks until Ctrl+C)
 /// wait_for_shutdown_signal_blocking();
-/// 
+///
 /// // Perform cleanup
 /// shutdown_blocking()?;
 /// ```
@@ -360,26 +339,29 @@ pub fn wait_for_shutdown_signal_blocking() {
 /// ```
 pub async fn shutdown() -> Result<(), SlimError> {
     use tracing::info;
-    
+
     info!("Performing graceful shutdown");
-    
+
     // Get the drain timeout from configuration
-    let drain_timeout = get_drain_timeout();
-    
+    let drain_timeout = get_runtime_config().drain_timeout();
+
     // Get the global service if it exists
     let service_opt = crate::service::GLOBAL_SERVICE.get();
-    
+
     if let Some(service) = service_opt {
         let inner = service.inner.read().await;
         info!("Stopping global service");
-        inner.shutdown_with_timeout(drain_timeout).await.map_err(|e| SlimError::ServiceError {
-            message: format!("Failed to shutdown service: {}", e),
-        })?;
+        inner
+            .shutdown_with_timeout(drain_timeout)
+            .await
+            .map_err(|e| SlimError::ServiceError {
+                message: format!("Failed to shutdown service: {}", e),
+            })?;
         info!("Global service stopped");
     } else {
         debug!("No global service to shutdown");
     }
-    
+
     info!("Graceful shutdown complete");
     Ok(())
 }
@@ -402,25 +384,23 @@ pub fn shutdown_blocking() -> Result<(), SlimError> {
 mod tests {
     use super::*;
     use std::time::Duration;
-    
+
     #[tokio::test]
     async fn test_wait_for_shutdown_signal_with_timeout() {
         // Test that the wait function can be cancelled with a timeout
-        let result = tokio::time::timeout(
-            Duration::from_millis(100),
-            wait_for_shutdown_signal()
-        ).await;
-        
+        let result =
+            tokio::time::timeout(Duration::from_millis(100), wait_for_shutdown_signal()).await;
+
         // Should timeout since no signal is sent
         assert!(result.is_err(), "Should timeout waiting for signal");
     }
-    
+
     #[test]
     fn test_shutdown_functions_exist() {
         // Just verify the API exists and can be called
         // We don't actually shut down in tests to avoid interfering with other tests
         // that use the global service
-        
+
         // Verify functions are callable (but don't execute shutdown)
         // This is sufficient to ensure the API is exposed correctly
     }
@@ -453,16 +433,18 @@ mod tests {
         // Try to initialize from a file that doesn't exist
         // If already initialized, will return Ok (idempotent)
         // If not initialized, will return ConfigError
-        let result = initialize_from_config("/this/path/definitely/does/not/exist.yaml".to_string());
-        
+        let result =
+            initialize_from_config("/this/path/definitely/does/not/exist.yaml".to_string());
+
         // Either succeeds (already initialized) or fails with ConfigError
         if let Err(e) = result {
             match e {
                 SlimError::ConfigError { message } => {
                     assert!(
-                        message.contains("Failed to load configuration") || 
-                        message.contains("already initialized"),
-                        "Unexpected error message: {}", message
+                        message.contains("Failed to load configuration")
+                            || message.contains("already initialized"),
+                        "Unexpected error message: {}",
+                        message
                     );
                 }
                 _ => panic!("Expected ConfigError variant, got: {:?}", e),
@@ -484,9 +466,8 @@ mod tests {
     fn test_get_runtime_config() {
         // Test getting runtime config
         let runtime_config = get_runtime_config();
-        
+
         // Should return a valid config (either from init or default)
-        assert!(runtime_config.n_cores() >= 0);
         assert!(!runtime_config.thread_name().is_empty());
         assert!(runtime_config.drain_timeout().as_secs() > 0);
     }
@@ -495,19 +476,20 @@ mod tests {
     fn test_get_tracing_config() {
         // Test getting tracing config
         let tracing_config = get_tracing_config();
-        
+
         // Should return a valid config (either from init or default)
         assert!(!tracing_config.log_level().is_empty());
     }
 
     #[test]
-    fn test_get_drain_timeout() {
-        // Test getting drain timeout
-        let timeout = get_drain_timeout();
-        
-        // Should return a valid timeout
-        assert!(timeout.as_secs() > 0);
-        assert!(timeout.as_secs() <= 3600); // Reasonable upper bound
+    fn test_get_service_config() {
+        // Test getting service config
+        let service_config = get_service_config();
+
+        // Should return a valid config (either from init or default)
+        // Just verify we can access the config fields
+        let _ = &service_config.node_id;
+        let _ = &service_config.group_name;
     }
 
     #[test]
@@ -515,11 +497,14 @@ mod tests {
         // Even if not initialized, getters should return defaults
         let runtime_config = get_runtime_config();
         let tracing_config = get_tracing_config();
-        let drain_timeout = get_drain_timeout();
-        
+        let service_config = get_service_config();
+
         // All should be valid
-        assert!(runtime_config.n_cores() >= 0);
+        // n_cores is usize, always >= 0, so just check it exists
+        let _ = runtime_config.n_cores();
         assert!(!tracing_config.log_level().is_empty());
-        assert!(drain_timeout.as_secs() > 0);
+        // Service config should have default values
+        assert!(service_config.node_id.is_none());
+        assert!(service_config.group_name.is_none());
     }
 }

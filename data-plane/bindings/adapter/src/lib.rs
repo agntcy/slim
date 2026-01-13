@@ -47,7 +47,6 @@
 mod adapter;
 mod build_info;
 mod client_config;
-mod common;
 mod common_config;
 mod completion_handle;
 mod config;
@@ -67,17 +66,16 @@ pub use client_config::{
     BackoffConfig, ClientConfig, ExponentialBackoff, KeepaliveConfig, ProxyConfig,
     new_insecure_client_config,
 };
-pub use config::{
-    initialize_from_config, initialize_with_defaults, is_initialized,
-    get_runtime_config, get_tracing_config, get_drain_timeout,
-    shutdown, shutdown_blocking,
-    wait_for_shutdown_signal, wait_for_shutdown_signal_blocking
-};
 pub use common_config::{
     BasicAuth, CaSource, ClientAuthenticationConfig, ServerAuthenticationConfig, SpireConfig,
     TlsClientConfig, TlsServerConfig, TlsSource,
 };
 pub use completion_handle::CompletionHandle;
+pub use config::{
+    get_runtime_config, get_service_config, get_tracing_config, initialize_from_config,
+    initialize_with_defaults, is_initialized, shutdown, shutdown_blocking,
+    wait_for_shutdown_signal, wait_for_shutdown_signal_blocking,
+};
 pub use errors::SlimError;
 pub use identity_config::{
     ClientJwtAuth, IdentityProviderConfig, IdentityVerifierConfig, JwtAlgorithm, JwtAuth,
