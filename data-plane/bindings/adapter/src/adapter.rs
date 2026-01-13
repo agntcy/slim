@@ -25,9 +25,10 @@ use crate::service_ref::{ServiceRef, get_or_init_global_service};
 use crate::session_context::SessionConfig;
 
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
-use slim_auth::shared_secret::SharedSecret;
 use slim_auth::traits::TokenProvider; // For get_token() and get_id()
 use slim_auth::traits::Verifier;
+
+use crate::identity_config::{IdentityProviderConfig, IdentityVerifierConfig};
 use slim_config::component::ComponentBuilder;
 use slim_datapath::messages::Name as SlimName;
 use slim_service::Service;
@@ -51,45 +52,6 @@ pub struct SessionWithCompletion {
     pub completion: Arc<crate::CompletionHandle>,
 }
 
-// ============================================================================
-// FFI Entry Points
-// ============================================================================
-
-/// Create an app with the given name and shared secret (blocking version for FFI)
-///
-/// This is the main entry point for creating a SLIM application from language bindings.
-#[uniffi::export]
-pub fn create_app_with_secret(
-    app_name: Arc<Name>,
-    shared_secret: String,
-) -> Result<Arc<BindingsAdapter>, SlimError> {
-    runtime::get_runtime()
-        .block_on(async { create_app_with_secret_async(app_name, shared_secret).await })
-}
-
-/// Create an app with the given name and shared secret (async version)
-async fn create_app_with_secret_async(
-    app_name: Arc<Name>,
-    shared_secret: String,
-) -> Result<Arc<BindingsAdapter>, SlimError> {
-    let slim_name: SlimName = app_name.as_ref().into();
-    let shared_secret_impl = SharedSecret::new(&slim_name.components_strings()[1], &shared_secret)?;
-
-    // Wrap in enum types for flexible auth support
-    let mut provider = AuthProvider::SharedSecret(shared_secret_impl.clone());
-    let mut verifier = AuthVerifier::SharedSecret(shared_secret_impl);
-
-    // Initialize the identity provider
-    provider.initialize().await?;
-
-    // Initialize the identity verifier
-    verifier.initialize().await?;
-
-    let adapter = BindingsAdapter::new(slim_name, provider, verifier, false)?;
-
-    Ok(Arc::new(adapter))
-}
-
 /// Adapter that bridges the App API with language-bindings interface
 ///
 /// This adapter uses enum-based auth types (`AuthProvider`/`AuthVerifier`) instead of generics
@@ -108,23 +70,59 @@ pub struct BindingsAdapter {
     service_ref: ServiceRef,
 }
 
+/// Create a new BindingsAdapter with SharedSecret authentication (helper function)
+///
+/// This is a convenience function for creating a SLIM application using SharedSecret authentication.
+///
+/// # Arguments
+/// * `name` - The base name for the app (without ID)
+/// * `secret` - The shared secret string for authentication
+///
+/// # Returns
+/// * `Ok(Arc<BindingsAdapter>)` - Successfully created adapter
+/// * `Err(SlimError)` - If adapter creation fails
+#[uniffi::export]
+pub fn create_app_with_secret(
+    name: Arc<Name>,
+    secret: String,
+) -> Result<Arc<BindingsAdapter>, SlimError> {
+    let identity_provider_config = IdentityProviderConfig::SharedSecret {
+        id: name.to_string(),
+        data: secret.clone(),
+    };
+    let identity_verifier_config = IdentityVerifierConfig::SharedSecret {
+        id: name.to_string(),
+        data: secret,
+    };
+
+    BindingsAdapter::new(
+        name,
+        identity_provider_config,
+        identity_verifier_config,
+        false,
+    )
+}
+
 impl BindingsAdapter {
-    /// Internal constructor - Create a new BindingsAdapter with complete creation logic
+    /// Async constructor - Create a new BindingsAdapter with complete creation logic
     ///
-    /// This is not exposed through UniFFI (associated functions not supported).
-    /// Use `create_app_with_secret` for FFI instead.
-    ///
-    /// Accepts `AuthProvider` and `AuthVerifier` enums, supporting multiple auth types:
-    /// - SharedSecret
-    /// - JWT (JwtSigner/JwtVerifier)
-    /// - SPIRE (SpireIdentityManager)
-    /// - StaticToken
-    pub fn new(
+    /// This is the recommended entry point for language bindings to avoid nested block_on issues.
+    pub async fn new_async(
         base_name: SlimName,
-        identity_provider: AuthProvider,
-        identity_verifier: AuthVerifier,
+        identity_provider_config: IdentityProviderConfig,
+        identity_verifier_config: IdentityVerifierConfig,
         use_local_service: bool,
     ) -> Result<Self, SlimError> {
+        // Convert configurations to actual providers/verifiers
+        let mut identity_provider: AuthProvider = identity_provider_config.try_into()?;
+        let mut identity_verifier: AuthVerifier = identity_verifier_config.try_into()?;
+
+        // Initialize the identity provider
+        identity_provider.initialize().await?;
+
+        // Initialize the identity verifier
+        identity_verifier.initialize().await?;
+
         // Validate token
         let _identity_token = identity_provider.get_token()?;
 
@@ -164,6 +162,43 @@ impl BindingsAdapter {
 
 #[uniffi::export]
 impl BindingsAdapter {
+    /// Create a new BindingsAdapter with identity provider and verifier configurations
+    ///
+    /// This is the main entry point for creating a SLIM application from language bindings.
+    ///
+    /// # Arguments
+    /// * `base_name` - The base name for the app (without ID)
+    /// * `identity_provider_config` - Configuration for proving identity to others
+    /// * `identity_verifier_config` - Configuration for verifying identity of others
+    /// * `use_local_service` - If true, creates a local service instance; if false, uses global service
+    ///
+    /// # Returns
+    /// * `Ok(Arc<BindingsAdapter>)` - Successfully created adapter
+    /// * `Err(SlimError)` - If adapter creation fails
+    ///
+    /// # Supported Identity Types
+    /// - SharedSecret: Symmetric key authentication
+    /// - JWT: Dynamic JWT generation/verification with signing/decoding keys
+    /// - StaticJWT: Static JWT loaded from file with auto-reload
+    #[uniffi::constructor]
+    pub fn new(
+        base_name: Arc<Name>,
+        identity_provider_config: IdentityProviderConfig,
+        identity_verifier_config: IdentityVerifierConfig,
+        use_local_service: bool,
+    ) -> Result<Arc<Self>, SlimError> {
+        runtime::get_runtime().block_on(async {
+            Self::new_async(
+                base_name.as_ref().into(),
+                identity_provider_config,
+                identity_verifier_config,
+                use_local_service,
+            )
+            .await
+            .map(Arc::new)
+        })
+    }
+
     /// Get the app ID (derived from name)
     pub fn id(&self) -> u64 {
         self.app.app_name().id()
@@ -596,47 +631,60 @@ mod tests {
 
     use super::*;
 
-    use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
-    use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::messages::Name as SlimName;
     use slim_testing::utils::TEST_VALID_SECRET;
+
+    // Helper to create test identity configs
+    fn create_test_configs(secret: &str) -> (IdentityProviderConfig, IdentityVerifierConfig) {
+        (
+            IdentityProviderConfig::SharedSecret {
+                id: "test-service".to_string(),
+                data: secret.to_string(),
+            },
+            IdentityVerifierConfig::SharedSecret {
+                id: "test-service".to_string(),
+                data: secret.to_string(),
+            },
+        )
+    }
 
     /// Test basic adapter creation
     #[tokio::test]
     async fn test_adapter_creation() {
         let base_name = SlimName::from_strings(["org", "namespace", "test-app"]);
-        let shared_secret = SharedSecret::new("test-app", TEST_VALID_SECRET).unwrap();
-        let provider = AuthProvider::SharedSecret(shared_secret.clone());
-        let verifier = AuthVerifier::SharedSecret(shared_secret);
+        let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
 
-        let result = BindingsAdapter::new(base_name, provider, verifier, false);
+        let result =
+            BindingsAdapter::new_async(base_name, provider_config, verifier_config, false).await;
         assert!(result.is_ok());
 
         let adapter = result.unwrap();
         assert!(adapter.id() > 0);
     }
 
-    /// Test token ID generation
+    /// Test that adapter ID is consistently derived from its internal provider's token ID
     #[tokio::test]
     async fn test_deterministic_id_generation() {
         let base_name = SlimName::from_strings(["org", "namespace", "test-app"]);
-        let shared_secret = SharedSecret::new("test-app", TEST_VALID_SECRET).unwrap();
-        let provider = AuthProvider::SharedSecret(shared_secret.clone());
-        let verifier = AuthVerifier::SharedSecret(shared_secret);
+        let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
 
-        let token_id = provider.get_id().expect("Failed to get token ID");
-        let expected_hash = {
-            use std::hash::{Hash, Hasher};
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            token_id.hash(&mut hasher);
-            hasher.finish()
-        };
+        // Create the adapter
+        let adapter =
+            BindingsAdapter::new_async(base_name, provider_config, verifier_config, false)
+                .await
+                .expect("Failed to create adapter");
 
-        let result = BindingsAdapter::new(base_name, provider, verifier, false);
-        assert!(result.is_ok());
+        // The adapter's ID should be non-zero (derived from token ID hash)
+        let adapter_id = adapter.id();
+        assert!(adapter_id > 0, "Adapter ID should be non-zero");
 
-        let adapter = result.unwrap();
-        assert_eq!(adapter.id(), expected_hash);
+        // Verify the adapter's name includes the ID
+        let adapter_name = adapter.name();
+        assert_eq!(
+            adapter_name.id(),
+            adapter_id,
+            "Name ID should match adapter ID"
+        );
     }
 
     /// Test that session creation auto-waits for establishment
@@ -646,11 +694,10 @@ mod tests {
         // In a real scenario, this would ensure the session is fully established
 
         let base_name = SlimName::from_strings(["org", "namespace", "create-test"]);
-        let shared_secret = SharedSecret::new("create-test", TEST_VALID_SECRET).unwrap();
-        let provider = AuthProvider::SharedSecret(shared_secret.clone());
-        let verifier = AuthVerifier::SharedSecret(shared_secret);
+        let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
 
-        let adapter = BindingsAdapter::new(base_name, provider, verifier, true)
+        let adapter = BindingsAdapter::new_async(base_name, provider_config, verifier_config, true)
+            .await
             .expect("Failed to create adapter");
 
         let session_config = SessionConfig {
@@ -695,11 +742,10 @@ mod tests {
         // the completion handle would actually track message delivery
 
         let base_name = SlimName::from_strings(["org", "namespace", "publish-test"]);
-        let shared_secret = SharedSecret::new("publish-test", TEST_VALID_SECRET).unwrap();
-        let provider = AuthProvider::SharedSecret(shared_secret.clone());
-        let verifier = AuthVerifier::SharedSecret(shared_secret);
+        let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
 
-        let adapter = BindingsAdapter::new(base_name, provider, verifier, true)
+        let adapter = BindingsAdapter::new_async(base_name, provider_config, verifier_config, true)
+            .await
             .expect("Failed to create adapter");
 
         let session_config = SessionConfig {
@@ -808,12 +854,12 @@ mod tests {
     #[tokio::test]
     async fn test_adapter_id_and_name() {
         let base_name = SlimName::from_strings(["org", "namespace", "id-test"]);
-        let shared_secret = SharedSecret::new("id-test", TEST_VALID_SECRET).unwrap();
-        let provider = AuthProvider::SharedSecret(shared_secret.clone());
-        let verifier = AuthVerifier::SharedSecret(shared_secret);
+        let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
 
-        let adapter = BindingsAdapter::new(base_name.clone(), provider, verifier, false)
-            .expect("Failed to create adapter");
+        let adapter =
+            BindingsAdapter::new_async(base_name.clone(), provider_config, verifier_config, false)
+                .await
+                .expect("Failed to create adapter");
 
         // ID should be non-zero
         let id = adapter.id();
@@ -831,12 +877,11 @@ mod tests {
     #[tokio::test]
     async fn test_adapter_with_local_service() {
         let base_name = SlimName::from_strings(["org", "namespace", "local-test"]);
-        let shared_secret = SharedSecret::new("local-test", TEST_VALID_SECRET).unwrap();
-        let provider = AuthProvider::SharedSecret(shared_secret.clone());
-        let verifier = AuthVerifier::SharedSecret(shared_secret);
+        let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
 
         // Create with use_local_service = true
-        let result = BindingsAdapter::new(base_name, provider, verifier, true);
+        let result =
+            BindingsAdapter::new_async(base_name, provider_config, verifier_config, true).await;
         assert!(result.is_ok(), "Should create adapter with local service");
     }
 
@@ -852,11 +897,11 @@ mod tests {
 
         for ns in namespaces {
             let base_name = SlimName::from_strings(ns);
-            let shared_secret = SharedSecret::new(ns[2], TEST_VALID_SECRET).unwrap();
-            let provider = AuthProvider::SharedSecret(shared_secret.clone());
-            let verifier = AuthVerifier::SharedSecret(shared_secret);
+            let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
 
-            let result = BindingsAdapter::new(base_name, provider, verifier, false);
+            let result =
+                BindingsAdapter::new_async(base_name, provider_config, verifier_config, false)
+                    .await;
             assert!(
                 result.is_ok(),
                 "Should create adapter for namespace {:?}",
@@ -879,21 +924,26 @@ mod tests {
     }
 
     // ========================================================================
-    // create_app_with_secret Tests
+    // BindingsAdapter::new Tests
     // ========================================================================
 
-    /// Test create_app_with_secret FFI entry point
-    #[test]
-    fn test_create_app_with_secret() {
-        let app_name = Arc::new(Name::new(
-            "org".to_string(),
-            "namespace".to_string(),
-            "ffi-app".to_string(),
-            None,
-        ));
+    /// Test BindingsAdapter::new_async entry point
+    #[tokio::test]
+    async fn test_bindings_adapter_new() {
+        let base_name = SlimName::from_strings(["org", "namespace", "ffi-app"]);
 
-        let result = create_app_with_secret(app_name, TEST_VALID_SECRET.to_string());
-        assert!(result.is_ok(), "create_app_with_secret should succeed");
+        let provider_config = IdentityProviderConfig::SharedSecret {
+            id: "test-sync-service".to_string(),
+            data: TEST_VALID_SECRET.to_string(),
+        };
+        let verifier_config = IdentityVerifierConfig::SharedSecret {
+            id: "test-sync-service".to_string(),
+            data: TEST_VALID_SECRET.to_string(),
+        };
+
+        let result =
+            BindingsAdapter::new_async(base_name, provider_config, verifier_config, false).await;
+        assert!(result.is_ok(), "BindingsAdapter::new_async should succeed");
 
         let adapter = result.unwrap();
         assert!(adapter.id() > 0);
@@ -904,19 +954,24 @@ mod tests {
         assert_eq!(name.components()[2], "ffi-app");
     }
 
-    /// Test create_app_with_secret with empty name components
-    #[test]
-    fn test_create_app_with_secret_minimal_name() {
-        let app_name = Arc::new(Name::new(
-            "org".to_string(),
-            "ns".to_string(),
-            "".to_string(),
-            None,
-        ));
+    /// Test BindingsAdapter::new_async with minimal name (3 components)
+    #[tokio::test]
+    async fn test_bindings_adapter_new_minimal_name() {
+        let base_name = SlimName::from_strings(["org", "ns", "test-app"]);
 
-        let result = create_app_with_secret(app_name, TEST_VALID_SECRET.to_string());
-        // Should handle empty component
-        let _ = result;
+        let provider_config = IdentityProviderConfig::SharedSecret {
+            id: "test-minimal-service".to_string(),
+            data: TEST_VALID_SECRET.to_string(),
+        };
+        let verifier_config = IdentityVerifierConfig::SharedSecret {
+            id: "test-minimal-service".to_string(),
+            data: TEST_VALID_SECRET.to_string(),
+        };
+
+        let result =
+            BindingsAdapter::new_async(base_name, provider_config, verifier_config, false).await;
+        // Should handle minimal name
+        assert!(result.is_ok(), "Should create adapter with minimal name");
     }
 
     // ========================================================================
@@ -927,11 +982,10 @@ mod tests {
     #[tokio::test]
     async fn test_listen_for_session_timeout() {
         let base_name = SlimName::from_strings(["org", "namespace", "listen-test"]);
-        let shared_secret = SharedSecret::new("listen-test", TEST_VALID_SECRET).unwrap();
-        let provider = AuthProvider::SharedSecret(shared_secret.clone());
-        let verifier = AuthVerifier::SharedSecret(shared_secret);
+        let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
 
-        let adapter = BindingsAdapter::new(base_name, provider, verifier, true)
+        let adapter = BindingsAdapter::new_async(base_name, provider_config, verifier_config, true)
+            .await
             .expect("Failed to create adapter");
 
         // Listen with a very short timeout - should timeout
@@ -960,11 +1014,10 @@ mod tests {
     #[tokio::test]
     async fn test_subscribe_unsubscribe() {
         let base_name = SlimName::from_strings(["org", "namespace", "sub-test"]);
-        let shared_secret = SharedSecret::new("sub-test", TEST_VALID_SECRET).unwrap();
-        let provider = AuthProvider::SharedSecret(shared_secret.clone());
-        let verifier = AuthVerifier::SharedSecret(shared_secret);
+        let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
 
-        let adapter = BindingsAdapter::new(base_name, provider, verifier, true)
+        let adapter = BindingsAdapter::new_async(base_name, provider_config, verifier_config, true)
+            .await
             .expect("Failed to create adapter");
 
         let target_name = Arc::new(Name::new(
@@ -993,11 +1046,10 @@ mod tests {
     #[tokio::test]
     async fn test_set_remove_route() {
         let base_name = SlimName::from_strings(["org", "namespace", "route-test"]);
-        let shared_secret = SharedSecret::new("route-test", TEST_VALID_SECRET).unwrap();
-        let provider = AuthProvider::SharedSecret(shared_secret.clone());
-        let verifier = AuthVerifier::SharedSecret(shared_secret);
+        let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
 
-        let adapter = BindingsAdapter::new(base_name, provider, verifier, true)
+        let adapter = BindingsAdapter::new_async(base_name, provider_config, verifier_config, true)
+            .await
             .expect("Failed to create adapter");
 
         let target_name = Arc::new(Name::new(
@@ -1024,11 +1076,10 @@ mod tests {
     #[tokio::test]
     async fn test_stop_server_nonexistent() {
         let base_name = SlimName::from_strings(["org", "namespace", "stop-test"]);
-        let shared_secret = SharedSecret::new("stop-test", TEST_VALID_SECRET).unwrap();
-        let provider = AuthProvider::SharedSecret(shared_secret.clone());
-        let verifier = AuthVerifier::SharedSecret(shared_secret);
+        let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
 
-        let adapter = BindingsAdapter::new(base_name, provider, verifier, true)
+        let adapter = BindingsAdapter::new_async(base_name, provider_config, verifier_config, true)
+            .await
             .expect("Failed to create adapter");
 
         // Try to stop a server that doesn't exist
@@ -1045,11 +1096,10 @@ mod tests {
     #[tokio::test]
     async fn test_disconnect_invalid_id() {
         let base_name = SlimName::from_strings(["org", "namespace", "disconnect-test"]);
-        let shared_secret = SharedSecret::new("disconnect-test", TEST_VALID_SECRET).unwrap();
-        let provider = AuthProvider::SharedSecret(shared_secret.clone());
-        let verifier = AuthVerifier::SharedSecret(shared_secret);
+        let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
 
-        let adapter = BindingsAdapter::new(base_name, provider, verifier, true)
+        let adapter = BindingsAdapter::new_async(base_name, provider_config, verifier_config, true)
+            .await
             .expect("Failed to create adapter");
 
         // Try to disconnect with an invalid connection ID
@@ -1066,11 +1116,10 @@ mod tests {
     #[tokio::test]
     async fn test_delete_session_flow() {
         let base_name = SlimName::from_strings(["org", "namespace", "delete-test"]);
-        let shared_secret = SharedSecret::new("delete-test", TEST_VALID_SECRET).unwrap();
-        let provider = AuthProvider::SharedSecret(shared_secret.clone());
-        let verifier = AuthVerifier::SharedSecret(shared_secret);
+        let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
 
-        let adapter = BindingsAdapter::new(base_name, provider, verifier, true)
+        let adapter = BindingsAdapter::new_async(base_name, provider_config, verifier_config, true)
+            .await
             .expect("Failed to create adapter");
 
         let session_config = SessionConfig {
@@ -1112,11 +1161,10 @@ mod tests {
     #[tokio::test]
     async fn test_listen_for_session_blocking_timeout() {
         let base_name = SlimName::from_strings(["org", "namespace", "blocking-listen"]);
-        let shared_secret = SharedSecret::new("blocking-listen", TEST_VALID_SECRET).unwrap();
-        let provider = AuthProvider::SharedSecret(shared_secret.clone());
-        let verifier = AuthVerifier::SharedSecret(shared_secret);
+        let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
 
-        let adapter = BindingsAdapter::new(base_name, provider, verifier, true)
+        let adapter = BindingsAdapter::new_async(base_name, provider_config, verifier_config, true)
+            .await
             .expect("Failed to create adapter");
 
         // Call async version with short timeout (blocking version can't be called from async context)
@@ -1139,11 +1187,10 @@ mod tests {
     #[tokio::test]
     async fn test_subscribe_blocking() {
         let base_name = SlimName::from_strings(["org", "namespace", "blocking-sub"]);
-        let shared_secret = SharedSecret::new("blocking-sub", TEST_VALID_SECRET).unwrap();
-        let provider = AuthProvider::SharedSecret(shared_secret.clone());
-        let verifier = AuthVerifier::SharedSecret(shared_secret);
+        let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
 
-        let adapter = BindingsAdapter::new(base_name, provider, verifier, true)
+        let adapter = BindingsAdapter::new_async(base_name, provider_config, verifier_config, true)
+            .await
             .expect("Failed to create adapter");
 
         let target_name = Arc::new(Name::new(

@@ -37,18 +37,22 @@ pub fn get_or_init_global_service() -> &'static Service {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
-    use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::messages::Name;
     use slim_testing::utils::TEST_VALID_SECRET;
 
     use crate::adapter::BindingsAdapter;
+    use crate::identity_config::{IdentityProviderConfig, IdentityVerifierConfig};
 
-    /// Create test authentication components
-    fn create_test_auth() -> (AuthProvider, AuthVerifier) {
-        let shared_secret = SharedSecret::new("test-app", TEST_VALID_SECRET).unwrap();
-        let provider = AuthProvider::SharedSecret(shared_secret.clone());
-        let verifier = AuthVerifier::SharedSecret(shared_secret);
+    /// Create test authentication configurations
+    fn create_test_auth() -> (IdentityProviderConfig, IdentityVerifierConfig) {
+        let provider = IdentityProviderConfig::SharedSecret {
+            id: "test-service".to_string(),
+            data: TEST_VALID_SECRET.to_string(),
+        };
+        let verifier = IdentityVerifierConfig::SharedSecret {
+            id: "test-service".to_string(),
+            data: TEST_VALID_SECRET.to_string(),
+        };
         (provider, verifier)
     }
 
@@ -76,12 +80,15 @@ mod tests {
 
         // Test local service ref - just ensure it creates without error
         let _local_adapter =
-            BindingsAdapter::new(base_name.clone(), provider.clone(), verifier.clone(), true)
+            BindingsAdapter::new_async(base_name.clone(), provider.clone(), verifier.clone(), true)
+                .await
                 .unwrap();
         // Note: ServiceRef is now private to the adapter, can't directly test pointer equality
 
         // Test global service ref - just ensure it creates without error
-        let _global_adapter = BindingsAdapter::new(base_name, provider, verifier, false).unwrap();
+        let _global_adapter = BindingsAdapter::new_async(base_name, provider, verifier, false)
+            .await
+            .unwrap();
         // Note: ServiceRef is now private to the adapter, can't directly test pointer equality
     }
 }
