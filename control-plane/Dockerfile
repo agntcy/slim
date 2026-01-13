@@ -7,8 +7,8 @@ SHELL ["/usr/bin/bash", "-c"]
 
 WORKDIR /
 
-# Install unzip
-RUN apt update && apt install unzip
+# Install unzip and xz-utils (for tar.xz extraction)
+RUN apt update && apt install -y unzip xz-utils curl
 
 # Copy all the necessary sources from the repo root
 COPY . /ctx
@@ -17,7 +17,10 @@ WORKDIR /ctx/control-plane
 # Install task runner
 RUN sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
 
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} task control-plane:build
+# # Build control-plane binaries (control-plane, token-service, slimctl)
+# # control-plane and token-service don't need CGO
+RUN task control-plane:control-plane:build
+RUN task control-plane:token-service:build
 
 ## https://github.com/GoogleContainerTools/distroless
 FROM gcr.io/distroless/static:nonroot AS control-plane
@@ -25,6 +28,5 @@ FROM gcr.io/distroless/static:nonroot AS control-plane
 WORKDIR /
 
 COPY --from=builder /ctx/.dist/bin/control-plane .
-COPY --from=builder /ctx/.dist/bin/slimctl .
 
 ENTRYPOINT ["/control-plane"]
