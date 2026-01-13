@@ -38,15 +38,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-      - name: Run release-plz - mcp-proxy
-        uses: release-plz/action@v0.5
-        with:
-          command: release
-          manifest_path: ./data-plane/integrations/mcp-proxy/Cargo.toml
-          config: ./data-plane/integrations/mcp-proxy/.release-plz.toml
-        env:
-          GITHUB_TOKEN: ${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
   # Create a PR with the new versions and changelog, preparing the next release.
   release-crates-pr:
@@ -73,15 +64,6 @@ jobs:
           command: release-pr
           manifest_path: ./data-plane/Cargo.toml
           config: ./data-plane/.release-plz.toml
-        env:
-          GITHUB_TOKEN: ${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-      - name: Run release-plz - mcp-proxy
-        uses: release-plz/action@v0.5
-        with:
-          command: release-pr
-          manifest_path: ./data-plane/integrations/mcp-proxy/Cargo.toml
-          config: ./data-plane/integrations/mcp-proxy/.release-plz.toml
         env:
           GITHUB_TOKEN: ${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
