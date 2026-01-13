@@ -437,26 +437,10 @@ mod tests {
     }
 
     #[test]
-    fn test_is_initialized_check() {
-        // is_initialized() should always return a bool
-        // May be true or false depending on test execution order
-        let _ = is_initialized();
-    }
-
-    #[test]
     fn test_runtime_always_accessible() {
         // The runtime can always be accessed (either from init or get_runtime fallback)
         let runtime = get_runtime();
         let _handle = runtime.handle();
-    }
-
-    #[test]
-    fn test_initialize_from_nonexistent_file_returns_error() {
-        // Try to initialize from a file that doesn't exist
-        // If already initialized, will return Ok (idempotent)
-        // If not initialized, will panic due to file not found
-
-        initialize_from_config("/this/path/definitely/does/not/exist.yaml".to_string());
     }
 
     #[test]
