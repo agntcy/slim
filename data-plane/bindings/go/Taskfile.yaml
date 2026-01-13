@@ -120,6 +120,8 @@ tasks:
   generate:
     desc: Generate Go bindings from compiled library
     deps:
+      # TODO(sambetts): Consider making this optional through a wrapper
+      # task+status check to avoid building if we're using prebuilt libs
       - task: adapter:bindings:build:all
         vars:
           PROFILE: release
