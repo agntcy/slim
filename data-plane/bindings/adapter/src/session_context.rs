@@ -665,16 +665,13 @@ impl BindingsSessionContext {
                 message: "Session already closed or dropped".to_string(),
             })?;
 
-        match session.participants_list().await {
-            Ok(list) => {
-                let names: Vec<Arc<Name>> =
-                    list.into_iter().map(|n| Arc::new(Name::from(n))).collect();
-                Ok(names)
-            }
-            Err(e) => Err(SlimError::SessionError {
+        session
+            .participants_list()
+            .await
+            .map(|list| list.into_iter().map(|n| Arc::new(Name::from(n))).collect())
+            .map_err(|e| SlimError::SessionError {
                 message: format!("Failed to get participants list: {}", e),
-            }),
-        }
+            })
     }
 
     /// Get list of participants in the session (blocking version for FFI)
