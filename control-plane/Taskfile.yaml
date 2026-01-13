@@ -152,14 +152,12 @@ tasks:
   control-plane:go-bindings:setup:
     desc: Downloads the OS / Arch specific bindings library
     vars:
-      _DEFAULT_XDG_CACHE_HOME: '{{.REPO_ROOT}}/.cache'
-      XDG_CACHE_HOME: '{{.XDG_CACHE_HOME | default ._DEFAULT_XDG_CACHE_HOME}}'
+      BINDINGS_VERSION: '{{.BINDINGS_VERSION | default "latest"}}'
     cmds:
       - task: control-plane:modtidy
       - |
-        mkdir -p {{.XDG_CACHE_HOME}}
         # Run the setup tool to download native libraries
-        go run github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup@latest
+        go run github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup@{{.BINDINGS_VERSION}}
 
   control-plane:slimctl:build:
     desc: Build slimctl
