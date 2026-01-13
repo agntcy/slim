@@ -44,6 +44,8 @@ pub enum SessionError {
     MessageTypeUnexpected(Box<ProtoMessage>),
     #[error("session message type unexpected: {0:?}")]
     SessionMessageTypeUnexpected(ProtoSessionMessageType),
+    #[error("error getting the participants list")]
+    ParticipantsListQueryFailed,
     #[error("unexpected error")]
     UnexpectedError { source: Box<SessionError> },
 
@@ -84,6 +86,8 @@ pub enum SessionError {
     // Session membership and permissions
     #[error("participant not found in group: {0}")]
     ParticipantNotFound(Name),
+    #[error("participant already in group: {0}")]
+    ParticipantAlreadyInGroup(Name),
     #[error("cannot invite participant to point-to-point session")]
     CannotInviteToP2P,
     #[error("cannot remove participant from point-to-point session")]

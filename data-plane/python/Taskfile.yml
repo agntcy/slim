@@ -24,8 +24,6 @@ includes:
     taskfile: ./integrations/slima2a/Taskfile.yaml
   slimrpc:
     taskfile: ./integrations/slimrpc/Taskfile.yaml
-  slim-mcp:
-    taskfile: ./integrations/slim-mcp/Taskfile.yaml
 
 tasks:
   default:

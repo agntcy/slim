@@ -95,7 +95,7 @@ func (mc *MessageCollector) WaitForMessages(t *testing.T, expected int, timeout 
 func SetupTestHarness(t *testing.T, testName string) (*TestHarness, *MessageCollector) {
 	t.Helper()
 
-	slim.InitializeCryptoProvider()
+	slim.InitializeWithDefaults()
 
 	ctx, cancel := context.WithCancel(context.Background())
 
