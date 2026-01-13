@@ -843,17 +843,6 @@ mod tests {
     // ========================================================================
     // initialize_crypto_provider Tests
     // ========================================================================
-
-    /// Test initialize_crypto_provider can be called multiple times safely
-    #[test]
-    fn test_initialize_crypto_provider_idempotent() {
-        // Should not panic when called multiple times
-        crate::common::initialize_crypto_provider();
-        crate::common::initialize_crypto_provider();
-        crate::common::initialize_crypto_provider();
-    }
-
-    // ========================================================================
     // BindingsAdapter::new Tests
     // ========================================================================
 

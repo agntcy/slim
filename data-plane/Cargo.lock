@@ -77,13 +77,16 @@ dependencies = [
 name = "agntcy-slim-bindings"
 version = "0.7.0"
 dependencies = [
+ "agntcy-slim",
  "agntcy-slim-auth",
  "agntcy-slim-config",
  "agntcy-slim-controller",
  "agntcy-slim-datapath",
  "agntcy-slim-service",
  "agntcy-slim-session",
+ "agntcy-slim-signal",
  "agntcy-slim-testing",
+ "agntcy-slim-tracing",
  "display-error-chain",
  "num_cpus",
  "parking_lot",
@@ -91,6 +94,7 @@ dependencies = [
  "thiserror 2.0.17",
  "tokio",
  "tokio-test",
+ "tracing",
  "tracing-test",
  "uniffi",
 ]

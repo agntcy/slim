@@ -11,12 +11,15 @@ crate-type = ["lib", "staticlib", "cdylib"]
 
 [dependencies]
 # Local workspace dependencies
+agntcy-slim = { workspace = true }
 agntcy-slim-auth = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-controller = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-service = { workspace = true }
 agntcy-slim-session = { workspace = true }
+agntcy-slim-signal = { workspace = true }
+agntcy-slim-tracing = { workspace = true }
 
 # External dependencies
 display-error-chain = { workspace = true }
@@ -25,6 +28,7 @@ parking_lot = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+tracing = { workspace = true }
 uniffi = { version = "0.28.3", features = ["cli"] }
 
 [build-dependencies]

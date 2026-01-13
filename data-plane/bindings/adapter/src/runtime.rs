@@ -4,12 +4,108 @@
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use tracing::{info, warn};
+
+use slim::runtime::RuntimeConfiguration;
+
 /// Global Tokio runtime for async operations
 static GLOBAL_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 
+/// Initialize the global runtime from a RuntimeConfiguration
+///
+/// This allows the runtime to be configured from a config file, matching
+/// the behavior of the main SLIM application.
+///
+/// # Arguments
+/// * `config` - The runtime configuration to use
+///
+/// # Returns
+/// * `Ok(())` - Runtime successfully initialized
+/// * `Err(String)` - If runtime is already initialized or initialization fails
+pub fn initialize_runtime_from_config(config: &RuntimeConfiguration) -> Result<(), String> {
+    if GLOBAL_RUNTIME.get().is_some() {
+        return Err("Runtime already initialized".to_string());
+    }
+
+    let runtime = build_runtime_from_config(config);
+    GLOBAL_RUNTIME.set(runtime).map_err(|_| "Failed to set global runtime".to_string())?;
+    
+    Ok(())
+}
+
+/// Initialize the global runtime with default configuration
+///
+/// Uses the same defaults as the main SLIM application would use.
+///
+/// # Returns
+/// * `Ok(())` - Runtime successfully initialized
+/// * `Err(String)` - If runtime is already initialized
+pub fn initialize_runtime_with_defaults() -> Result<(), String> {
+    if GLOBAL_RUNTIME.get().is_some() {
+        return Err("Runtime already initialized".to_string());
+    }
+
+    let config = RuntimeConfiguration::default();
+    let runtime = build_runtime_from_config(&config);
+    GLOBAL_RUNTIME.set(runtime).map_err(|_| "Failed to set global runtime".to_string())?;
+    
+    Ok(())
+}
+
+/// Build a Tokio runtime from configuration
+///
+/// This matches the runtime building logic from slim::runtime::build but creates
+/// the runtime directly instead of wrapping it in SlimRuntime.
+fn build_runtime_from_config(config: &RuntimeConfiguration) -> tokio::runtime::Runtime {
+    let n_cpu = num_cpus::get();
+    debug_assert!(n_cpu > 0, "failed to get number of CPUs");
+
+    tracing::debug!(%n_cpu, "Number of available CPU cores");
+
+    let cores = if config.n_cores() > n_cpu {
+        warn!(
+            requested = %config.n_cores(),
+            available = %n_cpu,
+            "Requested number of cores is greater than available cores. Using all available cores",
+        );
+        n_cpu
+    } else if config.n_cores() == 0 {
+        info!(
+            %n_cpu,
+            "Using all available cores",
+        );
+        n_cpu
+    } else {
+        config.n_cores()
+    };
+
+    match cores {
+        1 => {
+            info!("Using single-threaded runtime");
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .thread_name(config.thread_name())
+                .build()
+                .expect("failed to build single-thread runtime!")
+        }
+        _ => {
+            info!(%cores, "Using multi-threaded runtime");
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .thread_name(config.thread_name())
+                .worker_threads(cores)
+                .max_blocking_threads(cores)
+                .build()
+                .expect("failed to build threaded runtime!")
+        }
+    }
+}
+
 /// Get or initialize the global Tokio runtime
 ///
-/// Configured for FFI workloads with:
+/// If not explicitly initialized via `initialize_runtime_from_config` or
+/// `initialize_runtime_with_defaults`, this will create a runtime with
+/// FFI-friendly defaults for backward compatibility:
 /// - Worker threads: 2x CPU cores (to handle blocking operations better)
 /// - Max blocking threads: 512 (allows high concurrency from FFI calls)
 /// - Named threads for easier debugging
@@ -69,6 +165,22 @@ mod tests {
         // Runtime should be accessible multiple times (returns same instance)
         let runtime2 = get_runtime();
         assert!(std::ptr::eq(runtime, runtime2));
+    }
+
+    /// Test building runtime from config
+    #[test]
+    fn test_build_runtime_from_config() {
+        let config = RuntimeConfiguration::default();
+        let runtime = build_runtime_from_config(&config);
+        let _handle = runtime.handle();
+    }
+
+    /// Test building runtime with specific cores
+    #[test]
+    fn test_build_runtime_with_cores() {
+        let config = RuntimeConfiguration::with_cores(2);
+        let runtime = build_runtime_from_config(&config);
+        let _handle = runtime.handle();
     }
 
     /// Test environment variable configuration

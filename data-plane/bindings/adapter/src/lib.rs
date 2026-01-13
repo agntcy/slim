@@ -50,6 +50,7 @@ mod client_config;
 mod common;
 mod common_config;
 mod completion_handle;
+mod config;
 mod errors;
 mod identity_config;
 mod message_context;
@@ -66,7 +67,12 @@ pub use client_config::{
     BackoffConfig, ClientConfig, ExponentialBackoff, KeepaliveConfig, ProxyConfig,
     new_insecure_client_config,
 };
-pub use common::initialize_crypto_provider;
+pub use config::{
+    initialize_from_config, initialize_with_defaults, is_initialized,
+    get_runtime_config, get_tracing_config, get_drain_timeout,
+    shutdown, shutdown_blocking,
+    wait_for_shutdown_signal, wait_for_shutdown_signal_blocking
+};
 pub use common_config::{
     BasicAuth, CaSource, ClientAuthenticationConfig, ServerAuthenticationConfig, SpireConfig,
     TlsClientConfig, TlsServerConfig, TlsSource,

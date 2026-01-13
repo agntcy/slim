@@ -28,7 +28,7 @@ use slim_service::{
 use crate::name::Name;
 
 // Global static service instance for bindings
-static GLOBAL_SERVICE: OnceLock<Arc<Service>> = OnceLock::new();
+pub(crate) static GLOBAL_SERVICE: OnceLock<Arc<Service>> = OnceLock::new();
 
 /// Get or initialize the global service for bindings
 pub fn get_or_init_global_service() -> Arc<Service> {
