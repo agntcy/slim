@@ -22,9 +22,11 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agntcy/slim/control-plane/slimctl/internal/cfg"
+	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd"
 	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/config"
 	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/controller"
 	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/node"
+	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/slim"
 	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd/version"
 )
 
@@ -153,11 +155,19 @@ func main() {
 		"path to client TLS key",
 	)
 
-	// add the version command
-	rootCmd.AddCommand(version.NewVersionCmd(conf.AppConfig.CommonOpts))
+	// add the command groups
+	rootCmd.AddGroup(
+		&cobra.Group{ID: cmd.GroupSlimctl, Title: "Commands for SLIM CLI configuration & version info"},
+		&cobra.Group{ID: cmd.GroupNode, Title: "Commands to interact with SLIM nodes"},
+		&cobra.Group{ID: cmd.GroupController, Title: "Commands to interact with the SLIM Control Plane"},
+		&cobra.Group{ID: cmd.GroupSlim, Title: "Commands for managing a local SLIM instance"},
+	)
 
-	// add the config command tree
-	rootCmd.AddCommand(config.NewConfigCmd(conf))
+	// add the version command
+	rootCmd.AddCommand(
+		version.NewVersionCmd(conf.AppConfig.CommonOpts),
+		config.NewConfigCmd(conf),
+	)
 
 	// add the controller command tree
 	rootCmd.AddCommand(controller.NewControllerCmd(conf))
@@ -165,11 +175,8 @@ func main() {
 	// add the node command tree
 	rootCmd.AddCommand(node.NewNodeCmd(conf.AppConfig.CommonOpts))
 
-	rootCmd.AddGroup(
-		&cobra.Group{ID: "slimctl", Title: "Commands for SLIM CLI configuration & version info"},
-		&cobra.Group{ID: "node", Title: "Commands to interact with SLIM nodes"},
-		&cobra.Group{ID: "controller", Title: "Commands to interact with the SLIM Control Plane"},
-	)
+	// add the slim command tree
+	rootCmd.AddCommand(slim.NewSlimCmd(rootCmd.Context(), conf.AppConfig))
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "CLI error: %v", err)

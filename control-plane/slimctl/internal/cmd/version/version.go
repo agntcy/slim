@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agntcy/slim/control-plane/common/options"
+	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd"
 )
 
 var (
@@ -59,6 +60,7 @@ func NewVersionCmd(opts *options.CommonOptions) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return Run(&v, opts, cmd)
 		},
+		GroupID: cmd.GroupSlimctl,
 	}
 
 	return cmd
