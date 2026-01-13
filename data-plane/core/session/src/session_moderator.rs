@@ -617,7 +617,7 @@ where
         // check if the participant is already part of the group
         let new_participant_name = discovery.get_dst();
         if self.group_list.contains_key(&new_participant_name) {
-            let err = SessionError::ParticipantAlreadyInGroup(new_participant_name.clone());
+            let err = SessionError::ParticipantAlreadyInGroup(new_participant_name);
             return Err(self.handle_task_error(err));
         }
 
