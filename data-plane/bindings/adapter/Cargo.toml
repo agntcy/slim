@@ -13,6 +13,7 @@ crate-type = ["lib", "staticlib", "cdylib"]
 # Local workspace dependencies
 agntcy-slim-auth = { workspace = true }
 agntcy-slim-config = { workspace = true }
+agntcy-slim-controller = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-service = { workspace = true }
 agntcy-slim-session = { workspace = true }
