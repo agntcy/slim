@@ -26,6 +26,7 @@ allow = [
     "OpenSSL",
     "CDLA-Permissive-2.0",
     "CC0-1.0",
+    "Zlib",
 ]
 # Ignore local workspace license values for unpublished crates.
 private = { ignore = true }
