@@ -9,15 +9,11 @@ use pyo3::types::PyDict;
 use pyo3_stub_gen::derive::gen_stub_pyclass;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
 use serde_pyobject::from_pyobject;
-use slim_auth::traits::TokenProvider;
-use slim_auth::traits::Verifier;
-use slim_bindings::BindingsAdapter;
-use slim_bindings::SlimError;
+
+use slim_bindings::{BindingsAdapter, IdentityProviderConfig, IdentityVerifierConfig, SlimError};
 use slim_datapath::messages::encoder::Name;
 use slim_session::SessionConfig;
 
-use crate::pyidentity::IdentityProvider;
-use crate::pyidentity::IdentityVerifier;
 use crate::pyidentity::PyIdentityProvider;
 use crate::pyidentity::PyIdentityVerifier;
 
@@ -36,7 +32,7 @@ pub struct PyApp {
 struct PyAppInternal {
     /// The adapter instance (uses AuthProvider/AuthVerifier enums internally)
     /// The adapter manages the service internally
-    adapter: BindingsAdapter,
+    adapter: Arc<BindingsAdapter>,
 }
 
 /// Helper function to convert PyName to Arc<FfiName>
@@ -60,25 +56,25 @@ impl PyApp {
             provider: PyIdentityProvider,
             verifier: PyIdentityVerifier,
             local_service: bool,
-        ) -> Result<BindingsAdapter, SlimError> {
-            // Convert the PyIdentityProvider into IdentityProvider
-            let mut provider: IdentityProvider = provider.try_into()?;
+        ) -> Result<Arc<BindingsAdapter>, SlimError> {
+            // Convert PyIdentityProvider to IdentityProviderConfig using TryFrom
+            let provider_config: IdentityProviderConfig = provider.try_into()?;
 
-            // Initialize the identity provider
-            provider.initialize().await?;
+            // Convert PyIdentityVerifier to IdentityVerifierConfig using TryFrom
+            let verifier_config: IdentityVerifierConfig = verifier.try_into()?;
 
-            // Convert the PyIdentityVerifier into IdentityVerifier
-            let mut verifier: IdentityVerifier = verifier.try_into()?;
+            // Convert PyName to slim_datapath::messages::Name (SlimName)
+            let slim_name: slim_datapath::messages::Name = name.into();
 
-            // Initialize the identity verifier
-            verifier.initialize().await?;
-
-            // Convert PyName into Name
-            let base_name: Name = name.into();
-
-            // IdentityProvider/IdentityVerifier are already AuthProvider/AuthVerifier type aliases
-            // Use BindingsAdapter's complete creation logic
-            BindingsAdapter::new(base_name, provider, verifier, local_service)
+            // Use BindingsAdapter's async constructor to avoid nested block_on
+            let adapter = BindingsAdapter::new_async(
+                slim_name,
+                provider_config,
+                verifier_config,
+                local_service,
+            )
+            .await?;
+            Ok(Arc::new(adapter))
         }
 
         let adapter = pyo3_async_runtimes::tokio::get_runtime()
