@@ -3,7 +3,7 @@
 
 # Include workspace folders
 [tool.uv.workspace]
-members = ["slimrpc", "slima2a", "slim-mcp"]
+members = ["slimrpc", "slima2a"]
 
 # Default groups to install when running `uv sync`
 [tool.uv]

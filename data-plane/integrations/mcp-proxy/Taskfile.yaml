@@ -69,29 +69,25 @@ tasks:
     desc: run mcp server time using SSE transport using New York time
     cmds:
       - |
-        cd ../slim-mcp/examples/mcp-server-time/
-        uv run --package mcp-server-time mcp-server-time --local-timezone "America/New_York" --transport sse
+        uvx --from slim-mcp mcp-server-time --local-timezone "America/New_York" --transport sse
 
   mcp-proxy:example:run-mcp-server-time-slim:
     desc: run mcp server time using SSE transport using New York time
     cmds:
       - |
-        cd ../slim-mcp/examples/mcp-server-time/
-        uv run --package mcp-server-time mcp-server-time --local-timezone "America/New_York" --transport slim
+        uvx --from slim-mcp mcp-server-time --local-timezone "America/New_York" --transport slim
 
   mcp-proxy:example:run-llamaindex-time-agent-proxy:
     desc: run llama index time agent
     cmds:
       - |
-        cd ../slim-mcp/examples/llamaindex-time-agent
-        uv run --package llamaindex-time-agent llamaindex-time-agent --city "New York" --mcp-server-organization "org" --mcp-server-namespace "mcp" --mcp-server-name "proxy"
+        uvx --from slim-mcp llamaindex-time-agent --city "New York" --mcp-server-organization "org" --mcp-server-namespace "mcp" --mcp-server-name "proxy"
 
   mcp-proxy:example:run-llamaindex-time-agent:
     desc: run llama index time agent
     cmds:
       - |
-        cd ../slim-mcp/examples/llamaindex-time-agent
-        uv run --package llamaindex-time-agent llamaindex-time-agent --city "New York"
+        uvx --from slim-mcp llamaindex-time-agent --city "New York"
 
   mcp-proxy:build:strip:
     desc: "Build the project and strip the debug symbols"
