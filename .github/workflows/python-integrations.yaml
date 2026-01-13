@@ -34,11 +34,3 @@ jobs:
       package: slima2a
       working-directory: ./data-plane/python/integrations
       prefix: slima2a:python
-
-  build-mcp-wheels:
-    name: Build slim mcp
-    uses: ./.github/workflows/reusable-python-build-and-test.yaml
-    with:
-      package: slim-mcp
-      working-directory: ./data-plane/python/integrations
-      prefix: slim-mcp:python

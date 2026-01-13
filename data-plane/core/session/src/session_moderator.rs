@@ -621,6 +621,13 @@ where
         };
         self.current_task = Some(ModeratorTask::Add(AddParticipant::new(ack_tx, ack)));
 
+        // check if the participant is already part of the group
+        let new_participant_name = discovery.get_dst();
+        if self.group_list.contains_key(&new_participant_name) {
+            let err = SessionError::ParticipantAlreadyInGroup(new_participant_name);
+            return Err(self.handle_task_error(err));
+        }
+
         // start the current task
         let id = rand::random::<u32>();
         discovery.get_session_header_mut().set_message_id(id);

@@ -20,10 +20,6 @@
       "package-name": "helm-slim-control-plane",
       "release-type": "helm"
     },
-    "data-plane/python/integrations/slim-mcp": {
-      "package-name": "slim-mcp",
-      "release-type": "python"
-    },
     "control-plane/slimctl": {
       "package-name": "slimctl",
       "release-type": "go"
@@ -31,14 +27,6 @@
     "control-plane/control-plane": {
       "package-name": "control-plane",
       "release-type": "go"
-    },
-    "data-plane/python/integrations/slim-mcp/examples/llamaindex-time-agent": {
-      "package-name": "slim-llamaindex-time-agent",
-      "release-type": "simple"
-    },
-    "data-plane/python/integrations/slim-mcp/examples/mcp-server-time": {
-      "package-name": "slim-mcp-server-time",
-      "release-type": "simple"
     },
     "data-plane/testing": {
       "package-name": "slim-testutils",
