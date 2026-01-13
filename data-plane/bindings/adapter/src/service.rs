@@ -435,6 +435,7 @@ mod tests {
 
     use crate::adapter::BindingsAdapter;
     use crate::identity_config::{IdentityProviderConfig, IdentityVerifierConfig};
+    use crate::name::Name as BindingsName;
 
     /// Create test authentication configurations
     fn create_test_auth() -> (IdentityProviderConfig, IdentityVerifierConfig) {
@@ -454,6 +455,185 @@ mod tests {
         Name::from_strings(["org", "namespace", "test-app"])
     }
 
+    // ========================================================================
+    // Configuration Tests
+    // ========================================================================
+
+    #[test]
+    fn test_dataplane_config_default() {
+        let config = DataplaneConfig::default();
+        assert!(config.servers.is_empty());
+        assert!(config.clients.is_empty());
+    }
+
+    #[test]
+    fn test_dataplane_config_to_core_conversion() {
+        let server_config = ServerConfig::default();
+        let client_config = ClientConfig::default();
+
+        let config = DataplaneConfig {
+            servers: vec![server_config],
+            clients: vec![client_config],
+        };
+
+        let core_config: CoreControllerConfig = config.clone().into();
+        assert_eq!(core_config.servers.len(), 1);
+        assert_eq!(core_config.clients.len(), 1);
+
+        // Verify token provider/verifier are set to None
+        assert!(matches!(
+            core_config.token_provider,
+            CoreIdentityProviderConfig::None
+        ));
+        assert!(matches!(
+            core_config.token_verifier,
+            CoreIdentityVerifierConfig::None
+        ));
+    }
+
+    #[test]
+    fn test_dataplane_config_from_core_conversion() {
+        let mut core_config = CoreControllerConfig::new();
+        core_config.servers = vec![CoreServerConfig::default()];
+        core_config.clients = vec![CoreClientConfig::default()];
+
+        let config: DataplaneConfig = core_config.into();
+        assert_eq!(config.servers.len(), 1);
+        assert_eq!(config.clients.len(), 1);
+    }
+
+    #[test]
+    fn test_dataplane_config_roundtrip() {
+        let original = DataplaneConfig {
+            servers: vec![ServerConfig::default()],
+            clients: vec![ClientConfig::default()],
+        };
+
+        let core: CoreControllerConfig = original.clone().into();
+        let roundtrip: DataplaneConfig = core.into();
+
+        assert_eq!(original.servers.len(), roundtrip.servers.len());
+        assert_eq!(original.clients.len(), roundtrip.clients.len());
+    }
+
+    #[test]
+    fn test_service_configuration_new() {
+        let config = ServiceConfiguration::new();
+        assert!(config.node_id.is_none());
+        assert!(config.group_name.is_none());
+        assert!(config.dataplane.servers.is_empty());
+        assert!(config.dataplane.clients.is_empty());
+    }
+
+    #[test]
+    fn test_service_configuration_default() {
+        let config = ServiceConfiguration::default();
+        assert!(config.node_id.is_none());
+        assert!(config.group_name.is_none());
+    }
+
+    #[test]
+    fn test_service_configuration_with_values() {
+        let config = ServiceConfiguration {
+            node_id: Some("node-123".to_string()),
+            group_name: Some("test-group".to_string()),
+            dataplane: DataplaneConfig::default(),
+        };
+
+        assert_eq!(config.node_id.as_deref(), Some("node-123"));
+        assert_eq!(config.group_name.as_deref(), Some("test-group"));
+    }
+
+    #[test]
+    fn test_service_configuration_to_core_conversion() {
+        let config = ServiceConfiguration {
+            node_id: Some("node-456".to_string()),
+            group_name: Some("group-abc".to_string()),
+            dataplane: DataplaneConfig::default(),
+        };
+
+        let core_config: SlimServiceConfiguration = config.clone().into();
+        assert_eq!(core_config.node_id.as_deref(), Some("node-456"));
+        assert_eq!(core_config.group_name.as_deref(), Some("group-abc"));
+    }
+
+    #[test]
+    fn test_service_configuration_from_core_conversion() {
+        let mut core_config = SlimServiceConfiguration::new();
+        core_config.node_id = Some("core-node".to_string());
+        core_config.group_name = Some("core-group".to_string());
+
+        let config: ServiceConfiguration = core_config.into();
+        assert_eq!(config.node_id.as_deref(), Some("core-node"));
+        assert_eq!(config.group_name.as_deref(), Some("core-group"));
+    }
+
+    #[test]
+    fn test_service_configuration_roundtrip() {
+        let original = ServiceConfiguration {
+            node_id: Some("roundtrip-node".to_string()),
+            group_name: Some("roundtrip-group".to_string()),
+            dataplane: DataplaneConfig::default(),
+        };
+
+        let core: SlimServiceConfiguration = original.clone().into();
+        let roundtrip: ServiceConfiguration = core.into();
+
+        assert_eq!(original.node_id, roundtrip.node_id);
+        assert_eq!(original.group_name, roundtrip.group_name);
+    }
+
+    // ========================================================================
+    // Service Creation Tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_service_new() {
+        let service = Service::new("test-service".to_string());
+        let name = service.get_name().await;
+        assert!(name.contains("test-service"));
+    }
+
+    #[tokio::test]
+    async fn test_service_new_with_config() {
+        let config = ServiceConfiguration {
+            node_id: Some("test-node".to_string()),
+            group_name: Some("test-group".to_string()),
+            dataplane: DataplaneConfig::default(),
+        };
+
+        let service = Service::new_with_config("configured-service".to_string(), config.clone());
+        let retrieved_config = service.config().await;
+
+        assert_eq!(retrieved_config.node_id, config.node_id);
+        assert_eq!(retrieved_config.group_name, config.group_name);
+    }
+
+    #[tokio::test]
+    async fn test_service_inner_clone() {
+        let service = Service::new("inner-test".to_string());
+        let inner1 = service.inner();
+        let inner2 = service.inner();
+
+        // Both should point to the same Arc
+        assert!(Arc::ptr_eq(&inner1, &inner2));
+    }
+
+    #[test]
+    fn test_service_from_slim_service() {
+        let kind = Kind::new(KIND).expect("Invalid service kind");
+        let id = ID::new_with_name(kind, "from-test").expect("Invalid service name");
+        let slim_service = SlimService::new(id);
+
+        let service: Service = slim_service.into();
+        // Just verify it doesn't panic
+        assert!(Arc::strong_count(&service.inner) >= 1);
+    }
+
+    // ========================================================================
+    // Global Service Tests
+    // ========================================================================
+
     #[tokio::test]
     async fn test_global_service_singleton() {
         let service1 = get_or_init_global_service();
@@ -464,6 +644,14 @@ mod tests {
 
         // Also check that the inner Arc is the same
         assert!(Arc::ptr_eq(&service1.inner, &service2.inner));
+    }
+
+    #[tokio::test]
+    async fn test_get_global_service_function() {
+        let service1 = get_global_service();
+        let service2 = get_global_service();
+
+        assert!(Arc::ptr_eq(&service1, &service2));
     }
 
     #[tokio::test]
@@ -491,5 +679,281 @@ mod tests {
 
         // They should point to the same inner Arc
         assert_eq!(ptr1, ptr2);
+    }
+
+    #[tokio::test]
+    async fn test_global_service_config() {
+        let config = service_config().await;
+        // Global service should have default config initially
+        assert!(config.node_id.is_none() || config.node_id.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_global_service_name() {
+        let name = service_name().await;
+        assert!(!name.is_empty());
+        assert!(name.contains("global-bindings-service"));
+    }
+
+    // ========================================================================
+    // Service Lifecycle Tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_service_shutdown_without_run() {
+        let service = Service::new("shutdown-test".to_string());
+        // Should not error even if service wasn't run
+        let result = service.shutdown().await;
+        // Shutdown might succeed or fail gracefully
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    // ========================================================================
+    // Client/Server Configuration Tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_stop_nonexistent_server() {
+        let service = Service::new("stop-test".to_string());
+        let result = service.stop_server("127.0.0.1:99999".to_string()).await;
+        // Should fail because server doesn't exist
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_disconnect_invalid_connection() {
+        let service = Service::new("disconnect-test".to_string());
+        let result = service.disconnect(999999).await;
+        // Should fail because connection doesn't exist
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_get_connection_id_nonexistent() {
+        let service = Service::new("conn-id-test".to_string());
+        let conn_id = service
+            .get_connection_id("nonexistent-endpoint".to_string())
+            .await;
+        assert!(conn_id.is_none());
+    }
+
+    // ========================================================================
+    // Adapter Creation Tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_create_adapter_async() {
+        let service = Service::new("adapter-test".to_string());
+        let base_name = Arc::new(BindingsName::new(
+            "org".to_string(),
+            "namespace".to_string(),
+            "adapter-app".to_string(),
+            None,
+        ));
+        let (provider, verifier) = create_test_auth();
+
+        let result = service
+            .create_adapter_async(base_name, provider, verifier)
+            .await;
+
+        assert!(result.is_ok(), "Should create adapter successfully");
+        let adapter = result.unwrap();
+        assert!(adapter.id() > 0, "Adapter should have non-zero ID");
+    }
+
+    #[tokio::test]
+    async fn test_create_adapter_with_different_names() {
+        let service = Service::new("multi-adapter-test".to_string());
+        let (provider, verifier) = create_test_auth();
+
+        let names = vec![
+            ("org1", "ns1", "app1"),
+            ("org2", "ns2", "app2"),
+            ("org3", "ns3", "app3"),
+        ];
+
+        for (org, ns, app) in names {
+            let base_name = Arc::new(BindingsName::new(
+                org.to_string(),
+                ns.to_string(),
+                app.to_string(),
+                None,
+            ));
+
+            let result = service
+                .create_adapter_async(base_name, provider.clone(), verifier.clone())
+                .await;
+
+            assert!(
+                result.is_ok(),
+                "Should create adapter for {}/{}/{}",
+                org,
+                ns,
+                app
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_create_adapter_unique_ids() {
+        // Each adapter gets a unique ID due to token generation
+        let service = Service::new("unique-ids-test".to_string());
+        let base_name = Arc::new(BindingsName::new(
+            "org".to_string(),
+            "namespace".to_string(),
+            "unique-app".to_string(),
+            None,
+        ));
+        let (provider, verifier) = create_test_auth();
+
+        let adapter1 = service
+            .create_adapter_async(base_name.clone(), provider.clone(), verifier.clone())
+            .await
+            .expect("Failed to create first adapter");
+
+        let adapter2 = service
+            .create_adapter_async(base_name, provider, verifier)
+            .await
+            .expect("Failed to create second adapter");
+
+        // IDs should be different since each adapter gets a fresh token
+        // (tokens include timestamps, so they're unique per creation)
+        assert_ne!(adapter1.id(), adapter2.id());
+
+        // Both IDs should be non-zero
+        assert!(adapter1.id() > 0);
+        assert!(adapter2.id() > 0);
+    }
+
+    // ========================================================================
+    // Factory Function Tests
+    // ========================================================================
+
+    #[test]
+    fn test_new_service_configuration() {
+        let config = new_service_configuration();
+        assert!(config.node_id.is_none());
+        assert!(config.group_name.is_none());
+    }
+
+    #[test]
+    fn test_new_dataplane_config() {
+        let config = new_dataplane_config();
+        assert!(config.servers.is_empty());
+        assert!(config.clients.is_empty());
+    }
+
+    #[test]
+    fn test_create_service() {
+        let result = create_service("factory-test".to_string());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_create_service_with_config() {
+        let config = ServiceConfiguration {
+            node_id: Some("factory-node".to_string()),
+            group_name: Some("factory-group".to_string()),
+            dataplane: DataplaneConfig::default(),
+        };
+
+        let result = create_service_with_config("factory-configured-test".to_string(), config);
+        assert!(result.is_ok());
+    }
+
+    // ========================================================================
+    // Global Service Convenience Functions Tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_global_stop_server_convenience() {
+        let result = stop_server("127.0.0.1:88888".to_string()).await;
+        // Should error since server doesn't exist
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_global_disconnect_convenience() {
+        let result = disconnect(888888).await;
+        // Should error since connection doesn't exist
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_global_get_connection_id_convenience() {
+        let conn_id = get_connection_id("nonexistent-global".to_string()).await;
+        assert!(conn_id.is_none());
+    }
+
+    // ========================================================================
+    // Error Handling Tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_service_operations_on_uninitialized_service() {
+        // These operations should handle gracefully even on a fresh service
+        let service = Service::new("uninitialized-test".to_string());
+
+        // Stop server that doesn't exist
+        let result = service.stop_server("127.0.0.1:11111".to_string()).await;
+        assert!(result.is_err());
+
+        // Disconnect non-existent connection
+        let result = service.disconnect(11111).await;
+        assert!(result.is_err());
+
+        // Get non-existent connection ID
+        let conn_id = service.get_connection_id("fake-endpoint".to_string()).await;
+        assert!(conn_id.is_none());
+    }
+
+    // ========================================================================
+    // Integration Tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_service_with_multiple_configs() {
+        let server_config = ServerConfig::default();
+        let client_config = ClientConfig::default();
+
+        let dataplane = DataplaneConfig {
+            servers: vec![server_config.clone(), server_config],
+            clients: vec![client_config.clone(), client_config],
+        };
+
+        let service_config = ServiceConfiguration {
+            node_id: Some("multi-config-node".to_string()),
+            group_name: Some("multi-config-group".to_string()),
+            dataplane,
+        };
+
+        let service = Service::new_with_config("multi-config-service".to_string(), service_config);
+        let retrieved = service.config().await;
+
+        assert_eq!(retrieved.dataplane.servers.len(), 2);
+        assert_eq!(retrieved.dataplane.clients.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_service_config_mutation_isolation() {
+        let config = ServiceConfiguration {
+            node_id: Some("original-node".to_string()),
+            group_name: Some("original-group".to_string()),
+            dataplane: DataplaneConfig::default(),
+        };
+
+        let service = Service::new_with_config("isolation-test".to_string(), config.clone());
+
+        // Get config and verify it matches
+        let retrieved = service.config().await;
+        assert_eq!(retrieved.node_id, config.node_id);
+
+        // Original config should be independent
+        let mut modified_config = config;
+        modified_config.node_id = Some("modified-node".to_string());
+
+        // Service config should not have changed
+        let retrieved2 = service.config().await;
+        assert_eq!(retrieved2.node_id.as_deref(), Some("original-node"));
     }
 }

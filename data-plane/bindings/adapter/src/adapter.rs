@@ -172,7 +172,7 @@ impl BindingsAdapter {
         let app_name = base_name.with_id(id_hash);
 
         // Use provided service or fall back to global service
-        let service_arc = service.unwrap_or_else(|| get_or_init_global_service().inner.clone());
+        let service_arc = service.unwrap_or(get_or_init_global_service().inner.clone());
 
         // Get service reference for adapter creation
         let service_guard = service_arc.read().await;
@@ -564,6 +564,7 @@ mod tests {
 
     use super::*;
 
+    use slim_config::component::ComponentBuilder;
     use slim_datapath::messages::Name as SlimName;
     use slim_testing::utils::TEST_VALID_SECRET;
 
@@ -1131,5 +1132,169 @@ mod tests {
 
         // Call async version (blocking version can't be called from async context)
         let _ = adapter.subscribe_async(target_name, None).await;
+    }
+
+    /// Test from_parts internal constructor
+    #[tokio::test]
+    async fn test_from_parts_constructor() {
+        use crate::service::get_or_init_global_service;
+
+        let base_name = SlimName::from_strings(["org", "namespace", "from-parts-test"]);
+        let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
+
+        // First create an adapter normally to get its parts
+        let _adapter1 = BindingsAdapter::new_async(
+            base_name.clone(),
+            provider_config.clone(),
+            verifier_config.clone(),
+        )
+        .await
+        .expect("Failed to create adapter");
+
+        // Now create another adapter using the Service's create_adapter_async method
+        // which uses from_parts internally
+        let service = get_or_init_global_service();
+        let name = Arc::new(Name::new(
+            "org".to_string(),
+            "namespace".to_string(),
+            "from-parts-test-2".to_string(),
+            None,
+        ));
+
+        let adapter2 = service
+            .create_adapter_async(name, provider_config, verifier_config)
+            .await
+            .expect("Failed to create adapter via service");
+
+        // Verify the adapter created via from_parts works correctly
+        assert!(adapter2.id() > 0);
+        assert!(!adapter2.name().to_string().is_empty());
+    }
+
+    /// Test new_async_with_service with a custom service
+    #[tokio::test]
+    async fn test_new_async_with_custom_service() {
+        use slim_service::Service as SlimService;
+
+        let base_name = SlimName::from_strings(["org", "namespace", "custom-service-test"]);
+        let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
+
+        // Create a custom service instance
+        let custom_service = SlimService::builder()
+            .build("test-custom-service".to_string())
+            .expect("Failed to create custom service");
+        let service_arc = Arc::new(RwLock::new(custom_service));
+
+        // Create adapter with custom service
+        let result = BindingsAdapter::new_async_with_service(
+            base_name,
+            provider_config,
+            verifier_config,
+            Some(service_arc),
+        )
+        .await;
+
+        assert!(result.is_ok(), "Should create adapter with custom service");
+        let adapter = result.unwrap();
+        assert!(adapter.id() > 0);
+        assert!(!adapter.name().to_string().is_empty());
+    }
+
+    /// Test new_async_with_service with None (uses global service)
+    #[tokio::test]
+    async fn test_new_async_with_service_none() {
+        let base_name = SlimName::from_strings(["org", "namespace", "global-default-test"]);
+        let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
+
+        // Create adapter with None for service (should use global)
+        let result = BindingsAdapter::new_async_with_service(
+            base_name,
+            provider_config,
+            verifier_config,
+            None,
+        )
+        .await;
+
+        assert!(
+            result.is_ok(),
+            "Should create adapter with global service when None"
+        );
+        let adapter = result.unwrap();
+        assert!(adapter.id() > 0);
+        assert!(!adapter.name().to_string().is_empty());
+    }
+
+    /// Test that new_async uses global service by default
+    #[tokio::test]
+    async fn test_new_async_uses_global_service() {
+        let base_name = SlimName::from_strings(["org", "namespace", "new-async-global"]);
+        let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
+
+        // Create two adapters using new_async
+        let adapter1 = BindingsAdapter::new_async(
+            base_name.clone(),
+            provider_config.clone(),
+            verifier_config.clone(),
+        )
+        .await
+        .expect("Failed to create first adapter");
+
+        let base_name2 = SlimName::from_strings(["org", "namespace", "new-async-global-2"]);
+        let adapter2 = BindingsAdapter::new_async(base_name2, provider_config, verifier_config)
+            .await
+            .expect("Failed to create second adapter");
+
+        // Both should be created successfully (using the same global service)
+        assert!(adapter1.id() > 0);
+        assert!(adapter2.id() > 0);
+        assert_ne!(
+            adapter1.id(),
+            adapter2.id(),
+            "Different adapters should have different IDs"
+        );
+    }
+
+    /// Test multiple adapters with different custom services
+    #[tokio::test]
+    async fn test_multiple_adapters_different_services() {
+        use slim_service::Service as SlimService;
+
+        let base_name1 = SlimName::from_strings(["org", "namespace", "multi-service-1"]);
+        let base_name2 = SlimName::from_strings(["org", "namespace", "multi-service-2"]);
+        let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
+
+        // Create two different custom services
+        let service1 = SlimService::builder()
+            .build("test-service-1".to_string())
+            .expect("Failed to create service 1");
+        let service1_arc = Arc::new(RwLock::new(service1));
+
+        let service2 = SlimService::builder()
+            .build("test-service-2".to_string())
+            .expect("Failed to create service 2");
+        let service2_arc = Arc::new(RwLock::new(service2));
+
+        // Create adapters with different services
+        let adapter1 = BindingsAdapter::new_async_with_service(
+            base_name1,
+            provider_config.clone(),
+            verifier_config.clone(),
+            Some(service1_arc),
+        )
+        .await
+        .expect("Failed to create adapter 1");
+
+        let adapter2 = BindingsAdapter::new_async_with_service(
+            base_name2,
+            provider_config,
+            verifier_config,
+            Some(service2_arc),
+        )
+        .await
+        .expect("Failed to create adapter 2");
+
+        // Both adapters should work independently
+        assert!(adapter1.id() > 0);
+        assert!(adapter2.id() > 0);
     }
 }

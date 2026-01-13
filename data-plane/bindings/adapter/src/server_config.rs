@@ -285,27 +285,23 @@ mod tests {
 
     #[test]
     fn test_server_config_from_core_conversion() {
+        // Test the new From<CoreServerConfig> for ServerConfig implementation
         let core_config = CoreServerConfig::default();
-        let ffi_config: ServerConfig = ServerConfig {
-            endpoint: core_config.endpoint.clone(),
-            tls: core_config.tls_setting.clone().into(),
-            http2_only: core_config.http2_only,
-            max_frame_size: core_config.max_frame_size,
-            max_concurrent_streams: core_config.max_concurrent_streams,
-            max_header_list_size: core_config.max_header_list_size,
-            read_buffer_size: core_config.read_buffer_size.map(|s| s as u64),
-            write_buffer_size: core_config.write_buffer_size.map(|s| s as u64),
-            keepalive: core_config.keepalive.into(),
-            auth: core_config.auth.into(),
-            metadata: core_config
-                .metadata
-                .and_then(|m| serde_json::to_string(&m).ok()),
-        };
 
-        assert_eq!(ffi_config.endpoint, "");
-        assert!(ffi_config.http2_only);
-        assert_eq!(ffi_config.max_frame_size, Some(4));
-        assert_eq!(ffi_config.max_concurrent_streams, Some(100));
+        // Use the From trait to convert
+        let ffi_config: ServerConfig = core_config.clone().into();
+
+        assert_eq!(ffi_config.endpoint, core_config.endpoint);
+        assert_eq!(ffi_config.http2_only, core_config.http2_only);
+        assert_eq!(ffi_config.max_frame_size, core_config.max_frame_size);
+        assert_eq!(
+            ffi_config.max_concurrent_streams,
+            core_config.max_concurrent_streams
+        );
+        assert_eq!(
+            ffi_config.max_header_list_size,
+            core_config.max_header_list_size
+        );
     }
 
     #[test]
@@ -324,21 +320,9 @@ mod tests {
             metadata: None,
         };
 
-        // FFI -> Core -> FFI
+        // FFI -> Core -> FFI using the new From implementation
         let core: CoreServerConfig = original.clone().into();
-        let roundtrip = ServerConfig {
-            endpoint: core.endpoint,
-            tls: core.tls_setting.into(),
-            http2_only: core.http2_only,
-            max_frame_size: core.max_frame_size,
-            max_concurrent_streams: core.max_concurrent_streams,
-            max_header_list_size: core.max_header_list_size,
-            read_buffer_size: core.read_buffer_size.map(|s| s as u64),
-            write_buffer_size: core.write_buffer_size.map(|s| s as u64),
-            keepalive: core.keepalive.into(),
-            auth: core.auth.into(),
-            metadata: core.metadata.and_then(|m| serde_json::to_string(&m).ok()),
-        };
+        let roundtrip: ServerConfig = core.into();
 
         assert_eq!(roundtrip.endpoint, original.endpoint);
         assert_eq!(roundtrip.http2_only, original.http2_only);
@@ -506,5 +490,224 @@ mod tests {
         } else {
             panic!("Expected Jwt authentication config");
         }
+    }
+
+    #[test]
+    fn test_server_config_from_core_with_all_fields() {
+        // Test the new From<CoreServerConfig> for ServerConfig with comprehensive field coverage
+        use slim_auth::metadata::MetadataMap;
+
+        let mut metadata = MetadataMap::new();
+        metadata.insert("service".to_string(), "test-server".to_string());
+        metadata.insert("region".to_string(), "us-east-1".to_string());
+
+        let core_config = CoreServerConfig {
+            endpoint: "0.0.0.0:8443".to_string(),
+            http2_only: false,
+            max_frame_size: Some(32),
+            max_concurrent_streams: Some(1000),
+            max_header_list_size: Some(32768),
+            read_buffer_size: Some(16384),
+            write_buffer_size: Some(16384),
+            metadata: Some(metadata),
+            ..Default::default()
+        };
+
+        // Use the new From implementation
+        let ffi_config: ServerConfig = core_config.clone().into();
+
+        // Verify all fields are correctly converted
+        assert_eq!(ffi_config.endpoint, "0.0.0.0:8443");
+        assert!(!ffi_config.http2_only);
+        assert_eq!(ffi_config.max_frame_size, Some(32));
+        assert_eq!(ffi_config.max_concurrent_streams, Some(1000));
+        assert_eq!(ffi_config.max_header_list_size, Some(32768));
+        assert_eq!(ffi_config.read_buffer_size, Some(16384));
+        assert_eq!(ffi_config.write_buffer_size, Some(16384));
+
+        // Verify metadata is serialized correctly
+        assert!(ffi_config.metadata.is_some());
+        let metadata_str = ffi_config.metadata.unwrap();
+        assert!(metadata_str.contains("test-server"));
+        assert!(metadata_str.contains("us-east-1"));
+    }
+
+    #[test]
+    fn test_server_config_from_core_with_keepalive() {
+        use slim_config::grpc::server::KeepaliveServerParameters as CoreKeepaliveServerParameters;
+
+        let core_config = CoreServerConfig {
+            keepalive: CoreKeepaliveServerParameters {
+                max_connection_idle: Duration::from_secs(300).into(),
+                max_connection_age: Duration::from_secs(900).into(),
+                max_connection_age_grace: Duration::from_secs(30).into(),
+                time: Duration::from_secs(150).into(),
+                timeout: Duration::from_secs(15).into(),
+            },
+            ..Default::default()
+        };
+
+        let ffi_config: ServerConfig = core_config.into();
+
+        assert_eq!(
+            ffi_config.keepalive.max_connection_idle,
+            Duration::from_secs(300)
+        );
+        assert_eq!(
+            ffi_config.keepalive.max_connection_age,
+            Duration::from_secs(900)
+        );
+        assert_eq!(
+            ffi_config.keepalive.max_connection_age_grace,
+            Duration::from_secs(30)
+        );
+        assert_eq!(ffi_config.keepalive.time, Duration::from_secs(150));
+        assert_eq!(ffi_config.keepalive.timeout, Duration::from_secs(15));
+    }
+
+    #[test]
+    fn test_server_config_from_core_buffer_size_conversion() {
+        // Test that buffer sizes are correctly converted from usize to u64
+        let core_config = CoreServerConfig {
+            read_buffer_size: Some(8192),
+            write_buffer_size: Some(8192),
+            ..Default::default()
+        };
+
+        let ffi_config: ServerConfig = core_config.into();
+
+        assert_eq!(ffi_config.read_buffer_size, Some(8192u64));
+        assert_eq!(ffi_config.write_buffer_size, Some(8192u64));
+    }
+
+    #[test]
+    fn test_server_config_from_core_no_buffer_sizes() {
+        // Test with None buffer sizes
+        let core_config = CoreServerConfig {
+            read_buffer_size: None,
+            write_buffer_size: None,
+            ..Default::default()
+        };
+
+        let ffi_config: ServerConfig = core_config.into();
+
+        assert!(ffi_config.read_buffer_size.is_none());
+        assert!(ffi_config.write_buffer_size.is_none());
+    }
+
+    #[test]
+    fn test_server_config_from_core_http2_only_variations() {
+        // Test http2_only flag both true and false
+        let core_config_true = CoreServerConfig {
+            http2_only: true,
+            ..Default::default()
+        };
+
+        let ffi_config_true: ServerConfig = core_config_true.into();
+        assert!(ffi_config_true.http2_only);
+
+        let core_config_false = CoreServerConfig {
+            http2_only: false,
+            ..Default::default()
+        };
+
+        let ffi_config_false: ServerConfig = core_config_false.into();
+        assert!(!ffi_config_false.http2_only);
+    }
+
+    #[test]
+    fn test_server_config_from_core_with_optional_fields() {
+        // Test with various combinations of optional fields
+        let core_config = CoreServerConfig {
+            max_frame_size: None,
+            max_concurrent_streams: Some(250),
+            max_header_list_size: None,
+            ..Default::default()
+        };
+
+        let ffi_config: ServerConfig = core_config.into();
+
+        assert!(ffi_config.max_frame_size.is_none());
+        assert_eq!(ffi_config.max_concurrent_streams, Some(250));
+        assert!(ffi_config.max_header_list_size.is_none());
+    }
+
+    #[test]
+    fn test_server_config_from_core_metadata_serialization_failure() {
+        // Test that None metadata results in None
+        let core_config = CoreServerConfig {
+            metadata: None,
+            ..Default::default()
+        };
+
+        let ffi_config: ServerConfig = core_config.into();
+
+        assert!(ffi_config.metadata.is_none());
+    }
+
+    #[test]
+    fn test_server_config_from_core_auth_types() {
+        use slim_config::auth::basic::Config as BasicAuthConfig;
+        use slim_config::grpc::server::AuthenticationConfig as CoreAuthConfig;
+
+        // Test with Basic auth
+        let core_config = CoreServerConfig {
+            auth: CoreAuthConfig::Basic(BasicAuthConfig::new("server_user", "server_pass")),
+            ..Default::default()
+        };
+
+        let ffi_config: ServerConfig = core_config.into();
+
+        match ffi_config.auth {
+            ServerAuthenticationConfig::Basic { config } => {
+                assert_eq!(config.username, "server_user");
+                assert_eq!(config.password, "server_pass");
+            }
+            _ => panic!("Expected Basic auth"),
+        }
+    }
+
+    #[test]
+    fn test_server_config_from_core_auth_none() {
+        use slim_config::grpc::server::AuthenticationConfig as CoreAuthConfig;
+
+        // Test with None auth
+        let core_config = CoreServerConfig {
+            auth: CoreAuthConfig::None,
+            ..Default::default()
+        };
+
+        let ffi_config: ServerConfig = core_config.into();
+
+        match ffi_config.auth {
+            ServerAuthenticationConfig::None => {
+                // Success
+            }
+            _ => panic!("Expected None auth"),
+        }
+    }
+
+    #[test]
+    fn test_keepalive_server_parameters_roundtrip() {
+        // Test KeepaliveServerParameters conversion both ways
+        let original = KeepaliveServerParameters {
+            max_connection_idle: Duration::from_secs(500),
+            max_connection_age: Duration::from_secs(1500),
+            max_connection_age_grace: Duration::from_secs(50),
+            time: Duration::from_secs(250),
+            timeout: Duration::from_secs(25),
+        };
+
+        let core: CoreKeepaliveServerParameters = original.clone().into();
+        let roundtrip: KeepaliveServerParameters = core.into();
+
+        assert_eq!(roundtrip.max_connection_idle, original.max_connection_idle);
+        assert_eq!(roundtrip.max_connection_age, original.max_connection_age);
+        assert_eq!(
+            roundtrip.max_connection_age_grace,
+            original.max_connection_age_grace
+        );
+        assert_eq!(roundtrip.time, original.time);
+        assert_eq!(roundtrip.timeout, original.timeout);
     }
 }

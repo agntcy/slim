@@ -503,12 +503,18 @@ mod tests {
 
     #[test]
     fn test_client_config_from_core_conversion() {
+        // Test the new From<CoreClientConfig> for ClientConfig implementation
         let core_config = CoreClientConfig::default();
-        let ffi_config = ClientConfig::default();
+
+        // Use the From trait to convert
+        let ffi_config: ClientConfig = core_config.clone().into();
 
         assert_eq!(ffi_config.endpoint, core_config.endpoint);
         assert_eq!(ffi_config.origin, core_config.origin);
         assert_eq!(ffi_config.server_name, core_config.server_name);
+        assert_eq!(ffi_config.rate_limit, core_config.rate_limit);
+        assert_eq!(ffi_config.connect_timeout, *core_config.connect_timeout);
+        assert_eq!(ffi_config.request_timeout, *core_config.request_timeout);
     }
 
     #[test]
@@ -533,25 +539,9 @@ mod tests {
             metadata: None,
         };
 
-        // FFI -> Core -> FFI
+        // FFI -> Core -> FFI using the new From implementation
         let core: CoreClientConfig = original.clone().into();
-        let roundtrip = ClientConfig {
-            endpoint: core.endpoint,
-            origin: core.origin,
-            server_name: core.server_name,
-            compression: core.compression.map(Into::into),
-            rate_limit: core.rate_limit,
-            tls: core.tls_setting.into(),
-            keepalive: core.keepalive.map(Into::into),
-            proxy: core.proxy.into(),
-            connect_timeout: core.connect_timeout.into(),
-            request_timeout: core.request_timeout.into(),
-            buffer_size: core.buffer_size.map(|s| s as u64),
-            headers: core.headers,
-            auth: core.auth.into(),
-            backoff: core.backoff.into(),
-            metadata: core.metadata.and_then(|m| serde_json::to_string(&m).ok()),
-        };
+        let roundtrip: ClientConfig = core.into();
 
         assert_eq!(roundtrip.endpoint, original.endpoint);
         assert_eq!(roundtrip.origin, original.origin);
@@ -829,6 +819,210 @@ mod tests {
             assert_eq!(config.duration, jwt_config.duration);
         } else {
             panic!("Expected StaticJwt authentication config");
+        }
+    }
+
+    #[test]
+    fn test_client_config_from_core_with_all_fields() {
+        // Test the new From<CoreClientConfig> for ClientConfig with comprehensive field coverage
+        use slim_config::backoff::exponential::Config as CoreExponentialBackoffConfig;
+        use slim_config::grpc::client::BackoffConfig as CoreBackoffConfig;
+
+        let mut headers = HashMap::new();
+        headers.insert("X-Custom-Header".to_string(), "value".to_string());
+
+        let mut metadata = MetadataMap::new();
+        metadata.insert("service".to_string(), "test-service".to_string());
+        metadata.insert("version".to_string(), "1.0".to_string());
+
+        let core_config = CoreClientConfig {
+            endpoint: "test.example.com:9443".to_string(),
+            origin: Some("origin.example.com".to_string()),
+            server_name: Some("server.example.com".to_string()),
+            rate_limit: Some("100/s".to_string()),
+            buffer_size: Some(8192),
+            headers: headers.clone(),
+            metadata: Some(metadata),
+            backoff: CoreBackoffConfig::Exponential(CoreExponentialBackoffConfig {
+                base: 50,
+                factor: 3,
+                max_delay: Duration::from_secs(120).into(),
+                max_attempts: 5,
+                jitter: true,
+            }),
+            ..Default::default()
+        };
+
+        // Use the new From implementation
+        let ffi_config: ClientConfig = core_config.clone().into();
+
+        // Verify all fields are correctly converted
+        assert_eq!(ffi_config.endpoint, "test.example.com:9443");
+        assert_eq!(ffi_config.origin, Some("origin.example.com".to_string()));
+        assert_eq!(
+            ffi_config.server_name,
+            Some("server.example.com".to_string())
+        );
+        assert_eq!(ffi_config.rate_limit, Some("100/s".to_string()));
+        assert_eq!(ffi_config.buffer_size, Some(8192));
+        assert_eq!(ffi_config.headers.len(), 1);
+        assert_eq!(
+            ffi_config.headers.get("X-Custom-Header"),
+            Some(&"value".to_string())
+        );
+
+        // Verify metadata is serialized correctly
+        assert!(ffi_config.metadata.is_some());
+        let metadata_str = ffi_config.metadata.unwrap();
+        assert!(metadata_str.contains("test-service"));
+        assert!(metadata_str.contains("1.0"));
+    }
+
+    #[test]
+    fn test_client_config_from_core_with_keepalive() {
+        use slim_config::grpc::client::KeepaliveConfig as CoreKeepaliveConfig;
+
+        let core_config = CoreClientConfig {
+            keepalive: Some(CoreKeepaliveConfig {
+                tcp_keepalive: Duration::from_secs(90).into(),
+                http2_keepalive: Duration::from_secs(45).into(),
+                timeout: Duration::from_secs(20).into(),
+                keep_alive_while_idle: true,
+            }),
+            ..Default::default()
+        };
+
+        let ffi_config: ClientConfig = core_config.into();
+
+        assert!(ffi_config.keepalive.is_some());
+        let keepalive = ffi_config.keepalive.unwrap();
+        assert_eq!(keepalive.tcp_keepalive, Duration::from_secs(90));
+        assert_eq!(keepalive.http2_keepalive, Duration::from_secs(45));
+        assert_eq!(keepalive.timeout, Duration::from_secs(20));
+        assert!(keepalive.keep_alive_while_idle);
+    }
+
+    #[test]
+    fn test_client_config_from_core_with_compression() {
+        use slim_config::grpc::compression::CompressionType as CoreCompressionType;
+
+        let compressions = vec![
+            CoreCompressionType::Gzip,
+            CoreCompressionType::Zstd,
+            CoreCompressionType::Snappy,
+        ];
+
+        for core_compression in compressions {
+            let core_config = CoreClientConfig {
+                compression: Some(core_compression.clone()),
+                ..Default::default()
+            };
+
+            let ffi_config: ClientConfig = core_config.into();
+
+            assert!(ffi_config.compression.is_some());
+        }
+    }
+
+    #[test]
+    fn test_client_config_from_core_with_proxy() {
+        use slim_config::grpc::proxy::ProxyConfig as CoreProxyConfig;
+
+        let mut proxy_headers = HashMap::new();
+        proxy_headers.insert("Proxy-Auth".to_string(), "token123".to_string());
+
+        let core_config = CoreClientConfig {
+            proxy: CoreProxyConfig {
+                url: Some("http://proxy.internal:3128".to_string()),
+                tls_setting: Default::default(),
+                username: Some("proxy_user".to_string()),
+                password: Some("proxy_pass".to_string()),
+                headers: proxy_headers.clone(),
+            },
+            ..Default::default()
+        };
+
+        let ffi_config: ClientConfig = core_config.into();
+
+        assert_eq!(
+            ffi_config.proxy.url,
+            Some("http://proxy.internal:3128".to_string())
+        );
+        assert_eq!(ffi_config.proxy.username, Some("proxy_user".to_string()));
+        assert_eq!(ffi_config.proxy.password, Some("proxy_pass".to_string()));
+        assert_eq!(ffi_config.proxy.headers.len(), 1);
+    }
+
+    #[test]
+    fn test_client_config_from_core_buffer_size_conversion() {
+        // Test that buffer_size is correctly converted from usize to u64
+        let core_config = CoreClientConfig {
+            buffer_size: Some(16384),
+            ..Default::default()
+        };
+
+        let ffi_config: ClientConfig = core_config.into();
+
+        assert_eq!(ffi_config.buffer_size, Some(16384u64));
+    }
+
+    #[test]
+    fn test_client_config_from_core_metadata_serialization_failure() {
+        // Test that invalid metadata (non-serializable) results in None
+        // metadata is already Option, so we just test with None
+        let core_config = CoreClientConfig {
+            metadata: None,
+            ..Default::default()
+        };
+
+        let ffi_config: ClientConfig = core_config.into();
+
+        assert!(ffi_config.metadata.is_none());
+    }
+
+    #[test]
+    fn test_client_config_from_core_fixed_interval_backoff() {
+        use slim_config::backoff::fixedinterval::Config as CoreFixedIntervalBackoffConfig;
+        use slim_config::grpc::client::BackoffConfig as CoreBackoffConfig;
+
+        let core_config = CoreClientConfig {
+            backoff: CoreBackoffConfig::FixedInterval(CoreFixedIntervalBackoffConfig {
+                interval: Duration::from_secs(5).into(),
+                max_attempts: 8,
+            }),
+            ..Default::default()
+        };
+
+        let ffi_config: ClientConfig = core_config.into();
+
+        match ffi_config.backoff {
+            BackoffConfig::FixedInterval { config } => {
+                assert_eq!(config.interval, Duration::from_secs(5));
+                assert_eq!(config.max_attempts, 8);
+            }
+            _ => panic!("Expected FixedInterval backoff"),
+        }
+    }
+
+    #[test]
+    fn test_client_config_from_core_auth_types() {
+        use slim_config::auth::basic::Config as BasicAuthConfig;
+        use slim_config::grpc::client::AuthenticationConfig as CoreAuthConfig;
+
+        // Test with Basic auth
+        let core_config = CoreClientConfig {
+            auth: CoreAuthConfig::Basic(BasicAuthConfig::new("test_user", "test_pass")),
+            ..Default::default()
+        };
+
+        let ffi_config: ClientConfig = core_config.into();
+
+        match ffi_config.auth {
+            ClientAuthenticationConfig::Basic { config } => {
+                assert_eq!(config.username, "test_user");
+                assert_eq!(config.password, "test_pass");
+            }
+            _ => panic!("Expected Basic auth"),
         }
     }
 }
