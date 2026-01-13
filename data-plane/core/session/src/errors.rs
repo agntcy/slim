@@ -84,6 +84,8 @@ pub enum SessionError {
     // Session membership and permissions
     #[error("participant not found in group: {0}")]
     ParticipantNotFound(Name),
+    #[error("participant already in group: {0}")]
+    ParticipantAlreadyInGroup(Name),
     #[error("cannot invite participant to point-to-point session")]
     CannotInviteToP2P,
     #[error("cannot remove participant from point-to-point session")]
