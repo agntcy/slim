@@ -17,10 +17,10 @@ async def server(request):
 
     name = slim_bindings.Name("agntcy", "default", "server")
     provider = slim_bindings.IdentityProvider.SharedSecret(
-        identity="server", shared_secret="secret"
+        identity="server", shared_secret="demo-shared-secret-min-32-chars!!"
     )
     verifier = slim_bindings.IdentityVerifier.SharedSecret(
-        identity="server", shared_secret="secret"
+        identity="server", shared_secret="demo-shared-secret-min-32-chars!!"
     )
 
     svc_server = await slim_bindings.create_pyservice(name, provider, verifier)

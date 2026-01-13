@@ -55,7 +55,7 @@ async def main() -> None:
                     "insecure": True,
                 },
             },
-            shared_secret="secret",
+            shared_secret="demo-shared-secret-min-32-chars!!",
         )
     )
     add_A2AServiceServicer_to_server(
