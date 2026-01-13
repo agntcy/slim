@@ -137,3 +137,6 @@ artifacts
 
 # Go bindings generated code
 data-plane/bindings/go/generated
+
+libslim_bindings.dylib
+libslim_bindings.a
