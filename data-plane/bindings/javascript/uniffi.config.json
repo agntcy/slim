@@ -1,0 +1,8 @@
+{
+  "crates": [
+    {
+      "name": "agntcy-slim-bindings",
+      "path": "../adapter"
+    }
+  ]
+}

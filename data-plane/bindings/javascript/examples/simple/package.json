@@ -1,0 +1,13 @@
+{
+  "name": "@agntcy/slim-bindings-example-simple",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Simple example for SLIM JavaScript bindings",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@agntcy/slim-bindings": "file:../.."
+  }
+}
