@@ -1,0 +1,42 @@
+{
+  "name": "@agntcy/slim-bindings",
+  "version": "0.7.0",
+  "description": "JavaScript/TypeScript bindings for SLIM (Secure Low-Latency Interactive Messaging)",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "keywords": [
+    "slim",
+    "messaging",
+    "rust",
+    "uniffi",
+    "typescript",
+    "react-native"
+  ],
+  "author": "AGNTCY Contributors",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agntcy/slim.git",
+    "directory": "data-plane/bindings/javascript"
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist generated node_modules",
+    "test": "echo 'Tests not yet implemented'"
+  },
+  "files": [
+    "dist",
+    "generated",
+    "README.md"
+  ],
+  "dependencies": {
+    "uniffi-bindgen-react-native": "0.29.3-1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
