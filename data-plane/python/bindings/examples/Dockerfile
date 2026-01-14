@@ -25,6 +25,7 @@ DEBIAN_FRONTEND=noninteractive \
         git \
         ca-certificates \
         gcc \
+        make \
         libc-dev
 
 curl -LsSf https://astral.sh/uv/install.sh | sh

@@ -28,5 +28,6 @@ tasks:
     deps:
       - data-plane:build
       - control-plane:build
+      - control-plane:slimctl:crossbuild
     cmds:
       - go -C ./integration test -v -failfast -test.v -test.paniconexit0 -ginkgo.timeout 5m -timeout 5m -ginkgo.v .

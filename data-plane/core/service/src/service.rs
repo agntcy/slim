@@ -28,9 +28,12 @@ use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::Name;
 
 // Local crate
+#[cfg(feature = "session")]
 use crate::app::App;
 use crate::errors::ServiceError;
+#[cfg(feature = "session")]
 use slim_session::SessionError;
+#[cfg(feature = "session")]
 use slim_session::notification::Notification;
 
 // Define the kind of the component as static string
@@ -284,6 +287,7 @@ impl Service {
     }
 
     // APP APIs
+    #[cfg(feature = "session")]
     pub fn create_app<P, V>(
         &self,
         app_name: &Name,
