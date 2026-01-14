@@ -56,6 +56,9 @@ slim:
               #   local_endpoint: ${env:MY_POD_IP}
               #   # external_endpoint is required to be set when SLIM nodes are behind a NAT or Load Balancer
               #   external_endpoint: "slim.example.com:{{ .Values.slim.service.data.port }}"
+              #   # trust_domain is used to properly setup spire mtls. By default is the same as the group_name (cluster name),
+              #   # but can be overridden in case of trust domain names different then group name (cluster name).
+              #   trust_domain: "cluster-a"
           clients: []
         controller:
           servers:

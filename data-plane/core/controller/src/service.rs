@@ -8,7 +8,6 @@ use std::time::Duration;
 use std::vec;
 
 use display_error_chain::ErrorChainExt;
-use slim_auth::metadata::MetadataValue;
 use slim_config::component::id::ID;
 use slim_config::grpc::server::ServerConfig;
 use slim_session::SessionMessage;
@@ -30,6 +29,7 @@ use crate::api::proto::api::v1::{
     controller_service_server::ControllerService as GrpcControllerService,
 };
 use crate::errors::ControllerError;
+use prost_types::Struct;
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::traits::TokenProvider;
 use slim_config::grpc::client::ClientConfig;
@@ -168,36 +168,28 @@ impl Drop for ControlPlane {
 }
 
 pub(crate) fn from_server_config(server_config: &ServerConfig) -> ConnectionDetails {
-    let group_name = server_config
-        .metadata
-        .as_ref()
-        .and_then(|m| m.get("group_name"))
-        .and_then(|v| match v {
-            MetadataValue::String(s) => Some(s.clone()),
-            _ => None,
-        });
-    let local_endpoint = server_config
-        .metadata
-        .as_ref()
-        .and_then(|m| m.get("local_endpoint"))
-        .and_then(|v| match v {
-            MetadataValue::String(s) => Some(s.clone()),
-            _ => None,
-        });
-    let external_endpoint = server_config
-        .metadata
-        .as_ref()
-        .and_then(|m| m.get("external_endpoint"))
-        .and_then(|v| match v {
-            MetadataValue::String(s) => Some(s.clone()),
-            _ => None,
-        });
+    // Convert metadata from MetadataMap to proto Struct
+    let metadata = server_config.metadata.as_ref().map(|m| {
+        let fields = m
+            .inner
+            .iter()
+            .map(|(k, v)| (k.clone(), prost_types::Value::from(v)))
+            .collect();
+        Struct { fields }
+    });
+
+    // Serialize auth config to JSON string
+    let auth = serde_json::to_string(&server_config.auth).ok();
+
+    // Serialize tls config to JSON string
+    let tls = serde_json::to_string(&server_config.tls_setting.config).ok();
+
     ConnectionDetails {
         endpoint: server_config.endpoint.clone(),
         mtls_required: !server_config.tls_setting.insecure,
-        group_name,
-        local_endpoint,
-        external_endpoint,
+        metadata,
+        auth,
+        tls,
     }
 }
 

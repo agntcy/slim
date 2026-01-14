@@ -3,6 +3,8 @@ package nbapiservice
 import (
 	"context"
 
+	"google.golang.org/protobuf/types/known/structpb"
+
 	controllerapi "github.com/agntcy/slim/control-plane/common/proto/controller/v1"
 	controlplaneApi "github.com/agntcy/slim/control-plane/common/proto/controlplane/v1"
 	"github.com/agntcy/slim/control-plane/control-plane/internal/db"
@@ -72,12 +74,22 @@ func (s *NodeService) GetNodeByID(nodeID string) (*controlplaneApi.NodeEntry, er
 func getNodeConnDetails(node db.Node) []*controllerapi.ConnectionDetails {
 	connDetails := make([]*controllerapi.ConnectionDetails, 0, len(node.ConnDetails))
 	for _, conn := range node.ConnDetails {
-		connDetails = append(connDetails, &controllerapi.ConnectionDetails{
-			Endpoint:         conn.Endpoint,
-			MtlsRequired:     conn.MTLSRequired,
-			ExternalEndpoint: conn.ExternalEndpoint,
-			GroupName:        conn.GroupName,
-		})
+		cd := &controllerapi.ConnectionDetails{
+			Endpoint:     conn.Endpoint,
+			MtlsRequired: conn.MTLSRequired,
+		}
+
+		// Add ExternalEndpoint to metadata if present
+		if conn.ExternalEndpoint != nil {
+			if cd.Metadata == nil {
+				cd.Metadata = &structpb.Struct{
+					Fields: make(map[string]*structpb.Value),
+				}
+			}
+			cd.Metadata.Fields["external_endpoint"] = structpb.NewStringValue(*conn.ExternalEndpoint)
+		}
+
+		connDetails = append(connDetails, cd)
 	}
 	return connDetails
 }
