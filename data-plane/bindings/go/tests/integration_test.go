@@ -27,7 +27,7 @@ import (
 )
 
 // setupTestApp creates a test app for integration tests
-func setupTestApp(t *testing.T, appNameStr string) *slim.BindingsAdapter {
+func setupTestApp(t *testing.T, appNameStr string) *slim.App {
 	t.Helper()
 
 	slim.InitializeWithDefaults()

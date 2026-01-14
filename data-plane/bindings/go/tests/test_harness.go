@@ -16,8 +16,8 @@ import (
 
 // TestHarness manages a pair of communicating apps for integration testing
 type TestHarness struct {
-	Sender       *slim.BindingsAdapter
-	Receiver     *slim.BindingsAdapter
+	Sender       *slim.App
+	Receiver     *slim.App
 	SenderName   *slim.Name
 	ReceiverName *slim.Name
 	SharedSecret string
@@ -118,7 +118,7 @@ func SetupTestHarness(t *testing.T, testName string) (*TestHarness, *MessageColl
 	}
 
 	// Create sender app
-	sender, err := slim.NewBindingsAdapter(
+	sender, err := slim.NewApp(
 		senderName,
 		senderIdentityProvider,
 		senderIdentityVerifier,
@@ -140,7 +140,7 @@ func SetupTestHarness(t *testing.T, testName string) (*TestHarness, *MessageColl
 	}
 
 	// Create receiver app
-	receiver, err := slim.NewBindingsAdapter(
+	receiver, err := slim.NewApp(
 		receiverName,
 		receiverIdentityProvider,
 		receiverIdentityVerifier,
@@ -216,7 +216,7 @@ func (h *TestHarness) runReceiverListener(ctx context.Context, collector *Messag
 }
 
 // handleReceiverSession processes messages from a single session
-func (h *TestHarness) handleReceiverSession(ctx context.Context, session *slim.BindingsSessionContext, collector *MessageCollector) {
+func (h *TestHarness) handleReceiverSession(ctx context.Context, session *slim.Session, collector *MessageCollector) {
 	defer h.wg.Done()
 	defer session.Destroy()
 
@@ -268,7 +268,7 @@ func (h *TestHarness) handleReceiverSession(ctx context.Context, session *slim.B
 }
 
 // CreateSession creates a session from sender to receiver
-func (h *TestHarness) CreateSession() (*slim.BindingsSessionContext, error) {
+func (h *TestHarness) CreateSession() (*slim.Session, error) {
 	h.t.Helper()
 
 	sessionConfig := slim.SessionConfig{
@@ -293,7 +293,7 @@ func (h *TestHarness) CreateSession() (*slim.BindingsSessionContext, error) {
 }
 
 // SendMessage sends a message through the session
-func (h *TestHarness) SendMessage(session *slim.BindingsSessionContext, data []byte, payloadType *string, metadata *map[string]string) error {
+func (h *TestHarness) SendMessage(session *slim.Session, data []byte, payloadType *string, metadata *map[string]string) error {
 	h.t.Helper()
 
 	h.t.Logf("[Sender] Sending message: %d bytes", len(data))
@@ -307,7 +307,7 @@ func (h *TestHarness) SendMessage(session *slim.BindingsSessionContext, data []b
 }
 
 // SendMessageWithCompletion sends a message and waits for delivery confirmation
-func (h *TestHarness) SendMessageWithCompletion(session *slim.BindingsSessionContext, data []byte, payloadType *string, metadata *map[string]string) error {
+func (h *TestHarness) SendMessageWithCompletion(session *slim.Session, data []byte, payloadType *string, metadata *map[string]string) error {
 	h.t.Helper()
 
 	h.t.Logf("[Sender] Sending message with completion: %d bytes", len(data))
@@ -321,7 +321,7 @@ func (h *TestHarness) SendMessageWithCompletion(session *slim.BindingsSessionCon
 }
 
 // MustCreateSession creates a session and fails the test on error.
-func (h *TestHarness) MustCreateSession() *slim.BindingsSessionContext {
+func (h *TestHarness) MustCreateSession() *slim.Session {
 	h.t.Helper()
 
 	session, err := h.CreateSession()
@@ -332,7 +332,7 @@ func (h *TestHarness) MustCreateSession() *slim.BindingsSessionContext {
 }
 
 // MustSendMessage sends a message and fails the test on error.
-func (h *TestHarness) MustSendMessage(session *slim.BindingsSessionContext, data []byte, payloadType *string, metadata *map[string]string) {
+func (h *TestHarness) MustSendMessage(session *slim.Session, data []byte, payloadType *string, metadata *map[string]string) {
 	h.t.Helper()
 
 	if err := h.SendMessage(session, data, payloadType, metadata); err != nil {
@@ -341,7 +341,7 @@ func (h *TestHarness) MustSendMessage(session *slim.BindingsSessionContext, data
 }
 
 // MustSendMessageWithCompletion sends a message with completion tracking and fails the test on error.
-func (h *TestHarness) MustSendMessageWithCompletion(session *slim.BindingsSessionContext, data []byte, payloadType *string, metadata *map[string]string) {
+func (h *TestHarness) MustSendMessageWithCompletion(session *slim.Session, data []byte, payloadType *string, metadata *map[string]string) {
 	h.t.Helper()
 
 	if err := h.SendMessageWithCompletion(session, data, payloadType, metadata); err != nil {

@@ -71,7 +71,7 @@ func main() {
 	}
 }
 
-func runModerator(app *slim.BindingsAdapter, connID uint64, remote string, invites []string, enableMLS bool, instance uint64) {
+func runModerator(app *slim.App, connID uint64, remote string, invites []string, enableMLS bool, instance uint64) {
 	// Parse remote channel name
 	channelName, err := common.SplitID(remote)
 	if err != nil {
@@ -127,7 +127,7 @@ func runModerator(app *slim.BindingsAdapter, connID uint64, remote string, invit
 	runMessageLoops(app, session, channelName, instance)
 }
 
-func runParticipant(app *slim.BindingsAdapter, instance uint64) {
+func runParticipant(app *slim.App, instance uint64) {
 	fmt.Printf("%s[%d]%s 👂 Waiting for incoming group session invitation...\n", colorCyan, instance, colorReset)
 
 	// Wait for incoming session
@@ -149,7 +149,7 @@ func runParticipant(app *slim.BindingsAdapter, instance uint64) {
 	runMessageLoops(app, session, channelName, instance)
 }
 
-func runMessageLoops(app *slim.BindingsAdapter, session *slim.BindingsSessionContext, channelName *slim.Name, instance uint64) {
+func runMessageLoops(app *slim.App, session *slim.Session, channelName *slim.Name, instance uint64) {
 	var wg sync.WaitGroup
 	stopChan := make(chan struct{})
 
@@ -176,7 +176,7 @@ func runMessageLoops(app *slim.BindingsAdapter, session *slim.BindingsSessionCon
 	wg.Wait()
 }
 
-func receiveLoop(session *slim.BindingsSessionContext, sourceName *slim.Name, instance uint64, stopChan chan struct{}) {
+func receiveLoop(session *slim.Session, sourceName *slim.Name, instance uint64, stopChan chan struct{}) {
 	for {
 		select {
 		case <-stopChan:
@@ -211,7 +211,7 @@ func receiveLoop(session *slim.BindingsSessionContext, sourceName *slim.Name, in
 	}
 }
 
-func keyboardLoop(session *slim.BindingsSessionContext, sourceName, channelName *slim.Name, instance uint64, stopChan chan struct{}) {
+func keyboardLoop(session *slim.Session, sourceName, channelName *slim.Name, instance uint64, stopChan chan struct{}) {
 	reader := bufio.NewReader(os.Stdin)
 
 	fmt.Printf("\n%s[%d]%s Welcome to the group %v!\n", colorCyan, instance, colorReset, channelName.Components())
