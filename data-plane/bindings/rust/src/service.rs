@@ -260,9 +260,9 @@ impl Service {
         self.inner.read().await.get_connection_id(&endpoint)
     }
 
-    /// Create a new BindingsAdapter with authentication configuration (async version)
+    /// Create a new App with authentication configuration (async version)
     ///
-    /// This method initializes authentication providers/verifiers and creates a BindingsAdapter
+    /// This method initializes authentication providers/verifiers and creates a App
     /// on this service instance.
     ///
     /// # Arguments
@@ -271,14 +271,14 @@ impl Service {
     /// * `identity_verifier_config` - Configuration for verifying identity of others
     ///
     /// # Returns
-    /// * `Ok(Arc<BindingsAdapter>)` - Successfully created adapter
+    /// * `Ok(Arc<App>)` - Successfully created adapter
     /// * `Err(SlimError)` - If adapter creation fails
     pub async fn create_adapter_async(
         &self,
         base_name: Arc<Name>,
         identity_provider_config: IdentityProviderConfig,
         identity_verifier_config: IdentityVerifierConfig,
-    ) -> Result<Arc<crate::adapter::BindingsAdapter>, SlimError> {
+    ) -> Result<Arc<crate::app::App>, SlimError> {
         // Convert configurations to actual providers/verifiers
         let mut identity_provider: AuthProvider = identity_provider_config.try_into()?;
         let mut identity_verifier: AuthVerifier = identity_verifier_config.try_into()?;
@@ -315,7 +315,7 @@ impl Service {
         // Release the lock before creating the adapter
         drop(service_guard);
 
-        Ok(Arc::new(crate::adapter::BindingsAdapter::from_parts(
+        Ok(Arc::new(crate::app::App::from_parts(
             Arc::new(app),
             Arc::new(RwLock::new(rx)),
             self.inner.clone(),
@@ -417,12 +417,12 @@ pub async fn get_connection_id(endpoint: String) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use slim_datapath::messages::Name;
+    use slim_datapath::messages::Name as SlimName;
     use slim_testing::utils::TEST_VALID_SECRET;
 
-    use crate::adapter::BindingsAdapter;
+    use crate::app::App;
     use crate::identity_config::{IdentityProviderConfig, IdentityVerifierConfig};
-    use crate::name::Name as BindingsName;
+    use crate::name::Name;
 
     /// Create test authentication configurations
     fn create_test_auth() -> (IdentityProviderConfig, IdentityVerifierConfig) {
@@ -438,8 +438,8 @@ mod tests {
     }
 
     /// Create test app name
-    fn create_test_name() -> Name {
-        Name::from_strings(["org", "namespace", "test-app"])
+    fn create_test_name() -> SlimName {
+        SlimName::from_strings(["org", "namespace", "test-app"])
     }
 
     // ========================================================================
@@ -652,14 +652,12 @@ mod tests {
 
         // Test global service - just ensure it creates without error
         let _global_adapter1 =
-            BindingsAdapter::new_async(base_name.clone(), provider.clone(), verifier.clone())
+            App::new_async(base_name.clone(), provider.clone(), verifier.clone())
                 .await
                 .unwrap();
 
         // Test global service again - ensure it uses the same Arc
-        let _global_adapter2 = BindingsAdapter::new_async(base_name, provider, verifier)
-            .await
-            .unwrap();
+        let _global_adapter2 = App::new_async(base_name, provider, verifier).await.unwrap();
 
         let global_service2 = get_or_init_global_service();
         let ptr2 = Arc::as_ptr(&global_service2.inner) as usize;
@@ -724,7 +722,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_adapter_async() {
         let service = Service::new("adapter-test".to_string());
-        let base_name = Arc::new(BindingsName::new(
+        let base_name = Arc::new(Name::new(
             "org".to_string(),
             "namespace".to_string(),
             "adapter-app".to_string(),
@@ -753,7 +751,7 @@ mod tests {
         ];
 
         for (org, ns, app) in names {
-            let base_name = Arc::new(BindingsName::new(
+            let base_name = Arc::new(Name::new(
                 org.to_string(),
                 ns.to_string(),
                 app.to_string(),
@@ -778,7 +776,7 @@ mod tests {
     async fn test_create_adapter_unique_ids() {
         // Each adapter gets a unique ID due to token generation
         let service = Service::new("unique-ids-test".to_string());
-        let base_name = Arc::new(BindingsName::new(
+        let base_name = Arc::new(Name::new(
             "org".to_string(),
             "namespace".to_string(),
             "unique-app".to_string(),

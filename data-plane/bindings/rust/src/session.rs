@@ -12,7 +12,7 @@ use slim_datapath::messages::Name as SlimName;
 use slim_datapath::messages::utils::{PUBLISH_TO, SlimHeaderFlags, TRUE_VAL};
 use slim_session::SessionConfig as SlimSessionConfig;
 use slim_session::SessionError;
-use slim_session::context::SessionContext;
+use slim_session::context::SessionContext as SlimSession;
 
 use crate::message_context::MessageContext;
 use crate::{CompletionHandle, Name, ReceivedMessage, SlimError};
@@ -92,16 +92,16 @@ impl From<SlimSessionConfig> for SessionConfig {
 /// Wraps the session context with proper async access patterns for message reception.
 /// Provides both synchronous (blocking) and asynchronous methods for FFI compatibility.
 #[derive(uniffi::Object)]
-pub struct BindingsSessionContext {
+pub struct Session {
     /// Weak reference to the underlying session
     pub session: std::sync::Weak<SessionController>,
     /// Message receiver wrapped in RwLock for concurrent access
     pub rx: RwLock<slim_session::AppChannelReceiver>,
 }
 
-impl BindingsSessionContext {
-    /// Create a new BindingsSessionContext from a SessionContext and runtime
-    pub fn new(ctx: SessionContext) -> Self {
+impl Session {
+    /// Create a new Session from a Session and runtime
+    pub fn new(ctx: SlimSession) -> Self {
         let (session, rx) = ctx.into_parts();
         Self {
             session,
@@ -119,7 +119,7 @@ impl BindingsSessionContext {
 // Internal async methods (used by both FFI and Python bindings)
 // ============================================================================
 
-impl BindingsSessionContext {
+impl Session {
     /// Publish a message through this session (internal API for language bindings)
     ///
     /// This is the low-level publish method that takes SlimName directly.
@@ -238,7 +238,7 @@ impl BindingsSessionContext {
 // ============================================================================
 
 #[uniffi::export]
-impl BindingsSessionContext {
+impl Session {
     /// Publish a message to the session's destination (blocking version)
     ///
     /// Returns a completion handle that can be awaited to ensure the message was delivered.
@@ -710,11 +710,11 @@ mod tests {
     }
 
     fn make_context() -> (
-        BindingsSessionContext,
+        Session,
         mpsc::UnboundedSender<Result<ProtoMessage, SessionError>>,
     ) {
         let (tx, rx) = mpsc::unbounded_channel::<Result<ProtoMessage, SessionError>>();
-        let ctx = BindingsSessionContext {
+        let ctx = Session {
             session: std::sync::Weak::new(),
             rx: RwLock::new(rx),
         };

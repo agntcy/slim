@@ -1,7 +1,7 @@
 [workspace]
 
 members = [
-    "bindings/adapter",
+    "bindings/rust",
     "core/auth",
     "core/config",
     "core/controller",
@@ -19,7 +19,7 @@ members = [
 ]
 
 default-members = [
-    "bindings/adapter",
+    "bindings/rust",
     "core/config",
     "core/datapath",
     "core/slim",
@@ -39,7 +39,7 @@ resolver = "2"
 # Local dependencies
 agntcy-slim = { path = "core/slim", version = "0.7.1" }
 agntcy-slim-auth = { path = "core/auth", version = "0.4.1" }
-agntcy-slim-bindings = { path = "bindings/adapter", version = "0.7.0" }
+agntcy-slim-bindings = { path = "bindings/rust", version = "0.7.0" }
 agntcy-slim-config = { path = "core/config", version = "0.4.3" }
 agntcy-slim-controller = { path = "core/controller", version = "0.4.3" }
 agntcy-slim-datapath = { path = "core/datapath", version = "0.10.3" }

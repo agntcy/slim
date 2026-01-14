@@ -50,7 +50,7 @@ func main() {
 	}
 }
 
-func runSender(app *slim.BindingsAdapter, connID uint64, remote, message string, iterations int, enableMLS bool, instance uint64) {
+func runSender(app *slim.App, connID uint64, remote, message string, iterations int, enableMLS bool, instance uint64) {
 	remoteName, err := common.SplitID(remote)
 	if err != nil {
 		log.Fatalf("Failed to parse remote ID: %v", err)
@@ -100,7 +100,7 @@ func runSender(app *slim.BindingsAdapter, connID uint64, remote, message string,
 	}
 }
 
-func runReceiver(app *slim.BindingsAdapter, instance uint64) {
+func runReceiver(app *slim.App, instance uint64) {
 	fmt.Printf("[%d] 👂 Waiting for incoming sessions...\n", instance)
 
 	for {
@@ -116,7 +116,7 @@ func runReceiver(app *slim.BindingsAdapter, instance uint64) {
 	}
 }
 
-func handleSession(app *slim.BindingsAdapter, session *slim.BindingsSessionContext, instance uint64) {
+func handleSession(app *slim.App, session *slim.Session, instance uint64) {
 	defer func() {
 		if err := app.DeleteSessionAndWait(session); err != nil {
 			log.Printf("[%d] ⚠️  Warning: failed to delete session: %v", instance, err)

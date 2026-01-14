@@ -10,8 +10,8 @@
 //!
 //! The module is organized into distinct components:
 //!
-//! - **`BindingsAdapter`**: App-level operations (creation, configuration, session management)
-//! - **`BindingsSessionContext`**: Session-specific operations (publish, invite, remove, message reception)
+//! - **`App`**: App-level operations (creation, configuration, session management)
+//! - **`Session`**: Session-specific operations (publish, invite, remove, message reception)
 //! - **`MessageContext`**: Message metadata and routing information
 //! - **`ServiceRef`**: Service reference management (global vs local)
 //!
@@ -20,13 +20,13 @@
 //! ### From Rust
 //!
 //! ```rust,ignore
-//! use slim_bindings::{BindingsAdapter, Name, SessionConfig, SessionType, IdentityProviderConfig, IdentityVerifierConfig};
+//! use slim_bindings::{App, Name, SessionConfig, SessionType, IdentityProviderConfig, IdentityVerifierConfig};
 //!
 //! // Create an app
 //! let app_name = Arc::new(Name { components: vec!["org".into(), "app".into(), "v1".into()], id: None });
 //! let provider_config = IdentityProviderConfig::SharedSecret { data: "my-secret".to_string() };
 //! let verifier_config = IdentityVerifierConfig::SharedSecret { data: "my-secret".to_string() };
-//! let app = BindingsAdapter::new(app_name, provider_config, verifier_config, false)?;
+//! let app = App::new(app_name, provider_config, verifier_config, false)?;
 //!
 //! // Create a session
 //! let config = SessionConfig { session_type: SessionType::PointToPoint, ... };
@@ -38,13 +38,13 @@
 //! ```go
 //! providerConfig := slim.IdentityProviderConfigSharedSecret{Data: sharedSecret}
 //! verifierConfig := slim.IdentityVerifierConfigSharedSecret{Data: sharedSecret}
-//! app, err := slim.NewBindingsAdapter(appName, providerConfig, verifierConfig, false)
+//! app, err := slim.NewApp(appName, providerConfig, verifierConfig, false)
 //! session, err := app.CreateSession(config, destination)
 //! session.Publish(data, payloadType, metadata)
 //! ```
 
 // Module declarations
-mod adapter;
+mod app;
 mod build_info;
 mod client_config;
 mod common_config;
@@ -57,10 +57,10 @@ mod message_context;
 mod name;
 mod server_config;
 mod service;
-mod session_context;
+mod session;
 
 // Public re-exports
-pub use adapter::{BindingsAdapter, SessionWithCompletion, create_app_with_secret};
+pub use app::{App, SessionWithCompletion, create_app_with_secret};
 pub use build_info::{BuildInfo, get_build_info, get_version};
 pub use client_config::{
     BackoffConfig, ClientConfig, ExponentialBackoff, KeepaliveConfig, ProxyConfig,
@@ -96,7 +96,7 @@ pub use service::{
     new_dataplane_config, new_service_configuration, run_server, service_name, service_run,
     service_shutdown, stop_server,
 };
-pub use session_context::{BindingsSessionContext, SessionConfig, SessionType};
+pub use session::{Session, SessionConfig, SessionType};
 
 // UniFFI scaffolding setup (must be at crate root)
 uniffi::setup_scaffolding!();

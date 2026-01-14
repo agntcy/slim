@@ -39,7 +39,7 @@ func main() {
 		Id:   appName.AsString(),
 	}
 
-	app, err := slim.NewBindingsAdapter(
+	app, err := slim.NewApp(
 		appName,
 		&identityProvider,
 		&identityVerifier,

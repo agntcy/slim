@@ -10,8 +10,8 @@ use pyo3_stub_gen::derive::gen_stub_pyclass;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
 use serde_pyobject::from_pyobject;
 use slim_bindings::{
-    BindingsAdapter, IdentityProviderConfig, IdentityVerifierConfig, Service as BindingsService,
-    SlimError, get_or_init_global_service,
+    App, IdentityProviderConfig, IdentityVerifierConfig, Service as BindingsService, SlimError,
+    get_or_init_global_service,
 };
 use slim_datapath::messages::encoder::Name;
 use slim_session::SessionConfig;
@@ -33,7 +33,7 @@ pub struct PyApp {
 
 struct PyAppInternal {
     /// The adapter instance (uses AuthProvider/AuthVerifier enums internally)
-    adapter: Arc<BindingsAdapter>,
+    adapter: Arc<App>,
     /// The service instance for service-level operations (run_server, connect, etc.)
     service: Arc<BindingsService>,
 }
@@ -60,7 +60,7 @@ impl PyApp {
             provider: PyIdentityProvider,
             verifier: PyIdentityVerifier,
             local_service: bool,
-        ) -> Result<(Arc<BindingsAdapter>, Arc<BindingsService>), SlimError> {
+        ) -> Result<(Arc<App>, Arc<BindingsService>), SlimError> {
             // Convert PyIdentityProvider to IdentityProviderConfig using TryFrom
             let provider_config: IdentityProviderConfig = provider.try_into()?;
 
@@ -80,7 +80,7 @@ impl PyApp {
             };
 
             // Use BindingsAdapter's async constructor with optional service
-            let adapter = BindingsAdapter::new_async_with_service(
+            let adapter = App::new_async_with_service(
                 slim_name,
                 provider_config,
                 verifier_config,
