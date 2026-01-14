@@ -1,0 +1,115 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+version: '3'
+
+vars:
+  BINDINGS_DIR: "{{.TASKFILE_DIR}}/../adapter"
+  PROFILE: '{{.PROFILE | default "release"}}'
+  SERVICE_TARGET: "{{.TASKFILE_DIR}}/../../target/{{.PROFILE}}"
+  LIB_NAME: slim_bindings
+  _DEFAULT_LIB_PATH:
+    sh: |
+      OS=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')
+      case "$OS" in
+        mingw*|msys*|cygwin*)
+          echo "{{.SERVICE_TARGET}}/{{.LIB_NAME}}.lib"
+          ;;
+        *)
+          echo "{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.a"
+          ;;
+      esac
+  LIB_PATH: "{{.LIB_PATH | default ._DEFAULT_LIB_PATH}}"
+
+tasks:
+  default:
+    cmds:
+      - task -l
+
+  install-uniffi-bindgen-react-native:
+    desc: Install uniffi-bindgen-react-native via npm
+    status:
+      - test -d node_modules/uniffi-bindgen-react-native
+    cmds:
+      - echo "📦 Installing uniffi-bindgen-react-native via npm..."
+      - npm install
+    silent: true
+
+  generate:
+    desc: Generate TypeScript/JavaScript bindings from compiled library
+    deps:
+      - install-uniffi-bindgen-react-native
+    cmds:
+      - echo "🦀 Building Rust bindings library..."
+      - cd {{.BINDINGS_DIR}} && cargo build --release --lib
+      - echo "🔧 Generating TypeScript/JavaScript bindings..."
+      - mkdir -p generated/src generated/cpp
+      - cd {{.BINDINGS_DIR}} && ../javascript/node_modules/.bin/ubrn generate jsi bindings --library --ts-dir ../javascript/generated/src --cpp-dir ../javascript/generated/cpp {{.LIB_PATH}}
+      - echo "🔧 Fixing TypeScript modifier order..."
+      - sed -i '' 's/async public /public async /g' generated/src/slim_bindings.ts
+      - echo "✅ Bindings generated in generated/"
+    silent: true
+
+  install:
+    desc: Install npm dependencies
+    dir: "{{.TASKFILE_DIR}}"
+    cmds:
+      - echo "📦 Installing npm dependencies..."
+      - npm install
+    silent: true
+
+  build:
+    desc: Build TypeScript to JavaScript
+    deps:
+      - install
+    dir: "{{.TASKFILE_DIR}}"
+    cmds:
+      - echo "🔨 Building TypeScript..."
+      - npm run build
+    silent: true
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - echo "🧹 Cleaning build artifacts..."
+      - cd {{.BINDINGS_DIR}} && cargo clean
+      - rm -rf generated/
+      - rm -rf node_modules/
+      - rm -rf dist/
+      - echo "✅ Clean complete"
+    silent: true
+
+  example:simple:
+    desc: Run the simple example
+    deps:
+      - generate
+      - build
+    dir: examples/simple
+    cmds:
+      - echo "🚀 Running simple example..."
+      - npm install
+      - npm start
+    silent: true
+
+  example:web:
+    desc: Run the web example with WASM
+    deps:
+      - generate
+      - build
+    dir: examples/web
+    cmds:
+      - echo "🚀 Running web example..."
+      - npm install
+      - npm run dev
+    silent: true
+
+  test:
+    desc: Run tests
+    deps:
+      - generate
+      - build
+    dir: "{{.TASKFILE_DIR}}"
+    cmds:
+      - echo "🧪 Running tests..."
+      - npm test
+    silent: true
