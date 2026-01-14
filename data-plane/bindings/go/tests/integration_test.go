@@ -30,7 +30,7 @@ import (
 func setupTestApp(t *testing.T, appNameStr string) *slim.BindingsAdapter {
 	t.Helper()
 
-	slim.InitializeCryptoProvider()
+	slim.InitializeWithDefaults()
 
 	appName := slim.NewName("org", appNameStr, "v1", nil)
 
@@ -271,7 +271,7 @@ func TestSessionLifecycle(t *testing.T) {
 
 // TestAppCreationAndProperties tests basic app creation and properties
 func TestAppCreationAndProperties(t *testing.T) {
-	slim.InitializeCryptoProvider()
+	slim.InitializeWithDefaults()
 
 	appName := slim.NewName("org", "app-creation-test", "v1", nil)
 
@@ -311,7 +311,7 @@ func TestAppCreationAndProperties(t *testing.T) {
 
 // TestVersionInfo tests version retrieval
 func TestVersionInfo(t *testing.T) {
-	slim.InitializeCryptoProvider()
+	slim.InitializeWithDefaults()
 
 	version := slim.GetVersion()
 	if version == "" {
@@ -716,7 +716,7 @@ func TestFireAndForgetVsWithCompletion(t *testing.T) {
 
 // BenchmarkPublishFireAndForget benchmarks fire-and-forget publish
 func BenchmarkPublishFireAndForget(b *testing.B) {
-	slim.InitializeCryptoProvider()
+	slim.InitializeWithDefaults()
 
 	app, _ := slim.CreateAppWithSecret(
 		slim.NewName("org", "bench", "v1", nil),
@@ -744,7 +744,7 @@ func BenchmarkPublishFireAndForget(b *testing.B) {
 
 // BenchmarkPublishWithCompletion benchmarks publish with completion handle
 func BenchmarkPublishWithCompletion(b *testing.B) {
-	slim.InitializeCryptoProvider()
+	slim.InitializeWithDefaults()
 
 	app, _ := slim.CreateAppWithSecret(
 		slim.NewName("org", "bench", "v1", nil),
@@ -775,7 +775,7 @@ func BenchmarkPublishWithCompletion(b *testing.B) {
 
 // BenchmarkPublishWithCompletionAndWait benchmarks publish with wait
 func BenchmarkPublishWithCompletionAndWait(b *testing.B) {
-	slim.InitializeCryptoProvider()
+	slim.InitializeWithDefaults()
 
 	app, _ := slim.CreateAppWithSecret(
 		slim.NewName("org", "bench", "v1", nil),

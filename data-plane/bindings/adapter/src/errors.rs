@@ -20,6 +20,8 @@ pub enum SlimError {
     SendError { message: String },
     #[error("Authentication error: {message}")]
     AuthError { message: String },
+    #[error("Configuration error: {message}")]
+    ConfigError { message: String },
     #[error("Operation timed out")]
     Timeout,
     #[error("Invalid argument: {message}")]
@@ -67,6 +69,9 @@ mod tests {
             },
             SlimError::AuthError {
                 message: "auth".to_string(),
+            },
+            SlimError::ConfigError {
+                message: "config".to_string(),
             },
             SlimError::Timeout,
             SlimError::InvalidArgument {

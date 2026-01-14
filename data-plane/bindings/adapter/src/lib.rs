@@ -47,14 +47,14 @@
 mod adapter;
 mod build_info;
 mod client_config;
-mod common;
 mod common_config;
 mod completion_handle;
+mod config;
 mod errors;
 mod identity_config;
+mod init_config;
 mod message_context;
 mod name;
-mod runtime;
 mod server_config;
 mod service;
 mod session_context;
@@ -66,28 +66,35 @@ pub use client_config::{
     BackoffConfig, ClientConfig, ExponentialBackoff, KeepaliveConfig, ProxyConfig,
     new_insecure_client_config,
 };
-pub use common::initialize_crypto_provider;
 pub use common_config::{
     BasicAuth, CaSource, ClientAuthenticationConfig, ServerAuthenticationConfig, SpireConfig,
     TlsClientConfig, TlsServerConfig, TlsSource,
 };
 pub use completion_handle::CompletionHandle;
+pub use config::get_runtime;
+pub use config::{
+    get_runtime_config, get_service_config, get_tracing_config, initialize_from_config,
+    initialize_with_configs, initialize_with_defaults, is_initialized, shutdown, shutdown_blocking,
+};
 pub use errors::SlimError;
 pub use identity_config::{
     ClientJwtAuth, IdentityProviderConfig, IdentityVerifierConfig, JwtAlgorithm, JwtAuth,
     JwtKeyConfig, JwtKeyData, JwtKeyFormat, JwtKeyType, StaticJwtAuth,
 };
+pub use init_config::{
+    RuntimeConfig, TracingConfig, new_runtime_config, new_runtime_config_with, new_service_config,
+    new_service_config_with, new_tracing_config, new_tracing_config_with,
+};
 pub use message_context::{MessageContext, ReceivedMessage};
 pub use name::Name;
-pub use runtime::get_runtime;
 pub use server_config::{
     KeepaliveServerParameters, ServerConfig, new_insecure_server_config, new_server_config,
 };
 pub use service::{
-    DataplaneConfig, Service, ServiceConfiguration, connect, create_service,
-    create_service_with_config, disconnect, get_connection_id, get_global_service,
-    get_or_init_global_service, new_dataplane_config, new_service_configuration, run_server,
-    service_config, service_name, service_run, service_shutdown, stop_server,
+    DataplaneConfig, Service, ServiceConfig, connect, create_service, create_service_with_config,
+    disconnect, get_connection_id, get_global_service, get_or_init_global_service,
+    new_dataplane_config, new_service_configuration, run_server, service_name, service_run,
+    service_shutdown, stop_server,
 };
 pub use session_context::{BindingsSessionContext, SessionConfig, SessionType};
 

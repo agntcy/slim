@@ -169,6 +169,14 @@ impl MessageProcessor {
     }
 
     pub async fn shutdown(&self) -> Result<(), DataPathError> {
+        self.shutdown_with_timeout(std::time::Duration::from_secs(10))
+            .await
+    }
+
+    pub async fn shutdown_with_timeout(
+        &self,
+        drain_timeout: std::time::Duration,
+    ) -> Result<(), DataPathError> {
         // Take the drain signal
         let signal = self
             .internal
@@ -181,7 +189,7 @@ impl MessageProcessor {
         self.internal.drain_watch.write().take();
 
         // Signal completion to all tasks
-        tokio::time::timeout(std::time::Duration::from_secs(10), signal.drain())
+        tokio::time::timeout(drain_timeout, signal.drain())
             .await
             .map_err(|_e| DataPathError::ShutdownTimeoutError)
     }

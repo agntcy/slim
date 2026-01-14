@@ -61,7 +61,7 @@ func SplitID(id string) (*slim.Name, error) {
 //	error: If creation or connection fails
 func CreateAndConnectApp(localID, serverAddr, secret string) (*slim.BindingsAdapter, uint64, error) {
 	// Initialize crypto subsystem (idempotent, safe to call multiple times)
-	slim.InitializeCryptoProvider()
+	slim.InitializeWithDefaults()
 
 	// Parse the local identity string
 	appName, err := SplitID(localID)
