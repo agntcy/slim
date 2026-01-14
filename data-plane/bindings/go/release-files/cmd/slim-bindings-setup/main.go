@@ -13,6 +13,7 @@ import (
 	"archive/zip"
 	"flag"
 	"fmt"
+	"go/build"
 	"io"
 	"net/http"
 	"os"
@@ -68,22 +69,12 @@ func GetTarget(goos, arch string) string {
 
 // GetCacheDir returns the cache directory for SLIM bindings libraries.
 func GetCacheDir() (string, error) {
-	cacheHome := os.Getenv("XDG_CACHE_HOME")
-	if cacheHome == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("failed to get home directory: %w", err)
-		}
-
-		switch runtime.GOOS {
-		case "windows":
-			cacheHome = filepath.Join(home, "AppData", "Local")
-		default:
-			cacheHome = filepath.Join(home, ".cache")
-		}
+	gopath := build.Default.GOPATH
+	if gopath == "" {
+		return "", fmt.Errorf("failed to determine GOPATH")
 	}
 
-	return filepath.Join(cacheHome, cacheDirName), nil
+	return filepath.Join(gopath, ".cache", cacheDirName), nil
 }
 
 // TargetToLibraryName converts a Rust target triple to the library name format.
