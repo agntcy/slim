@@ -5,6 +5,9 @@ use slim_auth::errors::AuthError;
 use slim_config::component::id::IdError;
 use thiserror::Error;
 
+#[cfg(feature = "session")]
+use slim_session::errors::SessionError as SessionErrorType;
+
 #[derive(Error, Debug)]
 pub enum ServiceError {
     // Configuration / setup
@@ -75,12 +78,15 @@ pub enum ServiceError {
     MessageSendingError(String),
 
     // Session related
+    #[cfg(feature = "session")]
     #[error("session not found")]
     SessionNotFound,
+    #[cfg(feature = "session")]
     #[error("to be able to call invite/remove, session must be multicast: {0}")]
     SessionMustBeMulticast(String),
+    #[cfg(feature = "session")]
     #[error("error in session")]
-    SessionError(#[from] slim_session::errors::SessionError),
+    SessionError(#[from] SessionErrorType),
 
     // Controller / datapath typed propagation
     #[error("controller error")]
