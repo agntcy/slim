@@ -92,9 +92,9 @@ pub use server_config::{
 };
 pub use service::{
     DataplaneConfig, Service, ServiceConfig, connect, create_service, create_service_with_config,
-    disconnect, get_connection_id, get_global_service, get_or_init_global_service,
-    new_dataplane_config, new_service_configuration, run_server, service_name, service_run,
-    service_shutdown, stop_server,
+    disconnect, get_connection_id, get_global_service, new_dataplane_config,
+    new_service_configuration, run_server, service_name, service_run, service_shutdown,
+    stop_server,
 };
 pub use session::{Session, SessionConfig, SessionType};
 

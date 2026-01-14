@@ -129,7 +129,7 @@ pub struct Service {
     message_processor: Arc<MessageProcessor>,
 
     /// controller service
-    controller: Option<ControlPlane>,
+    controller: tokio::sync::RwLock<Option<ControlPlane>>,
 
     /// the configuration of the service
     config: ServiceConfiguration,
@@ -184,7 +184,7 @@ impl Service {
         Service {
             id,
             message_processor,
-            controller: None,
+            controller: tokio::sync::RwLock::new(None),
             config,
             cancellation_tokens: parking_lot::RwLock::new(HashMap::new()),
             clients: parking_lot::RwLock::new(HashMap::new()),
@@ -202,7 +202,7 @@ impl Service {
     }
 
     /// Run the service
-    pub async fn run(&mut self) -> Result<(), ServiceError> {
+    pub async fn run(&self) -> Result<(), ServiceError> {
         // Check that at least one client or server is configured
 
         if self.config.dataplane_servers().is_empty() && self.config.dataplane_clients().is_empty()
@@ -239,7 +239,7 @@ impl Service {
         controller.run().await?;
 
         // save controller service
-        self.controller = Some(controller);
+        *self.controller.write().await = Some(controller);
 
         Ok(())
     }
@@ -276,7 +276,7 @@ impl Service {
             .await?;
 
         // Shutdown controller if present
-        if let Some(controller) = self.controller.as_ref() {
+        if let Some(ref controller) = *self.controller.read().await {
             controller.shutdown().await?;
         }
 
@@ -505,7 +505,7 @@ mod tests {
         let server_config =
             ServerConfig::with_endpoint("0.0.0.0:12347").with_tls_settings(tls_config);
         let config = ServiceConfiguration::new().with_dataplane_server([server_config].to_vec());
-        let mut service = config
+        let service = config
             .build_server(
                 ID::new_with_name(Kind::new(KIND).unwrap(), "test-no-controller").unwrap(),
             )
@@ -545,7 +545,7 @@ mod tests {
             .with_dataplane_server(vec![dataplane_server_config])
             .with_controlplane_server(vec![controller_server_config]);
 
-        let mut service = config
+        let service = config
             .build_server(
                 ID::new_with_name(Kind::new(KIND).unwrap(), "test-with-controller").unwrap(),
             )
@@ -579,7 +579,7 @@ mod tests {
         let server_config =
             ServerConfig::with_endpoint("0.0.0.0:12345").with_tls_settings(tls_config);
         let config = ServiceConfiguration::new().with_dataplane_server([server_config].to_vec());
-        let mut service = config
+        let service = config
             .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test").unwrap())
             .unwrap();
 
@@ -608,7 +608,7 @@ mod tests {
         let server_config =
             ServerConfig::with_endpoint("0.0.0.0:12346").with_tls_settings(tls_config);
         let config = ServiceConfiguration::new().with_dataplane_server([server_config].to_vec());
-        let mut service = config
+        let service = config
             .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test-disconnect").unwrap())
             .unwrap();
 

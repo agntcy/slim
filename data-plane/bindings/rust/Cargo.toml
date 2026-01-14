@@ -36,5 +36,6 @@ uniffi = { version = "0.28.3", features = ["build"] }
 
 [dev-dependencies]
 agntcy-slim-testing = { workspace = true }
+test-fork = { workspace = true }
 tokio-test = { workspace = true }
 tracing-test = { workspace = true }

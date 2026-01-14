@@ -17,9 +17,9 @@ use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};
 
 use crate::errors::SlimError;
+use crate::get_global_service;
 use crate::name::Name;
 
-use crate::service::get_or_init_global_service;
 use crate::session::SessionConfig;
 
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
@@ -66,7 +66,7 @@ pub struct App {
     notification_rx: Arc<RwLock<mpsc::Receiver<Result<Notification, SlimSessionError>>>>,
 
     /// Service instance for lifecycle management (Arc to inner SlimService)
-    _service: Arc<RwLock<SlimService>>,
+    _service: Arc<SlimService>,
 }
 
 /// Create a new App with SharedSecret authentication (helper function)
@@ -101,7 +101,7 @@ impl App {
     pub(crate) fn from_parts(
         app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
         notification_rx: Arc<RwLock<mpsc::Receiver<Result<Notification, SlimSessionError>>>>,
-        service: Arc<RwLock<SlimService>>,
+        service: Arc<SlimService>,
     ) -> Self {
         Self {
             app,
@@ -141,7 +141,7 @@ impl App {
         base_name: SlimName,
         identity_provider_config: IdentityProviderConfig,
         identity_verifier_config: IdentityVerifierConfig,
-        service: Option<Arc<RwLock<SlimService>>>,
+        service: Option<Arc<SlimService>>,
     ) -> Result<Self, SlimError> {
         // Convert configurations to actual providers/verifiers
         let mut identity_provider: AuthProvider = identity_provider_config.try_into()?;
@@ -169,15 +169,10 @@ impl App {
         let app_name = base_name.with_id(id_hash);
 
         // Use provided service or fall back to global service
-        let service_arc = service.unwrap_or(get_or_init_global_service().inner.clone());
-
-        // Get service reference for adapter creation
-        let service_guard = service_arc.read().await;
+        let service_arc = service.unwrap_or(get_global_service().inner.clone());
 
         // Create the app
-        let (app, rx) =
-            service_guard.create_app(&app_name, identity_provider, identity_verifier)?;
-        drop(service_guard);
+        let (app, rx) = service_arc.create_app(&app_name, identity_provider, identity_verifier)?;
 
         Ok(Self {
             app: Arc::new(app),
@@ -994,7 +989,7 @@ mod tests {
             .expect("Failed to create adapter");
 
         // Try to stop a server that doesn't exist using the global service
-        let service = get_or_init_global_service();
+        let service = get_global_service();
         let result = service.stop_server("127.0.0.1:99999".to_string()).await;
         // Should fail with appropriate error
         assert!(result.is_err());
@@ -1015,7 +1010,7 @@ mod tests {
             .expect("Failed to create adapter");
 
         // Try to disconnect with an invalid connection ID using the global service
-        let service = get_or_init_global_service();
+        let service = get_global_service();
         let result = service.disconnect(999999).await;
         // Should fail but not panic
         assert!(result.is_err());
@@ -1120,8 +1115,6 @@ mod tests {
     /// Test from_parts internal constructor
     #[tokio::test]
     async fn test_from_parts_constructor() {
-        use crate::service::get_or_init_global_service;
-
         let base_name = SlimName::from_strings(["org", "namespace", "from-parts-test"]);
         let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
 
@@ -1136,7 +1129,7 @@ mod tests {
 
         // Now create another adapter using the Service's create_adapter_async method
         // which uses from_parts internally
-        let service = get_or_init_global_service();
+        let service = get_global_service();
         let name = Arc::new(Name::new(
             "org".to_string(),
             "namespace".to_string(),
@@ -1166,7 +1159,7 @@ mod tests {
         let custom_service = SlimService::builder()
             .build("test-custom-service".to_string())
             .expect("Failed to create custom service");
-        let service_arc = Arc::new(RwLock::new(custom_service));
+        let service_arc = Arc::new(custom_service);
 
         // Create adapter with custom service
         let result = App::new_async_with_service(
@@ -1245,12 +1238,12 @@ mod tests {
         let service1 = SlimService::builder()
             .build("test-service-1".to_string())
             .expect("Failed to create service 1");
-        let service1_arc = Arc::new(RwLock::new(service1));
+        let service1_arc = Arc::new(service1);
 
         let service2 = SlimService::builder()
             .build("test-service-2".to_string())
             .expect("Failed to create service 2");
-        let service2_arc = Arc::new(RwLock::new(service2));
+        let service2_arc = Arc::new(service2);
 
         // Create adapters with different services
         let adapter1 = App::new_async_with_service(
