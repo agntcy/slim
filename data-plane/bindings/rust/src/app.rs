@@ -990,7 +990,9 @@ mod tests {
 
         // Try to stop a server that doesn't exist using the global service
         let service = get_global_service();
-        let result = service.stop_server("127.0.0.1:99999".to_string()).await;
+        let result = service
+            .stop_server_async("127.0.0.1:99999".to_string())
+            .await;
         // Should fail with appropriate error
         assert!(result.is_err());
     }
@@ -1011,7 +1013,7 @@ mod tests {
 
         // Try to disconnect with an invalid connection ID using the global service
         let service = get_global_service();
-        let result = service.disconnect(999999).await;
+        let result = service.disconnect_async(999999).await;
         // Should fail but not panic
         assert!(result.is_err());
     }

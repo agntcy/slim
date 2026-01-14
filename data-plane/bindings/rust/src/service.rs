@@ -179,14 +179,19 @@ impl Service {
     }
 
     /// Run the service (starts all configured servers and clients)
-    pub async fn run(&self) -> Result<(), SlimError> {
+    pub async fn run_async(&self) -> Result<(), SlimError> {
         self.inner.run().await.map_err(|e| SlimError::ServiceError {
             message: format!("Failed to run service: {}", e),
         })
     }
 
+    /// Run the service (starts all configured servers and clients) - blocking version
+    pub fn run(&self) -> Result<(), SlimError> {
+        crate::config::get_runtime().block_on(self.run_async())
+    }
+
     /// Shutdown the service gracefully
-    pub async fn shutdown(&self) -> Result<(), SlimError> {
+    pub async fn shutdown_async(&self) -> Result<(), SlimError> {
         self.inner
             .shutdown()
             .await
@@ -195,8 +200,13 @@ impl Service {
             })
     }
 
+    /// Shutdown the service gracefully - blocking version
+    pub fn shutdown(&self) -> Result<(), SlimError> {
+        crate::config::get_runtime().block_on(self.shutdown_async())
+    }
+
     /// Start a server with the given configuration
-    pub async fn run_server(&self, config: ServerConfig) -> Result<(), SlimError> {
+    pub async fn run_server_async(&self, config: ServerConfig) -> Result<(), SlimError> {
         let core_config: slim_config::grpc::server::ServerConfig = config.into();
         self.inner
             .run_server(&core_config)
@@ -206,8 +216,13 @@ impl Service {
             })
     }
 
+    /// Start a server with the given configuration - blocking version
+    pub fn run_server(&self, config: ServerConfig) -> Result<(), SlimError> {
+        crate::config::get_runtime().block_on(self.run_server_async(config))
+    }
+
     /// Stop a server by endpoint
-    pub async fn stop_server(&self, endpoint: String) -> Result<(), SlimError> {
+    pub async fn stop_server_async(&self, endpoint: String) -> Result<(), SlimError> {
         self.inner
             .stop_server(&endpoint)
             .map_err(|e| SlimError::ServiceError {
@@ -215,8 +230,13 @@ impl Service {
             })
     }
 
+    /// Stop a server by endpoint - blocking version
+    pub fn stop_server(&self, endpoint: String) -> Result<(), SlimError> {
+        crate::config::get_runtime().block_on(self.stop_server_async(endpoint))
+    }
+
     /// Connect to a remote endpoint as a client
-    pub async fn connect(&self, config: ClientConfig) -> Result<u64, SlimError> {
+    pub async fn connect_async(&self, config: ClientConfig) -> Result<u64, SlimError> {
         let core_config: slim_config::grpc::client::ClientConfig = config.into();
         self.inner
             .connect(&core_config)
@@ -226,8 +246,13 @@ impl Service {
             })
     }
 
+    /// Connect to a remote endpoint as a client - blocking version
+    pub fn connect(&self, config: ClientConfig) -> Result<u64, SlimError> {
+        crate::config::get_runtime().block_on(self.connect_async(config))
+    }
+
     /// Disconnect a client connection by connection ID
-    pub async fn disconnect(&self, conn_id: u64) -> Result<(), SlimError> {
+    pub async fn disconnect_async(&self, conn_id: u64) -> Result<(), SlimError> {
         self.inner
             .disconnect(conn_id)
             .map_err(|e| SlimError::ServiceError {
@@ -235,8 +260,13 @@ impl Service {
             })
     }
 
+    /// Disconnect a client connection by connection ID - blocking version
+    pub fn disconnect(&self, conn_id: u64) -> Result<(), SlimError> {
+        crate::config::get_runtime().block_on(self.disconnect_async(conn_id))
+    }
+
     /// Get the connection ID for a given endpoint
-    pub async fn get_connection_id(&self, endpoint: String) -> Option<u64> {
+    pub fn get_connection_id(&self, endpoint: String) -> Option<u64> {
         self.inner.get_connection_id(&endpoint)
     }
 
@@ -348,43 +378,43 @@ pub fn service_name() -> String {
 /// Run the global service (starts all configured servers and clients)
 #[uniffi::export]
 pub async fn service_run() -> Result<(), SlimError> {
-    get_global_service().run().await
+    get_global_service().run_async().await
 }
 
 /// Shutdown the global service gracefully
 #[uniffi::export]
 pub async fn service_shutdown() -> Result<(), SlimError> {
-    get_global_service().shutdown().await
+    get_global_service().shutdown_async().await
 }
 
 /// Start a server on the global service with the given configuration
 #[uniffi::export]
 pub async fn run_server(config: ServerConfig) -> Result<(), SlimError> {
-    get_global_service().run_server(config).await
+    get_global_service().run_server_async(config).await
 }
 
 /// Stop a server on the global service by endpoint
 #[uniffi::export]
 pub async fn stop_server(endpoint: String) -> Result<(), SlimError> {
-    get_global_service().stop_server(endpoint).await
+    get_global_service().stop_server_async(endpoint).await
 }
 
 /// Connect to a remote endpoint as a client using the global service
 #[uniffi::export]
 pub async fn connect(config: ClientConfig) -> Result<u64, SlimError> {
-    get_global_service().connect(config).await
+    get_global_service().connect_async(config).await
 }
 
 /// Disconnect a client connection by connection ID on the global service
 #[uniffi::export]
 pub async fn disconnect(conn_id: u64) -> Result<(), SlimError> {
-    get_global_service().disconnect(conn_id).await
+    get_global_service().disconnect_async(conn_id).await
 }
 
 /// Get the connection ID for a given endpoint on the global service
 #[uniffi::export]
 pub async fn get_connection_id(endpoint: String) -> Option<u64> {
-    get_global_service().get_connection_id(endpoint).await
+    get_global_service().get_connection_id(endpoint)
 }
 
 #[cfg(test)]
@@ -654,7 +684,7 @@ mod tests {
     async fn test_service_shutdown_without_run() {
         let service = Service::new("shutdown-test".to_string());
         // Should not error even if service wasn't run
-        let result = service.shutdown().await;
+        let result = service.shutdown_async().await;
         // Shutdown might succeed or fail gracefully
         assert!(result.is_ok() || result.is_err());
     }
@@ -666,7 +696,9 @@ mod tests {
     #[tokio::test]
     async fn test_stop_nonexistent_server() {
         let service = Service::new("stop-test".to_string());
-        let result = service.stop_server("127.0.0.1:99999".to_string()).await;
+        let result = service
+            .stop_server_async("127.0.0.1:99999".to_string())
+            .await;
         // Should fail because server doesn't exist
         assert!(result.is_err());
     }
@@ -674,7 +706,7 @@ mod tests {
     #[tokio::test]
     async fn test_disconnect_invalid_connection() {
         let service = Service::new("disconnect-test".to_string());
-        let result = service.disconnect(999999).await;
+        let result = service.disconnect_async(999999).await;
         // Should fail because connection doesn't exist
         assert!(result.is_err());
     }
@@ -682,9 +714,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_connection_id_nonexistent() {
         let service = Service::new("conn-id-test".to_string());
-        let conn_id = service
-            .get_connection_id("nonexistent-endpoint".to_string())
-            .await;
+        let conn_id = service.get_connection_id("nonexistent-endpoint".to_string());
         assert!(conn_id.is_none());
     }
 
@@ -846,15 +876,17 @@ mod tests {
         let service = Service::new("uninitialized-test".to_string());
 
         // Stop server that doesn't exist
-        let result = service.stop_server("127.0.0.1:11111".to_string()).await;
+        let result = service
+            .stop_server_async("127.0.0.1:11111".to_string())
+            .await;
         assert!(result.is_err());
 
         // Disconnect non-existent connection
-        let result = service.disconnect(11111).await;
+        let result = service.disconnect_async(11111).await;
         assert!(result.is_err());
 
         // Get non-existent connection ID
-        let conn_id = service.get_connection_id("fake-endpoint".to_string()).await;
+        let conn_id = service.get_connection_id("fake-endpoint".to_string());
         assert!(conn_id.is_none());
     }
 

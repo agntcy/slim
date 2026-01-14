@@ -191,7 +191,7 @@ impl PyApp {
 
             internal_clone
                 .service
-                .run_server(ffi_config)
+                .run_server_async(ffi_config)
                 .await
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })
@@ -204,7 +204,7 @@ impl PyApp {
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             internal_clone
                 .service
-                .stop_server(endpoint)
+                .stop_server_async(endpoint)
                 .await
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })
@@ -246,7 +246,7 @@ impl PyApp {
 
             internal_clone
                 .service
-                .connect(ffi_config)
+                .connect_async(ffi_config)
                 .await
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })
@@ -259,7 +259,7 @@ impl PyApp {
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             internal_clone
                 .service
-                .disconnect(conn)
+                .disconnect_async(conn)
                 .await
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })
