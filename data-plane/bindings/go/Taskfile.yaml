@@ -1,326 +1,326 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
-version: '3'
+version: "3"
 
 includes:
-  adapter:
-    taskfile: "../adapter/Taskfile.yaml"
-    internal: true
-  rust:
-    taskfile: ../../../tasks/rust.yaml
-    internal: true
+    adapter:
+        taskfile: "../rust/Taskfile.yaml"
+        internal: true
+    rust:
+        taskfile: ../../../tasks/rust.yaml
+        internal: true
 
 vars:
-  # The Rust UniFFI bindings crate - in bindings/adapter (sibling to bindings/go)
-  BINDINGS_DIR: "{{.TASKFILE_DIR}}/../adapter"
-  PROFILE: '{{.PROFILE | default "release"}}'
-  CURRENT_TARGET:
-    sh: 'rustc -vV | sed -n "s|host: ||p"'
-  TARGET: "{{.TARGET | default .CURRENT_TARGET}}"
-  SERVICE_TARGET: "{{.TASKFILE_DIR}}/../../target/{{.TARGET}}/{{.PROFILE}}"
-  LIB_NAME: slim_bindings
-  _DEFAULT_LIB_PATH:
-    sh: |
-      # Detect OS to determine library extension
-      OS=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')
-      case "$OS" in
-        mingw*|msys*|cygwin*)
-          # Windows uses .lib without lib prefix
-          echo "{{.SERVICE_TARGET}}/{{.LIB_NAME}}.lib"
-          ;;
-        *)
-          # Unix/Linux/macOS use .a with lib prefix
-          echo "{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.a"
-          ;;
-      esac
-  LIB_PATH: "{{.LIB_PATH | default ._DEFAULT_LIB_PATH}}"
+    # The Rust UniFFI bindings crate - in bindings/adapter (sibling to bindings/go)
+    BINDINGS_DIR: "{{.TASKFILE_DIR}}/../rust"
+    PROFILE: '{{.PROFILE | default "release"}}'
+    CURRENT_TARGET:
+        sh: 'rustc -vV | sed -n "s|host: ||p"'
+    TARGET: "{{.TARGET | default .CURRENT_TARGET}}"
+    SERVICE_TARGET: "{{.TASKFILE_DIR}}/../../target/{{.TARGET}}/{{.PROFILE}}"
+    LIB_NAME: slim_bindings
+    _DEFAULT_LIB_PATH:
+        sh: |
+            # Detect OS to determine library extension
+            OS=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')
+            case "$OS" in
+              mingw*|msys*|cygwin*)
+                # Windows uses .lib without lib prefix
+                echo "{{.SERVICE_TARGET}}/{{.LIB_NAME}}.lib"
+                ;;
+              *)
+                # Unix/Linux/macOS use .a with lib prefix
+                echo "{{.SERVICE_TARGET}}/lib{{.LIB_NAME}}.a"
+                ;;
+            esac
+    LIB_PATH: "{{.LIB_PATH | default ._DEFAULT_LIB_PATH}}"
 
 tasks:
-  default:
-    cmds:
-      - task -l
+    default:
+        cmds:
+            - task -l
 
-  patch-cgo-directives:
-    desc: Patch generated Go bindings with proper cgo directives
-    internal: true
-    cmds:
-      - echo "🔧 Patching cgo directives..."
-      - |
-        GO_FILE="generated/{{.LIB_NAME}}/{{.LIB_NAME}}.go"
-        if [ -f "$GO_FILE" ]; then
-          # Create the new cgo preamble with static LDFLAGS placeholders
-          cat > /tmp/cgo_preamble.txt << 'EOF'
-        package slim_bindings
+    patch-cgo-directives:
+        desc: Patch generated Go bindings with proper cgo directives
+        internal: true
+        cmds:
+            - echo "🔧 Patching cgo directives..."
+            - |
+                GO_FILE="generated/{{.LIB_NAME}}/{{.LIB_NAME}}.go"
+                if [ -f "$GO_FILE" ]; then
+                  # Create the new cgo preamble with static LDFLAGS placeholders
+                  cat > /tmp/cgo_preamble.txt << 'EOF'
+                package slim_bindings
 
-        /*
-        #cgo CFLAGS: -I${SRCDIR}
-        #cgo linux,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../../.cache/slim-bindings -lslim_bindings_x86_64_linux_gnu -lm
-        #cgo linux,arm64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../../.cache/slim-bindings -lslim_bindings_aarch64_linux_gnu -lm
-        #cgo darwin,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../../.cache/slim-bindings -lslim_bindings_x86_64_darwin -Wl,-undefined,dynamic_lookup
-        #cgo darwin,arm64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../../.cache/slim-bindings -lslim_bindings_aarch64_darwin -Wl,-undefined,dynamic_lookup
-        #cgo windows,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../../AppData/Local/slim-bindings -lslim_bindings_x86_64_windows_gnu -lws2_32 -lbcrypt -ladvapi32 -luserenv -lntdll -lgcc_eh -lgcc -lkernel32 -lole32
-        #include <slim_bindings.h>
-        */
-        import "C"
-        EOF
+                /*
+                #cgo CFLAGS: -I${SRCDIR}
+                #cgo linux,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../../.cache/slim-bindings -lslim_bindings_x86_64_linux_gnu -lm
+                #cgo linux,arm64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../../.cache/slim-bindings -lslim_bindings_aarch64_linux_gnu -lm
+                #cgo darwin,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../../.cache/slim-bindings -lslim_bindings_x86_64_darwin -Wl,-undefined,dynamic_lookup
+                #cgo darwin,arm64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../../.cache/slim-bindings -lslim_bindings_aarch64_darwin -Wl,-undefined,dynamic_lookup
+                #cgo windows,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../../AppData/Local/slim-bindings -lslim_bindings_x86_64_windows_gnu -lws2_32 -lbcrypt -ladvapi32 -luserenv -lntdll -lgcc_eh -lgcc -lkernel32 -lole32
+                #include <slim_bindings.h>
+                */
+                import "C"
+                EOF
 
-          # Extract the rest of the file after 'import "C"'
-          sed -n '/^import "C"/,$p' "$GO_FILE" | tail -n +2 > /tmp/go_rest.txt
+                  # Extract the rest of the file after 'import "C"'
+                  sed -n '/^import "C"/,$p' "$GO_FILE" | tail -n +2 > /tmp/go_rest.txt
 
-          # Combine the new preamble with the rest of the file
-          cat /tmp/cgo_preamble.txt /tmp/go_rest.txt > "$GO_FILE"
+                  # Combine the new preamble with the rest of the file
+                  cat /tmp/cgo_preamble.txt /tmp/go_rest.txt > "$GO_FILE"
 
-          # Cleanup
-          rm -f /tmp/cgo_preamble.txt /tmp/go_rest.txt
-          echo "✅ Patched $GO_FILE with cgo directives"
-        else
-          echo "⚠️  Go file not found: $GO_FILE"
-          exit 1
-        fi
-    silent: true
+                  # Cleanup
+                  rm -f /tmp/cgo_preamble.txt /tmp/go_rest.txt
+                  echo "✅ Patched $GO_FILE with cgo directives"
+                else
+                  echo "⚠️  Go file not found: $GO_FILE"
+                  exit 1
+                fi
+        silent: true
 
-  patch-header:
-    desc: Patch slim_bindings.h with Windows dllexport directives
-    internal: true
-    cmds:
-      - echo "🔧 Patching slim_bindings.h..."
-      - |
-        HEADER_FILE="generated/{{.LIB_NAME}}/{{.LIB_NAME}}.h"
-        if [ -f "$HEADER_FILE" ]; then
-          # Check if patch is already applied
-          if grep -q "#ifdef _WIN32" "$HEADER_FILE" && grep -q "__declspec(dllexport) void slim_bindings_uniffiFutureContinuationCallback" "$HEADER_FILE"; then
-            echo "✅ Header already patched"
-          else
-            # Apply the patch: wrap the two function declarations with Windows conditional
-            # First, create a temporary file with the patched content
-            awk '
-              /^void slim_bindings_uniffiFutureContinuationCallback\(uint64_t, int8_t\);$/ {
-                print "#ifdef _WIN32"
-                print "__declspec(dllexport) void slim_bindings_uniffiFutureContinuationCallback(uint64_t, int8_t);"
-                print "__declspec(dllexport) void slim_bindings_uniffiFreeGorutine(uint64_t);"
-                print "#else"
-                print "void slim_bindings_uniffiFutureContinuationCallback(uint64_t, int8_t);"
-                getline
-                print "void slim_bindings_uniffiFreeGorutine(uint64_t);"
-                print "#endif"
-                next
-              }
-              { print }
-            ' "$HEADER_FILE" > "$HEADER_FILE.tmp"
-            mv "$HEADER_FILE.tmp" "$HEADER_FILE"
-            echo "✅ Patched $HEADER_FILE with Windows dllexport directives"
-          fi
-        else
-          echo "⚠️  Header file not found: $HEADER_FILE"
-          exit 1
-        fi
-    silent: true
+    patch-header:
+        desc: Patch slim_bindings.h with Windows dllexport directives
+        internal: true
+        cmds:
+            - echo "🔧 Patching slim_bindings.h..."
+            - |
+                HEADER_FILE="generated/{{.LIB_NAME}}/{{.LIB_NAME}}.h"
+                if [ -f "$HEADER_FILE" ]; then
+                  # Check if patch is already applied
+                  if grep -q "#ifdef _WIN32" "$HEADER_FILE" && grep -q "__declspec(dllexport) void slim_bindings_uniffiFutureContinuationCallback" "$HEADER_FILE"; then
+                    echo "✅ Header already patched"
+                  else
+                    # Apply the patch: wrap the two function declarations with Windows conditional
+                    # First, create a temporary file with the patched content
+                    awk '
+                      /^void slim_bindings_uniffiFutureContinuationCallback\(uint64_t, int8_t\);$/ {
+                        print "#ifdef _WIN32"
+                        print "__declspec(dllexport) void slim_bindings_uniffiFutureContinuationCallback(uint64_t, int8_t);"
+                        print "__declspec(dllexport) void slim_bindings_uniffiFreeGorutine(uint64_t);"
+                        print "#else"
+                        print "void slim_bindings_uniffiFutureContinuationCallback(uint64_t, int8_t);"
+                        getline
+                        print "void slim_bindings_uniffiFreeGorutine(uint64_t);"
+                        print "#endif"
+                        next
+                      }
+                      { print }
+                    ' "$HEADER_FILE" > "$HEADER_FILE.tmp"
+                    mv "$HEADER_FILE.tmp" "$HEADER_FILE"
+                    echo "✅ Patched $HEADER_FILE with Windows dllexport directives"
+                  fi
+                else
+                  echo "⚠️  Header file not found: $HEADER_FILE"
+                  exit 1
+                fi
+        silent: true
 
-  generate:
-    desc: Generate Go bindings from compiled library
-    deps:
-      - task: adapter:bindings:build:all
-        vars:
-          PROFILE: release
-      - install-uniffi-bindgen-go
-    cmds:
-      - echo "🔧 Generating Go bindings from compiled library..."
-      - |
-        uniffi-bindgen-go \
-          --library '{{.LIB_PATH}}' \
-          --out-dir generated
-      - cd generated && go mod init github.com/agntcy/slim/bindings/generated 2>/dev/null || true
-      - task: copy-library
-      - task: patch-header
-      - task: patch-cgo-directives
-      - echo "✅ Bindings generated in generated/"
-    silent: true
+    generate:
+        desc: Generate Go bindings from compiled library
+        deps:
+            - task: adapter:bindings:build:all
+              vars:
+                  PROFILE: release
+            - install-uniffi-bindgen-go
+        cmds:
+            - echo "🔧 Generating Go bindings from compiled library..."
+            - |
+                uniffi-bindgen-go \
+                  --library '{{.LIB_PATH}}' \
+                  --out-dir generated
+            - cd generated && go mod init github.com/agntcy/slim/bindings/generated 2>/dev/null || true
+            - task: copy-library
+            - task: patch-header
+            - task: patch-cgo-directives
+            - echo "✅ Bindings generated in generated/"
+        silent: true
 
-  install-uniffi-bindgen-go:
-    desc: Install uniffi-bindgen-go
-    status:
-      - which uniffi-bindgen-go
-    cmds:
-      - echo "📦 Installing uniffi-bindgen-go..."
-      - cargo install uniffi-bindgen-go --git https://github.com/NordSecurity/uniffi-bindgen-go.git --tag v0.4.0+v0.28.3 --config net.git-fetch-with-cli=true
-    silent: true
+    install-uniffi-bindgen-go:
+        desc: Install uniffi-bindgen-go
+        status:
+            - which uniffi-bindgen-go
+        cmds:
+            - echo "📦 Installing uniffi-bindgen-go..."
+            - cargo install uniffi-bindgen-go --git https://github.com/NordSecurity/uniffi-bindgen-go.git --tag v0.4.0+v0.28.3 --config net.git-fetch-with-cli=true
+        silent: true
 
-  copy-library:
-    desc: Copy shared library to generated directory
-    internal: true
-    cmds:
-      - echo "📦 Copying static libraries..."
-      - |
-        LIB_DIR=$(dirname "{{.LIB_PATH}}")
-        DEST_DIR="generated/{{.LIB_NAME}}"
+    copy-library:
+        desc: Copy shared library to generated directory
+        internal: true
+        cmds:
+            - echo "📦 Copying static libraries..."
+            - |
+                LIB_DIR=$(dirname "{{.LIB_PATH}}")
+                DEST_DIR="generated/{{.LIB_NAME}}"
 
-        # Check if libraries already have platform-specific names (from CI build)
-        PLATFORM_LIBS=$(find "$LIB_DIR" -type f \( -name "lib{{.LIB_NAME}}_*.a" -o -name "{{.LIB_NAME}}_*.lib" \) 2>/dev/null | head -1)
+                # Check if libraries already have platform-specific names (from CI build)
+                PLATFORM_LIBS=$(find "$LIB_DIR" -type f \( -name "lib{{.LIB_NAME}}_*.a" -o -name "{{.LIB_NAME}}_*.lib" \) 2>/dev/null | head -1)
 
-        if [ -n "$PLATFORM_LIBS" ]; then
-          # CI build: libraries already have platform-specific names
-          echo "📦 Found platform-specific libraries, copying..."
-          find "$LIB_DIR" -type f \( -name "lib{{.LIB_NAME}}_*.a" -o -name "{{.LIB_NAME}}_*.lib" \) | while read -r lib_file; do
-            dest_name=$(basename "$lib_file")
-            file_size=$(stat -f%z "$lib_file" 2>/dev/null || stat -c%s "$lib_file" 2>/dev/null)
-            echo "   Copying $dest_name ($((file_size / 1024 / 1024))MB)"
-            cp "$lib_file" "$DEST_DIR/$dest_name"
-          done
-        else
-          # Local build: need to detect platform and rename
-          echo "📦 Local build detected, renaming library for current platform..."
+                if [ -n "$PLATFORM_LIBS" ]; then
+                  # CI build: libraries already have platform-specific names
+                  echo "📦 Found platform-specific libraries, copying..."
+                  find "$LIB_DIR" -type f \( -name "lib{{.LIB_NAME}}_*.a" -o -name "{{.LIB_NAME}}_*.lib" \) | while read -r lib_file; do
+                    dest_name=$(basename "$lib_file")
+                    file_size=$(stat -f%z "$lib_file" 2>/dev/null || stat -c%s "$lib_file" 2>/dev/null)
+                    echo "   Copying $dest_name ($((file_size / 1024 / 1024))MB)"
+                    cp "$lib_file" "$DEST_DIR/$dest_name"
+                  done
+                else
+                  # Local build: need to detect platform and rename
+                  echo "📦 Local build detected, renaming library for current platform..."
 
-          # Detect architecture
-          ARCH=$(uname -m)
-          case "$ARCH" in
-            x86_64|amd64) ARCH="x86_64" ;;
-            arm64|aarch64) ARCH="aarch64" ;;
-          esac
+                  # Detect architecture
+                  ARCH=$(uname -m)
+                  case "$ARCH" in
+                    x86_64|amd64) ARCH="x86_64" ;;
+                    arm64|aarch64) ARCH="aarch64" ;;
+                  esac
 
-          # Detect OS
-          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-          LIB_EXT="a"
-          LIB_PREFIX="lib"
-          case "$OS" in
-            darwin) OS="darwin" ;;
-            linux) OS="linux_gnu" ;;  # Assume GNU for local builds
-            mingw*|msys*|cygwin*)
-              OS="windows"
-              LIB_EXT="lib"
-              LIB_PREFIX=""
-              ;;
-          esac
+                  # Detect OS
+                  OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+                  LIB_EXT="a"
+                  LIB_PREFIX="lib"
+                  case "$OS" in
+                    darwin) OS="darwin" ;;
+                    linux) OS="linux_gnu" ;;  # Assume GNU for local builds
+                    mingw*|msys*|cygwin*)
+                      OS="windows"
+                      LIB_EXT="lib"
+                      LIB_PREFIX=""
+                      ;;
+                  esac
 
-          LIB_NAME="${LIB_PREFIX}{{.LIB_NAME}}_${ARCH}_${OS}"
+                  LIB_NAME="${LIB_PREFIX}{{.LIB_NAME}}_${ARCH}_${OS}"
 
-          if [ -f "{{.LIB_PATH}}" ]; then
-            file_size=$(stat -f%z "{{.LIB_PATH}}" 2>/dev/null || stat -c%s "{{.LIB_PATH}}" 2>/dev/null)
-            echo "   Copying ${LIB_NAME}.${LIB_EXT} ($((file_size / 1024 / 1024))MB)"
-            cp "{{.LIB_PATH}}" "$DEST_DIR/${LIB_NAME}.${LIB_EXT}"
-            echo "✅ Copied {{.LIB_PATH}} -> $DEST_DIR/$LIB_NAME"
-          else
-            echo "⚠️  Library not found: {{.LIB_PATH}}"
-            exit 1
-          fi
-        fi
-      - echo "✅ Libraries in generated/{{.LIB_NAME}}/:"
-      - ls -lah "generated/{{.LIB_NAME}}/"*{{.LIB_NAME}}*.a "generated/{{.LIB_NAME}}/"*{{.LIB_NAME}}*.lib 2>/dev/null || echo "  (no library files found)"
-    silent: true
+                  if [ -f "{{.LIB_PATH}}" ]; then
+                    file_size=$(stat -f%z "{{.LIB_PATH}}" 2>/dev/null || stat -c%s "{{.LIB_PATH}}" 2>/dev/null)
+                    echo "   Copying ${LIB_NAME}.${LIB_EXT} ($((file_size / 1024 / 1024))MB)"
+                    cp "{{.LIB_PATH}}" "$DEST_DIR/${LIB_NAME}.${LIB_EXT}"
+                    echo "✅ Copied {{.LIB_PATH}} -> $DEST_DIR/$LIB_NAME"
+                  else
+                    echo "⚠️  Library not found: {{.LIB_PATH}}"
+                    exit 1
+                  fi
+                fi
+            - echo "✅ Libraries in generated/{{.LIB_NAME}}/:"
+            - ls -lah "generated/{{.LIB_NAME}}/"*{{.LIB_NAME}}*.a "generated/{{.LIB_NAME}}/"*{{.LIB_NAME}}*.lib 2>/dev/null || echo "  (no library files found)"
+        silent: true
 
-  test:
-    desc: Run all tests
-    deps:
-     - task: generate
-    cmds:
-      - echo "🧪 Running all tests..."
-      - go test -v ./...
-      - echo "✅ All Go tests passed"
-    silent: true
+    test:
+        desc: Run all tests
+        deps:
+            - task: generate
+        cmds:
+            - echo "🧪 Running all tests..."
+            - go test -v ./...
+            - echo "✅ All Go tests passed"
+        silent: true
 
-  test-coverage:
-    desc: Run tests with coverage report
-    deps:
-     - task: adapter:bindings:build:all
-       vars:
-         PROFILE: release
-    cmds:
-      - echo "📊 Running tests with coverage..."
-      - go test -v -coverprofile=coverage.out ./...
-      - go tool cover -html=coverage.out -o coverage.html
-      - echo "✅ Coverage report generated in coverage.html"
-    silent: true
+    test-coverage:
+        desc: Run tests with coverage report
+        deps:
+            - task: adapter:bindings:build:all
+              vars:
+                  PROFILE: release
+        cmds:
+            - echo "📊 Running tests with coverage..."
+            - go test -v -coverprofile=coverage.out ./...
+            - go tool cover -html=coverage.out -o coverage.html
+            - echo "✅ Coverage report generated in coverage.html"
+        silent: true
 
-  clean:
-    desc: Clean build artifacts
-    cmds:
-      - echo "🧹 Cleaning build artifacts..."
-      - cd {{.BINDINGS_DIR}} && cargo clean
-      - rm -rf generated/
-      - echo "✅ Clean complete"
-    silent: true
+    clean:
+        desc: Clean build artifacts
+        cmds:
+            - echo "🧹 Cleaning build artifacts..."
+            - cd {{.BINDINGS_DIR}} && cargo clean
+            - rm -rf generated/
+            - echo "✅ Clean complete"
+        silent: true
 
-  # Examples
-  example:
-    desc: Run the simple example
-    deps:
-      - task: adapter:bindings:build:all
-        vars:
-          PROFILE: release
-    dir: examples/simple
-    cmds:
-      - echo "🚀 Running simple example..."
-      - go run .
-    silent: true
+    # Examples
+    example:
+        desc: Run the simple example
+        deps:
+            - task: adapter:bindings:build:all
+              vars:
+                  PROFILE: release
+        dir: examples/simple
+        cmds:
+            - echo "🚀 Running simple example..."
+            - go run .
+        silent: true
 
-  example:server:
-    desc: Run the SLIM server
-    deps:
-      - task: adapter:bindings:build:all
-        vars:
-          PROFILE: release
-    dir: cmd/server
-    cmds:
-      - echo "🚀 Starting SLIM server..."
-      - go run . {{.CLI_ARGS}}
-    silent: true
+    example:server:
+        desc: Run the SLIM server
+        deps:
+            - task: adapter:bindings:build:all
+              vars:
+                  PROFILE: release
+        dir: cmd/server
+        cmds:
+            - echo "🚀 Starting SLIM server..."
+            - go run . {{.CLI_ARGS}}
+        silent: true
 
-  example:p2p:alice:
-    desc: Run Alice (receiver) for point-to-point example
-    deps:
-      - task: adapter:bindings:build:all
-        vars:
-          PROFILE: release
-    dir: examples/point_to_point
-    cmds:
-      - echo "👩 Starting Alice (receiver)..."
-      - go run . --local="org/alice/app" --server="http://localhost:46357" {{.CLI_ARGS}}
-    silent: true
+    example:p2p:alice:
+        desc: Run Alice (receiver) for point-to-point example
+        deps:
+            - task: adapter:bindings:build:all
+              vars:
+                  PROFILE: release
+        dir: examples/point_to_point
+        cmds:
+            - echo "👩 Starting Alice (receiver)..."
+            - go run . --local="org/alice/app" --server="http://localhost:46357" {{.CLI_ARGS}}
+        silent: true
 
-  example:p2p:bob:
-    desc: Run Bob (sender) for point-to-point example
-    deps:
-      - task: adapter:bindings:build:all
-        vars:
-          PROFILE: release
-    dir: examples/point_to_point
-    cmds:
-      - echo "👨 Starting Bob (sender)..."
-      - go run . --local="org/bob/app" --remote="org/alice/app" --message="Hello SLIM" --iterations=5 --server="http://localhost:46357" {{.CLI_ARGS}}
-    silent: true
+    example:p2p:bob:
+        desc: Run Bob (sender) for point-to-point example
+        deps:
+            - task: adapter:bindings:build:all
+              vars:
+                  PROFILE: release
+        dir: examples/point_to_point
+        cmds:
+            - echo "👨 Starting Bob (sender)..."
+            - go run . --local="org/bob/app" --remote="org/alice/app" --message="Hello SLIM" --iterations=5 --server="http://localhost:46357" {{.CLI_ARGS}}
+        silent: true
 
-  example:group:moderator:
-    desc: Run group moderator (creates session and invites participants)
-    deps:
-      - task: adapter:bindings:build:all
-        vars:
-          PROFILE: release
-    dir: examples/group
-    cmds:
-      - echo "👑 Starting group moderator..."
-      - go run . --local="org/moderator/app" --remote="org/default/chat-room" --invites="org/alice/app,org/bob/app" --server="http://localhost:46357" {{.CLI_ARGS}}
-    silent: true
+    example:group:moderator:
+        desc: Run group moderator (creates session and invites participants)
+        deps:
+            - task: adapter:bindings:build:all
+              vars:
+                  PROFILE: release
+        dir: examples/group
+        cmds:
+            - echo "👑 Starting group moderator..."
+            - go run . --local="org/moderator/app" --remote="org/default/chat-room" --invites="org/alice/app,org/bob/app" --server="http://localhost:46357" {{.CLI_ARGS}}
+        silent: true
 
-  example:group:participant:alice:
-    desc: Run group participant (waits for invitation)
-    deps:
-      - task: adapter:bindings:build:all
-        vars:
-          PROFILE: release
-    dir: examples/group
-    cmds:
-      - echo "👤 Starting group participant..."
-      - go run . --local="org/alice/app" --server="http://localhost:46357" {{.CLI_ARGS}}
-    silent: true
+    example:group:participant:alice:
+        desc: Run group participant (waits for invitation)
+        deps:
+            - task: adapter:bindings:build:all
+              vars:
+                  PROFILE: release
+        dir: examples/group
+        cmds:
+            - echo "👤 Starting group participant..."
+            - go run . --local="org/alice/app" --server="http://localhost:46357" {{.CLI_ARGS}}
+        silent: true
 
-  example:group:participant:bob:
-    desc: Run group participant (waits for invitation)
-    deps:
-      - task: adapter:bindings:build:all
-        vars:
-          PROFILE: release
-    dir: examples/group
-    cmds:
-      - echo "👤 Starting group participant..."
-      - go run . --local="org/bob/app" --server="http://localhost:46357" {{.CLI_ARGS}}
-    silent: true
+    example:group:participant:bob:
+        desc: Run group participant (waits for invitation)
+        deps:
+            - task: adapter:bindings:build:all
+              vars:
+                  PROFILE: release
+        dir: examples/group
+        cmds:
+            - echo "👤 Starting group participant..."
+            - go run . --local="org/bob/app" --server="http://localhost:46357" {{.CLI_ARGS}}
+        silent: true
