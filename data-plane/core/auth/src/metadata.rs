@@ -460,6 +460,35 @@ where
     }
 }
 
+/// Conversion from MetadataValue to prost_types::Value for protobuf serialization
+impl From<&MetadataValue> for prost_types::Value {
+    fn from(value: &MetadataValue) -> Self {
+        let kind = match value {
+            MetadataValue::String(s) => prost_types::value::Kind::StringValue(s.clone()),
+            MetadataValue::Number(n) => {
+                // Convert serde_json::Number to f64
+                prost_types::value::Kind::NumberValue(
+                    n.as_f64().unwrap_or_else(|| n.as_i64().unwrap_or(0) as f64),
+                )
+            }
+            MetadataValue::List(list) => {
+                let values = list.iter().map(prost_types::Value::from).collect();
+                prost_types::value::Kind::ListValue(prost_types::ListValue { values })
+            }
+            MetadataValue::Map(map) => {
+                let fields = map
+                    .inner
+                    .iter()
+                    .map(|(k, v)| (k.clone(), prost_types::Value::from(v)))
+                    .collect();
+                prost_types::value::Kind::StructValue(prost_types::Struct { fields })
+            }
+        };
+
+        prost_types::Value { kind: Some(kind) }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::f64;

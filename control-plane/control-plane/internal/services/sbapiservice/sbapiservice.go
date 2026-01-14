@@ -2,6 +2,7 @@ package sbapiservice
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"time"
@@ -158,10 +159,30 @@ func (s *sbAPIService) OpenControlChannel(stream controllerapi.ControllerService
 }
 
 func getConnDetails(host string, detail *controllerapi.ConnectionDetails) db.ConnectionDetails {
+	// Parse metadata to extract LocalEndpoint, ExternalEndpoint, and TrustDomain
+	var localEndpoint *string
+	var externalEndpoint *string
+	var trustDomain *string
+
+	if detail.Metadata != nil && detail.Metadata.Fields != nil {
+		if le, ok := detail.Metadata.Fields["local_endpoint"]; ok && le.GetStringValue() != "" {
+			val := le.GetStringValue()
+			localEndpoint = &val
+		}
+		if ee, ok := detail.Metadata.Fields["external_endpoint"]; ok && ee.GetStringValue() != "" {
+			val := ee.GetStringValue()
+			externalEndpoint = &val
+		}
+		if td, ok := detail.Metadata.Fields["trust_domain"]; ok && td.GetStringValue() != "" {
+			val := td.GetStringValue()
+			trustDomain = &val
+		}
+	}
+
 	// use local endpoint if provided, otherwise use peer host
 	endPoint := host
-	if detail.LocalEndpoint != nil {
-		endPoint = *detail.LocalEndpoint
+	if localEndpoint != nil {
+		endPoint = *localEndpoint
 	}
 	// append port if provided in endpoint
 	_, port, splitErr := net.SplitHostPort(detail.Endpoint)
@@ -172,9 +193,26 @@ func getConnDetails(host string, detail *controllerapi.ConnectionDetails) db.Con
 	connDetails := db.ConnectionDetails{
 		Endpoint:         endPoint,
 		MTLSRequired:     detail.MtlsRequired,
-		GroupName:        detail.GroupName,
-		ExternalEndpoint: detail.ExternalEndpoint,
+		ExternalEndpoint: externalEndpoint,
+		TrustDomain:      trustDomain,
 	}
+
+	// Parse TLS config from JSON string if provided
+	if detail.Tls != nil && *detail.Tls != "" {
+		var tlsConfig db.SeverTLSConfig
+		if err := json.Unmarshal([]byte(*detail.Tls), &tlsConfig); err == nil {
+			connDetails.TLSConfig = &tlsConfig
+		}
+	}
+
+	// Parse Auth config from JSON string if provided
+	if detail.Auth != nil && *detail.Auth != "" {
+		var authConfig db.Auth
+		if err := json.Unmarshal([]byte(*detail.Auth), &authConfig); err == nil {
+			connDetails.AuthConfig = &authConfig
+		}
+	}
+
 	return connDetails
 }
 
