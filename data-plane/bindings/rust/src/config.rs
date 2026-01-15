@@ -42,7 +42,7 @@ struct GlobalState {
     runtime: tokio::runtime::Runtime,
 
     /// Global service instances (all services)
-    _services: Vec<Arc<crate::service::Service>>,
+    services: Vec<Arc<crate::service::Service>>,
 
     /// Global service instance (first service, for backward compatibility)
     service: Arc<crate::service::Service>,
@@ -252,7 +252,7 @@ fn initialize_internal(
         tracing_config: tracing_conf,
         service_config: service_configs.to_vec(),
         runtime,
-        _services: services,
+        services,
         service,
     };
 
@@ -283,8 +283,21 @@ pub fn get_services() -> Vec<Arc<crate::service::Service>> {
     initialize_with_defaults();
     GLOBAL_STATE
         .get()
-        .map(|state| state._services.clone())
+        .map(|state| state.services.clone())
         .expect("Global services not initialized")
+}
+
+/// Get the global service instance (creates it if it doesn't exist)
+///
+/// This returns a reference to the shared global service that can be used
+/// across the application. All calls to this function return the same service instance.
+#[uniffi::export]
+pub fn get_global_service() -> Arc<crate::service::Service> {
+    initialize_with_defaults();
+    GLOBAL_STATE
+        .get()
+        .map(|state| state.service.clone())
+        .expect("Main global service not initialized")
 }
 
 /// Get the runtime configuration

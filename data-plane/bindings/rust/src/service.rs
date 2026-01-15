@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use crate::client_config::ClientConfig;
 use crate::errors::SlimError;
+use crate::get_global_service;
 use crate::identity_config::{IdentityProviderConfig, IdentityVerifierConfig};
 use crate::server_config::ServerConfig;
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
@@ -345,15 +346,6 @@ pub fn create_service_with_config(
     Ok(Arc::new(Service::new_with_config(name, config)))
 }
 
-/// Get the global service instance (creates it if it doesn't exist)
-///
-/// This returns a reference to the shared global service that can be used
-/// across the application. All calls to this function return the same service instance.
-#[uniffi::export]
-pub fn get_global_service() -> Arc<Service> {
-    crate::config::get_services()[0].clone()
-}
-
 // ============================================================================
 // Global Service Convenience Functions
 // ============================================================================
@@ -414,6 +406,7 @@ mod tests {
     use slim_testing::utils::TEST_VALID_SECRET;
 
     use crate::app::App;
+    use crate::config::get_global_service;
     use crate::identity_config::{IdentityProviderConfig, IdentityVerifierConfig};
     use crate::name::Name;
 
