@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0](https://github.com/agntcy/slim/compare/slim-datapath-v0.10.3...slim-datapath-v0.11.0) - 2026-01-15
+
+### Added
+
+- *(bindings)* configuration file support ([#1099](https://github.com/agntcy/slim/pull/1099))
+- *(bindings)* expose participant list to the application ([#1089](https://github.com/agntcy/slim/pull/1089))
+- *(session)* handle moderator unexpected stop ([#1024](https://github.com/agntcy/slim/pull/1024))
+- make backoff retry configurable ([#991](https://github.com/agntcy/slim/pull/991))
+- Update group state on unexpected application stop ([#1014](https://github.com/agntcy/slim/pull/1014))
+- detect and handle unexpected participant disconnections ([#1004](https://github.com/agntcy/slim/pull/1004))
+
+### Fixed
+
+- *(session)* route dataplane errors to correct session ([#1056](https://github.com/agntcy/slim/pull/1056))
+- *(session)* correctly remove routes on session close ([#1039](https://github.com/agntcy/slim/pull/1039))
+
+### Other
+
+- *(lint)* use latest version of tools ([#1067](https://github.com/agntcy/slim/pull/1067))
+- unified typed error handling across core crates ([#976](https://github.com/agntcy/slim/pull/976))
+
 ## [0.10.3](https://github.com/agntcy/slim/compare/slim-datapath-v0.10.2...slim-datapath-v0.10.3) - 2025-11-21
 
 ### Added
