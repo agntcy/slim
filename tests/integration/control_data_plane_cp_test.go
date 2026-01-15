@@ -16,9 +16,12 @@ import (
 var _ = Describe("Routing", func() {
 
 	var (
-		clientASession *gexec.Session
-		clientBSession *gexec.Session
-		clientCSession *gexec.Session
+		clientASession      *gexec.Session
+		clientBSession      *gexec.Session
+		clientCSession      *gexec.Session
+		serverASession      *gexec.Session
+		serverBSession      *gexec.Session
+		controlPlaneSession *gexec.Session
 	)
 
 	BeforeEach(func() {

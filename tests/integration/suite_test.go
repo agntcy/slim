@@ -9,27 +9,23 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	. "github.com/onsi/gomega"
-	"github.com/onsi/gomega/gexec"
 )
 
 var (
 	target string
+
+	suiteName = "Run integration tests"
 
 	slimPath         string
 	sdkMockPath      string
 	clientPath       string
 	slimctlPath      string
 	controlPlanePath string
-
-	serverASession      *gexec.Session
-	serverBSession      *gexec.Session
-	controlPlaneSession *gexec.Session
 )
 
 func mustAbs(p string) string {
@@ -50,6 +46,7 @@ func setBinaryPaths(target string) {
 }
 
 var _ = BeforeSuite(func() {
+	fmt.Fprintf(GinkgoWriter, "[integration] BeforeSuite (%s): start\n", suiteName)
 	// determine build target
 	out, err := exec.Command("rustc", "-vV").Output()
 	Expect(err).NotTo(HaveOccurred())
@@ -64,23 +61,16 @@ var _ = BeforeSuite(func() {
 
 	// set binary paths
 	setBinaryPaths(target)
+
+	fmt.Fprintf(GinkgoWriter, "[integration] BeforeSuite (%s): end\n", suiteName)
 })
 
 var _ = AfterSuite(func() {
-	// terminate SLIM instances
-	if serverASession != nil {
-		serverASession.Terminate().Wait(30 * time.Second)
-	}
-	if serverBSession != nil {
-		serverBSession.Terminate().Wait(30 * time.Second)
-	}
-	// terminate control plane
-	if controlPlaneSession != nil {
-		controlPlaneSession.Terminate().Wait(30 * time.Second)
-	}
+	fmt.Fprintf(GinkgoWriter, "[integration] AfterSuite (%s): start\n", suiteName)
+	fmt.Fprintf(GinkgoWriter, "[integration] AfterSuite (%s): end\n", suiteName)
 })
 
 func TestIntegration(t *testing.T) {
 	gomega.RegisterFailHandler(ginkgo.Fail)
-	ginkgo.RunSpecs(t, "Run integration tests")
+	ginkgo.RunSpecs(t, suiteName)
 }
