@@ -36,12 +36,15 @@ struct GlobalState {
     tracing_config: CoreTracingConfiguration,
 
     /// Service configuration
-    service_config: CoreServiceConfiguration,
+    service_config: Vec<CoreServiceConfiguration>,
 
     /// Global Tokio runtime
     runtime: tokio::runtime::Runtime,
 
-    /// Global service instance
+    /// Global service instances (all services)
+    services: Vec<Arc<crate::service::Service>>,
+
+    /// Global service instance (first service, for backward compatibility)
     service: Arc<crate::service::Service>,
 }
 
@@ -78,19 +81,19 @@ pub fn initialize_from_config(config_path: String) {
         // Get configurations
         let runtime_config = config.runtime().clone();
         let tracing_conf = config.tracing().clone();
-        let service_config = match config.services() {
+        let service_configs: Vec<CoreServiceConfiguration> = match config.services_config() {
             Ok(services) => {
-                if let Some(service) = services.values().next() {
+                if !services.is_empty() {
                     debug!("Using service configuration from config file");
-                    service.config().clone()
+                    services.values().cloned().collect()
                 } else {
                     debug!("No services in config, using default");
-                    CoreServiceConfiguration::default()
+                    vec![CoreServiceConfiguration::default()]
                 }
             }
             Err(_) => {
                 debug!("No services section in config, using default");
-                CoreServiceConfiguration::default()
+                vec![CoreServiceConfiguration::default()]
             }
         };
 
@@ -98,7 +101,7 @@ pub fn initialize_from_config(config_path: String) {
         initialize_internal(
             runtime_config.clone(),
             tracing_conf.clone(),
-            service_config.clone(),
+            &service_configs,
         )
         .unwrap_or_else(|e| panic!("Initialization failed: {}", e))
     });
@@ -131,19 +134,20 @@ pub fn initialize_from_config(config_path: String) {
 pub fn initialize_with_configs(
     runtime_config: RuntimeConfig,
     tracing_config: TracingConfig,
-    service_config: ServiceConfig,
+    service_config: &[ServiceConfig],
 ) -> Result<(), SlimError> {
     // Convert wrapper types to core types
     let core_runtime_config: CoreRuntimeConfiguration = runtime_config.into();
     let core_tracing_config: CoreTracingConfiguration = tracing_config.into();
-    let core_service_config: CoreServiceConfiguration = service_config.into();
+    let core_service_config: Vec<CoreServiceConfiguration> =
+        service_config.iter().map(|sc| sc.clone().into()).collect();
 
     // Use get_or_init for atomic initialization
     GLOBAL_STATE.get_or_init(|| {
         initialize_internal(
             core_runtime_config,
             core_tracing_config,
-            core_service_config,
+            &core_service_config,
         )
         .unwrap_or_else(|e| panic!("Initialization failed: {}", e))
     });
@@ -168,7 +172,7 @@ pub fn initialize_with_defaults() {
         initialize_internal(
             CoreRuntimeConfiguration::default(),
             CoreTracingConfiguration::default(),
-            CoreServiceConfiguration::default(),
+            &[CoreServiceConfiguration::default()],
         )
         .expect("Failed to initialize with defaults")
     });
@@ -178,7 +182,7 @@ pub fn initialize_with_defaults() {
 fn initialize_internal(
     runtime_config: CoreRuntimeConfiguration,
     tracing_conf: CoreTracingConfiguration,
-    service_config: CoreServiceConfiguration,
+    service_configs: &[CoreServiceConfiguration],
 ) -> Result<GlobalState, SlimError> {
     // Initialize crypto provider (must be done before any TLS operations)
     provider::initialize_crypto_provider();
@@ -207,40 +211,48 @@ fn initialize_internal(
     // to avoid "Cannot start a runtime from within a runtime" panic.
     // Even though we created a new runtime, calling block_on on it will still panic
     // if the current thread is being used by another runtime to drive async tasks.
-    let (runtime, service) = if tokio::runtime::Handle::try_current().is_ok() {
+    let (runtime, services) = if tokio::runtime::Handle::try_current().is_ok() {
         // We're in an async context - spawn a separate OS thread to run block_on
         // Wrap the runtime in Arc to safely share it across thread boundaries
         let runtime_arc = Arc::new(runtime);
         let runtime_clone = Arc::clone(&runtime_arc);
-        let service_config_clone = service_config.clone();
+        let service_config_clone = service_configs.to_vec();
 
-        let service = std::thread::spawn(move || {
+        let services = std::thread::spawn(move || {
             runtime_clone.block_on(async move {
-                initialize_and_start_global_service(service_config_clone).await
+                initialize_and_start_global_services(&service_config_clone).await
             })
         })
         .join()
-        .expect("Thread panicked while initializing service")?;
+        .expect("Thread panicked while initializing services")?;
 
         // Extract the runtime back from Arc (will succeed since we have the only reference)
         let runtime = Arc::try_unwrap(runtime_arc).expect("Failed to unwrap runtime from Arc");
 
-        (runtime, service)
+        (runtime, services)
     } else {
         // Not in an async context, safe to use block_on directly
-        let service = runtime.block_on(async {
-            initialize_and_start_global_service(service_config.clone()).await
-        })?;
-        (runtime, service)
+        let services = runtime
+            .block_on(async { initialize_and_start_global_services(service_configs).await })?;
+        (runtime, services)
     };
+
+    // Get first service for backward compatibility
+    let service = services
+        .first()
+        .ok_or_else(|| SlimError::ServiceError {
+            message: "No services were initialized".to_string(),
+        })?
+        .clone();
 
     // Store the global state
     let global_state = GlobalState {
         tracing_guard: guard,
         runtime_config,
         tracing_config: tracing_conf,
-        service_config,
+        service_config: service_configs.to_vec(),
         runtime,
+        services,
         service,
     };
 
@@ -264,21 +276,34 @@ pub fn get_runtime() -> &'static tokio::runtime::Runtime {
         .runtime
 }
 
-/// Get the global service
+/// Returns references to all global services.
+/// If not initialized, initializes with defaults first.
+#[uniffi::export]
+pub fn get_services() -> Vec<Arc<crate::service::Service>> {
+    initialize_with_defaults();
+    GLOBAL_STATE
+        .get()
+        .map(|state| state.services.clone())
+        .expect("Global services not initialized")
+}
+
+/// Get the global service instance (creates it if it doesn't exist)
 ///
-/// Returns a reference to the service, or initializes with defaults if not yet initialized.
-pub fn get_service() -> Arc<crate::service::Service> {
+/// This returns a reference to the shared global service that can be used
+/// across the application. All calls to this function return the same service instance.
+#[uniffi::export]
+pub fn get_global_service() -> Arc<crate::service::Service> {
     initialize_with_defaults();
     GLOBAL_STATE
         .get()
         .map(|state| state.service.clone())
-        .expect("Global service not initialized")
+        .expect("Main global service not initialized")
 }
 
 /// Get the runtime configuration
 ///
 /// Returns a reference to the runtime configuration.
-/// Panics if not initialized.
+/// If not initialized, initializes with defaults first.
 pub fn get_runtime_config() -> &'static CoreRuntimeConfiguration {
     initialize_with_defaults();
     &GLOBAL_STATE
@@ -290,7 +315,7 @@ pub fn get_runtime_config() -> &'static CoreRuntimeConfiguration {
 /// Get the tracing configuration
 ///
 /// Returns a reference to the tracing configuration.
-/// Panics if not initialized.
+/// If not initialized, initializes with defaults first.
 pub fn get_tracing_config() -> &'static CoreTracingConfiguration {
     initialize_with_defaults();
     &GLOBAL_STATE
@@ -302,8 +327,8 @@ pub fn get_tracing_config() -> &'static CoreTracingConfiguration {
 /// Get the service configuration
 ///
 /// Returns a reference to the service configuration.
-/// Panics if not initialized.
-pub fn get_service_config() -> &'static CoreServiceConfiguration {
+/// If not initialized, initializes with defaults first.
+pub fn get_service_config() -> &'static [CoreServiceConfiguration] {
     initialize_with_defaults();
     &GLOBAL_STATE
         .get()
@@ -317,49 +342,70 @@ pub fn get_service_config() -> &'static CoreServiceConfiguration {
 /// start() on it to initialize any configured servers and clients. If no
 /// servers/clients are configured, start() will skip the run phase but is
 /// still called for consistency.
-async fn initialize_and_start_global_service(
-    service_config: CoreServiceConfiguration,
-) -> Result<Arc<crate::service::Service>, SlimError> {
+async fn initialize_and_start_global_services(
+    service_configs: &[CoreServiceConfiguration],
+) -> Result<Vec<Arc<crate::service::Service>>, SlimError> {
     use slim_config::component::{Component, ComponentBuilder};
     use slim_service::ServiceBuilder;
 
-    // Create service with configuration
-    debug!("Creating global service with configuration");
-    let mut slim_service = ServiceBuilder::new()
-        .build_with_config("global-bindings-service", &service_config)
-        .map_err(|e| SlimError::ServiceError {
-            message: format!("Failed to build service with config: {}", e),
-        })?;
-
-    // Start the service to initialize servers and clients
-    // This calls run() internally if servers/clients are configured
-    info!("Starting global service");
-    match slim_service.start().await {
-        Ok(_) => {
-            info!("Global service started successfully");
-        }
-        Err(e) => {
-            // Check if the error is due to no servers/clients configured
-            // This is acceptable for bindings that may not need network layer
-            if e.to_string().contains("no server or client configured") {
-                debug!(
-                    "No servers or clients configured, service initialized without network layer"
-                );
-            } else {
-                return Err(SlimError::ServiceError {
-                    message: format!("Failed to start service: {}", e),
-                });
-            }
-        }
+    if service_configs.is_empty() {
+        return Err(SlimError::ServiceError {
+            message: "No service configuration provided".to_string(),
+        });
     }
 
-    // Create and return the service
-    let service = Arc::new(crate::service::Service {
-        inner: Arc::new(tokio::sync::RwLock::new(slim_service)),
-    });
+    let mut services = Vec::with_capacity(service_configs.len());
 
-    info!("Global service initialized and started");
-    Ok(service)
+    // Create and start all services
+    for (idx, service_config) in service_configs.iter().enumerate() {
+        debug!("Creating global service {} with configuration", idx);
+        let mut slim_service = ServiceBuilder::new()
+            .build_with_config(
+                service_config
+                    .node_id
+                    .as_ref()
+                    .unwrap_or(&format!("global-bindings-service-{}", idx)),
+                service_config,
+            )
+            .map_err(|e| SlimError::ServiceError {
+                message: format!("Failed to build service {}: {}", idx, e),
+            })?;
+
+        // Start the service to initialize servers and clients
+        // This calls run() internally if servers/clients are configured
+        info!("Starting global service {}", idx);
+        match slim_service.start().await {
+            Ok(_) => {
+                info!("Global service {} started successfully", idx);
+            }
+            Err(e) => {
+                // Check if the error is due to no servers/clients configured
+                // This is acceptable for bindings that may not need network layer
+                if e.to_string().contains("no server or client configured") {
+                    debug!(
+                        "No servers or clients configured for service {}, service initialized without network layer",
+                        idx
+                    );
+                } else {
+                    return Err(SlimError::ServiceError {
+                        message: format!("Failed to start service {}: {}", idx, e),
+                    });
+                }
+            }
+        }
+
+        // Create and add the service
+        let service = Arc::new(crate::service::Service {
+            inner: Arc::new(slim_service),
+        });
+        services.push(service);
+    }
+
+    info!(
+        "All {} global services initialized and started",
+        services.len()
+    );
+    Ok(services)
 }
 
 /// Perform graceful shutdown operations
@@ -392,7 +438,7 @@ pub async fn shutdown() -> Result<(), SlimError> {
     let service_opt = GLOBAL_STATE.get();
 
     if let Some(state) = service_opt {
-        let inner = state.service.inner.read().await;
+        let inner = &state.service.inner;
         info!("Stopping global service");
         inner
             .shutdown_with_timeout(drain_timeout)
@@ -478,8 +524,9 @@ mod tests {
 
         // Should return a valid config (either from init or default)
         // Just verify we can access the config fields
-        let _ = &service_config.node_id;
-        let _ = &service_config.group_name;
+        assert!(!service_config.is_empty());
+        let _ = &service_config[0].node_id;
+        let _ = &service_config[0].group_name;
     }
 
     #[test]
@@ -494,11 +541,13 @@ mod tests {
         let _ = runtime_config.n_cores();
         assert!(!tracing_config.log_level().is_empty());
         // Service config should have default values
-        assert!(service_config.node_id.is_none());
-        assert!(service_config.group_name.is_none());
+        assert!(!service_config.is_empty());
+        assert!(service_config[0].node_id.is_none());
+        assert!(service_config[0].group_name.is_none());
     }
 
     #[tokio::test]
+    #[test_fork::fork]
     async fn test_initialization_from_async_context() {
         // This test verifies that initialization works correctly when called
         // from within an async tokio context (e.g., #[tokio::test])
@@ -521,6 +570,7 @@ mod tests {
         initialize_with_defaults();
     }
 
+    #[test_fork::fork]
     #[test]
     fn test_initialize_with_configs() {
         // Test initializing with custom config structs using wrapper types
@@ -536,13 +586,270 @@ mod tests {
         );
 
         // This should succeed (or be idempotent if already initialized)
-        let result = initialize_with_configs(runtime_config, tracing_config, service_config);
+        let result = initialize_with_configs(runtime_config, tracing_config, &[service_config]);
         assert!(result.is_ok());
 
         // Verify we can access the configs
         let retrieved_service_config = get_service_config();
         // Note: The actual values may differ if already initialized by another test
-        let _ = &retrieved_service_config.node_id;
-        let _ = &retrieved_service_config.group_name;
+        assert!(!retrieved_service_config.is_empty());
+        let _ = &retrieved_service_config[0].node_id;
+        let _ = &retrieved_service_config[0].group_name;
+    }
+
+    #[test_fork::fork]
+    #[test]
+    fn test_service_order_preserved_with_function_call() {
+        // Test that service order is preserved when initializing with multiple configs
+        use crate::init_config::{new_runtime_config, new_service_config_with, new_tracing_config};
+        use crate::service::DataplaneConfig;
+
+        let runtime_config = new_runtime_config();
+        let tracing_config = new_tracing_config();
+
+        // Create multiple service configs with distinct identifiers
+        let service_configs = vec![
+            new_service_config_with(
+                Some("service-0".to_string()),
+                Some("group-0".to_string()),
+                DataplaneConfig::default(),
+            ),
+            new_service_config_with(
+                Some("service-1".to_string()),
+                Some("group-1".to_string()),
+                DataplaneConfig::default(),
+            ),
+            new_service_config_with(
+                Some("service-2".to_string()),
+                Some("group-2".to_string()),
+                DataplaneConfig::default(),
+            ),
+        ];
+
+        // Store the expected order for verification
+        let expected_node_ids: Vec<String> = service_configs
+            .iter()
+            .map(|sc| sc.node_id.clone().unwrap())
+            .collect();
+
+        // Initialize with the configs
+        let result = initialize_with_configs(runtime_config, tracing_config, &service_configs);
+        assert!(result.is_ok());
+
+        // Verify the order is preserved
+        let retrieved_configs = get_service_config();
+        assert_eq!(retrieved_configs.len(), 3, "Should have 3 service configs");
+
+        // Verify each config is in the correct order by checking node_id
+        for (idx, config) in retrieved_configs.iter().enumerate() {
+            assert_eq!(
+                config.node_id.as_ref().unwrap(),
+                &expected_node_ids[idx],
+                "Config at index {} should have node_id '{}', but got '{:?}'",
+                idx,
+                expected_node_ids[idx],
+                config.node_id
+            );
+        }
+
+        // Verify services count matches
+        let services = get_services();
+        assert_eq!(services.len(), 3, "Should have 3 services");
+        assert_eq!(
+            services.len(),
+            retrieved_configs.len(),
+            "Number of services must match number of configs"
+        );
+    }
+
+    #[tokio::test]
+    #[test_fork::fork]
+    async fn test_service_order_preserved_async() {
+        // Test that service order is preserved when created via async initialization
+        use crate::init_config::{new_runtime_config, new_service_config_with, new_tracing_config};
+        use crate::service::DataplaneConfig;
+
+        let runtime_config = new_runtime_config();
+        let tracing_config = new_tracing_config();
+
+        // Create multiple service configs with distinct identifiers
+        let service_configs = vec![
+            new_service_config_with(
+                Some("async-service-0".to_string()),
+                Some("async-group-0".to_string()),
+                DataplaneConfig::default(),
+            ),
+            new_service_config_with(
+                Some("async-service-1".to_string()),
+                Some("async-group-1".to_string()),
+                DataplaneConfig::default(),
+            ),
+            new_service_config_with(
+                Some("async-service-2".to_string()),
+                Some("async-group-2".to_string()),
+                DataplaneConfig::default(),
+            ),
+            new_service_config_with(
+                Some("async-service-3".to_string()),
+                Some("async-group-3".to_string()),
+                DataplaneConfig::default(),
+            ),
+        ];
+
+        // Store the expected order for verification
+        let expected_node_ids: Vec<String> = service_configs
+            .iter()
+            .map(|sc| sc.node_id.clone().unwrap())
+            .collect();
+        let expected_group_names: Vec<String> = service_configs
+            .iter()
+            .map(|sc| sc.group_name.clone().unwrap())
+            .collect();
+
+        // Initialize with the configs from async context
+        let result = initialize_with_configs(runtime_config, tracing_config, &service_configs);
+        assert!(result.is_ok());
+
+        // Verify the order is preserved
+        let retrieved_configs = get_service_config();
+        assert_eq!(
+            retrieved_configs.len(),
+            4,
+            "Should have exactly 4 service configs"
+        );
+
+        // Verify each config is in the correct order
+        for (idx, config) in retrieved_configs.iter().enumerate() {
+            assert_eq!(
+                config.node_id.as_ref().unwrap(),
+                &expected_node_ids[idx],
+                "Config at index {} should have node_id '{}', but got '{:?}'",
+                idx,
+                expected_node_ids[idx],
+                config.node_id
+            );
+            assert_eq!(
+                config.group_name.as_ref().unwrap(),
+                &expected_group_names[idx],
+                "Config at index {} should have group_name '{}', but got '{:?}'",
+                idx,
+                expected_group_names[idx],
+                config.group_name
+            );
+        }
+
+        // Verify services are also in order and match config count
+        let services = get_services();
+        assert_eq!(services.len(), 4, "Should have exactly 4 services");
+        assert_eq!(
+            services.len(),
+            retrieved_configs.len(),
+            "Service count must match config count"
+        );
+    }
+
+    #[tokio::test]
+    #[test_fork::fork]
+    async fn test_service_order_preserved_from_config_file() {
+        // Test that service order is preserved when loading from config file
+        use std::io::Write;
+
+        // Create a temporary config file with multiple services
+        let config_content = r#"# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+tracing:
+  log_level: info
+  display_thread_names: true
+  display_thread_ids: true
+
+runtime:
+  n_cores: 0
+  thread_name: "slim-data-plane"
+  drain_timeout: 10s
+
+services:
+  slim/0:
+    dataplane:
+      servers:
+        - endpoint: "0.0.0.0:56357"
+          tls:
+            insecure: true
+      clients: []
+  slim/1:
+    dataplane:
+      servers:
+        - endpoint: "0.0.0.0:56358"
+          tls:
+            insecure: true
+      clients: []
+  slim/2:
+    dataplane:
+      servers:
+        - endpoint: "0.0.0.0:56359"
+          tls:
+            insecure: true
+      clients: []
+  slim/3:
+    dataplane:
+      servers:
+        - endpoint: "0.0.0.0:56360"
+          tls:
+            insecure: true
+      clients: []
+"#;
+
+        // Write to a temporary file
+        let temp_dir = std::env::temp_dir();
+        let config_path = temp_dir.join("test-multi-service-order.yaml");
+        let mut file =
+            std::fs::File::create(&config_path).expect("Failed to create temp config file");
+        file.write_all(config_content.as_bytes())
+            .expect("Failed to write config");
+        drop(file); // Ensure file is flushed and closed
+
+        // Initialize from config file
+        initialize_from_config(config_path.to_str().unwrap().to_string());
+
+        // Verify all services were created
+        let services = get_services();
+        assert_eq!(
+            services.len(),
+            4,
+            "Should have exactly 4 services from config file"
+        );
+
+        // Verify config order is preserved
+        let configs = get_service_config();
+        assert_eq!(
+            configs.len(),
+            4,
+            "Should have exactly 4 configs from config file"
+        );
+
+        // Verify that the number of services matches the number of configs
+        assert_eq!(
+            services.len(),
+            configs.len(),
+            "Number of services must match number of configs"
+        );
+
+        // The order should be preserved as they appear in the YAML file
+        // IndexMap preserves insertion order from the YAML file
+        // The services in the config file are: slim/0, slim/1, slim/2, slim/3
+        // We verify by checking that each service's name matches the expected key
+        let expected_service_names = ["slim/0", "slim/1", "slim/2", "slim/3"];
+
+        for (idx, service) in services.iter().enumerate() {
+            let service_name = service.get_name();
+            assert_eq!(
+                service_name, expected_service_names[idx],
+                "Service at index {} should be named '{}', but got '{}'",
+                idx, expected_service_names[idx], service_name
+            );
+        }
+
+        // Clean up temp file
+        let _ = std::fs::remove_file(&config_path);
     }
 }

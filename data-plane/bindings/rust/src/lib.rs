@@ -73,8 +73,9 @@ pub use common_config::{
 pub use completion_handle::CompletionHandle;
 pub use config::get_runtime;
 pub use config::{
-    get_runtime_config, get_service_config, get_tracing_config, initialize_from_config,
-    initialize_with_configs, initialize_with_defaults, is_initialized, shutdown, shutdown_blocking,
+    get_global_service, get_runtime_config, get_service_config, get_tracing_config,
+    initialize_from_config, initialize_with_configs, initialize_with_defaults, is_initialized,
+    shutdown, shutdown_blocking,
 };
 pub use errors::SlimError;
 pub use identity_config::{
@@ -91,10 +92,10 @@ pub use server_config::{
     KeepaliveServerParameters, ServerConfig, new_insecure_server_config, new_server_config,
 };
 pub use service::{
-    DataplaneConfig, Service, ServiceConfig, connect, create_service, create_service_with_config,
-    disconnect, get_connection_id, get_global_service, get_or_init_global_service,
-    new_dataplane_config, new_service_configuration, run_server, service_name, service_run,
-    service_shutdown, stop_server,
+    DataplaneConfig, Service, ServiceConfig, connect_async, create_service,
+    create_service_with_config, disconnect, get_connection_id, new_dataplane_config,
+    new_service_configuration, run_server_async, service_name, service_run_async,
+    service_shutdown_async, stop_server,
 };
 pub use session::{Session, SessionConfig, SessionType};
 

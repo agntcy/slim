@@ -9,9 +9,9 @@ use pyo3::types::PyDict;
 use pyo3_stub_gen::derive::gen_stub_pyclass;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
 use serde_pyobject::from_pyobject;
+use slim_bindings::get_global_service;
 use slim_bindings::{
     App, IdentityProviderConfig, IdentityVerifierConfig, Service as BindingsService, SlimError,
-    get_or_init_global_service,
 };
 use slim_datapath::messages::encoder::Name;
 use slim_session::SessionConfig;
@@ -76,7 +76,7 @@ impl PyApp {
                 Arc::new(BindingsService::new("localservice".to_string()))
             } else {
                 // Use global service
-                get_or_init_global_service()
+                get_global_service()
             };
 
             // Use BindingsAdapter's async constructor with optional service
@@ -191,7 +191,7 @@ impl PyApp {
 
             internal_clone
                 .service
-                .run_server(ffi_config)
+                .run_server_async(ffi_config)
                 .await
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })
@@ -205,7 +205,6 @@ impl PyApp {
             internal_clone
                 .service
                 .stop_server(endpoint)
-                .await
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })
     }
@@ -246,7 +245,7 @@ impl PyApp {
 
             internal_clone
                 .service
-                .connect(ffi_config)
+                .connect_async(ffi_config)
                 .await
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })
@@ -260,7 +259,6 @@ impl PyApp {
             internal_clone
                 .service
                 .disconnect(conn)
-                .await
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })
     }
