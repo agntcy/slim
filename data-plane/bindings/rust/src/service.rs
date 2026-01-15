@@ -403,7 +403,7 @@ pub fn disconnect(conn_id: u64) -> Result<(), SlimError> {
 
 /// Get the connection ID for a given endpoint on the global service
 #[uniffi::export]
-pub async fn get_connection_id(endpoint: String) -> Option<u64> {
+pub fn get_connection_id(endpoint: String) -> Option<u64> {
     get_global_service().get_connection_id(endpoint)
 }
 
@@ -848,9 +848,9 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[tokio::test]
-    async fn test_global_get_connection_id_convenience() {
-        let conn_id = get_connection_id("nonexistent-global".to_string()).await;
+    #[test]
+    fn test_global_get_connection_id_convenience() {
+        let conn_id = get_connection_id("nonexistent-global".to_string());
         assert!(conn_id.is_none());
     }
 
