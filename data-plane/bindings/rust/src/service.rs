@@ -208,13 +208,24 @@ impl Service {
 
     /// Start a server with the given configuration
     pub async fn run_server_async(&self, config: ServerConfig) -> Result<(), SlimError> {
+        // Use the runtime handle to spawn the task, ensuring proper tokio context
+        let runtime = get_runtime();
         let core_config: slim_config::grpc::server::ServerConfig = config.into();
-        self.inner
-            .run_server(&core_config)
-            .await
-            .map_err(|e| SlimError::ServiceError {
-                message: format!("Failed to run server: {}", e),
-            })
+        let inner = self.inner.clone();
+
+        // Spawn on the runtime's handle to ensure tokio context is available
+        let handle = runtime.handle().spawn(async move {
+            inner
+                .run_server(&core_config)
+                .await
+                .map_err(|e| SlimError::ServiceError {
+                    message: format!("Failed to run server: {}", e),
+                })
+        });
+
+        handle.await.map_err(|e| SlimError::ServiceError {
+            message: format!("Join error: {}", e),
+        })?
     }
 
     /// Start a server with the given configuration - blocking version
@@ -234,12 +245,22 @@ impl Service {
     /// Connect to a remote endpoint as a client
     pub async fn connect_async(&self, config: ClientConfig) -> Result<u64, SlimError> {
         let core_config: slim_config::grpc::client::ClientConfig = config.into();
-        self.inner
-            .connect(&core_config)
-            .await
-            .map_err(|e| SlimError::ServiceError {
-                message: format!("Failed to connect: {}", e),
-            })
+        let inner = self.inner.clone();
+        let runtime = get_runtime();
+
+        // Spawn in tokio runtime since connect internally uses tokio::spawn
+        let handle = runtime.spawn(async move {
+            inner
+                .connect(&core_config)
+                .await
+                .map_err(|e| SlimError::ServiceError {
+                    message: format!("Failed to connect: {}", e),
+                })
+        });
+
+        handle.await.map_err(|e| SlimError::InternalError {
+            message: format!("Failed to join connect task: {}", e),
+        })?
     }
 
     /// Connect to a remote endpoint as a client - blocking version
@@ -274,49 +295,154 @@ impl Service {
     /// # Returns
     /// * `Ok(Arc<App>)` - Successfully created adapter
     /// * `Err(SlimError)` - If adapter creation fails
-    pub async fn create_adapter_async(
+    pub async fn create_app_async(
         &self,
         base_name: Arc<Name>,
         identity_provider_config: IdentityProviderConfig,
         identity_verifier_config: IdentityVerifierConfig,
     ) -> Result<Arc<crate::app::App>, SlimError> {
-        // Convert configurations to actual providers/verifiers
-        let mut identity_provider: AuthProvider = identity_provider_config.try_into()?;
-        let mut identity_verifier: AuthVerifier = identity_verifier_config.try_into()?;
-
-        // Initialize the identity provider
-        identity_provider.initialize().await?;
-
-        // Initialize the identity verifier
-        identity_verifier.initialize().await?;
-
-        // Validate token
-        let _identity_token = identity_provider.get_token()?;
-
-        // Get ID from token and generate name with token ID
-        let token_id = identity_provider.get_id()?;
-
-        // Use a hash of the token ID to convert to u64 for name generation
-        let id_hash = {
-            use std::hash::{Hash, Hasher};
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            token_id.hash(&mut hasher);
-            hasher.finish()
-        };
         let slim_name: SlimName = base_name.as_ref().into();
-        let app_name = slim_name.with_id(id_hash);
-
-        // Create the app
-        let (app, rx) = self
-            .inner
-            .create_app(&app_name, identity_provider, identity_verifier)?;
-
-        Ok(Arc::new(crate::app::App::from_parts(
-            Arc::new(app),
-            Arc::new(tokio::sync::RwLock::new(rx)),
+        create_app_async_internal(
+            slim_name,
+            identity_provider_config,
+            identity_verifier_config,
             self.inner.clone(),
-        )))
+        )
+        .await
+        .map(Arc::new)
     }
+
+    /// Create a new App with SharedSecret authentication (async version)
+    ///
+    /// This is a convenience function for creating a SLIM application using SharedSecret authentication
+    /// on this service instance. This is the async version.
+    ///
+    /// # Arguments
+    /// * `name` - The base name for the app (without ID)
+    /// * `secret` - The shared secret string for authentication
+    ///
+    /// # Returns
+    /// * `Ok(Arc<App>)` - Successfully created app
+    /// * `Err(SlimError)` - If app creation fails
+    pub async fn create_app_with_secret_async(
+        &self,
+        name: Arc<Name>,
+        secret: String,
+    ) -> Result<Arc<crate::app::App>, SlimError> {
+        let identity_provider_config = IdentityProviderConfig::SharedSecret {
+            id: name.to_string(),
+            data: secret.clone(),
+        };
+        let identity_verifier_config = IdentityVerifierConfig::SharedSecret {
+            id: name.to_string(),
+            data: secret,
+        };
+
+        self.create_app_async(name, identity_provider_config, identity_verifier_config)
+            .await
+    }
+
+    /// Create a new App with authentication configuration (blocking version)
+    ///
+    /// This method initializes authentication providers/verifiers and creates a App
+    /// on this service instance. This is a blocking wrapper around create_app_async.
+    ///
+    /// # Arguments
+    /// * `base_name` - The base name for the app (without ID)
+    /// * `identity_provider_config` - Configuration for proving identity to others
+    /// * `identity_verifier_config` - Configuration for verifying identity of others
+    ///
+    /// # Returns
+    /// * `Ok(Arc<App>)` - Successfully created adapter
+    /// * `Err(SlimError)` - If adapter creation fails
+    #[uniffi::method]
+    pub fn create_app(
+        &self,
+        base_name: Arc<Name>,
+        identity_provider_config: IdentityProviderConfig,
+        identity_verifier_config: IdentityVerifierConfig,
+    ) -> Result<Arc<crate::app::App>, SlimError> {
+        get_runtime().block_on(self.create_app_async(
+            base_name,
+            identity_provider_config,
+            identity_verifier_config,
+        ))
+    }
+
+    /// Create a new App with SharedSecret authentication (helper function)
+    ///
+    /// This is a convenience function for creating a SLIM application using SharedSecret authentication
+    /// on this service instance.
+    ///
+    /// # Arguments
+    /// * `name` - The base name for the app (without ID)
+    /// * `secret` - The shared secret string for authentication
+    ///
+    /// # Returns
+    /// * `Ok(Arc<App>)` - Successfully created app
+    /// * `Err(SlimError)` - If app creation fails
+    #[uniffi::method]
+    pub fn create_app_with_secret(
+        &self,
+        name: Arc<Name>,
+        secret: String,
+    ) -> Result<Arc<crate::app::App>, SlimError> {
+        get_runtime().block_on(self.create_app_with_secret_async(name, secret))
+    }
+}
+
+/// Internal async app creation logic (used by both service and app constructors)
+///
+/// This is the core implementation shared by Service::create_app_async and App::new_async_with_service.
+///
+/// # Arguments
+/// * `base_name` - The base name for the app (without ID)
+/// * `identity_provider_config` - Configuration for proving identity to others
+/// * `identity_verifier_config` - Configuration for verifying identity of others
+/// * `service` - The service instance to use for creating the app
+///
+/// # Returns
+/// * `Ok(App)` - Successfully created app
+/// * `Err(SlimError)` - If app creation fails
+pub(crate) async fn create_app_async_internal(
+    base_name: SlimName,
+    identity_provider_config: IdentityProviderConfig,
+    identity_verifier_config: IdentityVerifierConfig,
+    service: Arc<SlimService>,
+) -> Result<crate::app::App, SlimError> {
+    // Convert configurations to actual providers/verifiers
+    let mut identity_provider: AuthProvider = identity_provider_config.try_into()?;
+    let mut identity_verifier: AuthVerifier = identity_verifier_config.try_into()?;
+
+    // Initialize the identity provider
+    identity_provider.initialize().await?;
+
+    // Initialize the identity verifier
+    identity_verifier.initialize().await?;
+
+    // Validate token
+    let _identity_token = identity_provider.get_token()?;
+
+    // Get ID from token and generate name with token ID
+    let token_id = identity_provider.get_id()?;
+
+    // Use a hash of the token ID to convert to u64 for name generation
+    let id_hash = {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        token_id.hash(&mut hasher);
+        hasher.finish()
+    };
+    let app_name = base_name.with_id(id_hash);
+
+    // Create the app using the provided service
+    let (app, rx) = service.create_app(&app_name, identity_provider, identity_verifier)?;
+
+    Ok(crate::app::App::from_parts(
+        Arc::new(app),
+        Arc::new(tokio::sync::RwLock::new(rx)),
+        service,
+    ))
 }
 
 /// Create a new ServiceConfiguration
@@ -359,38 +485,20 @@ pub fn service_name() -> String {
 
 /// Run the global service (starts all configured servers and clients)
 #[uniffi::export]
-pub async fn service_run_async() -> Result<(), SlimError> {
+pub async fn service_run() -> Result<(), SlimError> {
     get_global_service().run_async().await
 }
 
-/// Run the global service (starts all configured servers and clients)
-#[uniffi::export]
-pub fn service_run() -> Result<(), SlimError> {
-    get_runtime().block_on(service_run_async())
-}
-
 /// Shutdown the global service gracefully
 #[uniffi::export]
-pub async fn service_shutdown_async() -> Result<(), SlimError> {
+pub async fn service_shutdown() -> Result<(), SlimError> {
     get_global_service().shutdown_async().await
 }
 
-/// Shutdown the global service gracefully
-#[uniffi::export]
-pub fn service_shutdown() -> Result<(), SlimError> {
-    get_runtime().block_on(service_shutdown_async())
-}
-
 /// Start a server on the global service with the given configuration
 #[uniffi::export]
-pub async fn run_server_async(config: ServerConfig) -> Result<(), SlimError> {
+pub async fn run_server(config: ServerConfig) -> Result<(), SlimError> {
     get_global_service().run_server_async(config).await
-}
-
-/// Start a server on the global service with the given configuration
-#[uniffi::export]
-pub fn run_server(config: ServerConfig) -> Result<(), SlimError> {
-    get_runtime().block_on(run_server_async(config))
 }
 
 /// Stop a server on the global service by endpoint
@@ -401,14 +509,8 @@ pub fn stop_server(endpoint: String) -> Result<(), SlimError> {
 
 /// Connect to a remote endpoint as a client using the global service
 #[uniffi::export]
-pub async fn connect_async(config: ClientConfig) -> Result<u64, SlimError> {
+pub async fn connect(config: ClientConfig) -> Result<u64, SlimError> {
     get_global_service().connect_async(config).await
-}
-
-/// Connect to a remote endpoint as a client using the global service
-#[uniffi::export]
-pub fn connect(config: ClientConfig) -> Result<u64, SlimError> {
-    get_runtime().block_on(connect_async(config))
 }
 
 /// Disconnect a client connection by connection ID on the global service
@@ -700,8 +802,8 @@ mod tests {
     // Client/Server Configuration Tests
     // ========================================================================
 
-    #[tokio::test]
-    async fn test_stop_nonexistent_server() {
+    #[test]
+    fn test_stop_nonexistent_server() {
         let service = Service::new("stop-test".to_string());
         let result = service.stop_server("127.0.0.1:99999".to_string());
         // Should fail because server doesn't exist
@@ -734,12 +836,11 @@ mod tests {
             "org".to_string(),
             "namespace".to_string(),
             "adapter-app".to_string(),
-            None,
         ));
         let (provider, verifier) = create_test_auth();
 
         let result = service
-            .create_adapter_async(base_name, provider, verifier)
+            .create_app_async(base_name, provider, verifier)
             .await;
 
         assert!(result.is_ok(), "Should create adapter successfully");
@@ -759,15 +860,10 @@ mod tests {
         ];
 
         for (org, ns, app) in names {
-            let base_name = Arc::new(Name::new(
-                org.to_string(),
-                ns.to_string(),
-                app.to_string(),
-                None,
-            ));
+            let base_name = Arc::new(Name::new(org.to_string(), ns.to_string(), app.to_string()));
 
             let result = service
-                .create_adapter_async(base_name, provider.clone(), verifier.clone())
+                .create_app_async(base_name, provider.clone(), verifier.clone())
                 .await;
 
             assert!(
@@ -788,17 +884,16 @@ mod tests {
             "org".to_string(),
             "namespace".to_string(),
             "unique-app".to_string(),
-            None,
         ));
         let (provider, verifier) = create_test_auth();
 
         let adapter1 = service
-            .create_adapter_async(base_name.clone(), provider.clone(), verifier.clone())
+            .create_app_async(base_name.clone(), provider.clone(), verifier.clone())
             .await
             .expect("Failed to create first adapter");
 
         let adapter2 = service
-            .create_adapter_async(base_name, provider, verifier)
+            .create_app_async(base_name, provider, verifier)
             .await
             .expect("Failed to create second adapter");
 

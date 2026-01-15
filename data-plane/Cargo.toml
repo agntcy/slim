@@ -65,6 +65,7 @@ display-error-chain = { version = "0.2" }
 drain = { version = "0.2", features = ["retain"] }
 duration-string = { version = "0.5.3", features = ["serde"] }
 futures = "0.3.31"
+futures-timer = "3.0.3"
 h2 = "0.4.7"
 headers = "0.4.1"
 hex = "0.4.3"
