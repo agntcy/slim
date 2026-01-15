@@ -10,6 +10,7 @@ establish sessions, publish messages, or perform connection logic.
 """
 
 import asyncio
+import typing
 
 import pytest_asyncio
 import slim_bindings
@@ -18,10 +19,17 @@ import slim_bindings
 class ServerFixture:
     """Wrapper object for server fixture containing both service and configuration."""
 
-    def __init__(self, service, endpoint):
+    def __init__(self, service: slim_bindings.Service, endpoint: str):
         self.service = service
         self.endpoint = endpoint
         self.local_service = endpoint is not None
+
+    def get_client_config(self) -> typing.Optional[slim_bindings.ClientConfig]:
+        return (
+            slim_bindings.new_insecure_client_config("http://" + self.endpoint)
+            if self.local_service
+            else None
+        )
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -48,19 +56,29 @@ async def server(request):
     local_service = endpoint is not None
 
     # Initialize global state
-    slim_bindings.initialize_with_defaults()
+    tracing_config = slim_bindings.new_tracing_config()
+    runtime_config = slim_bindings.new_runtime_config()
+    service_config = slim_bindings.new_service_config()
+
+    tracing_config.log_level = "info"
+    slim_bindings.initialize_with_configs(
+        tracing_config=tracing_config,
+        runtime_config=runtime_config,
+        service_config=[service_config],
+    )
 
     # Only start server if endpoint is provided
     if local_service:
         # Create server
         svc_server = slim_bindings.Service("localserver")
-
         # run slim server in background
         server_config = slim_bindings.new_insecure_server_config(endpoint)
         await svc_server.run_server_async(server_config)
+    else:
+        svc_server = slim_bindings.get_global_service()
 
-        # wait for the server to start
-        await asyncio.sleep(1)
+    # wait for the server to start
+    await asyncio.sleep(1)
 
     # return the server fixture wrapper
     yield ServerFixture(svc_server, endpoint)

@@ -60,7 +60,7 @@ mod service;
 mod session;
 
 // Public re-exports
-pub use app::{App, SessionWithCompletion, create_app_with_secret};
+pub use app::{App, SessionWithCompletion};
 pub use build_info::{BuildInfo, get_build_info, get_version};
 pub use client_config::{
     BackoffConfig, ClientConfig, ExponentialBackoff, KeepaliveConfig, ProxyConfig,

@@ -68,7 +68,8 @@ impl PyApp {
             let verifier_config: IdentityVerifierConfig = verifier.try_into()?;
 
             // Convert PyName to slim_datapath::messages::Name (SlimName)
-            let slim_name: slim_datapath::messages::Name = name.into();
+            let slim_name: slim_bindings::Name = name.into();
+            let slim_name = Arc::new(slim_name);
 
             // Create service based on local_service parameter
             let service_instance = if local_service {
@@ -80,15 +81,14 @@ impl PyApp {
             };
 
             // Use BindingsAdapter's async constructor with optional service
-            let adapter = App::new_async_with_service(
+            let adapter = service_instance.create_app_async(
                 slim_name,
                 provider_config,
                 verifier_config,
-                Some(service_instance.inner()),
             )
             .await?;
 
-            Ok((Arc::new(adapter), service_instance))
+            Ok((adapter, service_instance))
         }
 
         let (adapter, service) = pyo3_async_runtimes::tokio::get_runtime()

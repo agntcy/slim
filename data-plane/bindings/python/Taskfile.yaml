@@ -28,43 +28,47 @@ tasks:
     cmds:
       - uv run ruff check
       - uv run ruff format --check
-      - uv run mypy --ignore-missing-imports --explicit-package-bases .      
+      - uv run mypy --ignore-missing-imports --explicit-package-bases .
 
   python:bindings:build:
     desc: "Build the Python bindings using Maturin"
+    deps:
+      - python:bindings:clean
     vars:
       PROFILE: '{{.PROFILE | default "debug"}}'
       RELEASE:
         sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
     cmds:
+      - echo "🔨 Building Python bindings..."
       - task: rust:toolchain:run-command
         vars:
           COMMAND: |
-            uv run maturin develop --uv {{.RELEASE}}
+            uv run --no-cache maturin develop --uv {{.RELEASE}}
+      - echo "✅ Build complete"
 
   python:bindings:test:
     desc: "Test the Python bindings"
     deps:
       - python:bindings:build
     cmds:
-      - uv run pytest -s {{.TESTS}}
+      - uv run --no-cache pytest -s {{.TESTS}}
     vars:
       TARGET: '{{.TESTS | default ""}}'
 
   python:bindings:test:integration:
-    desc: Run integration tests only  
+    desc: Run integration tests only
     deps: [python:bindings:build]
     cmds:
       - echo "Running integration tests...\n"
       - SLIM_INTEGRATION_TEST=1 uv run pytest tests/integration_test.py -v -s
-      - echo "✅ Integration tests passed"      
+      - echo "✅ Integration tests passed"
 
   python:bindings:test:coverage:
     desc: "Test the Python bindings with coverage"
     deps:
       - python:bindings:build
     cmds:
-      - uv run pytest --cov=slim_uniffi_bindings --cov-report=lcov:coverage.lcov --cov-report=html --cov-report=term -s {{.TESTS}}
+      - uv run pytest --cov=slim_bindings --cov-report=lcov:coverage.lcov --cov-report=html --cov-report=term -s {{.TESTS}}
     vars:
       TARGET: '{{.TESTS | default ""}}'
 
@@ -115,15 +119,15 @@ tasks:
                 --zig
               )
             fi
-            
+
             # Workaround for windows
             if [[ "{{.OS}}" = "windows" ]]; then
               uv sync ${UV_ARGS[@]}
               uv run ${UV_ARGS[@]} maturin develop --uv {{.RELEASE}}
-              
+
               # This file is a leftover from the previous build, delete it otherwise
               # maturin will try to add it to the wheel, and it will fail
-              rm -f slim_uniffi_bindings/*.pyd
+              rm -f slim_bindings/*.pyd
             fi
 
             echo "Running maturin with the following args: ${MATURIN_ARGS[@]}"
@@ -137,18 +141,26 @@ tasks:
     desc: Clean build artifacts
     cmds:
       - echo "🧹 Cleaning build artifacts..."
+      - uv pip uninstall -y slim-bindings 2>/dev/null || true
+      - rm -rf ../rust/target/debug/libslim_bindings.so
+      - rm -rf ../rust/target/debug/libslim_bindings.dylib
+      - rm -rf ../rust/target/debug/libslim_bindings.dll
+      - rm -rf ../rust/target/debug/deps/libslim_bindings.so
+      - rm -rf ../rust/target/debug/deps/libslim_bindings.dylib
+      - rm -rf ../rust/target/debug/deps/libslim_bindings.dll
+      - rm -rf .venv/lib/python*/site-packages/slim_bindings/
+      - rm -rf .venv/lib/python*/site-packages/slim_bindings-*.dist-info/
       - rm -rf dist/
       - rm -rf build/
       - rm -rf *.egg-info/
       - rm -rf .pytest_cache/
       - rm -rf __pycache__/
-      - rm -rf slim_uniffi_bindings/__pycache__/
-      - rm -rf slim_uniffi_bindings/*.so
-      - rm -rf slim_uniffi_bindings/*.dylib
-      - rm -rf slim_uniffi_bindings/*.dll
-      - rm -rf slim_uniffi_bindings/*.pyd
+      - rm -rf slim_bindings/__pycache__/
+      - rm -rf slim_bindings/*.so
+      - rm -rf slim_bindings/*.dylib
+      - rm -rf slim_bindings/*.dll
+      - rm -rf slim_bindings/*.pyd
       - rm -rf examples/__pycache__/
       - rm -rf examples/*/__pycache__/
       - rm -rf tests/__pycache__/
       - echo "✅ Clean complete"
-

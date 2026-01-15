@@ -9,12 +9,8 @@ includes:
     internal: true
 
 vars:
-<<<<<<< HEAD:data-plane/bindings/adapter/Taskfile.yaml
-  TOOLS_DIR: "{{.TASKFILE_DIR}}/.tools"
-=======
   _DEFAULT_TOOLS_DIR: "{{.TASKFILE_DIR}}/.tools"
   TOOLS_DIR: '{{.TOOLS_DIR | default ._DEFAULT_TOOLS_DIR}}'
->>>>>>> refactor/config-file-2:data-plane/bindings/rust/Taskfile.yaml
   ZIG_DIR: "{{.TOOLS_DIR}}/zig"
   PROFILE: '{{.PROFILE | default "debug"}}'
   RELEASE:
@@ -74,11 +70,7 @@ tasks:
   bindings:install-zig:
     desc: Install Zig locally for all platforms via direct download
     status:
-<<<<<<< HEAD:data-plane/bindings/adapter/Taskfile.yaml
-      - test -f "{{.TOOLS_DIR}}/zig/zig" || test -f "{{.TOOLS_DIR}}/zig/zig.exe"
-=======
       - test -f "{{.ZIG_DIR}}/zig" || test -f "{{.ZIG_DIR}}/zig.exe"
->>>>>>> refactor/config-file-2:data-plane/bindings/rust/Taskfile.yaml
     cmds:
       - mkdir -p "{{.TOOLS_DIR}}"
       - curl -L "{{.DOWNLOAD_BASE}}" -o "{{.TOOLS_DIR}}/zig.{{.EXTENSION}}"
@@ -91,11 +83,6 @@ tasks:
       - mv "{{.TOOLS_DIR}}/zig-{{.DETECTED_ARCH}}-{{.DETECTED_OS}}-{{.ZIG_VERSION}}" "{{.ZIG_DIR}}"
       - rm "{{.TOOLS_DIR}}/zig.{{.EXTENSION}}"
       - echo "Zig installed to {{.ZIG_DIR}}"
-<<<<<<< HEAD:data-plane/bindings/adapter/Taskfile.yaml
-      - task: bindings:install-dlltool-wrapper
-=======
-      
->>>>>>> refactor/config-file-2:data-plane/bindings/rust/Taskfile.yaml
 
   bindings:install-dlltool-wrapper:
     desc: Create dlltool wrapper script for MinGW cross-compilation
@@ -127,10 +114,7 @@ tasks:
       - bindings:install-cargo-components
     silent: true
     cmds:
-<<<<<<< HEAD:data-plane/bindings/adapter/Taskfile.yaml
-=======
       - task: bindings:install-dlltool-wrapper
->>>>>>> refactor/config-file-2:data-plane/bindings/rust/Taskfile.yaml
       - echo "🦀 Building Rust bindings library..."
       - rustup target add {{.TARGET}}
       - |

@@ -127,11 +127,11 @@ mod tests {
     /// Helper to create FFI Name from string parts (matches what SlimName converts to)
     fn ffi_name(parts: [&str; 3]) -> Arc<Name> {
         // SlimName.id() returns u64::MAX by default, and our From impl always sets Some(id)
-        Arc::new(Name::new(
+        Arc::new(Name::new_with_id(
             parts[0].to_string(),
             parts[1].to_string(),
             parts[2].to_string(),
-            Some(u64::MAX), // Default SlimName ID
+            u64::MAX, // Default SlimName ID
         ))
     }
 
@@ -343,17 +343,17 @@ mod tests {
     fn test_received_message() {
         let msg = ReceivedMessage {
             context: MessageContext::new(
-                Name::new(
+                Name::new_with_id(
                     "org".to_string(),
                     "ns".to_string(),
                     "app".to_string(),
-                    Some(123),
+                    123,
                 ),
-                Some(Name::new(
+                Some(Name::new_with_id(
                     "org".to_string(),
                     "ns".to_string(),
                     "dest".to_string(),
-                    Some(456),
+                    456,
                 )),
                 "application/json".to_string(),
                 std::collections::HashMap::new(),
