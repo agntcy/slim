@@ -48,12 +48,12 @@ impl Name {
     /// Create a new Name from a string
     #[uniffi::constructor]
     pub fn new(
-        component_0: String,
+        component0: String,
         component1: String,
         component2: String,
         id: Option<u64>,
     ) -> Self {
-        let mut inner = SlimName::from_strings([component_0, component1, component2]);
+        let mut inner = SlimName::from_strings([component0, component1, component2]);
         if let Some(id_value) = id {
             inner = inner.with_id(id_value);
         }

@@ -12,9 +12,7 @@ establish sessions, publish messages, or perform connection logic.
 import asyncio
 
 import pytest_asyncio
-from common import create_slim, create_name, create_server_config
-
-import slim_uniffi_bindings._slim_bindings.slim_bindings as slim_bindings
+import slim_bindings
 
 
 class ServerFixture:
@@ -49,16 +47,16 @@ async def server(request):
     endpoint = request.param
     local_service = endpoint is not None
 
-    name = create_name("agntcy", "default", "server")
-    svc_server = create_slim(name, local_service=local_service)
-
-    # Initialize crypto provider (replaces init_tracing in new API)
-    slim_bindings.initialize_crypto_provider()
+    # Initialize global state
+    slim_bindings.initialize_with_defaults()
 
     # Only start server if endpoint is provided
-    if endpoint is not None:
+    if local_service:
+        # Create server
+        svc_server = slim_bindings.Service("localserver")
+
         # run slim server in background
-        server_config = create_server_config(endpoint, insecure=True)
+        server_config = slim_bindings.new_insecure_server_config(endpoint)
         await svc_server.run_server_async(server_config)
 
         # wait for the server to start

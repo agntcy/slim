@@ -2,7 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 [build-system]
-requires = ["maturin>=1,<2"]
+requires = [
+    "maturin~=1.11",
+    "ziglang~=0.14.0; sys_platform == 'linux' or sys_platform == 'darwin'",
+    "maturin[patchelf]>=1.8.2; sys_platform == 'linux'",
+    "uniffi-bindgen==0.28.3"
+]
 build-backend = "maturin"
 
 [project]
@@ -31,9 +36,10 @@ Issues = "https://github.com/agntcy/slim/issues"
 
 [dependency-groups]
 building = [
-    "maturin>=1.8.2",
+    "maturin~=1.11",
     "ziglang~=0.14.0; sys_platform == 'linux' or sys_platform == 'darwin'",
     "maturin[patchelf]>=1.8.2; sys_platform == 'linux'",
+    "uniffi-bindgen==0.28.3"
 ]
 
 testing = [
@@ -43,8 +49,8 @@ testing = [
 
 [tool.maturin]
 bindings = "uniffi"
-manifest-path = "../adapter/Cargo.toml"
-module-name = "slim_uniffi_bindings._slim_bindings"
+manifest-path = "../rust/Cargo.toml"
+module-name = "slim_bindings"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -60,4 +66,3 @@ default-groups = ["building", "testing"]
 
 [tool.uv.workspace]
 members = [".", "examples"]
-
