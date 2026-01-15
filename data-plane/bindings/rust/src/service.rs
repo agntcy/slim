@@ -5,9 +5,9 @@ use std::sync::Arc;
 
 use crate::client_config::ClientConfig;
 use crate::errors::SlimError;
-use crate::get_global_service;
 use crate::identity_config::{IdentityProviderConfig, IdentityVerifierConfig};
 use crate::server_config::ServerConfig;
+use crate::{get_global_service, get_runtime};
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_config::auth::identity::{
@@ -359,20 +359,38 @@ pub fn service_name() -> String {
 
 /// Run the global service (starts all configured servers and clients)
 #[uniffi::export]
-pub async fn service_run() -> Result<(), SlimError> {
+pub async fn service_run_async() -> Result<(), SlimError> {
     get_global_service().run_async().await
+}
+
+/// Run the global service (starts all configured servers and clients)
+#[uniffi::export]
+pub fn service_run() -> Result<(), SlimError> {
+    get_runtime().block_on(service_run_async())
 }
 
 /// Shutdown the global service gracefully
 #[uniffi::export]
-pub async fn service_shutdown() -> Result<(), SlimError> {
+pub async fn service_shutdown_async() -> Result<(), SlimError> {
     get_global_service().shutdown_async().await
+}
+
+/// Shutdown the global service gracefully
+#[uniffi::export]
+pub fn service_shutdown() -> Result<(), SlimError> {
+    get_runtime().block_on(service_shutdown_async())
 }
 
 /// Start a server on the global service with the given configuration
 #[uniffi::export]
-pub async fn run_server(config: ServerConfig) -> Result<(), SlimError> {
+pub async fn run_server_async(config: ServerConfig) -> Result<(), SlimError> {
     get_global_service().run_server_async(config).await
+}
+
+/// Start a server on the global service with the given configuration
+#[uniffi::export]
+pub fn run_server(config: ServerConfig) -> Result<(), SlimError> {
+    get_runtime().block_on(run_server_async(config))
 }
 
 /// Stop a server on the global service by endpoint
@@ -383,8 +401,14 @@ pub fn stop_server(endpoint: String) -> Result<(), SlimError> {
 
 /// Connect to a remote endpoint as a client using the global service
 #[uniffi::export]
-pub async fn connect(config: ClientConfig) -> Result<u64, SlimError> {
+pub async fn connect_async(config: ClientConfig) -> Result<u64, SlimError> {
     get_global_service().connect_async(config).await
+}
+
+/// Connect to a remote endpoint as a client using the global service
+#[uniffi::export]
+pub fn connect(config: ClientConfig) -> Result<u64, SlimError> {
+    get_runtime().block_on(connect_async(config))
 }
 
 /// Disconnect a client connection by connection ID on the global service
