@@ -71,7 +71,7 @@ func main() {
 	}
 }
 
-func runModerator(app *slim.BindingsAdapter, connID uint64, remote string, invites []string, enableMLS bool, instance uint64) {
+func runModerator(app *slim.App, connID uint64, remote string, invites []string, enableMLS bool, instance uint64) {
 	// Parse remote channel name
 	channelName, err := common.SplitID(remote)
 	if err != nil {
@@ -81,20 +81,20 @@ func runModerator(app *slim.BindingsAdapter, connID uint64, remote string, invit
 	fmt.Printf("%s[%d]%s 📡 Creating group session as moderator for channel: %s\n", colorCyan, instance, colorReset, remote)
 
 	// Create multicast session
+	interval := time.Second * 5
 	config := slim.SessionConfig{
 		SessionType: slim.SessionTypeGroup,
 		EnableMls:   enableMLS,
-		MaxRetries:  &[]uint32{5}[0],    // 5 retries
-		IntervalMs:  &[]uint64{5000}[0], // 5 second timeout
-		Initiator:   true,
+		MaxRetries:  &[]uint32{5}[0], // 5 retries
+		Interval:    &interval,
 		Metadata:    make(map[string]string),
 	}
 
-	session, err := app.CreateSession(config, channelName)
+	session, err := app.CreateSessionAndWait(config, channelName)
 	if err != nil {
 		log.Fatalf("Failed to create session: %v", err)
 	}
-	defer app.DeleteSession(session)
+	defer app.DeleteSessionAndWait(session)
 
 	// Give session a moment to establish
 	time.Sleep(100 * time.Millisecond)
@@ -115,7 +115,7 @@ func runModerator(app *slim.BindingsAdapter, connID uint64, remote string, invit
 		}
 
 		// Send invite
-		if err := session.Invite(inviteName); err != nil {
+		if err := session.InviteAndWait(inviteName); err != nil {
 			log.Printf("Failed to invite %s: %v", inviteID, err)
 			continue
 		}
@@ -127,29 +127,29 @@ func runModerator(app *slim.BindingsAdapter, connID uint64, remote string, invit
 	runMessageLoops(app, session, channelName, instance)
 }
 
-func runParticipant(app *slim.BindingsAdapter, instance uint64) {
+func runParticipant(app *slim.App, instance uint64) {
 	fmt.Printf("%s[%d]%s 👂 Waiting for incoming group session invitation...\n", colorCyan, instance, colorReset)
 
 	// Wait for incoming session
-	timeout := uint32(60000) // 60 seconds
+	timeout := time.Second * 60 // 60 seconds timeout
 	session, err := app.ListenForSession(&timeout)
 	if err != nil {
 		log.Fatalf("Failed to receive session: %v", err)
 	}
-	defer app.DeleteSession(session)
+	defer app.DeleteSessionAndWait(session)
 
 	channelName, err := session.Destination()
 	if err != nil {
 		log.Fatalf("Failed to get session destination: %v", err)
 	}
 
-	fmt.Printf("%s[%d]%s 🎉 Joined group session for channel: %v\n", colorCyan, instance, colorReset, channelName.Components)
+	fmt.Printf("%s[%d]%s 🎉 Joined group session for channel: %v\n", colorCyan, instance, colorReset, channelName.Components())
 
 	// Run message loops
 	runMessageLoops(app, session, channelName, instance)
 }
 
-func runMessageLoops(app *slim.BindingsAdapter, session *slim.BindingsSessionContext, channelName slim.Name, instance uint64) {
+func runMessageLoops(app *slim.App, session *slim.Session, channelName *slim.Name, instance uint64) {
 	var wg sync.WaitGroup
 	stopChan := make(chan struct{})
 
@@ -176,7 +176,7 @@ func runMessageLoops(app *slim.BindingsAdapter, session *slim.BindingsSessionCon
 	wg.Wait()
 }
 
-func receiveLoop(session *slim.BindingsSessionContext, sourceName slim.Name, instance uint64, stopChan chan struct{}) {
+func receiveLoop(session *slim.Session, sourceName *slim.Name, instance uint64, stopChan chan struct{}) {
 	for {
 		select {
 		case <-stopChan:
@@ -195,28 +195,39 @@ func receiveLoop(session *slim.BindingsSessionContext, sourceName slim.Name, ins
 			}
 
 			// Display received message
-			fmt.Printf("\n%s%s > %s%s\n", colorYellow, msg.Context.SourceName.Components, string(msg.Payload), colorReset)
+			fmt.Printf("\n%s%s > %s%s\n", colorYellow, msg.Context.SourceName.Components(), string(msg.Payload), colorReset)
 
 			// Auto-reply if this is not already a reply (prevent loops)
 			if _, hasPublishTo := msg.Context.Metadata["PUBLISH_TO"]; !hasPublishTo {
-				reply := fmt.Sprintf("message received by %v", sourceName.Components)
-				if err := session.PublishTo(msg.Context, []byte(reply), nil, nil); err != nil {
+				reply := fmt.Sprintf("message received by %v", sourceName.Components())
+				if err := session.PublishToAndWait(msg.Context, []byte(reply), nil, nil); err != nil {
 					fmt.Printf("%s[%d]%s ❌ Error sending reply: %v\n", colorCyan, instance, colorReset, err)
 				}
 			}
 
 			// Re-print prompt
-			fmt.Printf("%s%v > %s", colorGreen, sourceName.Components, colorReset)
+			fmt.Printf("%s%v > %s", colorGreen, sourceName.Components(), colorReset)
 		}
 	}
 }
 
-func keyboardLoop(session *slim.BindingsSessionContext, sourceName, channelName slim.Name, instance uint64, stopChan chan struct{}) {
+func keyboardLoop(session *slim.Session, sourceName, channelName *slim.Name, instance uint64, stopChan chan struct{}) {
 	reader := bufio.NewReader(os.Stdin)
 
-	fmt.Printf("\n%s[%d]%s Welcome to the group %v!\n", colorCyan, instance, colorReset, channelName.Components)
+	fmt.Printf("\n%s[%d]%s Welcome to the group %v!\n", colorCyan, instance, colorReset, channelName.Components())
+	listenerNames, err := session.ParticipantsList()
+	if err != nil {
+		log.Fatalf("Failed to get participants list: %v", err)
+	}
+
+	// Display participants
+	fmt.Printf("%s[%d]%s 👥 Participants in the group:\n", colorCyan, instance, colorReset)
+	for _, participant := range listenerNames {
+		fmt.Printf("%s[%d]%s 👤 Participant: %v\n", colorCyan, instance, colorReset, participant.Components())
+	}
+
 	fmt.Printf("%s[%d]%s Type a message and press Enter to send, or 'exit'/'quit' to leave.\n\n", colorCyan, instance, colorReset)
-	fmt.Printf("%s%v > %s", colorGreen, sourceName.Components, colorReset)
+	fmt.Printf("%s%v > %s", colorGreen, sourceName.Components(), colorReset)
 
 	for {
 		select {
@@ -233,7 +244,7 @@ func keyboardLoop(session *slim.BindingsSessionContext, sourceName, channelName 
 
 			input = strings.TrimSpace(input)
 			if input == "" {
-				fmt.Printf("%s%v > %s", colorGreen, sourceName.Components, colorReset)
+				fmt.Printf("%s%v > %s", colorGreen, sourceName.Components(), colorReset)
 				continue
 			}
 
@@ -245,13 +256,13 @@ func keyboardLoop(session *slim.BindingsSessionContext, sourceName, channelName 
 			}
 
 			// Publish message to group
-			if err := session.Publish([]byte(input), nil, nil); err != nil {
+			if err := session.PublishAndWait([]byte(input), nil, nil); err != nil {
 				fmt.Printf("%s[%d]%s ❌ Error sending message: %v\n", colorCyan, instance, colorReset, err)
 			} else {
 				fmt.Printf("%s[%d]%s 📤 Sent to group\n", colorCyan, instance, colorReset)
 			}
 
-			fmt.Printf("%s%v > %s", colorGreen, sourceName.Components, colorReset)
+			fmt.Printf("%s%v > %s", colorGreen, sourceName.Components(), colorReset)
 		}
 	}
 }

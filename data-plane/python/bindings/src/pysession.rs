@@ -17,10 +17,10 @@ use pyo3_stub_gen::derive::gen_stub_pymethods;
 use slim_session::CompletionHandle;
 use slim_session::{SessionConfig, SessionError};
 
-use slim_bindings::{BindingsAdapter, BindingsSessionContext, MessageContext};
+use slim_bindings::{App, MessageContext, Session};
 use slim_datapath::messages::Name;
 pub use slim_session::SESSION_UNSPECIFIED;
-use slim_session::context::SessionContext;
+use slim_session::context::SessionContext as SlimSessionContext;
 
 use crate::pymessage::PyMessageContext;
 use crate::utils::PyName;
@@ -77,7 +77,7 @@ impl PyCompletionHandle {
 
 /// Internal shared session context state.
 ///
-/// Holds a `BindingsSessionContext` which provides:
+/// Holds a bindings `SessionContext` which provides:
 /// * Session-specific operations (publish, invite, remove, get_message)
 /// * A weak reference to the underlying `Session` (so that Python
 ///   references do not keep a closed session alive)
@@ -87,7 +87,7 @@ impl PyCompletionHandle {
 /// This struct is not exposed directly to Python; it is wrapped by
 /// `SessionContext`.
 pub(crate) struct PySessionCtxInternal {
-    pub(crate) bindings_ctx: BindingsSessionContext,
+    pub(crate) bindings_ctx: Session,
 }
 
 /// Python-exposed session context wrapper.
@@ -119,10 +119,10 @@ pub(crate) struct PySessionContext {
     pub(crate) internal: Arc<PySessionCtxInternal>,
 }
 
-impl From<SessionContext> for PySessionContext {
-    fn from(ctx: SessionContext) -> Self {
-        // Convert to BindingsSessionContext with the global runtime
-        let bindings_ctx = BindingsSessionContext::new(ctx, slim_bindings::get_runtime());
+impl From<SlimSessionContext> for PySessionContext {
+    fn from(ctx: SlimSessionContext) -> Self {
+        // Convert to BindingsSessionContext
+        let bindings_ctx = Session::new(ctx);
 
         PySessionContext {
             internal: Arc::new(PySessionCtxInternal { bindings_ctx }),
@@ -377,7 +377,7 @@ impl PySessionContext {
     }
 
     /// Delete this session and return a completion handle
-    pub(crate) async fn delete(&self, adapter: &BindingsAdapter) -> PyResult<CompletionHandle> {
+    pub(crate) async fn delete(&self, adapter: &App) -> PyResult<CompletionHandle> {
         let session = self
             .internal
             .bindings_ctx

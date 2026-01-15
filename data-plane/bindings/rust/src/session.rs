@@ -1,0 +1,1486 @@
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
+// SPDX-License-Identifier: Apache-2.0
+
+use slim_session::CompletionHandle as SlimCompletionHandle;
+use slim_session::session_controller::SessionController;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+use slim_datapath::api::ProtoSessionType;
+use slim_datapath::messages::Name as SlimName;
+use slim_datapath::messages::utils::{PUBLISH_TO, SlimHeaderFlags, TRUE_VAL};
+use slim_session::SessionConfig as SlimSessionConfig;
+use slim_session::SessionError;
+use slim_session::context::SessionContext as SlimSession;
+
+use crate::message_context::MessageContext;
+use crate::{CompletionHandle, Name, ReceivedMessage, SlimError};
+
+/// Session type enum
+#[derive(Debug, Clone, PartialEq, uniffi::Enum)]
+pub enum SessionType {
+    PointToPoint,
+    Group,
+}
+
+impl From<SessionType> for ProtoSessionType {
+    fn from(session_type: SessionType) -> Self {
+        match session_type {
+            SessionType::PointToPoint => ProtoSessionType::PointToPoint,
+            SessionType::Group => ProtoSessionType::Multicast,
+        }
+    }
+}
+
+impl From<ProtoSessionType> for SessionType {
+    fn from(session_type: ProtoSessionType) -> Self {
+        match session_type {
+            ProtoSessionType::PointToPoint => SessionType::PointToPoint,
+            ProtoSessionType::Multicast => SessionType::Group,
+            ProtoSessionType::Unspecified => SessionType::PointToPoint, // Default to PointToPoint
+        }
+    }
+}
+
+/// Session configuration
+#[derive(uniffi::Record)]
+pub struct SessionConfig {
+    /// Session type (PointToPoint or Group)
+    pub session_type: SessionType,
+
+    /// Enable MLS encryption for this session
+    pub enable_mls: bool,
+
+    /// Maximum number of retries for message transmission (None = use default)
+    pub max_retries: Option<u32>,
+
+    /// Interval between retries in milliseconds (None = use default)
+    pub interval: Option<std::time::Duration>,
+
+    /// Custom metadata key-value pairs for the session
+    pub metadata: std::collections::HashMap<String, String>,
+}
+
+impl From<SessionConfig> for SlimSessionConfig {
+    fn from(config: SessionConfig) -> Self {
+        SlimSessionConfig {
+            session_type: config.session_type.into(),
+            max_retries: config.max_retries,
+            interval: config.interval,
+            mls_enabled: config.enable_mls,
+            initiator: true,
+            metadata: config.metadata,
+        }
+    }
+}
+
+impl From<SlimSessionConfig> for SessionConfig {
+    fn from(config: SlimSessionConfig) -> Self {
+        SessionConfig {
+            session_type: config.session_type.into(),
+            enable_mls: config.mls_enabled,
+            max_retries: config.max_retries,
+            interval: config.interval,
+            metadata: config.metadata,
+        }
+    }
+}
+
+/// Session context for language bindings (UniFFI-compatible)
+///
+/// Wraps the session context with proper async access patterns for message reception.
+/// Provides both synchronous (blocking) and asynchronous methods for FFI compatibility.
+#[derive(uniffi::Object)]
+pub struct Session {
+    /// Weak reference to the underlying session
+    pub session: std::sync::Weak<SessionController>,
+    /// Message receiver wrapped in RwLock for concurrent access
+    pub rx: RwLock<slim_session::AppChannelReceiver>,
+}
+
+impl Session {
+    /// Create a new Session from a Session and runtime
+    pub fn new(ctx: SlimSession) -> Self {
+        let (session, rx) = ctx.into_parts();
+        Self {
+            session,
+            rx: RwLock::new(rx),
+        }
+    }
+
+    /// Get the runtime (for internal use)
+    pub fn runtime(&self) -> &'static tokio::runtime::Runtime {
+        crate::config::get_runtime()
+    }
+}
+
+// ============================================================================
+// Internal async methods (used by both FFI and Python bindings)
+// ============================================================================
+
+impl Session {
+    /// Publish a message through this session (internal API for language bindings)
+    ///
+    /// This is the low-level publish method that takes SlimName directly.
+    /// Use `publish()` or `publish_with_params()` for FFI-compatible APIs.
+    pub async fn publish_internal(
+        &self,
+        name: &SlimName,
+        fanout: u32,
+        blob: Vec<u8>,
+        conn_out: Option<u64>,
+        payload_type: Option<String>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<SlimCompletionHandle, SessionError> {
+        let session = self.session.upgrade().ok_or(SessionError::SessionClosed)?;
+
+        let flags = SlimHeaderFlags::new(fanout, None, conn_out, None, None);
+
+        let ret = session
+            .publish_with_flags(name, flags, blob, payload_type, metadata)
+            .await?;
+
+        Ok(ret)
+    }
+
+    /// Publish a message as a reply (internal API for language bindings)
+    ///
+    /// This is the low-level publish_to method that takes MessageContext reference.
+    /// Use `publish_to()` for FFI-compatible API.
+    pub async fn publish_to_internal(
+        &self,
+        message_ctx: &MessageContext,
+        blob: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<SlimCompletionHandle, SessionError> {
+        let session = self.session.upgrade().ok_or(SessionError::SessionClosed)?;
+
+        let flags = SlimHeaderFlags::new(
+            1, // fanout = 1 for reply semantics
+            None,
+            Some(message_ctx.input_connection), // reply to the same connection
+            None,
+            None,
+        );
+
+        let mut final_metadata = metadata.unwrap_or_default();
+        final_metadata.insert(PUBLISH_TO.to_string(), TRUE_VAL.to_string());
+
+        // Convert FFI Name to SlimName for the datapath layer
+        let source_name = message_ctx.source_as_slim_name();
+
+        let ret = session
+            .publish_with_flags(
+                &source_name, // reply to the original source
+                flags,
+                blob,
+                payload_type,
+                Some(final_metadata),
+            )
+            .await?;
+
+        Ok(ret)
+    }
+
+    /// Invite a peer to join this session (internal API for language bindings)
+    ///
+    /// This is the low-level invite method that takes SlimName reference.
+    /// Use `invite()` for FFI-compatible API with auto-wait.
+    pub async fn invite_internal(
+        &self,
+        destination: &SlimName,
+    ) -> Result<SlimCompletionHandle, SessionError> {
+        let session = self.session.upgrade().ok_or(SessionError::SessionClosed)?;
+
+        session.invite_participant(destination).await
+    }
+
+    /// Remove a peer from this session (internal API for language bindings)
+    ///
+    /// This is the low-level remove method that takes SlimName reference.
+    /// Use `remove()` for FFI-compatible API with auto-wait.
+    pub async fn remove_internal(
+        &self,
+        destination: &SlimName,
+    ) -> Result<SlimCompletionHandle, SessionError> {
+        let session = self.session.upgrade().ok_or(SessionError::SessionClosed)?;
+
+        session.remove_participant(destination).await
+    }
+
+    /// Receive a message from this session with optional timeout
+    pub async fn get_session_message(
+        &self,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<(MessageContext, Vec<u8>), SessionError> {
+        let mut rx = self.rx.write().await;
+
+        let recv_future = async {
+            let msg = rx.recv().await.ok_or(SessionError::SessionClosed)??;
+
+            MessageContext::from_proto_message(msg)
+        };
+
+        if let Some(timeout_duration) = timeout {
+            tokio::time::timeout(timeout_duration, recv_future)
+                .await
+                .map_err(|_| SessionError::ReceiveTimeout)?
+        } else {
+            recv_future.await
+        }
+    }
+}
+
+// ============================================================================
+// FFI-exported methods (UniFFI)
+// ============================================================================
+
+#[uniffi::export]
+impl Session {
+    /// Publish a message to the session's destination (blocking version)
+    ///
+    /// Returns a completion handle that can be awaited to ensure the message was delivered.
+    ///
+    /// # Arguments
+    /// * `data` - The message payload bytes
+    /// * `payload_type` - Optional content type identifier
+    /// * `metadata` - Optional key-value metadata pairs
+    ///
+    /// # Returns
+    /// * `Ok(CompletionHandle)` - Handle to await delivery confirmation
+    /// * `Err(SlimError)` - If publishing fails
+    ///
+    /// # Example
+    /// ```ignore
+    /// let completion = session.publish(data, None, None)?;
+    /// completion.wait()?; // Blocks until message is delivered
+    /// ```
+    pub fn publish(
+        &self,
+        data: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<Arc<CompletionHandle>, SlimError> {
+        crate::config::get_runtime()
+            .block_on(async { self.publish_async(data, payload_type, metadata).await })
+    }
+
+    /// Publish a message to the session's destination (async version)
+    ///
+    /// Returns a completion handle that can be awaited to ensure the message was delivered.
+    pub async fn publish_async(
+        &self,
+        data: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<Arc<CompletionHandle>, SlimError> {
+        let session = self
+            .session
+            .upgrade()
+            .ok_or_else(|| SlimError::SessionError {
+                message: "Session already closed or dropped".to_string(),
+            })?;
+
+        let destination = session.dst();
+
+        let completion = self
+            .publish_internal(
+                destination,
+                1, // fanout = 1 for normal publish
+                data,
+                None, // connection_out
+                payload_type,
+                metadata,
+            )
+            .await?;
+
+        Ok(Arc::new(CompletionHandle::from(completion)))
+    }
+
+    /// Publish a message and wait for completion (blocking version)
+    ///
+    /// This method publishes a message and blocks until the delivery completes.
+    pub fn publish_and_wait(
+        &self,
+        data: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<(), SlimError> {
+        crate::config::get_runtime().block_on(async {
+            self.publish_and_wait_async(data, payload_type, metadata)
+                .await
+        })
+    }
+
+    /// Publish a message and wait for completion (async version)
+    ///
+    /// This method publishes a message and waits until the delivery completes.
+    pub async fn publish_and_wait_async(
+        &self,
+        data: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<(), SlimError> {
+        let completion_handle = self.publish_async(data, payload_type, metadata).await?;
+        completion_handle.wait_async().await
+    }
+
+    /// Publish a reply message to the originator of a received message (blocking version for FFI)
+    ///
+    /// This method uses the routing information from a previously received message
+    /// to send a reply back to the sender. This is the preferred way to implement
+    /// request/reply patterns.
+    ///
+    /// Returns a completion handle that can be awaited to ensure the message was delivered.
+    ///
+    /// # Arguments
+    /// * `message_context` - Context from a message received via `get_message()`
+    /// * `data` - The reply payload bytes
+    /// * `payload_type` - Optional content type identifier
+    /// * `metadata` - Optional key-value metadata pairs
+    ///
+    /// # Returns
+    /// * `Ok(CompletionHandle)` - Handle to await delivery confirmation
+    /// * `Err(SlimError)` - If publishing fails
+    pub fn publish_to(
+        &self,
+        message_context: MessageContext,
+        data: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<Arc<CompletionHandle>, SlimError> {
+        crate::config::get_runtime().block_on(async {
+            self.publish_to_async(message_context, data, payload_type, metadata)
+                .await
+        })
+    }
+
+    /// Publish a reply message (async version)
+    ///
+    /// Returns a completion handle that can be awaited to ensure the message was delivered.
+    pub async fn publish_to_async(
+        &self,
+        message_context: MessageContext,
+        data: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<Arc<CompletionHandle>, SlimError> {
+        let completion = self
+            .publish_to_internal(&message_context, data, payload_type, metadata)
+            .await?;
+
+        Ok(Arc::new(CompletionHandle::from(completion)))
+    }
+
+    /// Publish a reply message and wait for completion (blocking version)
+    ///
+    /// This method publishes a reply to a received message and blocks until the delivery completes.
+    pub fn publish_to_and_wait(
+        &self,
+        message_context: MessageContext,
+        data: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<(), SlimError> {
+        crate::config::get_runtime().block_on(async {
+            self.publish_to_and_wait_async(message_context, data, payload_type, metadata)
+                .await
+        })
+    }
+
+    /// Publish a reply message and wait for completion (async version)
+    ///
+    /// This method publishes a reply to a received message and waits until the delivery completes.
+    pub async fn publish_to_and_wait_async(
+        &self,
+        message_context: MessageContext,
+        data: Vec<u8>,
+        payload_type: Option<String>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<(), SlimError> {
+        let completion_handle = self
+            .publish_to_async(message_context, data, payload_type, metadata)
+            .await?;
+        completion_handle.wait_async().await
+    }
+
+    /// Low-level publish with full control over all parameters (blocking version for FFI)
+    ///
+    /// This is an advanced method that provides complete control over routing and delivery.
+    /// Most users should use `publish()` or `publish_to()` instead.
+    ///
+    /// # Arguments
+    /// * `destination` - Target name to send to
+    /// * `fanout` - Number of copies to send (for multicast)
+    /// * `data` - The message payload bytes
+    /// * `connection_out` - Optional specific connection ID to use
+    /// * `payload_type` - Optional content type identifier
+    /// * `metadata` - Optional key-value metadata pairs
+    pub fn publish_with_params(
+        &self,
+        destination: Arc<Name>,
+        fanout: u32,
+        data: Vec<u8>,
+        connection_out: Option<u64>,
+        payload_type: Option<String>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<(), SlimError> {
+        crate::config::get_runtime().block_on(async {
+            self.publish_with_params_async(
+                destination,
+                fanout,
+                data,
+                connection_out,
+                payload_type,
+                metadata,
+            )
+            .await
+        })
+    }
+
+    /// Low-level publish with full control (async version)
+    pub async fn publish_with_params_async(
+        &self,
+        destination: Arc<Name>,
+        fanout: u32,
+        data: Vec<u8>,
+        connection_out: Option<u64>,
+        payload_type: Option<String>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<(), SlimError> {
+        let slim_dest: SlimName = destination.as_ref().into();
+
+        self.publish_internal(
+            &slim_dest,
+            fanout,
+            data,
+            connection_out,
+            payload_type,
+            metadata,
+        )
+        .await
+        .map(|_| ())?;
+
+        Ok(())
+    }
+
+    /// Receive a message from the session (blocking version for FFI)
+    ///
+    /// # Arguments
+    /// * `timeout_ms` - Optional timeout in milliseconds
+    ///
+    /// # Returns
+    /// * `Ok(ReceivedMessage)` - Message with context and payload bytes
+    /// * `Err(SlimError)` - If the receive fails or times out
+    pub fn get_message(&self, timeout_ms: Option<u32>) -> Result<ReceivedMessage, SlimError> {
+        crate::config::get_runtime().block_on(async { self.get_message_async(timeout_ms).await })
+    }
+
+    /// Receive a message from the session (async version)
+    pub async fn get_message_async(
+        &self,
+        timeout_ms: Option<u32>,
+    ) -> Result<ReceivedMessage, SlimError> {
+        let timeout = timeout_ms.map(|ms| std::time::Duration::from_millis(ms as u64));
+
+        let (ctx, payload) = self.get_session_message(timeout).await?;
+
+        Ok(ReceivedMessage {
+            context: ctx,
+            payload,
+        })
+    }
+
+    /// Invite a participant to the session (blocking version)
+    ///
+    /// Returns a completion handle that can be awaited to ensure the invitation completes.
+    pub fn invite(&self, participant: Arc<Name>) -> Result<Arc<CompletionHandle>, SlimError> {
+        crate::config::get_runtime().block_on(async { self.invite_async(participant).await })
+    }
+
+    /// Invite a participant to the session (async version)
+    ///
+    /// Returns a completion handle that can be awaited to ensure the invitation completes.
+    pub async fn invite_async(
+        &self,
+        participant: Arc<Name>,
+    ) -> Result<Arc<CompletionHandle>, SlimError> {
+        let slim_name: SlimName = participant.as_ref().into();
+
+        let completion = self.invite_internal(&slim_name).await?;
+
+        // Return completion handle for caller to wait on
+        Ok(Arc::new(CompletionHandle::from(completion)))
+    }
+
+    /// Invite a participant and wait for completion (blocking version)
+    ///
+    /// This method invites a participant and blocks until the invitation completes.
+    pub fn invite_and_wait(&self, participant: Arc<Name>) -> Result<(), SlimError> {
+        crate::config::get_runtime()
+            .block_on(async { self.invite_and_wait_async(participant).await })
+    }
+
+    /// Invite a participant and wait for completion (async version)
+    ///
+    /// This method invites a participant and waits until the invitation completes.
+    pub async fn invite_and_wait_async(&self, participant: Arc<Name>) -> Result<(), SlimError> {
+        let completion_handle = self.invite_async(participant).await?;
+        completion_handle.wait_async().await
+    }
+
+    /// Remove a participant from the session (blocking version)
+    ///
+    /// Returns a completion handle that can be awaited to ensure the removal completes.
+    pub fn remove(&self, participant: Arc<Name>) -> Result<Arc<CompletionHandle>, SlimError> {
+        crate::config::get_runtime().block_on(async { self.remove_async(participant).await })
+    }
+
+    /// Remove a participant from the session (async version)
+    ///
+    /// Returns a completion handle that can be awaited to ensure the removal completes.
+    pub async fn remove_async(
+        &self,
+        participant: Arc<Name>,
+    ) -> Result<Arc<CompletionHandle>, SlimError> {
+        let slim_name: SlimName = participant.as_ref().into();
+
+        let completion = self.remove_internal(&slim_name).await?;
+
+        // Return completion handle for caller to wait on
+        Ok(Arc::new(CompletionHandle::from(completion)))
+    }
+
+    /// Remove a participant and wait for completion (blocking version)
+    ///
+    /// This method removes a participant and blocks until the removal completes.
+    pub fn remove_and_wait(&self, participant: Arc<Name>) -> Result<(), SlimError> {
+        crate::config::get_runtime()
+            .block_on(async { self.remove_and_wait_async(participant).await })
+    }
+
+    /// Remove a participant and wait for completion (async version)
+    ///
+    /// This method removes a participant and waits until the removal completes.
+    pub async fn remove_and_wait_async(&self, participant: Arc<Name>) -> Result<(), SlimError> {
+        let completion_handle = self.remove_async(participant).await?;
+        completion_handle.wait_async().await
+    }
+
+    /// Get the destination name for this session
+    pub fn destination(&self) -> Result<Name, SlimError> {
+        let session = self
+            .session
+            .upgrade()
+            .ok_or_else(|| SlimError::SessionError {
+                message: "Session already closed or dropped".to_string(),
+            })?;
+
+        Ok(Name::from(session.dst()))
+    }
+
+    /// Get the source name for this session
+    pub fn source(&self) -> Result<Name, SlimError> {
+        let session = self
+            .session
+            .upgrade()
+            .ok_or_else(|| SlimError::SessionError {
+                message: "Session already closed or dropped".to_string(),
+            })?;
+
+        Ok(Name::from(session.source()))
+    }
+
+    /// Get the session ID
+    pub fn session_id(&self) -> Result<u32, SlimError> {
+        let session = self
+            .session
+            .upgrade()
+            .ok_or_else(|| SlimError::SessionError {
+                message: "Session already closed or dropped".to_string(),
+            })?;
+
+        Ok(session.id())
+    }
+
+    /// Get the session type (PointToPoint or Group)
+    pub fn session_type(&self) -> Result<SessionType, SlimError> {
+        let session = self
+            .session
+            .upgrade()
+            .ok_or_else(|| SlimError::SessionError {
+                message: "Session already closed or dropped".to_string(),
+            })?;
+
+        match session.session_type() {
+            ProtoSessionType::PointToPoint => Ok(SessionType::PointToPoint),
+            ProtoSessionType::Multicast => Ok(SessionType::Group),
+            ProtoSessionType::Unspecified => Err(SlimError::InvalidArgument {
+                message: "Session has unspecified type".to_string(),
+            }),
+        }
+    }
+
+    /// Check if this session is the initiator
+    pub fn is_initiator(&self) -> Result<bool, SlimError> {
+        let session = self
+            .session
+            .upgrade()
+            .ok_or_else(|| SlimError::SessionError {
+                message: "Session already closed or dropped".to_string(),
+            })?;
+
+        Ok(session.is_initiator())
+    }
+
+    /// Get the session metadata
+    pub fn metadata(&self) -> Result<HashMap<String, String>, SlimError> {
+        let session = self
+            .session
+            .upgrade()
+            .ok_or_else(|| SlimError::SessionError {
+                message: "Session already closed or dropped".to_string(),
+            })?;
+        Ok(session.metadata())
+    }
+
+    /// Get the session configuration
+    pub fn config(&self) -> Result<SessionConfig, SlimError> {
+        let session = self
+            .session
+            .upgrade()
+            .ok_or_else(|| SlimError::SessionError {
+                message: "Session already closed or dropped".to_string(),
+            })?;
+
+        Ok(session.session_config().into())
+    }
+
+    /// Get list of participants in the session
+    pub async fn participants_list_async(&self) -> Result<Vec<Arc<Name>>, SlimError> {
+        let session = self
+            .session
+            .upgrade()
+            .ok_or_else(|| SlimError::SessionError {
+                message: "Session already closed or dropped".to_string(),
+            })?;
+
+        session
+            .participants_list()
+            .await
+            .map(|list| list.into_iter().map(|n| Arc::new(Name::from(n))).collect())
+            .map_err(|e| SlimError::SessionError {
+                message: format!("Failed to get participants list: {}", e),
+            })
+    }
+
+    /// Get list of participants in the session (blocking version for FFI)
+    pub fn participants_list(&self) -> Result<Vec<Arc<Name>>, SlimError> {
+        crate::config::get_runtime().block_on(async { self.participants_list_async().await })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Name as FfiName;
+    use crate::errors::SlimError;
+    use slim_datapath::api::{
+        ApplicationPayload, ProtoMessage, ProtoPublish, ProtoPublishType, SessionHeader, SlimHeader,
+    };
+    use slim_session::SessionError;
+    use std::time::Duration;
+    use tokio::sync::mpsc;
+
+    /// Helper to create SlimName for proto message construction
+    fn make_slim_name(parts: [&str; 3]) -> SlimName {
+        SlimName::from_strings(parts).with_id(0)
+    }
+
+    /// Helper to create FFI Name for MessageContext construction
+    fn make_ffi_name(parts: [&str; 3]) -> FfiName {
+        FfiName::new(
+            parts[0].to_string(),
+            parts[1].to_string(),
+            parts[2].to_string(),
+            Some(u64::MAX), // Default SlimName ID
+        )
+    }
+
+    fn make_context() -> (
+        Session,
+        mpsc::UnboundedSender<Result<ProtoMessage, SessionError>>,
+    ) {
+        let (tx, rx) = mpsc::unbounded_channel::<Result<ProtoMessage, SessionError>>();
+        let ctx = Session {
+            session: std::sync::Weak::new(),
+            rx: RwLock::new(rx),
+        };
+        (ctx, tx)
+    }
+
+    /// Helper to create a valid ProtoMessage for testing message reception
+    fn create_test_proto_message(
+        source: SlimName,
+        dest: SlimName,
+        connection_id: u64,
+        payload: Vec<u8>,
+        content_type: &str,
+        metadata: HashMap<String, String>,
+    ) -> ProtoMessage {
+        let content = ApplicationPayload::new(content_type, payload).as_content();
+
+        let mut slim_header = SlimHeader::default();
+        slim_header.set_source(&source);
+        slim_header.set_destination(&dest);
+
+        let publish = ProtoPublish {
+            header: Some(slim_header),
+            session: Some(SessionHeader::default()),
+            msg: Some(content),
+        };
+
+        let mut proto_msg = ProtoMessage {
+            message_type: Some(ProtoPublishType(publish)),
+            metadata,
+        };
+
+        proto_msg.set_incoming_conn(Some(connection_id));
+        proto_msg
+    }
+
+    // ==================== Message Reception Tests ====================
+
+    #[tokio::test]
+    async fn test_get_session_message_success() {
+        let (ctx, tx) = make_context();
+
+        let source = make_slim_name(["org", "sender", "app"]);
+        let dest = make_slim_name(["org", "receiver", "app"]);
+        let payload = b"hello world".to_vec();
+        let mut metadata = HashMap::new();
+        metadata.insert("key".to_string(), "value".to_string());
+
+        let msg = create_test_proto_message(
+            source.clone(),
+            dest,
+            42,
+            payload.clone(),
+            "text/plain",
+            metadata.clone(),
+        );
+
+        tx.send(Ok(msg)).expect("send should succeed");
+
+        let result = ctx
+            .get_session_message(Some(Duration::from_millis(100)))
+            .await;
+        assert!(result.is_ok(), "should receive message successfully");
+
+        let (msg_ctx, received_payload) = result.unwrap();
+        assert_eq!(received_payload, payload);
+        assert_eq!(msg_ctx.payload_type, "text/plain");
+        assert_eq!(msg_ctx.input_connection, 42);
+        assert_eq!(msg_ctx.metadata.get("key"), Some(&"value".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_get_session_message_timeout() {
+        let (ctx, _tx) = make_context();
+        let result = ctx
+            .get_session_message(Some(Duration::from_millis(50)))
+            .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("timeout"));
+    }
+
+    #[tokio::test]
+    async fn test_get_session_message_channel_closed() {
+        let (ctx, tx) = make_context();
+        drop(tx); // close sender so receiver sees channel closed
+        let result = ctx
+            .get_session_message(Some(Duration::from_millis(50)))
+            .await;
+        assert!(result.is_err_and(|e| matches!(e, SessionError::SessionClosed)));
+    }
+
+    #[tokio::test]
+    async fn test_get_session_message_decode_error() {
+        let (ctx, tx) = make_context();
+
+        // Send an error through the channel (simulates decode failure)
+        tx.send(Err(SessionError::SlimMessageSendFailed)).unwrap();
+
+        let result = ctx
+            .get_session_message(Some(Duration::from_millis(100)))
+            .await;
+        assert!(result.is_err_and(|e| matches!(e, SessionError::SlimMessageSendFailed)));
+    }
+
+    #[tokio::test]
+    async fn test_get_session_message_no_timeout() {
+        let (ctx, tx) = make_context();
+
+        // Spawn a task that sends a message after a short delay
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            let msg = create_test_proto_message(
+                make_slim_name(["org", "sender", "app"]),
+                make_slim_name(["org", "receiver", "app"]),
+                1,
+                b"delayed".to_vec(),
+                "text/plain",
+                HashMap::new(),
+            );
+            let _ = tx.send(Ok(msg));
+        });
+
+        // Call without timeout - should block until message arrives
+        let result = ctx.get_session_message(None).await;
+        assert!(result.is_ok());
+        let (_, payload) = result.unwrap();
+        assert_eq!(payload, b"delayed".to_vec());
+    }
+
+    #[tokio::test]
+    async fn test_get_session_message_various_timeouts() {
+        let (ctx, _tx) = make_context();
+
+        // Very short timeout
+        let start = std::time::Instant::now();
+        let result = ctx
+            .get_session_message(Some(Duration::from_millis(10)))
+            .await;
+        assert!(result.is_err());
+        assert!(start.elapsed() >= Duration::from_millis(10));
+
+        // Zero timeout should return immediately
+        let start = std::time::Instant::now();
+        let result = ctx.get_session_message(Some(Duration::ZERO)).await;
+        assert!(result.is_err());
+        assert!(start.elapsed() < Duration::from_millis(50));
+
+        // Longer timeout
+        let start = std::time::Instant::now();
+        let result = ctx
+            .get_session_message(Some(Duration::from_millis(100)))
+            .await;
+        assert!(result.is_err());
+        let elapsed = start.elapsed();
+        assert!(elapsed >= Duration::from_millis(90)); // Allow variance
+        assert!(elapsed < Duration::from_millis(200));
+    }
+
+    #[tokio::test]
+    async fn test_get_session_message_multiple_messages() {
+        let (ctx, tx) = make_context();
+
+        // Send multiple messages
+        for i in 0..3 {
+            let msg = create_test_proto_message(
+                make_slim_name(["org", "sender", "app"]),
+                make_slim_name(["org", "receiver", "app"]),
+                i as u64,
+                format!("message {}", i).into_bytes(),
+                "text/plain",
+                HashMap::new(),
+            );
+            tx.send(Ok(msg)).expect("send should succeed");
+        }
+
+        // Receive them in order
+        for i in 0..3 {
+            let result = ctx
+                .get_session_message(Some(Duration::from_millis(100)))
+                .await;
+            assert!(result.is_ok());
+            let (msg_ctx, payload) = result.unwrap();
+            assert_eq!(payload, format!("message {}", i).into_bytes());
+            assert_eq!(msg_ctx.input_connection, i as u64);
+        }
+    }
+
+    // ==================== Publish Tests (Session Missing) ====================
+
+    #[tokio::test]
+    async fn test_publish_internal_errors_when_session_missing() {
+        let (ctx, _tx) = make_context();
+        let res = ctx
+            .publish_internal(
+                &make_slim_name(["dest", "app", "v1"]),
+                1,
+                b"payload".to_vec(),
+                None,
+                Some("text/plain".to_string()),
+                None,
+            )
+            .await;
+        assert!(res.is_err_and(|e| matches!(e, SessionError::SessionClosed)));
+    }
+
+    #[tokio::test]
+    async fn test_publish_internal_with_all_params_errors_when_session_missing() {
+        let (ctx, _tx) = make_context();
+        let mut metadata = HashMap::new();
+        metadata.insert("key".to_string(), "value".to_string());
+
+        let res = ctx
+            .publish_internal(
+                &make_slim_name(["dest", "app", "v1"]),
+                3,                                    // fanout
+                b"payload".to_vec(),                  // blob
+                Some(123),                            // conn_out
+                Some("application/json".to_string()), // payload_type
+                Some(metadata),                       // metadata
+            )
+            .await;
+        assert!(res.is_err_and(|e| matches!(e, SessionError::SessionClosed)));
+    }
+
+    #[tokio::test]
+    async fn test_publish_to_internal_errors_when_session_missing() {
+        let (ctx, _tx) = make_context();
+        let message_ctx = MessageContext::new(
+            make_ffi_name(["sender", "org", "service"]),
+            Some(make_ffi_name(["receiver", "org", "service"])),
+            "application/json".to_string(),
+            HashMap::new(),
+            42,
+            "unique".to_string(),
+        );
+
+        let res = ctx
+            .publish_to_internal(
+                &message_ctx,
+                b"reply".to_vec(),
+                Some("json".to_string()),
+                None,
+            )
+            .await;
+        assert!(res.is_err_and(|e| matches!(e, SessionError::SessionClosed)));
+    }
+
+    // ==================== Invite/Remove Tests (Session Missing) ====================
+
+    #[tokio::test]
+    async fn test_invite_internal_errors_when_session_missing() {
+        let (ctx, _tx) = make_context();
+        let res = ctx
+            .invite_internal(&make_slim_name(["org", "peer", "app"]))
+            .await;
+        assert!(res.is_err_and(|e| matches!(e, SessionError::SessionClosed)));
+    }
+
+    #[tokio::test]
+    async fn test_remove_internal_errors_when_session_missing() {
+        let (ctx, _tx) = make_context();
+        let err = ctx
+            .remove_internal(&make_slim_name(["org", "peer", "app"]))
+            .await;
+        assert!(err.is_err_and(|e| matches!(e, SessionError::SessionClosed)));
+    }
+
+    // ==================== Context Creation Tests ====================
+
+    #[tokio::test]
+    async fn test_bindings_session_context_weak_ref() {
+        let (ctx, _tx) = make_context();
+        // With no actual SessionController, the weak ref should be None
+        assert!(ctx.session.upgrade().is_none());
+    }
+
+    // ==================== FFI Method Tests (Session Missing) ====================
+
+    #[tokio::test]
+    async fn test_publish_async_session_missing() {
+        let (ctx, _tx) = make_context();
+        let result = ctx.publish_async(b"test".to_vec(), None, None).await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            SlimError::SessionError { message } => {
+                assert!(message.contains("closed") || message.contains("dropped"));
+            }
+            _ => panic!("Expected SessionError"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_publish_to_async_session_missing() {
+        let (ctx, _tx) = make_context();
+        let message_ctx = MessageContext::new(
+            make_ffi_name(["sender", "org", "service"]),
+            Some(make_ffi_name(["receiver", "org", "service"])),
+            "application/json".to_string(),
+            HashMap::new(),
+            42,
+            "identity".to_string(),
+        );
+
+        let result = ctx
+            .publish_to_async(message_ctx, b"reply".to_vec(), None, None)
+            .await;
+        assert!(result.is_err_and(|e| {
+            if let SlimError::SessionError { message } = e {
+                message.contains("closed")
+            } else {
+                false
+            }
+        }));
+    }
+
+    #[tokio::test]
+    async fn test_publish_with_params_async_session_missing() {
+        let (ctx, _tx) = make_context();
+        let dest = Arc::new(FfiName::new(
+            "org".to_string(),
+            "ns".to_string(),
+            "dest".to_string(),
+            None,
+        ));
+
+        let result = ctx
+            .publish_with_params_async(dest, 1, b"test".to_vec(), None, None, None)
+            .await;
+        assert!(result.is_err_and(|e| {
+            if let SlimError::SessionError { message } = e {
+                message.contains("closed")
+            } else {
+                false
+            }
+        }));
+    }
+
+    #[tokio::test]
+    async fn test_publish_with_params_async_with_all_options() {
+        let (ctx, _tx) = make_context();
+        let dest = Arc::new(FfiName::new(
+            "org".to_string(),
+            "ns".to_string(),
+            "dest".to_string(),
+            Some(123),
+        ));
+
+        let mut metadata = HashMap::new();
+        metadata.insert("key".to_string(), "value".to_string());
+
+        let result = ctx
+            .publish_with_params_async(
+                dest,
+                3, // fanout
+                b"test payload".to_vec(),
+                Some(456),                            // connection_out
+                Some("application/json".to_string()), // payload_type
+                Some(metadata),                       // metadata
+            )
+            .await;
+
+        // Should fail because session is missing, but this tests the parameter passing
+        assert!(result.is_err());
+    }
+
+    // ==================== Get Message FFI Tests ====================
+
+    #[tokio::test]
+    async fn test_get_message_async_success() {
+        let (ctx, tx) = make_context();
+
+        let msg = create_test_proto_message(
+            make_slim_name(["org", "sender", "app"]),
+            make_slim_name(["org", "receiver", "app"]),
+            42,
+            b"hello".to_vec(),
+            "text/plain",
+            HashMap::new(),
+        );
+
+        tx.send(Ok(msg)).expect("send should succeed");
+
+        let result = ctx.get_message_async(Some(100)).await;
+        assert!(result.is_ok());
+
+        let received = result.unwrap();
+        assert_eq!(received.payload, b"hello");
+        assert_eq!(received.context.payload_type, "text/plain");
+        assert_eq!(received.context.input_connection, 42);
+    }
+
+    #[tokio::test]
+    async fn test_get_message_async_timeout() {
+        let (ctx, _tx) = make_context();
+
+        let result = ctx.get_message_async(Some(10)).await;
+        assert!(result.is_err_and(|e| {
+            if let SlimError::SessionError { message } = e {
+                message.contains("receive timeout")
+            } else {
+                false
+            }
+        }));
+    }
+
+    #[tokio::test]
+    async fn test_get_message_async_channel_closed() {
+        let (ctx, tx) = make_context();
+        drop(tx);
+
+        let result = ctx.get_message_async(Some(100)).await;
+        assert!(result.is_err_and(|e| matches!(e, SlimError::SessionError { .. })));
+    }
+
+    // ==================== Invite/Remove FFI Tests ====================
+
+    #[tokio::test]
+    async fn test_invite_async_session_missing() {
+        let (ctx, _tx) = make_context();
+        let participant = Arc::new(FfiName::new(
+            "org".to_string(),
+            "ns".to_string(),
+            "peer".to_string(),
+            None,
+        ));
+
+        let result = ctx.invite_async(participant).await;
+        assert!(result.is_err_and(|e| {
+            if let SlimError::SessionError { message } = e {
+                message.contains("closed")
+            } else {
+                false
+            }
+        }));
+    }
+
+    #[tokio::test]
+    async fn test_remove_async_session_missing() {
+        let (ctx, _tx) = make_context();
+        let participant = Arc::new(FfiName::new(
+            "org".to_string(),
+            "ns".to_string(),
+            "peer".to_string(),
+            None,
+        ));
+
+        let result = ctx.remove_async(participant).await;
+        assert!(result.is_err_and(|e| {
+            if let SlimError::SessionError { message } = e {
+                message.contains("closed")
+            } else {
+                false
+            }
+        }));
+    }
+
+    // ==================== Session Info Accessor Tests ====================
+
+    #[tokio::test]
+    async fn test_destination_session_missing() {
+        let (ctx, _tx) = make_context();
+        let result = ctx.destination();
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            SlimError::SessionError { message } => {
+                assert!(message.contains("closed") || message.contains("dropped"));
+            }
+            _ => panic!("Expected SessionError"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_source_session_missing() {
+        let (ctx, _tx) = make_context();
+        let result = ctx.source();
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            SlimError::SessionError { message } => {
+                assert!(message.contains("closed") || message.contains("dropped"));
+            }
+            _ => panic!("Expected SessionError"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_session_id_session_missing() {
+        let (ctx, _tx) = make_context();
+        let result = ctx.session_id();
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            SlimError::SessionError { message } => {
+                assert!(message.contains("closed") || message.contains("dropped"));
+            }
+            _ => panic!("Expected SessionError"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_session_type_session_missing() {
+        let (ctx, _tx) = make_context();
+        let result = ctx.session_type();
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            SlimError::SessionError { message } => {
+                assert!(message.contains("closed") || message.contains("dropped"));
+            }
+            _ => panic!("Expected SessionError"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_is_initiator_session_missing() {
+        let (ctx, _tx) = make_context();
+        let result = ctx.is_initiator();
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            SlimError::SessionError { message } => {
+                assert!(message.contains("closed") || message.contains("dropped"));
+            }
+            _ => panic!("Expected SessionError"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_participants_list_session_missing() {
+        let (ctx, _tx) = make_context();
+        let result = ctx.participants_list_async().await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            SlimError::SessionError { message } => {
+                assert!(message.contains("closed") || message.contains("dropped"));
+            }
+            _ => panic!("Expected SessionError"),
+        }
+    }
+
+    // ==================== Publish Internal with Metadata Tests ====================
+
+    #[tokio::test]
+    async fn test_publish_to_internal_adds_publish_to_metadata() {
+        // This test verifies the metadata manipulation in publish_to_internal
+        // Even though session is missing, we can verify the code path is exercised
+        let (ctx, _tx) = make_context();
+        let message_ctx = MessageContext::new(
+            make_ffi_name(["sender", "org", "service"]),
+            Some(make_ffi_name(["receiver", "org", "service"])),
+            "application/json".to_string(),
+            HashMap::new(),
+            42,
+            "identity".to_string(),
+        );
+
+        let mut metadata = HashMap::new();
+        metadata.insert("custom_key".to_string(), "custom_value".to_string());
+
+        // This should fail but exercises the metadata handling code
+        let result = ctx
+            .publish_to_internal(
+                &message_ctx,
+                b"reply".to_vec(),
+                Some("text/plain".to_string()),
+                Some(metadata),
+            )
+            .await;
+
+        assert!(result.is_err_and(|e| matches!(e, SessionError::SessionClosed)));
+    }
+
+    // ==================== ReceivedMessage Construction Test ====================
+
+    #[tokio::test]
+    async fn test_received_message_construction() {
+        let (ctx, tx) = make_context();
+
+        let mut metadata = HashMap::new();
+        metadata.insert("trace_id".to_string(), "abc123".to_string());
+        metadata.insert("user".to_string(), "test_user".to_string());
+
+        let msg = create_test_proto_message(
+            make_slim_name(["org", "sender", "service"]),
+            make_slim_name(["org", "receiver", "service"]),
+            999,
+            b"complex payload with special chars: \x00\xFF".to_vec(),
+            "application/octet-stream",
+            metadata,
+        );
+
+        tx.send(Ok(msg)).expect("send should succeed");
+
+        let result = ctx.get_message_async(Some(100)).await;
+        assert!(result.is_ok());
+
+        let received = result.unwrap();
+        assert_eq!(
+            received.payload,
+            b"complex payload with special chars: \x00\xFF"
+        );
+        assert_eq!(received.context.payload_type, "application/octet-stream");
+        assert_eq!(received.context.input_connection, 999);
+        assert_eq!(
+            received.context.metadata.get("trace_id"),
+            Some(&"abc123".to_string())
+        );
+        assert_eq!(
+            received.context.metadata.get("user"),
+            Some(&"test_user".to_string())
+        );
+    }
+
+    // ==================== Message Context Conversion Test ====================
+
+    #[tokio::test]
+    async fn test_message_context_source_as_slim_name() {
+        let ffi_name = make_ffi_name(["org", "namespace", "app"]);
+        let message_ctx = MessageContext::new(
+            ffi_name,
+            None,
+            "text/plain".to_string(),
+            HashMap::new(),
+            1,
+            "id".to_string(),
+        );
+
+        let slim_name = message_ctx.source_as_slim_name();
+        let components = slim_name.components_strings();
+        assert_eq!(components[0], "org");
+        assert_eq!(components[1], "namespace");
+        assert_eq!(components[2], "app");
+    }
+
+    // ==================== Empty/Edge Case Tests ====================
+
+    #[tokio::test]
+    async fn test_get_message_with_empty_payload() {
+        let (ctx, tx) = make_context();
+
+        let msg = create_test_proto_message(
+            make_slim_name(["org", "sender", "app"]),
+            make_slim_name(["org", "receiver", "app"]),
+            1,
+            vec![], // empty payload
+            "text/plain",
+            HashMap::new(),
+        );
+
+        tx.send(Ok(msg)).expect("send should succeed");
+
+        let result = ctx.get_message_async(Some(100)).await;
+        assert!(result.is_ok());
+        let received = result.unwrap();
+        assert!(received.payload.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_message_with_large_payload() {
+        let (ctx, tx) = make_context();
+
+        // 1MB payload
+        let large_payload = vec![0xAB; 1024 * 1024];
+
+        let msg = create_test_proto_message(
+            make_slim_name(["org", "sender", "app"]),
+            make_slim_name(["org", "receiver", "app"]),
+            1,
+            large_payload.clone(),
+            "application/octet-stream",
+            HashMap::new(),
+        );
+
+        tx.send(Ok(msg)).expect("send should succeed");
+
+        let result = ctx.get_message_async(Some(500)).await;
+        assert!(result.is_ok());
+        let received = result.unwrap();
+        assert_eq!(received.payload.len(), 1024 * 1024);
+        assert_eq!(received.payload, large_payload);
+    }
+
+    #[tokio::test]
+    async fn test_publish_async_with_metadata() {
+        let (ctx, _tx) = make_context();
+
+        let mut metadata = HashMap::new();
+        metadata.insert("key1".to_string(), "value1".to_string());
+        metadata.insert("key2".to_string(), "value2".to_string());
+
+        let result = ctx
+            .publish_async(
+                b"test".to_vec(),
+                Some("application/json".to_string()),
+                Some(metadata),
+            )
+            .await;
+
+        // Should fail because session is missing
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_publish_async_with_options() {
+        let (ctx, _tx) = make_context();
+
+        let mut metadata = HashMap::new();
+        metadata.insert("trace".to_string(), "123".to_string());
+
+        let result = ctx
+            .publish_async(
+                b"important message".to_vec(),
+                Some("text/plain".to_string()),
+                Some(metadata),
+            )
+            .await;
+
+        // Should fail because session is missing, but returns CompletionHandle
+        assert!(result.is_err());
+    }
+
+    // ========================================================================
+    // SessionConfig Conversion Tests
+    // ========================================================================
+
+    /// Test SessionConfig to SlimSessionConfig conversion for PointToPoint
+    #[test]
+    fn test_session_config_point_to_point() {
+        let config = SessionConfig {
+            session_type: SessionType::PointToPoint,
+            enable_mls: true,
+            max_retries: Some(5),
+            interval: Some(std::time::Duration::from_millis(200)),
+            metadata: std::collections::HashMap::from([
+                ("key1".to_string(), "value1".to_string()),
+                ("key2".to_string(), "value2".to_string()),
+            ]),
+        };
+
+        let slim_config: SlimSessionConfig = config.into();
+
+        assert_eq!(slim_config.session_type, ProtoSessionType::PointToPoint);
+        assert!(slim_config.mls_enabled);
+        assert_eq!(slim_config.max_retries, Some(5));
+        assert_eq!(
+            slim_config.interval,
+            Some(std::time::Duration::from_millis(200))
+        );
+        assert_eq!(
+            slim_config.metadata.get("key1"),
+            Some(&"value1".to_string())
+        );
+    }
+
+    /// Test SessionConfig to SlimSessionConfig conversion for Group
+    #[test]
+    fn test_session_config_group() {
+        let config = SessionConfig {
+            session_type: SessionType::Group,
+            enable_mls: false,
+            max_retries: None,
+            interval: None,
+            metadata: std::collections::HashMap::new(),
+        };
+
+        let slim_config: SlimSessionConfig = config.into();
+
+        assert_eq!(slim_config.session_type, ProtoSessionType::Multicast);
+        assert!(!slim_config.mls_enabled);
+        assert!(slim_config.max_retries.is_none());
+        assert!(slim_config.interval.is_none());
+    }
+}

@@ -37,6 +37,7 @@ pub mod errors;
 #[macro_use]
 pub mod service;
 
+#[cfg(feature = "session")]
 pub mod app;
 
 // Third-party crates

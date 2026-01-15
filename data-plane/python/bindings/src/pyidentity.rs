@@ -608,3 +608,145 @@ impl TryFrom<PyIdentityVerifier> for IdentityVerifier {
         }
     }
 }
+
+// Conversions to bindings adapter types for IdentityProviderConfig
+
+use slim_bindings::{
+    ClientJwtAuth, IdentityProviderConfig, IdentityVerifierConfig, JwtAuth, JwtKeyConfig,
+    JwtKeyType, SlimError, StaticJwtAuth,
+};
+
+impl TryFrom<PyIdentityProvider> for IdentityProviderConfig {
+    type Error = SlimError;
+
+    fn try_from(provider: PyIdentityProvider) -> Result<Self, Self::Error> {
+        match provider {
+            PyIdentityProvider::StaticJwt { path } => Ok(IdentityProviderConfig::StaticJwt {
+                config: StaticJwtAuth {
+                    token_file: path,
+                    duration: std::time::Duration::from_secs(3600),
+                },
+            }),
+            PyIdentityProvider::Jwt {
+                private_key,
+                duration,
+                issuer,
+                audience,
+                subject,
+            } => {
+                // Convert PyKey to slim_auth::jwt::Key first, then to JwtKeyConfig
+                let auth_key: slim_auth::jwt::Key = private_key.into();
+                let key_config = JwtKeyConfig {
+                    algorithm: auth_key.algorithm.into(),
+                    format: auth_key.format.into(),
+                    key: auth_key.key.into(),
+                };
+                Ok(IdentityProviderConfig::Jwt {
+                    config: ClientJwtAuth {
+                        key: JwtKeyType::Encoding { key: key_config },
+                        audience,
+                        issuer,
+                        subject,
+                        duration,
+                    },
+                })
+            }
+            PyIdentityProvider::SharedSecret {
+                identity,
+                shared_secret,
+            } => Ok(IdentityProviderConfig::SharedSecret {
+                id: identity,
+                data: shared_secret,
+            }),
+            #[cfg(not(target_family = "windows"))]
+            PyIdentityProvider::Spire {
+                socket_path,
+                target_spiffe_id,
+                jwt_audiences,
+            } => {
+                use slim_bindings::SpireConfig;
+                Ok(IdentityProviderConfig::Spire {
+                    config: SpireConfig {
+                        socket_path,
+                        target_spiffe_id,
+                        jwt_audiences: jwt_audiences.unwrap_or_else(|| vec!["slim".to_string()]),
+                        trust_domains: vec![],
+                    },
+                })
+            }
+            #[cfg(target_family = "windows")]
+            PyIdentityProvider::Spire { .. } => Err(SlimError::AuthError {
+                message: AuthError::SpireUnsupportedOnWindows.to_string(),
+            }),
+        }
+    }
+}
+
+impl TryFrom<PyIdentityVerifier> for IdentityVerifierConfig {
+    type Error = SlimError;
+
+    fn try_from(verifier: PyIdentityVerifier) -> Result<Self, Self::Error> {
+        match verifier {
+            PyIdentityVerifier::Jwt {
+                public_key,
+                autoresolve,
+                issuer,
+                audience,
+                subject,
+                ..
+            } => {
+                let key_type = if autoresolve {
+                    JwtKeyType::Autoresolve
+                } else if let Some(key) = public_key {
+                    // Convert PyKey to slim_auth::jwt::Key first, then to JwtKeyConfig
+                    let auth_key: slim_auth::jwt::Key = key.into();
+                    let key_config = JwtKeyConfig {
+                        algorithm: auth_key.algorithm.into(),
+                        format: auth_key.format.into(),
+                        key: auth_key.key.into(),
+                    };
+                    JwtKeyType::Decoding { key: key_config }
+                } else {
+                    JwtKeyType::Autoresolve
+                };
+
+                Ok(IdentityVerifierConfig::Jwt {
+                    config: JwtAuth {
+                        key: key_type,
+                        audience,
+                        issuer,
+                        subject,
+                        duration: std::time::Duration::from_secs(3600),
+                    },
+                })
+            }
+            PyIdentityVerifier::SharedSecret {
+                identity,
+                shared_secret,
+            } => Ok(IdentityVerifierConfig::SharedSecret {
+                id: identity,
+                data: shared_secret,
+            }),
+            #[cfg(not(target_family = "windows"))]
+            PyIdentityVerifier::Spire {
+                socket_path,
+                target_spiffe_id,
+                jwt_audiences,
+            } => {
+                use slim_bindings::SpireConfig;
+                Ok(IdentityVerifierConfig::Spire {
+                    config: SpireConfig {
+                        socket_path,
+                        target_spiffe_id,
+                        jwt_audiences: jwt_audiences.unwrap_or_else(|| vec!["slim".to_string()]),
+                        trust_domains: vec![],
+                    },
+                })
+            }
+            #[cfg(target_family = "windows")]
+            PyIdentityVerifier::Spire { .. } => Err(SlimError::AuthError {
+                message: AuthError::SpireUnsupportedOnWindows.to_string(),
+            }),
+        }
+    }
+}

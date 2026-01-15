@@ -4,6 +4,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/agntcy/slim/control-plane/slimctl/internal/cfg"
+	"github.com/agntcy/slim/control-plane/slimctl/internal/cmd"
 )
 
 // NewControllerCmd creates the base 'controller' command.
@@ -14,7 +15,7 @@ func NewControllerCmd(cfg *cfg.ConfigData) *cobra.Command {
 		Aliases: []string{"c", "ctrl"},
 		Short:   "Controller Commands",
 		Long:    `Command group for operations communicating with the SLIM Controller`,
-		GroupID: "controller",
+		GroupID: cmd.GroupController,
 	}
 
 	// Add subcommands

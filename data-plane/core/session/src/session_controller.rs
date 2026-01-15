@@ -178,6 +178,13 @@ impl SessionController {
                 msg = rx.recv() => {
                     match msg {
                         Some(session_message) => {
+                            // Handle GetParticipantsList query immediately without going through the handler
+                            if let SessionMessage::GetParticipantsList { tx } = session_message {
+                                let participants_list = inner.participants_list();
+                                let _ = tx.send(participants_list);
+                                continue;
+                            }
+
                             let draining = inner.processing_state() == ProcessingState::Draining;
 
                             // if draining and message is sent by the application, reject it
@@ -256,6 +263,20 @@ impl SessionController {
 
     pub fn is_initiator(&self) -> bool {
         self.config.initiator
+    }
+
+    pub async fn participants_list(&self) -> Result<Vec<Name>, SessionError> {
+        let (tx, rx) = oneshot::channel();
+
+        // Send query to the processing loop
+        self.tx_controller
+            .send(SessionMessage::GetParticipantsList { tx })
+            .await
+            .map_err(|_| SessionError::ParticipantsListQueryFailed)?;
+
+        // Wait for response
+        rx.await
+            .map_err(|_| SessionError::ParticipantsListQueryFailed)
     }
 
     async fn on_message(

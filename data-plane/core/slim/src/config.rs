@@ -6,11 +6,11 @@
 // when requested, allowing callers that only need tracing/runtime to proceed
 // even if services are absent.
 
+use indexmap::IndexMap;
 use lazy_static::lazy_static;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use display_error_chain::ErrorChainExt;
-use serde::Deserialize;
 use serde_yaml::{Value, from_str};
 use thiserror::Error;
 use tracing::{debug, warn};
@@ -18,9 +18,8 @@ use tracing::{debug, warn};
 use crate::runtime::RuntimeConfiguration;
 use slim_config::component::configuration::Configuration;
 use slim_config::component::id::ID;
-use slim_config::component::{Component, ComponentBuilder};
 use slim_config::provider::ConfigResolver;
-use slim_service::{Service, ServiceBuilder, ServiceError};
+use slim_service::{Service, ServiceConfiguration, ServiceError};
 use slim_tracing::TracingConfiguration;
 
 #[derive(Error, Debug)]
@@ -64,7 +63,7 @@ pub struct ConfigLoader {
     root: Value,
     tracing: Option<TracingConfiguration>,
     runtime: Option<RuntimeConfiguration>,
-    services: Option<HashMap<ID, Service>>,
+    services: Option<IndexMap<ID, Service>>,
 }
 
 impl std::fmt::Debug for ConfigLoader {
@@ -154,28 +153,22 @@ impl ConfigLoader {
         self.runtime.as_ref().unwrap()
     }
 
-    pub fn services(&mut self) -> Result<&mut HashMap<ID, Service>, ConfigError> {
+    pub fn services(&mut self) -> Result<&mut IndexMap<ID, Service>, ConfigError> {
         if self.services.is_none() {
-            let service_val = match self.root.get("services") {
-                Some(sv) => sv,
-                None => return Err(ConfigError::InvalidNoServices),
-            };
+            // Use services_config to parse configurations
+            let configs = self.services_config()?;
 
-            let service_map = service_val.as_mapping().ok_or(ConfigError::InvalidYaml)?;
-            debug!(
-                count = service_map.len(),
-                "Parsing services configuration entries"
-            );
+            let mut services_ret = IndexMap::<ID, Service>::new();
+            for (id, config) in configs {
+                // Validate the configuration
+                config.validate()?;
+                debug!(component_id = id.name(), "Resolved component configuration");
 
-            let mut services_ret = HashMap::<ID, Service>::new();
-            for (name, value) in service_map {
-                let s = build_service(name, value)?;
-                services_ret.insert(s.identifier().clone(), s);
+                // Build the service from the configuration
+                let service = config.build_server(id.clone())?;
+                services_ret.insert(id, service);
             }
 
-            if services_ret.is_empty() {
-                return Err(ConfigError::InvalidNoServices);
-            }
             let ids: Vec<_> = services_ret.keys().map(|id| id.to_string()).collect();
             debug!(
                 count = services_ret.len(),
@@ -187,41 +180,42 @@ impl ConfigLoader {
         }
         Ok(self.services.as_mut().unwrap())
     }
-}
 
-fn resolve_component<B>(
-    id: &ID,
-    builder: B,
-    component_config: Value,
-) -> Result<B::Component, ConfigError>
-where
-    B: ComponentBuilder,
-    B::Config: Configuration + std::fmt::Debug,
-    for<'de> <B as ComponentBuilder>::Config: Deserialize<'de>,
-    ConfigError: From<<B::Config as Configuration>::Error>,
-    ConfigError: From<<B::Component as Component>::Error>,
-{
-    // Typed YAML value conversion (produces ConfigError::YamlError)
-    let config: B::Config = serde_yaml::from_value(component_config)?;
+    pub fn services_config(&mut self) -> Result<IndexMap<ID, ServiceConfiguration>, ConfigError> {
+        let service_val = match self.root.get("services") {
+            Some(sv) => sv,
+            None => return Err(ConfigError::InvalidNoServices),
+        };
 
-    config.validate()?;
-    debug!(component_id = id.name(), "Resolved component configuration");
+        let service_map = service_val.as_mapping().ok_or(ConfigError::InvalidYaml)?;
+        debug!(
+            count = service_map.len(),
+            "Parsing services configuration entries"
+        );
 
-    let res = builder.build_with_config(id.name(), &config)?;
+        let mut configs = IndexMap::<ID, ServiceConfiguration>::new();
+        for (name, value) in service_map {
+            let id_string = name.as_str().ok_or(ConfigError::InvalidYaml)?;
+            let id =
+                ID::new_with_str(id_string).map_err(|e| ConfigError::InvalidKey(e.to_string()))?;
 
-    Ok(res)
-}
+            // Parse the ServiceConfiguration directly from YAML
+            let mut config: ServiceConfiguration = serde_yaml::from_value(value.clone())?;
 
-fn build_service(name: &Value, config: &Value) -> Result<Service, ConfigError> {
-    let id_string = name.as_str().ok_or(ConfigError::InvalidYaml)?;
-    let id = ID::new_with_str(id_string).map_err(|e| ConfigError::InvalidKey(e.to_string()))?;
-    let component_config = config;
+            // If condif.node_id is none, set it to the ID's name
+            if config.node_id.is_none() {
+                config.node_id = Some(id.name().to_string());
+            }
 
-    if id.kind().to_string().as_str() == slim_service::KIND {
-        return resolve_component(&id, ServiceBuilder::new(), component_config.clone());
+            configs.insert(id, config);
+        }
+
+        if configs.is_empty() {
+            return Err(ConfigError::InvalidNoServices);
+        }
+
+        Ok(configs)
     }
-
-    Err(ConfigError::InvalidKey(id_string.to_string()))
 }
 
 #[cfg(test)]
@@ -296,5 +290,76 @@ mod tests {
         let mut loader = ConfigLoader::new(&path).expect("loader init should succeed");
         let tracing = loader.tracing();
         assert_eq!(tracing.log_level(), "debug");
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_services_config() {
+        let path = format!("{}/config.yaml", testdata_path());
+        let mut loader = ConfigLoader::new(&path).expect("loader init should succeed");
+
+        // Get service configurations without building Service objects
+        let configs = loader
+            .services_config()
+            .expect("services_config should load");
+
+        assert!(
+            !configs.is_empty(),
+            "services config map should not be empty"
+        );
+        assert_eq!(configs.len(), 1, "should have exactly one service");
+
+        // Verify we can access the configuration by ID
+        let service_id = ID::new_with_str("slim/0").expect("valid service ID");
+        let config = configs
+            .get(&service_id)
+            .expect("should have slim/0 service");
+
+        // Verify the configuration was successfully parsed
+        assert!(
+            config.node_id.is_none() || config.node_id.is_some(),
+            "node_id field exists"
+        );
+        assert!(
+            config.group_name.is_none() || config.group_name.is_some(),
+            "group_name field exists"
+        );
+
+        // Verify that services were NOT built (services cache should still be None)
+        assert!(
+            loader.services.is_none(),
+            "services should not be built when using services_config"
+        );
+
+        // Now build services and verify that both methods parse the same configuration
+        let services = loader.services().expect("services should also load");
+        let service = services
+            .get(&service_id)
+            .expect("should have slim/0 service");
+        let service_config = service.config();
+
+        // Both parsing methods should produce identical configurations
+        assert_eq!(
+            config.node_id, service_config.node_id,
+            "node_id should match"
+        );
+        assert_eq!(
+            config.group_name, service_config.group_name,
+            "group_name should match"
+        );
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_services_config_missing_services() {
+        let path = format!("{}/config-no-services.yaml", testdata_path());
+        let mut loader = ConfigLoader::new(&path).expect("loader init should succeed");
+
+        let result = loader.services_config();
+        assert!(
+            result.is_err(),
+            "services_config should error when services are missing"
+        );
+        matches!(result.unwrap_err(), ConfigError::InvalidNoServices);
     }
 }

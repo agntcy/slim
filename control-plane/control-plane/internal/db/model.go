@@ -19,9 +19,10 @@ type Node struct {
 type ConnectionDetails struct {
 	Endpoint         string
 	ExternalEndpoint *string
-	// not used at the moment, but reserved for future use
-	GroupName    *string
-	MTLSRequired bool
+	TrustDomain      *string
+	MTLSRequired     bool
+	TLSConfig        *SeverTLSConfig
+	AuthConfig       *Auth
 }
 
 func (cd ConnectionDetails) String() string {
@@ -32,8 +33,8 @@ func (cd ConnectionDetails) String() string {
 	if cd.ExternalEndpoint != nil && *cd.ExternalEndpoint != "" {
 		parts = append(parts, fmt.Sprintf("externalEndpoint: %s", *cd.ExternalEndpoint))
 	}
-	if cd.GroupName != nil && *cd.GroupName != "" {
-		parts = append(parts, fmt.Sprintf("group: %s", *cd.GroupName))
+	if cd.TrustDomain != nil && *cd.TrustDomain != "" {
+		parts = append(parts, fmt.Sprintf("trustDomain: %s", *cd.TrustDomain))
 	}
 	return strings.Join(parts, ", ")
 }
@@ -105,19 +106,6 @@ func connectionDetailsEqual(cd1, cd2 ConnectionDetails) bool {
 	}
 	if cd1.ExternalEndpoint != nil && cd2.ExternalEndpoint != nil {
 		if *cd1.ExternalEndpoint != *cd2.ExternalEndpoint {
-			return false
-		}
-	}
-
-	// Compare GroupName (handling nil pointers)
-	if cd1.GroupName == nil && cd2.GroupName != nil {
-		return false
-	}
-	if cd1.GroupName != nil && cd2.GroupName == nil {
-		return false
-	}
-	if cd1.GroupName != nil && cd2.GroupName != nil {
-		if *cd1.GroupName != *cd2.GroupName {
 			return false
 		}
 	}

@@ -1,0 +1,45 @@
+[package]
+name = "agntcy-slim-bindings"
+version = "0.7.0"
+edition = { workspace = true }
+license = { workspace = true }
+description = "UniFFI bindings and FFI adapter for SLIM data plane - enables language integrations (Go, Swift, Kotlin, etc.)"
+
+[package.metadata.cargo-machete]
+ignored = ["async-compat"]
+
+[lib]
+name = "slim_bindings"
+crate-type = ["lib", "staticlib", "cdylib"]
+
+[dependencies]
+# Local workspace dependencies
+agntcy-slim = { workspace = true }
+agntcy-slim-auth = { workspace = true }
+agntcy-slim-config = { workspace = true }
+agntcy-slim-controller = { workspace = true }
+agntcy-slim-datapath = { workspace = true }
+agntcy-slim-service = { workspace = true, features = ["session"] }
+agntcy-slim-session = { workspace = true }
+agntcy-slim-signal = { workspace = true }
+agntcy-slim-tracing = { workspace = true }
+
+# External dependencies
+async-compat = "0.2"
+display-error-chain = { workspace = true }
+parking_lot = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uniffi = { version = "0.28.3", features = ["cli"] }
+
+[build-dependencies]
+uniffi = { version = "0.28.3", features = ["build"] }
+
+[dev-dependencies]
+agntcy-slim-testing = { workspace = true }
+test-fork = { workspace = true }
+tokio-test = { workspace = true }
+tracing-test = { workspace = true }

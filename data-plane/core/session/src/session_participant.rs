@@ -241,6 +241,10 @@ where
         self.common.processing_state
     }
 
+    fn participants_list(&self) -> Vec<Name> {
+        self.group_list.iter().cloned().collect()
+    }
+
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {
         // Participant-specific cleanup
         self.subscribed = false;

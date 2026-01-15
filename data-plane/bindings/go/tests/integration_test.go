@@ -27,15 +27,12 @@ import (
 )
 
 // setupTestApp creates a test app for integration tests
-func setupTestApp(t *testing.T, appNameStr string) *slim.BindingsAdapter {
+func setupTestApp(t *testing.T, appNameStr string) *slim.App {
 	t.Helper()
 
-	slim.InitializeCryptoProvider()
+	slim.InitializeWithDefaults()
 
-	appName := slim.Name{
-		Components: []string{"org", appNameStr, "v1"},
-		Id:         nil,
-	}
+	appName := slim.NewName("org", appNameStr, "v1", nil)
 
 	sharedSecret := "test-shared-secret-must-be-at-least-32-bytes-long!"
 
@@ -254,7 +251,7 @@ func TestSessionLifecycle(t *testing.T) {
 
 	// Step 4: Delete session
 	t.Log("Deleting session...")
-	err = harness.Sender.DeleteSession(session)
+	err = harness.Sender.DeleteSessionAndWait(session)
 	if err != nil {
 		t.Fatalf("Failed to delete session: %v", err)
 	}
@@ -274,12 +271,9 @@ func TestSessionLifecycle(t *testing.T) {
 
 // TestAppCreationAndProperties tests basic app creation and properties
 func TestAppCreationAndProperties(t *testing.T) {
-	slim.InitializeCryptoProvider()
+	slim.InitializeWithDefaults()
 
-	appName := slim.Name{
-		Components: []string{"org", "app-creation-test", "v1"},
-		Id:         nil,
-	}
+	appName := slim.NewName("org", "app-creation-test", "v1", nil)
 
 	sharedSecret := "test-secret-must-be-at-least-32-bytes-long!"
 
@@ -296,24 +290,28 @@ func TestAppCreationAndProperties(t *testing.T) {
 	}
 
 	retrievedName := app.Name()
-	if len(retrievedName.Components) != len(appName.Components) {
+
+	retrievedNameComponents := retrievedName.Components()
+	appNameComponents := appName.Components()
+
+	if len(retrievedNameComponents) != len(appNameComponents) {
 		t.Error("App name components count mismatch")
 	}
 
-	for i, comp := range retrievedName.Components {
-		if comp != appName.Components[i] {
+	for i, comp := range retrievedNameComponents {
+		if comp != appNameComponents[i] {
 			t.Errorf("Component %d mismatch: expected %s, got %s",
-				i, appName.Components[i], comp)
+				i, appNameComponents[i], comp)
 		}
 	}
 
 	t.Logf("✅ App created successfully with ID: %d", appID)
-	t.Logf("   Name: %v", retrievedName.Components)
+	t.Logf("   Name: %v", retrievedName.Components())
 }
 
 // TestVersionInfo tests version retrieval
 func TestVersionInfo(t *testing.T) {
-	slim.InitializeCryptoProvider()
+	slim.InitializeWithDefaults()
 
 	version := slim.GetVersion()
 	if version == "" {
@@ -328,10 +326,7 @@ func TestSubscribeUnsubscribe(t *testing.T) {
 	app := setupTestApp(t, "subscribe-test")
 	defer app.Destroy()
 
-	subscribeName := slim.Name{
-		Components: []string{"org", "sub", "topic"},
-		Id:         nil,
-	}
+	subscribeName := slim.NewName("org", "sub", "topic", nil)
 
 	// Test subscribe
 	err := app.Subscribe(subscribeName, nil)
@@ -355,10 +350,7 @@ func TestRouteOperations(t *testing.T) {
 	app := setupTestApp(t, "route-test")
 	defer app.Destroy()
 
-	routeName := slim.Name{
-		Components: []string{"org", "route", "target"},
-		Id:         nil,
-	}
+	routeName := slim.NewName("org", "route", "target", nil)
 
 	connID := uint64(123)
 
@@ -384,7 +376,7 @@ func TestListenForSessionTimeout(t *testing.T) {
 	app := setupTestApp(t, "listen-timeout-test")
 	defer app.Destroy()
 
-	timeout := uint32(100) // 100ms timeout
+	timeout := 100 * time.Millisecond
 
 	start := time.Now()
 	_, err := app.ListenForSession(&timeout)
@@ -412,10 +404,7 @@ func TestGroupSession(t *testing.T) {
 		EnableMls:   false,
 	}
 
-	destination := slim.Name{
-		Components: []string{"org", "group", "v1"},
-		Id:         nil,
-	}
+	destination := slim.NewName("org", "group", "v1", nil)
 
 	session, err := harness.Sender.CreateSession(sessionConfig, destination)
 	if err != nil {
@@ -436,27 +425,21 @@ func TestSessionInviteRemove(t *testing.T) {
 		EnableMls:   false,
 	}
 
-	destination := slim.Name{
-		Components: []string{"org", "group", "v1"},
-		Id:         nil,
-	}
+	destination := slim.NewName("org", "group", "v1", nil)
 
-	session, err := harness.Sender.CreateSession(sessionConfig, destination)
+	session, err := harness.Sender.CreateSessionAndWait(sessionConfig, destination)
 	if err != nil {
 		t.Fatalf("Failed to create session for invite test: %v", err)
 	}
 	defer session.Destroy()
 
-	participant := slim.Name{
-		Components: []string{"org", "participant", "v1"},
-		Id:         nil,
-	}
+	participant := slim.NewName("org", "participant", "v1", nil)
 
 	// Set route to participant to simulate connectivity
 	err = harness.Sender.SetRoute(participant, 1)
 
 	// Test invite - may fail for point-to-point or without full group management
-	err = session.Invite(participant)
+	err = session.InviteAndWait(participant)
 	if err != nil {
 		t.Logf("Invite failed (may be expected for basic session): %v", err)
 	} else {
@@ -464,7 +447,7 @@ func TestSessionInviteRemove(t *testing.T) {
 	}
 
 	// Test remove
-	err = session.Remove(participant)
+	err = session.RemoveAndWait(participant)
 	if err != nil {
 		t.Logf("Remove failed (may be expected): %v", err)
 	} else {
@@ -496,10 +479,10 @@ func TestCompletionHandleDoubleWait(t *testing.T) {
 	message := []byte("Test message")
 	payloadType := "text/plain"
 
-	// Get completion handle
-	completion, err := session.PublishWithCompletion(message, &payloadType, nil)
+	// Get completion handle - use regular Publish which returns a completion handle
+	completion, err := session.Publish(message, &payloadType, nil)
 	if err != nil {
-		t.Fatalf("PublishWithCompletion failed: %v", err)
+		t.Fatalf("Publish failed: %v", err)
 	}
 	defer completion.Destroy()
 
@@ -559,25 +542,19 @@ func TestInviteAutoWait(t *testing.T) {
 		EnableMls:   false,
 	}
 
-	destination := slim.Name{
-		Components: []string{"org", "group", "v1"},
-		Id:         nil,
-	}
+	destination := slim.NewName("org", "group", "v1", nil)
 
-	session, err := harness.Sender.CreateSession(sessionConfig, destination)
+	session, err := harness.Sender.CreateSessionAndWait(sessionConfig, destination)
 	if err != nil {
 		t.Fatalf("Failed to create multicast session: %v", err)
 	}
 	defer session.Destroy()
 
-	participant := slim.Name{
-		Components: []string{"org", "participant", "v1"},
-		Id:         nil,
-	}
+	participant := slim.NewName("org", "participant", "v1", nil)
 
 	// Invite should auto-wait for acknowledgment
 	start := time.Now()
-	err = session.Invite(participant)
+	err = session.InviteAndWait(participant)
 	elapsed := time.Since(start)
 
 	// Will fail without full group management, but should still auto-wait
@@ -599,25 +576,19 @@ func TestRemoveAutoWait(t *testing.T) {
 		EnableMls:   false,
 	}
 
-	destination := slim.Name{
-		Components: []string{"org", "group", "v1"},
-		Id:         nil,
-	}
+	destination := slim.NewName("org", "group", "v1", nil)
 
-	session, err := harness.Sender.CreateSession(sessionConfig, destination)
+	session, err := harness.Sender.CreateSessionAndWait(sessionConfig, destination)
 	if err != nil {
 		t.Fatalf("Failed to create multicast session: %v", err)
 	}
 	defer session.Destroy()
 
-	participant := slim.Name{
-		Components: []string{"org", "participant", "v1"},
-		Id:         nil,
-	}
+	participant := slim.NewName("org", "participant", "v1", nil)
 
 	// Remove should auto-wait for acknowledgment
 	start := time.Now()
-	err = session.Remove(participant)
+	err = session.RemoveAndWait(participant)
 	elapsed := time.Since(start)
 
 	// Will fail without participant, but should still auto-wait
@@ -640,29 +611,18 @@ func TestCompletionHandleAsync(t *testing.T) {
 	defer session.Destroy()
 
 	message := []byte("Async test message")
-	completion, err := session.PublishWithCompletion(message, nil, nil)
+	completion, err := session.Publish(message, nil, nil)
 	if err != nil {
 		t.Fatalf("PublishWithCompletion failed: %v", err)
 	}
 	defer completion.Destroy()
 
-	// Use WaitAsync in a goroutine
-	done := make(chan error, 1)
-	go func() {
-		err := completion.WaitAsync()
-		done <- err
-	}()
-
-	// Wait for completion with timeout
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Logf("Async wait completed with error (may be expected): %v", err)
-		} else {
-			t.Log("✅ Async wait completed successfully")
-		}
-	case <-time.After(5 * time.Second):
-		t.Error("Async wait timed out after 5 seconds")
+	// Call Wait directly
+	err = completion.Wait()
+	if err != nil {
+		t.Logf("Wait completed with error (may be expected): %v", err)
+	} else {
+		t.Log("✅ Wait completed successfully")
 	}
 }
 
@@ -676,12 +636,12 @@ func TestBatchPublishWithCompletion(t *testing.T) {
 
 	// Publish multiple messages and collect completion handles
 	numMessages := 5
-	completions := make([]*slim.FfiCompletionHandle, 0, numMessages)
+	completions := make([]*slim.CompletionHandle, 0, numMessages)
 
 	for i := 0; i < numMessages; i++ {
 		message := []byte(fmt.Sprintf("Batch message %d", i))
 		payloadType := "text/plain"
-		completion, err := session.PublishWithCompletion(message, &payloadType, nil)
+		completion, err := session.Publish(message, &payloadType, nil)
 		if err != nil {
 			t.Fatalf("Message %d failed to publish: %v", i, err)
 		}
@@ -719,7 +679,7 @@ func TestFireAndForgetVsWithCompletion(t *testing.T) {
 	t.Log("Testing fire-and-forget publish...")
 	message1 := []byte("Fire and forget message")
 	payloadType := "text/plain"
-	err := session.Publish(message1, &payloadType, nil)
+	err := session.PublishAndWait(message1, &payloadType, nil)
 	if err != nil {
 		t.Fatalf("Fire-and-forget publish failed: %v", err)
 	}
@@ -728,7 +688,7 @@ func TestFireAndForgetVsWithCompletion(t *testing.T) {
 	// Test 2: With completion tracking
 	t.Log("Testing publish with completion...")
 	message2 := []byte("Message with completion")
-	completion, err := session.PublishWithCompletion(message2, &payloadType, nil)
+	completion, err := session.Publish(message2, &payloadType, nil)
 	if err != nil {
 		t.Fatalf("Publish with completion failed: %v", err)
 	}
@@ -756,17 +716,17 @@ func TestFireAndForgetVsWithCompletion(t *testing.T) {
 
 // BenchmarkPublishFireAndForget benchmarks fire-and-forget publish
 func BenchmarkPublishFireAndForget(b *testing.B) {
-	slim.InitializeCryptoProvider()
+	slim.InitializeWithDefaults()
 
 	app, _ := slim.CreateAppWithSecret(
-		slim.Name{Components: []string{"org", "bench", "v1"}, Id: nil},
+		slim.NewName("org", "bench", "v1", nil),
 		"benchmark-secret-must-be-at-least-32-bytes!",
 	)
 	defer app.Destroy()
 
 	session, err := app.CreateSession(
 		slim.SessionConfig{SessionType: slim.SessionTypePointToPoint, EnableMls: false},
-		slim.Name{Components: []string{"org", "receiver", "v1"}, Id: nil},
+		slim.NewName("org", "receiver", "v1", nil),
 	)
 	if err != nil {
 		b.Skipf("Skipping benchmark - session creation failed: %v", err)
@@ -778,23 +738,23 @@ func BenchmarkPublishFireAndForget(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = session.Publish(message, nil, nil)
+		_ = session.Session.PublishAndWait(message, nil, nil)
 	}
 }
 
 // BenchmarkPublishWithCompletion benchmarks publish with completion handle
 func BenchmarkPublishWithCompletion(b *testing.B) {
-	slim.InitializeCryptoProvider()
+	slim.InitializeWithDefaults()
 
 	app, _ := slim.CreateAppWithSecret(
-		slim.Name{Components: []string{"org", "bench", "v1"}, Id: nil},
+		slim.NewName("org", "bench", "v1", nil),
 		"benchmark-secret-must-be-at-least-32-bytes!",
 	)
 	defer app.Destroy()
 
 	session, err := app.CreateSession(
 		slim.SessionConfig{SessionType: slim.SessionTypePointToPoint, EnableMls: false},
-		slim.Name{Components: []string{"org", "receiver", "v1"}, Id: nil},
+		slim.NewName("org", "receiver", "v1", nil),
 	)
 	if err != nil {
 		b.Skipf("Skipping benchmark - session creation failed: %v", err)
@@ -806,7 +766,7 @@ func BenchmarkPublishWithCompletion(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		completion, err := session.PublishWithCompletion(message, nil, nil)
+		completion, err := session.Session.Publish(message, nil, nil)
 		if err == nil {
 			completion.Destroy()
 		}
@@ -815,17 +775,17 @@ func BenchmarkPublishWithCompletion(b *testing.B) {
 
 // BenchmarkPublishWithCompletionAndWait benchmarks publish with wait
 func BenchmarkPublishWithCompletionAndWait(b *testing.B) {
-	slim.InitializeCryptoProvider()
+	slim.InitializeWithDefaults()
 
 	app, _ := slim.CreateAppWithSecret(
-		slim.Name{Components: []string{"org", "bench", "v1"}, Id: nil},
+		slim.NewName("org", "bench", "v1", nil),
 		"benchmark-secret-must-be-at-least-32-bytes!",
 	)
 	defer app.Destroy()
 
 	session, err := app.CreateSession(
 		slim.SessionConfig{SessionType: slim.SessionTypePointToPoint, EnableMls: false},
-		slim.Name{Components: []string{"org", "receiver", "v1"}, Id: nil},
+		slim.NewName("org", "receiver", "v1", nil),
 	)
 	if err != nil {
 		b.Skipf("Skipping benchmark - session creation failed: %v", err)
@@ -837,7 +797,7 @@ func BenchmarkPublishWithCompletionAndWait(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		completion, err := session.PublishWithCompletion(message, nil, nil)
+		completion, err := session.Session.Publish(message, nil, nil)
 		if err == nil {
 			_ = completion.Wait()
 			completion.Destroy()

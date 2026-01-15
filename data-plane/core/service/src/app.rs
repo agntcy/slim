@@ -578,7 +578,38 @@ mod tests {
             .await
             .unwrap();
 
-        // We should get a new session notification
+        // Session is created but not yet notified - waiting for GroupWelcome
+        // Give some time for processing
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert!(
+            rx_app.try_recv().is_err(),
+            "Should not receive notification yet"
+        );
+
+        // Send GroupWelcome message to complete the handshake
+        let welcome_payload = CommandPayload::builder()
+            .group_welcome(vec![source.clone(), dest.clone()], None)
+            .as_content();
+
+        let welcome_message = Message::builder()
+            .source(source.clone())
+            .destination(dest.clone())
+            .identity(identity.get_token().unwrap())
+            .incoming_conn(0)
+            .session_type(slim_datapath::api::ProtoSessionType::PointToPoint)
+            .session_message_type(slim_datapath::api::ProtoSessionMessageType::GroupWelcome)
+            .session_id(1)
+            .message_id(2)
+            .payload(welcome_payload)
+            .build_publish()
+            .unwrap();
+
+        app.session_layer
+            .handle_message_from_slim(welcome_message)
+            .await
+            .unwrap();
+
+        // Now we should get the new session notification
         let new_session = rx_app
             .recv()
             .await

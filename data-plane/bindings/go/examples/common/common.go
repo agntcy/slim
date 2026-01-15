@@ -32,15 +32,12 @@ const (
 //
 //	Name: Constructed identity object.
 //	error: If the id cannot be split into exactly three segments.
-func SplitID(id string) (slim.Name, error) {
+func SplitID(id string) (*slim.Name, error) {
 	parts := strings.Split(id, "/")
 	if len(parts) != 3 {
-		return slim.Name{}, fmt.Errorf("IDs must be in the format organization/namespace/app-or-stream, got: %s", id)
+		return nil, fmt.Errorf("IDs must be in the format organization/namespace/app-or-stream, got: %s", id)
 	}
-	return slim.Name{
-		Components: []string{parts[0], parts[1], parts[2]},
-		Id:         nil,
-	}, nil
+	return slim.NewName(parts[0], parts[1], parts[2], nil), nil
 }
 
 // CreateAndConnectApp creates a SLIM app with shared secret authentication
@@ -62,9 +59,9 @@ func SplitID(id string) (slim.Name, error) {
 //	*slim.BindingsAdapter: Created and connected app instance
 //	uint64: Connection ID returned by the server
 //	error: If creation or connection fails
-func CreateAndConnectApp(localID, serverAddr, secret string) (*slim.BindingsAdapter, uint64, error) {
+func CreateAndConnectApp(localID, serverAddr, secret string) (*slim.App, uint64, error) {
 	// Initialize crypto subsystem (idempotent, safe to call multiple times)
-	slim.InitializeCryptoProvider()
+	slim.InitializeWithDefaults()
 
 	// Parse the local identity string
 	appName, err := SplitID(localID)
@@ -79,11 +76,8 @@ func CreateAndConnectApp(localID, serverAddr, secret string) (*slim.BindingsAdap
 	}
 
 	// Connect to SLIM server (returns connection ID)
-	config := slim.ClientConfig{
-		Endpoint: serverAddr,
-		Tls:      slim.TlsConfig{Insecure: true},
-	}
-	connID, err := app.Connect(config)
+	config := slim.NewInsecureClientConfig(serverAddr)
+	connID, err := slim.Connect(config)
 	if err != nil {
 		app.Destroy()
 		return nil, 0, fmt.Errorf("connect failed: %w", err)

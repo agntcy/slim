@@ -113,4 +113,8 @@ pub enum SessionMessage {
     /// message from session controller to session layer
     /// to notify that the session can be removed safely
     DeleteSession { session_id: u32 },
+    /// Query the participants list from the handler
+    GetParticipantsList {
+        tx: tokio::sync::oneshot::Sender<Vec<Name>>,
+    },
 }

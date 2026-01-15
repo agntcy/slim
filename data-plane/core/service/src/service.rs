@@ -28,9 +28,12 @@ use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::Name;
 
 // Local crate
+#[cfg(feature = "session")]
 use crate::app::App;
 use crate::errors::ServiceError;
+#[cfg(feature = "session")]
 use slim_session::SessionError;
+#[cfg(feature = "session")]
 use slim_session::notification::Notification;
 
 // Define the kind of the component as static string
@@ -129,7 +132,7 @@ pub struct Service {
     message_processor: Arc<MessageProcessor>,
 
     /// controller service
-    controller: Option<ControlPlane>,
+    controller: tokio::sync::RwLock<Option<ControlPlane>>,
 
     /// the configuration of the service
     config: ServiceConfiguration,
@@ -184,7 +187,7 @@ impl Service {
         Service {
             id,
             message_processor,
-            controller: None,
+            controller: tokio::sync::RwLock::new(None),
             config,
             cancellation_tokens: parking_lot::RwLock::new(HashMap::new()),
             clients: parking_lot::RwLock::new(HashMap::new()),
@@ -202,7 +205,7 @@ impl Service {
     }
 
     /// Run the service
-    pub async fn run(&mut self) -> Result<(), ServiceError> {
+    pub async fn run(&self) -> Result<(), ServiceError> {
         // Check that at least one client or server is configured
 
         if self.config.dataplane_servers().is_empty() && self.config.dataplane_clients().is_empty()
@@ -239,12 +242,20 @@ impl Service {
         controller.run().await?;
 
         // save controller service
-        self.controller = Some(controller);
+        *self.controller.write().await = Some(controller);
 
         Ok(())
     }
 
     pub async fn shutdown(&self) -> Result<(), ServiceError> {
+        self.shutdown_with_timeout(std::time::Duration::from_secs(10))
+            .await
+    }
+
+    pub async fn shutdown_with_timeout(
+        &self,
+        drain_timeout: std::time::Duration,
+    ) -> Result<(), ServiceError> {
         info!("shutting down service");
 
         // Cancel and drain all server cancellation tokens
@@ -263,10 +274,12 @@ impl Service {
 
         // Call the shutdown method of message processor to make sure all
         // tasks ended gracefully
-        self.message_processor.shutdown().await?;
+        self.message_processor
+            .shutdown_with_timeout(drain_timeout)
+            .await?;
 
         // Shutdown controller if present
-        if let Some(controller) = self.controller.as_ref() {
+        if let Some(ref controller) = *self.controller.read().await {
             controller.shutdown().await?;
         }
 
@@ -274,6 +287,7 @@ impl Service {
     }
 
     // APP APIs
+    #[cfg(feature = "session")]
     pub fn create_app<P, V>(
         &self,
         app_name: &Name,
@@ -495,7 +509,7 @@ mod tests {
         let server_config =
             ServerConfig::with_endpoint("0.0.0.0:12347").with_tls_settings(tls_config);
         let config = ServiceConfiguration::new().with_dataplane_server([server_config].to_vec());
-        let mut service = config
+        let service = config
             .build_server(
                 ID::new_with_name(Kind::new(KIND).unwrap(), "test-no-controller").unwrap(),
             )
@@ -535,7 +549,7 @@ mod tests {
             .with_dataplane_server(vec![dataplane_server_config])
             .with_controlplane_server(vec![controller_server_config]);
 
-        let mut service = config
+        let service = config
             .build_server(
                 ID::new_with_name(Kind::new(KIND).unwrap(), "test-with-controller").unwrap(),
             )
@@ -569,7 +583,7 @@ mod tests {
         let server_config =
             ServerConfig::with_endpoint("0.0.0.0:12345").with_tls_settings(tls_config);
         let config = ServiceConfiguration::new().with_dataplane_server([server_config].to_vec());
-        let mut service = config
+        let service = config
             .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test").unwrap())
             .unwrap();
 
@@ -598,7 +612,7 @@ mod tests {
         let server_config =
             ServerConfig::with_endpoint("0.0.0.0:12346").with_tls_settings(tls_config);
         let config = ServiceConfiguration::new().with_dataplane_server([server_config].to_vec());
-        let mut service = config
+        let service = config
             .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test-disconnect").unwrap())
             .unwrap();
 

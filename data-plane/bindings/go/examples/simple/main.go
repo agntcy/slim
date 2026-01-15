@@ -15,7 +15,7 @@ func main() {
 	fmt.Println("==================================================")
 
 	// Initialize crypto provider (required before any operations)
-	slim.InitializeCryptoProvider()
+	slim.InitializeWithDefaults()
 	fmt.Println("✅ Crypto initialized")
 
 	// Get version
@@ -23,22 +23,34 @@ func main() {
 	fmt.Printf("📦 SLIM Bindings Version: %s\n\n", version)
 
 	// Create an app with shared secret authentication
-	appName := slim.Name{
-		Components: []string{"org", "myapp", "v1"},
-		Id:         nil,
-	}
+	appName := slim.NewName("org", "myapp", "v1", nil)
 
 	// Note: Shared secret must be at least 32 bytes
 	sharedSecret := "my-shared-secret-value-must-be-at-least-32-bytes-long!"
 
-	app, err := slim.CreateAppWithSecret(appName, sharedSecret)
+	// create shared secret provider and verifier
+	identityProvider := slim.IdentityProviderConfigSharedSecret{
+		Data: sharedSecret,
+		Id:   appName.AsString(),
+	}
+
+	identityVerifier := slim.IdentityVerifierConfigSharedSecret{
+		Data: sharedSecret,
+		Id:   appName.AsString(),
+	}
+
+	app, err := slim.NewApp(
+		appName,
+		&identityProvider,
+		&identityVerifier,
+	)
 	if err != nil {
 		log.Fatalf("❌ Failed to create app: %v", err)
 	}
 
 	fmt.Printf("✅ App created with ID: %d\n", app.Id())
 	appNameResult := app.Name()
-	fmt.Printf("   Name components: %v\n\n", appNameResult.Components)
+	fmt.Printf("   Name components: %v\n\n", appNameResult.Components())
 
 	// Create a session configuration
 	sessionConfig := slim.SessionConfig{
@@ -46,13 +58,10 @@ func main() {
 		EnableMls:   false,
 	}
 
-	destination := slim.Name{
-		Components: []string{"org", "receiver", "v1"},
-		Id:         nil,
-	}
+	destination := slim.NewName("org", "receiver", "v1", nil)
 
 	fmt.Println("📡 Creating session to destination...")
-	session, err := app.CreateSession(sessionConfig, destination)
+	session, err := app.CreateSessionAndWait(sessionConfig, destination)
 	if err != nil {
 		log.Fatalf("❌ Failed to create session: %v", err)
 	}
@@ -61,7 +70,7 @@ func main() {
 	// Ensure session cleanup when done
 	defer func() {
 		fmt.Println("\n🗑️  Cleaning up session...")
-		if err := app.DeleteSession(session); err != nil {
+		if err := app.DeleteSessionAndWait(session); err != nil {
 			fmt.Printf("⚠️  Failed to delete session: %v\n", err)
 		} else {
 			fmt.Println("✅ Session deleted")
@@ -72,7 +81,7 @@ func main() {
 	message := []byte("Hello from Go! 👋")
 
 	fmt.Println("\n📤 Publishing message...")
-	err = session.Publish(message, nil, nil)
+	err = session.PublishAndWait(message, nil, nil)
 	if err != nil {
 		// This might fail without a real SLIM network - that's expected
 		fmt.Printf("⚠️  Publish failed (expected without network): %v\n", err)
@@ -81,10 +90,7 @@ func main() {
 	}
 
 	// Test subscription
-	subscriptionName := slim.Name{
-		Components: []string{"org", "myapp", "events"},
-		Id:         nil,
-	}
+	subscriptionName := slim.NewName("org", "myapp", "events", nil)
 
 	fmt.Println("\n📥 Testing subscription...")
 	err = app.Subscribe(subscriptionName, nil)
@@ -103,13 +109,10 @@ func main() {
 	}
 
 	// Test invite (will fail for non-multicast session)
-	inviteeName := slim.Name{
-		Components: []string{"org", "guest", "v1"},
-		Id:         nil,
-	}
+	inviteeName := slim.NewName("org", "guest", "v1", nil)
 
 	fmt.Println("\n👥 Testing session invite...")
-	err = session.Invite(inviteeName)
+	err = session.InviteAndWait(inviteeName)
 	if err != nil {
 		fmt.Printf("⚠️  Invite failed (expected for point-to-point session): %v\n", err)
 	} else {
