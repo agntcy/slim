@@ -385,8 +385,8 @@ pub async fn run_server(config: ServerConfig) -> Result<(), SlimError> {
 
 /// Stop a server on the global service by endpoint
 #[uniffi::export]
-pub async fn stop_server(endpoint: String) -> Result<(), SlimError> {
-    get_global_service().stop_server_async(endpoint).await
+pub fn stop_server(endpoint: String) -> Result<(), SlimError> {
+    get_global_service().stop_server(endpoint)
 }
 
 /// Connect to a remote endpoint as a client using the global service
@@ -397,13 +397,13 @@ pub async fn connect(config: ClientConfig) -> Result<u64, SlimError> {
 
 /// Disconnect a client connection by connection ID on the global service
 #[uniffi::export]
-pub async fn disconnect(conn_id: u64) -> Result<(), SlimError> {
-    get_global_service().disconnect_async(conn_id).await
+pub fn disconnect(conn_id: u64) -> Result<(), SlimError> {
+    get_global_service().disconnect(conn_id)
 }
 
 /// Get the connection ID for a given endpoint on the global service
 #[uniffi::export]
-pub async fn get_connection_id(endpoint: String) -> Option<u64> {
+pub fn get_connection_id(endpoint: String) -> Option<u64> {
     get_global_service().get_connection_id(endpoint)
 }
 
@@ -686,17 +686,15 @@ mod tests {
     #[tokio::test]
     async fn test_stop_nonexistent_server() {
         let service = Service::new("stop-test".to_string());
-        let result = service
-            .stop_server_async("127.0.0.1:99999".to_string())
-            .await;
+        let result = service.stop_server("127.0.0.1:99999".to_string());
         // Should fail because server doesn't exist
         assert!(result.is_err());
     }
 
-    #[tokio::test]
-    async fn test_disconnect_invalid_connection() {
+    #[test]
+    fn test_disconnect_invalid_connection() {
         let service = Service::new("disconnect-test".to_string());
-        let result = service.disconnect_async(999999).await;
+        let result = service.disconnect(999999);
         // Should fail because connection doesn't exist
         assert!(result.is_err());
     }
@@ -836,23 +834,23 @@ mod tests {
     // Global Service Convenience Functions Tests
     // ========================================================================
 
-    #[tokio::test]
-    async fn test_global_stop_server_convenience() {
-        let result = stop_server("127.0.0.1:88888".to_string()).await;
+    #[test]
+    fn test_global_stop_server_convenience() {
+        let result = stop_server("127.0.0.1:88888".to_string());
         // Should error since server doesn't exist
         assert!(result.is_err());
     }
 
-    #[tokio::test]
-    async fn test_global_disconnect_convenience() {
-        let result = disconnect(888888).await;
+    #[test]
+    fn test_global_disconnect_convenience() {
+        let result = disconnect(888888);
         // Should error since connection doesn't exist
         assert!(result.is_err());
     }
 
-    #[tokio::test]
-    async fn test_global_get_connection_id_convenience() {
-        let conn_id = get_connection_id("nonexistent-global".to_string()).await;
+    #[test]
+    fn test_global_get_connection_id_convenience() {
+        let conn_id = get_connection_id("nonexistent-global".to_string());
         assert!(conn_id.is_none());
     }
 
@@ -866,13 +864,11 @@ mod tests {
         let service = Service::new("uninitialized-test".to_string());
 
         // Stop server that doesn't exist
-        let result = service
-            .stop_server_async("127.0.0.1:11111".to_string())
-            .await;
+        let result = service.stop_server("127.0.0.1:11111".to_string());
         assert!(result.is_err());
 
         // Disconnect non-existent connection
-        let result = service.disconnect_async(11111).await;
+        let result = service.disconnect(11111);
         assert!(result.is_err());
 
         // Get non-existent connection ID

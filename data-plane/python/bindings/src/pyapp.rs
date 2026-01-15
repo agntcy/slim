@@ -204,8 +204,7 @@ impl PyApp {
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             internal_clone
                 .service
-                .stop_server_async(endpoint)
-                .await
+                .stop_server(endpoint)
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })
     }
@@ -259,8 +258,7 @@ impl PyApp {
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             internal_clone
                 .service
-                .disconnect_async(conn)
-                .await
+                .disconnect(conn)
                 .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
         })
     }
