@@ -1,16 +1,37 @@
 {
   "name": "@agntcy/slim-bindings",
   "version": "0.7.0",
-  "description": "JavaScript/TypeScript bindings for SLIM (Secure Low-Latency Interactive Messaging)",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "description": "JavaScript/TypeScript bindings for SLIM data plane - enables React Native and Web (WASM) integrations",
+  "main": "./generated/typescript/index.js",
+  "types": "./generated/typescript/index.d.ts",
+  "react-native": "./generated/react-native/index.ts",
+  "browser": "./generated/wasm/index.js",
+  "files": [
+    "generated/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "task generate",
+    "build:wasm": "task build:wasm",
+    "test": "task test",
+    "test:unit": "vitest run tests/unit.test.ts",
+    "test:integration": "vitest run tests/integration.test.ts",
+    "test:coverage": "vitest run --coverage",
+    "clean": "task clean",
+    "example:rn:simple": "task example:react-native:simple",
+    "example:web:simple": "task example:web:simple"
+  },
   "keywords": [
     "slim",
     "messaging",
-    "rust",
+    "mls",
     "uniffi",
+    "react-native",
+    "wasm",
     "typescript",
-    "react-native"
+    "bindings",
+    "ffi"
   ],
   "author": "AGNTCY Contributors",
   "license": "Apache-2.0",
@@ -19,22 +40,20 @@
     "url": "https://github.com/agntcy/slim.git",
     "directory": "data-plane/bindings/javascript"
   },
-  "scripts": {
-    "build": "tsc",
-    "clean": "rm -rf dist generated node_modules",
-    "test": "echo 'Tests not yet implemented'"
-  },
-  "files": [
-    "dist",
-    "generated",
-    "README.md"
-  ],
-  "dependencies": {
-    "uniffi-bindgen-react-native": "0.29.3-1"
-  },
   "devDependencies": {
-    "@types/node": "^22.0.0",
-    "typescript": "^5.7.2"
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.3",
+    "vitest": "^1.0.0",
+    "@vitest/coverage-v8": "^1.0.0",
+    "vite": "^5.0.0"
+  },
+  "peerDependencies": {
+    "react-native": ">=0.72.0"
+  },
+  "peerDependenciesMeta": {
+    "react-native": {
+      "optional": true
+    }
   },
   "engines": {
     "node": ">=18.0.0"
