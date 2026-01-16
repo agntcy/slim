@@ -15,8 +15,6 @@ services:
   slim/0:
     dataplane:
       clients:
-        - endpoint: "https://localhost:46357"
+        - endpoint: "http://127.0.0.1:12346"
           tls:
-            ca_source:
-              type: file
-              path: "./config/crypto/server-ca-cert.pem"
+            insecure: true

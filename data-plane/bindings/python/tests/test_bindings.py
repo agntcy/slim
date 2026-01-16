@@ -159,7 +159,7 @@ async def test_end_to_end(server):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("server", ["127.0.0.1:12346"], indirect=True)
+@pytest.mark.parametrize("server", [None], indirect=True)
 async def test_auto_reconnect_after_server_restart(server):
     """Test resilience / auto-reconnect:
     - Establish connection and session
@@ -168,46 +168,45 @@ async def test_auto_reconnect_after_server_restart(server):
     - Wait for automatic reconnection
     - Publish again and confirm continuity using original session context
     """
+    endpoint = "127.0.0.1:12346"
+
+    svc_server = slim_bindings.Service("svcserver")
+    svc_alice = slim_bindings.Service("svcalice")
+    svc_bob = slim_bindings.Service("svcbob")
+
+    server_conf = slim_bindings.new_insecure_server_config(endpoint)
+    await svc_server.run_server_async(server_conf)
+
+    client_conf = slim_bindings.new_insecure_client_config("http://" + endpoint)
+    conn_id_alice = await svc_alice.connect_async(client_conf)
+    conn_id_bob = await svc_bob.connect_async(client_conf)
+
     alice_name = slim_bindings.Name("org", "default", "alice_res")
     bob_name = slim_bindings.Name("org", "default", "bob_res")
-
-    # connect to the service
-    conn_id_alice = None
-    conn_id_bob = None
-    if server.local_service:
-        svc_alice = slim_bindings.Service("svcalice")
-        svc_bob = slim_bindings.Service("svcbob")
-
-        conn_id_alice = await svc_alice.connect_async(server.get_client_config())
-        conn_id_bob = await svc_bob.connect_async(server.get_client_config())
-    else:
-        svc_alice = server.service
-        svc_bob = server.service
 
     # create 2 apps, Alice and Bob
     app_alice = svc_alice.create_app_with_secret(alice_name, LONG_SECRET)
     app_bob = svc_bob.create_app_with_secret(bob_name, LONG_SECRET)
 
-    if server.local_service:
-        # subscribe alice and bob
-        alice_name = slim_bindings.Name.new_with_id(
-            "org", "default", "alice_res", id=app_alice.id()
-        )
-        bob_name = slim_bindings.Name.new_with_id(
-            "org", "default", "bob_res", id=app_bob.id()
-        )
+    # subscribe alice and bob
+    alice_name = slim_bindings.Name.new_with_id(
+        "org", "default", "alice_res", id=app_alice.id()
+    )
+    bob_name = slim_bindings.Name.new_with_id(
+        "org", "default", "bob_res", id=app_bob.id()
+    )
 
-        await app_alice.subscribe_async(alice_name, conn_id_alice)
-        await app_bob.subscribe_async(bob_name, conn_id_bob)
-
-        await asyncio.sleep(1)
-
-        # set routes
-        await app_alice.set_route_async(bob_name, conn_id_alice)
+    await app_alice.subscribe_async(alice_name, conn_id_alice)
+    await app_bob.subscribe_async(bob_name, conn_id_bob)
 
     await asyncio.sleep(1)
 
-    # create point to point session (auto-waits for establishment)
+    # set routes
+    await app_alice.set_route_async(bob_name, conn_id_alice)
+
+    await asyncio.sleep(1)
+
+    # create point to point session
     session_context_alice = await app_alice.create_session_async(
         slim_bindings.SessionConfig(
             session_type=slim_bindings.SessionType.POINT_TO_POINT,
@@ -243,12 +242,15 @@ async def test_auto_reconnect_after_server_restart(server):
     assert bob_session_ctx.session_id() == session_context_alice.session.session_id()
 
     # restart the server
-    server.service.stop_server("127.0.0.1:12346")
-    await asyncio.sleep(3)  # allow time for the server to fully shut down
+    await svc_server.shutdown_async()
+    svc_server = slim_bindings.Service("svcserver")
+    svc_server.run_server(server_conf)
     await server.service.run_server_async(
         slim_bindings.new_insecure_server_config("127.0.0.1:12346")
     )
-    await asyncio.sleep(2)  # allow time for automatic reconnection
+    await asyncio.sleep(
+        3
+    )  # allow time for the server to fully shut down and restart, and for clients to reconnect
 
     # test that the message exchange resumes normally after the simulated restart
     test_msg = [4, 5, 6]

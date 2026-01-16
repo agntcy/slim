@@ -23,7 +23,7 @@ The Python bindings are built using Maturin, which automatically generates Pytho
 
 ```
 data-plane/bindings/
-├── adapter/          # Rust UniFFI adapter (shared by Go, Python, etc.)
+├── rust/          # Rust UniFFI bindings (shared by Go, Python, etc.)
 │   ├── src/
 │   │   ├── adapter.rs
 │   │   ├── session_context.rs
@@ -32,7 +32,6 @@ data-plane/bindings/
 │   └── Cargo.toml
 ├── go/               # Go-specific bindings and examples
 └── python/           # Python-specific bindings and examples (this directory)
-    ├── slim_uniffi_bindings/  # Python package
     ├── examples/              # Example applications
     ├── tests/                 # Unit and integration tests
     └── Taskfile.yaml          # Build and development tasks
@@ -467,4 +466,3 @@ Apache-2.0 - See [LICENSE.md](../../../LICENSE.md) for details
 - [Go Bindings](../go/README.md)
 - [UniFFI Adapter](../adapter/src/)
 - [SLIM Documentation](../../../README.md)
-

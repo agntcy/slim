@@ -752,6 +752,10 @@ impl MessageProcessor {
         let tx_cp: Option<Sender<Result<Message, Status>>> = self.get_tx_control_plane();
         let watch = self.get_drain_watch()?;
 
+        if !client_config.is_none() {
+            tracing::info!("si siamo qui e stampiamo");
+        }
+
         let handle = tokio::spawn(async move {
             let mut try_to_reconnect = true;
 
@@ -807,17 +811,19 @@ impl MessageProcessor {
                         }
                     }
                     _ = &mut watch => {
-                        debug!(%conn_index, "shutting down stream on drain");
+                        info!(%conn_index, "shutting down stream on drain");
                         try_to_reconnect = false;
                         break;
                     }
                     _ = token_clone.cancelled() => {
-                        debug!(%conn_index, "shutting down stream on cancellation token");
+                        info!(%conn_index, "shutting down stream on cancellation token");
                         try_to_reconnect = false;
                         break;
                     }
                 }
             }
+
+            tracing::info!("si siamo qui e siamo disconnessi");
 
             // we drop rx now as otherwise the connection will be closed only
             // when the task is dropped and we want to make sure that the rx
