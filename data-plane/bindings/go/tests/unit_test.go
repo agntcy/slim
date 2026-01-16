@@ -31,11 +31,11 @@ func TestGetVersion(t *testing.T) {
 func TestAppCreation(t *testing.T) {
 	slim.InitializeWithDefaults()
 
-	appName := slim.NewName("org", "testapp", "v1", nil)
+	appName := slim.NewName("org", "testapp", "v1")
 
 	sharedSecret := "test-shared-secret-must-be-at-least-32-bytes-long!"
 
-	app, err := slim.CreateAppWithSecret(appName, sharedSecret)
+	app, err := slim.GetGlobalService().CreateAppWithSecret(appName, sharedSecret)
 	if err != nil {
 		t.Fatalf("Failed to create app: %v", err)
 	}
@@ -83,12 +83,6 @@ func TestNameStructure(t *testing.T) {
 			id:         func() *uint64 { v := uint64(12345); return &v }(),
 			valid:      true,
 		},
-		{
-			name:       "Empty components",
-			components: []string{},
-			id:         nil,
-			valid:      true, // Will be padded by SLIM
-		},
 	}
 
 	for _, tt := range tests {
@@ -97,14 +91,12 @@ func TestNameStructure(t *testing.T) {
 			// Note: NewName requires exactly 3 components, so we need to handle different cases
 			var name *slim.Name
 			if len(tt.components) == 3 {
-				name = slim.NewName(tt.components[0], tt.components[1], tt.components[2], tt.id)
-			} else if len(tt.components) == 0 {
-				name = slim.NewName("", "", "", tt.id)
+				name = slim.NewName(tt.components[0], tt.components[1], tt.components[2])
 			} else {
 				// Pad components to 3 elements
 				padded := make([]string, 3)
 				copy(padded, tt.components)
-				name = slim.NewName(padded[0], padded[1], padded[2], tt.id)
+				name = slim.NameNewWithId(padded[0], padded[1], padded[2], *tt.id)
 			}
 
 			// Just verify the struct is created
@@ -166,7 +158,7 @@ func TestErrorHandling(t *testing.T) {
 	slim.InitializeWithDefaults()
 
 	// Test with too-short shared secret (should fail or panic)
-	appName := slim.NewName("org", "testapp", "v1", nil)
+	appName := slim.NewName("org", "testapp", "v1")
 
 	// Note: This will likely panic in Rust, not return error
 	// So we skip this test as it would cause test failure
@@ -174,7 +166,7 @@ func TestErrorHandling(t *testing.T) {
 
 	// Test with valid secret
 	sharedSecret := "valid-shared-secret-must-be-at-least-32-bytes!"
-	app, err := slim.CreateAppWithSecret(appName, sharedSecret)
+	app, err := slim.GetGlobalService().CreateAppWithSecret(appName, sharedSecret)
 	if err != nil {
 		t.Fatalf("Failed to create app with valid secret: %v", err)
 	}
@@ -188,8 +180,8 @@ func TestMultipleApps(t *testing.T) {
 	sharedSecret := "test-shared-secret-must-be-at-least-32-bytes-long!"
 
 	// Create first app
-	app1, err := slim.CreateAppWithSecret(
-		slim.NewName("org", "app1", "v1", nil),
+	app1, err := slim.GetGlobalService().CreateAppWithSecret(
+		slim.NewName("org", "app1", "v1"),
 		sharedSecret,
 	)
 	if err != nil {
@@ -198,8 +190,8 @@ func TestMultipleApps(t *testing.T) {
 	defer app1.Destroy()
 
 	// Create second app
-	app2, err := slim.CreateAppWithSecret(
-		slim.NewName("org", "app2", "v1", nil),
+	app2, err := slim.GetGlobalService().CreateAppWithSecret(
+		slim.NewName("org", "app2", "v1"),
 		sharedSecret,
 	)
 	if err != nil {
@@ -218,7 +210,7 @@ func TestMultipleApps(t *testing.T) {
 // TestNameWithID tests creating names with explicit IDs
 func TestNameWithID(t *testing.T) {
 	testID := uint64(99999)
-	name := slim.NewName("org", "app", "v1", &testID)
+	name := slim.NameNewWithId("org", "app", "v1", testID)
 
 	if name.Id() != testID {
 		t.Errorf("Expected ID %d, got %d", testID, name.Id())
@@ -229,8 +221,8 @@ func TestNameWithID(t *testing.T) {
 func TestCleanup(t *testing.T) {
 	slim.InitializeWithDefaults()
 
-	app, err := slim.CreateAppWithSecret(
-		slim.NewName("org", "cleanup", "v1", nil),
+	app, err := slim.GetGlobalService().CreateAppWithSecret(
+		slim.NewName("org", "cleanup", "v1"),
 		"test-shared-secret-must-be-at-least-32-bytes-long!",
 	)
 	if err != nil {

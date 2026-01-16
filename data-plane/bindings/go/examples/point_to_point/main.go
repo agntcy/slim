@@ -88,7 +88,7 @@ func runSender(app *slim.App, connID uint64, remote, message string, iterations 
 		fmt.Printf("[%d] 📤 Sent message '%s' - %d/%d\n", instance, message, i+1, iterations)
 
 		// Wait for reply
-		timeout := uint32(5000)
+		timeout := time.Second * 5
 		msg, err := session.GetMessage(&timeout)
 		if err != nil {
 			fmt.Printf("[%d] ⏱️  No reply for message %d/%d: %v\n", instance, i+1, iterations, err)
@@ -125,7 +125,7 @@ func handleSession(app *slim.App, session *slim.Session, instance uint64) {
 	}()
 
 	for {
-		timeout := uint32(60000)
+		timeout := time.Second * 60
 		msg, err := session.GetMessage(&timeout)
 		if err != nil {
 			fmt.Printf("[%d] 🔚 Session ended: %v\n", instance, err)
