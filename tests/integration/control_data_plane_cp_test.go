@@ -59,7 +59,7 @@ var _ = Describe("Routing", func() {
 
 	Describe("message routing with control plane", func() {
 		It("should deliver at least one message each way", func() {
-			// start SLIMs
+			// start SLIM node b
 			var errB error
 
 			serverBSession, errB = gexec.Start(
@@ -69,14 +69,17 @@ var _ = Describe("Routing", func() {
 			Expect(errB).NotTo(HaveOccurred())
 			time.Sleep(8000 * time.Millisecond)
 
+			// start control plane
 			var errCP error
 			controlPlaneSession, errCP = gexec.Start(
 				exec.Command(controlPlanePath, "--config", "./testdata/control-plane-config.yaml"),
 				GinkgoWriter, GinkgoWriter,
 			)
 			Expect(errCP).NotTo(HaveOccurred())
+			// test if SLIM node b connects to control plane
 			Eventually(serverBSession.Out, 15*time.Second).Should(gbytes.Say(`connected to control plane`))
 
+			// start SLIM node a
 			var errA error
 			serverASession, errA = gexec.Start(
 				exec.Command(slimPath, "--config", "./testdata/server-a-config-cp.yaml"),
@@ -84,14 +87,17 @@ var _ = Describe("Routing", func() {
 			)
 			Expect(errA).NotTo(HaveOccurred())
 
-			// wait for SLIM instances to start
+			// wait for SLIM node a to start
 			time.Sleep(2000 * time.Millisecond)
+
+			// test if SLIM node a connects to control plane
+			Eventually(serverASession.Out, 15*time.Second).Should(gbytes.Say(`connected to control plane`))
 
 			var err error
 			clientBSession, err = gexec.Start(
 				exec.Command(sdkMockPath,
 					"--config", "./testdata/client-b-config.yaml",
-					"--local-name", "b",
+					"--local-name", "b1",
 					"--remote-name", "a",
 				),
 				GinkgoWriter, GinkgoWriter,
@@ -101,7 +107,7 @@ var _ = Describe("Routing", func() {
 			clientCSession, err = gexec.Start(
 				exec.Command(sdkMockPath,
 					"--config", "./testdata/client-b-config.yaml",
-					"--local-name", "c",
+					"--local-name", "b2",
 					"--remote-name", "a",
 				),
 				GinkgoWriter, GinkgoWriter,
@@ -114,7 +120,7 @@ var _ = Describe("Routing", func() {
 				exec.Command(sdkMockPath,
 					"--config", "./testdata/client-a-config.yaml",
 					"--local-name", "a",
-					"--remote-name", "b",
+					"--remote-name", "b1",
 					"--message", "hey",
 				),
 				GinkgoWriter, GinkgoWriter,
@@ -125,7 +131,7 @@ var _ = Describe("Routing", func() {
 				Should(gbytes.Say(`hello from the a`))
 
 			Eventually(clientASession.Out, 5*time.Second).
-				Should(gbytes.Say(`hello from the b`))
+				Should(gbytes.Say(`hello from the b1`))
 
 			// test listing routes for node a
 			routeListOutA, err := exec.Command(
@@ -137,8 +143,8 @@ var _ = Describe("Routing", func() {
 			Expect(err).NotTo(HaveOccurred(), "slimctl route list failed: %s", string(routeListOutA))
 
 			routeListOutputA := string(routeListOutA)
-			Expect(routeListOutputA).To(ContainSubstring("org/default/b"))
-			Expect(routeListOutputA).To(ContainSubstring("org/default/c"))
+			Expect(routeListOutputA).To(ContainSubstring("org/default/b1"))
+			Expect(routeListOutputA).To(ContainSubstring("org/default/b2"))
 
 			// test listing connections for node a
 			connectionListOutA, err := exec.Command(
@@ -164,7 +170,7 @@ var _ = Describe("Routing", func() {
 			routeListOutputB := string(routeListOutB)
 			Expect(routeListOutputB).To(ContainSubstring("org/default/a"))
 
-			// test listing connections for node a
+			// test listing connections for node b
 			connectionListOutB, err := exec.Command(
 				slimctlPath,
 				"controller", "connection", "list",
@@ -205,8 +211,8 @@ var _ = Describe("Routing", func() {
 
 			routeListOutputB = string(routeListOutB)
 			Expect(routeListOutputB).To(ContainSubstring("org/default/a"))
-			Expect(routeListOutputB).ToNot(ContainSubstring("org/default/b"))
-			Expect(routeListOutputB).ToNot(ContainSubstring("org/default/c"))
+			Expect(routeListOutputB).ToNot(ContainSubstring("org/default/b1"))
+			Expect(routeListOutputB).ToNot(ContainSubstring("org/default/b2"))
 		})
 	})
 
