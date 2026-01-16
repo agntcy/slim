@@ -33,7 +33,10 @@ use crate::connection::{Channel, Connection, Type as ConnectionType};
 use crate::errors::{DataPathError, MessageContext};
 use crate::forwarder::Forwarder;
 use crate::messages::Name;
-use crate::messages::utils::SlimHeaderFlags;
+use crate::messages::utils::{
+    FALSE_VAL, SUBSCRIPTION_ACK_ERROR, SUBSCRIPTION_ACK_ID, SUBSCRIPTION_ACK_SUCCESS, TRUE_VAL,
+    SlimHeaderFlags,
+};
 use crate::tables::connection_table::ConnectionTable;
 use crate::tables::subscription_table::SubscriptionTableImpl;
 
@@ -474,12 +477,57 @@ impl MessageProcessor {
             .await
     }
 
+    async fn send_subscription_ack(
+        &self,
+        in_connection: u64,
+        source: Name,
+        destination: Name,
+        add: bool,
+        ack_id: String,
+        result: &Result<(), DataPathError>,
+    ) {
+        let (success, error_msg) = match result {
+            Ok(()) => (true, None),
+            Err(e) => (false, Some(e.to_string())),
+        };
+
+        let mut builder = Message::builder()
+            .source(source)
+            .destination(destination)
+            .metadata(SUBSCRIPTION_ACK_ID, ack_id)
+            .metadata(
+                SUBSCRIPTION_ACK_SUCCESS,
+                if success { TRUE_VAL } else { FALSE_VAL },
+            );
+
+        if let Some(error_msg) = error_msg {
+            builder = builder.metadata(SUBSCRIPTION_ACK_ERROR, error_msg);
+        }
+
+        let ack_msg = if add {
+            builder.build_subscribe()
+        } else {
+            builder.build_unsubscribe()
+        };
+
+        match ack_msg {
+            Ok(msg) => {
+                if let Err(e) = self.send_msg(msg, in_connection).await {
+                    error!(error = %e.chain(), "failed to send subscription ack");
+                }
+            }
+            Err(e) => {
+                error!(error = %e.chain(), "failed to build subscription ack message");
+            }
+        }
+    }
+
     // Use a single function to process subscription and unsubscription packets.
     // The flag add = true is used to add a new subscription while add = false
     // is used to remove existing state
     async fn process_subscription(
         &self,
-        msg: Message,
+        mut msg: Message,
         in_connection: u64,
         add: bool,
     ) -> Result<(), DataPathError> {
@@ -498,6 +546,22 @@ impl MessageProcessor {
         );
         //////////////////////////////////////////////////////
 
+        let ack_id = msg.get_metadata(SUBSCRIPTION_ACK_ID).cloned();
+        let (ack_source, ack_destination) = if ack_id.is_some() {
+            (
+                Some(msg.get_source()),
+                Some(msg.get_dst()),
+            )
+        } else {
+            (None, None)
+        };
+
+        if ack_id.is_some() {
+            msg.remove_metadata(SUBSCRIPTION_ACK_ID);
+            msg.remove_metadata(SUBSCRIPTION_ACK_SUCCESS);
+            msg.remove_metadata(SUBSCRIPTION_ACK_ERROR);
+        }
+
         let dst = msg.get_dst();
 
         // get header
@@ -510,50 +574,61 @@ impl MessageProcessor {
         // it is safe to assume that at this point the connection must exist.
         let maybe_connection = self.forwarder().get_connection(conn);
 
-        // Required to make the borrow checker happy
-        let connection = if let Some(c) = maybe_connection {
-            c
-        } else {
-            return Err(DataPathError::MessageProcessingError {
-                source: Box::new(DataPathError::ConnectionNotFound(conn)),
-                msg: Box::new(msg),
-            });
-        };
+        let result = async {
+            let connection = if let Some(c) = maybe_connection {
+                c
+            } else {
+                return Err(DataPathError::MessageProcessingError {
+                    source: Box::new(DataPathError::ConnectionNotFound(conn)),
+                    msg: Box::new(msg),
+                });
+            };
 
-        debug!(
-            %conn,
-            %dst,
-            is_local = connection.is_local_connection(),
-            "processing {}subscription",
-            if add { "" } else { "un" }
-        );
+            debug!(
+                %conn,
+                %dst,
+                is_local = connection.is_local_connection(),
+                "processing {}subscription",
+                if add { "" } else { "un" }
+            );
 
-        self.forwarder().on_subscription_msg(
-            dst.clone(),
-            conn,
-            connection.is_local_connection(),
-            add,
-        )?;
+            self.forwarder().on_subscription_msg(
+                dst.clone(),
+                conn,
+                connection.is_local_connection(),
+                add,
+            )?;
 
-        match forward {
-            None => {
-                // if the subscription is not forwarded, we are done
-                Ok(())
-            }
-            Some(out_conn) => {
-                debug!(%out_conn, "forwarding {}subscription to connection", if add { "" } else { "un" });
+            match forward {
+                None => {
+                    // if the subscription is not forwarded, we are done
+                    Ok(())
+                }
+                Some(out_conn) => {
+                    debug!(%out_conn, "forwarding {}subscription to connection", if add { "" } else { "un" });
 
-                // get source name and identity
-                let source = msg.get_source();
-                let identity = msg.get_identity();
+                    // get source name and identity
+                    let source = msg.get_source();
+                    let identity = msg.get_identity();
 
-                // send message
-                self.send_msg(msg, out_conn).await.map(|_| {
-                    self.forwarder()
-                        .on_forwarded_subscription(source, dst, identity, out_conn, add);
-                })
+                    // send message
+                    self.send_msg(msg, out_conn).await.map(|_| {
+                        self.forwarder()
+                            .on_forwarded_subscription(source, dst, identity, out_conn, add);
+                    })
+                }
             }
         }
+        .await;
+
+        if let (Some(ack_id), Some(source), Some(destination)) =
+            (ack_id, ack_source, ack_destination)
+        {
+            self.send_subscription_ack(in_connection, source, destination, add, ack_id, &result)
+                .await;
+        }
+
+        result
     }
 
     pub async fn process_message(
