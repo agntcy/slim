@@ -168,14 +168,8 @@ impl MessageProcessor {
         Ok(res)
     }
 
-    pub async fn shutdown(&self) -> Result<(), DataPathError> {
-        self.shutdown_with_timeout(std::time::Duration::from_secs(10))
-            .await
-    }
-
-    pub async fn shutdown_with_timeout(
+    pub async fn shutdown(
         &self,
-        drain_timeout: std::time::Duration,
     ) -> Result<(), DataPathError> {
         // Take the drain signal
         let signal = self
@@ -189,9 +183,9 @@ impl MessageProcessor {
         self.internal.drain_watch.write().take();
 
         // Signal completion to all tasks
-        tokio::time::timeout(drain_timeout, signal.drain())
-            .await
-            .map_err(|_e| DataPathError::ShutdownTimeoutError)
+        signal.drain().await;
+
+        Ok(())
     }
 
     fn set_tx_control_plane(&self, tx: Sender<Result<Message, Status>>) {
@@ -752,10 +746,6 @@ impl MessageProcessor {
         let tx_cp: Option<Sender<Result<Message, Status>>> = self.get_tx_control_plane();
         let watch = self.get_drain_watch()?;
 
-        if !client_config.is_none() {
-            tracing::info!("si siamo qui e stampiamo");
-        }
-
         let handle = tokio::spawn(async move {
             let mut try_to_reconnect = true;
 
@@ -822,8 +812,6 @@ impl MessageProcessor {
                     }
                 }
             }
-
-            tracing::info!("si siamo qui e siamo disconnessi");
 
             // we drop rx now as otherwise the connection will be closed only
             // when the task is dropped and we want to make sure that the rx

@@ -23,6 +23,7 @@ use slim_datapath::messages::Name as SlimName;
 use slim_service::{
     KIND, Service as SlimService, ServiceConfiguration as SlimServiceConfiguration,
 };
+use tokio::task::JoinHandle;
 
 use crate::name::Name;
 
@@ -214,13 +215,9 @@ impl Service {
         let inner = self.inner.clone();
 
         // Spawn on the runtime's handle to ensure tokio context is available
-        let handle = runtime.handle().spawn(async move {
-            inner
-                .run_server(&core_config)
-                .await
-                .map_err(|e| SlimError::ServiceError {
-                    message: format!("Failed to run server: {}", e),
-                })
+        let handle: JoinHandle<Result<(), SlimError>> = runtime.handle().spawn(async move {
+            inner.run_server(&core_config).await?;
+            Ok(())
         });
 
         handle.await.map_err(|e| SlimError::ServiceError {

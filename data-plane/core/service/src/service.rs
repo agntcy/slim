@@ -247,14 +247,8 @@ impl Service {
         Ok(())
     }
 
-    pub async fn shutdown(&self) -> Result<(), ServiceError> {
-        self.shutdown_with_timeout(std::time::Duration::from_secs(10))
-            .await
-    }
-
-    pub async fn shutdown_with_timeout(
+    pub async fn shutdown(
         &self,
-        drain_timeout: std::time::Duration,
     ) -> Result<(), ServiceError> {
         info!("shutting down service");
 
@@ -275,7 +269,7 @@ impl Service {
         // Call the shutdown method of message processor to make sure all
         // tasks ended gracefully
         self.message_processor
-            .shutdown_with_timeout(drain_timeout)
+            .shutdown()
             .await?;
 
         // Shutdown controller if present

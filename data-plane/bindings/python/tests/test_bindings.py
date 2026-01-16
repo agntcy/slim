@@ -241,10 +241,13 @@ async def test_auto_reconnect_after_server_restart(server):
     # session ids should match
     assert bob_session_ctx.session_id() == session_context_alice.session.session_id()
 
-    # restart the server
+    # stop the server
     await svc_server.shutdown_async()
+
+    await asyncio.sleep(3)  # allow time for the server to fully shut down
+
+    # start the server
     svc_server = slim_bindings.Service("svcserver")
-    svc_server.run_server(server_conf)
     await server.service.run_server_async(
         slim_bindings.new_insecure_server_config("127.0.0.1:12346")
     )
