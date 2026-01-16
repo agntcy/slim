@@ -3,6 +3,7 @@ package groupservice
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 	"time"
@@ -17,7 +18,19 @@ import (
 	"github.com/agntcy/slim/control-plane/control-plane/internal/services/nodecontrol"
 )
 
-type mockNodeCommandHandler struct{}
+const (
+	MockResponseSuccess = iota
+	MockResponseFailure
+	MockResponseError
+)
+
+type mockNodeCommandHandler struct {
+	responseType int
+}
+
+func (m *mockNodeCommandHandler) SetResponseType(responseType int) {
+	m.responseType = responseType
+}
 
 func (m *mockNodeCommandHandler) SendMessage(
 	_ context.Context, _ string, _ *controllerapi.ControlMessage) error {
@@ -44,7 +57,28 @@ func (m *mockNodeCommandHandler) UpdateConnectionStatus(
 func (m *mockNodeCommandHandler) WaitForResponse(
 	_ context.Context, _ string, _ reflect.Type, _ string,
 ) (*controllerapi.ControlMessage, error) {
-	return nil, nil
+	switch m.responseType {
+	case MockResponseSuccess:
+		return &controllerapi.ControlMessage{
+			Payload: &controllerapi.ControlMessage_Ack{
+				Ack: &controllerapi.Ack{
+					Success: true,
+				},
+			},
+		}, nil
+	case MockResponseFailure:
+		return &controllerapi.ControlMessage{
+			Payload: &controllerapi.ControlMessage_Ack{
+				Ack: &controllerapi.Ack{
+					Success: false,
+				},
+			},
+		}, nil
+	case MockResponseError:
+		return nil, errors.New("communication error")
+	default:
+		return nil, errors.New("unknown response type")
+	}
 }
 
 func (m *mockNodeCommandHandler) WaitForResponseWithTimeout(
@@ -60,7 +94,7 @@ func (m *mockNodeCommandHandler) ResponseReceived(
 // TestCreateChannel_Success verifies that creating a channel with moderators succeeds.
 func TestCreateChannel_Success(t *testing.T) {
 	dbService := db.NewInMemoryDBService()
-	cmdHandler := &mockNodeCommandHandler{}
+	cmdHandler := &mockNodeCommandHandler{responseType: MockResponseSuccess}
 	svc := NewGroupService(dbService, cmdHandler)
 	ctx := context.Background()
 
@@ -89,7 +123,7 @@ func TestCreateChannel_Success(t *testing.T) {
 
 func TestCreateChannel_InvalidModeratorName(t *testing.T) {
 	dbService := db.NewInMemoryDBService()
-	cmdHandler := &mockNodeCommandHandler{}
+	cmdHandler := &mockNodeCommandHandler{responseType: MockResponseSuccess}
 	svc := NewGroupService(dbService, cmdHandler)
 	ctx := context.Background()
 
@@ -106,7 +140,7 @@ func TestCreateChannel_InvalidModeratorName(t *testing.T) {
 // TestCreateChannel_NoModerators verifies that missing moderators yields an error.
 func TestCreateChannel_NoModerators(t *testing.T) {
 	dbService := db.NewInMemoryDBService()
-	cmdHandler := &mockNodeCommandHandler{}
+	cmdHandler := &mockNodeCommandHandler{responseType: MockResponseSuccess}
 	svc := NewGroupService(dbService, cmdHandler)
 	ctx := context.Background()
 	request := &controlplaneApi.CreateChannelRequest{}
@@ -117,7 +151,7 @@ func TestCreateChannel_NoModerators(t *testing.T) {
 // TestCreateChannel_NoNodeFound verifies that error is returned when no node is found.
 func TestCreateChannel_NoNodeFound(t *testing.T) {
 	dbService := db.NewInMemoryDBService()
-	cmdHandler := &mockNodeCommandHandler{}
+	cmdHandler := &mockNodeCommandHandler{responseType: MockResponseSuccess}
 	svc := NewGroupService(dbService, cmdHandler)
 	ctx := context.Background()
 	request := &controlplaneApi.CreateChannelRequest{
@@ -131,7 +165,7 @@ func TestCreateChannel_NoNodeFound(t *testing.T) {
 // TestDeleteChannel_Success verifies successful channel deletion.
 func TestDeleteChannel_Success(t *testing.T) {
 	dbService := db.NewInMemoryDBService()
-	cmdHandler := &mockNodeCommandHandler{}
+	cmdHandler := &mockNodeCommandHandler{responseType: MockResponseSuccess}
 	svc := NewGroupService(dbService, cmdHandler)
 	ctx := context.Background()
 
@@ -163,7 +197,7 @@ func TestDeleteChannel_Success(t *testing.T) {
 // TestDeleteChannel_EmptyChannelName verifies error when channel ID is empty.
 func TestDeleteChannel_EmptyChannelName(t *testing.T) {
 	dbService := db.NewInMemoryDBService()
-	cmdHandler := &mockNodeCommandHandler{}
+	cmdHandler := &mockNodeCommandHandler{responseType: MockResponseSuccess}
 	svc := NewGroupService(dbService, cmdHandler)
 	ctx := context.Background()
 	request := &controllerapi.DeleteChannelRequest{
@@ -174,10 +208,46 @@ func TestDeleteChannel_EmptyChannelName(t *testing.T) {
 	assert.Contains(t, err.Error(), "name cannot be empty")
 }
 
+// TestDeleteChannel_AckFailure verifies that ACK failure is handled correctly.
+func TestDeleteChannel_AckFailure(t *testing.T) {
+	dbService := db.NewInMemoryDBService()
+	cmdHandler := &mockNodeCommandHandler{responseType: MockResponseFailure}
+	svc := NewGroupService(dbService, cmdHandler)
+	ctx := context.Background()
+
+	// Add a route to the DB so GetDestinationNodeIDForName can find the node
+	route := db.Route{
+		SourceNodeID: db.AllNodesID,
+		DestNodeID:   "node123",
+		Component0:   "org",
+		Component1:   "ns",
+		Component2:   "mod1",
+		ComponentID:  wrapperspb.UInt64(0),
+		LastUpdated:  time.Now(),
+	}
+	_, err := dbService.AddRoute(route)
+	require.NoError(t, err)
+
+	// Save a channel first
+	err = dbService.SaveChannel("org/ns/channel123", []string{"org/ns/mod1/0"})
+	require.NoError(t, err)
+
+	request := &controllerapi.DeleteChannelRequest{
+		ChannelName: "org/ns/channel123",
+	}
+	resp, err := svc.DeleteChannel(ctx, request)
+	assert.NoError(t, err)
+	assert.False(t, resp.Success)
+
+	// Channel should still exist in DB since deletion failed
+	_, getErr := dbService.GetChannel("org/ns/channel123")
+	assert.NoError(t, getErr)
+}
+
 // TestAddParticipant_Success verifies successful participant addition.
 func TestAddParticipant_Success(t *testing.T) {
 	dbService := db.NewInMemoryDBService()
-	cmdHandler := &mockNodeCommandHandler{}
+	cmdHandler := &mockNodeCommandHandler{responseType: MockResponseSuccess}
 	svc := NewGroupService(dbService, cmdHandler)
 	ctx := context.Background()
 
@@ -210,7 +280,7 @@ func TestAddParticipant_Success(t *testing.T) {
 // TestAddParticipant_EmptyChannelName verifies error when channel ID is empty.
 func TestAddParticipant_EmptyChannelName(t *testing.T) {
 	dbService := db.NewInMemoryDBService()
-	cmdHandler := &mockNodeCommandHandler{}
+	cmdHandler := &mockNodeCommandHandler{responseType: MockResponseSuccess}
 	svc := NewGroupService(dbService, cmdHandler)
 	ctx := context.Background()
 	request := &controllerapi.AddParticipantRequest{
@@ -225,7 +295,7 @@ func TestAddParticipant_EmptyChannelName(t *testing.T) {
 // TestAddParticipant_EmptyParticipantName verifies error when participant ID is empty.
 func TestAddParticipant_EmptyParticipantName(t *testing.T) {
 	dbService := db.NewInMemoryDBService()
-	cmdHandler := &mockNodeCommandHandler{}
+	cmdHandler := &mockNodeCommandHandler{responseType: MockResponseSuccess}
 	svc := NewGroupService(dbService, cmdHandler)
 	ctx := context.Background()
 	request := &controllerapi.AddParticipantRequest{
@@ -237,10 +307,48 @@ func TestAddParticipant_EmptyParticipantName(t *testing.T) {
 	assert.Contains(t, err.Error(), "name cannot be empty")
 }
 
+// TestAddParticipant_AckFailure verifies that ACK failure is handled correctly.
+func TestAddParticipant_AckFailure(t *testing.T) {
+	dbService := db.NewInMemoryDBService()
+	cmdHandler := &mockNodeCommandHandler{responseType: MockResponseFailure}
+	svc := NewGroupService(dbService, cmdHandler)
+	ctx := context.Background()
+
+	// Add a route to the DB so GetDestinationNodeIDForName can find the node
+	route := db.Route{
+		SourceNodeID: db.AllNodesID,
+		DestNodeID:   "node123",
+		Component0:   "org",
+		Component1:   "ns",
+		Component2:   "mod1",
+		ComponentID:  wrapperspb.UInt64(0),
+		LastUpdated:  time.Now(),
+	}
+	_, err := dbService.AddRoute(route)
+	require.NoError(t, err)
+
+	// Save a channel first
+	err = dbService.SaveChannel("org/ns/channel123", []string{"org/ns/mod1/0"})
+	require.NoError(t, err)
+
+	request := &controllerapi.AddParticipantRequest{
+		ChannelName:     "org/ns/channel123",
+		ParticipantName: "org/ns/participant123",
+	}
+	resp, err := svc.AddParticipant(ctx, request)
+	assert.NoError(t, err)
+	assert.False(t, resp.Success)
+
+	// Participant should not be added to channel since operation failed
+	channel, getErr := dbService.GetChannel("org/ns/channel123")
+	assert.NoError(t, getErr)
+	assert.Empty(t, channel.Participants)
+}
+
 // TestDeleteParticipant_Success verifies successful participant deletion.
 func TestDeleteParticipant_Success(t *testing.T) {
 	dbService := db.NewInMemoryDBService()
-	cmdHandler := &mockNodeCommandHandler{}
+	cmdHandler := &mockNodeCommandHandler{responseType: MockResponseSuccess}
 	svc := NewGroupService(dbService, cmdHandler)
 	ctx := context.Background()
 
@@ -279,7 +387,7 @@ func TestDeleteParticipant_Success(t *testing.T) {
 // TestDeleteParticipant_EmptyChannelName verifies error when channel ID is empty.
 func TestDeleteParticipant_EmptyChannelName(t *testing.T) {
 	dbService := db.NewInMemoryDBService()
-	cmdHandler := &mockNodeCommandHandler{}
+	cmdHandler := &mockNodeCommandHandler{responseType: MockResponseSuccess}
 	svc := NewGroupService(dbService, cmdHandler)
 	ctx := context.Background()
 	request := &controllerapi.DeleteParticipantRequest{
@@ -294,7 +402,7 @@ func TestDeleteParticipant_EmptyChannelName(t *testing.T) {
 // TestDeleteParticipant_EmptyParticipantName verifies error when participant ID is empty.
 func TestDeleteParticipant_EmptyParticipantName(t *testing.T) {
 	dbService := db.NewInMemoryDBService()
-	cmdHandler := &mockNodeCommandHandler{}
+	cmdHandler := &mockNodeCommandHandler{responseType: MockResponseSuccess}
 	svc := NewGroupService(dbService, cmdHandler)
 	ctx := context.Background()
 	request := &controllerapi.DeleteParticipantRequest{
@@ -309,7 +417,7 @@ func TestDeleteParticipant_EmptyParticipantName(t *testing.T) {
 // TestListChannels_Success verifies successful channel listing.
 func TestListChannels_Success(t *testing.T) {
 	dbService := db.NewInMemoryDBService()
-	cmdHandler := &mockNodeCommandHandler{}
+	cmdHandler := &mockNodeCommandHandler{responseType: MockResponseSuccess}
 	svc := NewGroupService(dbService, cmdHandler)
 	ctx := context.Background()
 	request := &controllerapi.ListChannelsRequest{}
@@ -322,7 +430,7 @@ func TestListChannels_Success(t *testing.T) {
 // TestGetChannelDetails_Success verifies successful channel details retrieval.
 func TestGetChannelDetails_Success(t *testing.T) {
 	dbService := db.NewInMemoryDBService()
-	cmdHandler := &mockNodeCommandHandler{}
+	cmdHandler := &mockNodeCommandHandler{responseType: MockResponseSuccess}
 	svc := NewGroupService(dbService, cmdHandler)
 	ctx := context.Background()
 
@@ -339,7 +447,7 @@ func TestGetChannelDetails_Success(t *testing.T) {
 // TestListParticipants_Success verifies successful participant listing.
 func TestListParticipants_Success(t *testing.T) {
 	dbService := db.NewInMemoryDBService()
-	cmdHandler := &mockNodeCommandHandler{}
+	cmdHandler := &mockNodeCommandHandler{responseType: MockResponseSuccess}
 	svc := NewGroupService(dbService, cmdHandler)
 	ctx := context.Background()
 
@@ -366,7 +474,7 @@ func TestListParticipants_Success(t *testing.T) {
 // TestListParticipants_EmptyChannelName verifies error when channel ID is empty.
 func TestListParticipants_EmptyChannelName(t *testing.T) {
 	dbService := db.NewInMemoryDBService()
-	cmdHandler := &mockNodeCommandHandler{}
+	cmdHandler := &mockNodeCommandHandler{responseType: MockResponseSuccess}
 	svc := NewGroupService(dbService, cmdHandler)
 	ctx := context.Background()
 	request := &controllerapi.ListParticipantsRequest{

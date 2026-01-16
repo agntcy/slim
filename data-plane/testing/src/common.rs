@@ -53,7 +53,7 @@ pub async fn run_slim_node() -> Result<(), ServiceError> {
 /// Creates an app for a given service and subscribes it to the specified name.
 /// Returns the app handle, receiver channel, connection ID, and the service.
 pub async fn create_and_subscribe_app(
-    mut svc: Service,
+    svc: Service,
     name: &Name,
 ) -> Result<
     (

@@ -164,7 +164,7 @@ async fn init_tracing_impl(config: Option<CoreTracingConfiguration>) -> PyResult
     };
 
     // Initialize with the configs
-    initialize_with_configs(runtime_config, tracing_config, service_config)
+    initialize_with_configs(runtime_config, tracing_config, &[service_config])
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
 }
 

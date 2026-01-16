@@ -12,14 +12,14 @@ const (
 	MsgChannelDeleteRequest     = "received a channel delete request"
 
 	// Control Plane messages
-	MsgChannelCreatedSuccessfully        = "Channel created successfully"
-	MsgChannelSavedSuccessfully          = "Channel saved successfully"
-	MsgAckParticipantAddedSuccessfully   = "Ack message received, participant added successfully."
-	MsgChannelUpdatedParticipantAdded    = "Channel updated, participant added successfully."
-	MsgAckParticipantDeletedSuccessfully = "Ack message received, participant deleted successfully."
-	MsgChannelUpdatedParticipantDeleted  = "Channel updated, participant deleted successfully"
-	MsgAckChannelDeletedSuccessfully     = "Ack message received, channel deleted successfully."
-	MsgChannelDeletedSuccessfully        = "Channel deleted successfully"
+	MsgChannelCreated                   = "Channel creation result for %s: success=%t"
+	MsgChannelSavedSuccessfully         = "Channel saved successfully"
+	MsgParticipantAdded                 = "AddParticipant result success=%t"
+	MsgChannelUpdatedParticipantAdded   = "Channel updated, participant added successfully."
+	MsgParticipantDeleted               = "DeleteParticipant result success=%t"
+	MsgChannelUpdatedParticipantDeleted = "Channel updated, participant deleted successfully"
+	MsgAckChannelDeleted                = "Channel deletion result for %s: success=%t"
+	MsgChannelDeletedSuccessfully       = "Channel deleted successfully"
 
 	// Client messages
 	MsgSessionHandlerTaskStarted = "Session handler task started"
