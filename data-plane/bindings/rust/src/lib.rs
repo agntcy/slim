@@ -60,7 +60,7 @@ mod service;
 mod session;
 
 // Public re-exports
-pub use app::{App, SessionWithCompletion, create_app_with_secret};
+pub use app::{App, SessionWithCompletion};
 pub use build_info::{BuildInfo, get_build_info, get_version};
 pub use client_config::{
     BackoffConfig, ClientConfig, ExponentialBackoff, KeepaliveConfig, ProxyConfig,
@@ -92,10 +92,8 @@ pub use server_config::{
     KeepaliveServerParameters, ServerConfig, new_insecure_server_config, new_server_config,
 };
 pub use service::{
-    DataplaneConfig, Service, ServiceConfig, connect_async, create_service,
-    create_service_with_config, disconnect, get_connection_id, new_dataplane_config,
-    new_service_configuration, run_server_async, service_name, service_run_async,
-    service_shutdown_async, stop_server,
+    DataplaneConfig, Service, ServiceConfig, create_service, create_service_with_config,
+    new_dataplane_config, new_service_configuration,
 };
 pub use session::{Session, SessionConfig, SessionType};
 

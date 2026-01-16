@@ -8,6 +8,7 @@
 
 use std::sync::{Arc, OnceLock};
 
+use futures_timer::Delay;
 use tracing::{debug, info};
 
 use slim::config::ConfigLoader;
@@ -440,12 +441,26 @@ pub async fn shutdown() -> Result<(), SlimError> {
     if let Some(state) = service_opt {
         let inner = &state.service.inner;
         info!("Stopping global service");
-        inner
-            .shutdown_with_timeout(drain_timeout)
-            .await
-            .map_err(|e| SlimError::ServiceError {
-                message: format!("Failed to shutdown service: {}", e),
-            })?;
+
+        // Runtime-agnostic timeout using futures-timer
+        let shutdown_fut = inner.shutdown();
+        futures::pin_mut!(shutdown_fut);
+        let delay = Delay::new(drain_timeout);
+        futures::pin_mut!(delay);
+
+        match futures::future::select(shutdown_fut, delay).await {
+            futures::future::Either::Left((result, _)) => {
+                result.map_err(|e| SlimError::ServiceError {
+                    message: format!("Failed to shutdown service: {}", e),
+                })?;
+            }
+            futures::future::Either::Right(_) => {
+                return Err(SlimError::ServiceError {
+                    message: format!("Service shutdown timed out after {:?}", drain_timeout),
+                });
+            }
+        }
+
         info!("Global service stopped");
     } else {
         debug!("No global service to shutdown");

@@ -182,7 +182,7 @@ func receiveLoop(session *slim.Session, sourceName *slim.Name, instance uint64, 
 		case <-stopChan:
 			return
 		default:
-			timeout := uint32(1000) // 1 second timeout for checking stopChan
+			timeout := time.Second * 1
 			msg, err := session.GetMessage(&timeout)
 			if err != nil {
 				// Check if it's just a timeout
