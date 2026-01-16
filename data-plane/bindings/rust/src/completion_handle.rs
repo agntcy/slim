@@ -144,7 +144,7 @@ impl CompletionHandle {
             futures::pin_mut!(wait_future);
             let delay = Delay::new(duration);
             futures::pin_mut!(delay);
-            
+
             match futures::future::select(wait_future, delay).await {
                 futures::future::Either::Left((result, _)) => {
                     result?;

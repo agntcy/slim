@@ -47,11 +47,7 @@ impl Display for Name {
 impl Name {
     /// Create a new Name from components without an ID
     #[uniffi::constructor]
-    pub fn new(
-        component0: String,
-        component1: String,
-        component2: String,
-    ) -> Self {
+    pub fn new(component0: String, component1: String, component2: String) -> Self {
         let inner = SlimName::from_strings([component0, component1, component2]);
         Name { inner }
     }
@@ -214,16 +210,11 @@ mod tests {
     /// Test Name with different ID values
     #[test]
     fn test_name_with_various_ids() {
-        let name_with_id = Name::new_with_id(
-            "org".to_string(),
-            "ns".to_string(),
-            "app".to_string(),
-            42,
-        );
+        let name_with_id =
+            Name::new_with_id("org".to_string(), "ns".to_string(), "app".to_string(), 42);
         assert_eq!(name_with_id.id(), 42);
 
-        let name_without_id =
-            Name::new("org".to_string(), "ns".to_string(), "app".to_string());
+        let name_without_id = Name::new("org".to_string(), "ns".to_string(), "app".to_string());
         // SlimName generates a default ID, so it should be non-zero
         assert!(name_without_id.id() > 0);
     }

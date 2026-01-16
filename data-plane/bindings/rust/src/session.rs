@@ -229,7 +229,7 @@ impl Session {
             futures::pin_mut!(recv_future);
             let delay = Delay::new(timeout_duration);
             futures::pin_mut!(delay);
-            
+
             match futures::future::select(recv_future, delay).await {
                 futures::future::Either::Left((result, _)) => result,
                 futures::future::Either::Right(_) => Err(SessionError::ReceiveTimeout),
@@ -481,7 +481,10 @@ impl Session {
     /// # Returns
     /// * `Ok(ReceivedMessage)` - Message with context and payload bytes
     /// * `Err(SlimError)` - If the receive fails or times out
-    pub fn get_message(&self, timeout: Option<std::time::Duration>) -> Result<ReceivedMessage, SlimError> {
+    pub fn get_message(
+        &self,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<ReceivedMessage, SlimError> {
         crate::config::get_runtime().block_on(async { self.get_message_async(timeout).await })
     }
 
@@ -1101,7 +1104,9 @@ mod tests {
 
         tx.send(Ok(msg)).expect("send should succeed");
 
-        let result = ctx.get_message_async(Some(std::time::Duration::from_millis(100))).await;
+        let result = ctx
+            .get_message_async(Some(std::time::Duration::from_millis(100)))
+            .await;
         assert!(result.is_ok());
 
         let received = result.unwrap();
@@ -1114,7 +1119,9 @@ mod tests {
     async fn test_get_message_async_timeout() {
         let (ctx, _tx) = make_context();
 
-        let result = ctx.get_message_async(Some(std::time::Duration::from_millis(50))).await;
+        let result = ctx
+            .get_message_async(Some(std::time::Duration::from_millis(50)))
+            .await;
         assert!(result.is_err_and(|e| {
             if let SlimError::SessionError { message } = e {
                 message.contains("receive timeout")
@@ -1129,7 +1136,9 @@ mod tests {
         let (ctx, tx) = make_context();
         drop(tx);
 
-        let result = ctx.get_message_async(Some(std::time::Duration::from_millis(100))).await;
+        let result = ctx
+            .get_message_async(Some(std::time::Duration::from_millis(100)))
+            .await;
         assert!(result.is_err_and(|e| matches!(e, SlimError::SessionError { .. })));
     }
 
@@ -1306,7 +1315,9 @@ mod tests {
 
         tx.send(Ok(msg)).expect("send should succeed");
 
-        let result = ctx.get_message_async(Some(std::time::Duration::from_millis(100))).await;
+        let result = ctx
+            .get_message_async(Some(std::time::Duration::from_millis(100)))
+            .await;
         assert!(result.is_ok());
 
         let received = result.unwrap();
@@ -1364,7 +1375,9 @@ mod tests {
 
         tx.send(Ok(msg)).expect("send should succeed");
 
-        let result = ctx.get_message_async(Some(std::time::Duration::from_millis(100))).await;
+        let result = ctx
+            .get_message_async(Some(std::time::Duration::from_millis(100)))
+            .await;
         assert!(result.is_ok());
         let received = result.unwrap();
         assert!(received.payload.is_empty());
@@ -1388,7 +1401,9 @@ mod tests {
 
         tx.send(Ok(msg)).expect("send should succeed");
 
-        let result = ctx.get_message_async(Some(std::time::Duration::from_millis(100))).await;
+        let result = ctx
+            .get_message_async(Some(std::time::Duration::from_millis(100)))
+            .await;
         assert!(result.is_ok());
         let received = result.unwrap();
         assert_eq!(received.payload.len(), 1024 * 1024);

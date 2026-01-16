@@ -411,7 +411,7 @@ impl App {
             futures::pin_mut!(recv_fut);
             let delay = Delay::new(dur);
             futures::pin_mut!(delay);
-            
+
             match futures::future::select(recv_fut, delay).await {
                 futures::future::Either::Left((result, _)) => result,
                 futures::future::Either::Right(_) => {

@@ -80,6 +80,7 @@ impl PyApp {
                 get_global_service()
             };
 
+<<<<<<< HEAD
             // Use BindingsAdapter's async constructor with optional service
             let adapter = service_instance.create_app_async(
                 slim_name,
@@ -87,6 +88,11 @@ impl PyApp {
                 verifier_config,
             )
             .await?;
+=======
+            let adapter = service_instance
+                .create_app_async(slim_name, provider_config, verifier_config)
+                .await?;
+>>>>>>> refactor/runtime-tokio
 
             Ok((adapter, service_instance))
         }
