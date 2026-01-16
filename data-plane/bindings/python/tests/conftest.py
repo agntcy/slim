@@ -10,9 +10,9 @@ establish sessions, publish messages, or perform connection logic.
 """
 
 import asyncio
-import typing
 
 import pytest_asyncio
+
 import slim_bindings
 
 
@@ -24,7 +24,7 @@ class ServerFixture:
         self.endpoint = endpoint
         self.local_service = endpoint is not None
 
-    def get_client_config(self) -> typing.Optional[slim_bindings.ClientConfig]:
+    def get_client_config(self) -> slim_bindings.ClientConfig | None:
         return (
             slim_bindings.new_insecure_client_config("http://" + self.endpoint)
             if self.local_service

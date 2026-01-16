@@ -645,7 +645,7 @@ impl MessageProcessor {
     }
 
     async fn send_error_to_local_app(&self, conn_index: u64, err: DataPathError) {
-        info!(%conn_index, "sending error to local application");
+        debug!(%conn_index, "sending error to local application");
         let connection = self.forwarder().get_connection(conn_index);
         match connection {
             Some(conn) => {

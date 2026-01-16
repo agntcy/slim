@@ -6,6 +6,7 @@ import datetime
 import pathlib
 
 import pytest
+
 import slim_bindings
 
 keys_folder = f"{pathlib.Path(__file__).parent.resolve()}/testdata"
@@ -157,7 +158,7 @@ async def test_identity_verification(server, audience):
         await session_context.completion.wait_async()
     else:
         # session establishment should timeout due to invalid audience
-        with pytest.raises(asyncio.TimeoutError):
+        with pytest.raises(slim_bindings.SlimError.SessionError):
             await asyncio.wait_for(
                 session_context.completion.wait_async(),
                 timeout=3.0,
@@ -211,6 +212,7 @@ async def test_identity_verification(server, audience):
         # delete sessions
         if audience == test_audience:
             h = await app_sender.delete_session_async(session_context.session)
+            await h.wait_async()
 
 
 def test_invalid_shared_secret_too_short():

@@ -195,7 +195,7 @@ fn initialize_internal(
     let guard = match tracing_conf.setup_tracing_subscriber() {
         Ok(g) => {
             debug!(?tracing_conf, "Tracing configuration loaded");
-            info!("SLIM bindings initialized");
+            debug!("SLIM bindings initialized");
             Some(Box::new(g) as Box<dyn std::any::Any + Send + Sync>)
         }
         Err(e) => {
@@ -374,7 +374,7 @@ async fn initialize_and_start_global_services(
 
         // Start the service to initialize servers and clients
         // This calls run() internally if servers/clients are configured
-        info!("Starting global service {}", idx);
+        debug!("Starting global service {}", idx);
         match slim_service.start().await {
             Ok(_) => {
                 info!("Global service {} started successfully", idx);
@@ -402,7 +402,7 @@ async fn initialize_and_start_global_services(
         services.push(service);
     }
 
-    info!(
+    debug!(
         "All {} global services initialized and started",
         services.len()
     );

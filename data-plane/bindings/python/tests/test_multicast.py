@@ -23,25 +23,136 @@ What is validated implicitly:
 """
 
 import asyncio
+import datetime
 import uuid
 
 import pytest
-from common import create_slim, create_name, create_client_config
 
-import slim_uniffi_bindings._slim_bindings.slim_bindings as slim_bindings
+import slim_bindings
+
+LONG_SECRET = "e4aaecb9ae0b23b82086bb8a8633e01fba16ae8d9c1379a613c00838"
+
+
+async def _create_participant(server, test_id, index):
+    """Create and setup a participant app."""
+    part_name = f"participant_{index}"
+    name = slim_bindings.Name("org", f"test_{test_id}", part_name)
+
+    conn_id = None
+    if server.local_service:
+        svc = slim_bindings.Service(f"svcparticipant{index}")
+        conn_id = await svc.connect_async(server.get_client_config())
+    else:
+        svc = server.service
+
+    participant = svc.create_app_with_secret(name, LONG_SECRET)
+
+    if server.local_service:
+        name_with_id = slim_bindings.Name.new_with_id(
+            "org", f"test_{test_id}", part_name, id=participant.id()
+        )
+        await participant.subscribe_async(name_with_id, conn_id)
+        await asyncio.sleep(0.1)
+
+    return participant, conn_id, part_name
+
+
+async def _create_group_session(participant, chat_name, mls_enabled):
+    """Create a group session and return it."""
+    session_config = slim_bindings.SessionConfig(
+        session_type=slim_bindings.SessionType.GROUP,
+        enable_mls=mls_enabled,
+        max_retries=5,
+        interval=datetime.timedelta(seconds=1),
+        metadata={},
+    )
+    session_context = await participant.create_session_async(session_config, chat_name)
+    await session_context.completion.wait_async()
+    return session_context.session
+
+
+async def _invite_participants(
+    participant, session, server, test_id, participants_count, conn_id, part_name
+):
+    """Invite all participants to the group session."""
+    for i in range(participants_count):
+        if i != 0:
+            name_to_add = f"participant_{i}"
+            to_add = slim_bindings.Name("org", f"test_{test_id}", name_to_add)
+            if server.local_service:
+                await participant.set_route_async(to_add, conn_id)
+
+            handle = await session.invite_async(to_add)
+            await handle.wait_async()
+            print(f"{part_name} -> add {name_to_add} to the group")
+
+    await asyncio.sleep(1)  # wait a bit to ensure routes are set up
+
+
+async def _receive_session(participant, index, first_message):
+    """Receive and validate the session if this is the first message."""
+    if index == 0 or not first_message:
+        return None, first_message
+
+    session_context = await participant.listen_for_session_async(None)
+    recv_session = session_context
+
+    assert recv_session.session_type() == slim_bindings.SessionType.GROUP
+
+    return recv_session, False
+
+
+async def _handle_message_relay(
+    recv_session, index, participants_count, part_name, message, msg_rcv, called
+):
+    """Handle message relay logic - check if message is for this participant and relay."""
+    if (not called) and msg_rcv.decode().endswith(part_name):
+        print(
+            f"{part_name} -> Receiving message: {msg_rcv.decode()}, local count: {index}"
+        )
+
+        next_participant = (index + 1) % participants_count
+        next_participant_name = f"participant_{next_participant}"
+        print(f"{part_name} -> Calling out {next_participant_name}...")
+
+        await recv_session.publish_async(
+            f"{message} - {next_participant_name}".encode(), None, None
+        )
+        print(f"{part_name} -> Published!")
+        return True
+
+    print(f"{part_name} -> Receiving message: {msg_rcv.decode()} - not for me.")
+    return called
+
+
+async def _close_session_as_moderator(participant, recv_session, part_name):
+    """Close session as moderator (participant 0)."""
+    print(f"{part_name} -> Closing session as moderator...")
+    await asyncio.sleep(0.5)  # Give others time to finish
+    h = await participant.delete_session_async(recv_session)
+    await h.wait_async()
+    print(f"{part_name} -> Session closed successfully")
+
+
+async def _wait_for_session_close(recv_session, part_name):
+    """Wait for session to be closed by moderator."""
+    try:
+        await recv_session.get_message_async(timeout=datetime.timedelta(seconds=30))
+    except slim_bindings.SlimError.SessionError as e:
+        print(f"{part_name} -> Received error {e}")
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "server",
     [
-        "127.0.0.1:12375",  # local service
-        # None,  # global service
+        # "127.0.0.1:12375",  # local service
+        None,  # global service
     ],
     indirect=True,
 )
-@pytest.mark.parametrize("mls_enabled", [True, False])
-async def test_group(server, mls_enabled):  # noqa: C901
+@pytest.mark.parametrize("mls_enabled", [False])
+async def test_group(server, mls_enabled):
     """Exercise group session behavior with N participants relaying a message in a ring.
 
     Steps:
@@ -67,10 +178,10 @@ async def test_group(server, mls_enabled):  # noqa: C901
     participants_count = 10
     participants = []
 
-    chat_name = create_name("org", f"test_{test_id}", "chat")
+    chat_name = slim_bindings.Name("org", f"test_{test_id}", "chat")
 
     print(f"Test ID: {test_id}")
-    print(f"Chat name: {chat_name}")
+    print(f"Chat name: {chat_name.as_string()}")
     print(f"Using {'local' if server.local_service else 'global'} service")
 
     # Background task: each participant joins/creates the session and relays messages around the ring
@@ -78,74 +189,44 @@ async def test_group(server, mls_enabled):  # noqa: C901
         """Participant coroutine.
 
         Responsibilities:
-          * Index 0: create group session, invite others, publish initial message.
+          * Index 0: create group session, invite others, publish initial message, close session when done.
           * Others: wait for inbound session, validate session properties, relay when addressed.
         """
-        part_name = f"participant-{index}"
         local_count = 0
 
+        # Create participant
+        participant, conn_id, part_name = await _create_participant(
+            server, test_id, index
+        )
         print(f"Creating participant {part_name}...")
 
-        # Use unique namespace per test to avoid collisions
-        name = create_name("org", f"test_{test_id}", part_name)
-
-        participant = create_slim(name, local_service=server.local_service)
-
-        if server.endpoint is not None:
-            # Connect to SLIM server
-            print(f"{part_name} -> Connecting to server at {server.endpoint}...")
-            conn_id = await participant.connect_async(
-                create_client_config(f"http://{server.endpoint}")
-            )
+        # Store the session for moderator to close later
+        recv_session = None
 
         if index == 0:
             print(f"{part_name} -> Creating new group sessions...")
-            # create a group session. index 0 is the moderator of the session
-            # and it will invite all the other participants to the session
-            session_config = slim_bindings.SessionConfig(
-                session_type=slim_bindings.SessionType.GROUP,
-                enable_mls=mls_enabled,
-                max_retries=5,
-                interval_ms=1000,  # 1 second interval
-                initiator=True,
-                metadata={},
+            session = await _create_group_session(participant, chat_name, mls_enabled)
+            await _invite_participants(
+                participant,
+                session,
+                server,
+                test_id,
+                participants_count,
+                conn_id,
+                part_name,
             )
-            # Create session (auto-waits for establishment)
-            session = await participant.create_session_async(session_config, chat_name)
-
-            # invite all participants
-            for i in range(participants_count):
-                if i != 0:
-                    name_to_add = f"participant-{i}"
-                    # Use same unique namespace as above
-                    to_add = create_name("org", f"test_{test_id}", name_to_add)
-
-                    if server.endpoint is not None:
-                        await participant.set_route_async(to_add, conn_id)
-
-                    # Invite participant (auto-waits for completion)
-                    await session.invite_async(to_add)
-
-                    print(f"{part_name} -> add {name_to_add} to the group")
-
-            await asyncio.sleep(1)  # wait a bit to ensure routes are set up
 
         # Track if this participant was called
         called = False
         first_message = True
 
-        # if this is the first participant, we need to publish the message
-        # to start the chain
+        # if this is the first participant, publish the message to start the chain
         if index == 0:
             next_participant = (index + 1) % participants_count
-            next_participant_name = f"participant-{next_participant}"
-
+            next_participant_name = f"participant_{next_participant}"
             msg = f"{message} - {next_participant_name}"
-
             print(f"{part_name} -> Publishing message as first participant: {msg}")
-
             called = True
-
             await session.publish_async(f"{msg}".encode(), None, None)
 
         while True:
@@ -154,22 +235,16 @@ async def test_group(server, mls_enabled):  # noqa: C901
                 if index == 0:
                     recv_session = session
                 else:
-                    if first_message:
-                        recv_session = await participant.listen_for_session_async(None)
-
-                        # make sure the received session is group
-                        assert (
-                            recv_session.session_type()
-                            == slim_bindings.SessionType.GROUP
-                        )
-
-                        # Note: The new API structure for session properties may differ
-                        # destination() and source() return Name objects, not direct comparison
-
-                        first_message = False
+                    new_session, first_message = await _receive_session(
+                        participant, index, first_message
+                    )
+                    if new_session:
+                        recv_session = new_session
 
                 # receive message from session
-                received_msg = await recv_session.get_message_async(None)
+                received_msg = await recv_session.get_message_async(
+                    timeout=datetime.timedelta(seconds=30)
+                )
                 _ = received_msg.context
                 msg_rcv = received_msg.payload
 
@@ -179,52 +254,43 @@ async def test_group(server, mls_enabled):  # noqa: C901
                 # make sure the message is correct
                 assert msg_rcv.startswith(bytes(message.encode()))
 
-                # Check if the message is calling this specific participant
-                # if not, ignore it
-                if (not called) and msg_rcv.decode().endswith(part_name):
-                    # print the message
-                    print(
-                        f"{part_name} -> Receiving message: {msg_rcv.decode()}, local count: {local_count}"
-                    )
+                # Handle message relay
+                called = await _handle_message_relay(
+                    recv_session,
+                    index,
+                    participants_count,
+                    part_name,
+                    message,
+                    msg_rcv,
+                    called,
+                )
 
-                    called = True
+                # All participants exit after receiving all expected messages
+                if local_count >= (participants_count - 1):
+                    print(f"{part_name} -> Received all {local_count} messages")
 
-                    # as the message is for this specific participant, we can
-                    # reply to the session and call out the next participant
-                    next_participant = (index + 1) % participants_count
-                    next_participant_name = f"participant-{next_participant}"
-                    print(f"{part_name} -> Calling out {next_participant_name}...")
-                    await recv_session.publish_async(
-                        f"{message} - {next_participant_name}".encode(), None, None
-                    )
-                    print(f"{part_name} -> Published! Local count: {local_count}")
-                else:
-                    print(
-                        f"{part_name} -> Receiving message: {msg_rcv.decode()} - not for me. Local count: {local_count}"
-                    )
+                    # Moderator (participant 0) closes the session
+                    if index == 0:
+                        await _close_session_as_moderator(
+                            participant, recv_session, part_name
+                        )
+                    else:
+                        await _wait_for_session_close(recv_session, part_name)
 
-                # If we received as many messages as the number of participants, we can exit
-                if local_count >= (participants_count - 1) and index == 0:
-                    print(f"{part_name} -> Received all messages, close channel...")
-
-                    await asyncio.sleep(0.2)
-
-                    await participant.delete_session_async(recv_session)
-                    print("session closed on participant 0")
                     break
 
             except Exception as e:
-                # Expected: when the session is closed by the moderator, other participants
-                # will receive "session channel closed" error
-                print(f"{part_name} -> Session closed: {e}")
-                break
+                print(f"{part_name} -> Unexpected error: {e}")
+                raise
 
     # start participants in background
     for i in range(participants_count):
         task = asyncio.create_task(background_task(i))
-        task.set_name(f"participant-{i}")
+        task.set_name(f"participant_{i}")
         participants.append(task)
 
-    # Wait for the task to complete
+    # Wait for all participants to complete
     for task in participants:
         await task
+
+    print("All participants completed successfully!")

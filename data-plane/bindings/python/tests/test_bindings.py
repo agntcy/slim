@@ -20,6 +20,7 @@ import asyncio
 import datetime
 
 import pytest
+
 import slim_bindings
 
 LONG_SECRET = "e4aaecb9ae0b23b82086bb8a8633e01fba16ae8d9c1379a613c00838"
@@ -76,10 +77,10 @@ async def test_end_to_end(server):
         await app_alice.set_route_async(bob_name, conn_id_alice)
 
     await asyncio.sleep(1)
-    print(alice_name)
-    print(bob_name)
+    print(alice_name.as_string())
+    print(bob_name.as_string())
 
-    # create point to point session (auto-waits for establishment)
+    # create point to point session
     session_context_alice = await app_alice.create_session_async(
         slim_bindings.SessionConfig(
             session_type=slim_bindings.SessionType.POINT_TO_POINT,
@@ -426,7 +427,7 @@ async def test_get_message_timeout(server):
 
     await asyncio.sleep(1)
 
-    # create point to point session (auto-waits for establishment)
+    # create point to point session
     session_context_alice = await app_alice.create_session_async(
         slim_bindings.SessionConfig(
             session_type=slim_bindings.SessionType.POINT_TO_POINT,

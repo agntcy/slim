@@ -22,11 +22,78 @@ Validated invariants:
 """
 
 import asyncio
+import datetime
+import uuid
 
 import pytest
-from common import create_slim, create_name, create_client_config
 
-import slim_uniffi_bindings._slim_bindings.slim_bindings as slim_bindings
+import slim_bindings
+
+LONG_SECRET = "e4aaecb9ae0b23b82086bb8a8633e01fba16ae8d9c1379a613c00838"
+
+
+async def _setup_sender(server, sender_name, test_id, receiver_name):
+    """Create and configure sender app."""
+    conn_id_sender = None
+    if server.local_service:
+        svc_sender = slim_bindings.Service("svcsender")
+        conn_id_sender = await svc_sender.connect_async(server.get_client_config())
+    else:
+        svc_sender = server.service
+
+    sender = svc_sender.create_app_with_secret(sender_name, LONG_SECRET)
+
+    if server.local_service:
+        # Subscribe sender
+        sender_name_with_id = slim_bindings.Name.new_with_id(
+            "org", f"test_{test_id}", "p2psender", id=sender.id()
+        )
+        await sender.subscribe_async(sender_name_with_id, conn_id_sender)
+        await asyncio.sleep(0.1)
+
+        # set route to receiver
+        await sender.set_route_async(receiver_name, conn_id_sender)
+
+    return sender, conn_id_sender
+
+
+async def _publish_messages(sender_session, n_messages, payload_type, metadata):
+    """Publish messages and wait for completion."""
+    handles = []
+    for _ in range(n_messages):
+        h = await sender_session.publish_async(
+            b"Hello from sender",
+            payload_type,
+            metadata,
+        )
+        handles.append(h.wait_async())
+
+    # wait for all messages
+    await asyncio.gather(*handles)
+
+
+async def _wait_for_ack(sender_session):
+    """Wait for acknowledgment from receiver and return winner_id."""
+    received_msg = await sender_session.get_message_async(
+        timeout=datetime.timedelta(seconds=30)
+    )
+    msg = received_msg.payload
+    ack_text = msg.decode()
+    print(f"Sender received ack from receiver: {ack_text}")
+
+    # Parse winning receiver index from ack: format "All messages received: {i}"
+    try:
+        winner_id = int(ack_text.rsplit(":", 1)[1].strip())
+    except Exception as e:
+        raise AssertionError(f"Unexpected ack format '{ack_text}': {e}")
+
+    return winner_id
+
+
+def _validate_affinity(receiver_counts, n_messages):
+    """Validate that exactly one receiver got all messages."""
+    assert sum(receiver_counts.values()) == n_messages
+    assert n_messages in receiver_counts.values()
 
 
 @pytest.mark.asyncio
@@ -56,23 +123,18 @@ async def test_sticky_session(server, mls_enabled):
     Expectation:
         Sticky routing pins all messages to the first receiver that accepted the session.
     """
-    sender_name = create_name("org", "default", "p2p_sender")
-    receiver_name = create_name("org", "default", "p2p_receiver")
+    # Generate unique names to avoid collisions
+    test_id = str(uuid.uuid4())[:8]
+    sender_name = slim_bindings.Name("org", f"test_{test_id}", "p2psender")
+    receiver_name = slim_bindings.Name("org", f"test_{test_id}", "p2preceiver")
 
-    print(f"Sender name: {sender_name}")
-    print(f"Receiver name: {receiver_name}")
+    print(f"Sender name: {sender_name.as_string()}")
+    print(f"Receiver name: {receiver_name.as_string()}")
 
-    # create new slim object
-    sender = create_slim(sender_name, local_service=server.local_service)
-
-    if server.local_service:
-        # Connect to the service and subscribe for the local name
-        conn_id = await sender.connect_async(
-            create_client_config("http://127.0.0.1:22345")
-        )
-
-        # set route to receiver
-        await sender.set_route_async(receiver_name, conn_id)
+    # Create sender service and app
+    sender, conn_id_sender = await _setup_sender(
+        server, sender_name, test_id, receiver_name
+    )
 
     receiver_counts = {i: 0 for i in range(10)}
 
@@ -85,15 +147,28 @@ async def test_sticky_session(server, mls_enabled):
         - Counts messages matching expected routing + metadata.
         - Continues until sender finishes publishing (loop ends by external cancel or test end).
         """
-        receiver = create_slim(receiver_name, local_service=server.local_service)
+        # Create receiver service and app
+        conn_id_receiver = None
+        if server.local_service:
+            svc_receiver = slim_bindings.Service(f"svcreceiver{i}")
+            conn_id_receiver = await svc_receiver.connect_async(
+                server.get_client_config()
+            )
+        else:
+            svc_receiver = server.service
+
+        receiver = svc_receiver.create_app_with_secret(receiver_name, LONG_SECRET)
 
         if server.local_service:
-            # Connect to the service and subscribe for the local name
-            _ = await receiver.connect_async(
-                create_client_config("http://127.0.0.1:22345")
+            # Subscribe receiver
+            receiver_name_with_id = slim_bindings.Name.new_with_id(
+                "org", f"test_{test_id}", "p2preceiver", id=receiver.id()
             )
+            await receiver.subscribe_async(receiver_name_with_id, conn_id_receiver)
+            await asyncio.sleep(0.1)
 
-        session = await receiver.listen_for_session_async(None)
+        session_context = await receiver.listen_for_session_async(None)
+        session = session_context
 
         # make sure the received session is PointToPoint
         assert session.session_type() == slim_bindings.SessionType.POINT_TO_POINT
@@ -103,7 +178,9 @@ async def test_sticky_session(server, mls_enabled):
 
         while True:
             try:
-                received_msg = await session.get_message_async(None)
+                received_msg = await session.get_message_async(
+                    timeout=datetime.timedelta(seconds=30)
+                )
                 _ctx = received_msg.context
             except Exception as e:
                 print(f"Receiver {i} error: {e}")
@@ -130,16 +207,19 @@ async def test_sticky_session(server, mls_enabled):
     # Give receivers a moment to start listening (especially important for global service mode)
     await asyncio.sleep(0.5)
 
-    # create a new session (auto-waits for establishment)
+    # create a new session
     session_config = slim_bindings.SessionConfig(
         session_type=slim_bindings.SessionType.POINT_TO_POINT,
         enable_mls=mls_enabled,
         max_retries=5,
-        interval_ms=100,  # 100ms interval
-        initiator=True,
+        interval=datetime.timedelta(milliseconds=100),
         metadata={},
     )
-    sender_session = await sender.create_session_async(session_config, receiver_name)
+    sender_session_context = await sender.create_session_async(
+        session_config, receiver_name
+    )
+    await sender_session_context.completion.wait_async()
+    sender_session = sender_session_context.session
 
     payload_type = "hello message"
     metadata = {"sender": "hello"}
@@ -149,25 +229,10 @@ async def test_sticky_session(server, mls_enabled):
     # to exactly the same receiver instance (affinity).
 
     # Publish all messages
-    for _ in range(n_messages):
-        await sender_session.publish_async(
-            b"Hello from sender",
-            payload_type,
-            metadata,
-        )
+    await _publish_messages(sender_session, n_messages, payload_type, metadata)
 
-    # wait a moment for all messages to be processed
-    received_msg = await sender_session.get_message_async(None)
-    msg = received_msg.payload
-
-    ack_text = msg.decode()
-    print(f"Sender received ack from receiver: {ack_text}")
-
-    # Parse winning receiver index from ack: format "All messages received: {i}"
-    try:
-        winner_id = int(ack_text.rsplit(":", 1)[1].strip())
-    except Exception as e:
-        raise AssertionError(f"Unexpected ack format '{ack_text}': {e}")
+    # Wait for acknowledgment from receiver
+    winner_id = await _wait_for_ack(sender_session)
 
     # Cancel all non-winning receiver tasks
     for idx, t in enumerate(tasks):
@@ -177,11 +242,14 @@ async def test_sticky_session(server, mls_enabled):
     # Affinity assertions:
     #  * Sum of all per-receiver counts == total sent (1000)
     #  * Exactly one bucket contains 1000 (the sticky peer)
-    assert sum(receiver_counts.values()) == n_messages
-    assert n_messages in receiver_counts.values()
+    _validate_affinity(receiver_counts, n_messages)
 
     # Delete sender_session
-    await sender.delete_session_async(sender_session)
+    handle = await sender.delete_session_async(sender_session)
+    await handle.wait_async()
 
     # Await only the winning receiver task (others were cancelled)
-    winner_result = await tasks[winner_id]
+    try:
+        await tasks[winner_id]
+    except asyncio.CancelledError:
+        pass  # Expected if task was cancelled

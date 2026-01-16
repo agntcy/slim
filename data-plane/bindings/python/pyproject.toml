@@ -48,6 +48,13 @@ testing = [
     "pytest-asyncio>=0.21.0",
 ]
 
+linting = [
+    "griffe>=1.5.5",
+    "pyright>=1.1.0",
+    "ruff>=0.9.3",
+    "mypy>=1.14.1",
+]
+
 [tool.maturin]
 bindings = "uniffi"
 manifest-path = "../rust/Cargo.toml"
@@ -62,8 +69,18 @@ markers = [
     "integration: marks tests as integration tests (need running server)",
 ]
 
-[tool.uv]
-default-groups = ["building", "testing"]
+[tool.ruff]
+extend-exclude = ["slim_bindings/_slim_bindings.pyi"]
 
-[tool.uv.workspace]
-members = [".", "examples"]
+[tool.ruff.lint]
+extend-select = ["Q", "RUF100", "C90", "I", "UP"]
+extend-ignore = [
+    "E721", # using type() instead of isinstance() - we use this in tests
+]
+flake8-quotes = { inline-quotes = "double", multiline-quotes = "double" }
+mccabe = { max-complexity = 13 }
+isort = { known-first-party = ["slim_bindings", "tests"] }
+
+
+[tool.uv]
+default-groups = ["building", "testing", "linting"]

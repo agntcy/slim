@@ -23,18 +23,16 @@ Pass criteria:
   exactly once and match on the receiver side.
 """
 
+import datetime
+import uuid
+
 import pytest
-from common import create_slim, create_name
 
-from slim_uniffi_bindings._slim_bindings.slim_bindings import (
-    SessionConfig,
-    SessionType,
-)
+import slim_bindings
+
+LONG_SECRET = "e4aaecb9ae0b23b82086bb8a8633e01fba16ae8d9c1379a613c00838"
 
 
-@pytest.mark.skip(
-    reason="Session metadata getter not available in new uniffi API - feature not yet implemented"
-)
 @pytest.mark.asyncio
 @pytest.mark.parametrize("server", [None], indirect=True)
 async def test_session_metadata_merge_roundtrip(server):
@@ -51,41 +49,49 @@ async def test_session_metadata_merge_roundtrip(server):
     Assertions:
       For each (k, v) in initial metadata: receiver.metadata[k] == v.
     """
-    # Define identities
-    sender_name = create_name("org", "ns", "session_sender")
-    receiver_name = create_name("org", "ns", "session_receiver")
+    # Generate unique names to avoid collisions
+    test_id = str(uuid.uuid4())[:8]
+    sender_name = slim_bindings.Name("org", f"test_{test_id}", "sessionsender")
+    receiver_name = slim_bindings.Name("org", f"test_{test_id}", "sessionreceiver")
 
-    # Instantiate Slim instances with shared-secret auth
-    sender = create_slim(sender_name, local_service=False)
-    receiver = create_slim(receiver_name, local_service=False)
+    # Use global service
+    svc = server.service
+
+    # Create sender and receiver apps
+    sender = svc.create_app_with_secret(sender_name, LONG_SECRET)
+    receiver = svc.create_app_with_secret(receiver_name, LONG_SECRET)
 
     # Metadata we want to propagate with the session creation
     metadata = {"a": "1", "k": "session"}
 
-    # Create PointToPoint session
-    sess_cfg = SessionConfig(
-        session_type=SessionType.POINT_TO_POINT,
+    # Create PointToPoint session with metadata
+    sess_cfg = slim_bindings.SessionConfig(
+        session_type=slim_bindings.SessionType.POINT_TO_POINT,
         enable_mls=False,
-        max_retries=None,
-        interval_ms=None,
-        initiator=True,
+        max_retries=5,
+        interval=datetime.timedelta(seconds=1),
         metadata=metadata,
     )
-    # Create session (auto-waits for establishment)
-    session_sender = await sender.create_session_async(sess_cfg, receiver_name)
+    # Create session (returns SessionWithCompletion)
+    session_context_sender = await sender.create_session_async(sess_cfg, receiver_name)
+    await session_context_sender.completion.wait_async()
+    session_sender = session_context_sender.session
 
     # Publish a message to trigger session on receiver side
     await session_sender.publish_async(b"hello", None, None)
 
     # Receiver obtains the new session context
-    session_receiver = await receiver.listen_for_session_async(None)
+    session_context_receiver = await receiver.listen_for_session_async(
+        timeout=datetime.timedelta(seconds=10)
+    )
 
     # Extract and validate metadata
-    session_metadata = session_receiver.metadata
+    session_metadata = session_context_receiver.metadata()
     for k, v in metadata.items():
-        assert v == session_metadata[k], (
+        assert v == session_metadata.get(k), (
             f"Metadata mismatch for key '{k}': {v} != {session_metadata.get(k)}"
         )
 
-    # Delete sessions (auto-waits for completion)
-    await sender.delete_session_async(session_sender)
+    # Delete sessions
+    handle = await sender.delete_session_async(session_sender)
+    await handle.wait_async()
