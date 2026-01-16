@@ -150,6 +150,7 @@ func (c ControlPlaneConfig) OverrideFromEnv() *ControlPlaneConfig {
 	c.Southbound.HTTPPort = getEnvStr("SB_API_HTTP_PORT", c.Southbound.HTTPPort)
 	c.Southbound.HTTPHost = getEnvStr("SB_API_HTTP_HOST", c.Southbound.HTTPHost)
 	c.LogConfig.Level = getEnvStr("API_LOG_LEVEL", c.LogConfig.Level)
+	c.Database.FilePath = getEnvStr("DATABASE_FILEPATH", c.Database.FilePath)
 	return &c
 }
 

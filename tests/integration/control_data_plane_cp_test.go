@@ -5,6 +5,7 @@ package integration
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"time"
 
@@ -23,6 +24,7 @@ var _ = Describe("Routing", func() {
 		serverASession      *gexec.Session
 		serverBSession      *gexec.Session
 		controlPlaneSession *gexec.Session
+		controlPlaneDBPath  string
 	)
 
 	BeforeEach(func() {
@@ -53,8 +55,11 @@ var _ = Describe("Routing", func() {
 			controlPlaneSession.Terminate().Wait(30 * time.Second)
 		}
 		// delete control plane database file
-		err := exec.Command("rm", "-f", "controlplane.db").Run()
-		Expect(err).NotTo(HaveOccurred())
+		if controlPlaneDBPath != "" {
+			err := os.Remove(controlPlaneDBPath)
+			Expect(err).NotTo(HaveOccurred())
+			controlPlaneDBPath = ""
+		}
 	})
 
 	Describe("message routing with control plane", func() {
@@ -71,8 +76,17 @@ var _ = Describe("Routing", func() {
 
 			// start control plane
 			var errCP error
+			var err error
+			var controlPlaneDB *os.File
+			controlPlaneDB, err = os.CreateTemp("", "controlplane-*.db")
+			Expect(err).NotTo(HaveOccurred())
+			controlPlaneDBPath = controlPlaneDB.Name()
+			Expect(controlPlaneDB.Close()).To(Succeed())
+
+			controlPlaneCmd := exec.Command(controlPlanePath, "--config", "./testdata/control-plane-config.yaml")
+			controlPlaneCmd.Env = append(os.Environ(), "DATABASE_FILEPATH="+controlPlaneDBPath)
 			controlPlaneSession, errCP = gexec.Start(
-				exec.Command(controlPlanePath, "--config", "./testdata/control-plane-config.yaml"),
+				controlPlaneCmd,
 				GinkgoWriter, GinkgoWriter,
 			)
 			Expect(errCP).NotTo(HaveOccurred())
@@ -93,7 +107,6 @@ var _ = Describe("Routing", func() {
 			// test if SLIM node a connects to control plane
 			Eventually(serverASession.Out, 15*time.Second).Should(gbytes.Say(`connected to control plane`))
 
-			var err error
 			clientBSession, err = gexec.Start(
 				exec.Command(sdkMockPath,
 					"--config", "./testdata/client-b-config.yaml",

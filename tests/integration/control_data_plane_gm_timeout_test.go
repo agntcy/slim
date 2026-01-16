@@ -5,6 +5,7 @@ package integration
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -20,6 +21,7 @@ var _ = Describe("Group management through control plane with timeout", func() {
 		controlPlaneSession *gexec.Session
 		slimNodeSession     *gexec.Session
 		moderatorSession    *gexec.Session
+		controlPlaneDBPath  string
 	)
 
 	BeforeEach(func() {
@@ -27,8 +29,17 @@ var _ = Describe("Group management through control plane with timeout", func() {
 
 		// start control plane
 		var errCP error
+		var err error
+		var controlPlaneDB *os.File
+		controlPlaneDB, err = os.CreateTemp("", "controlplane-*.db")
+		Expect(err).NotTo(HaveOccurred())
+		controlPlaneDBPath = controlPlaneDB.Name()
+		Expect(controlPlaneDB.Close()).To(Succeed())
+
+		controlPlaneCmd := exec.Command(controlPlanePath, "--config", "./testdata/control-plane-config.yaml")
+		controlPlaneCmd.Env = append(os.Environ(), "DATABASE_FILEPATH="+controlPlaneDBPath)
 		controlPlaneSession, errCP = gexec.Start(
-			exec.Command(controlPlanePath, "--config", "./testdata/control-plane-config.yaml"),
+			controlPlaneCmd,
 			GinkgoWriter, GinkgoWriter,
 		)
 		Expect(errCP).NotTo(HaveOccurred())
@@ -75,8 +86,11 @@ var _ = Describe("Group management through control plane with timeout", func() {
 		}
 
 		// delete control plane database file
-		err := exec.Command("rm", "-f", "controlplane.db").Run()
-		Expect(err).NotTo(HaveOccurred())
+		if controlPlaneDBPath != "" {
+			err := os.Remove(controlPlaneDBPath)
+			Expect(err).NotTo(HaveOccurred())
+			controlPlaneDBPath = ""
+		}
 	})
 
 	Describe("group management with control plane with timeout", func() {
