@@ -218,7 +218,7 @@ impl Proxy {
 
     pub async fn start(
         &mut self,
-        mut service: slim_service::Service,
+        service: slim_service::Service,
         _drain_timeout: std::time::Duration,
     ) {
         const SECRET: &str = "tUDNjNmc4s6om6yziR4nmBVKKTFCXhfJEiP";

@@ -1,11 +1,11 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
-version: '3'
+version: "3"
 
 includes:
   adapter:
-    taskfile: "../adapter/Taskfile.yaml"
+    taskfile: "../rust/Taskfile.yaml"
     internal: false
   rust:
     taskfile: ../../../tasks/rust.yaml
@@ -13,7 +13,7 @@ includes:
 
 vars:
   # The Rust UniFFI bindings crate - in bindings/adapter (sibling to bindings/go)
-  BINDINGS_DIR: "{{.TASKFILE_DIR}}/../adapter"
+  BINDINGS_DIR: "{{.TASKFILE_DIR}}/../rust"
   PROFILE: '{{.PROFILE | default "release"}}'
   CURRENT_TARGET:
     sh: 'rustc -vV | sed -n "s|host: ||p"'
@@ -55,11 +55,11 @@ tasks:
 
         /*
         #cgo CFLAGS: -I${SRCDIR}
-        #cgo linux,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../../.cache/slim-bindings -lslim_bindings_x86_64_linux_gnu -lm
-        #cgo linux,arm64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../../.cache/slim-bindings -lslim_bindings_aarch64_linux_gnu -lm
-        #cgo darwin,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../../.cache/slim-bindings -lslim_bindings_x86_64_darwin -Wl,-undefined,dynamic_lookup
-        #cgo darwin,arm64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../../.cache/slim-bindings -lslim_bindings_aarch64_darwin -Wl,-undefined,dynamic_lookup
-        #cgo windows,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../../AppData/Local/slim-bindings -lslim_bindings_x86_64_windows_gnu -lws2_32 -lbcrypt -ladvapi32 -luserenv -lntdll -lgcc_eh -lgcc -lkernel32 -lole32
+        #cgo linux,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cache/slim-bindings -lslim_bindings_x86_64_linux_gnu -lm
+        #cgo linux,arm64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cache/slim-bindings -lslim_bindings_aarch64_linux_gnu -lm
+        #cgo darwin,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cache/slim-bindings -lslim_bindings_x86_64_darwin -Wl,-undefined,dynamic_lookup
+        #cgo darwin,arm64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cache/slim-bindings -lslim_bindings_aarch64_darwin -Wl,-undefined,dynamic_lookup
+        #cgo windows,amd64 LDFLAGS: -L${SRCDIR} -L${SRCDIR}/../../../../../.cache/slim-bindings -lslim_bindings_x86_64_windows_gnu -lws2_32 -lbcrypt -ladvapi32 -luserenv -lntdll -lgcc_eh -lgcc -lkernel32 -lole32
         #include <slim_bindings.h>
         */
         import "C"
@@ -211,7 +211,7 @@ tasks:
   test:
     desc: Run all tests
     deps:
-     - task: generate
+      - task: generate
     cmds:
       - echo "🧪 Running all tests..."
       - go test -v ./...
@@ -221,9 +221,9 @@ tasks:
   test-coverage:
     desc: Run tests with coverage report
     deps:
-     - task: adapter:bindings:build:all
-       vars:
-         PROFILE: release
+      - task: adapter:bindings:build:all
+        vars:
+          PROFILE: release
     cmds:
       - echo "📊 Running tests with coverage..."
       - go test -v -coverprofile=coverage.out ./...

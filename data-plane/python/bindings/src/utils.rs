@@ -6,17 +6,18 @@ use std::fmt::Display;
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pyo3_stub_gen::derive::gen_stub_pyclass;
 use pyo3_stub_gen::derive::gen_stub_pyfunction;
 use pyo3_stub_gen::derive::gen_stub_pymethods;
 use serde_pyobject::from_pyobject;
-use slim_bindings::Name as FfiName;
+use slim_bindings::{
+    Name as FfiName, RuntimeConfig, ServiceConfig, TracingConfig, initialize_with_configs,
+    initialize_with_defaults,
+};
 use slim_datapath::messages::encoder::Name;
-use slim_tracing::TracingConfiguration;
-use tokio::sync::OnceCell;
+use slim_tracing::TracingConfiguration as CoreTracingConfiguration;
 
 /// name class
 #[gen_stub_pyclass]
@@ -134,25 +135,47 @@ impl PyName {
     }
 }
 
-async fn init_tracing_impl(config: TracingConfiguration) -> Result<(), slim_tracing::ConfigError> {
-    static TRACING_GUARD: OnceCell<slim_tracing::OtelGuard> = OnceCell::const_new();
-
-    let _ = TRACING_GUARD
-        .get_or_init(|| async { config.setup_tracing_subscriber().unwrap() })
-        .await;
-
+/// Initialize SLIM with default configuration
+///
+/// This initializes the SLIM runtime, tracing, and service with sensible defaults.
+/// Call this once at the start of your application before using SLIM functionality.
+#[gen_stub_pyfunction]
+#[pyfunction]
+pub fn init_slim() -> PyResult<()> {
+    initialize_with_defaults();
     Ok(())
+}
+
+/// Initialize SLIM with custom tracing configuration (Python API)
+///
+/// Accepts a dictionary with tracing configuration. Runtime and service will use defaults.
+/// For backward compatibility with existing Python code.
+async fn init_tracing_impl(config: Option<CoreTracingConfiguration>) -> PyResult<()> {
+    // Use defaults for runtime and service
+    let runtime_config = RuntimeConfig::default();
+    let service_config = ServiceConfig::default();
+
+    // Parse tracing config or use default
+    let tracing_config = if let Some(core_tracing) = config {
+        // Convert to bindings TracingConfig type
+        TracingConfig::from(core_tracing)
+    } else {
+        TracingConfig::default()
+    };
+
+    // Initialize with the configs
+    initialize_with_configs(runtime_config, tracing_config, &[service_config])
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
 }
 
 #[gen_stub_pyfunction]
 #[pyfunction]
 #[pyo3(signature = (config))]
 pub fn init_tracing(py: Python, config: Py<PyDict>) -> PyResult<Bound<PyAny>> {
-    let config: TracingConfiguration = from_pyobject(config.into_bound(py))?;
+    // Parse the config dict to CoreTracingConfiguration
+    let parsed_config: CoreTracingConfiguration = from_pyobject(config.into_bound(py))?;
 
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        init_tracing_impl(config)
-            .await
-            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        init_tracing_impl(Some(parsed_config)).await
     })
 }
