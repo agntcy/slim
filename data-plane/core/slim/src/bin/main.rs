@@ -3,7 +3,7 @@
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use tracing::{debug, info, span};
+use tracing::{debug, info, span, warn};
 
 use slim::args;
 use slim::build_info;
@@ -36,6 +36,7 @@ fn main() -> anyhow::Result<()> {
 
     // start runtime
     let runtime_config = config.runtime();
+    let drain_timeout = runtime_config.drain_timeout();
     let runtime = runtime::build(runtime_config);
 
     let run_result: Result<_> = runtime.runtime.block_on(async move {
@@ -72,14 +73,30 @@ fn main() -> anyhow::Result<()> {
             }
         }
 
-        // Gracefully stop services
-        for service in services.iter_mut() {
-            info!(service = %service.0, "stopping service");
-            service
-                .1
-                .shutdown()
-                .await
-                .context("failed to stop service")?;
+        // Gracefully stop services with timeout
+        let shutdown_all = async {
+            for service in services.iter_mut() {
+                info!(service = %service.0, "stopping service");
+                service
+                    .1
+                    .shutdown()
+                    .await
+                    .context("failed to stop service")?;
+            }
+            Ok::<(), anyhow::Error>(())
+        };
+
+        match tokio::time::timeout(drain_timeout, shutdown_all).await {
+            Ok(result) => {
+                result?;
+            }
+            Err(_) => {
+                warn!(
+                    timeout = ?drain_timeout,
+                    "Service shutdown timed out"
+                );
+                anyhow::bail!("Service shutdown timed out after {:?}", drain_timeout);
+            }
         }
         Ok(())
     });

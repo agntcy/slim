@@ -247,9 +247,7 @@ impl Service {
         Ok(())
     }
 
-    pub async fn shutdown(
-        &self,
-    ) -> Result<(), ServiceError> {
+    pub async fn shutdown(&self) -> Result<(), ServiceError> {
         info!("shutting down service");
 
         // Cancel and drain all server cancellation tokens
@@ -268,9 +266,7 @@ impl Service {
 
         // Call the shutdown method of message processor to make sure all
         // tasks ended gracefully
-        self.message_processor
-            .shutdown()
-            .await?;
+        self.message_processor.shutdown().await?;
 
         // Shutdown controller if present
         if let Some(ref controller) = *self.controller.read().await {

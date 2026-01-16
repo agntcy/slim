@@ -168,9 +168,7 @@ impl MessageProcessor {
         Ok(res)
     }
 
-    pub async fn shutdown(
-        &self,
-    ) -> Result<(), DataPathError> {
+    pub async fn shutdown(&self) -> Result<(), DataPathError> {
         // Take the drain signal
         let signal = self
             .internal

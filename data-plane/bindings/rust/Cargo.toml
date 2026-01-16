@@ -5,9 +5,6 @@ edition = { workspace = true }
 license = { workspace = true }
 description = "UniFFI bindings and FFI adapter for SLIM data plane - enables language integrations (Go, Swift, Kotlin, etc.)"
 
-[package.metadata.cargo-machete]
-ignored = ["async-compat"]
-
 [lib]
 name = "slim_bindings"
 crate-type = ["lib", "staticlib", "cdylib"]
