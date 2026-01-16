@@ -4,12 +4,13 @@
 use std::collections::HashMap;
 // Standard library imports
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 // Third-party crates
 use display_error_chain::ErrorChainExt;
 use slim_datapath::errors::ErrorPayload;
 use slim_session::Direction;
-use tokio::sync::mpsc;
+use tokio::sync::{Mutex, mpsc, oneshot};
 use tracing::{debug, error};
 
 use slim_auth::traits::{TokenProvider, Verifier};
@@ -17,7 +18,10 @@ use slim_datapath::Status;
 use slim_datapath::api::MessageType;
 use slim_datapath::api::ProtoMessage as Message;
 use slim_datapath::messages::Name;
-use slim_datapath::messages::utils::SlimHeaderFlags;
+use slim_datapath::messages::utils::{
+    SUBSCRIPTION_ACK_ERROR, SUBSCRIPTION_ACK_ID, SUBSCRIPTION_ACK_SUCCESS, SlimHeaderFlags,
+    TRUE_VAL,
+};
 use slim_session::{SessionConfig, session_controller::SessionController};
 
 // Local crate
@@ -41,6 +45,12 @@ where
 
     /// Cancellation token for the app receiver loop
     cancel_token: tokio_util::sync::CancellationToken,
+
+    /// Pending subscription acknowledgments keyed by ack id.
+    pending_subscription_acks: Arc<Mutex<HashMap<String, oneshot::Sender<Result<(), String>>>>>,
+
+    /// Counter used to generate subscription acknowledgment ids.
+    subscription_ack_counter: AtomicU64,
 }
 
 impl<P, V> std::fmt::Debug for App<P, V>
@@ -135,7 +145,16 @@ where
             app_name: app_name.clone(),
             session_layer,
             cancel_token,
+            pending_subscription_acks: Arc::new(Mutex::new(HashMap::new())),
+            subscription_ack_counter: AtomicU64::new(0),
         }
+    }
+
+    fn next_subscription_ack_id(&self) -> String {
+        let next = self
+            .subscription_ack_counter
+            .fetch_add(1, Ordering::Relaxed);
+        format!("sub-{}", next)
     }
 
     /// Create a new session with the given configuration
@@ -206,15 +225,36 @@ where
             builder = builder.flags(h);
         }
 
-        let msg = builder.build_subscribe().unwrap();
+        let ack_id = self.next_subscription_ack_id();
+        let (ack_tx, ack_rx) = oneshot::channel();
+        {
+            let mut pending = self.pending_subscription_acks.lock().await;
+            pending.insert(ack_id.clone(), ack_tx);
+        }
+
+        let msg = builder
+            .metadata(SUBSCRIPTION_ACK_ID, ack_id.clone())
+            .build_subscribe()
+            .unwrap();
 
         // Subscribe
-        self.send_message_without_context(msg).await?;
+        if let Err(e) = self.send_message_without_context(msg).await {
+            let mut pending = self.pending_subscription_acks.lock().await;
+            pending.remove(&ack_id);
+            return Err(e);
+        }
 
-        // Register the subscription
-        self.session_layer.add_app_name(name);
-
-        Ok(())
+        match ack_rx.await {
+            Ok(Ok(())) => {
+                // Register the subscription after ack confirms the forwarding table update.
+                self.session_layer.add_app_name(name);
+                Ok(())
+            }
+            Ok(Err(err)) => Err(ServiceError::SubscriptionError(err)),
+            Err(_) => Err(ServiceError::SubscriptionError(
+                "subscription ack channel closed".to_string(),
+            )),
+        }
     }
 
     /// Unsubscribe the app
@@ -235,15 +275,36 @@ where
             builder = builder.flags(h);
         }
 
-        let msg = builder.build_unsubscribe().unwrap();
+        let ack_id = self.next_subscription_ack_id();
+        let (ack_tx, ack_rx) = oneshot::channel();
+        {
+            let mut pending = self.pending_subscription_acks.lock().await;
+            pending.insert(ack_id.clone(), ack_tx);
+        }
+
+        let msg = builder
+            .metadata(SUBSCRIPTION_ACK_ID, ack_id.clone())
+            .build_unsubscribe()
+            .unwrap();
 
         // Unsubscribe
-        self.send_message_without_context(msg).await?;
+        if let Err(e) = self.send_message_without_context(msg).await {
+            let mut pending = self.pending_subscription_acks.lock().await;
+            pending.remove(&ack_id);
+            return Err(e);
+        }
 
-        // Remove the subscription
-        self.session_layer.remove_app_name(name);
-
-        Ok(())
+        match ack_rx.await {
+            Ok(Ok(())) => {
+                // Remove the subscription after ack confirms the forwarding table update.
+                self.session_layer.remove_app_name(name);
+                Ok(())
+            }
+            Ok(Err(err)) => Err(ServiceError::UnsubscriptionError(err)),
+            Err(_) => Err(ServiceError::UnsubscriptionError(
+                "unsubscription ack channel closed".to_string(),
+            )),
+        }
     }
 
     /// Set a route towards another app
@@ -292,6 +353,7 @@ where
         let app_name = self.app_name.clone();
         let session_layer = self.session_layer.clone();
         let token_clone = self.cancel_token.clone();
+        let pending_subscription_acks = self.pending_subscription_acks.clone();
 
         tokio::spawn(async move {
             debug!(app = %app_name, "starting message processing loop");
@@ -327,6 +389,38 @@ where
                                 match msg {
                                     Ok(msg) => {
                                         debug!(?msg, "received message in service processing");
+
+                                        if let Some(ack_id) = msg.get_metadata(SUBSCRIPTION_ACK_ID).cloned() {
+                                            let success = msg
+                                                .get_metadata(SUBSCRIPTION_ACK_SUCCESS)
+                                                .map(|val| val == TRUE_VAL)
+                                                .unwrap_or(false);
+                                            let error_msg =
+                                                msg.get_metadata(SUBSCRIPTION_ACK_ERROR).cloned();
+
+                                            let sender = {
+                                                let mut pending =
+                                                    pending_subscription_acks.lock().await;
+                                                pending.remove(&ack_id)
+                                            };
+
+                                            if let Some(sender) = sender {
+                                                let _ = sender.send(if success {
+                                                    Ok(())
+                                                } else {
+                                                    Err(error_msg.unwrap_or_else(|| {
+                                                        "subscription ack failed".to_string()
+                                                    }))
+                                                });
+                                            } else {
+                                                debug!(
+                                                    ack_id = %ack_id,
+                                                    "received subscription ack with no pending waiter"
+                                                );
+                                            }
+
+                                            continue;
+                                        }
 
                                         // filter only the messages of type publish
                                         match msg.message_type.as_ref() {
