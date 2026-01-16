@@ -95,7 +95,7 @@ func newDeleteChannelCmd(opts *options.CommonOptions) *cobra.Command {
 				return fmt.Errorf("failed to delete channel: %w", err)
 			}
 			if !deleteChannelResponse.Success {
-				return fmt.Errorf("failed to delete channel")
+				return fmt.Errorf("failed to delete channel: unsuccessful response")
 			}
 			fmt.Printf("Channel deleted successfully with ID: %v\n", channelName)
 			return nil

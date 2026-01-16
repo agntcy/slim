@@ -4,6 +4,7 @@
 package integration
 
 import (
+	"fmt"
 	"os/exec"
 	"strings"
 	"time"
@@ -118,7 +119,7 @@ var _ = Describe("Group management through control plane", func() {
 			Expect(addChannelOutput).NotTo(BeEmpty())
 
 			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say(MsgCreateChannelRequest))
-			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(MsgChannelCreatedSuccessfully))
+			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(fmt.Sprintf(MsgChannelCreated, ".+", true)))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(MsgChannelSavedSuccessfully))
 
 			// CombinedOutput is "Received response org/default/moderator1/0-... \n"
@@ -147,7 +148,7 @@ var _ = Describe("Group management through control plane", func() {
 
 			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say(MsgParticipantAddRequest))
 			Eventually(clientASession, 15*time.Second).Should(gbytes.Say(MsgSessionHandlerTaskStarted))
-			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(MsgAckParticipantAddedSuccessfully))
+			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(fmt.Sprintf(MsgParticipantAdded, true)))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(MsgChannelUpdatedParticipantAdded))
 
 			// Invite clientC to the channel
@@ -164,7 +165,7 @@ var _ = Describe("Group management through control plane", func() {
 
 			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say(MsgParticipantAddRequest))
 			Eventually(clientCSession, 15*time.Second).Should(gbytes.Say(MsgSessionHandlerTaskStarted))
-			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(MsgAckParticipantAddedSuccessfully))
+			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(fmt.Sprintf(MsgParticipantAdded, true)))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(MsgChannelUpdatedParticipantAdded))
 
 			// Test communication between clientA and clientC
@@ -187,7 +188,7 @@ var _ = Describe("Group management through control plane", func() {
 			Expect(deleteParticipantOutput).NotTo(BeEmpty())
 
 			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say(MsgParticipantDeleteRequest))
-			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(MsgAckParticipantDeletedSuccessfully))
+			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(fmt.Sprintf(MsgParticipantDeleted, true)))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(MsgChannelUpdatedParticipantDeleted))
 			Eventually(clientCSession, 15*time.Second).Should(gbytes.Say(MsgSessionClosed))
 
@@ -202,8 +203,7 @@ var _ = Describe("Group management through control plane", func() {
 			Expect(deleteChannelOutput).NotTo(BeEmpty())
 
 			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say(MsgChannelDeleteRequest))
-
-			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(MsgAckChannelDeletedSuccessfully))
+			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(fmt.Sprintf(MsgAckChannelDeleted, channelName, true)))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(MsgChannelDeletedSuccessfully))
 			Eventually(clientASession, 15*time.Second).Should(gbytes.Say(MsgSessionClosed))
 			Eventually(moderatorSession, 15*time.Second).Should(gbytes.Say(MsgSessionClosed))
