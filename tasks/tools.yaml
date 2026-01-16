@@ -114,3 +114,50 @@ tasks:
     cmds:
       - task: tools:protoc
       - task: tools:go-tools
+
+  tools:install-zig:
+    desc: Install Zig locally for all platforms via direct download
+    summary: |
+      Installs Zig {{.ZIG_VERSION}} for {{.ZIG_ARCH}}-{{.ZIG_OS}} to {{.ZIG_INSTALL_DIR}}
+      The executable is called {{.ZIG_INSTALL_DIR}}/zig/zig
+    status:
+      - test -f "{{.ZIG_INSTALL_DIR}}/zig/zig" || test -f "{{.ZIG_INSTALL_DIR}}/zig/zig.exe"
+    requires:
+      vars: [ZIG_INSTALL_DIR, ZIG_ARCH, ZIG_OS]
+    vars:
+      ZIG_VERSION: '{{.ZIG_VERSION | default "0.14.1"}}'
+      EXTENSION:
+        sh: |
+          if [[ "{{.ZIG_OS}}" == "windows" ]]; then
+            echo "zip"
+          else
+            echo "tar.xz"
+          fi
+      DOWNLOAD_BASE: "https://ziglang.org/download/{{.ZIG_VERSION}}/zig-{{.ZIG_ARCH}}-{{.ZIG_OS}}-{{.ZIG_VERSION}}.{{.EXTENSION}}"
+    cmds:
+      - echo "Installing Zig {{.ZIG_VERSION}} for {{.ZIG_ARCH}}-{{.ZIG_OS}} to {{.ZIG_INSTALL_DIR}} {{.EXTENSION}}"
+      - mkdir -p "{{.ZIG_INSTALL_DIR}}"
+      - echo "Downloaded Zig {{.ZIG_VERSION}} for {{.ZIG_ARCH}}-{{.ZIG_OS}} to {{.ZIG_INSTALL_DIR}}/zig.{{.EXTENSION}}"
+      - |
+        if [[ "{{.EXTENSION}}" == "zip" ]]; then
+          unzip -q "{{.ZIG_INSTALL_DIR}}/zig.{{.EXTENSION}}" -d "{{.ZIG_INSTALL_DIR}}"
+        else
+          tar -xf "{{.ZIG_INSTALL_DIR}}/zig.{{.EXTENSION}}" -C "{{.ZIG_INSTALL_DIR}}"
+        fi
+      - mv "{{.ZIG_INSTALL_DIR}}/zig-{{.ZIG_ARCH}}-{{.ZIG_OS}}-{{.ZIG_VERSION}}" "{{.ZIG_INSTALL_DIR}}/zig"
+      - rm "{{.ZIG_INSTALL_DIR}}/zig.{{.EXTENSION}}"
+      - echo "Zig installed to {{.ZIG_INSTALL_DIR}}/zig"
+
+  tools:uninstall-zig:
+    desc: Uninstall Zig from the installation directory
+    summary: |
+      Removes Zig installation from {{.ZIG_INSTALL_DIR}}/zig
+      This will delete the entire zig directory and all its contents
+    requires:
+      vars: [ZIG_INSTALL_DIR]
+    preconditions:
+      - test -d "{{.ZIG_INSTALL_DIR}}/zig"
+    cmds:
+      - echo "Uninstalling Zig from {{.ZIG_INSTALL_DIR}}/zig"
+      - rm -rf "{{.ZIG_INSTALL_DIR}}/zig"
+      - echo "Zig uninstalled successfully"
