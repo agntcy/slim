@@ -94,7 +94,7 @@ var _ = Describe("Routing", func() {
 
 			clientCSession, err = gexec.Start(
 				exec.Command(sdkMockPath,
-					"--config", "./testdata/client-b-config.yaml",
+					"--config", "./testdata/client-c-config.yaml",
 					"--local-name", "c",
 					"--remote-name", "a",
 				),
