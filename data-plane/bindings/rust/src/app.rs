@@ -17,7 +17,6 @@ use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};
 
 use crate::errors::SlimError;
-use crate::get_global_service;
 use crate::name::Name;
 use crate::{get_global_service, get_runtime};
 
