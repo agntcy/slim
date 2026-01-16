@@ -5,9 +5,9 @@ use std::sync::Arc;
 
 use crate::client_config::ClientConfig;
 use crate::errors::SlimError;
+use crate::get_runtime;
 use crate::identity_config::{IdentityProviderConfig, IdentityVerifierConfig};
 use crate::server_config::ServerConfig;
-use crate::{get_global_service, get_runtime};
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_config::auth::identity::{
@@ -472,59 +472,6 @@ pub fn create_service_with_config(
     Ok(Arc::new(Service::new_with_config(name, config)))
 }
 
-// ============================================================================
-// Global Service Convenience Functions
-// ============================================================================
-// These functions operate on the global service instance directly
-
-/// Get the global service identifier/name
-#[uniffi::export]
-pub fn service_name() -> String {
-    get_global_service().get_name()
-}
-
-/// Run the global service (starts all configured servers and clients)
-#[uniffi::export]
-pub async fn service_run() -> Result<(), SlimError> {
-    get_global_service().run_async().await
-}
-
-/// Shutdown the global service gracefully
-#[uniffi::export]
-pub async fn service_shutdown() -> Result<(), SlimError> {
-    get_global_service().shutdown_async().await
-}
-
-/// Start a server on the global service with the given configuration
-#[uniffi::export]
-pub async fn run_server(config: ServerConfig) -> Result<(), SlimError> {
-    get_global_service().run_server_async(config).await
-}
-
-/// Stop a server on the global service by endpoint
-#[uniffi::export]
-pub fn stop_server(endpoint: String) -> Result<(), SlimError> {
-    get_global_service().stop_server(endpoint)
-}
-
-/// Connect to a remote endpoint as a client using the global service
-#[uniffi::export]
-pub async fn connect(config: ClientConfig) -> Result<u64, SlimError> {
-    get_global_service().connect_async(config).await
-}
-
-/// Disconnect a client connection by connection ID on the global service
-#[uniffi::export]
-pub fn disconnect(conn_id: u64) -> Result<(), SlimError> {
-    get_global_service().disconnect(conn_id)
-}
-
-/// Get the connection ID for a given endpoint on the global service
-#[uniffi::export]
-pub fn get_connection_id(endpoint: String) -> Option<u64> {
-    get_global_service().get_connection_id(endpoint)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -780,7 +727,7 @@ mod tests {
 
     #[test]
     fn test_global_service_name() {
-        let name = service_name();
+        let name = get_global_service().get_name();
         assert!(!name.is_empty());
         assert!(name.contains("global-bindings-service"));
     }
@@ -948,21 +895,21 @@ mod tests {
 
     #[test]
     fn test_global_stop_server_convenience() {
-        let result = stop_server("127.0.0.1:88888".to_string());
+        let result = get_global_service().stop_server("127.0.0.1:88888".to_string());
         // Should error since server doesn't exist
         assert!(result.is_err());
     }
 
     #[test]
     fn test_global_disconnect_convenience() {
-        let result = disconnect(888888);
+        let result = get_global_service().disconnect(888888);
         // Should error since connection doesn't exist
         assert!(result.is_err());
     }
 
     #[test]
     fn test_global_get_connection_id_convenience() {
-        let conn_id = get_connection_id("nonexistent-global".to_string());
+        let conn_id = get_global_service().get_connection_id("nonexistent-global".to_string());
         assert!(conn_id.is_none());
     }
 

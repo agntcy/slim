@@ -92,9 +92,8 @@ pub use server_config::{
     KeepaliveServerParameters, ServerConfig, new_insecure_server_config, new_server_config,
 };
 pub use service::{
-    DataplaneConfig, Service, ServiceConfig, connect, create_service, create_service_with_config,
-    disconnect, get_connection_id, new_dataplane_config, new_service_configuration, run_server,
-    service_name, service_run, service_shutdown, stop_server,
+    DataplaneConfig, Service, ServiceConfig, create_service, create_service_with_config,
+    new_dataplane_config, new_service_configuration,
 };
 pub use session::{Session, SessionConfig, SessionType};
 
