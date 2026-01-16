@@ -1,22 +1,21 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::{Arc, OnceLock};
-
-use tokio::sync::RwLock;
+use std::sync::Arc;
 
 use crate::client_config::ClientConfig;
 use crate::errors::SlimError;
 use crate::identity_config::{IdentityProviderConfig, IdentityVerifierConfig};
 use crate::server_config::ServerConfig;
+use crate::{get_global_service, get_runtime};
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_config::auth::identity::{
     IdentityProviderConfig as CoreIdentityProviderConfig,
     IdentityVerifierConfig as CoreIdentityVerifierConfig,
 };
+use slim_config::component::Component;
 use slim_config::component::id::{ID, Kind};
-use slim_config::component::{Component, ComponentBuilder};
 use slim_config::grpc::client::ClientConfig as CoreClientConfig;
 use slim_config::grpc::server::ServerConfig as CoreServerConfig;
 use slim_controller::config::Config as CoreControllerConfig;
@@ -26,23 +25,6 @@ use slim_service::{
 };
 
 use crate::name::Name;
-
-// Global static service instance for bindings
-static GLOBAL_SERVICE: OnceLock<Arc<Service>> = OnceLock::new();
-
-/// Get or initialize the global service for bindings
-pub fn get_or_init_global_service() -> Arc<Service> {
-    GLOBAL_SERVICE
-        .get_or_init(|| {
-            let slim_service = SlimService::builder()
-                .build("global-bindings-service".to_string())
-                .expect("Failed to create global bindings service");
-            Arc::new(Service {
-                inner: Arc::new(RwLock::new(slim_service)),
-            })
-        })
-        .clone()
-}
 
 /// DataPlane configuration wrapper for uniffi bindings
 #[derive(Clone, Default, uniffi::Record)]
@@ -89,13 +71,18 @@ impl From<CoreControllerConfig> for DataplaneConfig {
 
 /// Service configuration wrapper for uniffi bindings
 #[derive(Clone, Default, uniffi::Record)]
-pub struct ServiceConfiguration {
+pub struct ServiceConfig {
+    /// Optional node ID for the service
     pub node_id: Option<String>,
+
+    /// Optional group name for the service
     pub group_name: Option<String>,
+
+    /// DataPlane configuration (servers and clients)
     pub dataplane: DataplaneConfig,
 }
 
-impl ServiceConfiguration {
+impl ServiceConfig {
     pub fn new() -> Self {
         Self {
             node_id: None,
@@ -105,8 +92,8 @@ impl ServiceConfiguration {
     }
 }
 
-impl From<ServiceConfiguration> for SlimServiceConfiguration {
-    fn from(config: ServiceConfiguration) -> Self {
+impl From<ServiceConfig> for SlimServiceConfiguration {
+    fn from(config: ServiceConfig) -> Self {
         let mut core_config = SlimServiceConfiguration::new();
         core_config.node_id = config.node_id;
         core_config.group_name = config.group_name;
@@ -115,7 +102,7 @@ impl From<ServiceConfiguration> for SlimServiceConfiguration {
     }
 }
 
-impl From<SlimServiceConfiguration> for ServiceConfiguration {
+impl From<SlimServiceConfiguration> for ServiceConfig {
     fn from(config: SlimServiceConfiguration) -> Self {
         Self {
             node_id: config.node_id,
@@ -125,15 +112,25 @@ impl From<SlimServiceConfiguration> for ServiceConfiguration {
     }
 }
 
+impl From<&SlimServiceConfiguration> for ServiceConfig {
+    fn from(config: &SlimServiceConfiguration) -> Self {
+        Self {
+            node_id: config.node_id.clone(),
+            group_name: config.group_name.clone(),
+            dataplane: config.dataplane.clone().into(),
+        }
+    }
+}
+
 /// Service wrapper for uniffi bindings
 #[derive(uniffi::Object)]
 pub struct Service {
-    pub(crate) inner: Arc<RwLock<SlimService>>,
+    pub(crate) inner: Arc<SlimService>,
 }
 
 impl Service {
     /// Get a clone of the inner service Arc for advanced use cases
-    pub fn inner(&self) -> Arc<RwLock<SlimService>> {
+    pub fn inner(&self) -> Arc<SlimService> {
         self.inner.clone()
     }
 }
@@ -142,16 +139,8 @@ impl Service {
 impl From<SlimService> for Service {
     fn from(service: SlimService) -> Self {
         Service {
-            inner: Arc::new(RwLock::new(service)),
+            inner: Arc::new(service),
         }
-    }
-}
-
-impl From<Service> for SlimService {
-    fn from(service: Service) -> Self {
-        Arc::try_unwrap(service.inner)
-            .expect("Cannot convert Service to SlimService: multiple references exist")
-            .into_inner()
     }
 }
 
@@ -164,49 +153,47 @@ impl Service {
         let id = ID::new_with_name(kind, &name).expect("Invalid service name");
         let service = SlimService::new(id);
         Service {
-            inner: Arc::new(RwLock::new(service)),
+            inner: Arc::new(service),
         }
     }
 
     /// Create a new Service with configuration
     #[uniffi::constructor]
-    pub fn new_with_config(name: String, config: ServiceConfiguration) -> Self {
+    pub fn new_with_config(name: String, config: ServiceConfig) -> Self {
         let kind = Kind::new(KIND).expect("Invalid service kind");
         let id = ID::new_with_name(kind, &name).expect("Invalid service name");
         let core_config: SlimServiceConfiguration = config.into();
         let service = SlimService::new_with_config(id, core_config);
         Service {
-            inner: Arc::new(RwLock::new(service)),
+            inner: Arc::new(service),
         }
     }
 
     /// Get the service configuration
-    pub async fn config(&self) -> ServiceConfiguration {
-        self.inner.read().await.config().clone().into()
+    pub fn config(&self) -> ServiceConfig {
+        self.inner.config().clone().into()
     }
 
     /// Get the service identifier/name
-    pub async fn get_name(&self) -> String {
-        self.inner.read().await.identifier().to_string()
+    pub fn get_name(&self) -> String {
+        self.inner.identifier().to_string()
     }
 
     /// Run the service (starts all configured servers and clients)
-    pub async fn run(&self) -> Result<(), SlimError> {
-        self.inner
-            .write()
-            .await
-            .run()
-            .await
-            .map_err(|e| SlimError::ServiceError {
-                message: format!("Failed to run service: {}", e),
-            })
+    pub async fn run_async(&self) -> Result<(), SlimError> {
+        self.inner.run().await.map_err(|e| SlimError::ServiceError {
+            message: format!("Failed to run service: {}", e),
+        })
+    }
+
+    /// Run the service (starts all configured servers and clients) - blocking version
+    pub fn run(&self) -> Result<(), SlimError> {
+        crate::config::get_runtime().block_on(self.run_async())
     }
 
     /// Shutdown the service gracefully
-    pub async fn shutdown(&self) -> Result<(), SlimError> {
+    pub async fn shutdown_async(&self) -> Result<(), SlimError> {
         self.inner
-            .read()
-            .await
             .shutdown()
             .await
             .map_err(|e| SlimError::ServiceError {
@@ -214,12 +201,15 @@ impl Service {
             })
     }
 
+    /// Shutdown the service gracefully - blocking version
+    pub fn shutdown(&self) -> Result<(), SlimError> {
+        crate::config::get_runtime().block_on(self.shutdown_async())
+    }
+
     /// Start a server with the given configuration
-    pub async fn run_server(&self, config: ServerConfig) -> Result<(), SlimError> {
+    pub async fn run_server_async(&self, config: ServerConfig) -> Result<(), SlimError> {
         let core_config: slim_config::grpc::server::ServerConfig = config.into();
         self.inner
-            .read()
-            .await
             .run_server(&core_config)
             .await
             .map_err(|e| SlimError::ServiceError {
@@ -227,11 +217,14 @@ impl Service {
             })
     }
 
-    /// Stop a server by endpoint
-    pub async fn stop_server(&self, endpoint: String) -> Result<(), SlimError> {
+    /// Start a server with the given configuration - blocking version
+    pub fn run_server(&self, config: ServerConfig) -> Result<(), SlimError> {
+        crate::config::get_runtime().block_on(self.run_server_async(config))
+    }
+
+    /// Stop a server by endpoint - blocking version
+    pub fn stop_server(&self, endpoint: String) -> Result<(), SlimError> {
         self.inner
-            .read()
-            .await
             .stop_server(&endpoint)
             .map_err(|e| SlimError::ServiceError {
                 message: format!("Failed to stop server: {}", e),
@@ -239,11 +232,9 @@ impl Service {
     }
 
     /// Connect to a remote endpoint as a client
-    pub async fn connect(&self, config: ClientConfig) -> Result<u64, SlimError> {
+    pub async fn connect_async(&self, config: ClientConfig) -> Result<u64, SlimError> {
         let core_config: slim_config::grpc::client::ClientConfig = config.into();
         self.inner
-            .read()
-            .await
             .connect(&core_config)
             .await
             .map_err(|e| SlimError::ServiceError {
@@ -251,11 +242,14 @@ impl Service {
             })
     }
 
-    /// Disconnect a client connection by connection ID
-    pub async fn disconnect(&self, conn_id: u64) -> Result<(), SlimError> {
+    /// Connect to a remote endpoint as a client - blocking version
+    pub fn connect(&self, config: ClientConfig) -> Result<u64, SlimError> {
+        crate::config::get_runtime().block_on(self.connect_async(config))
+    }
+
+    /// Disconnect a client connection by connection ID - blocking version
+    pub fn disconnect(&self, conn_id: u64) -> Result<(), SlimError> {
         self.inner
-            .read()
-            .await
             .disconnect(conn_id)
             .map_err(|e| SlimError::ServiceError {
                 message: format!("Failed to disconnect: {}", e),
@@ -263,13 +257,13 @@ impl Service {
     }
 
     /// Get the connection ID for a given endpoint
-    pub async fn get_connection_id(&self, endpoint: String) -> Option<u64> {
-        self.inner.read().await.get_connection_id(&endpoint)
+    pub fn get_connection_id(&self, endpoint: String) -> Option<u64> {
+        self.inner.get_connection_id(&endpoint)
     }
 
-    /// Create a new BindingsAdapter with authentication configuration (async version)
+    /// Create a new App with authentication configuration (async version)
     ///
-    /// This method initializes authentication providers/verifiers and creates a BindingsAdapter
+    /// This method initializes authentication providers/verifiers and creates a App
     /// on this service instance.
     ///
     /// # Arguments
@@ -278,14 +272,14 @@ impl Service {
     /// * `identity_verifier_config` - Configuration for verifying identity of others
     ///
     /// # Returns
-    /// * `Ok(Arc<BindingsAdapter>)` - Successfully created adapter
+    /// * `Ok(Arc<App>)` - Successfully created adapter
     /// * `Err(SlimError)` - If adapter creation fails
     pub async fn create_adapter_async(
         &self,
         base_name: Arc<Name>,
         identity_provider_config: IdentityProviderConfig,
         identity_verifier_config: IdentityVerifierConfig,
-    ) -> Result<Arc<crate::adapter::BindingsAdapter>, SlimError> {
+    ) -> Result<Arc<crate::app::App>, SlimError> {
         // Convert configurations to actual providers/verifiers
         let mut identity_provider: AuthProvider = identity_provider_config.try_into()?;
         let mut identity_verifier: AuthVerifier = identity_verifier_config.try_into()?;
@@ -312,19 +306,14 @@ impl Service {
         let slim_name: SlimName = base_name.as_ref().into();
         let app_name = slim_name.with_id(id_hash);
 
-        // Get service reference for adapter creation
-        let service_guard = self.inner.read().await;
-
         // Create the app
-        let (app, rx) =
-            service_guard.create_app(&app_name, identity_provider, identity_verifier)?;
+        let (app, rx) = self
+            .inner
+            .create_app(&app_name, identity_provider, identity_verifier)?;
 
-        // Release the lock before creating the adapter
-        drop(service_guard);
-
-        Ok(Arc::new(crate::adapter::BindingsAdapter::from_parts(
+        Ok(Arc::new(crate::app::App::from_parts(
             Arc::new(app),
-            Arc::new(RwLock::new(rx)),
+            Arc::new(tokio::sync::RwLock::new(rx)),
             self.inner.clone(),
         )))
     }
@@ -332,8 +321,8 @@ impl Service {
 
 /// Create a new ServiceConfiguration
 #[uniffi::export]
-pub fn new_service_configuration() -> ServiceConfiguration {
-    ServiceConfiguration::new()
+pub fn new_service_configuration() -> ServiceConfig {
+    ServiceConfig::new()
 }
 
 /// Create a new DataplaneConfig
@@ -352,18 +341,9 @@ pub fn create_service(name: String) -> Result<Arc<Service>, SlimError> {
 #[uniffi::export]
 pub fn create_service_with_config(
     name: String,
-    config: ServiceConfiguration,
+    config: ServiceConfig,
 ) -> Result<Arc<Service>, SlimError> {
     Ok(Arc::new(Service::new_with_config(name, config)))
-}
-
-/// Get the global service instance (creates it if it doesn't exist)
-///
-/// This returns a reference to the shared global service that can be used
-/// across the application. All calls to this function return the same service instance.
-#[uniffi::export]
-pub fn get_global_service() -> Arc<Service> {
-    get_or_init_global_service()
 }
 
 // ============================================================================
@@ -371,71 +351,88 @@ pub fn get_global_service() -> Arc<Service> {
 // ============================================================================
 // These functions operate on the global service instance directly
 
-/// Get the global service configuration
-#[uniffi::export]
-pub async fn service_config() -> ServiceConfiguration {
-    get_or_init_global_service().config().await
-}
-
 /// Get the global service identifier/name
 #[uniffi::export]
-pub async fn service_name() -> String {
-    get_or_init_global_service().get_name().await
+pub fn service_name() -> String {
+    get_global_service().get_name()
 }
 
 /// Run the global service (starts all configured servers and clients)
 #[uniffi::export]
-pub async fn service_run() -> Result<(), SlimError> {
-    get_or_init_global_service().run().await
+pub async fn service_run_async() -> Result<(), SlimError> {
+    get_global_service().run_async().await
+}
+
+/// Run the global service (starts all configured servers and clients)
+#[uniffi::export]
+pub fn service_run() -> Result<(), SlimError> {
+    get_runtime().block_on(service_run_async())
 }
 
 /// Shutdown the global service gracefully
 #[uniffi::export]
-pub async fn service_shutdown() -> Result<(), SlimError> {
-    get_or_init_global_service().shutdown().await
+pub async fn service_shutdown_async() -> Result<(), SlimError> {
+    get_global_service().shutdown_async().await
+}
+
+/// Shutdown the global service gracefully
+#[uniffi::export]
+pub fn service_shutdown() -> Result<(), SlimError> {
+    get_runtime().block_on(service_shutdown_async())
 }
 
 /// Start a server on the global service with the given configuration
 #[uniffi::export]
-pub async fn run_server(config: ServerConfig) -> Result<(), SlimError> {
-    get_or_init_global_service().run_server(config).await
+pub async fn run_server_async(config: ServerConfig) -> Result<(), SlimError> {
+    get_global_service().run_server_async(config).await
+}
+
+/// Start a server on the global service with the given configuration
+#[uniffi::export]
+pub fn run_server(config: ServerConfig) -> Result<(), SlimError> {
+    get_runtime().block_on(run_server_async(config))
 }
 
 /// Stop a server on the global service by endpoint
 #[uniffi::export]
-pub async fn stop_server(endpoint: String) -> Result<(), SlimError> {
-    get_or_init_global_service().stop_server(endpoint).await
+pub fn stop_server(endpoint: String) -> Result<(), SlimError> {
+    get_global_service().stop_server(endpoint)
 }
 
 /// Connect to a remote endpoint as a client using the global service
 #[uniffi::export]
-pub async fn connect(config: ClientConfig) -> Result<u64, SlimError> {
-    get_or_init_global_service().connect(config).await
+pub async fn connect_async(config: ClientConfig) -> Result<u64, SlimError> {
+    get_global_service().connect_async(config).await
+}
+
+/// Connect to a remote endpoint as a client using the global service
+#[uniffi::export]
+pub fn connect(config: ClientConfig) -> Result<u64, SlimError> {
+    get_runtime().block_on(connect_async(config))
 }
 
 /// Disconnect a client connection by connection ID on the global service
 #[uniffi::export]
-pub async fn disconnect(conn_id: u64) -> Result<(), SlimError> {
-    get_or_init_global_service().disconnect(conn_id).await
+pub fn disconnect(conn_id: u64) -> Result<(), SlimError> {
+    get_global_service().disconnect(conn_id)
 }
 
 /// Get the connection ID for a given endpoint on the global service
 #[uniffi::export]
-pub async fn get_connection_id(endpoint: String) -> Option<u64> {
-    get_or_init_global_service()
-        .get_connection_id(endpoint)
-        .await
+pub fn get_connection_id(endpoint: String) -> Option<u64> {
+    get_global_service().get_connection_id(endpoint)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use slim_datapath::messages::Name;
+    use slim_datapath::messages::Name as SlimName;
     use slim_testing::utils::TEST_VALID_SECRET;
 
-    use crate::adapter::BindingsAdapter;
+    use crate::app::App;
+    use crate::config::get_global_service;
     use crate::identity_config::{IdentityProviderConfig, IdentityVerifierConfig};
-    use crate::name::Name as BindingsName;
+    use crate::name::Name;
 
     /// Create test authentication configurations
     fn create_test_auth() -> (IdentityProviderConfig, IdentityVerifierConfig) {
@@ -451,8 +448,8 @@ mod tests {
     }
 
     /// Create test app name
-    fn create_test_name() -> Name {
-        Name::from_strings(["org", "namespace", "test-app"])
+    fn create_test_name() -> SlimName {
+        SlimName::from_strings(["org", "namespace", "test-app"])
     }
 
     // ========================================================================
@@ -518,7 +515,7 @@ mod tests {
 
     #[test]
     fn test_service_configuration_new() {
-        let config = ServiceConfiguration::new();
+        let config = ServiceConfig::new();
         assert!(config.node_id.is_none());
         assert!(config.group_name.is_none());
         assert!(config.dataplane.servers.is_empty());
@@ -527,14 +524,14 @@ mod tests {
 
     #[test]
     fn test_service_configuration_default() {
-        let config = ServiceConfiguration::default();
+        let config = ServiceConfig::default();
         assert!(config.node_id.is_none());
         assert!(config.group_name.is_none());
     }
 
     #[test]
     fn test_service_configuration_with_values() {
-        let config = ServiceConfiguration {
+        let config = ServiceConfig {
             node_id: Some("node-123".to_string()),
             group_name: Some("test-group".to_string()),
             dataplane: DataplaneConfig::default(),
@@ -546,7 +543,7 @@ mod tests {
 
     #[test]
     fn test_service_configuration_to_core_conversion() {
-        let config = ServiceConfiguration {
+        let config = ServiceConfig {
             node_id: Some("node-456".to_string()),
             group_name: Some("group-abc".to_string()),
             dataplane: DataplaneConfig::default(),
@@ -563,21 +560,21 @@ mod tests {
         core_config.node_id = Some("core-node".to_string());
         core_config.group_name = Some("core-group".to_string());
 
-        let config: ServiceConfiguration = core_config.into();
+        let config: ServiceConfig = core_config.into();
         assert_eq!(config.node_id.as_deref(), Some("core-node"));
         assert_eq!(config.group_name.as_deref(), Some("core-group"));
     }
 
     #[test]
     fn test_service_configuration_roundtrip() {
-        let original = ServiceConfiguration {
+        let original = ServiceConfig {
             node_id: Some("roundtrip-node".to_string()),
             group_name: Some("roundtrip-group".to_string()),
             dataplane: DataplaneConfig::default(),
         };
 
         let core: SlimServiceConfiguration = original.clone().into();
-        let roundtrip: ServiceConfiguration = core.into();
+        let roundtrip: ServiceConfig = core.into();
 
         assert_eq!(original.node_id, roundtrip.node_id);
         assert_eq!(original.group_name, roundtrip.group_name);
@@ -587,30 +584,30 @@ mod tests {
     // Service Creation Tests
     // ========================================================================
 
-    #[tokio::test]
-    async fn test_service_new() {
+    #[test]
+    fn test_service_new() {
         let service = Service::new("test-service".to_string());
-        let name = service.get_name().await;
+        let name = service.get_name();
         assert!(name.contains("test-service"));
     }
 
-    #[tokio::test]
-    async fn test_service_new_with_config() {
-        let config = ServiceConfiguration {
+    #[test]
+    fn test_service_new_with_config() {
+        let config = ServiceConfig {
             node_id: Some("test-node".to_string()),
             group_name: Some("test-group".to_string()),
             dataplane: DataplaneConfig::default(),
         };
 
         let service = Service::new_with_config("configured-service".to_string(), config.clone());
-        let retrieved_config = service.config().await;
+        let retrieved_config = service.config();
 
         assert_eq!(retrieved_config.node_id, config.node_id);
         assert_eq!(retrieved_config.group_name, config.group_name);
     }
 
-    #[tokio::test]
-    async fn test_service_inner_clone() {
+    #[test]
+    fn test_service_inner_clone() {
         let service = Service::new("inner-test".to_string());
         let inner1 = service.inner();
         let inner2 = service.inner();
@@ -634,10 +631,10 @@ mod tests {
     // Global Service Tests
     // ========================================================================
 
-    #[tokio::test]
-    async fn test_global_service_singleton() {
-        let service1 = get_or_init_global_service();
-        let service2 = get_or_init_global_service();
+    #[test]
+    fn test_global_service_singleton() {
+        let service1 = get_global_service();
+        let service2 = get_global_service();
 
         // They should be the same instance (same memory address)
         assert!(Arc::ptr_eq(&service1, &service2));
@@ -646,8 +643,8 @@ mod tests {
         assert!(Arc::ptr_eq(&service1.inner, &service2.inner));
     }
 
-    #[tokio::test]
-    async fn test_get_global_service_function() {
+    #[test]
+    fn test_get_global_service_function() {
         let service1 = get_global_service();
         let service2 = get_global_service();
 
@@ -660,37 +657,28 @@ mod tests {
         let (provider, verifier) = create_test_auth();
 
         // Get global service instance
-        let global_service = get_or_init_global_service();
+        let global_service = get_global_service();
         let ptr1 = Arc::as_ptr(&global_service.inner) as usize;
 
         // Test global service - just ensure it creates without error
         let _global_adapter1 =
-            BindingsAdapter::new_async(base_name.clone(), provider.clone(), verifier.clone())
+            App::new_async(base_name.clone(), provider.clone(), verifier.clone())
                 .await
                 .unwrap();
 
         // Test global service again - ensure it uses the same Arc
-        let _global_adapter2 = BindingsAdapter::new_async(base_name, provider, verifier)
-            .await
-            .unwrap();
+        let _global_adapter2 = App::new_async(base_name, provider, verifier).await.unwrap();
 
-        let global_service2 = get_or_init_global_service();
+        let global_service2 = get_global_service();
         let ptr2 = Arc::as_ptr(&global_service2.inner) as usize;
 
         // They should point to the same inner Arc
         assert_eq!(ptr1, ptr2);
     }
 
-    #[tokio::test]
-    async fn test_global_service_config() {
-        let config = service_config().await;
-        // Global service should have default config initially
-        assert!(config.node_id.is_none() || config.node_id.is_some());
-    }
-
-    #[tokio::test]
-    async fn test_global_service_name() {
-        let name = service_name().await;
+    #[test]
+    fn test_global_service_name() {
+        let name = service_name();
         assert!(!name.is_empty());
         assert!(name.contains("global-bindings-service"));
     }
@@ -703,7 +691,7 @@ mod tests {
     async fn test_service_shutdown_without_run() {
         let service = Service::new("shutdown-test".to_string());
         // Should not error even if service wasn't run
-        let result = service.shutdown().await;
+        let result = service.shutdown_async().await;
         // Shutdown might succeed or fail gracefully
         assert!(result.is_ok() || result.is_err());
     }
@@ -715,15 +703,15 @@ mod tests {
     #[tokio::test]
     async fn test_stop_nonexistent_server() {
         let service = Service::new("stop-test".to_string());
-        let result = service.stop_server("127.0.0.1:99999".to_string()).await;
+        let result = service.stop_server("127.0.0.1:99999".to_string());
         // Should fail because server doesn't exist
         assert!(result.is_err());
     }
 
-    #[tokio::test]
-    async fn test_disconnect_invalid_connection() {
+    #[test]
+    fn test_disconnect_invalid_connection() {
         let service = Service::new("disconnect-test".to_string());
-        let result = service.disconnect(999999).await;
+        let result = service.disconnect(999999);
         // Should fail because connection doesn't exist
         assert!(result.is_err());
     }
@@ -731,9 +719,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_connection_id_nonexistent() {
         let service = Service::new("conn-id-test".to_string());
-        let conn_id = service
-            .get_connection_id("nonexistent-endpoint".to_string())
-            .await;
+        let conn_id = service.get_connection_id("nonexistent-endpoint".to_string());
         assert!(conn_id.is_none());
     }
 
@@ -744,7 +730,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_adapter_async() {
         let service = Service::new("adapter-test".to_string());
-        let base_name = Arc::new(BindingsName::new(
+        let base_name = Arc::new(Name::new(
             "org".to_string(),
             "namespace".to_string(),
             "adapter-app".to_string(),
@@ -773,7 +759,7 @@ mod tests {
         ];
 
         for (org, ns, app) in names {
-            let base_name = Arc::new(BindingsName::new(
+            let base_name = Arc::new(Name::new(
                 org.to_string(),
                 ns.to_string(),
                 app.to_string(),
@@ -798,7 +784,7 @@ mod tests {
     async fn test_create_adapter_unique_ids() {
         // Each adapter gets a unique ID due to token generation
         let service = Service::new("unique-ids-test".to_string());
-        let base_name = Arc::new(BindingsName::new(
+        let base_name = Arc::new(Name::new(
             "org".to_string(),
             "namespace".to_string(),
             "unique-app".to_string(),
@@ -851,7 +837,7 @@ mod tests {
 
     #[test]
     fn test_create_service_with_config() {
-        let config = ServiceConfiguration {
+        let config = ServiceConfig {
             node_id: Some("factory-node".to_string()),
             group_name: Some("factory-group".to_string()),
             dataplane: DataplaneConfig::default(),
@@ -865,23 +851,23 @@ mod tests {
     // Global Service Convenience Functions Tests
     // ========================================================================
 
-    #[tokio::test]
-    async fn test_global_stop_server_convenience() {
-        let result = stop_server("127.0.0.1:88888".to_string()).await;
+    #[test]
+    fn test_global_stop_server_convenience() {
+        let result = stop_server("127.0.0.1:88888".to_string());
         // Should error since server doesn't exist
         assert!(result.is_err());
     }
 
-    #[tokio::test]
-    async fn test_global_disconnect_convenience() {
-        let result = disconnect(888888).await;
+    #[test]
+    fn test_global_disconnect_convenience() {
+        let result = disconnect(888888);
         // Should error since connection doesn't exist
         assert!(result.is_err());
     }
 
-    #[tokio::test]
-    async fn test_global_get_connection_id_convenience() {
-        let conn_id = get_connection_id("nonexistent-global".to_string()).await;
+    #[test]
+    fn test_global_get_connection_id_convenience() {
+        let conn_id = get_connection_id("nonexistent-global".to_string());
         assert!(conn_id.is_none());
     }
 
@@ -895,15 +881,15 @@ mod tests {
         let service = Service::new("uninitialized-test".to_string());
 
         // Stop server that doesn't exist
-        let result = service.stop_server("127.0.0.1:11111".to_string()).await;
+        let result = service.stop_server("127.0.0.1:11111".to_string());
         assert!(result.is_err());
 
         // Disconnect non-existent connection
-        let result = service.disconnect(11111).await;
+        let result = service.disconnect(11111);
         assert!(result.is_err());
 
         // Get non-existent connection ID
-        let conn_id = service.get_connection_id("fake-endpoint".to_string()).await;
+        let conn_id = service.get_connection_id("fake-endpoint".to_string());
         assert!(conn_id.is_none());
     }
 
@@ -911,8 +897,8 @@ mod tests {
     // Integration Tests
     // ========================================================================
 
-    #[tokio::test]
-    async fn test_service_with_multiple_configs() {
+    #[test]
+    fn test_service_with_multiple_configs() {
         let server_config = ServerConfig::default();
         let client_config = ClientConfig::default();
 
@@ -921,22 +907,22 @@ mod tests {
             clients: vec![client_config.clone(), client_config],
         };
 
-        let service_config = ServiceConfiguration {
+        let service_config = ServiceConfig {
             node_id: Some("multi-config-node".to_string()),
             group_name: Some("multi-config-group".to_string()),
             dataplane,
         };
 
         let service = Service::new_with_config("multi-config-service".to_string(), service_config);
-        let retrieved = service.config().await;
+        let retrieved = service.config();
 
         assert_eq!(retrieved.dataplane.servers.len(), 2);
         assert_eq!(retrieved.dataplane.clients.len(), 2);
     }
 
-    #[tokio::test]
-    async fn test_service_config_mutation_isolation() {
-        let config = ServiceConfiguration {
+    #[test]
+    fn test_service_config_mutation_isolation() {
+        let config = ServiceConfig {
             node_id: Some("original-node".to_string()),
             group_name: Some("original-group".to_string()),
             dataplane: DataplaneConfig::default(),
@@ -945,7 +931,7 @@ mod tests {
         let service = Service::new_with_config("isolation-test".to_string(), config.clone());
 
         // Get config and verify it matches
-        let retrieved = service.config().await;
+        let retrieved = service.config();
         assert_eq!(retrieved.node_id, config.node_id);
 
         // Original config should be independent
@@ -953,7 +939,7 @@ mod tests {
         modified_config.node_id = Some("modified-node".to_string());
 
         // Service config should not have changed
-        let retrieved2 = service.config().await;
+        let retrieved2 = service.config();
         assert_eq!(retrieved2.node_id.as_deref(), Some("original-node"));
     }
 }

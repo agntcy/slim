@@ -12,10 +12,10 @@ import (
 // TestInitializeCryptoProvider tests crypto initialization
 func TestInitializeCryptoProvider(t *testing.T) {
 	// Should not panic
-	slim.InitializeCryptoProvider()
+	slim.InitializeWithDefaults()
 
 	// Multiple calls should be safe
-	slim.InitializeCryptoProvider()
+	slim.InitializeWithDefaults()
 }
 
 // TestGetVersion tests version retrieval
@@ -29,7 +29,7 @@ func TestGetVersion(t *testing.T) {
 
 // TestAppCreation tests App creation
 func TestAppCreation(t *testing.T) {
-	slim.InitializeCryptoProvider()
+	slim.InitializeWithDefaults()
 
 	appName := slim.NewName("org", "testapp", "v1", nil)
 
@@ -163,7 +163,7 @@ func TestSessionConfig(t *testing.T) {
 
 // TestErrorHandling tests error handling for invalid inputs
 func TestErrorHandling(t *testing.T) {
-	slim.InitializeCryptoProvider()
+	slim.InitializeWithDefaults()
 
 	// Test with too-short shared secret (should fail or panic)
 	appName := slim.NewName("org", "testapp", "v1", nil)
@@ -183,7 +183,7 @@ func TestErrorHandling(t *testing.T) {
 
 // TestMultipleApps tests creating multiple apps
 func TestMultipleApps(t *testing.T) {
-	slim.InitializeCryptoProvider()
+	slim.InitializeWithDefaults()
 
 	sharedSecret := "test-shared-secret-must-be-at-least-32-bytes-long!"
 
@@ -227,7 +227,7 @@ func TestNameWithID(t *testing.T) {
 
 // TestCleanup tests proper cleanup of resources
 func TestCleanup(t *testing.T) {
-	slim.InitializeCryptoProvider()
+	slim.InitializeWithDefaults()
 
 	app, err := slim.CreateAppWithSecret(
 		slim.NewName("org", "cleanup", "v1", nil),

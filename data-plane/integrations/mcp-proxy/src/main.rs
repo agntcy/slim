@@ -77,7 +77,7 @@ async fn main() {
     let _guard = config.tracing().setup_tracing_subscriber();
 
     let services = config.services().expect("error loading services");
-    let service = services.remove(&svc_id).expect("service not found");
+    let service = services.shift_remove(&svc_id).expect("service not found");
 
     let mut proxy = proxy::Proxy::new(
         Name::from_strings([v_name[0], v_name[1], v_name[2]]),

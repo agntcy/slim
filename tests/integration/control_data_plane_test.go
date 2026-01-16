@@ -17,6 +17,8 @@ var _ = Describe("Routing", func() {
 	var (
 		clientASession *gexec.Session
 		clientBSession *gexec.Session
+		serverASession *gexec.Session
+		serverBSession *gexec.Session
 	)
 
 	BeforeEach(func() {

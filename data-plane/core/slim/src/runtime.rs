@@ -11,15 +11,15 @@ use tracing::{info, warn};
 pub struct RuntimeConfiguration {
     /// the number of cores to use for this runtime
     #[serde(default = "default_n_cores")]
-    n_cores: usize,
+    pub n_cores: usize,
 
     /// the thread name for the runtime
     #[serde(default = "default_thread_name")]
-    thread_name: String,
+    pub thread_name: String,
 
     /// the timeout for draining the services
     #[serde(default = "default_drain_timeout")]
-    drain_timeout: DurationString,
+    pub drain_timeout: DurationString,
 }
 
 impl Default for RuntimeConfiguration {

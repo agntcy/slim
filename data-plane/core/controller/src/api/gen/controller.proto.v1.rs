@@ -167,18 +167,18 @@ pub struct Node {
     #[prost(string, tag = "1")]
     pub id: ::prost::alloc::string::String,
 }
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ConnectionDetails {
     #[prost(string, tag = "1")]
     pub endpoint: ::prost::alloc::string::String,
     #[prost(bool, tag = "2")]
     pub mtls_required: bool,
-    #[prost(string, optional, tag = "3")]
-    pub local_endpoint: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(message, optional, tag = "3")]
+    pub metadata: ::core::option::Option<::prost_types::Struct>,
     #[prost(string, optional, tag = "4")]
-    pub external_endpoint: ::core::option::Option<::prost::alloc::string::String>,
+    pub auth: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, optional, tag = "5")]
-    pub group_name: ::core::option::Option<::prost::alloc::string::String>,
+    pub tls: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RegisterNodeRequest {

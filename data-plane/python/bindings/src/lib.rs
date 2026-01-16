@@ -27,7 +27,7 @@ mod _slim_bindings {
     use pymessage::PyMessageContext;
 
     #[pymodule_export]
-    use utils::{PyName, init_tracing};
+    use utils::{PyName, init_slim, init_tracing};
 
     #[pymodule_export]
     use pyidentity::{

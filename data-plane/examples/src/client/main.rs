@@ -101,8 +101,8 @@ async fn main() -> Result<()> {
     let services = loader
         .services()
         .with_context(|| "Failed to load services from configuration")?;
-    let mut svc = services
-        .remove(&service_id)
+    let svc = services
+        .shift_remove(&service_id)
         .context("Missing service 'slim/0' in configuration")?;
 
     // Build Names

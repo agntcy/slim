@@ -123,7 +123,7 @@ async fn main() {
     // get service
     let id = slim_config::component::id::ID::new_with_str("slim/0").unwrap();
     let services = loader.services().expect("failed to load services");
-    let mut svc = services.remove(&id).unwrap();
+    let svc = services.shift_remove(&id).unwrap();
 
     // create local app
     let id = 0;

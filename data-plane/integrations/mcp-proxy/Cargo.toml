@@ -27,7 +27,7 @@ agntcy-slim = { path = "../../core/slim", version = "0.7.0" }
 agntcy-slim-auth = { path = "../../core/auth", version = "0.4.0" }
 agntcy-slim-config = { path = "../../core/config", version = "0.4.0" }
 agntcy-slim-datapath = { path = "../../core/datapath", version = "0.10.0" }
-agntcy-slim-service = { path = "../../core/service", version = "0.8.0" }
+agntcy-slim-service = { path = "../../core/service", version = "0.8.0", features = ["session"] }
 agntcy-slim-session = { path = "../../core/session", version = "0.1.0" }
 agntcy-slim-signal = { path = "../../core/signal", version = "0.1.3" }
 async-trait = "0.1"

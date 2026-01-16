@@ -4,6 +4,7 @@
 syntax = "proto3";
 package controller.proto.v1;
 
+import "google/protobuf/struct.proto";
 import "google/protobuf/wrappers.proto";
 
 option go_package = "github.com/agntcy/slim/control-plane/common/proto/controller/v1;controllerv1";
@@ -125,9 +126,9 @@ message Node {
 message ConnectionDetails {
   string endpoint = 1;
   bool mtls_required = 2;
-  optional string local_endpoint = 3;
-  optional string external_endpoint = 4;
-  optional string group_name = 5;
+  google.protobuf.Struct metadata = 3;
+  optional string auth = 4;
+  optional string tls = 5;
 }
 
 message RegisterNodeRequest {

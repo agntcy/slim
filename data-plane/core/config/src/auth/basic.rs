@@ -1,9 +1,13 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+// Allow deprecated Basic auth - used for simple authentication scenarios
+#[allow(deprecated)]
+use tower_http::auth::require_authorization::Basic;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tower_http::auth::{AddAuthorizationLayer, require_authorization::Basic};
+use tower_http::auth::AddAuthorizationLayer;
 use tower_http::validate_request::ValidateRequestHeaderLayer;
 
 use super::{ClientAuthenticator, ConfigAuthError, ServerAuthenticator};
@@ -68,8 +72,10 @@ where
     Response: Default,
 {
     // Associated types
+    #[allow(deprecated)]
     type ServerLayer = ValidateRequestHeaderLayer<Basic<Response>>;
 
+    #[allow(deprecated)]
     fn get_server_layer(&self) -> Result<Self::ServerLayer, ConfigAuthError> {
         Ok(ValidateRequestHeaderLayer::basic(
             self.username(),
@@ -97,6 +103,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(deprecated)]
     async fn test_authenticator() {
         let username = "admin".to_string();
         let password = OpaqueString::new("password");
