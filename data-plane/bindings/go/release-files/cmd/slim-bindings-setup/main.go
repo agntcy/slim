@@ -74,7 +74,7 @@ func GetCacheDir() (string, error) {
 		return "", fmt.Errorf("failed to determine GOPATH")
 	}
 
-	return filepath.Join(gopath, ".cache", cacheDirName), nil
+	return filepath.Join(gopath, ".cgo-cache", cacheDirName), nil
 }
 
 // TargetToLibraryName converts a Rust target triple to the library name format.
