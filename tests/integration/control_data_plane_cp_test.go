@@ -4,6 +4,7 @@
 package integration
 
 import (
+	"fmt"
 	"os/exec"
 	"time"
 
@@ -25,9 +26,11 @@ var _ = Describe("Routing", func() {
 	)
 
 	BeforeEach(func() {
+		fmt.Fprintf(GinkgoWriter, "[integration] Start: %s\n", CurrentSpecReport().FullText())
 	})
 
 	AfterEach(func() {
+		fmt.Fprintf(GinkgoWriter, "[integration] End: %s\n", CurrentSpecReport().FullText())
 		// terminate apps
 		if clientASession != nil {
 			clientASession.Terminate().Wait(2 * time.Second)

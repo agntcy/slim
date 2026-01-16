@@ -4,6 +4,7 @@
 package integration
 
 import (
+	"fmt"
 	"os/exec"
 	"strings"
 	"time"
@@ -22,6 +23,8 @@ var _ = Describe("Group management through control plane with timeout", func() {
 	)
 
 	BeforeEach(func() {
+		fmt.Fprintf(GinkgoWriter, "[integration] Start: %s\n", CurrentSpecReport().FullText())
+
 		// start control plane
 		var errCP error
 		controlPlaneSession, errCP = gexec.Start(
@@ -54,6 +57,8 @@ var _ = Describe("Group management through control plane with timeout", func() {
 	})
 
 	AfterEach(func() {
+		fmt.Fprintf(GinkgoWriter, "[integration] End: %s\n", CurrentSpecReport().FullText())
+
 		// terminate moderator
 		if moderatorSession != nil {
 			moderatorSession.Terminate().Wait(30 * time.Second)
@@ -68,6 +73,10 @@ var _ = Describe("Group management through control plane with timeout", func() {
 		if controlPlaneSession != nil {
 			controlPlaneSession.Terminate().Wait(30 * time.Second)
 		}
+
+		// delete control plane database file
+		err := exec.Command("rm", "-f", "controlplane.db").Run()
+		Expect(err).NotTo(HaveOccurred())
 	})
 
 	Describe("group management with control plane with timeout", func() {

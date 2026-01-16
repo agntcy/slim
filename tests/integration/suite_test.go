@@ -61,13 +61,9 @@ var _ = BeforeSuite(func() {
 
 	// set binary paths
 	setBinaryPaths(target)
-
-	fmt.Fprintf(GinkgoWriter, "[integration] BeforeSuite (%s): end\n", suiteName)
 })
 
 var _ = AfterSuite(func() {
-	fmt.Fprintf(GinkgoWriter, "[integration] AfterSuite (%s): start\n", suiteName)
-	fmt.Fprintf(GinkgoWriter, "[integration] AfterSuite (%s): end\n", suiteName)
 })
 
 func TestIntegration(t *testing.T) {

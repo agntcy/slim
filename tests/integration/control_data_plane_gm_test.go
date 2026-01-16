@@ -4,6 +4,7 @@
 package integration
 
 import (
+	"fmt"
 	"os/exec"
 	"strings"
 	"time"
@@ -24,6 +25,8 @@ var _ = Describe("Group management through control plane", func() {
 	)
 
 	BeforeEach(func() {
+		fmt.Fprintf(GinkgoWriter, "[integration] Start: %s\n", CurrentSpecReport().FullText())
+
 		// start control plane
 		var errCP error
 		controlPlaneSession, errCP = gexec.Start(
@@ -81,6 +84,8 @@ var _ = Describe("Group management through control plane", func() {
 	})
 
 	AfterEach(func() {
+		fmt.Fprintf(GinkgoWriter, "[integration] End: %s\n", CurrentSpecReport().FullText())
+
 		// terminate clients
 		if clientASession != nil {
 			clientASession.Terminate().Wait(2 * time.Second)
@@ -103,6 +108,10 @@ var _ = Describe("Group management through control plane", func() {
 		if controlPlaneSession != nil {
 			controlPlaneSession.Terminate().Wait(30 * time.Second)
 		}
+
+		// delete control plane database file
+		err := exec.Command("rm", "-f", "controlplane.db").Run()
+		Expect(err).NotTo(HaveOccurred())
 	})
 
 	Describe("group management with control plane", func() {
