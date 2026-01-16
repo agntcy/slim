@@ -477,9 +477,14 @@ impl App {
 
         let recv_fut = rx.recv();
         let notification_opt = if let Some(dur) = timeout {
-            match tokio::time::timeout(dur, recv_fut).await {
-                Ok(n) => n,
-                Err(_) => {
+            // Runtime-agnostic timeout using futures-timer
+            futures::pin_mut!(recv_fut);
+            let delay = Delay::new(dur);
+            futures::pin_mut!(delay);
+
+            match futures::future::select(recv_fut, delay).await {
+                futures::future::Either::Left((result, _)) => result,
+                futures::future::Either::Right(_) => {
                     return Err(SlimError::ReceiveError {
                         message: "listen_for_session timed out".to_string(),
                     });

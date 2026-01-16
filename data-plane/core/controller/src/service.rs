@@ -316,9 +316,7 @@ impl ControlPlane {
         self.controller.inner.drain_watch.write().take();
 
         // Wait for drain to complete
-        tokio::time::timeout(Duration::from_secs(10), signal.drain())
-            .await
-            .map_err(|_| ControllerError::ShutdownTimeout)?;
+        signal.drain().await;
 
         Ok(())
     }
