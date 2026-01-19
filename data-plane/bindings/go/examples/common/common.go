@@ -60,7 +60,7 @@ func SplitID(id string) (*slim.Name, error) {
 //	uint64: Connection ID returned by the server
 //	error: If creation or connection fails
 func CreateAndConnectApp(localID, serverAddr, secret string) (*slim.App, uint64, error) {
-	// Initialize crypto subsystem (idempotent, safe to call multiple times)
+	// Initialize crypto, runtime, global service and logging with defaults
 	slim.InitializeWithDefaults()
 
 	// Parse the local identity string
@@ -81,6 +81,13 @@ func CreateAndConnectApp(localID, serverAddr, secret string) (*slim.App, uint64,
 	if err != nil {
 		app.Destroy()
 		return nil, 0, fmt.Errorf("connect failed: %w", err)
+	}
+
+	// Forward subscription to next node
+	err = app.Subscribe(app.Name(), &connID)
+	if err != nil {
+		app.Destroy()
+		return nil, 0, fmt.Errorf("subscribe failed: %w", err)
 	}
 
 	return app, connID, nil

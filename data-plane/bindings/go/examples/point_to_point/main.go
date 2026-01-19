@@ -104,8 +104,7 @@ func runReceiver(app *slim.App, instance uint64) {
 	fmt.Printf("[%d] 👂 Waiting for incoming sessions...\n", instance)
 
 	for {
-		timeout := time.Second * 30
-		session, err := app.ListenForSession(&timeout)
+		session, err := app.ListenForSession(nil)
 		if err != nil {
 			fmt.Printf("[%d] ⏱️  Timeout waiting for session, retrying...\n", instance)
 			continue
