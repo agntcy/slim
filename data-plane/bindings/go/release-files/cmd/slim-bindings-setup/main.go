@@ -96,11 +96,10 @@ func GetTarget(goos, arch, abi string) string {
 		}
 		return "x86_64-apple-darwin"
 	case "linux":
+
 		// Use provided ABI or default to gnu
 		libc := "gnu"
-		if abi == "musl" {
-			libc = "musl"
-		} else if abi != "" && abi != "gnu" {
+		if abi != "" {
 			// If a non-standard ABI is provided, use it
 			libc = abi
 		}
