@@ -130,7 +130,7 @@ tasks:
         uniffi-bindgen-go \
           --library '{{.LIB_PATH}}' \
           --out-dir generated
-      - cd generated && go mod init github.com/agntcy/slim/bindings/generated 2>/dev/null || true
+      - cd generated && go mod init github.com/agntcy/slim/bindings/generated 2>/dev/null || true && go mod edit -go=1.25
       - task: copy-library
       - task: patch-header
       - task: patch-cgo-directives

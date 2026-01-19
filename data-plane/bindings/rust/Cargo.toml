@@ -1,8 +1,8 @@
 [package]
 name = "agntcy-slim-bindings"
+version = "0.7.0"
 edition = { workspace = true }
 license = { workspace = true }
-version = "0.7.0"
 description = "UniFFI bindings and FFI adapter for SLIM data plane - enables language integrations (Go, Swift, Kotlin, etc.)"
 
 [lib]
@@ -23,6 +23,8 @@ agntcy-slim-tracing = { workspace = true }
 
 # External dependencies
 display-error-chain = { workspace = true }
+futures = { workspace = true }
+futures-timer = { workspace = true }
 parking_lot = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

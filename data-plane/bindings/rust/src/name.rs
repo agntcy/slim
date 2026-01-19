@@ -45,18 +45,22 @@ impl Display for Name {
 
 #[uniffi::export]
 impl Name {
-    /// Create a new Name from a string
+    /// Create a new Name from components without an ID
     #[uniffi::constructor]
-    pub fn new(
-        component_0: String,
+    pub fn new(component0: String, component1: String, component2: String) -> Self {
+        let inner = SlimName::from_strings([component0, component1, component2]);
+        Name { inner }
+    }
+
+    /// Create a new Name from components with an ID
+    #[uniffi::constructor]
+    pub fn new_with_id(
+        component0: String,
         component1: String,
         component2: String,
-        id: Option<u64>,
+        id: u64,
     ) -> Self {
-        let mut inner = SlimName::from_strings([component_0, component1, component2]);
-        if let Some(id_value) = id {
-            inner = inner.with_id(id_value);
-        }
+        let inner = SlimName::from_strings([component0, component1, component2]).with_id(id);
         Name { inner }
     }
 
@@ -95,11 +99,11 @@ mod tests {
     /// Test Name to SlimName conversion with full components
     #[test]
     fn test_name_to_slim_name_full() {
-        let name = Name::new(
+        let name = Name::new_with_id(
             "org".to_string(),
             "namespace".to_string(),
             "app".to_string(),
-            Some(12345),
+            12345,
         );
 
         let slim_name: SlimName = name.into();
@@ -114,7 +118,7 @@ mod tests {
     /// Test Name to SlimName conversion with partial components
     #[test]
     fn test_name_to_slim_name_partial() {
-        let name = Name::new("org".to_string(), "".to_string(), "".to_string(), None);
+        let name = Name::new("org".to_string(), "".to_string(), "".to_string());
 
         let slim_name: SlimName = name.into();
         let components = slim_name.components_strings();
@@ -127,7 +131,7 @@ mod tests {
     /// Test Name to SlimName conversion with empty components
     #[test]
     fn test_name_to_slim_name_empty() {
-        let name = Name::new("".to_string(), "".to_string(), "".to_string(), None);
+        let name = Name::new("".to_string(), "".to_string(), "".to_string());
 
         let slim_name: SlimName = name.into();
         let components = slim_name.components_strings();
@@ -151,11 +155,11 @@ mod tests {
     /// Test Name roundtrip conversion
     #[test]
     fn test_name_roundtrip() {
-        let original = Name::new(
+        let original = Name::new_with_id(
             "org".to_string(),
             "namespace".to_string(),
             "app".to_string(),
-            Some(99999),
+            99999,
         );
 
         let slim_name: SlimName = original.clone().into();
@@ -172,14 +176,14 @@ mod tests {
     /// Test Name Debug, Clone, and PartialEq traits
     #[test]
     fn test_name_traits() {
-        let name1 = Name::new("a".to_string(), "b".to_string(), "c".to_string(), Some(100));
+        let name1 = Name::new_with_id("a".to_string(), "b".to_string(), "c".to_string(), 100);
         let name2 = name1.clone();
 
         // PartialEq
         assert_eq!(name1, name2);
 
         // Different names should not be equal
-        let name3 = Name::new("x".to_string(), "y".to_string(), "z".to_string(), Some(200));
+        let name3 = Name::new_with_id("x".to_string(), "y".to_string(), "z".to_string(), 200);
         assert_ne!(name1, name3);
 
         // Debug
@@ -191,11 +195,11 @@ mod tests {
     /// Test Name Display trait
     #[test]
     fn test_name_display() {
-        let name = Name::new(
+        let name = Name::new_with_id(
             "org".to_string(),
             "namespace".to_string(),
             "app".to_string(),
-            Some(123),
+            123,
         );
         let display_str = format!("{}", name);
 
@@ -206,16 +210,11 @@ mod tests {
     /// Test Name with different ID values
     #[test]
     fn test_name_with_various_ids() {
-        let name_with_id = Name::new(
-            "org".to_string(),
-            "ns".to_string(),
-            "app".to_string(),
-            Some(42),
-        );
+        let name_with_id =
+            Name::new_with_id("org".to_string(), "ns".to_string(), "app".to_string(), 42);
         assert_eq!(name_with_id.id(), 42);
 
-        let name_without_id =
-            Name::new("org".to_string(), "ns".to_string(), "app".to_string(), None);
+        let name_without_id = Name::new("org".to_string(), "ns".to_string(), "app".to_string());
         // SlimName generates a default ID, so it should be non-zero
         assert!(name_without_id.id() > 0);
     }
@@ -227,7 +226,6 @@ mod tests {
             "comp0".to_string(),
             "comp1".to_string(),
             "comp2".to_string(),
-            None,
         );
         let components = name.components();
 

@@ -7,6 +7,7 @@
 
 use parking_lot::Mutex;
 
+use futures_timer::Delay;
 use slim_session::CompletionHandle as SlimCompletionHandle;
 
 use crate::SlimError;
@@ -139,10 +140,18 @@ impl CompletionHandle {
         let wait_future = async { receiver.await.map_err(SlimError::from) };
 
         if let Some(duration) = timeout {
-            tokio::time::timeout(duration, wait_future)
-                .await
-                .map_err(|_| SlimError::Timeout)??;
-            Ok(())
+            // Runtime-agnostic timeout using futures-timer
+            futures::pin_mut!(wait_future);
+            let delay = Delay::new(duration);
+            futures::pin_mut!(delay);
+
+            match futures::future::select(wait_future, delay).await {
+                futures::future::Either::Left((result, _)) => {
+                    result?;
+                    Ok(())
+                }
+                futures::future::Either::Right(_) => Err(SlimError::Timeout),
+            }
         } else {
             wait_future.await?;
             Ok(())
