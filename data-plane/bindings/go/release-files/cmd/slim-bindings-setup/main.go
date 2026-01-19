@@ -39,14 +39,55 @@ func Version() string {
 	return info.Main.Version
 }
 
-// GetTarget returns the target triple for the given OS/arch.
-// If goos or arch are empty, it uses the current runtime values.
-func GetTarget(goos, arch string) string {
+// GetABI returns the ABI identifier for the current platform.
+// On Linux, this detects whether the system uses musl or glibc (gnu).
+func GetABI() string {
+	if runtime.GOOS != "linux" {
+		return ""
+	}
+
+	// Detect musl vs glibc
+	if isMusl() {
+		return "musl"
+	}
+	return "gnu"
+}
+
+// isMusl checks if the system is using musl libc instead of glibc.
+// It looks for the musl dynamic linker in common locations.
+func isMusl() bool {
+	// Check for musl dynamic linker in /lib
+	if entries, err := os.ReadDir("/lib"); err == nil {
+		for _, entry := range entries {
+			if strings.HasPrefix(entry.Name(), "ld-musl-") {
+				return true
+			}
+		}
+	}
+
+	// Check in /usr/lib for some distributions
+	if entries, err := os.ReadDir("/usr/lib"); err == nil {
+		for _, entry := range entries {
+			if strings.HasPrefix(entry.Name(), "ld-musl-") {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// GetTarget returns the target triple for the given OS/arch/ABI.
+// If goos, arch, or abi are empty, it uses the current runtime values.
+func GetTarget(goos, arch, abi string) string {
 	if goos == "" {
 		goos = runtime.GOOS
 	}
 	if arch == "" {
 		arch = runtime.GOARCH
+	}
+	if abi == "" {
+		abi = GetABI()
 	}
 
 	switch goos {
@@ -56,10 +97,18 @@ func GetTarget(goos, arch string) string {
 		}
 		return "x86_64-apple-darwin"
 	case "linux":
-		if arch == "arm64" {
-			return "aarch64-unknown-linux-gnu"
+
+		// Use provided ABI or default to gnu
+		libc := "gnu"
+		if abi != "" {
+			// If a non-standard ABI is provided, use it
+			libc = abi
 		}
-		return "x86_64-unknown-linux-gnu"
+
+		if arch == "arm64" {
+			return fmt.Sprintf("aarch64-unknown-linux-%s", libc)
+		}
+		return fmt.Sprintf("x86_64-unknown-linux-%s", libc)
 	case "windows":
 		return "x86_64-pc-windows-gnu"
 	}
@@ -227,6 +276,10 @@ func DownloadLibrary(target string) error {
 func main() {
 	// Parse command-line flags
 	targetFlag := flag.String("target", "", "Rust target triple (e.g., x86_64-unknown-linux-gnu). If not provided, uses current OS/arch.")
+	archFlag := flag.String("arch", "", "Architecture (e.g., amd64, arm64). If not provided, uses current arch.")
+	osFlag := flag.String("os", "", "Operating system (e.g., linux, windows, darwin). If not provided, uses current OS.")
+	abiFlag := flag.String("abi", "", "ABI variant (e.g., gnu, musl for Linux). If not provided, auto-detects current ABI.")
+
 	flag.Parse()
 
 	// Determine the target
@@ -234,7 +287,18 @@ func main() {
 	if *targetFlag != "" {
 		target = *targetFlag
 	} else {
-		target = GetTarget("", "")
+		target = GetTarget(*osFlag, *archFlag, *abiFlag)
+		if target == "" {
+			fmt.Fprintf(os.Stderr, "❌ Invalid target: %s/%s\n", *osFlag, *archFlag)
+			os.Exit(1)
+		}
+	}
+
+	// Display detected ABI info if relevant
+	detectedABI := GetABI()
+	abiInfo := ""
+	if detectedABI != "" {
+		abiInfo = fmt.Sprintf(" (ABI: %s)", detectedABI)
 	}
 
 	fmt.Println("╔═══════════════════════════════════════════════════════════╗")
@@ -242,7 +306,7 @@ func main() {
 	fmt.Println("╚═══════════════════════════════════════════════════════════╝")
 	fmt.Println()
 	fmt.Printf("Version:  %s\n", Version())
-	fmt.Printf("Platform: %s/%s\n", runtime.GOOS, runtime.GOARCH)
+	fmt.Printf("Platform: %s/%s%s\n", runtime.GOOS, runtime.GOARCH, abiInfo)
 	fmt.Printf("Target:   %s\n", target)
 	fmt.Println()
 
