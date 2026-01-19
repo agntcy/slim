@@ -4,6 +4,8 @@
 package integration
 
 import (
+	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -19,13 +21,25 @@ var _ = Describe("Group management through control plane with timeout", func() {
 		controlPlaneSession *gexec.Session
 		slimNodeSession     *gexec.Session
 		moderatorSession    *gexec.Session
+		controlPlaneDBPath  string
 	)
 
 	BeforeEach(func() {
+		fmt.Fprintf(GinkgoWriter, "[integration] Start: %s\n", CurrentSpecReport().FullText())
+
 		// start control plane
 		var errCP error
+		var err error
+		var controlPlaneDB *os.File
+		controlPlaneDB, err = os.CreateTemp("", "controlplane-*.db")
+		Expect(err).NotTo(HaveOccurred())
+		controlPlaneDBPath = controlPlaneDB.Name()
+		Expect(controlPlaneDB.Close()).To(Succeed())
+
+		controlPlaneCmd := exec.Command(controlPlanePath, "--config", "./testdata/control-plane-config.yaml")
+		controlPlaneCmd.Env = append(os.Environ(), "DATABASE_FILEPATH="+controlPlaneDBPath)
 		controlPlaneSession, errCP = gexec.Start(
-			exec.Command(controlPlanePath, "--config", "./testdata/control-plane-config.yaml"),
+			controlPlaneCmd,
 			GinkgoWriter, GinkgoWriter,
 		)
 		Expect(errCP).NotTo(HaveOccurred())
@@ -54,6 +68,8 @@ var _ = Describe("Group management through control plane with timeout", func() {
 	})
 
 	AfterEach(func() {
+		fmt.Fprintf(GinkgoWriter, "[integration] End: %s\n", CurrentSpecReport().FullText())
+
 		// terminate moderator
 		if moderatorSession != nil {
 			moderatorSession.Terminate().Wait(30 * time.Second)
@@ -67,6 +83,13 @@ var _ = Describe("Group management through control plane with timeout", func() {
 		// terminate control plane
 		if controlPlaneSession != nil {
 			controlPlaneSession.Terminate().Wait(30 * time.Second)
+		}
+
+		// delete control plane database file
+		if controlPlaneDBPath != "" {
+			err := os.Remove(controlPlaneDBPath)
+			Expect(err).NotTo(HaveOccurred())
+			controlPlaneDBPath = ""
 		}
 	})
 
@@ -83,7 +106,7 @@ var _ = Describe("Group management through control plane with timeout", func() {
 			Expect(addChannelOutput).NotTo(BeEmpty())
 
 			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say(MsgCreateChannelRequest))
-			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(MsgChannelCreatedSuccessfully))
+			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(fmt.Sprintf(MsgChannelCreated, ".+", true)))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(MsgChannelSavedSuccessfully))
 
 			// CombinedOutput is "Received response org/default/moderator1/0-... \n"
@@ -109,9 +132,9 @@ var _ = Describe("Group management through control plane with timeout", func() {
 			time.Sleep(2000 * time.Millisecond)
 
 			Expect(errA).To(HaveOccurred())
-			Expect(string(addClientAOutput)).To(ContainSubstring("failed to add participants"))
+			Expect(string(addClientAOutput)).To(ContainSubstring("failed to add participants: unsuccessful response"))
 			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say(MsgParticipantAddRequest))
-			//TODO: Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say("failed to add participant"))
+			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(fmt.Sprintf(MsgParticipantAdded, false)))
 		})
 	})
 })

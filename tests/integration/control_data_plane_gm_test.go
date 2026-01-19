@@ -4,6 +4,8 @@
 package integration
 
 import (
+	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -21,13 +23,25 @@ var _ = Describe("Group management through control plane", func() {
 		moderatorSession    *gexec.Session
 		clientASession      *gexec.Session
 		clientCSession      *gexec.Session
+		controlPlaneDBPath  string
 	)
 
 	BeforeEach(func() {
+		fmt.Fprintf(GinkgoWriter, "[integration] Start: %s\n", CurrentSpecReport().FullText())
+
 		// start control plane
 		var errCP error
+		var err error
+		var controlPlaneDB *os.File
+		controlPlaneDB, err = os.CreateTemp("", "controlplane-*.db")
+		Expect(err).NotTo(HaveOccurred())
+		controlPlaneDBPath = controlPlaneDB.Name()
+		Expect(controlPlaneDB.Close()).To(Succeed())
+
+		controlPlaneCmd := exec.Command(controlPlanePath, "--config", "./testdata/control-plane-config.yaml")
+		controlPlaneCmd.Env = append(os.Environ(), "DATABASE_FILEPATH="+controlPlaneDBPath)
 		controlPlaneSession, errCP = gexec.Start(
-			exec.Command(controlPlanePath, "--config", "./testdata/control-plane-config.yaml"),
+			controlPlaneCmd,
 			GinkgoWriter, GinkgoWriter,
 		)
 		Expect(errCP).NotTo(HaveOccurred())
@@ -81,6 +95,8 @@ var _ = Describe("Group management through control plane", func() {
 	})
 
 	AfterEach(func() {
+		fmt.Fprintf(GinkgoWriter, "[integration] End: %s\n", CurrentSpecReport().FullText())
+
 		// terminate clients
 		if clientASession != nil {
 			clientASession.Terminate().Wait(2 * time.Second)
@@ -103,6 +119,13 @@ var _ = Describe("Group management through control plane", func() {
 		if controlPlaneSession != nil {
 			controlPlaneSession.Terminate().Wait(30 * time.Second)
 		}
+
+		// delete control plane database file
+		if controlPlaneDBPath != "" {
+			err := os.Remove(controlPlaneDBPath)
+			Expect(err).NotTo(HaveOccurred())
+			controlPlaneDBPath = ""
+		}
 	})
 
 	Describe("group management with control plane", func() {
@@ -118,7 +141,7 @@ var _ = Describe("Group management through control plane", func() {
 			Expect(addChannelOutput).NotTo(BeEmpty())
 
 			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say(MsgCreateChannelRequest))
-			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(MsgChannelCreatedSuccessfully))
+			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(fmt.Sprintf(MsgChannelCreated, ".+", true)))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(MsgChannelSavedSuccessfully))
 
 			// CombinedOutput is "Received response org/default/moderator1/0-... \n"
@@ -147,7 +170,7 @@ var _ = Describe("Group management through control plane", func() {
 
 			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say(MsgParticipantAddRequest))
 			Eventually(clientASession, 15*time.Second).Should(gbytes.Say(MsgSessionHandlerTaskStarted))
-			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(MsgAckParticipantAddedSuccessfully))
+			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(fmt.Sprintf(MsgParticipantAdded, true)))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(MsgChannelUpdatedParticipantAdded))
 
 			// Invite clientC to the channel
@@ -164,7 +187,7 @@ var _ = Describe("Group management through control plane", func() {
 
 			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say(MsgParticipantAddRequest))
 			Eventually(clientCSession, 15*time.Second).Should(gbytes.Say(MsgSessionHandlerTaskStarted))
-			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(MsgAckParticipantAddedSuccessfully))
+			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(fmt.Sprintf(MsgParticipantAdded, true)))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(MsgChannelUpdatedParticipantAdded))
 
 			// Test communication between clientA and clientC
@@ -187,7 +210,7 @@ var _ = Describe("Group management through control plane", func() {
 			Expect(deleteParticipantOutput).NotTo(BeEmpty())
 
 			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say(MsgParticipantDeleteRequest))
-			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(MsgAckParticipantDeletedSuccessfully))
+			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(fmt.Sprintf(MsgParticipantDeleted, true)))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(MsgChannelUpdatedParticipantDeleted))
 			Eventually(clientCSession, 15*time.Second).Should(gbytes.Say(MsgSessionClosed))
 
@@ -202,8 +225,7 @@ var _ = Describe("Group management through control plane", func() {
 			Expect(deleteChannelOutput).NotTo(BeEmpty())
 
 			Eventually(slimNodeSession, 15*time.Second).Should(gbytes.Say(MsgChannelDeleteRequest))
-
-			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(MsgAckChannelDeletedSuccessfully))
+			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(fmt.Sprintf(MsgAckChannelDeleted, channelName, true)))
 			Eventually(controlPlaneSession, 15*time.Second).Should(gbytes.Say(MsgChannelDeletedSuccessfully))
 			Eventually(clientASession, 15*time.Second).Should(gbytes.Say(MsgSessionClosed))
 			Eventually(moderatorSession, 15*time.Second).Should(gbytes.Say(MsgSessionClosed))

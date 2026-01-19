@@ -13,7 +13,7 @@ reconciler:
 logging:
   level: DEBUG
 
-database:
-  filePath: controlplane.db
+# database:
+#   filePath: controlplane.db
 
 
