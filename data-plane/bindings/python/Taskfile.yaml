@@ -73,7 +73,7 @@ tasks:
       TARGET: '{{.TESTS | default ""}}'
 
   python:bindings:packaging:
-    desc: "Generate Python wheels for multiple Python versions (3.10, 3.11, 3.12, 3.13) using Maturin"
+    desc: "Generate Python wheels for multiple Python versions (3.10, 3.11, 3.12, 3.13, 3.14) using Maturin"
     vars:
       PROFILE: '{{.PROFILE | default "release"}}'
       RELEASE:
@@ -87,7 +87,7 @@ tasks:
         sh: 'echo {{.TARGET}} | cut -d"-" -f3'
       C_LIB:
         sh: 'echo {{.TARGET}} | cut -d"-" -f4 || echo ""'
-      INTERPRETERS: '{{.INTERPRETERS | default "3.10 3.11 3.12 3.13"}}'
+      INTERPRETERS: '{{.INTERPRETERS | default "3.10 3.11 3.12 3.13 3.14"}}'
     cmds:
       - uv python install {{.INTERPRETERS}}
       - task: rust:toolchain:run-command

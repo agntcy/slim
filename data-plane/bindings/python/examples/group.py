@@ -32,9 +32,16 @@ Notes:
 
 import asyncio
 import datetime
+import sys
 
-from prompt_toolkit.shortcuts import PromptSession, print_formatted_text
-from prompt_toolkit.styles import Style
+try:
+    from prompt_toolkit.shortcuts import PromptSession, print_formatted_text
+    from prompt_toolkit.styles import Style
+except ImportError:
+    print(
+        "Missing dependencies! Install them with: pip install 'slim-bindings[examples]'"
+    )
+    sys.exit(1)
 
 import slim_bindings
 
@@ -136,7 +143,6 @@ async def receive_loop(
 
     # Get source and destination names for display
     source_name = session.source()
-    dest_name = session.destination()
 
     while True:
         try:
@@ -381,7 +387,7 @@ async def run_client(
 
 
 @common_options
-def group_main(
+def main(
     local: str,
     remote: str | None = None,
     enable_opentelemetry: bool = False,

@@ -35,6 +35,17 @@ classifiers = [
 Repository = "https://github.com/agntcy/slim"
 Issues = "https://github.com/agntcy/slim/issues"
 
+[project.optional-dependencies]
+examples = [
+    "click>=8.3.1",
+    "prompt-toolkit>=3.0.52",
+]
+
+[project.scripts]
+slim-bindings-group = "examples.group:main"
+slim-bindings-p2p = "examples.point_to_point:main"
+slim-bindings-server = "examples.slim:main"
+
 [dependency-groups]
 building = [
     "maturin~=1.11",
@@ -59,6 +70,8 @@ linting = [
 bindings = "uniffi"
 manifest-path = "../rust/Cargo.toml"
 module-name = "slim_bindings"
+python-source = "."
+python-packages = ["examples"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

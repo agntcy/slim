@@ -2,33 +2,50 @@
 
 Python bindings for SLIM (Secure Low-Latency Interactive Messaging) using UniFFI.
 
-This provides a Python interface to the SLIM data plane, enabling secure, low-latency messaging with support for point-to-point and group (multicast) communication patterns.
+This provides a Python interface to the SLIM data plane, enabling secure,
+low-latency messaging with support for point-to-point and group
+(multicast) communication patterns.
 
 ## Overview
 
-These Python bindings are generated from the Rust `adapter` crate using [UniFFI](https://mozilla.github.io/uniffi-rs/), providing a native Python interface that wraps the high-performance Rust implementation.
+These Python bindings are generated from the `agntcy-slim-bindings` crate
+using [UniFFI](https://mozilla.github.io/uniffi-rs/), providing a native
+Python interface that wraps the high-performance Rust implementation.
 
 ### Key Features
 
 - **Point-to-Point Messaging**: Direct communication between two endpoints
 - **Group Messaging**: Multicast communication with multiple participants
 - **Secure by Default**: Support for TLS, mTLS, and various authentication methods
-- **Optional MLS Encryption**: End-to-end encryption for sessions
+- **MLS Encryption**: End-to-end encryption for sessions
 - **Delivery Confirmation**: Optional completion handles for reliable messaging
 - **Flexible Authentication**: Shared secrets, JWT, SPIRE integration
 
 ## Architecture
 
-The Python bindings are built using Maturin, which automatically generates Python bindings from the Rust UniFFI adapter:
+The Python bindings are built using Maturin, which automatically generates
+Python bindings from the Rust UniFFI adapter:
 
 ```
 data-plane/bindings/
 ├── rust/          # Rust UniFFI bindings (shared by Go, Python, etc.)
 │   ├── src/
-│   │   ├── adapter.rs
-│   │   ├── session_context.rs
+│   │   ├── app.rs
+│   │   ├── build_info.rs
+│   │   ├── client_config.rs
+│   │   ├── common_config.rs
+│   │   ├── completion_handle.rs
+│   │   ├── config.rs
+│   │   ├── errors.rs
+│   │   ├── identity.rs
+│   │   ├── identity_config.rs
+│   │   ├── init_config.rs
+│   │   ├── lib.rs
 │   │   ├── message_context.rs
-│   │   └── service_ref.rs
+│   │   ├── name.rs
+│   │   ├── server_config.rs
+│   │   ├── service.rs
+│   │   └── session.rs
 │   └── Cargo.toml
 ├── go/               # Go-specific bindings and examples
 └── python/           # Python-specific bindings and examples (this directory)
@@ -50,8 +67,7 @@ data-plane/bindings/
 
 ```bash
 cd data-plane/bindings/python
-uv sync
-uv run maturin develop
+task python:bindings:build
 ```
 
 This will:
@@ -60,17 +76,11 @@ This will:
 3. Generate Python bindings using Maturin
 4. Install the package in development mode
 
-### Alternative: Using Task
-
-```bash
-task build
-```
-
 ## Creating Distribution Packages
 
 ### Build Wheels for Multiple Python Versions
 
-To create distributable wheel packages for Python 3.10, 3.11, 3.12, and 3.13:
+To create distributable wheel packages for Python 3.10, 3.11, 3.12, 3.13 and 3.14:
 
 ```bash
 task python:bindings:packaging

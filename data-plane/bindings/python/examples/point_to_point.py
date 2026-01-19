@@ -216,7 +216,7 @@ def p2p_options(function):
 
 @common_options
 @p2p_options
-def p2p_main(
+def main(
     local: str,
     remote: str | None = None,
     enable_opentelemetry: bool = False,

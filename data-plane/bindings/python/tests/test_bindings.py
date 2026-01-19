@@ -7,7 +7,6 @@ Integration tests for the slim_bindings Python layer.
 These tests exercise:
 - End-to-end PointToPoint session creation, message publish/reply, and cleanup.
 - Session configuration retrieval and default session configuration propagation.
-- Usage of the high-level Slim wrapper (Session helper methods).
 - Automatic client reconnection after a server restart.
 - Error handling when targeting a non-existent subscription.
 
