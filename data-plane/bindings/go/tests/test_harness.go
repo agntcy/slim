@@ -100,8 +100,8 @@ func SetupTestHarness(t *testing.T, testName string) (*TestHarness, *MessageColl
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Create unique names for this test
-	senderName := slim.NewName("org", fmt.Sprintf("%s-sender", testName), "v1", nil)
-	receiverName := slim.NewName("org", fmt.Sprintf("%s-receiver", testName), "v1", nil)
+	senderName := slim.NewName("org", fmt.Sprintf("%s-sender", testName), "v1")
+	receiverName := slim.NewName("org", fmt.Sprintf("%s-receiver", testName), "v1")
 
 	// Use a shared secret (must be at least 32 bytes)
 	sharedSecret := "test-harness-shared-secret-must-be-32-bytes-or-more!"
@@ -233,7 +233,7 @@ func (h *TestHarness) handleReceiverSession(ctx context.Context, session *slim.S
 			return
 		default:
 			// Try to get a message with short timeout
-			timeout := uint32(100) // 100ms
+			timeout := time.Millisecond * 100
 			receivedMsg, err := session.GetMessage(&timeout)
 			if err != nil {
 				// Timeout or error

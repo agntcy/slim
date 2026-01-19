@@ -343,12 +343,7 @@ mod tests {
     fn test_received_message() {
         let msg = ReceivedMessage {
             context: MessageContext::new(
-                Name::new_with_id(
-                    "org".to_string(),
-                    "ns".to_string(),
-                    "app".to_string(),
-                    123,
-                ),
+                Name::new_with_id("org".to_string(), "ns".to_string(), "app".to_string(), 123),
                 Some(Name::new_with_id(
                     "org".to_string(),
                     "ns".to_string(),

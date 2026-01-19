@@ -136,12 +136,15 @@ func (s *GroupService) CreateChannel(
 		return nil, err
 	}
 	// check if ack is successful
-	if ack := response.GetAck(); ack != nil {
-		if !ack.Success {
-			return nil, fmt.Errorf("failed to create channel: %s", ack.Messages)
-		}
-		logAckMessage(ctx, ack)
-		zlog.Debug().Msgf("Channel created successfully: %s", channelName)
+	ack := response.GetAck()
+	if ack == nil {
+		zlog.Debug().Msg("failed to create channel: ack is nil")
+		return nil, fmt.Errorf("failed to create channel")
+	}
+	logAckMessage(ctx, ack)
+	zlog.Debug().Msgf("Channel creation result for %s: success=%t", channelName, ack.Success)
+	if !ack.Success {
+		return nil, fmt.Errorf("failed to create channel: %s", ack.Messages)
 	}
 
 	// Saving channel to DB
@@ -207,12 +210,15 @@ func (s *GroupService) DeleteChannel(
 		return nil, err
 	}
 	// check if ack is successful
-	if ack := response.GetAck(); ack != nil {
-		if !ack.Success {
-			return nil, fmt.Errorf("failed to delete participant: %s", ack.Messages)
-		}
-		logAckMessage(ctx, ack)
-		zlog.Debug().Msg("Ack message received, channel deleted successfully.")
+	ack := response.GetAck()
+	if ack == nil {
+		zlog.Debug().Msg("failed to delete channel: ack is nil")
+		return nil, fmt.Errorf("failed to delete channel")
+	}
+	logAckMessage(ctx, ack)
+	zlog.Debug().Msgf("Channel deletion result for %s: success=%t", deleteChannelRequest.ChannelName, ack.Success)
+	if !ack.Success {
+		return ack, nil
 	}
 
 	err = s.dbService.DeleteChannel(deleteChannelRequest.ChannelName)
@@ -221,9 +227,7 @@ func (s *GroupService) DeleteChannel(
 	}
 	zlog.Debug().Msg("Channel deleted successfully.")
 
-	return &controllerapi.Ack{
-		Success: true,
-	}, nil
+	return ack, nil
 }
 
 func (s *GroupService) AddParticipant(
@@ -282,12 +286,15 @@ func (s *GroupService) AddParticipant(
 		return nil, err
 	}
 	// check if ack is successful
-	if ack := response.GetAck(); ack != nil {
-		if !ack.Success {
-			return nil, fmt.Errorf("failed to add participant: %s", ack.Messages)
-		}
-		logAckMessage(ctx, ack)
-		zlog.Debug().Msg("Ack message received, participant added successfully.")
+	ack := response.GetAck()
+	if ack == nil {
+		zlog.Debug().Msg("failed to add participant: ack is nil")
+		return nil, fmt.Errorf("failed to add participant")
+	}
+	logAckMessage(ctx, ack)
+	zlog.Debug().Msgf("AddParticipant result success=%t", ack.Success)
+	if !ack.Success {
+		return ack, nil
 	}
 
 	if slices.Contains(channel.Participants, addParticipantRequest.ParticipantName) {
@@ -302,9 +309,7 @@ func (s *GroupService) AddParticipant(
 	}
 	zlog.Debug().Msg("Channel updated, participant added successfully.")
 
-	return &controllerapi.Ack{
-		Success: true,
-	}, nil
+	return ack, nil
 }
 
 func (s *GroupService) DeleteParticipant(
@@ -369,14 +374,16 @@ func (s *GroupService) DeleteParticipant(
 		return nil, err
 	}
 	// check if ack is successful
-	if ack := response.GetAck(); ack != nil {
-		if !ack.Success {
-			return nil, fmt.Errorf("failed to delete participant: %s", ack.Messages)
-		}
-		logAckMessage(ctx, ack)
-		zlog.Debug().Msg("Ack message received, participant deleted successfully.")
+	ack := response.GetAck()
+	if ack == nil {
+		zlog.Debug().Msg("failed to delete participant: ack is nil")
+		return nil, fmt.Errorf("failed to delete participant")
 	}
-
+	logAckMessage(ctx, ack)
+	zlog.Debug().Msgf("DeleteParticipant result success=%t", ack.Success)
+	if !ack.Success {
+		return ack, nil
+	}
 	// Control plane side DB operations
 	channel.Participants = append(channel.Participants[:foundIdx], channel.Participants[foundIdx+1:]...)
 
@@ -386,9 +393,7 @@ func (s *GroupService) DeleteParticipant(
 	}
 	zlog.Debug().Msg("Channel updated, participant deleted successfully.")
 
-	return &controllerapi.Ack{
-		Success: true,
-	}, nil
+	return ack, nil
 }
 
 func (s *GroupService) ListChannels(

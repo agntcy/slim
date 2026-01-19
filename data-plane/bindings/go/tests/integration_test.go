@@ -32,11 +32,11 @@ func setupTestApp(t *testing.T, appNameStr string) *slim.App {
 
 	slim.InitializeWithDefaults()
 
-	appName := slim.NewName("org", appNameStr, "v1", nil)
+	appName := slim.NewName("org", appNameStr, "v1")
 
 	sharedSecret := "test-shared-secret-must-be-at-least-32-bytes-long!"
 
-	app, err := slim.CreateAppWithSecret(appName, sharedSecret)
+	app, err := slim.GetGlobalService().CreateAppWithSecret(appName, sharedSecret)
 	if err != nil {
 		t.Fatalf("Failed to create app: %v", err)
 	}
@@ -273,11 +273,11 @@ func TestSessionLifecycle(t *testing.T) {
 func TestAppCreationAndProperties(t *testing.T) {
 	slim.InitializeWithDefaults()
 
-	appName := slim.NewName("org", "app-creation-test", "v1", nil)
+	appName := slim.NewName("org", "app-creation-test", "v1")
 
 	sharedSecret := "test-secret-must-be-at-least-32-bytes-long!"
 
-	app, err := slim.CreateAppWithSecret(appName, sharedSecret)
+	app, err := slim.GetGlobalService().CreateAppWithSecret(appName, sharedSecret)
 	if err != nil {
 		t.Fatalf("Failed to create app: %v", err)
 	}
@@ -326,7 +326,7 @@ func TestSubscribeUnsubscribe(t *testing.T) {
 	app := setupTestApp(t, "subscribe-test")
 	defer app.Destroy()
 
-	subscribeName := slim.NewName("org", "sub", "topic", nil)
+	subscribeName := slim.NewName("org", "sub", "topic")
 
 	// Test subscribe
 	err := app.Subscribe(subscribeName, nil)
@@ -350,7 +350,7 @@ func TestRouteOperations(t *testing.T) {
 	app := setupTestApp(t, "route-test")
 	defer app.Destroy()
 
-	routeName := slim.NewName("org", "route", "target", nil)
+	routeName := slim.NewName("org", "route", "target")
 
 	connID := uint64(123)
 
@@ -404,7 +404,7 @@ func TestGroupSession(t *testing.T) {
 		EnableMls:   false,
 	}
 
-	destination := slim.NewName("org", "group", "v1", nil)
+	destination := slim.NewName("org", "group", "v1")
 
 	session, err := harness.Sender.CreateSession(sessionConfig, destination)
 	if err != nil {
@@ -425,7 +425,7 @@ func TestSessionInviteRemove(t *testing.T) {
 		EnableMls:   false,
 	}
 
-	destination := slim.NewName("org", "group", "v1", nil)
+	destination := slim.NewName("org", "group", "v1")
 
 	session, err := harness.Sender.CreateSessionAndWait(sessionConfig, destination)
 	if err != nil {
@@ -433,7 +433,7 @@ func TestSessionInviteRemove(t *testing.T) {
 	}
 	defer session.Destroy()
 
-	participant := slim.NewName("org", "participant", "v1", nil)
+	participant := slim.NewName("org", "participant", "v1")
 
 	// Set route to participant to simulate connectivity
 	err = harness.Sender.SetRoute(participant, 1)
@@ -542,7 +542,7 @@ func TestInviteAutoWait(t *testing.T) {
 		EnableMls:   false,
 	}
 
-	destination := slim.NewName("org", "group", "v1", nil)
+	destination := slim.NewName("org", "group", "v1")
 
 	session, err := harness.Sender.CreateSessionAndWait(sessionConfig, destination)
 	if err != nil {
@@ -550,7 +550,7 @@ func TestInviteAutoWait(t *testing.T) {
 	}
 	defer session.Destroy()
 
-	participant := slim.NewName("org", "participant", "v1", nil)
+	participant := slim.NewName("org", "participant", "v1")
 
 	// Invite should auto-wait for acknowledgment
 	start := time.Now()
@@ -576,7 +576,7 @@ func TestRemoveAutoWait(t *testing.T) {
 		EnableMls:   false,
 	}
 
-	destination := slim.NewName("org", "group", "v1", nil)
+	destination := slim.NewName("org", "group", "v1")
 
 	session, err := harness.Sender.CreateSessionAndWait(sessionConfig, destination)
 	if err != nil {
@@ -584,7 +584,7 @@ func TestRemoveAutoWait(t *testing.T) {
 	}
 	defer session.Destroy()
 
-	participant := slim.NewName("org", "participant", "v1", nil)
+	participant := slim.NewName("org", "participant", "v1")
 
 	// Remove should auto-wait for acknowledgment
 	start := time.Now()
@@ -718,15 +718,15 @@ func TestFireAndForgetVsWithCompletion(t *testing.T) {
 func BenchmarkPublishFireAndForget(b *testing.B) {
 	slim.InitializeWithDefaults()
 
-	app, _ := slim.CreateAppWithSecret(
-		slim.NewName("org", "bench", "v1", nil),
+	app, _ := slim.GetGlobalService().CreateAppWithSecret(
+		slim.NewName("org", "bench", "v1"),
 		"benchmark-secret-must-be-at-least-32-bytes!",
 	)
 	defer app.Destroy()
 
 	session, err := app.CreateSession(
 		slim.SessionConfig{SessionType: slim.SessionTypePointToPoint, EnableMls: false},
-		slim.NewName("org", "receiver", "v1", nil),
+		slim.NewName("org", "receiver", "v1"),
 	)
 	if err != nil {
 		b.Skipf("Skipping benchmark - session creation failed: %v", err)
@@ -746,15 +746,15 @@ func BenchmarkPublishFireAndForget(b *testing.B) {
 func BenchmarkPublishWithCompletion(b *testing.B) {
 	slim.InitializeWithDefaults()
 
-	app, _ := slim.CreateAppWithSecret(
-		slim.NewName("org", "bench", "v1", nil),
+	app, _ := slim.GetGlobalService().CreateAppWithSecret(
+		slim.NewName("org", "bench", "v1"),
 		"benchmark-secret-must-be-at-least-32-bytes!",
 	)
 	defer app.Destroy()
 
 	session, err := app.CreateSession(
 		slim.SessionConfig{SessionType: slim.SessionTypePointToPoint, EnableMls: false},
-		slim.NewName("org", "receiver", "v1", nil),
+		slim.NewName("org", "receiver", "v1"),
 	)
 	if err != nil {
 		b.Skipf("Skipping benchmark - session creation failed: %v", err)
@@ -777,15 +777,15 @@ func BenchmarkPublishWithCompletion(b *testing.B) {
 func BenchmarkPublishWithCompletionAndWait(b *testing.B) {
 	slim.InitializeWithDefaults()
 
-	app, _ := slim.CreateAppWithSecret(
-		slim.NewName("org", "bench", "v1", nil),
+	app, _ := slim.GetGlobalService().CreateAppWithSecret(
+		slim.NewName("org", "bench", "v1"),
 		"benchmark-secret-must-be-at-least-32-bytes!",
 	)
 	defer app.Destroy()
 
 	session, err := app.CreateSession(
 		slim.SessionConfig{SessionType: slim.SessionTypePointToPoint, EnableMls: false},
-		slim.NewName("org", "receiver", "v1", nil),
+		slim.NewName("org", "receiver", "v1"),
 	)
 	if err != nil {
 		b.Skipf("Skipping benchmark - session creation failed: %v", err)
