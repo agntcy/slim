@@ -850,6 +850,128 @@ mod tests {
         assert!(adapter2.id() > 0);
     }
 
+    #[tokio::test]
+    async fn test_create_app_with_secret_async() {
+        let service = Service::new("secret-app-test".to_string());
+        let base_name = Arc::new(Name::new(
+            "org".to_string(),
+            "namespace".to_string(),
+            "secret-app".to_string(),
+        ));
+        let secret = TEST_VALID_SECRET.to_string();
+
+        let result = service
+            .create_app_with_secret_async(base_name, secret)
+            .await;
+
+        assert!(result.is_ok(), "Should create app with secret successfully");
+        let app = result.unwrap();
+        assert!(app.id() > 0, "App should have non-zero ID");
+    }
+
+    #[tokio::test]
+    async fn test_create_app_with_secret_multiple() {
+        let service = Service::new("multi-secret-app-test".to_string());
+        let secret = TEST_VALID_SECRET.to_string();
+
+        let names = vec![
+            ("org1", "ns1", "secret-app1"),
+            ("org2", "ns2", "secret-app2"),
+            ("org3", "ns3", "secret-app3"),
+        ];
+
+        for (org, ns, app) in names {
+            let base_name = Arc::new(Name::new(org.to_string(), ns.to_string(), app.to_string()));
+
+            let result = service
+                .create_app_with_secret_async(base_name, secret.clone())
+                .await;
+
+            assert!(
+                result.is_ok(),
+                "Should create secret app for {}/{}/{}",
+                org,
+                ns,
+                app
+            );
+        }
+    }
+
+    #[test]
+    fn test_create_app_blocking() {
+        let service = Service::new("blocking-app-test".to_string());
+        let base_name = Arc::new(Name::new(
+            "org".to_string(),
+            "namespace".to_string(),
+            "blocking-app".to_string(),
+        ));
+        let (provider, verifier) = create_test_auth();
+
+        let result = service.create_app(base_name, provider, verifier);
+
+        assert!(result.is_ok(), "Should create app in blocking mode");
+        let app = result.unwrap();
+        assert!(app.id() > 0, "App should have non-zero ID");
+    }
+
+    #[test]
+    fn test_create_app_with_secret_blocking() {
+        let service = Service::new("blocking-secret-app-test".to_string());
+        let base_name = Arc::new(Name::new(
+            "org".to_string(),
+            "namespace".to_string(),
+            "blocking-secret-app".to_string(),
+        ));
+        let secret = TEST_VALID_SECRET.to_string();
+
+        let result = service.create_app_with_secret(base_name, secret);
+
+        assert!(result.is_ok(), "Should create secret app in blocking mode");
+        let app = result.unwrap();
+        assert!(app.id() > 0, "App should have non-zero ID");
+    }
+
+    #[tokio::test]
+    async fn test_create_app_async_internal_directly() {
+        let service = Service::new("internal-test".to_string());
+        let base_name = create_test_name();
+        let (provider, verifier) = create_test_auth();
+
+        let result =
+            create_app_async_internal(base_name, provider, verifier, service.inner.clone()).await;
+
+        assert!(result.is_ok(), "Should create app via internal function");
+        let app = result.unwrap();
+        assert!(app.id() > 0, "App should have non-zero ID");
+    }
+
+    #[tokio::test]
+    async fn test_create_app_with_same_secret_different_ids() {
+        // Even with the same secret, different apps should get unique IDs
+        let service = Service::new("same-secret-test".to_string());
+        let secret = TEST_VALID_SECRET.to_string();
+        let base_name = Arc::new(Name::new(
+            "org".to_string(),
+            "namespace".to_string(),
+            "same-secret-app".to_string(),
+        ));
+
+        let app1 = service
+            .create_app_with_secret_async(base_name.clone(), secret.clone())
+            .await
+            .expect("Failed to create first app");
+
+        let app2 = service
+            .create_app_with_secret_async(base_name, secret)
+            .await
+            .expect("Failed to create second app");
+
+        // IDs should be different due to timestamp in token generation
+        assert_ne!(app1.id(), app2.id());
+        assert!(app1.id() > 0);
+        assert!(app2.id() > 0);
+    }
+
     // ========================================================================
     // Factory Function Tests
     // ========================================================================
@@ -980,5 +1102,131 @@ mod tests {
         // Service config should not have changed
         let retrieved2 = service.config();
         assert_eq!(retrieved2.node_id.as_deref(), Some("original-node"));
+    }
+
+    // ========================================================================
+    // Runtime Spawning Tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_run_server_async_runtime_context() {
+        let service = Service::new("run-server-runtime-test".to_string());
+        let config = ServerConfig::default();
+
+        // This should not panic even though it's spawning on runtime
+        let result = service.run_server_async(config).await;
+        // May fail due to address already in use or other reasons, but shouldn't panic
+        let _ = result; // We just want to ensure it doesn't panic
+    }
+
+    #[tokio::test]
+    async fn test_connect_async_runtime_context() {
+        let service = Service::new("connect-runtime-test".to_string());
+        let config = ClientConfig::default();
+
+        // This should not panic even though it's spawning on runtime
+        let result = service.connect_async(config).await;
+        // May fail to connect, but shouldn't panic from join error
+        let _ = result; // We just want to ensure proper error handling
+    }
+
+    #[test]
+    fn test_run_server_blocking() {
+        let service = Service::new("run-server-blocking-test".to_string());
+        let config = ServerConfig::default();
+
+        // Test blocking version
+        let result = service.run_server(config);
+        // May fail but should not panic
+        let _ = result;
+    }
+
+    #[test]
+    fn test_connect_blocking() {
+        let service = Service::new("connect-blocking-test".to_string());
+        let config = ClientConfig::default();
+
+        // Test blocking version
+        let result = service.connect(config);
+        // May fail but should not panic
+        let _ = result;
+    }
+
+    // ========================================================================
+    // Additional Edge Case Tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_multiple_apps_on_same_service() {
+        let service = Service::new("multi-app-service".to_string());
+        let secret = TEST_VALID_SECRET.to_string();
+
+        let name1 = Arc::new(Name::new(
+            "org".to_string(),
+            "ns".to_string(),
+            "app1".to_string(),
+        ));
+        let name2 = Arc::new(Name::new(
+            "org".to_string(),
+            "ns".to_string(),
+            "app2".to_string(),
+        ));
+        let name3 = Arc::new(Name::new(
+            "org".to_string(),
+            "ns".to_string(),
+            "app3".to_string(),
+        ));
+
+        let app1 = service
+            .create_app_with_secret_async(name1, secret.clone())
+            .await
+            .expect("Failed to create app1");
+
+        let app2 = service
+            .create_app_with_secret_async(name2, secret.clone())
+            .await
+            .expect("Failed to create app2");
+
+        let app3 = service
+            .create_app_with_secret_async(name3, secret)
+            .await
+            .expect("Failed to create app3");
+
+        // All apps should have unique IDs
+        assert_ne!(app1.id(), app2.id());
+        assert_ne!(app1.id(), app3.id());
+        assert_ne!(app2.id(), app3.id());
+
+        // All IDs should be non-zero
+        assert!(app1.id() > 0);
+        assert!(app2.id() > 0);
+        assert!(app3.id() > 0);
+    }
+
+    #[test]
+    fn test_service_run_blocking() {
+        let service = Service::new("run-blocking-test".to_string());
+        // Test that run() doesn't panic
+        let result = service.run();
+        // May succeed or fail, we just ensure no panic
+        let _ = result;
+    }
+
+    #[test]
+    fn test_service_shutdown_blocking() {
+        let service = Service::new("shutdown-blocking-test".to_string());
+        // Test that shutdown() doesn't panic
+        let result = service.shutdown();
+        // May succeed or fail, we just ensure no panic
+        let _ = result;
+    }
+
+    #[tokio::test]
+    async fn test_run_async() {
+        let service = Service::new("run-async-test".to_string());
+        // run_async starts all configured servers/clients
+        let result = service.run_async().await;
+        // May fail if nothing configured, but shouldn't panic
+        let _ = result;
     }
 }

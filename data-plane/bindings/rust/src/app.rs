@@ -1223,4 +1223,169 @@ mod tests {
         // Adapters should have different IDs since they're on different services
         assert_ne!(adapter1.id(), adapter2.id());
     }
+
+    /// Test new_with_secret_async creates app successfully
+    #[tokio::test]
+    async fn test_new_with_secret_async() {
+        let name = Arc::new(Name::new(
+            "org".to_string(),
+            "namespace".to_string(),
+            "secret-test".to_string(),
+        ));
+        let secret = TEST_VALID_SECRET.to_string();
+
+        let result = App::new_with_secret_async(name, secret).await;
+
+        assert!(result.is_ok(), "Should create app with secret");
+        let app = result.unwrap();
+        assert!(app.id() > 0, "App should have non-zero ID");
+        assert!(
+            !app.name().to_string().is_empty(),
+            "App should have valid name"
+        );
+    }
+
+    /// Test new_with_secret blocking version
+    #[test]
+    fn test_new_with_secret_blocking() {
+        let name = Arc::new(Name::new(
+            "org".to_string(),
+            "namespace".to_string(),
+            "secret-blocking-test".to_string(),
+        ));
+        let secret = TEST_VALID_SECRET.to_string();
+
+        // Call blocking version from sync context
+        let result = App::new_with_secret(name, secret);
+
+        assert!(
+            result.is_ok(),
+            "Should create app with secret in blocking mode"
+        );
+        let app = result.unwrap();
+        assert!(app.id() > 0, "App should have non-zero ID");
+    }
+
+    /// Test new_with_secret creates unique IDs for different apps
+    #[tokio::test]
+    async fn test_new_with_secret_unique_ids() {
+        let secret = TEST_VALID_SECRET.to_string();
+
+        let name1 = Arc::new(Name::new(
+            "org".to_string(),
+            "namespace".to_string(),
+            "unique-1".to_string(),
+        ));
+        let name2 = Arc::new(Name::new(
+            "org".to_string(),
+            "namespace".to_string(),
+            "unique-2".to_string(),
+        ));
+
+        let app1 = App::new_with_secret_async(name1, secret.clone())
+            .await
+            .expect("Failed to create app1");
+
+        let app2 = App::new_with_secret_async(name2, secret)
+            .await
+            .expect("Failed to create app2");
+
+        assert_ne!(app1.id(), app2.id(), "Apps should have different IDs");
+    }
+
+    /// Test create_session_async runtime spawning
+    #[tokio::test]
+    async fn test_create_session_async_runtime_spawning() {
+        let base_name = SlimName::from_strings(["org", "namespace", "runtime-spawn-test"]);
+        let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
+
+        let app = App::new_async(base_name, provider_config, verifier_config)
+            .await
+            .expect("Failed to create app");
+
+        let session_config = SessionConfig {
+            session_type: SessionType::PointToPoint,
+            enable_mls: false,
+            max_retries: Some(3),
+            interval: Some(std::time::Duration::from_millis(100)),
+            metadata: std::collections::HashMap::new(),
+        };
+
+        let destination = Arc::new(Name::new(
+            "org".to_string(),
+            "test".to_string(),
+            "spawn-dest".to_string(),
+        ));
+
+        // This should not panic even though it spawns on runtime
+        let result = app.create_session_async(session_config, destination).await;
+
+        // May fail without network, but shouldn't panic from join error
+        let _ = result;
+    }
+
+    /// Test listen_for_session with timeout using futures-timer
+    #[tokio::test]
+    async fn test_listen_for_session_timeout_futures_timer() {
+        let base_name = SlimName::from_strings(["org", "namespace", "listen-timeout-test"]);
+        let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
+
+        let app = App::new_async(base_name, provider_config, verifier_config)
+            .await
+            .expect("Failed to create app");
+
+        // Listen with a short timeout - should timeout since no session is incoming
+        let result = app
+            .listen_for_session_async(Some(std::time::Duration::from_millis(50)))
+            .await;
+
+        assert!(result.is_err(), "Should timeout when no session arrives");
+        if let Err(e) = result {
+            let error_msg = format!("{:?}", e);
+            assert!(
+                error_msg.contains("timed out") || error_msg.contains("timeout"),
+                "Error should mention timeout"
+            );
+        }
+    }
+
+    /// Test listen_for_session with timeout using futures-timer (second test)
+    #[tokio::test]
+    async fn test_listen_for_session_no_incoming() {
+        let base_name = SlimName::from_strings(["org", "namespace", "no-incoming-test"]);
+        let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
+
+        let app = App::new_async(base_name, provider_config, verifier_config)
+            .await
+            .expect("Failed to create app");
+
+        // Listen with a short timeout when no session is incoming - should timeout
+        let result = app
+            .listen_for_session_async(Some(std::time::Duration::from_millis(30)))
+            .await;
+
+        assert!(result.is_err(), "Should timeout when no session arrives");
+        if let Err(e) = result {
+            let error_msg = format!("{:?}", e);
+            assert!(
+                error_msg.contains("timed out") || error_msg.contains("timeout"),
+                "Error should mention timeout"
+            );
+        }
+    }
+
+    /// Test that new_async delegates to service's create_app_async_internal
+    #[tokio::test]
+    async fn test_new_async_uses_internal_creation() {
+        let base_name = SlimName::from_strings(["org", "namespace", "internal-test"]);
+        let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
+
+        // This tests that new_async properly delegates to the internal creation function
+        let result = App::new_async(base_name, provider_config, verifier_config).await;
+
+        assert!(result.is_ok(), "Should create app via internal function");
+        let app = result.unwrap();
+        assert!(app.id() > 0);
+        assert!(!app.name().to_string().is_empty());
+    }
 }

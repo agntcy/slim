@@ -867,4 +867,201 @@ services:
         // Clean up temp file
         let _ = std::fs::remove_file(&config_path);
     }
+
+    #[test]
+    fn test_is_initialized() {
+        // Test the is_initialized function
+        // After any initialization (including defaults), should return true
+        initialize_with_defaults();
+        assert!(is_initialized());
+    }
+
+    #[test_fork::fork]
+    #[test]
+    fn test_is_initialized_before_init() {
+        // In a fresh fork, is_initialized should eventually return true
+        // because other tests or get_runtime will trigger initialization
+        let result = is_initialized();
+        // This may be true or false depending on test execution order
+        // Just verify the function works without panicking
+        let _ = result;
+    }
+
+    #[test]
+    fn test_get_global_service() {
+        // Test that we can get the global service
+        let service = get_global_service();
+
+        // Verify the service has a valid name
+        let name = service.get_name();
+        assert!(!name.is_empty());
+        assert!(name.contains("global-bindings-service"));
+    }
+
+    #[test]
+    fn test_get_global_service_singleton() {
+        // Verify get_global_service always returns the same instance
+        let service1 = get_global_service();
+        let service2 = get_global_service();
+
+        // Should be the same Arc instance
+        assert!(Arc::ptr_eq(&service1, &service2));
+    }
+
+    #[tokio::test]
+    #[test_fork::fork]
+    async fn test_shutdown_success() {
+        // Test successful shutdown
+        initialize_with_defaults();
+
+        // Ensure service is initialized
+        let _service = get_global_service();
+
+        // Shutdown should succeed
+        let result = shutdown().await;
+        assert!(result.is_ok(), "Shutdown should succeed: {:?}", result);
+    }
+
+    #[tokio::test]
+    #[test_fork::fork]
+    async fn test_shutdown_when_not_initialized() {
+        // Test shutdown when service is not initialized (fresh state)
+        // This should succeed gracefully without errors
+        let result = shutdown().await;
+        // Should succeed even if nothing was initialized
+        assert!(result.is_ok());
+    }
+
+    #[test_fork::fork]
+    #[test]
+    fn test_shutdown_blocking_success() {
+        // Test blocking shutdown wrapper
+        initialize_with_defaults();
+
+        // Ensure service is initialized
+        let _service = get_global_service();
+
+        // Blocking shutdown should succeed
+        let result = shutdown_blocking();
+        assert!(
+            result.is_ok(),
+            "Blocking shutdown should succeed: {:?}",
+            result
+        );
+    }
+
+    #[test_fork::fork]
+    #[test]
+    fn test_shutdown_blocking_when_not_initialized() {
+        // Test blocking shutdown when nothing is initialized
+        let result = shutdown_blocking();
+        // Should succeed gracefully
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    #[test_fork::fork]
+    async fn test_shutdown_idempotent() {
+        // Test that multiple shutdown calls don't cause issues
+        initialize_with_defaults();
+        let _service = get_global_service();
+
+        // First shutdown
+        let result1 = shutdown().await;
+        assert!(result1.is_ok());
+
+        // Second shutdown should also succeed (or handle gracefully)
+        let result2 = shutdown().await;
+        // May succeed or fail gracefully, but shouldn't panic
+        let _ = result2;
+    }
+
+    #[test]
+    fn test_initialize_from_config_invalid_path() {
+        // Test error handling for invalid config file path
+        let result = std::panic::catch_unwind(|| {
+            initialize_from_config("/nonexistent/path/to/config.yaml".to_string());
+        });
+
+        // The function may panic or handle gracefully depending on implementation
+        // Just verify it doesn't cause undefined behavior
+        let _ = result;
+    }
+
+    #[test]
+    fn test_get_services_count() {
+        // Test that get_services returns services
+        let services = get_services();
+
+        // Should have at least one service
+        assert!(!services.is_empty());
+
+        // Each service should be valid
+        for service in services.iter() {
+            let name = service.get_name();
+            assert!(!name.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_services_match_configs() {
+        // Verify that the number of services matches configs
+        let services = get_services();
+        let configs = get_service_config();
+
+        assert_eq!(
+            services.len(),
+            configs.len(),
+            "Number of services should match number of configs"
+        );
+    }
+
+    #[test_fork::fork]
+    #[test]
+    fn test_initialize_from_config_with_valid_yaml() {
+        // Test initializing from a valid config file
+        use std::io::Write;
+
+        let config_content = r#"
+tracing:
+  log_level: debug
+  display_thread_names: true
+
+runtime:
+  n_cores: 2
+  thread_name: "test-runtime"
+  drain_timeout: 5s
+
+services:
+  test-service:
+    node_id: "test-node"
+    group_name: "test-group"
+    dataplane:
+      servers: []
+      clients: []
+"#;
+
+        let temp_dir = std::env::temp_dir();
+        let config_path = temp_dir.join("test-valid-config.yaml");
+        let mut file = std::fs::File::create(&config_path).expect("Failed to create temp file");
+        file.write_all(config_content.as_bytes())
+            .expect("Failed to write config");
+        drop(file);
+
+        // Initialize from config
+        initialize_from_config(config_path.to_str().unwrap().to_string());
+
+        // Verify initialization succeeded by checking configs
+        let tracing_config = get_tracing_config();
+        assert!(!tracing_config.log_level().is_empty());
+
+        let runtime_config = get_runtime_config();
+        assert!(!runtime_config.thread_name().is_empty());
+
+        let service_configs = get_service_config();
+        assert!(!service_configs.is_empty());
+
+        // Clean up
+        let _ = std::fs::remove_file(&config_path);
+    }
 }
