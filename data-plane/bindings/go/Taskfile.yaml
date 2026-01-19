@@ -11,14 +11,6 @@ includes:
     taskfile: ../../../tasks/rust.yaml
     internal: true
 
-includes:
-  adapter:
-    taskfile: "../adapter/Taskfile.yaml"
-    internal: true
-  rust:
-    taskfile: ../../../tasks/rust.yaml
-    internal: true
-
 vars:
   # The Rust UniFFI bindings crate - in bindings/adapter (sibling to bindings/go)
   BINDINGS_DIR: "{{.TASKFILE_DIR}}/../rust"

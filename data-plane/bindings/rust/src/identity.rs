@@ -112,6 +112,7 @@ impl From<BindingsKey> for Key {
 
 /// Identity provider - strategies for producing authentication tokens.
 #[derive(uniffi::Object, Clone)]
+#[uniffi::export(Display, Debug)]
 pub struct BindingsIdentityProvider {
     pub(crate) inner: Arc<AuthProvider>,
 }
@@ -126,6 +127,7 @@ impl BindingsIdentityProvider {
 
 /// Identity verifier - strategies for validating authentication tokens.
 #[derive(uniffi::Object, Clone)]
+#[uniffi::export(Display, Debug)]
 pub struct BindingsIdentityVerifier {
     pub(crate) inner: Arc<AuthVerifier>,
 }
@@ -149,7 +151,7 @@ pub fn create_identity_provider_static_jwt(path: String) -> Result<Arc<BindingsI
         .map_err(|e| IdentityError::ProviderCreationFailed {
             reason: format!("Failed to create static JWT provider: {}", e),
         })?;
-    
+
     let provider = AuthProvider::StaticToken(StaticTokenProvider::from(jwt));
     Ok(Arc::new(BindingsIdentityProvider::new(provider)))
 }
@@ -204,7 +206,7 @@ pub fn create_identity_provider_shared_secret(
         .map_err(|e| IdentityError::ProviderCreationFailed {
             reason: format!("Failed to create shared secret provider: {}", e),
         })?;
-    
+
     let provider = AuthProvider::SharedSecret(secret);
     Ok(Arc::new(BindingsIdentityProvider::new(provider)))
 }
@@ -330,7 +332,7 @@ pub fn create_identity_verifier_shared_secret(
         .map_err(|e| IdentityError::VerifierCreationFailed {
             reason: format!("Failed to create shared secret verifier: {}", e),
         })?;
-    
+
     let verifier = AuthVerifier::SharedSecret(secret);
     Ok(Arc::new(BindingsIdentityVerifier::new(verifier)))
 }
@@ -371,4 +373,3 @@ pub fn create_identity_verifier_spire(
         })
     }
 }
-

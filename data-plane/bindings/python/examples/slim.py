@@ -26,65 +26,37 @@ Tracing:
 
 import argparse
 import asyncio
+import sys
 from signal import SIGINT
 
 import slim_bindings
 
+from .common import setup_service
+from .config import ServerConfig, load_config_with_cli_override
 
-async def amain():
+
+async def amain(config: ServerConfig):
     """
-    Async entry point for CLI usage.
+    Async entry point for server.
 
     Steps:
-        1. Parse command-line arguments.
-        2. Initialize tracing and global service.
-        3. Start the server (Rust manages the server lifecycle).
-        4. Register SIGINT handler and wait for shutdown signal.
-        5. Stop the server gracefully.
+        1. Initialize tracing and global service.
+        2. Start the server (Rust manages the server lifecycle).
+        3. Register SIGINT handler and wait for shutdown signal.
+        4. Stop the server gracefully.
+
+    Args:
+        config: ServerConfig instance containing all configuration.
     """
-    parser = argparse.ArgumentParser(description="Command line Slim server example.")
-    parser.add_argument(
-        "-s", "--slim", type=str, help="Slim address.", default="127.0.0.1:12345"
-    )
-    parser.add_argument(
-        "--enable-opentelemetry",
-        "-t",
-        action="store_true",
-        default=False,
-        help="Enable OpenTelemetry tracing.",
-    )
-
-    args = parser.parse_args()
-
-    # Initialize tracing and global state
-    print("Initializing Slim server...")
-    tracing_config = slim_bindings.new_tracing_config()
-    runtime_config = slim_bindings.new_runtime_config()
-    service_config = slim_bindings.new_service_config()
-
-    tracing_config.log_level = "info"
-
-    if args.enable_opentelemetry:
-        # Note: OpenTelemetry configuration through config objects
-        # For full OTEL support, set environment variables:
-        # OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_SERVICE_NAME, etc.
-        print("OpenTelemetry tracing enabled (use OTEL_* env vars for configuration)")
-
-    slim_bindings.initialize_with_configs(
-        tracing_config=tracing_config,
-        runtime_config=runtime_config,
-        service_config=[service_config],
-    )
-
     # Get the global service instance
-    service = slim_bindings.get_global_service()
+    service = setup_service()
 
     # Launch the embedded server with insecure TLS (development setting).
     # The server runs in the Rust runtime and is managed there.
-    server_config = slim_bindings.new_insecure_server_config(args.slim)
+    server_config = slim_bindings.new_insecure_server_config(config.slim)
     await service.run_server_async(server_config)
 
-    print(f"Slim server started on {args.slim}")
+    print(f"Slim server started on {config.slim}")
     print("Press Ctrl+C to stop the server")
 
     # Event used to signal shutdown from SIGINT.
@@ -109,20 +81,65 @@ async def amain():
     # Stop the server gracefully
     try:
         await service.shutdown_async()
-        print(f"Server stopped at {args.slim}")
+        print(f"Server stopped at {config.slim}")
     except Exception as e:
         print(f"Error stopping server: {e}")
 
 
 def main():
     """
-    Synchronous wrapper enabling `python -m slim_bindings_examples.slim`
-    or console-script entry point usage.
+    CLI entry-point for the server example.
+
+    Parses command-line arguments and config file, then runs the server.
     """
+    parser = argparse.ArgumentParser(
+        description="SLIM Server Example\n\n"
+        "Start a SLIM server for handling client connections.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    parser.add_argument(
+        "-s",
+        "--slim",
+        type=str,
+        default="127.0.0.1:12345",
+        help="SLIM server address (host:port) (default: 127.0.0.1:12345)",
+    )
+
+    parser.add_argument(
+        "--enable-opentelemetry",
+        "-t",
+        action="store_true",
+        help="Enable OpenTelemetry tracing",
+    )
+
+    parser.add_argument(
+        "--config",
+        type=str,
+        help="Path to configuration file (JSON, YAML, or TOML)",
+    )
+
+    # Parse arguments
+    args = parser.parse_args()
+
+    # Convert to dictionary
+    args_dict = vars(args)
+
+    # Load configuration (CLI args override env vars and config file)
     try:
-        asyncio.run(amain())
+        config = load_config_with_cli_override(ServerConfig, args_dict)
+    except Exception as e:
+        print(f"Configuration error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Run the server
+    try:
+        asyncio.run(amain(config))
     except KeyboardInterrupt:
-        print("\nProgram terminated by user.")
+        print("\nServer terminated by user.")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -6,20 +6,22 @@ Shared helper utilities for the slim_bindings CLI examples.
 This module centralizes:
   * Pretty-print / color formatting helpers
   * Identity (auth) helper constructors (shared secret / JWT / JWKS / SPIRE)
-  * Command-line option decoration (Click integration)
   * Convenience coroutine for constructing a local Slim app using global service
+  * Configuration parsing utilities
 
 The heavy inline commenting is intentional: it is meant to teach newcomers
 exactly what each step does, line by line.
 """
 
+import argparse
 import base64  # Used to decode base64-encoded JWKS content (when provided).
 import datetime  # Used for timedelta in JWT configs
 import json  # Used for parsing JWKS JSON and dynamic option values.
-
-import click  # CLI option parsing & command composition library.
+from typing import Any
 
 import slim_bindings  # The Python bindings package we are demonstrating.
+
+from .config import AuthMode, BaseConfig
 
 
 class color:
@@ -192,139 +194,7 @@ def spire_identity(
     return provider_config, verifier_config
 
 
-class DictParamType(click.ParamType):
-    """Custom Click parameter type that interprets string input as JSON."""
-
-    name = "dict"
-
-    def convert(self, value, param, ctx):
-        if isinstance(value, dict):
-            return value
-        try:
-            return json.loads(value)
-        except json.JSONDecodeError:
-            self.fail(f"{value} is not valid JSON", param, ctx)
-
-
-def common_options(function):
-    """
-    Decorator stacking all shared CLI options for example commands.
-    """
-    function = click.command(context_settings={"auto_envvar_prefix": "SLIM"})(function)
-
-    function = click.option(
-        "--local",
-        type=str,
-        required=True,
-        help="Local ID in the format organization/namespace/application",
-    )(function)
-
-    function = click.option(
-        "--remote",
-        type=str,
-        help="Remote ID in the format organization/namespace/application-or-stream",
-    )(function)
-
-    function = click.option(
-        "--enable-opentelemetry",
-        is_flag=True,
-        help="Enable OpenTelemetry tracing",
-    )(function)
-
-    function = click.option(
-        "--shared-secret",
-        type=str,
-        help="Shared secret for authentication. Don't use this in production.",
-        default="abcde-12345-fedcb-67890-deadc",
-    )(function)
-
-    function = click.option(
-        "--jwt",
-        type=str,
-        help="Static JWT token path for authentication.",
-    )(function)
-
-    function = click.option(
-        "--spire-trust-bundle",
-        type=str,
-        help="SPIRE trust bundle path (for static JWT + JWKS mode).",
-    )(function)
-
-    function = click.option(
-        "--audience",
-        type=str,
-        help="Audience (comma-separated or single) for static JWT verification.",
-    )(function)
-
-    # SPIRE dynamic identity options.
-    function = click.option(
-        "--spire-socket-path",
-        type=str,
-        help="SPIRE Workload API socket path (overrides default).",
-    )(function)
-
-    function = click.option(
-        "--spire-target-spiffe-id",
-        type=str,
-        help="Target SPIFFE ID to request from SPIRE.",
-    )(function)
-
-    function = click.option(
-        "--spire-jwt-audience",
-        type=str,
-        multiple=True,
-        help="Audience(s) for SPIRE JWT SVID requests. Can be specified multiple times.",
-    )(function)
-
-    function = click.option(
-        "--invites",
-        type=str,
-        multiple=True,
-        help="Invite other participants to the group session. Can be specified multiple times.",
-    )(function)
-
-    function = click.option(
-        "--enable-mls",
-        is_flag=True,
-        help="Enable MLS (Message Layer Security) for the session.",
-    )(function)
-
-    return function
-
-
-async def create_local_app(
-    local: str,
-    enable_opentelemetry: bool = False,
-    shared_secret: str = "abcde-12345-fedcb-67890-deadc",
-    jwt: str | None = None,
-    spire_trust_bundle: str | None = None,
-    audience: list[str] | None = None,
-    spire_socket_path: str | None = None,
-    spire_target_spiffe_id: str | None = None,
-    spire_jwt_audience: list[str] | None = None,
-):
-    """
-    Build a Slim application instance using the global service.
-
-    Resolution precedence for auth:
-      1. If SPIRE options provided -> SPIRE dynamic identity flow.
-      2. Else if jwt + bundle + audience provided -> JWT/JWKS flow.
-      3. Else -> shared secret (must be provided).
-
-    Args:
-        local: Local identity string (org/ns/app).
-        enable_opentelemetry: Enable OTEL tracing export.
-        shared_secret: Symmetric secret for shared-secret mode.
-        jwt: Path to static JWT token (for JWT provider).
-        spire_trust_bundle: Path to a spire trust bundle file (containing the JWKs for each trust domain).
-        audience: Audience list for JWT verification.
-        spire_socket_path: SPIRE Workload API socket path (optional).
-        spire_target_spiffe_id: Specific SPIFFE ID to request (optional).
-        spire_jwt_audience: Audience list for JWT SVID requests (optional).
-
-    Returns:
-        App: Slim application instance using the global service.
-    """
+def setup_service(enable_opentelemetry: bool = False) -> slim_bindings.Service:
     # Initialize tracing and global state
     tracing_config = slim_bindings.new_tracing_config()
     runtime_config = slim_bindings.new_runtime_config()
@@ -344,41 +214,198 @@ async def create_local_app(
         service_config=[service_config],
     )
 
-    # Convert local identifier to a strongly typed Name.
-    local_name = split_id(local)
-
     # Get the global service instance
     service = slim_bindings.get_global_service()
 
-    # Derive identity provider & verifier using SPIRE if options supplied.
-    if spire_socket_path or spire_target_spiffe_id or spire_jwt_audience:
+    return service
+
+
+async def create_local_app(config: BaseConfig) -> tuple[slim_bindings.App, int]:
+    """
+    Build a Slim application instance using the global service.
+
+    Resolution precedence for auth:
+      1. If SPIRE options provided -> SPIRE dynamic identity flow.
+      2. Else if jwt + bundle + audience provided -> JWT/JWKS flow.
+      3. Else -> shared secret (must be provided).
+
+    Args:
+        config: BaseConfig instance containing all configuration.
+
+    Returns:
+        tuple[App, int]: Slim application instance and connection ID.
+    """
+    # Initialize tracing and global state
+    service = setup_service()
+
+    # Convert local identifier to a strongly typed Name.
+    local_name = split_id(config.local)
+
+    client_config = slim_bindings.new_insecure_client_config(config.slim)
+    conn_id = await service.connect_async(client_config)
+
+    # Determine authentication mode
+    auth_mode = config.get_auth_mode()
+
+    if auth_mode == AuthMode.SPIRE:
         print("Using SPIRE dynamic identity authentication.")
         provider_config, verifier_config = spire_identity(
-            socket_path=spire_socket_path,
-            target_spiffe_id=spire_target_spiffe_id,
-            jwt_audiences=spire_jwt_audience,
+            socket_path=config.spire_socket_path,
+            target_spiffe_id=config.spire_target_spiffe_id,
+            jwt_audiences=config.spire_jwt_audience,
         )
-        # Create app with full auth config
         local_app = service.create_app(local_name, provider_config, verifier_config)
-    # Or use JWT/JWKS if all pieces supplied.
-    elif jwt and spire_trust_bundle and audience:
+    elif auth_mode == AuthMode.JWT:
         print("Using JWT + JWKS authentication.")
-        # Parse audience if it's a comma-separated string
-        aud_list = audience.split(",") if isinstance(audience, str) else audience
+        # These should always be set if auth_mode is JWT
+        if not config.jwt or not config.spire_trust_bundle:
+            raise ValueError(
+                "JWT and SPIRE trust bundle are required for JWT auth mode"
+            )
         provider_config, verifier_config = jwt_identity(
-            jwt,
-            spire_trust_bundle,
+            config.jwt,
+            config.spire_trust_bundle,
             str(local_name),
-            aud=aud_list,
+            aud=config.audience,
         )
-        # Create app with full auth config
         local_app = service.create_app(local_name, provider_config, verifier_config)
     else:
         print("Using shared-secret authentication.")
-        # Use the convenience method for shared secret
-        local_app = service.create_app_with_secret(local_name, shared_secret)
+        local_app = service.create_app_with_secret(local_name, config.shared_secret)
 
     # Provide feedback to user (instance numeric id).
     format_message_print(f"{local_app.id()}", "Created app")
 
-    return local_app
+    # Subscribe to the local name
+    await local_app.subscribe_async(local_name, conn_id)
+
+    return local_app, conn_id
+
+
+def create_base_parser(description: str) -> argparse.ArgumentParser:
+    """
+    Create an ArgumentParser with common options for all examples.
+
+    Args:
+        description: Description for the command.
+
+    Returns:
+        Configured ArgumentParser instance.
+    """
+    parser = argparse.ArgumentParser(
+        description=description,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    # Core identity settings
+    parser.add_argument(
+        "--local",
+        type=str,
+        required=True,
+        help="Local ID in the format organization/namespace/application",
+    )
+
+    parser.add_argument(
+        "--remote",
+        type=str,
+        help="Remote ID in the format organization/namespace/application-or-stream",
+    )
+
+    # Service connection
+    parser.add_argument(
+        "--slim",
+        type=str,
+        default="http://127.0.0.1:46357",
+        help="SLIM remote endpoint URL (default: http://127.0.0.1:46357)",
+    )
+
+    # Feature flags
+    parser.add_argument(
+        "--enable-opentelemetry",
+        action="store_true",
+        help="Enable OpenTelemetry tracing",
+    )
+
+    parser.add_argument(
+        "--enable-mls",
+        action="store_true",
+        help="Enable MLS (Message Layer Security) for sessions",
+    )
+
+    # Shared secret authentication
+    parser.add_argument(
+        "--shared-secret",
+        type=str,
+        default="abcde-12345-fedcb-67890-deadc",
+        help="Shared secret for authentication (development only)",
+    )
+
+    # JWT authentication
+    parser.add_argument(
+        "--jwt",
+        type=str,
+        help="Path to static JWT token file for authentication",
+    )
+
+    parser.add_argument(
+        "--spire-trust-bundle",
+        type=str,
+        help="Path to SPIRE trust bundle file (for JWT + JWKS mode)",
+    )
+
+    parser.add_argument(
+        "--audience",
+        type=str,
+        help="Audience for JWT verification (comma-separated)",
+    )
+
+    # SPIRE dynamic identity
+    parser.add_argument(
+        "--spire-socket-path",
+        type=str,
+        help="SPIRE Workload API socket path",
+    )
+
+    parser.add_argument(
+        "--spire-target-spiffe-id",
+        type=str,
+        help="Target SPIFFE ID to request from SPIRE",
+    )
+
+    parser.add_argument(
+        "--spire-jwt-audience",
+        type=str,
+        action="append",
+        dest="spire_jwt_audience",
+        help="Audience(s) for SPIRE JWT SVID requests (can be specified multiple times)",
+    )
+
+    # Config file
+    parser.add_argument(
+        "--config",
+        type=str,
+        help="Path to configuration file (JSON, YAML, or TOML)",
+    )
+
+    return parser
+
+
+def parse_args_to_dict(args: argparse.Namespace) -> dict[str, Any]:
+    """
+    Convert argparse Namespace to dictionary, handling special parsing.
+
+    Args:
+        args: Parsed arguments from argparse.
+
+    Returns:
+        Dictionary of parsed arguments.
+    """
+    args_dict = vars(args)
+
+    # Parse audience from comma-separated string
+    if args_dict.get("audience") and isinstance(args_dict["audience"], str):
+        args_dict["audience"] = [
+            a.strip() for a in args_dict["audience"].split(",") if a.strip()
+        ]
+
+    return args_dict

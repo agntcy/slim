@@ -1,0 +1,44 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+# Example YAML configuration for SLIM examples
+# Usage: SLIM_CONFIG_FILE=example-config.yaml slim-bindings-group
+
+# Core identity settings (required)
+local: "org/namespace/my-app"
+remote: "org/namespace/remote-app"  # Optional for some examples
+
+# Service connection
+slim: "http://127.0.0.1:46357"
+
+# Feature flags
+enable_opentelemetry: false
+enable_mls: false
+
+# Authentication options (choose one)
+# Option 1: Shared secret (default, development only)
+shared_secret: "abcde-12345-fedcb-67890-deadc"
+
+# Option 2: JWT with JWKS (uncomment to use)
+# jwt: "/path/to/jwt-token.pem"
+# spire_trust_bundle: "/path/to/spire-bundle.json"
+# audience:
+#   - "audience1"
+#   - "audience2"
+
+# Option 3: SPIRE dynamic identity (uncomment to use)
+# spire_socket_path: "/run/spire/sockets/agent.sock"
+# spire_target_spiffe_id: "spiffe://example.org/my-service"
+# spire_jwt_audience:
+#   - "slim-service"
+#   - "other-service"
+
+# Group-specific options (for group.py)
+invites:
+  - "org/namespace/peer1"
+  - "org/namespace/peer2"
+  - "org/namespace/peer3"
+
+# Point-to-point specific options (for point_to_point.py)
+message: "Hello from SLIM!"
+iterations: 10

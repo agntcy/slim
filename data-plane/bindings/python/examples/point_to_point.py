@@ -28,51 +28,26 @@ The heavy inline comments are intentional to guide new users line-by-line.
 
 import asyncio
 import datetime
-
-import click
+import sys
 
 import slim_bindings
 
 from .common import (
-    common_options,
+    create_base_parser,
     create_local_app,
     format_message_print,
+    parse_args_to_dict,
     split_id,
 )
+from .config import PointToPointConfig, load_config_with_cli_override
 
 
-async def run_client(
-    local: str,
-    remote: str | None,
-    enable_opentelemetry: bool = False,
-    enable_mls: bool = False,
-    shared_secret: str = "secret",
-    jwt: str | None = None,
-    spire_trust_bundle: str | None = None,
-    audience: list[str] | None = None,
-    spire_socket_path: str | None = None,
-    spire_target_spiffe_id: str | None = None,
-    spire_jwt_audience: list[str] | None = None,
-    message: str | None = None,
-    iterations: int = 1,
-):
+async def run_client(config: PointToPointConfig):
     """
     Core coroutine that performs either active send or passive listen logic.
 
     Args:
-        local: Local identity string (org/namespace/app).
-        remote: Remote identity target for routing / session initiation.
-        enable_opentelemetry: Enable OpenTelemetry tracing if configured.
-        enable_mls: Enable MLS.
-        shared_secret: Shared secret for symmetric auth (dev/demo).
-        jwt: Path to static JWT token (if JWT auth path chosen).
-        spire_trust_bundle: SPIRE trust bundle file path.
-        audience: Audience claim(s) for JWT verification.
-        spire_socket_path: SPIRE Workload API socket path.
-        spire_target_spiffe_id: Target SPIFFE ID for SPIRE.
-        spire_jwt_audience: Audience(s) for SPIRE JWT SVID.
-        message: If provided, run in active mode sending this payload.
-        iterations: Number of request/reply cycles in active mode.
+        config: PointToPointConfig instance containing all configuration.
 
     Behavior:
         - Builds Slim app using global service.
@@ -80,54 +55,51 @@ async def run_client(
         - If message not supplied -> wait indefinitely for inbound sessions and echo payloads.
     """
     # Build the Slim application using global service
-    local_app = await create_local_app(
-        local,
-        enable_opentelemetry=enable_opentelemetry,
-        shared_secret=shared_secret,
-        jwt=jwt,
-        spire_trust_bundle=spire_trust_bundle,
-        audience=audience,
-        spire_socket_path=spire_socket_path,
-        spire_target_spiffe_id=spire_target_spiffe_id,
-        spire_jwt_audience=spire_jwt_audience,
-    )
+    local_app, conn_id = await create_local_app(config)
 
     # Numeric unique instance ID (useful for distinguishing multiple processes).
     instance = str(local_app.id())
 
     # If user intends to send messages, remote must be provided for routing.
-    if message and not remote:
+    if config.message and not config.remote:
         raise ValueError("Remote ID must be provided when message is specified.")
 
     # ACTIVE MODE (publishing + expecting replies)
-    if message and remote:
+    if config.message and config.remote:
         # Convert the remote ID string into a Name.
-        remote_name = split_id(remote)
+        remote_name = split_id(config.remote)
+
+        # Create local route to enable forwarding towards remote name
+        await local_app.set_route_async(remote_name, conn_id)
 
         # Create point-to-point session configuration
-        config = slim_bindings.SessionConfig(
+        session_config = slim_bindings.SessionConfig(
             session_type=slim_bindings.SessionType.POINT_TO_POINT,
-            enable_mls=enable_mls,
+            enable_mls=config.enable_mls,
             max_retries=5,
             interval=datetime.timedelta(seconds=5),
             metadata={},
         )
 
         # Create session - returns a context with completion and session
-        session_context = await local_app.create_session_async(config, remote_name)
+        session_context = await local_app.create_session_async(
+            session_config, remote_name
+        )
         # Wait for session to be established
         await session_context.completion.wait_async()
         session = session_context.session
 
+        session_id = session_context.session.session_id()
+
         session_closed = False
         # Iterate send->receive cycles.
-        for i in range(iterations):
+        for i in range(config.iterations):
             try:
                 # Publish message to the session
-                await session.publish_async(message.encode(), None, None)
+                await session.publish_async(config.message.encode(), None, None)
                 format_message_print(
                     f"{instance}",
-                    f"Sent message {message} - {i + 1}/{iterations}",
+                    f"Sent message {config.message} - {i + 1}/{config.iterations}",
                 )
                 # Wait for reply from remote peer.
                 received_msg = await session.get_message_async(
@@ -136,16 +108,16 @@ async def run_client(
                 reply = received_msg.payload
                 format_message_print(
                     f"{instance}",
-                    f"received (from session {session.id()}): {reply.decode()}",
+                    f"received (from session {session_id}): {reply.decode()}",
                 )
             except Exception as e:
-                # Surface an error but continue attempts (simple resilience).
+                # Surface an error but continue attempts
                 format_message_print(f"{instance}", f"error: {e}")
                 # if the session is closed exit
                 if "session closed" in str(e).lower():
                     session_closed = True
                     break
-            # Basic pacing so output remains readable.
+            # 1s pacing so output remains readable.
             await asyncio.sleep(1)
 
         if not session_closed:
@@ -160,9 +132,9 @@ async def run_client(
                 f"{instance}", "waiting for new session to be established"
             )
             # Block until a remote peer initiates a session to us.
-            session_context = await local_app.listen_for_session_async(None)
-            session = session_context
-            format_message_print(f"{instance}", f"new session {session.id()}")
+            session = await local_app.listen_for_session_async(None)
+            session_id = session.session_id()
+            format_message_print(f"{instance}", f"new session {session_id}")
 
             async def session_loop(sess: slim_bindings.Session):
                 """
@@ -190,73 +162,54 @@ async def run_client(
             asyncio.create_task(session_loop(session))
 
 
-def p2p_options(function):
-    """
-    Decorator adding point-to-point specific CLI options (message + iterations).
-
-    Options:
-        --message <str>     : Activate active mode and send this payload.
-        --iterations <int>  : Number of request/reply cycles in active mode.
-    """
-    function = click.option(
-        "--message",
-        type=str,
-        help="Message to send.",
-    )(function)
-
-    function = click.option(
-        "--iterations",
-        type=int,
-        help="Number of messages to send, one per second.",
-        default=10,
-    )(function)
-
-    return function
-
-
-@common_options
-@p2p_options
-def main(
-    local: str,
-    remote: str | None = None,
-    enable_opentelemetry: bool = False,
-    enable_mls: bool = False,
-    shared_secret: str = "secret",
-    jwt: str | None = None,
-    spire_trust_bundle: str | None = None,
-    audience: list[str] | None = None,
-    spire_socket_path: str | None = None,
-    spire_target_spiffe_id: str | None = None,
-    spire_jwt_audience: list[str] | None = None,
-    invites: list[str] | None = None,
-    message: str | None = None,
-    iterations: int = 1,
-):
+def main():
     """
     CLI entry-point for point-to-point example.
 
-    Parameter notes:
-        invites: Present for signature symmetry with group examples; it is
-                 ignored here because p2p sessions do not invite additional
-                 participants (they are strictly 1:1).
+    Parses command-line arguments and config file, then runs the client.
     """
+    # Create parser with common options
+    parser = create_base_parser(
+        description="SLIM Point-to-Point Messaging Example\n\n"
+        "Send messages to a specific peer or listen for incoming connections."
+    )
+
+    # Add point-to-point specific options
+    parser.add_argument(
+        "--message",
+        type=str,
+        help="Message to send (activates sender mode)",
+    )
+
+    parser.add_argument(
+        "--iterations",
+        type=int,
+        default=10,
+        help="Number of request/reply cycles in sender mode (default: 10)",
+    )
+
+    # Parse arguments
+    args = parser.parse_args()
+
+    # Convert to dictionary
+    args_dict = parse_args_to_dict(args)
+
+    # Load configuration (CLI args override env vars and config file)
     try:
-        asyncio.run(
-            run_client(
-                local=local,
-                remote=remote,
-                enable_opentelemetry=enable_opentelemetry,
-                enable_mls=enable_mls,
-                shared_secret=shared_secret,
-                jwt=jwt,
-                spire_trust_bundle=spire_trust_bundle,
-                audience=audience,
-                spire_socket_path=spire_socket_path,
-                spire_target_spiffe_id=spire_target_spiffe_id,
-                spire_jwt_audience=spire_jwt_audience,
-                message=message,
-                iterations=iterations,
-            )
-        )
+        config = load_config_with_cli_override(PointToPointConfig, args_dict)
+    except Exception as e:
+        print(f"Configuration error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Run the client
+    try:
+        asyncio.run(run_client(config))
     except KeyboardInterrupt:
-        print("Client interrupted by user.")
+        print("\nClient interrupted by user.")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

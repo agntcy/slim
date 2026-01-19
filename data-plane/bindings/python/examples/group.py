@@ -20,7 +20,7 @@ Key concepts:
     listen_for_session_async() to yield their Session.
 
 Usage:
-  slim-bindings-examples group \
+  slim-bindings-group \
       --local org/default/me \
       --remote org/default/chat-topic \
       --invites org/default/peer1 --invites org/default/peer2
@@ -30,27 +30,24 @@ Notes:
   * If both remote and invites are supplied, the client acts as session moderator.
 """
 
+
 import asyncio
 import datetime
 import sys
 
-try:
-    from prompt_toolkit.shortcuts import PromptSession, print_formatted_text
-    from prompt_toolkit.styles import Style
-except ImportError:
-    print(
-        "Missing dependencies! Install them with: pip install 'slim-bindings[examples]'"
-    )
-    sys.exit(1)
+from prompt_toolkit.shortcuts import PromptSession, print_formatted_text
+from prompt_toolkit.styles import Style
 
 import slim_bindings
 
 from .common import (
-    common_options,
+    create_base_parser,
     create_local_app,
     format_message_print,
+    parse_args_to_dict,
     split_id,
 )
+from .config import GroupConfig, load_config_with_cli_override
 
 # Prompt style
 custom_style = Style.from_dict(
@@ -75,8 +72,8 @@ async def handle_invite(session, invite_id):
     print(f"Inviting participant: {invite_id}")
     invite_name = split_id(invite_id)
     try:
-        handle = await session.invite_async(invite_name)
-        await handle.wait_async()
+        handle = await session.invite(invite_name)
+        await handle.wait()
     except Exception as e:
         error_str = str(e)
         if "participant already in group" in error_str:
@@ -93,7 +90,7 @@ async def handle_invite(session, invite_id):
             raise
 
 
-async def handle_remove(session, remove_id):
+async def handle_remove(session: slim_bindings.Session, remove_id: str):
     """Handle removing a participant from the group."""
     parts = remove_id.split()
     if len(parts) != 1:
@@ -120,7 +117,10 @@ async def handle_remove(session, remove_id):
 
 
 async def receive_loop(
-    local_app, created_session, session_ready, shared_session_container
+    local_app: slim_bindings.App,
+    created_session: slim_bindings.Session | None,
+    session_ready: asyncio.Event,
+    shared_session_container: list,
 ):
     """
     Receive messages for the bound session.
@@ -132,8 +132,7 @@ async def receive_loop(
     """
     if created_session is None:
         print_formatted_text("Waiting for session...", style=custom_style)
-        session_context = await local_app.listen_for_session_async(None)
-        session = session_context
+        session = await local_app.listen_for_session_async(None)
     else:
         session = created_session
 
@@ -144,10 +143,12 @@ async def receive_loop(
     # Get source and destination names for display
     source_name = session.source()
 
+    print("ok")
+
     while True:
         try:
             # Await next inbound message from the group session.
-            # The returned object has .payload (bytes) and .context (MessageContext).
+            # Returns tuple (MessageContext, bytes).
             received_msg = await session.get_message_async(
                 timeout=datetime.timedelta(seconds=30)
             )
@@ -165,8 +166,7 @@ async def receive_loop(
             # to a previous one. In this case we do not reply to avoid loops
             if "PUBLISH_TO" not in ctx.metadata:
                 reply = f"message received by {source_name}"
-                # Use publish_async instead of publish_to since API changed
-                await session.publish_async(reply.encode(), None, ctx.metadata)
+                await session.publish_to_async(ctx, reply.encode(), None, ctx.metadata)
         except asyncio.CancelledError:
             # Graceful shutdown path (ctrl-c or program exit).
             break
@@ -180,7 +180,10 @@ async def receive_loop(
 
 
 async def keyboard_loop(
-    created_session, session_ready, shared_session_container, local_app
+    created_session: slim_bindings.Session,
+    session_ready: asyncio.Event,
+    shared_session_container: list[slim_bindings.Session],
+    local_app: slim_bindings.App,
 ):
     """
     Interactive loop allowing participants to publish messages.
@@ -258,20 +261,7 @@ async def keyboard_loop(
         print_formatted_text(f"-> Error sending message: {e}")
 
 
-async def run_client(
-    local: str,
-    remote: str | None,
-    enable_opentelemetry: bool = False,
-    enable_mls: bool = False,
-    shared_secret: str = "secret",
-    jwt: str | None = None,
-    spire_trust_bundle: str | None = None,
-    audience: list[str] | None = None,
-    spire_socket_path: str | None = None,
-    spire_target_spiffe_id: str | None = None,
-    spire_jwt_audience: list[str] | None = None,
-    invites: list[str] | None = None,
-):
+async def run_client(config: GroupConfig):
     """
     Orchestrate one group-capable client instance.
 
@@ -280,34 +270,13 @@ async def run_client(
       * Listener only: no remote; waits for inbound group sessions.
 
     Args:
-        local: Local identity string (org/ns/app).
-        remote: Channel / topic identity string (org/ns/topic).
-        enable_opentelemetry: Activate OTEL tracing if backend available.
-        enable_mls: Enable group MLS features.
-        shared_secret: Shared secret for symmetric auth (demo only).
-        jwt: Path to static JWT token (if using JWT auth).
-        spire_trust_bundle: SPIRE trust bundle file path.
-        audience: Audience list for JWT verification.
-        spire_socket_path: Path to SPIRE agent socket for workload API access.
-        spire_target_spiffe_id: Target SPIFFE ID for mTLS authentication with SPIRE.
-        spire_jwt_audience: Audience list for SPIRE JWT-SVID validation.
-        invites: List of participant IDs to invite (moderator only).
+        config: GroupConfig instance containing all configuration.
     """
     # Create the local Slim instance using global service
-    local_app = await create_local_app(
-        local,
-        enable_opentelemetry=enable_opentelemetry,
-        shared_secret=shared_secret,
-        jwt=jwt,
-        spire_trust_bundle=spire_trust_bundle,
-        audience=audience,
-        spire_socket_path=spire_socket_path,
-        spire_target_spiffe_id=spire_target_spiffe_id,
-        spire_jwt_audience=spire_jwt_audience,
-    )
+    local_app, conn_id = await create_local_app(config)
 
     # Parse the remote channel/topic if provided; else None triggers passive mode.
-    chat_channel = split_id(remote) if remote else None
+    chat_channel = split_id(config.remote) if config.remote else None
 
     # Track background tasks (receiver loop + optional keyboard loop).
     tasks: list[asyncio.Task] = []
@@ -318,33 +287,37 @@ async def run_client(
 
     # Session object only exists immediately if we are moderator.
     created_session = None
-    if chat_channel and invites:
+    if chat_channel and config.invites:
         # We are the moderator; create the group session now.
         format_message_print(
-            f"Creating new group session (moderator)... {split_id(local)}"
+            f"Creating new group session (moderator)... {split_id(config.local)}"
         )
 
+        # Set route to the group channel
+        await local_app.set_route_async(chat_channel, conn_id)
+
         # Create group session configuration
-        config = slim_bindings.SessionConfig(
+        session_config = slim_bindings.SessionConfig(
             session_type=slim_bindings.SessionType.GROUP,
-            enable_mls=enable_mls,
+            enable_mls=config.enable_mls,
             max_retries=5,
             interval=datetime.timedelta(seconds=5),
             metadata={},
         )
 
-        # Create session - returns a context with completion and session
-        session_context = await local_app.create_session_async(config, chat_channel)
+        # Create session - returns a tuple (SessionContext, CompletionHandle)
+        session = local_app.create_session(session_config, chat_channel)
         # Wait for session to be established
-        await session_context.completion.wait_async()
-        created_session = session_context.session
+        await session.completion.wait_async()
+        created_session = session.session
 
         # Invite each provided participant.
-        for invite in invites:
+        for invite in config.invites:
             invite_name = split_id(invite)
+            await local_app.set_route_async(invite_name, conn_id)
             handle = await created_session.invite_async(invite_name)
             await handle.wait_async()
-            print(f"{local} -> add {invite_name} to the group")
+            print(f"{config.local} -> add {invite_name} to the group")
 
     # Launch the receiver immediately.
     tasks.append(
@@ -386,42 +359,49 @@ async def run_client(
             task.cancel()
 
 
-@common_options
-def main(
-    local: str,
-    remote: str | None = None,
-    enable_opentelemetry: bool = False,
-    enable_mls: bool = False,
-    shared_secret: str = "secret",
-    jwt: str | None = None,
-    spire_trust_bundle: str | None = None,
-    audience: list[str] | None = None,
-    spire_socket_path: str | None = None,
-    spire_target_spiffe_id: str | None = None,
-    spire_jwt_audience: list[str] | None = None,
-    invites: list[str] | None = None,
-):
+def main():
     """
-    Synchronous entry-point for the group example (wrapped by Click).
+    CLI entry-point for the group example.
 
-    Converts CLI arguments into a run_client() invocation via asyncio.run().
+    Parses command-line arguments and config file, then runs the client.
     """
+    # Create parser with common options
+    parser = create_base_parser(
+        description="SLIM Group Messaging Example\n\n"
+        "Create or join a group messaging session with multiple participants."
+    )
+
+    # Add group-specific options
+    parser.add_argument(
+        "--invites",
+        type=str,
+        action="append",
+        dest="invites",
+        help="Invite participant to the group session (can be specified multiple times)",
+    )
+
+    # Parse arguments
+    args = parser.parse_args()
+
+    # Convert to dictionary
+    args_dict = parse_args_to_dict(args)
+
+    # Load configuration (CLI args override env vars and config file)
     try:
-        asyncio.run(
-            run_client(
-                local=local,
-                remote=remote,
-                enable_opentelemetry=enable_opentelemetry,
-                enable_mls=enable_mls,
-                shared_secret=shared_secret,
-                jwt=jwt,
-                spire_trust_bundle=spire_trust_bundle,
-                audience=audience,
-                spire_socket_path=spire_socket_path,
-                spire_target_spiffe_id=spire_target_spiffe_id,
-                spire_jwt_audience=spire_jwt_audience,
-                invites=invites,
-            )
-        )
+        config = load_config_with_cli_override(GroupConfig, args_dict)
+    except Exception as e:
+        print(f"Configuration error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Run the client
+    try:
+        asyncio.run(run_client(config))
     except KeyboardInterrupt:
-        print("Client interrupted by user.")
+        print("\nClient interrupted by user.")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
