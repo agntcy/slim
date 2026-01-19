@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use futures_timer::Delay;
 use slim_datapath::api::ProtoSessionType;
 use slim_datapath::messages::Name as SlimName;
 use slim_datapath::messages::utils::{PUBLISH_TO, SlimHeaderFlags, TRUE_VAL};
@@ -224,9 +225,15 @@ impl Session {
         };
 
         if let Some(timeout_duration) = timeout {
-            tokio::time::timeout(timeout_duration, recv_future)
-                .await
-                .map_err(|_| SessionError::ReceiveTimeout)?
+            // Runtime-agnostic timeout using futures-timer
+            futures::pin_mut!(recv_future);
+            let delay = Delay::new(timeout_duration);
+            futures::pin_mut!(delay);
+
+            match futures::future::select(recv_future, delay).await {
+                futures::future::Either::Left((result, _)) => result,
+                futures::future::Either::Right(_) => Err(SessionError::ReceiveTimeout),
+            }
         } else {
             recv_future.await
         }
@@ -469,22 +476,23 @@ impl Session {
     /// Receive a message from the session (blocking version for FFI)
     ///
     /// # Arguments
-    /// * `timeout_ms` - Optional timeout in milliseconds
+    /// * `timeout` - Optional timeout duration
     ///
     /// # Returns
     /// * `Ok(ReceivedMessage)` - Message with context and payload bytes
     /// * `Err(SlimError)` - If the receive fails or times out
-    pub fn get_message(&self, timeout_ms: Option<u32>) -> Result<ReceivedMessage, SlimError> {
-        crate::config::get_runtime().block_on(async { self.get_message_async(timeout_ms).await })
+    pub fn get_message(
+        &self,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<ReceivedMessage, SlimError> {
+        crate::config::get_runtime().block_on(async { self.get_message_async(timeout).await })
     }
 
     /// Receive a message from the session (async version)
     pub async fn get_message_async(
         &self,
-        timeout_ms: Option<u32>,
+        timeout: Option<std::time::Duration>,
     ) -> Result<ReceivedMessage, SlimError> {
-        let timeout = timeout_ms.map(|ms| std::time::Duration::from_millis(ms as u64));
-
         let (ctx, payload) = self.get_session_message(timeout).await?;
 
         Ok(ReceivedMessage {
@@ -701,11 +709,11 @@ mod tests {
 
     /// Helper to create FFI Name for MessageContext construction
     fn make_ffi_name(parts: [&str; 3]) -> FfiName {
-        FfiName::new(
+        FfiName::new_with_id(
             parts[0].to_string(),
             parts[1].to_string(),
             parts[2].to_string(),
-            Some(u64::MAX), // Default SlimName ID
+            u64::MAX, // Default SlimName ID
         )
     }
 
@@ -1037,7 +1045,6 @@ mod tests {
             "org".to_string(),
             "ns".to_string(),
             "dest".to_string(),
-            None,
         ));
 
         let result = ctx
@@ -1055,11 +1062,11 @@ mod tests {
     #[tokio::test]
     async fn test_publish_with_params_async_with_all_options() {
         let (ctx, _tx) = make_context();
-        let dest = Arc::new(FfiName::new(
+        let dest = Arc::new(FfiName::new_with_id(
             "org".to_string(),
             "ns".to_string(),
             "dest".to_string(),
-            Some(123),
+            123,
         ));
 
         let mut metadata = HashMap::new();
@@ -1097,7 +1104,9 @@ mod tests {
 
         tx.send(Ok(msg)).expect("send should succeed");
 
-        let result = ctx.get_message_async(Some(100)).await;
+        let result = ctx
+            .get_message_async(Some(std::time::Duration::from_millis(100)))
+            .await;
         assert!(result.is_ok());
 
         let received = result.unwrap();
@@ -1110,7 +1119,9 @@ mod tests {
     async fn test_get_message_async_timeout() {
         let (ctx, _tx) = make_context();
 
-        let result = ctx.get_message_async(Some(10)).await;
+        let result = ctx
+            .get_message_async(Some(std::time::Duration::from_millis(50)))
+            .await;
         assert!(result.is_err_and(|e| {
             if let SlimError::SessionError { message } = e {
                 message.contains("receive timeout")
@@ -1125,7 +1136,9 @@ mod tests {
         let (ctx, tx) = make_context();
         drop(tx);
 
-        let result = ctx.get_message_async(Some(100)).await;
+        let result = ctx
+            .get_message_async(Some(std::time::Duration::from_millis(100)))
+            .await;
         assert!(result.is_err_and(|e| matches!(e, SlimError::SessionError { .. })));
     }
 
@@ -1138,7 +1151,6 @@ mod tests {
             "org".to_string(),
             "ns".to_string(),
             "peer".to_string(),
-            None,
         ));
 
         let result = ctx.invite_async(participant).await;
@@ -1158,7 +1170,6 @@ mod tests {
             "org".to_string(),
             "ns".to_string(),
             "peer".to_string(),
-            None,
         ));
 
         let result = ctx.remove_async(participant).await;
@@ -1304,7 +1315,9 @@ mod tests {
 
         tx.send(Ok(msg)).expect("send should succeed");
 
-        let result = ctx.get_message_async(Some(100)).await;
+        let result = ctx
+            .get_message_async(Some(std::time::Duration::from_millis(100)))
+            .await;
         assert!(result.is_ok());
 
         let received = result.unwrap();
@@ -1362,7 +1375,9 @@ mod tests {
 
         tx.send(Ok(msg)).expect("send should succeed");
 
-        let result = ctx.get_message_async(Some(100)).await;
+        let result = ctx
+            .get_message_async(Some(std::time::Duration::from_millis(100)))
+            .await;
         assert!(result.is_ok());
         let received = result.unwrap();
         assert!(received.payload.is_empty());
@@ -1386,7 +1401,9 @@ mod tests {
 
         tx.send(Ok(msg)).expect("send should succeed");
 
-        let result = ctx.get_message_async(Some(500)).await;
+        let result = ctx
+            .get_message_async(Some(std::time::Duration::from_millis(100)))
+            .await;
         assert!(result.is_ok());
         let received = result.unwrap();
         assert_eq!(received.payload.len(), 1024 * 1024);
@@ -1430,6 +1447,165 @@ mod tests {
 
         // Should fail because session is missing, but returns CompletionHandle
         assert!(result.is_err());
+    }
+
+    // ==================== get_message Duration Tests ====================
+
+    /// Test get_message blocking version with Duration timeout
+    #[test]
+    fn test_get_message_blocking_with_duration() {
+        let (ctx, tx) = make_context();
+
+        let msg = create_test_proto_message(
+            make_slim_name(["org", "sender", "app"]),
+            make_slim_name(["org", "receiver", "app"]),
+            1,
+            b"test message".to_vec(),
+            "text/plain",
+            HashMap::new(),
+        );
+
+        tx.send(Ok(msg)).expect("send should succeed");
+
+        // Test blocking version with Duration parameter
+        let result = ctx.get_message(Some(std::time::Duration::from_millis(100)));
+        assert!(result.is_ok());
+        let received = result.unwrap();
+        assert_eq!(received.payload, b"test message");
+    }
+
+    /// Test get_message_async with Duration parameter instead of milliseconds
+    #[tokio::test]
+    async fn test_get_message_async_with_duration_parameter() {
+        let (ctx, tx) = make_context();
+
+        let msg = create_test_proto_message(
+            make_slim_name(["org", "sender", "app"]),
+            make_slim_name(["org", "receiver", "app"]),
+            1,
+            b"duration test".to_vec(),
+            "text/plain",
+            HashMap::new(),
+        );
+
+        tx.send(Ok(msg)).expect("send should succeed");
+
+        // New signature takes Duration directly
+        let result = ctx
+            .get_message_async(Some(std::time::Duration::from_millis(200)))
+            .await;
+        assert!(result.is_ok());
+        let received = result.unwrap();
+        assert_eq!(received.payload, b"duration test");
+    }
+
+    /// Test get_message with no timeout (None)
+    #[tokio::test]
+    async fn test_get_message_with_no_timeout() {
+        let (ctx, tx) = make_context();
+
+        let msg = create_test_proto_message(
+            make_slim_name(["org", "sender", "app"]),
+            make_slim_name(["org", "receiver", "app"]),
+            1,
+            b"no timeout".to_vec(),
+            "text/plain",
+            HashMap::new(),
+        );
+
+        // Send immediately so it doesn't block forever
+        tx.send(Ok(msg)).expect("send should succeed");
+
+        let result = ctx.get_message_async(None).await;
+        assert!(result.is_ok());
+        let received = result.unwrap();
+        assert_eq!(received.payload, b"no timeout");
+    }
+
+    /// Test futures-timer timeout behavior in get_session_message
+    #[tokio::test]
+    async fn test_get_session_message_futures_timer_timeout() {
+        let (ctx, _tx) = make_context();
+
+        // Test with short timeout using futures-timer
+        let result = ctx
+            .get_session_message(Some(std::time::Duration::from_millis(50)))
+            .await;
+
+        // Should timeout because no message is sent
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(
+                matches!(e, SessionError::ReceiveTimeout),
+                "Should be ReceiveTimeout error"
+            );
+        }
+    }
+
+    /// Test futures-timer select between message and timeout
+    #[tokio::test]
+    async fn test_get_message_futures_timer_race_condition() {
+        let (ctx, tx) = make_context();
+
+        // Spawn a task to send message after a delay
+        let tx_clone = tx.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+            let msg = create_test_proto_message(
+                make_slim_name(["org", "sender", "app"]),
+                make_slim_name(["org", "receiver", "app"]),
+                1,
+                b"delayed message".to_vec(),
+                "text/plain",
+                HashMap::new(),
+            );
+            let _ = tx_clone.send(Ok(msg));
+        });
+
+        // Wait with sufficient timeout - message should arrive first
+        let result = ctx
+            .get_message_async(Some(std::time::Duration::from_millis(100)))
+            .await;
+
+        assert!(result.is_ok(), "Message should arrive before timeout");
+        let received = result.unwrap();
+        assert_eq!(received.payload, b"delayed message");
+    }
+
+    /// Test blocking get_message with timeout
+    #[test]
+    fn test_get_message_blocking_timeout() {
+        let (ctx, _tx) = make_context();
+
+        // Blocking version with timeout should fail when no message arrives
+        let result = ctx.get_message(Some(std::time::Duration::from_millis(50)));
+
+        assert!(result.is_err(), "Should timeout when no message arrives");
+    }
+
+    /// Test get_message_async consistency with different timeout values
+    #[tokio::test]
+    async fn test_get_message_various_timeout_durations() {
+        // Test that different Duration values work correctly
+        let (ctx, _tx) = make_context();
+
+        // Very short timeout
+        let result1 = ctx
+            .get_message_async(Some(std::time::Duration::from_millis(1)))
+            .await;
+        assert!(result1.is_err());
+
+        // Medium timeout
+        let result2 = ctx
+            .get_message_async(Some(std::time::Duration::from_millis(50)))
+            .await;
+        assert!(result2.is_err());
+
+        // Longer timeout (but still short for test speed)
+        let result3 = ctx
+            .get_message_async(Some(std::time::Duration::from_millis(100)))
+            .await;
+        assert!(result3.is_err());
     }
 
     // ========================================================================

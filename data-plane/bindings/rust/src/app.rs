@@ -17,17 +17,16 @@ use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};
 
 use crate::errors::SlimError;
-use crate::get_global_service;
 use crate::name::Name;
+use crate::{get_global_service, get_runtime};
 
 use crate::session::SessionConfig;
 
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
-use slim_auth::traits::TokenProvider; // For get_token() and get_id()
-use slim_auth::traits::Verifier;
 
 use crate::identity_config::{IdentityProviderConfig, IdentityVerifierConfig};
 
+use futures_timer::Delay;
 use slim_datapath::messages::Name as SlimName;
 use slim_service::Service as SlimService;
 use slim_service::app::App as SlimApp;
@@ -69,31 +68,6 @@ pub struct App {
     _service: Arc<SlimService>,
 }
 
-/// Create a new App with SharedSecret authentication (helper function)
-///
-/// This is a convenience function for creating a SLIM application using SharedSecret authentication.
-///
-/// # Arguments
-/// * `name` - The base name for the app (without ID)
-/// * `secret` - The shared secret string for authentication
-///
-/// # Returns
-/// * `Ok(Arc<App>)` - Successfully created adapter
-/// * `Err(SlimError)` - If adapter creation fails
-#[uniffi::export]
-pub fn create_app_with_secret(name: Arc<Name>, secret: String) -> Result<Arc<App>, SlimError> {
-    let identity_provider_config = IdentityProviderConfig::SharedSecret {
-        id: name.to_string(),
-        data: secret.clone(),
-    };
-    let identity_verifier_config = IdentityVerifierConfig::SharedSecret {
-        id: name.to_string(),
-        data: secret,
-    };
-
-    App::new(name, identity_provider_config, identity_verifier_config)
-}
-
 impl App {
     /// Internal constructor from parts
     ///
@@ -119,66 +93,39 @@ impl App {
         identity_provider_config: IdentityProviderConfig,
         identity_verifier_config: IdentityVerifierConfig,
     ) -> Result<Self, SlimError> {
-        Self::new_async_with_service(
+        // Use the global service
+        let service_arc = get_global_service().inner.clone();
+
+        // Delegate to the core creation logic
+        crate::service::create_app_async_internal(
             base_name,
             identity_provider_config,
             identity_verifier_config,
-            None,
+            service_arc,
         )
         .await
     }
 
-    /// Async constructor with optional service - Create a new App with complete creation logic
+    /// Create a new App with SharedSecret authentication (async version)
     ///
-    /// This method allows specifying a custom service instance or using the global service.
+    /// This is a convenience function for creating a SLIM application using SharedSecret authentication.
+    /// This is the async version for use in async contexts.
     ///
     /// # Arguments
-    /// * `base_name` - The base name for the app (without ID)
-    /// * `identity_provider_config` - Configuration for proving identity to others
-    /// * `identity_verifier_config` - Configuration for verifying identity of others
-    /// * `service` - Optional service instance. If None, uses the global service.
-    pub async fn new_async_with_service(
-        base_name: SlimName,
-        identity_provider_config: IdentityProviderConfig,
-        identity_verifier_config: IdentityVerifierConfig,
-        service: Option<Arc<SlimService>>,
-    ) -> Result<Self, SlimError> {
-        // Convert configurations to actual providers/verifiers
-        let mut identity_provider: AuthProvider = identity_provider_config.try_into()?;
-        let mut identity_verifier: AuthVerifier = identity_verifier_config.try_into()?;
-
-        // Initialize the identity provider
-        identity_provider.initialize().await?;
-
-        // Initialize the identity verifier
-        identity_verifier.initialize().await?;
-
-        // Validate token
-        let _identity_token = identity_provider.get_token()?;
-
-        // Get ID from token and generate name with token ID
-        let token_id = identity_provider.get_id()?;
-
-        // Use a hash of the token ID to convert to u64 for name generation
-        let id_hash = {
-            use std::hash::{Hash, Hasher};
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            token_id.hash(&mut hasher);
-            hasher.finish()
-        };
-        let app_name = base_name.with_id(id_hash);
-
-        // Use provided service or fall back to global service
-        let service_arc = service.unwrap_or(get_global_service().inner.clone());
-
-        // Create the app
-        let (app, rx) = service_arc.create_app(&app_name, identity_provider, identity_verifier)?;
-
-        Ok(Self {
-            app: Arc::new(app),
-            notification_rx: Arc::new(RwLock::new(rx)),
-            _service: service_arc,
-        })
+    /// * `name` - The base name for the app (without ID)
+    /// * `secret` - The shared secret string for authentication
+    ///
+    /// # Returns
+    /// * `Ok(Arc<App>)` - Successfully created adapter
+    /// * `Err(SlimError)` - If adapter creation fails
+    pub async fn new_with_secret_async(
+        name: Arc<Name>,
+        secret: String,
+    ) -> Result<Arc<App>, SlimError> {
+        // Delegate to the global service's async create_app_with_secret method
+        get_global_service()
+            .create_app_with_secret_async(name, secret)
+            .await
     }
 }
 
@@ -218,6 +165,23 @@ impl App {
         })
     }
 
+    /// Create a new App with SharedSecret authentication (blocking version)
+    ///
+    /// This is a convenience function for creating a SLIM application using SharedSecret authentication.
+    ///
+    /// # Arguments
+    /// * `name` - The base name for the app (without ID)
+    /// * `secret` - The shared secret string for authentication
+    ///
+    /// # Returns
+    /// * `Ok(Arc<App>)` - Successfully created adapter
+    /// * `Err(SlimError)` - If adapter creation fails
+    #[uniffi::constructor]
+    pub fn new_with_secret(name: Arc<Name>, secret: String) -> Result<Arc<App>, SlimError> {
+        // Delegate to the global service's blocking method
+        get_global_service().create_app_with_secret(name, secret)
+    }
+
     /// Get the app ID (derived from name)
     pub fn id(&self) -> u64 {
         self.app.app_name().id()
@@ -254,11 +218,17 @@ impl App {
     ) -> Result<SessionWithCompletion, SlimError> {
         let slim_config: SlimSessionConfig = config.into();
         let slim_dest: SlimName = destination.as_ref().into();
+        let app = self.app.clone();
+        let runtime = get_runtime();
 
-        let (session_ctx, completion) = self
-            .app
-            .create_session(slim_config, slim_dest, None)
-            .await?;
+        // Spawn on the runtime's handle to ensure tokio context is available
+        let handle = runtime
+            .handle()
+            .spawn(async move { app.create_session(slim_config, slim_dest, None).await });
+
+        let (session_ctx, completion) = handle.await.map_err(|e| SlimError::SessionError {
+            message: format!("Join error: {}", e),
+        })??;
 
         // Create Session and CompletionHandle
         let bindings_ctx = Arc::new(crate::Session::new(session_ctx));
@@ -437,9 +407,14 @@ impl App {
 
         let recv_fut = rx.recv();
         let notification_opt = if let Some(dur) = timeout {
-            match tokio::time::timeout(dur, recv_fut).await {
-                Ok(n) => n,
-                Err(_) => {
+            // Runtime-agnostic timeout using futures-timer
+            futures::pin_mut!(recv_fut);
+            let delay = Delay::new(dur);
+            futures::pin_mut!(delay);
+
+            match futures::future::select(recv_fut, delay).await {
+                futures::future::Either::Left((result, _)) => result,
+                futures::future::Either::Right(_) => {
                     return Err(SlimError::ReceiveError {
                         message: "listen_for_session timed out".to_string(),
                     });
@@ -502,9 +477,14 @@ impl App {
 
         let recv_fut = rx.recv();
         let notification_opt = if let Some(dur) = timeout {
-            match tokio::time::timeout(dur, recv_fut).await {
-                Ok(n) => n,
-                Err(_) => {
+            // Runtime-agnostic timeout using futures-timer
+            futures::pin_mut!(recv_fut);
+            let delay = Delay::new(dur);
+            futures::pin_mut!(delay);
+
+            match futures::future::select(recv_fut, delay).await {
+                futures::future::Either::Left((result, _)) => result,
+                futures::future::Either::Right(_) => {
                     return Err(SlimError::ReceiveError {
                         message: "listen_for_session timed out".to_string(),
                     });
@@ -635,7 +615,6 @@ mod tests {
             "org".to_string(),
             "test".to_string(),
             "dest".to_string(),
-            None,
         ));
 
         // This should auto-wait for session establishment
@@ -683,7 +662,6 @@ mod tests {
             "org".to_string(),
             "test".to_string(),
             "dest".to_string(),
-            None,
         ));
 
         // Try to create a session (may fail without network)
@@ -930,7 +908,6 @@ mod tests {
             "org".to_string(),
             "ns".to_string(),
             "target".to_string(),
-            None,
         ));
 
         // Subscribe (may fail without connection, but shouldn't panic)
@@ -962,7 +939,6 @@ mod tests {
             "org".to_string(),
             "ns".to_string(),
             "route-target".to_string(),
-            None,
         ));
 
         // Set route (may fail without valid connection_id)
@@ -1042,7 +1018,6 @@ mod tests {
             "org".to_string(),
             "test".to_string(),
             "delete-dest".to_string(),
-            None,
         ));
 
         // Create session (may fail without network)
@@ -1105,7 +1080,6 @@ mod tests {
             "org".to_string(),
             "ns".to_string(),
             "block-target".to_string(),
-            None,
         ));
 
         // Call async version (blocking version can't be called from async context)
@@ -1134,11 +1108,10 @@ mod tests {
             "org".to_string(),
             "namespace".to_string(),
             "from-parts-test-2".to_string(),
-            None,
         ));
 
         let adapter2 = service
-            .create_adapter_async(name, provider_config, verifier_config)
+            .create_app_async(name, provider_config, verifier_config)
             .await
             .expect("Failed to create adapter via service");
 
@@ -1147,7 +1120,7 @@ mod tests {
         assert!(!adapter2.name().to_string().is_empty());
     }
 
-    /// Test new_async_with_service with a custom service
+    /// Test creating app with a custom service using Service::create_app_async
     #[tokio::test]
     async fn test_new_async_with_custom_service() {
         use slim_service::Service as SlimService;
@@ -1159,37 +1132,17 @@ mod tests {
         let custom_service = SlimService::builder()
             .build("test-custom-service".to_string())
             .expect("Failed to create custom service");
-        let service_arc = Arc::new(custom_service);
+        let service_wrapper = crate::Service {
+            inner: Arc::new(custom_service),
+        };
 
-        // Create adapter with custom service
-        let result = App::new_async_with_service(
-            base_name,
-            provider_config,
-            verifier_config,
-            Some(service_arc),
-        )
-        .await;
+        // Create adapter with custom service using Service API
+        let base_name_arc = Arc::new(Name::from(base_name));
+        let result = service_wrapper
+            .create_app_async(base_name_arc, provider_config, verifier_config)
+            .await;
 
         assert!(result.is_ok(), "Should create adapter with custom service");
-        let adapter = result.unwrap();
-        assert!(adapter.id() > 0);
-        assert!(!adapter.name().to_string().is_empty());
-    }
-
-    /// Test new_async_with_service with None (uses global service)
-    #[tokio::test]
-    async fn test_new_async_with_service_none() {
-        let base_name = SlimName::from_strings(["org", "namespace", "global-default-test"]);
-        let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
-
-        // Create adapter with None for service (should use global)
-        let result =
-            App::new_async_with_service(base_name, provider_config, verifier_config, None).await;
-
-        assert!(
-            result.is_ok(),
-            "Should create adapter with global service when None"
-        );
         let adapter = result.unwrap();
         assert!(adapter.id() > 0);
         assert!(!adapter.name().to_string().is_empty());
@@ -1226,46 +1179,213 @@ mod tests {
     }
 
     /// Test multiple adapters with different custom services
+    /// Test that different service instances create isolated adapters
     #[tokio::test]
-    async fn test_multiple_adapters_different_services() {
+    async fn test_different_services_create_isolated_adapters() {
         use slim_service::Service as SlimService;
 
-        let base_name1 = SlimName::from_strings(["org", "namespace", "multi-service-1"]);
-        let base_name2 = SlimName::from_strings(["org", "namespace", "multi-service-2"]);
+        let base_name1 = SlimName::from_strings(["org", "namespace", "isolated-1"]);
+        let base_name2 = SlimName::from_strings(["org", "namespace", "isolated-2"]);
         let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
 
         // Create two different custom services
         let service1 = SlimService::builder()
             .build("test-service-1".to_string())
             .expect("Failed to create service 1");
-        let service1_arc = Arc::new(service1);
+        let service1_wrapper = crate::Service {
+            inner: Arc::new(service1),
+        };
 
         let service2 = SlimService::builder()
             .build("test-service-2".to_string())
             .expect("Failed to create service 2");
-        let service2_arc = Arc::new(service2);
+        let service2_wrapper = crate::Service {
+            inner: Arc::new(service2),
+        };
 
-        // Create adapters with different services
-        let adapter1 = App::new_async_with_service(
-            base_name1,
-            provider_config.clone(),
-            verifier_config.clone(),
-            Some(service1_arc),
-        )
-        .await
-        .expect("Failed to create adapter 1");
+        // Create adapters with different services using Service API
+        let base_name1_arc = Arc::new(Name::from(base_name1));
+        let adapter1 = service1_wrapper
+            .create_app_async(
+                base_name1_arc,
+                provider_config.clone(),
+                verifier_config.clone(),
+            )
+            .await
+            .expect("Failed to create adapter 1");
 
-        let adapter2 = App::new_async_with_service(
-            base_name2,
-            provider_config,
-            verifier_config,
-            Some(service2_arc),
-        )
-        .await
-        .expect("Failed to create adapter 2");
+        let base_name2_arc = Arc::new(Name::from(base_name2));
+        let adapter2 = service2_wrapper
+            .create_app_async(base_name2_arc, provider_config, verifier_config)
+            .await
+            .expect("Failed to create adapter 2");
 
-        // Both adapters should work independently
-        assert!(adapter1.id() > 0);
-        assert!(adapter2.id() > 0);
+        // Adapters should have different IDs since they're on different services
+        assert_ne!(adapter1.id(), adapter2.id());
+    }
+
+    /// Test new_with_secret_async creates app successfully
+    #[tokio::test]
+    async fn test_new_with_secret_async() {
+        let name = Arc::new(Name::new(
+            "org".to_string(),
+            "namespace".to_string(),
+            "secret-test".to_string(),
+        ));
+        let secret = TEST_VALID_SECRET.to_string();
+
+        let result = App::new_with_secret_async(name, secret).await;
+
+        assert!(result.is_ok(), "Should create app with secret");
+        let app = result.unwrap();
+        assert!(app.id() > 0, "App should have non-zero ID");
+        assert!(
+            !app.name().to_string().is_empty(),
+            "App should have valid name"
+        );
+    }
+
+    /// Test new_with_secret blocking version
+    #[test]
+    fn test_new_with_secret_blocking() {
+        let name = Arc::new(Name::new(
+            "org".to_string(),
+            "namespace".to_string(),
+            "secret-blocking-test".to_string(),
+        ));
+        let secret = TEST_VALID_SECRET.to_string();
+
+        // Call blocking version from sync context
+        let result = App::new_with_secret(name, secret);
+
+        assert!(
+            result.is_ok(),
+            "Should create app with secret in blocking mode"
+        );
+        let app = result.unwrap();
+        assert!(app.id() > 0, "App should have non-zero ID");
+    }
+
+    /// Test new_with_secret creates unique IDs for different apps
+    #[tokio::test]
+    async fn test_new_with_secret_unique_ids() {
+        let secret = TEST_VALID_SECRET.to_string();
+
+        let name1 = Arc::new(Name::new(
+            "org".to_string(),
+            "namespace".to_string(),
+            "unique-1".to_string(),
+        ));
+        let name2 = Arc::new(Name::new(
+            "org".to_string(),
+            "namespace".to_string(),
+            "unique-2".to_string(),
+        ));
+
+        let app1 = App::new_with_secret_async(name1, secret.clone())
+            .await
+            .expect("Failed to create app1");
+
+        let app2 = App::new_with_secret_async(name2, secret)
+            .await
+            .expect("Failed to create app2");
+
+        assert_ne!(app1.id(), app2.id(), "Apps should have different IDs");
+    }
+
+    /// Test create_session_async runtime spawning
+    #[tokio::test]
+    async fn test_create_session_async_runtime_spawning() {
+        let base_name = SlimName::from_strings(["org", "namespace", "runtime-spawn-test"]);
+        let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
+
+        let app = App::new_async(base_name, provider_config, verifier_config)
+            .await
+            .expect("Failed to create app");
+
+        let session_config = SessionConfig {
+            session_type: SessionType::PointToPoint,
+            enable_mls: false,
+            max_retries: Some(3),
+            interval: Some(std::time::Duration::from_millis(100)),
+            metadata: std::collections::HashMap::new(),
+        };
+
+        let destination = Arc::new(Name::new(
+            "org".to_string(),
+            "test".to_string(),
+            "spawn-dest".to_string(),
+        ));
+
+        // This should not panic even though it spawns on runtime
+        let result = app.create_session_async(session_config, destination).await;
+
+        // May fail without network, but shouldn't panic from join error
+        let _ = result;
+    }
+
+    /// Test listen_for_session with timeout using futures-timer
+    #[tokio::test]
+    async fn test_listen_for_session_timeout_futures_timer() {
+        let base_name = SlimName::from_strings(["org", "namespace", "listen-timeout-test"]);
+        let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
+
+        let app = App::new_async(base_name, provider_config, verifier_config)
+            .await
+            .expect("Failed to create app");
+
+        // Listen with a short timeout - should timeout since no session is incoming
+        let result = app
+            .listen_for_session_async(Some(std::time::Duration::from_millis(50)))
+            .await;
+
+        assert!(result.is_err(), "Should timeout when no session arrives");
+        if let Err(e) = result {
+            let error_msg = format!("{:?}", e);
+            assert!(
+                error_msg.contains("timed out") || error_msg.contains("timeout"),
+                "Error should mention timeout"
+            );
+        }
+    }
+
+    /// Test listen_for_session with timeout using futures-timer (second test)
+    #[tokio::test]
+    async fn test_listen_for_session_no_incoming() {
+        let base_name = SlimName::from_strings(["org", "namespace", "no-incoming-test"]);
+        let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
+
+        let app = App::new_async(base_name, provider_config, verifier_config)
+            .await
+            .expect("Failed to create app");
+
+        // Listen with a short timeout when no session is incoming - should timeout
+        let result = app
+            .listen_for_session_async(Some(std::time::Duration::from_millis(30)))
+            .await;
+
+        assert!(result.is_err(), "Should timeout when no session arrives");
+        if let Err(e) = result {
+            let error_msg = format!("{:?}", e);
+            assert!(
+                error_msg.contains("timed out") || error_msg.contains("timeout"),
+                "Error should mention timeout"
+            );
+        }
+    }
+
+    /// Test that new_async delegates to service's create_app_async_internal
+    #[tokio::test]
+    async fn test_new_async_uses_internal_creation() {
+        let base_name = SlimName::from_strings(["org", "namespace", "internal-test"]);
+        let (provider_config, verifier_config) = create_test_configs(TEST_VALID_SECRET);
+
+        // This tests that new_async properly delegates to the internal creation function
+        let result = App::new_async(base_name, provider_config, verifier_config).await;
+
+        assert!(result.is_ok(), "Should create app via internal function");
+        let app = result.unwrap();
+        assert!(app.id() > 0);
+        assert!(!app.name().to_string().is_empty());
     }
 }
