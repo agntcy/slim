@@ -89,11 +89,11 @@ tasks:
         sh: 'echo {{.TARGET}} | cut -d"-" -f4 || echo ""'
       INTERPRETERS: '{{.INTERPRETERS | default "3.10 3.11 3.12 3.13 3.14"}}'
     cmds:
-      - uv python install {{.ARCH}}
+      - uv python install $(arch)
       - task: rust:toolchain:run-command
         vars:
           COMMAND: |
-            rustup target add $(arch)
+            rustup target add {{.TARGET}}
 
             UV_ARGS=(
               --no-default-groups
