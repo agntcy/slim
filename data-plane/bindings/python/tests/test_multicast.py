@@ -176,16 +176,16 @@ async def test_group(server, mls_enabled):
 
     # participant count
     participants_count = 10
-    participants = []
+    participants: list[asyncio.Task[None]] = []
 
     chat_name = slim_bindings.Name("org", f"test_{test_id}", "chat")
 
     print(f"Test ID: {test_id}")
-    print(f"Chat name: {chat_name.as_string()}")
+    print(f"Chat name: {chat_name}")
     print(f"Using {'local' if server.local_service else 'global'} service")
 
     # Background task: each participant joins/creates the session and relays messages around the ring
-    async def background_task(index):
+    async def background_task(index) -> None:
         """Participant coroutine.
 
         Responsibilities:
@@ -291,6 +291,6 @@ async def test_group(server, mls_enabled):
 
     # Wait for all participants to complete
     for task in participants:
-        await task
+        _ = await task
 
     print("All participants completed successfully!")
