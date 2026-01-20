@@ -167,8 +167,9 @@ tasks:
       - task: control-plane:gogen
       - |
         CGO_ENABLED=1 \
-        go build cmd/main.go -o \
+        go build -o \
           {{.OUTPUT_DIR}}/bin/slimctl \
+          cmd/main.go \
           -ldflags \
           " \
             -X '{{.MAIN_MODULE}}/control-plane/slimctl/internal/cmd/version.semVersion={{.VERSION}}'
