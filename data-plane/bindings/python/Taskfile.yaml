@@ -89,7 +89,13 @@ tasks:
         sh: 'echo {{.TARGET}} | cut -d"-" -f4 || echo ""'
       INTERPRETERS: '{{.INTERPRETERS | default "3.10 3.11 3.12 3.13 3.14"}}'
     cmds:
-      - uv python install $(arch)
+      - |
+        # Force aarch64 Python on Windows ARM64, as uv defaults to x86_64 even on ARM64
+        if [[ "{{.ARCH}}" = "aarch64" && "{{.OS}}" = "windows" ]]; then
+          uv python install "aarch64"
+        else
+          uv python install
+        fi
       - task: rust:toolchain:run-command
         vars:
           COMMAND: |
