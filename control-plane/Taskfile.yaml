@@ -153,12 +153,12 @@ tasks:
   control-plane:go-bindings:setup:
     desc: Downloads the OS / Arch specific bindings library
     vars:
-      BINDINGS_VERSION: '{{.BINDINGS_VERSION | default "0.7.2"}}'
+      BINDINGS_VERSION: '{{.BINDINGS_VERSION | default "latest"}}'
     cmds:
       - task: control-plane:modtidy
       - |
         # Run the setup tool to download native libraries
-        go run github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup@{{.BINDINGS_VERSION}}
+        go run github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup
 
   control-plane:slimctl:build:
     desc: Build slimctl
