@@ -156,7 +156,7 @@ tasks:
       - task: control-plane:modtidy
       - |
         # Run the setup tool to download native libraries
-        go run github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup
+        go run .../cmd/slim-bindings-setup
 
   control-plane:slimctl:build:
     desc: Build slimctl
