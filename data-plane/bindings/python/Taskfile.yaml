@@ -137,6 +137,109 @@ tasks:
               maturin build                   \
               ${MATURIN_ARGS[@]}
 
+  python:bindings:test:wheel:
+    desc: "Test wheel installation across Python versions 3.10-3.14"
+    vars:
+      WHEEL: '{{.WHEEL | default ""}}'
+      VERSION:
+        sh: grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/'
+      INTERPRETERS: '{{.INTERPRETERS | default "3.10 3.11 3.12 3.13 3.14"}}'
+    cmds:
+      - |
+        # Detect system and architecture
+        OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+        ARCH=$(uname -m)
+        
+        # Normalize architecture names
+        case "$ARCH" in
+          x86_64|amd64)
+            ARCH="x86_64"
+            ;;
+          aarch64|arm64)
+            ARCH="aarch64"
+            ;;
+          *)
+            echo "❌ Unsupported architecture: $ARCH"
+            exit 1
+            ;;
+        esac
+        
+        # Determine wheel file based on OS
+        if [ -n "{{.WHEEL}}" ]; then
+          WHEEL_FILE="{{.WHEEL}}"
+        else
+          case "$OS" in
+            linux)
+              WHEEL_FILE="dist/slim_bindings-{{.VERSION}}-py3-none-manylinux_2_28_${ARCH}.whl"
+              ;;
+            darwin)
+              # macOS universal2 wheel
+              WHEEL_FILE="dist/slim_bindings-{{.VERSION}}-py3-none-macosx_11_0_${ARCH}.whl"
+              # Fallback to universal2
+              if [ ! -f "$WHEEL_FILE" ]; then
+                WHEEL_FILE="dist/slim_bindings-{{.VERSION}}-py3-none-macosx_11_0_universal2.whl"
+              fi
+              ;;
+            mingw*|msys*|cygwin*)
+              WHEEL_FILE="dist/slim_bindings-{{.VERSION}}-py3-none-win_${ARCH}.whl"
+              ;;
+            *)
+              echo "❌ Unsupported OS: $OS"
+              exit 1
+              ;;
+          esac
+        fi
+        
+        echo "🔍 Detected system: $OS ($ARCH)"
+        echo "🧪 Testing wheel installation: $WHEEL_FILE"
+        echo "Python versions: {{.INTERPRETERS}}"
+        echo ""
+        
+        if [ ! -f "$WHEEL_FILE" ]; then
+          echo "❌ Wheel file not found: $WHEEL_FILE"
+          echo ""
+          echo "Available wheels in dist/:"
+          ls -1 dist/*.whl 2>/dev/null || echo "  (no wheels found)"
+          exit 1
+        fi
+        
+        uv python install {{.INTERPRETERS}}
+        
+        FAILED=0
+        for py_version in {{.INTERPRETERS}}; do
+          echo "Testing Python ${py_version}..."
+          
+          VENV_DIR=".test-venv-${py_version}"
+          rm -rf "$VENV_DIR"
+          
+          if uv venv "$VENV_DIR" --python "${py_version}" 2>&1; then
+            if uv pip install --python "$VENV_DIR" "$WHEEL_FILE" 2>&1; then
+              if uv run --python "$VENV_DIR" python -c "import slim_bindings; print('  ✅ Module imported successfully')" 2>&1; then
+                echo "  ✅ Python ${py_version}: Installation and import successful"
+              else
+                echo "  ❌ Python ${py_version}: Import failed"
+                FAILED=$((FAILED + 1))
+              fi
+            else
+              echo "  ❌ Python ${py_version}: Installation failed"
+              FAILED=$((FAILED + 1))
+            fi
+          else
+            echo "  ❌ Python ${py_version}: Failed to create venv"
+            FAILED=$((FAILED + 1))
+          fi
+          
+          rm -rf "$VENV_DIR"
+          echo ""
+        done
+        
+        if [ $FAILED -eq 0 ]; then
+          echo "✅ All Python versions tested successfully!"
+        else
+          echo "❌ $FAILED Python version(s) failed"
+          exit 1
+        fi
+
   python:bindings:clean:
     desc: Clean build artifacts
     cmds:

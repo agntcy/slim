@@ -114,7 +114,14 @@ jobs:
         with:
           name: bindings-${{ matrix.platform.target }}
           path: ./data-plane/target/${{ matrix.platform.target }}/release/*slim_bindings*
-
+      - name: Generate python wheels
+        working-directory: ./data-plane/bindings/python
+        run: task python:bindings:packaging TARGET=${{ matrix.platform.target }} PROFILE=release
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.platform.target }}
+          path: ./data-plane/bindings/python/dist
 
 
   # ==========================================================================
