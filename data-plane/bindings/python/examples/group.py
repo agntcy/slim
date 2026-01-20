@@ -71,8 +71,8 @@ async def handle_invite(session, invite_id):
     print(f"Inviting participant: {invite_id}")
     invite_name = split_id(invite_id)
     try:
-        handle = await session.invite(invite_name)
-        await handle.wait()
+        handle = await session.invite_async(invite_name)
+        await handle.wait_async()
     except Exception as e:
         error_str = str(e)
         if "participant already in group" in error_str:
@@ -168,8 +168,6 @@ async def receive_loop(
             # Graceful shutdown path (ctrl-c or program exit).
             break
         except Exception as e:
-            # Non-cancellation error; log it.
-            print_formatted_text(f"-> Error receiving message: {e}")
             # Break if session is closed, otherwise continue listening
             if "session closed" in str(e).lower():
                 break
