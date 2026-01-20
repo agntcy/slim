@@ -165,6 +165,11 @@ tasks:
       - rm -rf tests/__pycache__/
       - echo "✅ Clean complete"
 
+  python:bindings:install-examples:
+    desc: "Install slim-bindings with examples dependencies"
+    cmds:
+      - uv pip install 'slim-bindings[examples]'
+
   python:example:server:
     desc: "Run the server example"
     env:
@@ -177,7 +182,7 @@ tasks:
   python:example:p2p:alice:
     desc: "Point to Point example - Alice will listen for messages and echo them"
     deps:
-      - uv pip install 'slim-bindings[examples]'
+      - python:bindings:install-examples
     cmds:
       - |
         uv run slim-bindings-p2p                                                      \
@@ -189,7 +194,7 @@ tasks:
   python:example:p2p:no-mls:bob:
     desc: "Point to Point example - Bob will send unencrypted messages to Alice"
     deps:
-      - uv pip install 'slim-bindings[examples]'
+      - python:bindings:install-examples
     env:
       SLIM_INSTANCE_ID: bob
     cmds:
@@ -205,7 +210,7 @@ tasks:
   python:example:p2p:mls:bob:
     desc: "Point to Point example - Bob will send encrypted messages to Alice"
     deps:
-      - uv pip install 'slim-bindings[examples]'
+      - python:bindings:install-examples
     env:
       SLIM_INSTANCE_ID: bob
     cmds:
@@ -222,7 +227,7 @@ tasks:
   python:example:group:moderator:
     desc: "group moderator example - Creates a channel, invites participants, and sends encrypted messages"
     deps:
-      - uv pip install 'slim-bindings[examples]'
+      - python:bindings:install-examples
     cmds:
       - |
         uv run slim-bindings-group                                                    \
@@ -238,7 +243,7 @@ tasks:
   python:example:group:client-1:
     desc: "Group client example - Waits to be invited to a channel and receives encrypted messages"
     deps:
-      - uv pip install 'slim-bindings[examples]'
+      - python:bindings:install-examples
     cmds:
       - |
         uv run slim-bindings-group                                                    \
@@ -250,7 +255,7 @@ tasks:
   python:example:group:client-2:
     desc: "Group client example - Waits to be invited to a channel and receives encrypted messages"
     deps:
-      - uv pip install 'slim-bindings[examples]'
+      - python:bindings:install-examples
     cmds:
       - |
         uv run slim-bindings-group                                                    \
