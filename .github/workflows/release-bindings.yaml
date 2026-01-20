@@ -453,8 +453,8 @@ jobs:
           	fmt.Println(\"🚀 SLIM Go Bindings Test\")
           	fmt.Println(\"========================\")
 
-          	slim.InitializeCryptoProvider()
-          	fmt.Println(\"✅ Crypto initialized successfully\")
+          	slim.InitializeWithDefaults()
+          	fmt.Println(\"✅ SLIM initialized successfully\")
 
           	fmt.Println(\"✅ Test passed!\")
           }
@@ -522,9 +522,9 @@ jobs:
           	fmt.Println("🚀 SLIM Go Bindings Test")
           	fmt.Println("========================")
 
-          	// Initialize crypto provider (required before any operations)
-          	slim.InitializeCryptoProvider()
-          	fmt.Println("✅ Crypto initialized successfully")
+          	// Initialize SLIM (required before any operations)
+          	slim.InitializeWithDefaults()
+          	fmt.Println("✅ SLIM initialized successfully")
 
           	fmt.Println("✅ Test passed!")
           }

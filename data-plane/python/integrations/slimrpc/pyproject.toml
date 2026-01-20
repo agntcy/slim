@@ -6,7 +6,7 @@ name = "slimrpc"
 version = "0.2.1"
 description = "RPC over SLIM Library"
 readme = "README_pypi.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "Apache-2.0"
 dependencies = [
     "slim-bindings~=0.7.1",

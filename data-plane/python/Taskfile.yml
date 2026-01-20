@@ -20,8 +20,6 @@ includes:
   bindings:
     taskfile: ./bindings/Taskfile.yaml
     flatten: true
-  slima2a:
-    taskfile: ./integrations/slima2a/Taskfile.yaml
   slimrpc:
     taskfile: ./integrations/slimrpc/Taskfile.yaml
 
@@ -38,7 +36,6 @@ tasks:
       - mv ./bindings/dist/* ./dist
       - uv build --package slim-bindings-examples
       - uv build --package slimrpc
-      - uv build --package slima2a
 
   python:examples:build:
     desc: "Build the Python bindings examples"
