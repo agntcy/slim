@@ -114,6 +114,10 @@ jobs:
         with:
           name: bindings-${{ matrix.platform.target }}
           path: ./data-plane/target/${{ matrix.platform.target }}/release/*slim_bindings*
+      - name: Install uv
+        uses: ./.github/actions/setup-python
+        with:
+          uv-install: 'true'
       - name: Generate python wheels
         working-directory: ./data-plane/bindings/python
         run: task python:bindings:packaging TARGET=${{ matrix.platform.target }} PROFILE=release
