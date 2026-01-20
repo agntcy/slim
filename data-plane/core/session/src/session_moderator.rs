@@ -869,13 +869,32 @@ where
                 self.handle_task_error(err)
             })?
             .destination
-            .as_ref();
+            .clone();
 
-        // Determine the destination name (without ID) based on payload
-        let dst_without_id = match payload_destination {
-            Some(dst_name) => Name::from(dst_name),
-            None => msg.get_dst(),
+        // Update message based on whether destination was provided in payload
+        let (dst_without_id, ack) = match payload_destination {
+            Some(dst_name) => {
+                // create also the ack to send back to the controller
+                let ack = self.common.create_control_message(
+                    &msg.get_source(),
+                    ProtoSessionMessageType::GroupAck,
+                    msg.get_id(),
+                    CommandPayload::builder().group_ack().as_content(),
+                    false,
+                )?;
+
+                // Destination provided: update source, destination, and payload
+                let new_payload = CommandPayload::builder().leave_request(None).as_content();
+                msg.get_slim_header_mut()
+                    .set_source(&self.common.settings.source);
+                msg.set_payload(new_payload);
+
+                (Name::from(&dst_name), Some(ack))
+            }
+            None => (msg.get_dst(), None),
         };
+
+        self.current_task = Some(ModeratorTask::Remove(RemoveParticipant::new(ack_tx, ack)));
 
         // Look up participant ID in group list
         let id = match self.group_list.get(&dst_without_id) {
@@ -885,29 +904,6 @@ where
                 return Err(self.handle_task_error(err));
             }
         };
-
-        // Update message based on whether destination was provided in payload
-        let ack = if payload_destination.is_some() {
-            // create also the ack to send back to the controller
-            let ack = self.common.create_control_message(
-                &msg.get_source(),
-                ProtoSessionMessageType::GroupAck,
-                msg.get_id(),
-                CommandPayload::builder().group_ack().as_content(),
-                false,
-            )?;
-
-            // Destination provided: update source, destination, and payload
-            let new_payload = CommandPayload::builder().leave_request(None).as_content();
-            msg.get_slim_header_mut()
-                .set_source(&self.common.settings.source);
-            msg.set_payload(new_payload);
-
-            Some(ack)
-        } else {
-            None
-        };
-        self.current_task = Some(ModeratorTask::Remove(RemoveParticipant::new(ack_tx, ack)));
 
         // Set destination with ID and message ID (common to both cases)
         let dst_with_id = dst_without_id.clone().with_id(id);
