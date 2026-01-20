@@ -316,7 +316,6 @@ tasks:
     deps:
       - control-plane:modtidy
     cmds:
-      - go clean -modcache
       - task: control-plane:control-plane:build
       - task: control-plane:token-service:build
       # - task: control-plane:slimctl:build
