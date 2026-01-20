@@ -148,7 +148,7 @@ tasks:
           --plugin={{.REPO_ROOT}}/.tools/protoc-gen-go-grpc \
           controller/v1/controller.proto controlplane/v1/controlplane.proto
 
-  
+
   control-plane:go-bindings:setup:
     desc: Downloads the OS / Arch specific bindings library
     vars:
@@ -199,11 +199,11 @@ tasks:
         # Detect current platform
         CURRENT_OS=$(go env GOOS)
         CURRENT_ARCH=$(go env GOARCH)
-        
+
         # Determine output binary name
         BINARY="slimctl"
         [ "{{.TARGETOS}}" = "windows" ] && BINARY="slimctl.exe"
-        
+
         # Setup build context based on native vs cross-compilation
         if [ "{{.TARGETOS}}" = "$CURRENT_OS" ] && [ "{{.TARGETARCH}}" = "$CURRENT_ARCH" ]; then
           # Native build
@@ -213,7 +213,7 @@ tasks:
           # Cross-compilation - setup Zig compiler
           echo "🔨 Cross-compiling slimctl from $CURRENT_OS/$CURRENT_ARCH to {{.TARGETOS}}/{{.TARGETARCH}}"
           BUILD_MODE="cross"
-          
+
           # Map GOOS/GOARCH to Zig target triple
           case "{{.TARGETOS}}" in
             linux)
@@ -242,21 +242,21 @@ tasks:
               exit 1
               ;;
           esac
-          
+
           # Verify Zig is available
           ZIG="{{.ZIG_DIR}}/zig"
           if [ ! -f "$ZIG" ]; then
             echo "❌ Error: Zig binary not found at $ZIG"
             exit 1
           fi
-          
+
           echo "   Using Zig target: $ZIG_TARGET"
-          
+
           # Configure Zig as the C/C++ compiler
           export CC="$ZIG cc -target $ZIG_TARGET"
           export CXX="$ZIG c++ -target $ZIG_TARGET"
         fi
-        
+
         # Execute build with configured context
         CGO_ENABLED=1 \
         GOOS={{.TARGETOS}} \
@@ -268,7 +268,7 @@ tasks:
             -X '{{.MAIN_MODULE}}/control-plane/slimctl/internal/cmd/version.buildDate={{.BUILD_DATE}}'
             {{.FLAGS}} \
           "
-        
+
         # Report success
         if [ "$BUILD_MODE" = "native" ]; then
           echo "✅ Successfully built $BINARY for {{.TARGETOS}}/{{.TARGETARCH}}"
@@ -315,6 +315,7 @@ tasks:
     deps:
       - control-plane:modtidy
     cmds:
+      - go clean -modcache
       - task: control-plane:control-plane:build
       - task: control-plane:token-service:build
       # - task: control-plane:slimctl:build
