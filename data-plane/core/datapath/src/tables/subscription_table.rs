@@ -77,7 +77,7 @@ impl Connections {
             }
             Some(pos) => match self.pool.get_mut(*pos) {
                 None => {
-                    error!("error retrieving the connection from the pool");
+                    error!(index = %*pos, "error retrieving the connection from the pool");
                 }
                 Some(conn_id) => {
                     conn_id.counter += 1;
@@ -89,13 +89,13 @@ impl Connections {
     fn remove(&mut self, conn: u64) -> Result<(), DataPathError> {
         let conn_index_opt = self.index.get(&conn);
         if conn_index_opt.is_none() {
-            error!(%conn, "cannot find the index for connection");
+            debug!(%conn, "cannot find the index for connection");
             return Err(DataPathError::ConnectionIdNotFound(conn));
         }
         let conn_index = conn_index_opt.unwrap();
         let conn_id_opt = self.pool.get_mut(*conn_index);
         if conn_id_opt.is_none() {
-            error!(%conn, "cannot find the connection in the pool");
+            debug!(%conn, "cannot find the connection in the pool");
             return Err(DataPathError::ConnectionIdNotFound(conn));
         }
         let conn_id = conn_id_opt.unwrap();

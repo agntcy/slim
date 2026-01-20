@@ -109,12 +109,12 @@ func SetupTestHarness(t *testing.T, testName string) (*TestHarness, *MessageColl
 	// create shared secret provider and verifier
 	senderIdentityProvider := slim.IdentityProviderConfigSharedSecret{
 		Data: sharedSecret,
-		Id:   senderName.AsString(),
+		Id:   senderName.String(),
 	}
 
 	senderIdentityVerifier := slim.IdentityVerifierConfigSharedSecret{
 		Data: sharedSecret,
-		Id:   senderName.AsString(),
+		Id:   senderName.String(),
 	}
 
 	// Create sender app
@@ -131,12 +131,12 @@ func SetupTestHarness(t *testing.T, testName string) (*TestHarness, *MessageColl
 	// create shared secret provider and verifier
 	receiverIdentityProvider := slim.IdentityProviderConfigSharedSecret{
 		Data: sharedSecret,
-		Id:   receiverName.AsString(),
+		Id:   receiverName.String(),
 	}
 
 	receiverIdentityVerifier := slim.IdentityVerifierConfigSharedSecret{
 		Data: sharedSecret,
-		Id:   receiverName.AsString(),
+		Id:   receiverName.String(),
 	}
 
 	// Create receiver app
