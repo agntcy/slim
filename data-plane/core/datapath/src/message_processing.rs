@@ -34,8 +34,8 @@ use crate::errors::{DataPathError, MessageContext};
 use crate::forwarder::Forwarder;
 use crate::messages::Name;
 use crate::messages::utils::{
-    FALSE_VAL, SUBSCRIPTION_ACK_ERROR, SUBSCRIPTION_ACK_ID, SUBSCRIPTION_ACK_SUCCESS, TRUE_VAL,
-    SlimHeaderFlags,
+    FALSE_VAL, SUBSCRIPTION_ACK_ERROR, SUBSCRIPTION_ACK_ID, SUBSCRIPTION_ACK_SUCCESS,
+    SlimHeaderFlags, TRUE_VAL,
 };
 use crate::tables::connection_table::ConnectionTable;
 use crate::tables::subscription_table::SubscriptionTableImpl;
@@ -548,10 +548,7 @@ impl MessageProcessor {
 
         let ack_id = msg.get_metadata(SUBSCRIPTION_ACK_ID).cloned();
         let (ack_source, ack_destination) = if ack_id.is_some() {
-            (
-                Some(msg.get_source()),
-                Some(msg.get_dst()),
-            )
+            (Some(msg.get_source()), Some(msg.get_dst()))
         } else {
             (None, None)
         };
