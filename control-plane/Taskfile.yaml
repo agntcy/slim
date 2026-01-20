@@ -153,7 +153,7 @@ tasks:
   control-plane:go-bindings:setup:
     desc: Downloads the OS / Arch specific bindings library
     vars:
-      BINDINGS_VERSION: '{{.BINDINGS_VERSION | default "latest"}}'
+      BINDINGS_VERSION: '{{.BINDINGS_VERSION | default "0.7.2"}}'
     cmds:
       - task: control-plane:modtidy
       - |
