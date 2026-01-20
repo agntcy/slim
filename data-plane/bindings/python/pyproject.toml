@@ -73,7 +73,6 @@ linting = [
 bindings = "uniffi"
 manifest-path = "../rust/Cargo.toml"
 module-name = "slim_bindings"
-python-source = "."
 python-packages = ["examples"]
 
 [tool.pytest.ini_options]
