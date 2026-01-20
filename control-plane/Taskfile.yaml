@@ -162,12 +162,12 @@ tasks:
     deps:
       - control-plane:proto:generate
       - control-plane:go-bindings:setup
-    dir: slimctl/cmd
+    dir: slimctl
     cmds:
       - task: control-plane:gogen
       - |
         CGO_ENABLED=1 \
-        go build -o \
+        go build cmd/main.go -o \
           {{.OUTPUT_DIR}}/bin/slimctl \
           -ldflags \
           " \
