@@ -51,7 +51,6 @@ tasks:
   control-plane:modtidy:
     desc: Install go modules
     cmds:
-      - go clean -modcache
       - task: control-plane:foreach-module
         vars:
           CMD: go mod tidy
