@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::error::{Result, SRPCError};
+use super::error::{Result, SRPCError};
 use slim_datapath::messages::Name;
 
 pub const DEADLINE_KEY: &str = "slimrpc-timeout";

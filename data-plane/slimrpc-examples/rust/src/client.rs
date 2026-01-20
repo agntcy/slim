@@ -3,12 +3,12 @@
 
 mod common;
 
-use agntcy_slimrpc::Channel;
 use anyhow::{Context, Result};
 use clap::Parser;
 use common::{SLIMAppConfig, create_local_app, split_id};
 use futures::stream;
 use futures::StreamExt;
+use slim_bindings::Channel;
 use std::time::Duration;
 use tracing::{info, Level};
 

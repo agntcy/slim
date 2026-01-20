@@ -1,10 +1,10 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::common::{service_and_method_to_name, DEADLINE_KEY, MAX_TIMEOUT};
-use crate::context::MessageContext;
-use crate::error::{Result, SRPCError};
-use slim_bindings::App as BindingsApp;
+use super::common::{service_and_method_to_name, DEADLINE_KEY, MAX_TIMEOUT};
+use super::context::MessageContext;
+use super::error::{Result, SRPCError};
+use crate::App as BindingsApp;
 use futures::stream::StreamExt;
 use slim_datapath::api::ProtoSessionType;
 use slim_datapath::messages::Name;
@@ -52,7 +52,7 @@ impl Channel {
         // Set route using the stored connection ID
         self.app
             .set_route_async(
-                Arc::new(slim_bindings::Name::from(&service_name)),
+                Arc::new(crate::Name::from(&service_name)),
                 self.conn_id,
             )
             .await

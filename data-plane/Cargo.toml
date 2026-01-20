@@ -14,8 +14,8 @@ members = [
     "core/tracing",
     "examples",
     "python/bindings",
-    "slimrpc",
     "slimrpc-compiler",
+    "slimrpc-examples/rust",
     "testing",
 ]
 
@@ -48,7 +48,6 @@ agntcy-slim-mls = { path = "core/mls", version = "0.1.5" }
 agntcy-slim-service = { path = "core/service", version = "0.8.2", default-features = false }
 agntcy-slim-session = { path = "core/session", version = "0.1.2" }
 agntcy-slim-signal = { path = "core/signal", version = "0.1.3" }
-agntcy-slim-slimrpc = { path = "slimrpc", version = "0.1.0" }
 agntcy-slim-testing = { path = "testing" }
 agntcy-slim-tracing = { path = "core/tracing", version = "0.2.7" }
 
@@ -176,7 +175,6 @@ ignored = [
     "agntcy-slim-service",
     "agntcy-slim-session",
     "agntcy-slim-signal",
-    "agntcy-slim-slimrpc",
     "agntcy-slim-tracing",
     "agntcy-slim-testing",
 ]

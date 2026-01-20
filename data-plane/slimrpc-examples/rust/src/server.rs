@@ -3,16 +3,17 @@
 
 mod common;
 
-use agntcy_slimrpc::{
-    MessageContext, RPCHandler, RequestStream, ResponseStream, Server,
-    SessionContext, StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
-};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use clap::Parser;
 use common::{SLIMAppConfig, create_local_app};
 use futures::stream;
 use futures::StreamExt;
+use slim_bindings::{
+    RpcMessageContext as MessageContext, RPCHandler, RequestStream, ResponseStream,
+    RpcSessionContext as SessionContext, Server, StreamStreamHandler, StreamUnaryHandler,
+    UnaryStreamHandler, UnaryUnaryHandler,
+};
 use std::collections::HashMap;
 use tracing::{info, Level};
 
@@ -47,7 +48,7 @@ impl UnaryUnaryHandler<Vec<u8>, Vec<u8>> for EchoUnaryHandler {
         request: Vec<u8>,
         msg_ctx: MessageContext,
         session_ctx: SessionContext,
-    ) -> agntcy_slimrpc::error::Result<Vec<u8>> {
+    ) -> slim_bindings::slimrpc::error::Result<Vec<u8>> {
         let request_str = String::from_utf8_lossy(&request);
         info!(
             "UnaryUnary: Received '{}' from {} in session {}",
@@ -68,7 +69,7 @@ impl UnaryStreamHandler<Vec<u8>, Vec<u8>> for EchoUnaryStreamHandler {
         request: Vec<u8>,
         msg_ctx: MessageContext,
         session_ctx: SessionContext,
-    ) -> agntcy_slimrpc::error::Result<ResponseStream<Vec<u8>>> {
+    ) -> slim_bindings::slimrpc::error::Result<ResponseStream<Vec<u8>>> {
         let request_str = String::from_utf8_lossy(&request).to_string();
         info!(
             "UnaryStream: Received '{}' from {} in session {}",
@@ -93,7 +94,7 @@ impl StreamUnaryHandler<Vec<u8>, Vec<u8>> for EchoStreamUnaryHandler {
         &self,
         mut request_stream: RequestStream<Vec<u8>>,
         session_ctx: SessionContext,
-    ) -> agntcy_slimrpc::error::Result<Vec<u8>> {
+    ) -> slim_bindings::slimrpc::error::Result<Vec<u8>> {
         info!(
             "StreamUnary: Receiving stream in session {}",
             session_ctx.session_id
@@ -127,7 +128,7 @@ impl StreamStreamHandler<Vec<u8>, Vec<u8>> for EchoStreamStreamHandler {
         &self,
         mut request_stream: RequestStream<Vec<u8>>,
         session_ctx: SessionContext,
-    ) -> agntcy_slimrpc::error::Result<ResponseStream<Vec<u8>>> {
+    ) -> slim_bindings::slimrpc::error::Result<ResponseStream<Vec<u8>>> {
         info!(
             "StreamStream: Receiving stream in session {}",
             session_ctx.session_id
@@ -174,7 +175,7 @@ impl UnaryUnaryHandler<Vec<u8>, Vec<u8>> for SimpleEchoHandler {
         request: Vec<u8>,
         msg_ctx: MessageContext,
         session_ctx: SessionContext,
-    ) -> agntcy_slimrpc::error::Result<Vec<u8>> {
+    ) -> slim_bindings::slimrpc::error::Result<Vec<u8>> {
         let request_str = String::from_utf8_lossy(&request);
         info!(
             "SimpleEcho: '{}' from {} in session {}",

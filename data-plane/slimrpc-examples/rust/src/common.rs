@@ -3,7 +3,7 @@
 
 //! Common utilities for slimrpc examples
 
-use agntcy_slimrpc::error::{Result, SRPCError};
+use slim_bindings::slimrpc::error::{Result, SRPCError};
 use slim_bindings::{ClientConfig, IdentityProviderConfig, IdentityVerifierConfig};
 use slim_datapath::messages::Name;
 

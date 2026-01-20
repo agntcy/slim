@@ -63,8 +63,8 @@ pub enum SRPCError {
     BindingsError(String),
 }
 
-impl From<slim_bindings::SlimError> for SRPCError {
-    fn from(err: slim_bindings::SlimError) -> Self {
+impl From<crate::SlimError> for SRPCError {
+    fn from(err: crate::SlimError) -> Self {
         SRPCError::BindingsError(err.to_string())
     }
 }

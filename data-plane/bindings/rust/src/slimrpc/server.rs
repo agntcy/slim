@@ -1,11 +1,11 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::common::{method_to_name, DEADLINE_KEY, MAX_TIMEOUT};
-use crate::context::{MessageContext, SessionContext};
-use crate::error::{Result, SRPCError};
-use crate::rpc::{RPCHandler, RPCHandlerType};
-use slim_bindings::App as BindingsApp;
+use super::common::{method_to_name, DEADLINE_KEY, MAX_TIMEOUT};
+use super::context::{MessageContext, SessionContext};
+use super::error::{Result, SRPCError};
+use super::rpc::{RPCHandler, RPCHandlerType};
+use crate::App as BindingsApp;
 use futures::StreamExt;
 use slim_datapath::messages::Name;
 use slim_session::{Notification, SessionError};

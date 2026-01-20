@@ -1,8 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::context::{MessageContext, SessionContext};
-use crate::error::Result;
+use super::context::{MessageContext, SessionContext};
+use super::error::Result;
 use async_trait::async_trait;
 use futures::Stream;
 use std::pin::Pin;
