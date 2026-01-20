@@ -117,16 +117,16 @@ jobs:
           name: bindings-${{ matrix.platform.target }}
           path: ./data-plane/target/${{ matrix.platform.target }}/release/*slim_bindings*
       - name: Install uv
-        if: matrix.platform.target != 'x86_64-pc-windows-gnu'
+        if: "!contains(matrix.platform.target, 'windows-gnu')"
         uses: ./.github/actions/setup-python
         with:
           uv-install: 'true'
       - name: Generate python wheels
-        if: matrix.platform.target != 'x86_64-pc-windows-gnu'
+        if: "!contains(matrix.platform.target, 'windows-gnu')"
         working-directory: ./data-plane/bindings/python
         run: task python:bindings:packaging TARGET=${{ matrix.platform.target }} PROFILE=release
       - name: Upload wheels
-        if: matrix.platform.target != 'x86_64-pc-windows-gnu'
+        if: "!contains(matrix.platform.target, 'windows-gnu')"
         uses: actions/upload-artifact@v4
         with:
           name: wheels-${{ matrix.platform.target }}
