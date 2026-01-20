@@ -6,6 +6,10 @@ node_modules/
 # Generated bindings
 generated/
 
+# WASM-related (disabled - tokio incompatibility)
+wasm/
+examples/web/
+
 # Build outputs
 dist/
 build/
@@ -47,6 +51,3 @@ yarn-error.log*
 .expo/
 .expo-shared/
 
-# WASM intermediate
-generated/wasm/target/
-generated/wasm/Cargo.lock
