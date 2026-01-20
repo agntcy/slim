@@ -30,7 +30,6 @@ Notes:
   * If both remote and invites are supplied, the client acts as session moderator.
 """
 
-
 import asyncio
 import datetime
 import sys
@@ -143,8 +142,6 @@ async def receive_loop(
     # Get source and destination names for display
     source_name = session.source()
 
-    print("ok")
-
     while True:
         try:
             # Await next inbound message from the group session.
@@ -228,7 +225,7 @@ async def keyboard_loop(
             # Run blocking input() in a worker thread so we do not block the event loop.
             user_input = await prompt_session.prompt_async(f"{source_name} > ")
 
-            if user_input.lower() in ("exit", "quit"):
+            if user_input.lower() in ("exit", "quit") and created_session:
                 # Delete the session
                 handle = await local_app.delete_session_async(
                     shared_session_container[0]
@@ -236,12 +233,12 @@ async def keyboard_loop(
                 await handle.wait_async()
                 break
 
-            if user_input.lower().startswith("invite "):
+            if user_input.lower().startswith("invite ") and created_session:
                 invite_id = user_input[7:].strip()  # Skip "invite " (7 chars)
                 await handle_invite(shared_session_container[0], invite_id)
                 continue
 
-            if user_input.lower().startswith("remove "):
+            if user_input.lower().startswith("remove ") and created_session:
                 remove_id = user_input[7:].strip()  # Skip "remove " (7 chars)
                 await handle_remove(shared_session_container[0], remove_id)
                 continue
@@ -292,9 +289,6 @@ async def run_client(config: GroupConfig):
         format_message_print(
             f"Creating new group session (moderator)... {split_id(config.local)}"
         )
-
-        # Set route to the group channel
-        await local_app.set_route_async(chat_channel, conn_id)
 
         # Create group session configuration
         session_config = slim_bindings.SessionConfig(
