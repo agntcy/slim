@@ -151,6 +151,7 @@ tasks:
 
   control-plane:go-bindings:setup:
     desc: Downloads the OS / Arch specific bindings library
+    dir: slimctl
     cmds:
       - task: control-plane:modtidy
       - |
@@ -162,14 +163,13 @@ tasks:
     deps:
       - control-plane:proto:generate
       - control-plane:go-bindings:setup
-    dir: slimctl
+    dir: slimctl/cmd
     cmds:
       - task: control-plane:gogen
       - |
         CGO_ENABLED=1 \
         go build -o \
           {{.OUTPUT_DIR}}/bin/slimctl \
-          cmd/main.go \
           -ldflags \
           " \
             -X '{{.MAIN_MODULE}}/control-plane/slimctl/internal/cmd/version.semVersion={{.VERSION}}'
