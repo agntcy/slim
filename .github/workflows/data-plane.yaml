@@ -27,9 +27,9 @@ jobs:
     with:
       working-directory: ./data-plane
 
-  data-plane-build-python-wheels:
-    name: Data plane - Python wheels
-    uses: ./.github/workflows/reusable-python-build-wheels.yaml
+  # data-plane-build-python-wheels:
+  #   name: Data plane - Python wheels
+  #   uses: ./.github/workflows/reusable-python-build-wheels.yaml
 
   data-plane-docker-build:
     name: Build SLIM docker image
