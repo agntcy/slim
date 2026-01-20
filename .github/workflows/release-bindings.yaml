@@ -55,9 +55,6 @@ jobs:
           - runner: ubuntu-24.04
             os: linux
             target: x86_64-pc-windows-gnu
-          - runner: ubuntu-24.04
-            os: linux
-            target: aarch64-pc-windows-gnullvm
           - runner: macos-15-intel
             os: macos
             target: x86_64-apple-darwin
